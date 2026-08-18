@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_storage_usage (workspace_id, storage, bytes, computed_at)\n         VALUES ($1, $2, GREATEST($3::bigint, 0), to_timestamp(0))\n         ON CONFLICT (workspace_id, storage)\n         DO UPDATE SET bytes = GREATEST(workspace_storage_usage.bytes + $3::bigint, 0)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bb8318ddc8e2235dce5c832ff2b0ebf972bcc7f821fbf1e0171266efd8d46616"
+}

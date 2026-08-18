@@ -8,6 +8,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import { offset, flip, shift } from 'svelte-floating-ui/dom'
 	import ChangeInstanceUsernameInner from './ChangeInstanceUsernameInner.svelte'
+	import ChangeInstanceEmailInner from './ChangeInstanceEmailInner.svelte'
 	import { UserService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from './text_input/TextInput.svelte'
@@ -66,6 +67,12 @@
 	{/snippet}
 	{#snippet content()}
 		<div class="flex flex-col gap-8 max-w-sm p-4">
+			<ChangeInstanceEmailInner
+				{email}
+				{username}
+				noPadding
+				on:changed={() => dispatch('refresh')}
+			/>
 			{#if automateUsernameCreation && username}
 				<ChangeInstanceUsernameInner {email} {username} on:renamed noPadding />
 			{/if}

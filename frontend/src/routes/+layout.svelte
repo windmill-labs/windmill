@@ -3,6 +3,7 @@
 
 	import { SvelteToast } from '@zerodevx/svelte-toast'
 	import '$lib/assets/app.css'
+	import { installDevPollingDormancy } from '$lib/utils/devPollingDormancy'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -23,16 +24,32 @@
 
 	document.getElementById('svelte-global-loader')?.remove()
 
+	installDevPollingDormancy()
+
 	// Prevent scrolling over number inputs from changing their value
 	function handleWheel(e: WheelEvent) {
 		const target = e.target as HTMLElement
 		if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'number') {
 			target.blur()
 		}
+		updateEditorSwipeGuard(e)
+	}
+
+	// macOS Chromium turns horizontal wheel overscroll into history navigation. Cancelling
+	// wheel events can't block it (only a gesture's first event is cancelable; Monaco swallows
+	// the rest), but Chromium honors root `overscroll-behavior-x`, so toggle it while over a
+	// Monaco editor. Wheel also feeds this: editors mounting under a still cursor fire no pointerover.
+	function updateEditorSwipeGuard(e: Event) {
+		const overEditor = e.target instanceof Element && e.target.closest('.monaco-editor') != null
+		const value = overEditor ? 'none' : ''
+		if (document.documentElement.style.overscrollBehaviorX !== value) {
+			document.documentElement.style.overscrollBehaviorX = value
+			document.body.style.overscrollBehaviorX = value
+		}
 	}
 </script>
 
-<svelte:document onwheel={handleWheel} />
+<svelte:document onwheel={handleWheel} onpointerover={updateEditorSwipeGuard} />
 
 <svelte:head>
 	<!-- {#if !import.meta.env.PROD}
@@ -54,7 +71,7 @@
 <style>
 	.wrap {
 		display: flex;
-		font-family: 'Inter', sans-serif;
+		font-family: 'Inter', 'Noto Color Emoji', sans-serif;
 		width: 100%;
 		height: 100%;
 		justify-content: center;

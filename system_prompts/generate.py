@@ -107,6 +107,14 @@ def extract_ts_functions(content: str) -> list[dict]:
         if not return_type:
             return_type = 'Promise<void>' if is_async else 'void'
 
+        # `@internal` marks an export that exists for another module or for a
+        # test to reach, not for a user to call. The SDK reference these prompts
+        # become is a user-facing API list, so it must not advertise them.
+        # `@deprecated` exports stay callable for existing scripts but must not be
+        # suggested for new ones.
+        if jsdoc_raw and ('@internal' in jsdoc_raw or '@deprecated' in jsdoc_raw):
+            continue
+
         docstring = clean_jsdoc(jsdoc_raw) if jsdoc_raw else ''
         seen_names.add(name)
         functions.append({
@@ -183,6 +191,12 @@ def extract_py_functions(content: str) -> list[dict]:
 
         # Get docstring
         docstring = ast.get_docstring(node) or ''
+
+        # Same rule as the TypeScript SDK: a deprecated member stays callable for existing
+        # scripts but must not be suggested for new ones. The Python SDK marks them with the
+        # Sphinx `.. deprecated::` directive.
+        if '.. deprecated::' in docstring:
+            return
 
         # Build parameter list
         params = []
@@ -293,13 +307,101 @@ OPTION_PATTERN = re.compile(
 )
 
 
-def parse_command_block(content: str, file_path: Path | None = None) -> dict:
+# A single JS string literal: double/single quoted or backtick. The other
+# quote chars may appear inside (apostrophes inside a "..." string, etc.) and
+# backslash escapes are consumed so a `\"` doesn't end the match early.
+_STRING_LITERAL = (
+    r'"(?:[^"\\]|\\.)*"'
+    r"|'(?:[^'\\]|\\.)*'"
+    r'|`(?:[^`\\]|\\.)*`'
+)
+
+
+def _unquote_js_string(literal: str) -> str:
+    """Drop the surrounding quotes of a JS string literal and unescape the
+    escapes that show up in command descriptions."""
+    body = literal[1:-1]
+    return (
+        body.replace('\\\\', '\x00')
+        .replace('\\n', '\n')
+        .replace('\\t', '\t')
+        .replace('\\"', '"')
+        .replace("\\'", "'")
+        .replace('\\`', '`')
+        .replace('\x00', '\\')
+    )
+
+
+def extract_description(section: str) -> str | None:
+    """Extract the text of the first chained `.description(...)` call.
+
+    Handles double/single-quoted and backtick strings (a quote of one kind may
+    appear inside a string delimited by another — e.g. an apostrophe inside a
+    "..." description), backslash escapes, and `"a" + "b"` concatenation across
+    lines. Returns None when `.description(` is absent or its argument is not a
+    string literal (e.g. a variable), matching the previous empty-description
+    behavior. Using `[^"\\']+` here instead would silently drop any description
+    containing an apostrophe.
+    """
+    m = re.search(
+        r'\.description\(\s*((?:' + _STRING_LITERAL + r')(?:\s*\+\s*(?:' + _STRING_LITERAL + r'))*)',
+        section,
+        re.DOTALL,
+    )
+    if not m:
+        return None
+    parts = re.findall(_STRING_LITERAL, m.group(1), re.DOTALL)
+    return ''.join(_unquote_js_string(p) for p in parts).strip() or None
+
+
+def extract_named_command_block(content: str, var_name: str) -> str | None:
+    """Return the chained-call body of `const <var_name> = new Command() ...`,
+    from just after `new Command()` up to the next top-level statement.
+
+    Returns None when the var isn't a *direct* `new Command()` (e.g. it's wrapped
+    in a helper call like `auditListOptions(new Command()...)`), so callers can
+    fall back to a looser match.
+    """
+    m = re.search(
+        r'const\s+' + re.escape(var_name) + r'\s*=\s*new\s+Command\(\)'
+        r'([\s\S]*?)(?=\n(?:const|let|var|async|function|export)\b)',
+        content,
+    )
+    return m.group(1) if m else None
+
+
+def extract_exported_command_block(content: str) -> str | None:
+    """Return the chained-call body of the command that is `export default`ed.
+
+    A command file may define helper `new Command()` groups (assigned to local
+    consts and mounted as nested subcommands via `.command("x", localCmd)`)
+    *before* the exported command. Anchoring on the first `new Command()` in the
+    file would merge those helpers into the top-level command, so resolve the
+    exported variable first and only then fall back to the first `new Command()`
+    (which covers inline/wrapped exports).
+    """
+    export_match = re.search(r'export\s+default\s+(\w+)\s*;', content)
+    if export_match:
+        block = extract_named_command_block(content, export_match.group(1))
+        if block is not None:
+            return block
+    command_match = re.search(
+        r'(?:const\s+command\s*=\s*)?new\s+Command\(\)([\s\S]*?)(?=export\s+default)',
+        content,
+    )
+    return command_match.group(1) if command_match else None
+
+
+def parse_command_block(
+    content: str, file_path: Path | None = None, block: str | None = None
+) -> dict:
     """
     Parse a Cliffy Command() definition block and extract metadata.
     Returns a dict with: description, options, subcommands, arguments, alias
 
     If file_path is provided, imported subcommands will be resolved by parsing
-    the imported files.
+    the imported files. `block` may be passed to parse a specific pre-extracted
+    command body (used to recurse into locally-defined nested command groups).
     """
     result = {
         'description': '',
@@ -310,14 +412,10 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     }
 
     # Find the command block
-    command_match = re.search(
-        r'(?:const\s+command\s*=\s*)?new\s+Command\(\)([\s\S]*?)(?=export\s+default)',
-        content
-    )
-    if not command_match:
+    if block is None:
+        block = extract_exported_command_block(content)
+    if block is None:
         return result
-
-    block = command_match.group(1)
 
     # Find where subcommands start
     first_subcommand_pos = block.find('.command(')
@@ -326,11 +424,9 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     top_section = block[:first_subcommand_pos]
 
     # Extract main description
-    desc_match = re.search(r'\.description\(\s*["\']([^"\']+)["\']\s*,?\s*\)', top_section, re.DOTALL)
-    if not desc_match:
-        desc_match = re.search(r'\.description\(\s*`([^`]+)`\s*,?\s*\)', top_section, re.DOTALL)
-    if desc_match:
-        result['description'] = desc_match.group(1).strip()
+    main_desc = extract_description(top_section)
+    if main_desc:
+        result['description'] = main_desc
 
     # Extract alias
     alias_match = re.search(r'\.alias\(\s*["\']([^"\']+)["\']\s*\)', top_section)
@@ -406,19 +502,38 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
                             'name': cmd_name,
                             'description': imported_cmd.get('description', ''),
                             'arguments': imported_cmd.get('arguments', ''),
-                            'options': imported_cmd.get('options', [])
+                            'options': imported_cmd.get('options', []),
+                            'subcommands': imported_cmd.get('subcommands', []),
                         })
                         continue
                     except Exception as e:
                         print(f"  Warning: Could not parse imported command {second_arg}: {e}")
             cmd_desc = ''
+        elif second_arg and re.search(
+            r'const\s+' + re.escape(second_arg) + r'\s*=\s*new\s+Command\(\)', content
+        ):
+            # Locally-defined command group mounted as a subcommand
+            # (e.g. `.command("migrate", migrateCommand)`): recurse into its
+            # definition so its own subcommands/options are captured.
+            nested_block = extract_named_command_block(content, second_arg)
+            if nested_block is not None:
+                nested = parse_command_block(content, file_path, block=nested_block)
+                result['subcommands'].append({
+                    'name': cmd_name,
+                    'description': nested.get('description', ''),
+                    'arguments': nested.get('arguments', ''),
+                    'options': nested.get('options', []),
+                    'subcommands': nested.get('subcommands', []),
+                })
+                continue
+            cmd_desc = ''
         else:
             cmd_desc = ''
 
         # Check for description in chained .description() call
-        desc_match = re.search(r'\.description\(\s*["\']([^"\']+)["\']\s*,?\s*\)', section, re.DOTALL)
-        if desc_match:
-            cmd_desc = desc_match.group(1).strip()
+        chained_desc = extract_description(section)
+        if chained_desc:
+            cmd_desc = chained_desc
 
         # Check for arguments
         args_match = re.search(r'\.arguments\(\s*["\']([^"\']+)["\']\s*\)', section)
@@ -583,15 +698,39 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
                         for opt in sub['options']:
                             md += f"  - `{opt['flag']}` - {opt['description']}\n"
 
+                    # Nested sub-subcommands (e.g. `datatable migrate new`)
+                    for subsub in sub.get('subcommands', []):
+                        ss_args = f" {subsub['arguments']}" if subsub.get('arguments') else ""
+                        md += f"  - `{cmd['name']} {sub_name} {subsub['name']}{ss_args}`"
+                        if subsub.get('description'):
+                            md += f" - {subsub['description']}"
+                        md += "\n"
+                        for opt in subsub.get('options', []):
+                            md += f"    - `{opt['flag']}` - {opt['description']}\n"
+
                 md += "\n"
 
     return md
+
+
+# Who is running the script is answered by contextual variables, not by an SDK call, so the
+# SDK reference has to say so: it is where an agent looks for a `usernameToEmail`-style helper.
+IDENTITY_OF_THE_RUN_TS = """To know who is running the script, read the contextual variables rather than calling the API:
+`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username."""
+
+IDENTITY_OF_THE_RUN_PY = """To know who is running the script, read the contextual variables rather than calling the API:
+`os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
+viewer when the run was triggered from an app and empty otherwise (both variables are always
+defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username."""
 
 
 def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:
     """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
     md += "Import: import * as wmill from 'windmill-client'\n\n"
+    md += IDENTITY_OF_THE_RUN_TS + "\n\n"
 
     for i, func in enumerate(functions):
         if func.get('docstring'):
@@ -614,6 +753,7 @@ def generate_py_sdk_markdown(functions: list[dict], _classes: list[dict]) -> str
     """Generate compact documentation for Python SDK."""
     md = "# Python SDK (wmill)\n\n"
     md += "Import: import wmill\n\n"
+    md += IDENTITY_OF_THE_RUN_PY + "\n\n"
 
     for func in functions:
         # Skip private functions
@@ -642,6 +782,21 @@ def generate_ts_exports(prompts: dict[str, str]) -> str:
         ts += f"export const {name} = `{escaped}`;\n\n"
 
     return ts
+
+
+def generate_ts_declarations(prompts: dict[str, str]) -> str:
+    """Generate the .d.ts for prompts.ts.
+
+    Each export is declared as a plain `string` rather than a string-literal
+    type so the declaration file does not embed (and drift against) the prompt
+    contents — those live only in prompts.ts.
+    """
+    dts = "// Auto-generated by generate.py - DO NOT EDIT\n\n"
+
+    for name in prompts.keys():
+        dts += f"export declare const {name}: string;\n"
+
+    return dts
 
 
 # =============================================================================
@@ -702,9 +857,11 @@ WORKSPACE_TOOL_ZOD_SCHEMAS = [
     ('NewNatsTrigger', 'natsTriggerRequestSchema'),
     ('NewPostgresTrigger', 'postgresTriggerRequestSchema'),
     ('NewMqttTrigger', 'mqttTriggerRequestSchema'),
+    ('NewAmqpTrigger', 'amqpTriggerRequestSchema'),
     ('NewSqsTrigger', 'sqsTriggerRequestSchema'),
     ('GcpTriggerData', 'gcpTriggerRequestSchema'),
     ('AzureTriggerData', 'azureTriggerRequestSchema'),
+    ('NewEmailTrigger', 'emailTriggerRequestSchema'),
     ('CreateVariable', 'variableRequestSchema'),
     ('CreateResource', 'resourceRequestSchema'),
 ]
@@ -716,9 +873,11 @@ WORKSPACE_TOOL_TRIGGER_SCHEMAS = [
     ('nats', 'natsTriggerRequestSchema'),
     ('postgres', 'postgresTriggerRequestSchema'),
     ('mqtt', 'mqttTriggerRequestSchema'),
+    ('amqp', 'amqpTriggerRequestSchema'),
     ('sqs', 'sqsTriggerRequestSchema'),
     ('gcp', 'gcpTriggerRequestSchema'),
     ('azure', 'azureTriggerRequestSchema'),
+    ('email', 'emailTriggerRequestSchema'),
 ]
 
 WORKSPACE_TOOL_ZOD_OUTPUT_PATH = (
@@ -745,7 +904,9 @@ def _resolve_schema_refs(schema: dict, backend_schemas: dict, openflow_schemas: 
         ref = schema['$ref']
         ref_name = ref.split('/')[-1]
         if ref_name in seen:
-            return {'type': 'object'}
+            # Zod cannot express the recursion inline; stay permissive so the nested
+            # payload survives parsing instead of being stripped as unknown keys.
+            return {'type': 'object', 'additionalProperties': True}
 
         source = openflow_schemas if 'openflow.openapi.yaml' in ref or ref_name not in backend_schemas else backend_schemas
         ref_schema = source.get(ref_name)
@@ -785,15 +946,13 @@ def _apply_zod_metadata(expr: str, schema: dict) -> str:
 def _json_schema_to_zod(schema: dict, indent: int = 0) -> str:
     schema = schema or {}
 
-    if 'oneOf' in schema:
-        raise ValueError('Unsupported oneOf in workspace tool Zod schema generation')
-
     if 'allOf' in schema:
         raise ValueError('Unsupported allOf in workspace tool Zod schema generation')
 
-    if 'anyOf' in schema:
+    variants = schema.get('anyOf') or schema.get('oneOf')
+    if variants:
         expr = "z.union([{}])".format(
-            ', '.join(_json_schema_to_zod(item, indent) for item in schema['anyOf'])
+            ', '.join(_json_schema_to_zod(item, indent) for item in variants)
         )
         return _apply_zod_metadata(expr, schema)
 
@@ -887,6 +1046,17 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         "",
         f"const triggerPathSchema = z.string().min(1).describe({_ts_string(trigger_path_description)})",
         "",
+        "// The kind-specific fields of a trigger config, with the three the tool supplies",
+        "// itself removed. Fetched one at a time through get_trigger_schema rather than",
+        "// inlined into create_trigger: as a union of all eleven this serialized to ~39k",
+        "// characters of JSON Schema, resent on every request of every chat.",
+        "export const triggerConfigSchemas = {",
+        *[
+            f"\t{kind}: {schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),"
+            for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS
+        ],
+        "} as const",
+        "",
         "export const createTriggerToolSchema = z.object({",
         "\tkind: z.enum([",
         *[
@@ -895,12 +1065,11 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         ],
         "\t]),",
         "\tpath: triggerPathSchema,",
-        "\tconfig: z.union([",
-    ])
-    for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS:
-        lines.append(f"\t\t{schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),")
-    lines.extend([
-        "\t])",
+        "\tconfig: z",
+        "\t\t.record(z.string(), z.any())",
+        "\t\t.describe(",
+        "\t\t\t'The kind-specific trigger configuration. Call get_trigger_schema with the same kind first to get its exact fields.'",
+        "\t\t)",
         "})",
     ])
     lines.append("")
@@ -1119,6 +1288,7 @@ WAC_TS_FUNCTIONS = [
     'step',
     'sleep',
     'waitForApproval',
+    'getApprovalUrls',
     'parallel',
 ]
 
@@ -1131,6 +1301,7 @@ WAC_PY_FUNCTIONS = [
     'step',
     'sleep',
     'wait_for_approval',
+    'get_approval_urls',
     'parallel',
 ]
 
@@ -1276,7 +1447,7 @@ def extract_wac_ts_sdk(ts_content: str) -> str:
         return ''
 
     md = "## TypeScript Workflow-as-Code API (windmill-client)\n\n"
-    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getResumeUrls, parallel } from "windmill-client"`\n\n'
+    md += 'Import: `import { workflow, task, taskScript, taskFlow, step, sleep, waitForApproval, getApprovalUrls, getResumeUrls, parallel } from "windmill-client"`\n\n'
     md += "```typescript\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"
@@ -1398,7 +1569,7 @@ def extract_wac_py_sdk(py_content: str) -> str:
         return ''
 
     md = "## Python Workflow-as-Code API (wmill)\n\n"
-    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_resume_urls, parallel, TaskError`\n\n"
+    md += "Import: `from wmill import workflow, task, task_script, task_flow, step, sleep, wait_for_approval, get_approval_urls, get_resume_urls, parallel, TaskError`\n\n"
     md += "```python\n"
     md += "\n\n".join(declarations)
     md += "\n```\n"
@@ -1456,6 +1627,7 @@ SKILL_DEFINITIONS = [
             ('NatsTrigger', 'nats_trigger'),
             ('PostgresTrigger', 'postgres_trigger'),
             ('MqttTrigger', 'mqtt_trigger'),
+            ('AmqpTrigger', 'amqp_trigger'),
             ('SqsTrigger', 'sqs_trigger'),
             ('GcpTrigger', 'gcp_trigger'),
             ('AzureTrigger', 'azure_trigger'),
@@ -1541,8 +1713,8 @@ After writing, tell the user which command fits what they want to do:
 
 - `wmill script preview <script_path>` — **default when iterating on a local script.** Runs the local file without deploying.
 - `wmill script run <path>` — runs the script **already deployed** in the workspace. Use only when the user explicitly wants to test the deployed version, not local edits.
-- `wmill generate-metadata` — generate `.script.yaml` and `.lock` files for the script you modified.
-- `wmill sync push` — deploy local changes to the workspace. Only suggest/run this when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
+- `wmill generate-metadata` — regenerate the local `.script.yaml` (input schema) and `.lock` (resolved dependencies) for scripts you changed, and refresh their content hashes in `wmill-lock.yaml`. Local files only — **not** a deploy. See "Keep metadata in sync" below.
+- Deploy local changes to the workspace — via `git push` or `wmill sync push` depending on how the repo is wired (see the **Deploying** section in `AGENTS.wmill.md`). Only suggest/run a deploy when the user explicitly asks to deploy/publish/push — not when they say "run", "try", or "test".
 
 ### Preview vs run — choose by intent, not habit
 
@@ -1556,13 +1728,23 @@ Only use `sync push` when:
 - The user explicitly asks to deploy, publish, push, or ship.
 - The preview has already validated the change and the user wants it in the workspace.
 
+### Keep metadata in sync after editing
+
+`wmill-lock.yaml` tracks a content hash for each item. Editing a script's content — most importantly **adding or removing an import** or **changing `main`'s arguments** — invalidates that hash and leaves the `.lock`, the `.script.yaml` input schema, and the hash row out of date. Run `wmill generate-metadata` (scoped to what you touched) after such edits so the resolved lock, the auto-generated args UI (driven by `.script.yaml`), and `wmill-lock.yaml` all match the code. Leaving them stale produces spurious diffs in git-sync and CI.
+
+This only writes local files (it is **not** a deploy), but it re-resolves dependencies, so it can bump unpinned versions (the same as deploying from the UI; expected, not a bug). So by default offer it and run it once the user agrees, rather than running it silently after every edit — unless the project's `AGENTS.md` opts into running metadata automatically (see the "Keeping metadata in sync" preference there). Either way YOU run the command, not the user. After running it, diff the regenerated `.lock` / `.script.lock` files and tell the user which dependency versions changed (e.g. `requests 2.31.0 → 2.32.0`), so they can catch an unwanted bump before deploying — even under `Metadata: auto`, since it's information, not a confirmation gate. Pin versions in code to keep them fixed.
+
+With no path argument, `generate-metadata` regenerates only the items whose content hash drifted — not everything. Imports propagate: editing a script that others import marks every importer stale too, so a one-line change to a shared module can regenerate many locks (by design — their locks must reflect the imported code). If it touches more than you expect, run `wmill generate-metadata --dry-run` — it lists each stale item with a reason (`content changed` or `depends on <path>`) without changing anything — then narrow with a path argument (`wmill generate-metadata f/foo`) or `--strict-folder-boundaries`.
+
+If the on-disk `.lock` and `.script.yaml` are already correct and only `wmill-lock.yaml` needs its hashes refreshed (hash drift, or bootstrapping missing entries), use `wmill generate-metadata rehash` — it re-records hashes from disk with no backend round-trip and no dependency changes.
+
 ### After writing — offer to test, don't wait passively
 
 If the user hasn't already told you to run/test/preview the script, offer it as a one-sentence next step (e.g. "Want me to run `wmill script preview` with sample args?"). Do not present a multi-option menu.
 
 If the user already asked to test/run/try the script in their original request, skip the offer and just execute `wmill script preview <path> -d '<args>'` directly — pick plausible args from the script's declared parameters. The shape varies by language: `main(...)` for code languages, the SQL dialect's own placeholder syntax (`$1` for PostgreSQL, `?` for MySQL/Snowflake, `@P1` for MSSQL, `@name` for BigQuery, etc.), positional `$1`, `$2`, … for Bash, `param(...)` for PowerShell.
 
-`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill sync push` and `wmill generate-metadata` modify workspace state or local files — only run these when the user explicitly asks; otherwise tell them which to run.
+`wmill script preview` does not deploy, but it still executes script code and may cause side effects; run it yourself when the user asked to test/preview (or after confirming that execution is intended). `wmill generate-metadata` does not deploy either — it only writes local files (locks, schemas, hashes) — but offer it before running (or run automatically if the project's `AGENTS.md` opts in), per "Keep metadata in sync" above. Deploying to the workspace (`git push` or `wmill sync push` depending on how the repo is wired — see the **Deploying** section) is the only step that mutates remote state — do it only when the user explicitly asks to deploy/publish/push.
 
 For a **visual** open-the-script-in-the-dev-page preview (rather than `script preview`'s run-and-print-result), use the `preview` skill.
 
@@ -1827,7 +2009,7 @@ CONTEXT7_REPO_NAME = "windmill-cli-docs"
 
 
 def extract_agents_md_template() -> str:
-    """Extract the AGENTS.cli.md template string from cli/src/guidance/core.ts.
+    """Extract the AGENTS.wmill.md template string from cli/src/guidance/core.ts.
 
     Keeping a single source of truth in TypeScript avoids drift between what
     `wmill init` writes locally and what we publish for context7 ingestion.
@@ -1844,7 +2026,7 @@ def extract_agents_md_template() -> str:
     )
     if not match:
         raise RuntimeError(
-            f"Could not extract AGENTS.cli.md template from {core_ts_path}"
+            f"Could not extract AGENTS.wmill.md template from {core_ts_path}"
         )
     return _unescape_ts_template_literal(match.group(1))
 
@@ -1866,7 +2048,7 @@ def _unescape_ts_template_literal(raw: str) -> str:
 def render_agents_md_for_docs(
     skills: list[str], skill_desc_map: dict[str, str]
 ) -> str:
-    """Render AGENTS.cli.md exactly as `wmill init` would, for the docs repo.
+    """Render AGENTS.wmill.md exactly as `wmill init` would, for the docs repo.
 
     The skill reference paths point at `.agents/skills/` (the canonical tree
     that Codex/Pi read directly and that Claude Code mirrors under
@@ -2010,7 +2192,7 @@ def generate_context7_repo(
     skill_desc_map = build_skill_desc_map(skills)
 
     # AGENTS.md — the managed CLI guidance (what `wmill init` writes as
-    # AGENTS.cli.md locally). Kept under the `AGENTS.md` filename here to
+    # AGENTS.wmill.md locally). Kept under the `AGENTS.md` filename here to
     # preserve the existing context7 ingest path; docs consumers read this
     # as the canonical AGENTS file.
     (target_dir / "AGENTS.md").write_text(
@@ -2299,6 +2481,7 @@ def main():
     flow_base = read_markdown_file(base_dir / "flow-base.md")
     resources_base = read_markdown_file(base_dir / "resources.md")
     raw_app_base = read_markdown_file(base_dir / "raw-app.md")
+    pipeline_base = read_markdown_file(base_dir / "pipeline-base.md")
     workflow_as_code_base = read_markdown_file(base_dir / "workflow-as-code.md")
     flow_cli = read_markdown_file(base_dir / "flow-cli.md")
     flow_chat_special_modules = read_markdown_file(base_dir / "flow-chat-special-modules.md")
@@ -2341,6 +2524,7 @@ def main():
             'NatsTrigger', 'NewNatsTrigger',
             'PostgresTrigger', 'NewPostgresTrigger',
             'MqttTrigger', 'NewMqttTrigger',
+            'AmqpTrigger', 'NewAmqpTrigger',
             'SqsTrigger', 'NewSqsTrigger',
             'GcpTrigger',
             'AzureTrigger',
@@ -2365,6 +2549,7 @@ def main():
         'FLOW_BASE': flow_base,
         'RESOURCES_BASE': resources_base,
         'RAW_APP_BASE': raw_app_base,
+        'PIPELINE_BASE': pipeline_base,
         'WORKFLOW_AS_CODE_BASE': workflow_as_code_base,
         'FLOW_CHAT_SPECIAL_MODULES': flow_chat_special_modules,
 
@@ -2392,6 +2577,7 @@ def main():
     # Generate TypeScript exports
     ts_exports = generate_ts_exports(prompts)
     (OUTPUT_GENERATED_DIR / "prompts.ts").write_text(ts_exports)
+    (OUTPUT_GENERATED_DIR / "prompts.d.ts").write_text(generate_ts_declarations(prompts))
 
     # Generate complete script.md (all languages combined)
     script_md_parts = [script_base]
@@ -2463,6 +2649,11 @@ export function getRawAppPrompt(): string {
   return prompts.RAW_APP_BASE;
 }
 
+// Helper for data pipeline authoring (chat consumers)
+export function getPipelinePrompt(): string {
+  return prompts.PIPELINE_BASE;
+}
+
 // Helper to get the datatable SQL SDK reference (wmill.datatable()).
 // Pass a language to get only that SDK; omit it to get both.
 export function getDatatableSdkReference(language?: string): string {
@@ -2515,6 +2706,7 @@ export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
 export declare function getRawAppPrompt(): string;
+export declare function getPipelinePrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
 """
@@ -2560,6 +2752,7 @@ export declare function getWorkflowAsCodePrompt(language?: string): string;
     print(f"  - auto-generated/sdks/wac-python.md")
     print(f"  - auto-generated/cli/cli-commands.md (auto-generated from CLI source)")
     print(f"  - auto-generated/prompts.ts")
+    print(f"  - auto-generated/prompts.d.ts")
     print(f"  - auto-generated/index.ts")
     print(f"  - auto-generated/script.md")
     print(f"  - auto-generated/flow.md")

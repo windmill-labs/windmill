@@ -20,6 +20,7 @@ windmill-parser-ts.workspace = true
 deno_fetch.workspace = true
 deno_webidl.workspace = true
 deno_web.workspace = true
+deno_crypto.workspace = true
 deno_net.workspace = true
 deno_console.workspace = true
 deno_url.workspace = true
@@ -48,10 +49,14 @@ futures.workspace = true
 sqlx.workspace = true
 rustls.workspace = true
 
+[dev-dependencies]
+rcgen = "0.13.2"
+
 [build-dependencies]
 deno_fetch.workspace = true
 deno_webidl.workspace = true
 deno_web.workspace = true
+deno_crypto.workspace = true
 deno_net.workspace = true
 deno_console.workspace = true
 deno_url.workspace = true

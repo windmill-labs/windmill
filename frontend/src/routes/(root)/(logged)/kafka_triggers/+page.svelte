@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -20,10 +21,11 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -70,11 +72,14 @@
 	getDeployUiSettings()
 
 	async function loadTriggers(): Promise<void> {
-		triggers = (await KafkaTriggerService.listKafkaTriggers({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		triggers = (
+			await KafkaTriggerService.listKafkaTriggers({
+				workspace: $workspaceStore!,
+				includeDraftOnly: true
+			})
+		).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'kafka', $usedTriggerKinds)
 		loading = false
 	}
@@ -237,13 +242,11 @@
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders) {
 		setQuery(
-			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
 			selectedFilterKind,
 			window.location.hash || undefined
 		).then(() => {
 			setQuery(
-				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
 				String(filterUserFolders),
 				window.location.hash || undefined
@@ -345,14 +348,28 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !triggers?.length}
-				<div class="text-center text-sm text-primary mt-2"> No Kafka triggers </div>
+				<EmptyState
+					icon={KafkaIcon}
+					title="No Kafka triggers yet"
+					description="Windmill can consume Kafka events and trigger scripts or flows based on them."
+					action={{
+						label: 'Add a Kafka trigger',
+						icon: Plus,
+						onClick: () => kafkaTriggerEditor?.openNew(false),
+						aiId: 'kafka-triggers-empty-add',
+						aiDescription: 'Add Kafka trigger'
+					}}
+				/>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, mode, retry, error_handler_path, error_handler_args, labels } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
+						{@const hasDraft =
+							getLocalDraftHint($workspaceStore, 'trigger_kafka', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
 						{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
-						{@const enabled = mode === 'enabled' || mode === 'suspended'}
+						{@const effectiveMode = draft_only ? 'disabled' : mode}
+						{@const enabled = effectiveMode === 'enabled' || effectiveMode === 'suspended'}
 
 						<div
 							class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -375,7 +392,7 @@
 											</span>
 										{:else}
 											{kafka_resource_path} - {topics.join(', ')}
-										{/if}
+										{/if}{hasDraft ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-light">
 										{path}
@@ -433,24 +450,33 @@
 									{/if}
 								</div>
 
-								<TriggerModeToggle
-									onToggleMode={(newMode) => onToggleMode(path, newMode)}
-									triggerMode={mode}
-									includeModalConfig={{
-										triggerPath: path,
-										triggerKind: 'kafka',
-										runnableConfig: {
-											path: script_path,
-											kind: is_flow ? 'flow' : 'script',
-											retry,
-											errorHandlerPath: error_handler_path,
-											errorHandlerArgs: error_handler_args
-										}
-									}}
-									{canWrite}
-									hideToggleLabels
-									hideDropdown
-								/>
+								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+									<DraftBadge {draft_only} is_draft={hasDraft} />
+									<TriggerModeToggle
+										disabled={draft_only}
+										title={draft_only
+											? 'Draft only: deploy the trigger to enable it'
+											: hasDraft
+												? 'Enables/disables the deployed trigger; the draft is not affected'
+												: undefined}
+										onToggleMode={(newMode) => onToggleMode(path, newMode)}
+										triggerMode={effectiveMode}
+										includeModalConfig={{
+											triggerPath: path,
+											triggerKind: 'kafka',
+											runnableConfig: {
+												path: script_path,
+												kind: is_flow ? 'flow' : 'script',
+												retry,
+												errorHandlerPath: error_handler_path,
+												errorHandlerArgs: error_handler_args
+											}
+										}}
+										{canWrite}
+										hideToggleLabels
+										hideDropdown
+									/>
+								</div>
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
@@ -475,7 +501,7 @@
 													goto(href)
 												}
 											},
-											...(canWrite && mode !== 'suspended'
+											...(canWrite && !draft_only && mode !== 'suspended'
 												? [
 														{
 															displayName: 'Suspend job execution',
@@ -540,8 +566,8 @@
 							<div class="w-full flex justify-between items-baseline">
 								<div
 									class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
-									><div class="truncate">Edited by {edited_by}</div><div class="truncate"
-										>the {displayDate(edited_at)}</div
+									>{#if edited_by}<div class="truncate">Edited by {edited_by}</div>{/if}<div
+										class="truncate">{edited_by ? 'the ' : ''}{displayDate(edited_at)}</div
 									></div
 								></div
 							>

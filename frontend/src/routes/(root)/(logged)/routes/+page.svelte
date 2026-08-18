@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -21,10 +22,11 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
+	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -96,11 +98,14 @@
 	}
 	getDeployUiSettings()
 	async function loadTriggers(): Promise<void> {
-		triggers = (await HttpTriggerService.listHttpTriggers({ workspace: $workspaceStore! })).map(
-			(x) => {
-				return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
-			}
-		)
+		triggers = (
+			await HttpTriggerService.listHttpTriggers({
+				workspace: $workspaceStore!,
+				includeDraftOnly: true
+			})
+		).map((x) => {
+			return { canWrite: canWrite(x.path, x.extra_perms!, $userStore), ...x }
+		})
 		$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, 'routes', $usedTriggerKinds)
 		loading = false
 	}
@@ -215,13 +220,11 @@
 
 	function updateQueryFilters(selectedFilterKind, filterUserFolders) {
 		setQuery(
-			new URL(window.location.href),
 			TRIGGER_PATH_KIND_FILTER_SETTING,
 			selectedFilterKind,
 			window.location.hash || undefined
 		).then(() => {
 			setQuery(
-				new URL(window.location.href),
 				FILTER_USER_FOLDER_SETTING_NAME,
 				String(filterUserFolders),
 				window.location.hash || undefined
@@ -358,10 +361,23 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !triggers?.length}
-				<div class="text-center text-sm font-semibold text-emphasis mt-2"> No routes </div>
+				<EmptyState
+					icon={Route}
+					title="No custom HTTP routes yet"
+					description="Every script and flow already has a canonical HTTP endpoint attached to it. These are additional parametrizable ones."
+					action={{
+						label: 'Add a route',
+						icon: Plus,
+						onClick: () => routeEditor?.openNew(false),
+						aiId: 'routes-empty-add',
+						aiDescription: 'Add route'
+					}}
+				/>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args } (path)}
+					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}
+						{@const hasDraft = getLocalDraftHint($workspaceStore, 'trigger_http', path) ?? is_draft}
+						{@const effectiveMode = draft_only ? 'disabled' : mode}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
@@ -390,7 +406,7 @@
 											/{isCloudHosted() || workspaced_route || globalHttpWorkspacedRoute
 												? workspace_id + '/' + route_path
 												: route_path}
-										{/if}
+										{/if}{hasDraft ? '*' : ''}
 									</div>
 									<div class="text-secondary text-xs truncate text-left font-normal">
 										{path}
@@ -408,24 +424,33 @@
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
 								</div>
 
-								<TriggerModeToggle
-									onToggleMode={(mode) => onToggleMode(path, mode)}
-									triggerMode={mode}
-									includeModalConfig={{
-										triggerPath: path,
-										triggerKind: 'http',
-										runnableConfig: {
-											path: script_path,
-											kind: is_flow ? 'flow' : 'script',
-											retry,
-											errorHandlerPath: error_handler_path,
-											errorHandlerArgs: error_handler_args
-										}
-									}}
-									{canWrite}
-									hideToggleLabels
-									hideDropdown
-								/>
+								<div class="flex items-center justify-end gap-2 shrink-0 min-w-[8rem]">
+									<DraftBadge {draft_only} is_draft={hasDraft} />
+									<TriggerModeToggle
+										disabled={draft_only}
+										title={draft_only
+											? 'Draft only: deploy the trigger to enable it'
+											: hasDraft
+												? 'Enables/disables the deployed trigger; the draft is not affected'
+												: undefined}
+										onToggleMode={(mode) => onToggleMode(path, mode)}
+										triggerMode={effectiveMode}
+										includeModalConfig={{
+											triggerPath: path,
+											triggerKind: 'http',
+											runnableConfig: {
+												path: script_path,
+												kind: is_flow ? 'flow' : 'script',
+												retry,
+												errorHandlerPath: error_handler_path,
+												errorHandlerArgs: error_handler_args
+											}
+										}}
+										{canWrite}
+										hideToggleLabels
+										hideDropdown
+									/>
+								</div>
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
@@ -466,7 +491,7 @@
 													goto(href)
 												}
 											},
-											...(canWrite && mode !== 'suspended'
+											...(canWrite && !draft_only && mode !== 'suspended'
 												? [
 														{
 															displayName: 'Suspend job execution',
@@ -537,8 +562,8 @@
 								<div
 									class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
 								>
-									<div class="truncate">edited by {edited_by}</div>
-									<div class="truncate">at {displayDate(edited_at)}</div>
+									{#if edited_by}<div class="truncate">edited by {edited_by}</div>{/if}
+									<div class="truncate">{edited_by ? 'at ' : ''}{displayDate(edited_at)}</div>
 								</div>
 							</div>
 						</div>

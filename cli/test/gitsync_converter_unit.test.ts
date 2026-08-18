@@ -21,6 +21,24 @@ describe("GitSyncSettingsConverter.fromBackendFormat", () => {
     expect(result.skipWorkspaceDependencies).toBe(false);
   });
 
+  test("converts datatablemigration in include_type to skipDatatableMigrations: false", () => {
+    const backend = {
+      include_path: ["f/**"],
+      include_type: ["script", "flow", "datatablemigration"],
+    };
+    const result = GitSyncSettingsConverter.fromBackendFormat(backend);
+    expect(result.skipDatatableMigrations).toBe(false);
+  });
+
+  test("sets skipDatatableMigrations: true when datatablemigration is absent", () => {
+    const backend = {
+      include_path: ["f/**"],
+      include_type: ["script", "flow"],
+    };
+    const result = GitSyncSettingsConverter.fromBackendFormat(backend);
+    expect(result.skipDatatableMigrations).toBe(true);
+  });
+
   test("sets skipWorkspaceDependencies: true when workspacedependencies is absent", () => {
     const backend = {
       include_path: ["f/**"],
@@ -71,6 +89,21 @@ describe("GitSyncSettingsConverter.fromBackendFormat", () => {
 // =============================================================================
 
 describe("GitSyncSettingsConverter.toBackendFormat", () => {
+  test("adds datatablemigration when skipDatatableMigrations is false", () => {
+    expect(
+      GitSyncSettingsConverter.toBackendFormat({
+        includes: ["f/**"],
+        skipDatatableMigrations: false,
+      }).include_type,
+    ).toContain("datatablemigration");
+    expect(
+      GitSyncSettingsConverter.toBackendFormat({
+        includes: ["f/**"],
+        skipDatatableMigrations: true,
+      }).include_type,
+    ).not.toContain("datatablemigration");
+  });
+
   test("adds workspacedependencies when skipWorkspaceDependencies is false", () => {
     const opts = {
       includes: ["f/**"],

@@ -40,6 +40,7 @@ async fn test_tarball_export_all_tables(db: Pool<Postgres>) -> anyhow::Result<()
         .create_script(
             "test-workspace",
             &windmill_api_client::types::NewScript {
+                draft_only: None,
                 content: "export function main() { return 42; }".to_string(),
                 language: windmill_api_client::types::ScriptLang::Bun,
                 path: "f/test_folder/test_script".to_string(),
@@ -51,7 +52,6 @@ async fn test_tarball_export_all_tables(db: Pool<Postgres>) -> anyhow::Result<()
                 parent_hash: None,
                 schema: Default::default(),
                 is_template: None,
-                draft_only: None,
                 dedicated_worker: None,
                 ws_error_handler_muted: None,
                 priority: None,

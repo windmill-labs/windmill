@@ -127,12 +127,19 @@ async fn prune_runtime_assets(
             .map(|((w, p, k), v)| (w.clone(), p.clone(), k.clone(), (max_n - v.len()) as i32))
             .multiunzip();
 
+    // Delete the surplus job rows by `id`, NOT by `(workspace_id, path,
+    // kind)`. Deleting by tuple would also wipe the static
+    // `usage_kind='script'|'flow'` rows that share the same path+kind (a
+    // producer's persisted write/read lineage), which silently breaks the
+    // asset-trigger cascade (`fetch_producer_writes` finds no writes). The
+    // inner query already scopes to `usage_kind='job'`; keep the delete
+    // scoped to exactly those over-cap rows.
     let delete_result = sqlx::query!(
         r#"
         DELETE FROM asset
-        WHERE (workspace_id, path, kind) IN (
-            SELECT workspace_id, path, kind FROM (
-                SELECT a.workspace_id, a.path, a.kind, a.usage_kind, ROW_NUMBER() OVER (
+        WHERE id IN (
+            SELECT id FROM (
+                SELECT a.id, ROW_NUMBER() OVER (
                     PARTITION BY a.workspace_id, a.path, a.kind
                     ORDER BY a.created_at DESC
                 ) as rn,
@@ -140,14 +147,14 @@ async fn prune_runtime_assets(
                 FROM asset a
                 INNER JOIN (
                     SELECT * FROM UNNEST(
-                        $1::varchar[], 
-                        $2::varchar[], 
+                        $1::varchar[],
+                        $2::varchar[],
                         $3::asset_kind[],
                         $4::int[]
                     ) AS t(workspace_id, path, kind, max_n)
                 ) limits
-                ON a.workspace_id = limits.workspace_id 
-                AND a.path = limits.path 
+                ON a.workspace_id = limits.workspace_id
+                AND a.path = limits.path
                 AND a.kind = limits.kind
                 WHERE a.usage_kind = 'job'
             ) ranked

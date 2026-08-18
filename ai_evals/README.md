@@ -75,6 +75,8 @@ Public CLI surface:
 - `--model <alias>`: choose the model under test
 - `--models <a,b,c>`: run the same cases sequentially against several model aliases
 - `--verbose`: stream assistant output for frontend runs
+- `--skip-judge`: skip LLM judge scoring for the run
+- `--execution-only`: only require the model/proxy/frontend loop to complete; skip validators, tool expectations, backend artifact validation, and judge scoring
 - `--record`: append a compact tracked summary line to `ai_evals/history/<mode>.jsonl` for full-suite runs only
 - `--backend-validation <mode>`: optional backend smoke validation (`off` or `preview`) for `script` and `flow` evals
 
@@ -99,7 +101,7 @@ Notes:
 - the command also prints accepted alias spellings such as `gpt-4o`, `gpt-55`, `claude-opus-4.6`, and `claude-haiku-4.5`
 - frontend modes (`flow`, `script`, `app`, `global`) can use Anthropic, OpenAI, Gemini, and DeepSeek-backed aliases
 - `cli` mode always uses the Anthropic agent SDK, so only Anthropic aliases are valid there
-- the judge model is separate and currently defaults to `claude-sonnet-4-6`
+- the judge model is separate and currently defaults to `claude-sonnet-4-6`; use `--skip-judge` for deterministic-only runs
 
 ## Case Format
 
@@ -147,6 +149,36 @@ Global initial fixtures can also seed `liveEditorDrafts` with `type`,
 `storagePath`, `effectivePath`, and `value` fields. These drafts emulate the
 currently open script, flow, or raw app editor so cases can test prompts that
 refer to "this" or the "current" item.
+
+Global initial fixtures can seed the session's `artifacts` — `{ name, versions: [{ content,
+note? }], role?, approvedVersion? }`, oldest version first, so the artifact starts with the
+history `list_artifact_versions` reports — and the `previewTabs` open in its side panel, for
+cases that run with `runtime.sessionChat: true`. A tab entry names one destination and may
+be the `active` one:
+
+```json
+"previewTabs": [{ "artifact": { "name": "Onboarding plan", "version": 2 }, "active": true }]
+```
+
+`page` (`{ href, label }`) and `item` (`{ kind, path }`) tabs work the same way. Tabs are
+driven by the production tab model, so `open_preview`, `get_preview_status` and
+`close_page` really open, report and close them, and a `version` is the pin a reader
+chose in the artifact's version picker — which only `get_preview_status` reports.
+
+Global initial fixtures can seed `workspace.variables` with
+`{ path, value, is_secret, description?, labels?, ws_specific? }` entries so cases can
+read and edit variables that already exist in the workspace. The mock mirrors the real
+`get_variable`, **decrypt-by-default included**: a secret's `value` is withheld only
+when the caller explicitly passes `decryptSecret: false`, and omitting the flag returns
+the decrypted value, exactly as against a real backend. The chat's read path passes
+`decryptSecret: false`, so a case can verify it never invents a value it was not shown.
+Seed a recognizable secret (the existing fixture uses `sk_live_do_not_leak_me`) and
+assert it via `valueExcludes` to catch a leak.
+
+`toolExpect.toolCallArgs` entries additionally support `fieldMustBeAbsent: true`: no
+recorded call to that tool may pass the field at all (an explicit `null` counts as
+passing it). Use it for partial-update tools, where supplying a field the model could
+not have read is itself the failure — e.g. `write_variable.value` on a secret variable.
 
 Global (and flow) initial fixtures can seed `workspace.datatables` so the
 `list_datatables`, `get_datatable_table_schema`, and `exec_datatable_sql` tools
@@ -247,6 +279,10 @@ Typical artifacts by mode:
 - `modes/`: one runner per mode
 - `history/`: optional tracked pass-rate history written by `run --record`, one JSONL file per mode
 - `results/`: local benchmark output and artifacts
+
+Harness unit tests run in two lanes: `bun test adapters/` for plain TypeScript, and
+`bun run test:frontend-graph` for `*.vitest.ts` files, which exercise adapters built on
+frontend code (Svelte runes, SvelteKit aliases) that bun cannot load.
 
 ## Notes
 

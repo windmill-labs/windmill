@@ -110,10 +110,77 @@ function extractWorkspaceDepsAnnotation(
   return { mode, external, inline };
 }
 
+const LANG_COMMENT_LIT: Record<string, string | undefined> = {
+  python3: "#",
+  ansible: "#",
+  powershell: "#",
+  bun: "//",
+  nativets: "//",
+  deno: "//",
+  go: "//",
+  php: "//",
+  rust: "//!",
+};
+
+function extractLockRelevantHeader(scriptContent: string, language: string): string {
+  const comment = LANG_COMMENT_LIT[language];
+  if (!comment) return scriptContent;
+  const headerLines: string[] = [];
+  for (const line of scriptContent.split("\n")) {
+    if (line.trim() === "" || line.startsWith(comment)) {
+      headerLines.push(line);
+    } else {
+      break;
+    }
+  }
+  return headerLines.join("\n");
+}
+
+const workspaceDependenciesLanguages: { language: string; filename: string }[] = [
+  { language: "bun", filename: "package.json" },
+  { language: "python3", filename: "requirements.in" },
+  { language: "php", filename: "composer.json" },
+  { language: "go", filename: "go.mod" },
+  { language: "powershell", filename: "modules.json" },
+];
+
+function workspaceDependenciesPathToLanguageAndFilename(
+  path: string,
+): { name: string | undefined; language: string } | undefined {
+  const relativePath = path.replace("dependencies/", "");
+  for (const { filename, language } of workspaceDependenciesLanguages) {
+    if (relativePath.endsWith(filename)) {
+      return {
+        name: relativePath === filename ? undefined : relativePath.replace("." + filename, ""),
+        language,
+      };
+    }
+  }
+}
+
+function filterWorkspaceDependencies(
+  rawWorkspaceDependencies: Record<string, string>,
+  scriptContent: string,
+  language: string,
+): Record<string, string> {
+  const wda = extractWorkspaceDepsAnnotation(scriptContent, language);
+  const filtered: Record<string, string> = {};
+  for (const [depPath, depContent] of Object.entries(rawWorkspaceDependencies)) {
+    const depInfo = workspaceDependenciesPathToLanguageAndFilename(depPath);
+    if (depInfo && depInfo.language === language) {
+      if ((wda && wda.external.includes(depInfo.name ?? "default")) || (wda == null && depInfo.name == undefined)) {
+        filtered[depPath] = depContent;
+      }
+    }
+  }
+  return filtered;
+}
+
 async function computeLockCacheKey(
   scriptContent: string,
   language: string,
   rawWorkspaceDependencies: Record<string, string>,
+  tempScriptRefs?: Record<string, string>,
 ): Promise<string> {
   const annotation = extractWorkspaceDepsAnnotation(scriptContent, language);
   const annotationStr = annotation
@@ -123,7 +190,18 @@ async function computeLockCacheKey(
   const depsStr = sortedDepsKeys
     .map((k) => `${k}=${rawWorkspaceDependencies[k]}`)
     .join(";");
-  const content = `${language}|${annotationStr}|${depsStr}`;
+  const tempRefsStr = tempScriptRefs
+    ? Object.keys(tempScriptRefs).sort().map((k) => `${k}=${tempScriptRefs[k]}`).join(";")
+    : "";
+  const isManualWorkspaceDeps = annotation
+    ? annotation.mode === "manual"
+    : Object.keys(
+        filterWorkspaceDependencies(rawWorkspaceDependencies, scriptContent, language),
+      ).length > 0;
+  const contentStr = isManualWorkspaceDeps
+    ? extractLockRelevantHeader(scriptContent, language)
+    : scriptContent;
+  const content = `${language}|${annotationStr}|${depsStr}|${tempRefsStr}|${contentStr}`;
   const buf = new TextEncoder().encode(content);
   return Buffer.from(await crypto.subtle.digest("SHA-256", buf)).toString("hex");
 }
@@ -337,6 +415,148 @@ test("different language → different key", async () => {
 test("dep key order does not matter", async () => {
   const code = "print('hello')";
   expect(await computeLockCacheKey(code, "python3", { a: "1", b: "2" })).toEqual(await computeLockCacheKey(code, "python3", { b: "2", a: "1" }));
+});
+
+// -- Lock-relevant header (GIT-891 regression) -------------------------------
+// Annotations in the leading comment block (python version pins, //npm, ...)
+// change the generated lockfile even when workspace deps are identical, so
+// they must be part of the cache key.
+
+test("header extraction: leading comments + blanks, stops at code", () => {
+  const code = `# py311
+
+# no_cache
+import pandas
+# trailing comment`;
+  expect(extractLockRelevantHeader(code, "python3")).toEqual("# py311\n\n# no_cache");
+});
+
+test("header extraction: no leading comments → empty header", () => {
+  expect(extractLockRelevantHeader("import pandas\n# py311", "python3")).toEqual("");
+});
+
+test("python: different py version annotation, same deps → different key", async () => {
+  const deps = { "dependencies/requirements.in": "requests==2.31.0" };
+  const codeA = `# py310
+# requirements: default
+print("hello")`;
+  const codeB = `# requirements: default
+print("hello")`;
+  expect(await computeLockCacheKey(codeA, "python3", deps)).not.toEqual(
+    await computeLockCacheKey(codeB, "python3", deps),
+  );
+});
+
+test("python: different '# py:' specifier, same deps → different key", async () => {
+  const deps = { "dependencies/requirements.in": "requests==2.31.0" };
+  const codeA = `# py: >=3.12
+print("hello")`;
+  const codeB = `# py: >=3.10
+print("hello")`;
+  expect(await computeLockCacheKey(codeA, "python3", deps)).not.toEqual(
+    await computeLockCacheKey(codeB, "python3", deps),
+  );
+});
+
+test("bun: //npm annotation, same deps → different key", async () => {
+  const deps = { "dependencies/package.json": '{"dependencies":{"axios":"^1.6.0"}}' };
+  const codeA = `//npm
+export function main() {}`;
+  const codeB = `export function main() {}`;
+  expect(await computeLockCacheKey(codeA, "bun", deps)).not.toEqual(
+    await computeLockCacheKey(codeB, "bun", deps),
+  );
+});
+
+test("same header, different body → same key (cache still shared)", async () => {
+  const deps = { "dependencies/requirements.in": "requests==2.31.0" };
+  const codeA = `# py311
+# requirements: default
+print("hello")`;
+  const codeB = `# py311
+# requirements: default
+print("world")`;
+  expect(await computeLockCacheKey(codeA, "python3", deps)).toEqual(
+    await computeLockCacheKey(codeB, "python3", deps),
+  );
+});
+
+// -- tempScriptRefs: full content is part of the key -------------------------
+// With tempScriptRefs the backend resolves the script's own imports, so two
+// scripts with different bodies must not share a lock.
+
+test("tempScriptRefs: different body, same refs → different key", async () => {
+  const refs = { "f/lib/util": "abc123" };
+  const codeA = `import { a } from "./util.ts"\nexport function main() {}`;
+  const codeB = `import axios from "axios"\nexport function main() {}`;
+  expect(await computeLockCacheKey(codeA, "bun", {}, refs)).not.toEqual(
+    await computeLockCacheKey(codeB, "bun", {}, refs),
+  );
+});
+
+test("tempScriptRefs: same content + refs → same key", async () => {
+  const refs = { "f/lib/util": "abc123" };
+  const code = `import { a } from "./util.ts"\nexport function main() {}`;
+  expect(await computeLockCacheKey(code, "bun", {}, refs)).toEqual(
+    await computeLockCacheKey(code, "bun", {}, refs),
+  );
+});
+
+test("tempScriptRefs: different ref hash → different key", async () => {
+  const code = `import { a } from "./util.ts"\nexport function main() {}`;
+  expect(await computeLockCacheKey(code, "bun", {}, { "f/lib/util": "abc123" })).not.toEqual(
+    await computeLockCacheKey(code, "bun", {}, { "f/lib/util": "def456" }),
+  );
+});
+
+test("matching deps + tempScriptRefs: same header, different body → same key", async () => {
+  // Manual workspace-deps mode ignores the script body (and relative imports),
+  // so the cache can still be shared across scripts.
+  const deps = { "dependencies/package.json": '{"dependencies":{"axios":"^1.6.0"}}' };
+  const refs = { "dependencies/package.json": "abc123" };
+  const codeA = `import axios from "axios"\nexport function main() { return 1 }`;
+  const codeB = `import axios from "axios"\nexport function main() { return 2 }`;
+  expect(await computeLockCacheKey(codeA, "bun", deps, refs)).toEqual(
+    await computeLockCacheKey(codeB, "bun", deps, refs),
+  );
+});
+
+// -- Non-matching deps: the backend scans the script content -----------------
+// updateModuleLocks passes the unfiltered workspace deps map, so e.g. a deno
+// module reaches the cache with a python requirements.in in the map. The
+// backend ignores those deps and locks from the script's own imports, so the
+// content must be in the key.
+
+test("deno + non-matching deps: different content → different key", async () => {
+  const deps = { "dependencies/requirements.in": "requests==2.31.0" };
+  const codeA = `import { x } from "npm:left-pad"\nexport function main() {}`;
+  const codeB = `import { y } from "npm:axios"\nexport function main() {}`;
+  expect(await computeLockCacheKey(codeA, "deno", deps)).not.toEqual(
+    await computeLockCacheKey(codeB, "deno", deps),
+  );
+});
+
+test("bun + only python deps in map: different content → different key", async () => {
+  const deps = { "dependencies/requirements.in": "requests==2.31.0" };
+  const codeA = `import leftPad from "left-pad"\nexport function main() {}`;
+  const codeB = `import axios from "axios"\nexport function main() {}`;
+  expect(await computeLockCacheKey(codeA, "bun", deps)).not.toEqual(
+    await computeLockCacheKey(codeB, "bun", deps),
+  );
+});
+
+test("python extra mode with external ref: different imports → different key", async () => {
+  // Extra mode appends the script's scanned imports to the workspace deps.
+  const deps = { "dependencies/utils.requirements.in": "rich==13.0.0" };
+  const codeA = `# extra_requirements: utils
+import pandas
+def main(): pass`;
+  const codeB = `# extra_requirements: utils
+import numpy
+def main(): pass`;
+  expect(await computeLockCacheKey(codeA, "python3", deps)).not.toEqual(
+    await computeLockCacheKey(codeB, "python3", deps),
+  );
 });
 
 // =============================================================================

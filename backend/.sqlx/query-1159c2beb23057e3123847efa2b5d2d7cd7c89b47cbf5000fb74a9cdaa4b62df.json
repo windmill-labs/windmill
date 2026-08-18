@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO folder(workspace_id, name, display_name, owners, extra_perms, default_permissioned_as)\n         VALUES ('test-workspace', 'fold', 'fold', '{}', '{}'::jsonb,\n                 '[{\"path_glob\": \"a/**\", \"permissioned_as\": \"u/other\"}, {\"path_glob\": \"**\", \"permissioned_as\": \"test2@windmill.dev\"}]'::jsonb)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "1159c2beb23057e3123847efa2b5d2d7cd7c89b47cbf5000fb74a9cdaa4b62df"
+}

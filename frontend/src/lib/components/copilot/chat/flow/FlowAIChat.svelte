@@ -23,7 +23,7 @@
 		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 	} = $props()
 
-	const { flowStore, flowStateStore, selectionManager, currentEditor, previewArgs } =
+	const { flowStore, flowStateStore, selectionManager, currentEditor, previewArgs, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const selectedId = $derived(selectionManager.getSelectedId())
 
@@ -102,7 +102,7 @@
 			}
 
 			inlineScriptSession.set(id, code)
-			const { input_transforms, schema } = await loadSchemaFromModule(module)
+			const { input_transforms, schema } = await loadSchemaFromModule(module, opWorkspace?.())
 			module.value.input_transforms = input_transforms
 			refreshStateStore(flowStore)
 
@@ -135,7 +135,8 @@
 			await acceptPendingFlowEditsIfEnabled()
 		},
 		getFlowInputsSchema: async () => {
-			return flowStore.val.schema ?? {}
+			const s = flowStore.val.schema ?? {}
+			return { type: 'object', properties: {}, required: [], ...s }
 		},
 
 		updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => {
@@ -156,7 +157,9 @@
 		},
 
 		selectStep: (id) => {
-			selectionManager.selectId(id)
+			// The step's editor must actually be on screen for the user to see what the
+			// assistant is working on.
+			selectionManager.selectId(id, { openPanel: true })
 		},
 
 		testFlow: async (args, conversationId) => {
@@ -174,8 +177,9 @@
 				return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 			}
 
-			// Focus the module first
-			selectionManager.selectId(moduleId)
+			// Lint is read off the mounted editor, so the panel has to be open — with it
+			// closed the poll below would time out and report a clean script.
+			selectionManager.selectId(moduleId, { openPanel: true })
 
 			// Poll until editor exists
 			const maxWait = 3000
@@ -196,7 +200,15 @@
 			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		},
 
-		setFlowJson: async ({ modules, schema, preprocessorModule, failureModule, groups, notes }) => {
+		setFlowJson: async ({
+			modules,
+			schema,
+			preprocessorModule,
+			failureModule,
+			groups,
+			notes,
+			settings
+		}) => {
 			try {
 				if (
 					modules !== undefined ||
@@ -204,7 +216,8 @@
 					preprocessorModule !== undefined ||
 					failureModule !== undefined ||
 					groups !== undefined ||
-					notes !== undefined
+					notes !== undefined ||
+					settings !== undefined
 				) {
 					// Take snapshot of current flowStore and set as beforeFlow
 					if (!diffManager?.hasPendingChanges) {
@@ -220,7 +233,8 @@
 					preprocessorModule,
 					failureModule,
 					groups,
-					notes
+					notes,
+					settings
 				})
 
 				// Refresh the state store to update UI

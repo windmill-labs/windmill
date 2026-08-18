@@ -97,7 +97,7 @@
 	let { lightMode = false, isCollapsed = false, favoriteLinks = [], createMenu }: Props = $props()
 </script>
 
-<Menu {createMenu} usePointerDownOutside>
+<Menu {createMenu} usePointerDownOutside placement="bottom-start">
 	{#snippet triggr({ trigger })}
 		<MenuButton
 			class="!text-xs"
@@ -105,6 +105,7 @@
 			label={'Favorites'}
 			{isCollapsed}
 			{lightMode}
+			showChevron
 			{trigger}
 		/>
 	{/snippet}
@@ -132,15 +133,16 @@
 								{item}
 								class="w-full inline-flex flex-row px-4 py-2 pr-8 data-[highlighted]:bg-surface-hover"
 							>
+								<!-- Kind colors mirror the home-page row icons (RowIcon.svelte). -->
 								<span class="center-center">
 									{#if favorite.kind == 'script'}
-										<CodeXml size={16} />
+										<CodeXml size={16} class="text-blue-500" />
 									{:else if favorite.kind == 'flow'}
-										<BarsStaggered size={16} />
+										<BarsStaggered size={16} class="text-teal-500" />
 									{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
-										<LayoutDashboard size={16} />
+										<LayoutDashboard size={16} class="text-orange-500" />
 									{:else if favorite.kind == 'asset'}
-										<Table2 size={16} />
+										<Table2 size={16} class="text-primary" />
 									{/if}
 								</span>
 								<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
@@ -153,7 +155,7 @@
 								<DropdownV2
 									items={[
 										{
-											displayName: 'Delete',
+											displayName: 'Remove from favorites',
 											icon: Trash2,
 											action: () => favoriteManager.unstar(favorite.path, favorite.kind)
 										}

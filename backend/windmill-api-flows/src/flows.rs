@@ -21,7 +21,8 @@ use windmill_api_auth::{
 };
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 use windmill_common::{
-    utils::{WithStarredInfoQuery, HTTP_CLIENT},
+    user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
+    utils::HTTP_CLIENT,
     webhook::{WebhookMessage, WebhookShared},
     DB,
 };
@@ -46,10 +47,10 @@ use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
-    flows::{Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
+    flows::{EditFlow, Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
     jobs::JobPayload,
     schedule::Schedule,
-    scripts::Schema,
+    triggers::MovedNativeTrigger,
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
@@ -68,7 +69,6 @@ pub fn workspaced_service() -> Router {
         .route("/list_tokens/{*path}", get(list_tokens))
         .route("/get/{*path}", get(get_flow_by_path))
         .route("/deployment_status/p/{*path}", get(get_deployment_status))
-        .route("/get/draft/{*path}", get(get_flow_by_path_w_draft))
         .route("/exists/{*path}", get(exists_flow_by_path))
         .route("/list_paths", get(list_paths))
         .route("/history/p/{*path}", get(get_flow_history))
@@ -102,11 +102,7 @@ async fn list_search_flows(
     Path(w_id): Path<String>,
     Extension(user_db): Extension<UserDB>,
 ) -> JsonResult<Vec<SearchFlow>> {
-    #[cfg(feature = "enterprise")]
     let n = 1000;
-
-    #[cfg(not(feature = "enterprise"))]
-    let n = 3;
     let mut tx = user_db.begin(&authed).await?;
 
     let allowed = build_scope_path_predicate(&authed, "flows", "read");
@@ -130,6 +126,7 @@ async fn list_search_flows(
 async fn list_flows(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListFlowQuery>,
@@ -151,10 +148,17 @@ async fn list_flows(
             "archived",
             "extra_perms",
             "favorite.path IS NOT NULL as starred",
-            "draft.path IS NOT NULL as has_draft",
-            "draft_only",
             "ws_error_handler_muted",
-            "o.labels"
+            "o.labels",
+            "draft.email IS NOT NULL as is_draft",
+            // Per-path draft owners as a JSON array; see scripts.rs for the rationale
+            // (non-member superadmin identity fallback via `password`, legacy NULL-email row).
+            "(SELECT json_agg(json_build_object('username', COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END)) ORDER BY COALESCE(u.username, p.username, CASE WHEN p.email IS NOT NULL THEN d.email END) NULLS LAST) \
+              FROM draft d \
+              LEFT JOIN usr u ON u.workspace_id = d.workspace_id AND u.email = d.email \
+              LEFT JOIN password p ON p.email = d.email AND p.super_admin = true \
+              WHERE d.workspace_id = o.workspace_id AND d.path = o.path AND d.typ = 'flow') as draft_users",
+            "folder_labels(o.workspace_id, o.path) as inherited_labels"
         ])
         .left()
         .join("favorite")
@@ -165,7 +169,8 @@ async fn list_flows(
         .left()
         .join("draft")
         .on(
-            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow'"
+            "draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'flow' AND draft.email = ?"
+                .bind(&authed.email),
         )
         .left()
         .join("flow_version fv")
@@ -194,15 +199,16 @@ async fn list_flows(
         sqlb.and_where_is_not_null("favorite.path");
     }
 
-    if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
-        sqlb.and_where("o.draft_only IS NOT TRUE");
-    }
     if let Some(dw) = &lq.dedicated_worker {
         sqlb.and_where_eq("dedicated_worker", dw);
     }
     if let Some(label) = &lq.label {
         for l in label.split(',') {
-            sqlb.and_where("o.labels @> ARRAY[?]".bind(&l.trim()));
+            sqlb.and_where(
+                "(o.labels @> ARRAY[?] OR folder_labels(o.workspace_id, o.path) @> ARRAY[?])"
+                    .bind(&l.trim())
+                    .bind(&l.trim()),
+            );
         }
     }
 
@@ -216,13 +222,92 @@ async fn list_flows(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "flows", "read");
-    let rows = sqlx::query_as::<_, ListableFlow>(&sql)
+    let mut rows = sqlx::query_as::<_, ListableFlow>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
         .filter(|r| allowed(&r.path))
         .collect::<Vec<_>>();
     tx.commit().await?;
+
+    // Append the authed user's drafts at paths with no deployed flow; see scripts.rs.
+    if lq.include_draft_only.unwrap_or(false)
+        && !authed.is_operator
+        && offset == 0
+        && lq.path_start.is_none()
+        && lq.path_exact.is_none()
+        && lq.edited_by.is_none()
+        && lq.dedicated_worker.is_none()
+        && lq.label.is_none()
+        && !lq.starred_only.unwrap_or(false)
+        && !lq.show_archived.unwrap_or(false)
+    {
+        // `(email = $2 OR email IS NULL)` + `DISTINCT ON (path)` ordered NULL-last; see scripts.rs.
+        let draft_only_rows = sqlx::query!(
+            r#"SELECT DISTINCT ON (path)
+                      path,
+                      value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
+                      created_at
+               FROM draft
+               WHERE workspace_id = $1
+                 AND typ = 'flow'
+                 AND (email = $2 OR email IS NULL)
+                 AND NOT EXISTS (
+                     SELECT 1 FROM flow f
+                     WHERE f.workspace_id = draft.workspace_id
+                       AND f.path = draft.path
+                 )
+               ORDER BY path, (email IS NULL)"#,
+            &w_id,
+            &authed.email,
+        )
+        .fetch_all(&db)
+        .await?;
+
+        for row in draft_only_rows {
+            let v: serde_json::Value =
+                serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
+            // The Path widget binds `$pathStore` one-way (`flow.path → $pathStore`),
+            // so the editor writes a separate `draft_path` field only when the typed
+            // path differs from the deployed one. `None` = unchanged.
+            let draft_path = v
+                .get("draft_path")
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty() && *s != row.path.as_str())
+                .map(|s| s.to_string());
+            rows.push(ListableFlow {
+                workspace_id: w_id.clone(),
+                path: row.path,
+                summary: v
+                    .get("summary")
+                    .and_then(|s| s.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                description: v
+                    .get("description")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string()),
+                edited_by: Some(authed.email.clone()),
+                edited_at: Some(row.created_at),
+                archived: false,
+                extra_perms: serde_json::Value::Object(serde_json::Map::new()),
+                starred: false,
+                draft_only: Some(true),
+                ws_error_handler_muted: None,
+                deployment_msg: None,
+                labels: None,
+                // No deployed row to inherit folder labels from.
+                inherited_labels: None,
+                is_draft: true,
+                draft_path,
+                // Synthesized rows are the authed user's own draft.
+                draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
+                    username: Some(authed.username.clone()),
+                }])),
+            });
+        }
+    }
+
     Ok(Json(rows))
 }
 
@@ -296,6 +381,7 @@ async fn toggle_workspace_error_handler(
 async fn toggle_workspace_error_handler(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(req): Json<ToggleWorkspaceErrorHandler>,
 ) -> Result<String> {
@@ -316,9 +402,10 @@ async fn toggle_workspace_error_handler(
     .await?
     .unwrap_or(None);
 
+    let mut updated_rows = 0;
     let response = match error_handler_maybe {
         Some(_) => {
-            sqlx::query_scalar!(
+            updated_rows = sqlx::query_scalar!(
                 r#"
                     UPDATE 
                         flow 
@@ -333,7 +420,8 @@ async fn toggle_workspace_error_handler(
                 req.muted,
             )
             .execute(&mut *tx)
-            .await?;
+            .await?
+            .rows_affected();
             Ok("".to_string())
         }
         None => Err(Error::BadRequest(
@@ -342,6 +430,37 @@ async fn toggle_workspace_error_handler(
     };
 
     tx.commit().await?;
+
+    // `ws_error_handler_muted` is part of the synced flow metadata, so the
+    // toggle is a deploy like any other edit of it. The version is a
+    // placeholder: git sync keys off the path and kind alone. The update runs
+    // under RLS against an unchecked path, so it can match nothing — deploy
+    // only what it actually wrote.
+    if updated_rows > 0 {
+        handle_deployment_metadata(
+            &authed.email,
+            &authed.username,
+            &db,
+            &w_id,
+            DeployedObject::Flow {
+                path: path.to_path().to_string(),
+                parent_path: None,
+                version: 0,
+            },
+            Some(format!(
+                "Flow '{}' {} the workspace error handler",
+                path.to_path(),
+                if req.muted.unwrap_or(false) {
+                    "muted"
+                } else {
+                    "unmuted"
+                }
+            )),
+            true,
+            None,
+        )
+        .await?;
+    }
 
     return response;
 }
@@ -443,6 +562,11 @@ async fn create_flow(
     }
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
 
+    // A `<= 0` flow timeout is "unset", not a 0-second limit that kills every run instantly.
+    // (The concurrency settings inside the flow value are normalized on deserialization; see
+    // ConcurrencySettings.) Runtime guards also protect already-stored rows.
+    nf.timeout = windmill_common::runnable_settings::none_if_non_positive(nf.timeout);
+
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -488,17 +612,17 @@ async fn create_flow(
 
     // Apply folder default_permissioned_as on create when the caller did not
     // explicitly preserve a value and the user can preserve.
-    let explicit_preserve = nf.on_behalf_of_email.is_some()
+    let explicit_preserve = (nf.on_behalf_of_email.is_some()
+        || nf.on_behalf_of.is_some())
         && nf.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
     if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
-        if let Some(default_email) =
-            windmill_common::folders::resolve_folder_default_on_behalf_of_email(
-                &db, &w_id, &nf.path,
-            )
-            .await?
+        if let Some((default_email, default_permissioned_as)) =
+            windmill_common::folders::resolve_folder_default_on_behalf_of(&db, &w_id, &nf.path)
+                .await?
         {
             nf.on_behalf_of_email = Some(default_email);
+            nf.on_behalf_of = Some(default_permissioned_as);
             nf.preserve_on_behalf_of = Some(true);
         }
     }
@@ -509,38 +633,50 @@ async fn create_flow(
     check_schedule_conflict(&mut tx, &w_id, &nf.path).await?;
 
     let schema_str = nf.schema.and_then(|x| serde_json::to_string(&x.0).ok());
+    let resolved_on_behalf_of =
+        windmill_common::resolve_on_behalf_of(
+            nf.on_behalf_of_email.as_deref(),
+            nf.on_behalf_of.as_deref(),
+            nf.preserve_on_behalf_of.unwrap_or(false),
+            &authed,
+            &w_id,
+            &db,
+        )
+        .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
     sqlx::query!(
         r#"INSERT INTO flow (
         workspace_id, path, summary, description,
-        dependency_job, lock_error_logs, draft_only, tag,
-        dedicated_worker, visible_to_runner_only, on_behalf_of_email,
+        dependency_job, lock_error_logs, tag,
+        dedicated_worker, visible_to_runner_only,
         ws_error_handler_muted,
-        value, schema, edited_by, edited_at, labels
+        value, schema, edited_by, edited_at, labels,
+        on_behalf_of, on_behalf_of_email
     ) VALUES (
         $1, $2, $3, $4,
-        NULL, '', $5, $6,
-        $7, $8, $9,
-        $10,
-        $11, $12::text::json, $13, now(), $14
+        NULL, '', $5,
+        $6, $7,
+        $8,
+        $9, $10::text::json, $11, now(), $12,
+        $13, $14
     )"#,
         w_id,
         nf.path,
         nf.summary,
         nf.description.as_deref().unwrap_or(""),
-        nf.draft_only,
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
-        windmill_common::resolve_on_behalf_of_email(
-            nf.on_behalf_of_email.as_deref(),
-            nf.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-        ),
         nf.ws_error_handler_muted.unwrap_or(false),
         sqlx::types::Json(&nf.value) as _,
         schema_str,
         &authed.username,
         nf.labels.as_deref() as Option<&[String]>,
+        resolved_on_behalf_of,
+        legacy_on_behalf_of_email,
     )
     .execute(&mut *tx)
     .await?;
@@ -566,12 +702,15 @@ async fn create_flow(
     ).execute(&mut *tx).await?;
 
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
-    // path instead of wiping it as part of the deploy.
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row); see scripts.rs.
     if !nf.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow' \
+             AND (email = $3 OR email IS NULL)",
             nf.path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -593,10 +732,10 @@ async fn create_flow(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        nf.on_behalf_of_email.as_deref(),
+        resolved_on_behalf_of.as_deref(),
         nf.preserve_on_behalf_of.unwrap_or(false),
         &authed,
-        &authed.email,
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
             &mut *tx,
@@ -637,6 +776,7 @@ async fn create_flow(
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,
@@ -714,18 +854,6 @@ async fn check_schedule_conflict<'c>(
     Ok(())
 }
 
-pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    return windmill_api_auth::require_is_writer(
-        authed,
-        path,
-        w_id,
-        db,
-        "SELECT extra_perms FROM flow WHERE path = $1 AND workspace_id = $2",
-        "flow",
-    )
-    .await;
-}
-
 #[derive(Serialize)]
 pub struct FlowVersion {
     pub id: i64,
@@ -784,8 +912,27 @@ async fn get_latest_version(
     Ok(Json(version))
 }
 
+/// `on_behalf_of_email` is derived rather than selected: the read paths fill it from the
+/// principal so clients written against the address keep working. The column itself still
+/// exists for the workers that read it — see `legacy_on_behalf_of_email`.
+async fn derived_on_behalf_of_email(
+    db: &DB,
+    w_id: &str,
+    flow: &Flow,
+) -> error::Result<Option<String>> {
+    let Some(permissioned_as) = flow.on_behalf_of.as_deref() else {
+        return Ok(None);
+    };
+    // Uncached, for the reason given on `prefetch_cached_script`: this pair is round-tripped.
+    Ok(Some(
+        windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+            .await?,
+    ))
+}
+
 async fn get_flow_version(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, version, path)): Path<(String, i64, StripPath)>,
 ) -> JsonResult<Flow> {
@@ -794,26 +941,28 @@ async fn get_flow_version(
     let mut tx = user_db.begin(&authed).await?;
 
     let flow = sqlx::query_as::<_, Flow>(
-        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.draft_only, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+        "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
         FROM flow
         LEFT JOIN flow_version ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
         WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
     )
     .bind(path)
-    .bind(w_id)
+    .bind(&w_id)
     .bind(version)
     .fetch_optional(&mut *tx)
     .await?;
 
     tx.commit().await?;
 
-    let flow = not_found_if_none(flow, "Flow version", version.to_string())?;
+    let mut flow = not_found_if_none(flow, "Flow version", version.to_string())?;
+    flow.on_behalf_of_email = derived_on_behalf_of_email(&db, &w_id, &flow).await?;
 
     Ok(Json(flow))
 }
 
 async fn get_flow_version_by_id(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, version)): Path<(String, i64)>,
 ) -> JsonResult<Flow> {
@@ -845,13 +994,12 @@ async fn get_flow_version_by_id(
             flow.description,
             flow.archived,
             flow.extra_perms,
-            flow.draft_only,
             flow.dedicated_worker,
             flow.tag,
             flow.ws_error_handler_muted,
             flow.timeout,
             flow.visible_to_runner_only,
-            flow.on_behalf_of_email,
+            flow.on_behalf_of,
             flow.labels,
             flow_version.schema,
             flow_version.value,
@@ -870,11 +1018,12 @@ async fn get_flow_version_by_id(
 
     tx.commit().await?;
 
-    let flow = not_found_if_none(
+    let mut flow = not_found_if_none(
         flow,
         "Flow",
         format!("for version {} (flow may have been deleted)", version),
     )?;
+    flow.on_behalf_of_email = derived_on_behalf_of_email(&db, &w_id, &flow).await?;
 
     Ok(Json(flow))
 }
@@ -924,13 +1073,42 @@ async fn update_flow_history(
     Ok(())
 }
 
+/// Re-point the webhooks of the native triggers a rename carried onto the new path.
+///
+/// Runs after the deploy transaction commits — repointing a webhook is not undoable — and off the
+/// request, because it waits on a third-party service that may be slow or gone, and a deploy that
+/// already committed must not look like it failed. The rename itself marked these rows
+/// `REREGISTRATION_PENDING`, so nothing is lost silently if this never finishes.
+fn reregister_moved_native_triggers(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    moved: Vec<MovedNativeTrigger>,
+) {
+    if moved.is_empty() {
+        return;
+    }
+    #[cfg(feature = "native_trigger")]
+    {
+        let (db, authed, w_id) = (db.clone(), authed.clone(), w_id.to_string());
+        tokio::spawn(async move {
+            windmill_native_triggers::rename::reregister_triggers_after_rename(
+                &db, &authed, &w_id, &moved,
+            )
+            .await;
+        });
+    }
+    #[cfg(not(feature = "native_trigger"))]
+    let _ = (db, authed, w_id, moved);
+}
+
 async fn update_flow(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
-    Json(nf): Json<NewFlow>,
+    Json(ef): Json<EditFlow>,
 ) -> Result<String> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
@@ -938,7 +1116,18 @@ async fn update_flow(
         ));
     }
     let flow_path = flow_path.to_path();
+    // The URL identifies the flow being updated; the body path is only needed to rename.
+    let mut nf = ef.into_new_flow(flow_path);
+    // A `<= 0` flow timeout is "unset", not a 0-second limit (see create_flow).
+    nf.timeout = windmill_common::runnable_settings::none_if_non_positive(nf.timeout);
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
+    // A rename writes the destination as much as the source, so a path-scoped token needs both.
+    // Checking only the source would let it move a flow onto a path it has no say over — and
+    // everything that follows the rename, native triggers included, is then acting on a path this
+    // caller was never authorized for. `create_script` already scopes against its destination.
+    if nf.path != flow_path {
+        check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
+    }
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -971,6 +1160,20 @@ async fn update_flow(
     let old_dep_job = not_found_if_none(old_dep_job, "Flow", flow_path)?;
     let is_new_path = nf.path != flow_path;
     let schema_str = schema.and_then(|x| serde_json::to_string(&x).ok());
+    let resolved_on_behalf_of =
+        windmill_common::resolve_on_behalf_of(
+            nf.on_behalf_of_email.as_deref(),
+            nf.on_behalf_of.as_deref(),
+            nf.preserve_on_behalf_of.unwrap_or(false),
+            &authed,
+            &w_id,
+            &db,
+        )
+        .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
 
     sqlx::query!(
         "
@@ -982,30 +1185,25 @@ async fn update_flow(
             description = $3,
             dependency_job = NULL,
             lock_error_logs = '',
-            draft_only = NULL,
             tag = $4,
             dedicated_worker = $5,
             visible_to_runner_only = $6,
-            on_behalf_of_email = $7,
-            ws_error_handler_muted = $8,
-            value = $9,
-            schema = $10::text::json,
-            edited_by = $11,
+            ws_error_handler_muted = $7,
+            value = $8,
+            schema = $9::text::json,
+            edited_by = $10,
             edited_at = now(),
-            labels = COALESCE($14, labels)
+            labels = COALESCE($13, labels),
+            on_behalf_of = $14,
+            on_behalf_of_email = $15
         WHERE
-            path = $12 AND workspace_id = $13",
+            path = $11 AND workspace_id = $12",
         if is_new_path { flow_path } else { &nf.path },
         nf.summary,
         nf.description.as_deref().unwrap_or(""),
         nf.tag,
         nf.dedicated_worker,
         nf.visible_to_runner_only.unwrap_or(false),
-        windmill_common::resolve_on_behalf_of_email(
-            nf.on_behalf_of_email.as_deref(),
-            nf.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
-        ),
         nf.ws_error_handler_muted.unwrap_or(false),
         sqlx::types::Json(&nf.value) as _,
         schema_str,
@@ -1013,6 +1211,8 @@ async fn update_flow(
         flow_path,
         w_id,
         nf.labels.as_deref() as Option<&[String]>,
+        resolved_on_behalf_of,
+        legacy_on_behalf_of_email,
     )
     .execute(&mut *tx)
     .await
@@ -1024,8 +1224,8 @@ async fn update_flow(
         // if new path, must clone flow to new path and delete old flow for flow_version foreign key constraint
         sqlx::query!(
             "INSERT INTO flow
-                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
-            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
+                (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels)
+            SELECT workspace_id, $1, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, labels
                 FROM flow
                 WHERE path = $2 AND workspace_id = $3",
             nf.path,
@@ -1156,8 +1356,9 @@ async fn update_flow(
         }
     }
 
+    let mut moved_native_triggers = Vec::new();
     if is_new_path {
-        windmill_common::triggers::update_triggers_script_path(
+        moved_native_triggers = windmill_common::triggers::update_triggers_script_path(
             &mut tx, &nf.path, &flow_path, &w_id, true,
         )
         .await
@@ -1169,12 +1370,15 @@ async fn update_flow(
     }
 
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
-    // path instead of wiping it as part of the deploy.
+    // path instead of wiping it as part of the deploy. Only wipe the deployer's
+    // own draft (plus the legacy NULL-email row); see scripts.rs.
     if !nf.skip_draft_deletion.unwrap_or(false) {
         sqlx::query!(
-            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow'",
+            "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ = 'flow' \
+             AND (email = $3 OR email IS NULL)",
             flow_path,
-            &w_id
+            &w_id,
+            &authed.email,
         )
         .execute(&mut *tx)
         .await?;
@@ -1196,10 +1400,10 @@ async fn update_flow(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        nf.on_behalf_of_email.as_deref(),
+        resolved_on_behalf_of.as_deref(),
         nf.preserve_on_behalf_of.unwrap_or(false),
         &authed,
-        &authed.email,
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
             &mut *tx,
@@ -1251,6 +1455,7 @@ async fn update_flow(
         &authed.email,
         windmill_common::users::username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,
@@ -1326,6 +1531,21 @@ async fn update_flow(
 
     new_tx.commit().await?;
 
+    // See `tally_rename_vacated_path`.
+    if flow_path != nf.path {
+        if let Err(e) = windmill_git_sync::tally_rename_vacated_path(
+            &db,
+            &w_id,
+            DeployedObject::Flow { path: flow_path.to_string(), parent_path: None, version },
+        )
+        .await
+        {
+            tracing::error!(%e, "error tallying the path renamed away from");
+        }
+    }
+
+    reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
+
     // Trigger CI tests for items that reference this flow
     {
         let db2 = db.clone();
@@ -1353,10 +1573,12 @@ async fn update_flow(
 }
 
 async fn list_tokens(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<TruncatedTokenWithEmail>> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
     list_tokens_internal(&db, &w_id, &path, true).await
 }
 
@@ -1392,12 +1614,21 @@ async fn get_deployment_status(
     Ok(Json(deployment_status))
 }
 
+// Fields inlined rather than flattened (axum query bool quirk); see GetScriptByPathQuery in scripts.rs.
+#[derive(Deserialize)]
+struct GetFlowByPathQuery {
+    with_starred_info: Option<bool>,
+    #[serde(default)]
+    get_draft: bool,
+}
+
 async fn get_flow_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-    Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<FlowWithStarred> {
+    Query(query): Query<GetFlowByPathQuery>,
+) -> JsonResult<WithDraftOverlay> {
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -1411,15 +1642,15 @@ async fn get_flow_by_path(
             flow.summary, 
             flow.description, 
             flow.archived, 
-            flow.extra_perms, 
-            flow.draft_only, 
-            flow.dedicated_worker, 
+            flow.extra_perms,
+            flow.dedicated_worker,
             flow.tag, 
             flow.ws_error_handler_muted, 
             flow.timeout, 
             flow.visible_to_runner_only, 
-            flow.on_behalf_of_email,
+            flow.on_behalf_of,
             flow.labels,
+            folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
             flow_version.value,
@@ -1438,7 +1669,7 @@ async fn get_flow_by_path(
         "#,
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .bind(&authed.username)
         .fetch_optional(&mut *tx)
         .await?
@@ -1452,15 +1683,15 @@ async fn get_flow_by_path(
             flow.summary, 
             flow.description, 
             flow.archived, 
-            flow.extra_perms, 
-            flow.draft_only, 
-            flow.dedicated_worker, 
+            flow.extra_perms,
+            flow.dedicated_worker,
             flow.tag, 
             flow.ws_error_handler_muted, 
             flow.timeout, 
             flow.visible_to_runner_only, 
-            flow.on_behalf_of_email,
+            flow.on_behalf_of,
             flow.labels,
+            folder_labels(flow.workspace_id, flow.path) AS inherited_labels,
             flow_version.id AS version_id,
             flow_version.schema,
             flow_version.value,
@@ -1474,90 +1705,33 @@ async fn get_flow_by_path(
         "#,
         )
         .bind(path)
-        .bind(w_id)
+        .bind(&w_id)
         .fetch_optional(&mut *tx)
         .await?
     };
 
     tx.commit().await?;
 
-    let flow = not_found_if_none(flow_o, "Flow", path)?;
-    Ok(Json(flow))
-}
+    // The primary GET is what the CLI reads before a preserving push, so it must carry the
+    // derived address: without it the push sends neither half and the identity is cleared.
+    let mut flow_o = flow_o;
+    if let Some(fws) = flow_o.as_mut() {
+        fws.flow.on_behalf_of_email = derived_on_behalf_of_email(&db, &w_id, &fws.flow).await?;
+    }
 
-#[derive(Serialize, sqlx::FromRow)]
-pub struct FlowWDraft {
-    pub path: String,
-    pub summary: String,
-    pub description: String,
-    pub schema: Option<Schema>,
-    pub value: sqlx::types::Json<Box<serde_json::value::RawValue>>,
-    pub extra_perms: serde_json::Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft: Option<sqlx::types::Json<Box<serde_json::value::RawValue>>>,
-    /// Timestamp at which the most recent DB draft was created.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_created_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ws_error_handler_muted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dedicated_worker: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub visible_to_runner_only: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_behalf_of_email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub labels: Option<Vec<String>>,
-}
-
-async fn get_flow_by_path_w_draft(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<FlowWDraft> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("flows:read:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
-    let flow_o = sqlx::query_as::<_, FlowWDraft>(
-        "SELECT
-            flow.path,
-            flow.summary,
-            flow.description,
-            flow_version.schema,
-            flow_version.value,
-            flow.extra_perms,
-            flow.draft_only,
-            flow.ws_error_handler_muted,
-            flow.dedicated_worker,
-            draft.value AS draft,
-            draft.created_at AS draft_created_at,
-            flow.tag,
-            flow.visible_to_runner_only,
-            flow.on_behalf_of_email,
-            flow.labels
-        FROM flow
-        LEFT JOIN draft
-            ON flow.path = draft.path
-            AND draft.workspace_id = $2
-            AND draft.typ = 'flow'
-        LEFT JOIN flow_version
-            ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-        WHERE flow.path = $1
-        AND flow.workspace_id = $2",
+    // No deployed row + `get_draft`: fall back to the draft table; see scripts.rs.
+    let overlay = overlay_or_draft_only(
+        &db,
+        &w_id,
+        &authed.email,
+        UserDraftItemKind::Flow,
+        path,
+        query.get_draft,
+        flow_o,
+        || windmill_common::error::Error::NotFound(format!("Flow not found at path {path}")),
     )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
     .await?;
-
-    tx.commit().await?;
-
-    let flow = not_found_if_none(flow_o, "Flow", path)?;
-    Ok(Json(flow))
+    Ok(Json(overlay))
 }
 
 async fn exists_flow_by_path(
@@ -1591,6 +1765,11 @@ async fn archive_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot archive flows for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -1731,6 +1910,11 @@ async fn delete_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete flows for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2084,8 +2268,7 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "foo = 'bar'",
-                  "skip_if_stopped": false,
-                  "error_message": null
+                  "skip_if_stopped": false
               }
             },
             {
@@ -2106,8 +2289,7 @@ mod tests {
               },
               "stop_after_if": {
                   "expr": "previous.isEmpty()",
-                  "skip_if_stopped": false,
-                  "error_message": null
+                  "skip_if_stopped": false
               }
             }
           ],
@@ -2120,8 +2302,7 @@ mod tests {
             },
             "stop_after_if": {
                 "expr": "previous.isEmpty()",
-                "skip_if_stopped": false,
-                "error_message": null
+                "skip_if_stopped": false
             }
           },
         });
@@ -2263,5 +2444,15 @@ mod tests {
         .unwrap();
         assert_eq!(retry.exponential.multiplier, 3.0);
         assert_eq!(Some(6 * SECOND), retry.interval(0, false));
+    }
+
+    #[test]
+    fn retry_exponential_rounds_inexact_float_product() {
+        // 0.29 * 100 is 28.999999999999996 in f64; truncating would schedule 28s.
+        let retry: Retry = serde_json::from_str(
+            r#"{ "constant": {}, "exponential": { "attempts": 1, "multiplier": 0.29, "seconds": 100 } }"#,
+        )
+        .unwrap();
+        assert_eq!(Some(29 * SECOND), retry.interval(0, false));
     }
 }

@@ -9,6 +9,7 @@
 		GroupService
 	} from '$lib/gen'
 	import TableCustom from './TableCustom.svelte'
+	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
 	import { Alert, Button, Drawer, DrawerContent } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import GroupEditor from './GroupEditor.svelte'
@@ -25,6 +26,8 @@
 	import { Minimatch } from 'minimatch'
 	import Tooltip from './Tooltip.svelte'
 	import CollapseLink from './CollapseLink.svelte'
+	import LabelsInput from './LabelsInput.svelte'
+	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
 		name: string
@@ -76,6 +79,7 @@
 		try {
 			folder = await FolderService.getFolder({ workspace: $workspaceStore!, name })
 			summary = folder.summary ?? ''
+			labels = [...(folder.labels ?? [])]
 			defaultPermissionedAs = (folder.default_permissioned_as ?? []).map((r) => ({ ...r }))
 			can_write =
 				$userStore != undefined &&
@@ -105,8 +109,13 @@
 	// --- default_permissioned_as rules editor ---
 	let defaultPermissionedAs: FolderDefaultPermissionedAs = $state([])
 
+	const restricted = $derived(
+		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
+
 	const canEditDefaults = $derived(
 		can_write &&
+			!restricted &&
 			($userStore?.is_admin ||
 				$userStore?.is_super_admin ||
 				($userStore?.groups ?? []).includes('wm_deployers'))
@@ -198,6 +207,22 @@
 	let groupCreated: string | undefined = $state(undefined)
 	let newGroupName: string = $state('')
 	let summary: string = $state('')
+	let labels: string[] | undefined = $state(undefined)
+
+	async function saveLabels() {
+		try {
+			await FolderService.updateFolder({
+				workspace: $workspaceStore ?? '',
+				name,
+				requestBody: { labels: labels ?? [] }
+			})
+			sendUserToast('Folder labels updated')
+			dispatch('update')
+		} catch (e) {
+			sendUserToast(e.body ?? String(e), true)
+			loadFolder()
+		}
+	}
 
 	async function addGroup() {
 		await GroupService.createGroup({
@@ -274,9 +299,31 @@
 		</div>
 	</Label>
 
+	<Label label="Labels">
+		<div class="flex flex-col gap-1">
+			<div class="text-xs text-tertiary">
+				Scripts and flows inside this folder inherit these labels, and runs of items in this folder
+				are labeled with them.
+			</div>
+			{#if can_write}
+				<LabelsInput bind:labels onchange={saveLabels} />
+			{:else}
+				<div class="inline-flex items-center gap-1 h-5">
+					{#each labels ?? [] as label (label)}
+						<Badge color="blue" small>{label}</Badge>
+					{:else}
+						<span class="text-xs text-tertiary">No labels</span>
+					{/each}
+				</div>
+			{/if}
+		</div>
+	</Label>
+
 	<Label label={`Permissions (${perms?.length ?? 0})`}>
 		<div class="flex flex-col gap-2">
-			{#if can_write}
+			{#if can_write && restricted}
+				<Alert type="info" title="Sharing disabled">{DEMO_RESTRICTION_HINT}</Alert>
+			{:else if can_write}
 				<Alert type="info" title="New permissions may take up to 60s to apply">
 					Due to permissions cache invalidation
 				</Alert>
@@ -334,22 +381,24 @@
 					existing. A windmill folder has settable permissions that its children inherit. If an item
 					is within a non-existing folders, only admins will see it.
 				</Alert>
-				<Button
-					variant="default"
-					wrapperClasses="w-min"
-					startIcon={{ icon: Plus }}
-					size="xs"
-					on:click={() => {
-						FolderService.createFolder({
-							workspace: $workspaceStore ?? '',
-							requestBody: { name }
-						}).then(() => {
-							loadFolder()
-						})
-					}}
-				>
-					Create folder "{name}"
-				</Button>
+				{#if !restricted}
+					<Button
+						variant="default"
+						wrapperClasses="w-min"
+						startIcon={{ icon: Plus }}
+						size="xs"
+						on:click={() => {
+							FolderService.createFolder({
+								workspace: $workspaceStore ?? '',
+								requestBody: { name }
+							}).then(() => {
+								loadFolder()
+							})
+						}}
+					>
+						Create folder "{name}"
+					</Button>
+				{/if}
 			{/if}
 			{#if perms}
 				<TableCustom>
@@ -365,7 +414,7 @@
 							{#each perms ?? [] as { owner_name, role }}<tr>
 									<td>{owner_name}</td>
 									<td>
-										{#if can_write}
+										{#if can_write && !restricted}
 											<div>
 												<ToggleButtonGroup
 													disabled={owner_name == 'u/' + $userStore?.username &&

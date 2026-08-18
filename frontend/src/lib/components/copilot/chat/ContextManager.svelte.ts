@@ -2,7 +2,7 @@ import { ResourceService, type Flow, type ListResourceResponse, type ScriptLang 
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { SQLSchemaLanguages, type DBSchemas } from '$lib/stores'
 import { diffLines } from 'diff'
-import type { ContextElement, FlowModuleElement } from './context'
+import { createAppDomSelectorElement, type ContextElement, type FlowModuleElement } from './context'
 import type { FlowModule } from '$lib/gen'
 
 import type { DisplayMessage } from './shared'
@@ -11,7 +11,7 @@ import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 
 export interface ScriptOptions {
 	lang: ScriptLang | 'bunnative'
-	code: string
+	getCode: () => string
 	error: string | undefined
 	args: Record<string, any>
 	path: string | undefined
@@ -77,7 +77,10 @@ export default class ContextManager {
 		}
 		this.workspace = workspace
 		this.selectedContext = currentlySelectedContext.filter(
-			(context) => context.type === 'workspace_script' || context.type === 'workspace_flow'
+			(context) =>
+				context.type === 'workspace_script' ||
+				context.type === 'workspace_flow' ||
+				context.type === 'workspace_app'
 		)
 	}
 
@@ -158,6 +161,7 @@ export default class ContextManager {
 					(c) =>
 						c.type === 'workspace_script' ||
 						c.type === 'workspace_flow' ||
+						c.type === 'workspace_app' ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
 				.map((c) =>
@@ -192,7 +196,7 @@ export default class ContextManager {
 				{
 					type: 'code',
 					title: this.getContextCodePath(scriptOptions) ?? '',
-					content: scriptOptions.code,
+					content: scriptOptions.getCode(),
 					lang: scriptOptions.lang
 				}
 			]
@@ -209,22 +213,25 @@ export default class ContextManager {
 				}
 			}
 
-			if (scriptOptions.lastSavedCode && scriptOptions.lastSavedCode !== scriptOptions.code) {
+			if (scriptOptions.lastSavedCode && scriptOptions.lastSavedCode !== scriptOptions.getCode()) {
 				newAvailableContext.push({
 					type: 'diff',
 					title: 'diff_with_last_saved_draft', // can't use spaces in the title, because it will break the word match in the context text area hightlighting logic
 					content: scriptOptions.lastSavedCode ?? '',
-					diff: diffLines(scriptOptions.lastSavedCode ?? '', scriptOptions.code),
+					diff: diffLines(scriptOptions.lastSavedCode ?? '', scriptOptions.getCode()),
 					lang: scriptOptions.lang
 				})
 			}
 
-			if (scriptOptions.lastDeployedCode && scriptOptions.lastDeployedCode !== scriptOptions.code) {
+			if (
+				scriptOptions.lastDeployedCode &&
+				scriptOptions.lastDeployedCode !== scriptOptions.getCode()
+			) {
 				newAvailableContext.push({
 					type: 'diff',
 					title: 'diff_with_last_deployed_version',
 					content: scriptOptions.lastDeployedCode ?? '',
-					diff: diffLines(scriptOptions.lastDeployedCode ?? '', scriptOptions.code),
+					diff: diffLines(scriptOptions.lastDeployedCode ?? '', scriptOptions.getCode()),
 					lang: scriptOptions.lang
 				})
 			}
@@ -251,7 +258,7 @@ export default class ContextManager {
 				{
 					type: 'code',
 					title: this.getContextCodePath(scriptOptions) ?? '',
-					content: scriptOptions.code,
+					content: scriptOptions.getCode(),
 					lang: scriptOptions.lang,
 					deletable: false
 				},
@@ -277,19 +284,20 @@ export default class ContextManager {
 			newSelectedContext = newSelectedContext
 				.filter(
 					(c) =>
-						(c.type === 'code_piece' && scriptOptions.code.includes(c.content)) ||
+						(c.type === 'code_piece' && scriptOptions.getCode().includes(c.content)) ||
 						c.type === 'code' ||
 						// Workspace references are user-picked via @-mention and not in
 						// availableContext; preserve so badges survive editor refreshes.
 						c.type === 'workspace_script' ||
 						c.type === 'workspace_flow' ||
+						c.type === 'workspace_app' ||
 						newAvailableContext.some((ac) => ac.type === c.type && ac.title === c.title)
 				)
 				.map((c) => {
 					if (c.type === 'code') {
 						return {
 							...c,
-							content: scriptOptions.code,
+							content: scriptOptions.getCode(),
 							title: this.getContextCodePath(scriptOptions)
 						}
 					}
@@ -378,6 +386,67 @@ export default class ContextManager {
 		}
 	}
 
+	/**
+	 * Attach a raw-app preview element (picked via the inspector) as a selector chip.
+	 * Deduped by selector; the model reads the element live via search_dom / read_dom.
+	 */
+	addSelectedDomElement(info: {
+		selector: string
+		appPath: string
+		tagName: string
+		id?: string
+		className?: string
+	}) {
+		if (
+			this.selectedContext.find(
+				(c) =>
+					c.type === 'app_dom_selector' &&
+					c.selector === info.selector &&
+					c.appPath === info.appPath
+			)
+		) {
+			return
+		}
+		this.selectedContext = [...this.selectedContext, createAppDomSelectorElement(info)]
+	}
+
+	/** Replace all DOM selector chips with this single element (plain inspector pick). */
+	setSelectedDomElement(info: {
+		selector: string
+		appPath: string
+		tagName: string
+		id?: string
+		className?: string
+	}) {
+		this.selectedContext = [
+			...this.selectedContext.filter((c) => c.type !== 'app_dom_selector'),
+			createAppDomSelectorElement(info)
+		]
+	}
+
+	/** Remove one DOM selector chip (× on the chip or on the preview overlay).
+	 * Scope by appPath when known: two apps can generate the same selector, so a
+	 * selector-only match would drop another app's chip. */
+	removeSelectedDomElement(selector: string, appPath?: string) {
+		this.selectedContext = this.selectedContext.filter(
+			(c) =>
+				!(
+					c.type === 'app_dom_selector' &&
+					c.selector === selector &&
+					(appPath === undefined || c.appPath === appPath)
+				)
+		)
+	}
+
+	/** Drop DOM selector chips (one-shot per message — cleared after send). Pass
+	 * appPath to drop only one app's chips: a preview rebuild clears its own app,
+	 * and must not wipe a selection the user made in another still-mounted app. */
+	clearSelectedDomElements(appPath?: string) {
+		this.selectedContext = this.selectedContext.filter(
+			(c) => c.type !== 'app_dom_selector' || (appPath !== undefined && c.appPath !== appPath)
+		)
+	}
+
 	setFixContext() {
 		const codeContext = this.availableContext.find((c) => c.type === 'code')
 		const errorContext = this.availableContext.find((c) => c.type === 'error')
@@ -403,7 +472,10 @@ export default class ContextManager {
 							type: 'diff' as const,
 							title: 'diff_with_last_deployed_version',
 							content: this.scriptOptions.lastDeployedCode ?? '',
-							diff: diffLines(this.scriptOptions.lastDeployedCode ?? '', this.scriptOptions.code),
+							diff: diffLines(
+								this.scriptOptions.lastDeployedCode ?? '',
+								this.scriptOptions.getCode()
+							),
 							lang: this.scriptOptions.lang
 						}
 					]
@@ -428,21 +500,25 @@ export default class ContextManager {
 		displayMessages: DisplayMessage[],
 		dbSchemas: DBSchemas
 	): DisplayMessage[] {
-		return displayMessages.map((m) => ({
-			...m,
-			contextElements:
-				m.role !== 'tool' && m.contextElements
-					? m.contextElements.map((c) =>
-							c.type === 'db'
-								? {
-										type: 'db',
-										title: c.title,
-										schema: dbSchemas[c.title]
-									}
-								: c
-						)
-					: undefined
-		}))
+		return displayMessages.map((m) => {
+			// Only user/assistant messages carry contextElements; tool and summary
+			// messages pass through untouched.
+			if ((m.role === 'user' || m.role === 'assistant') && m.contextElements) {
+				return {
+					...m,
+					contextElements: m.contextElements.map((c) =>
+						c.type === 'db'
+							? {
+									type: 'db' as const,
+									title: c.title,
+									schema: dbSchemas[c.title]
+								}
+							: c
+					)
+				}
+			}
+			return m
+		})
 	}
 
 	setSelectedModuleContext(

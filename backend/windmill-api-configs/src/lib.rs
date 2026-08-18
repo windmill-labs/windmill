@@ -217,7 +217,7 @@ async fn delete_config(
     let mut tx = db.begin().await?;
 
     let deleted = sqlx::query!("DELETE FROM config WHERE name = $1 RETURNING name", name)
-        .fetch_all(&db)
+        .fetch_all(&mut *tx)
         .await?;
 
     audit_log(

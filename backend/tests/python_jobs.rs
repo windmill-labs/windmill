@@ -1113,6 +1113,7 @@ async def main(item: str, qty: int, email: str):
                     RunJob::from(JobPayload::Code(RawCode {
                         language: ScriptLang::Python3,
                         content,
+                        tag: None,
                         ..RawCode::default()
                     }))
                     .arg("item", json!("widget"))
@@ -1131,7 +1132,8 @@ async def main(item: str, qty: int, email: str):
             port,
         )
         .await;
-    });
+    })
+    .await;
     Ok(())
 }
 
@@ -1239,6 +1241,50 @@ async fn test_python_wac_v2_with_preprocessor(db: Pool<Postgres>) -> anyhow::Res
     Ok(())
 }
 
+#[cfg(feature = "python")]
+#[sqlx::test(fixtures("base", "typechecked_python"))]
+async fn test_typechecked_decorator_python(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+from f.system.typechecked_helper import greet
+
+def main():
+    return greet("World")
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: Some("f/system/test_typechecked".to_string()),
+        language: ScriptLang::Python3,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    let result_str = result.as_str().unwrap();
+    assert!(
+        result_str.starts_with("Hello, World! from "),
+        "unexpected result: {result_str}"
+    );
+    Ok(())
+}
+
 /// End-to-end comparison between the legacy `step()` suspend-and-replay path
 /// and the new SDK inline-persist fast path, toggled per-job via the
 /// `WM_WAC_INLINE_FAST_PATH` env var which the Python script sets on its own
@@ -1298,6 +1344,7 @@ async def main(n: int):
                     RunJob::from(JobPayload::Code(RawCode {
                         language: ScriptLang::Python3,
                         content,
+                        tag: None,
                         ..RawCode::default()
                     }))
                     .arg("n", json!(1))

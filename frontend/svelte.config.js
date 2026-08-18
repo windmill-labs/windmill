@@ -1,6 +1,12 @@
 import preprocess from 'svelte-preprocess'
 import adapter from '@sveltejs/adapter-static'
 import { preprocessMeltUI, sequence } from '@melt-ui/pp'
+import { readFileSync } from 'fs'
+import { fileURLToPath } from 'url'
+
+const pkg = JSON.parse(
+	readFileSync(fileURLToPath(new URL('package.json', import.meta.url)), 'utf8')
+)
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -23,6 +29,11 @@ const config = {
 						assets: 'build',
 						fallback: '200.html'
 					}),
+		// Same for every build of one revision (SvelteKit's Date.now() default is not, so
+		// the per-architecture images disagreed on content-hashed asset filenames and
+		// mixed-arch clusters 404ed on each other's chunks), and different between
+		// revisions (SvelteKit only full-page reloads on a missing chunk if this changed).
+		version: { name: process.env.WM_BUILD_VERSION || pkg.version },
 		prerender: { entries: [] },
 		paths: {
 			base: process.env.VITE_BASE_URL ?? ''

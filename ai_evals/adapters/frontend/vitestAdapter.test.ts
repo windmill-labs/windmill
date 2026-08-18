@@ -3,6 +3,20 @@ import { expect, it, vi } from 'vitest'
 import { mkdir, writeFile } from 'fs/promises'
 // @ts-ignore - Node.js path
 import { dirname, resolve } from 'path'
+import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
+
+// The API catalog executor issues relative fetch('/api/...') calls, which have
+// no meaning in the vitest environment — serve the ones the benchmark handles.
+// Every other relative fetch keeps its normal behavior (it fails the same way
+// it does without this stub) so unrelated tools see an unchanged environment.
+const ORIGINAL_FETCH = globalThis.fetch
+globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+	const url = typeof input === 'string' ? input : ((input as Request | URL | null)?.url ?? '')
+	if (typeof url === 'string' && hasBenchmarkApiHandler(url)) {
+		return handleBenchmarkApiFetch(url, init)
+	}
+	return ORIGINAL_FETCH(input as Parameters<typeof fetch>[0], init)
+}) as typeof fetch
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
@@ -33,22 +47,34 @@ vi.mock('$lib/components/vscode', () => ({}))
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 	const {
+		getBenchmarkAppByPath,
 		getBenchmarkCompletedJob,
 		getBenchmarkCompletedJobResultMaybe,
 		getBenchmarkDatatableSchema,
+		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
+		getBenchmarkJobLogs,
+		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
+		getBenchmarkVariableByPath,
 		hasBenchmarkWorkspace,
+		listBenchmarkApps,
 		listBenchmarkDatatables,
+		listBenchmarkDrafts,
 		listBenchmarkFlows,
+		listBenchmarkJobs,
 		listBenchmarkScripts,
+		listBenchmarkVariables,
+		createBenchmarkFolder,
 		createBenchmarkHttpTrigger,
 		createBenchmarkSchedule,
 		previewBenchmarkSchedule,
 		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
-		runBenchmarkScriptPreview
+		runBenchmarkScriptPreview,
+		updateBenchmarkDraft,
+		listBenchmarkMcpTools
 	} = await import('./mockBackend')
 
 	function wrapService<T extends object>(target: T, overrides: Record<string, unknown>): T {
@@ -64,6 +90,35 @@ vi.mock('$lib/gen', async () => {
 
 	return {
 		...actual,
+		DraftService: wrapService(actual.DraftService, {
+			updateDraft: async (data: {
+				workspace: string
+				kind: any
+				path: string
+				requestBody?: { value?: unknown }
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? updateBenchmarkDraft(data)
+					: actual.DraftService.updateDraft(data),
+			getDraftForUser: async (data: { workspace: string; kind: any; path: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkDraftForUser(data)
+					: actual.DraftService.getDraftForUser(data),
+			getOwnDraft: async (data: { workspace: string; kind: any; path: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkOwnDraft(data)
+					: actual.DraftService.getOwnDraft(data),
+			listDrafts: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkDrafts(data.workspace)
+					: actual.DraftService.listDrafts(data)
+		}),
+		FolderService: wrapService(actual.FolderService, {
+			createFolder: async (data: { workspace: string; requestBody: { name: string } }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? createBenchmarkFolder(data.workspace, data.requestBody.name)
+					: actual.FolderService.createFolder(data)
+		}),
 		ScriptService: wrapService(actual.ScriptService, {
 			listScripts: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
@@ -73,13 +128,32 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? Boolean(getBenchmarkScriptByPath(data.workspace, data.path))
 					: actual.ScriptService.existsScriptByPath(data),
-			getScriptByPath: async (data: { workspace: string; path: string }) => {
+			getScriptByPath: async (data: { workspace: string; path: string; getDraft?: boolean }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					const script = getBenchmarkScriptByPath(data.workspace, data.path)
+					// `getDraft` mirrors production's overlay: the row plus the caller's
+					// draft and a `no_deployed` marker (draft-only item). The diff tool
+					// reads through this shape — without it every draft looks absent.
+					const draft = data.getDraft
+						? getBenchmarkOwnDraft({ workspace: data.workspace, kind: 'script', path: data.path })
+						: null
 					if (!script) {
-						throw new Error(`Script "${data.path}" not found in benchmark workspace`)
+						if (data.getDraft && draft) {
+							return {
+								...(draft.value as Record<string, unknown>),
+								path: data.path,
+								draft: draft.value,
+								no_deployed: true
+							}
+						}
+						throw Object.assign(
+							new Error(`Script "${data.path}" not found in benchmark workspace`),
+							{ status: 404 }
+						)
 					}
-					return script
+					return data.getDraft
+						? { ...script, draft: draft?.value ?? undefined, no_deployed: false }
+						: script
 				}
 				return actual.ScriptService.getScriptByPath(data)
 			},
@@ -113,13 +187,30 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? Boolean(getBenchmarkFlowByPath(data.workspace, data.path))
 					: actual.FlowService.existsFlowByPath(data),
-			getFlowByPath: async (data: { workspace: string; path: string }) => {
+			getFlowByPath: async (data: { workspace: string; path: string; getDraft?: boolean }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					const flow = getBenchmarkFlowByPath(data.workspace, data.path)
+					// Mirror production's `getDraft` overlay (see getScriptByPath above).
+					const draft = data.getDraft
+						? getBenchmarkOwnDraft({ workspace: data.workspace, kind: 'flow', path: data.path })
+						: null
 					if (!flow) {
-						throw new Error(`Flow "${data.path}" not found in benchmark workspace`)
+						if (data.getDraft && draft) {
+							return {
+								...(draft.value as Record<string, unknown>),
+								path: data.path,
+								draft: draft.value,
+								no_deployed: true
+							}
+						}
+						throw Object.assign(
+							new Error(`Flow "${data.path}" not found in benchmark workspace`),
+							{ status: 404 }
+						)
 					}
-					return flow
+					return data.getDraft
+						? { ...flow, draft: draft?.value ?? undefined, no_deployed: false }
+						: flow
 				}
 				return actual.FlowService.getFlowByPath(data)
 			},
@@ -199,7 +290,15 @@ vi.mock('$lib/gen', async () => {
 			getCompletedJobResultMaybe: async (data: { workspace: string; id: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? getBenchmarkCompletedJobResultMaybe({ workspace: data.workspace, id: data.id })
-					: actual.JobService.getCompletedJobResultMaybe(data)
+					: actual.JobService.getCompletedJobResultMaybe(data),
+			listJobs: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkJobs(data.workspace) ?? [])
+					: actual.JobService.listJobs(data),
+			getJobLogs: async (data: { workspace: string; id: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkJobLogs(data.workspace, data.id)
+					: actual.JobService.getJobLogs(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
 			listDataTableTables: async (data: { workspace: string }) =>
@@ -253,26 +352,80 @@ vi.mock('$lib/gen', async () => {
 			queryResourceTypes: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
 		}),
+		McpService: wrapService(actual.McpService, {
+			listMcpTools: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkMcpTools()
+					: actual.McpService.listMcpTools(data)
+		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.VariableService.existsVariable(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? Boolean(getBenchmarkVariableByPath(data.workspace, data.path))
+					: actual.VariableService.existsVariable(data),
 			listVariable: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.VariableService.listVariable(data),
-			getVariable: async (data: { workspace: string; path: string }) => {
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkVariables(data.workspace) ?? [])
+					: actual.VariableService.listVariable(data),
+			getVariable: async (data: {
+				workspace: string
+				path: string
+				decryptSecret?: boolean
+			}) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`Variable "${data.path}" not found in benchmark workspace`)
+					const variable = getBenchmarkVariableByPath(
+						data.workspace,
+						data.path,
+						data.decryptSecret ?? true
+					)
+					if (!variable) {
+						throw new Error(`Variable "${data.path}" not found in benchmark workspace`)
+					}
+					return variable
 				}
 				return actual.VariableService.getVariable(data)
 			}
 		}),
 		AppService: wrapService(actual.AppService, {
 			existsApp: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.AppService.existsApp(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? Boolean(getBenchmarkAppByPath(data.workspace, data.path))
+					: actual.AppService.existsApp(data),
 			listApps: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.AppService.listApps(data),
-			getAppByPath: async (data: { workspace: string; path: string }) => {
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkApps(data.workspace) ?? [])
+					: actual.AppService.listApps(data),
+			getAppByPath: async (data: {
+				workspace: string
+				path: string
+				getDraft?: boolean
+				rawApp?: boolean
+			}) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`App "${data.path}" not found in benchmark workspace`)
+					const app = getBenchmarkAppByPath(data.workspace, data.path)
+					// Mirror production's `getDraft` overlay (see getScriptByPath above).
+					// Benchmark app drafts live under the raw_app kind.
+					const draft = data.getDraft
+						? getBenchmarkOwnDraft({ workspace: data.workspace, kind: 'raw_app', path: data.path })
+						: null
+					if (!app) {
+						if (data.getDraft && draft) {
+							return {
+								...(draft.value as Record<string, unknown>),
+								path: data.path,
+								raw_app: true,
+								draft: draft.value,
+								no_deployed: true
+							}
+						}
+						throw Object.assign(
+							new Error(`App "${data.path}" not found in benchmark workspace`),
+							{ status: 404 }
+						)
+					}
+					return data.getDraft
+						? { ...app, draft: draft?.value ?? undefined, no_deployed: false }
+						: app
 				}
 				return actual.AppService.getAppByPath(data)
 			}
@@ -424,5 +577,6 @@ benchmarkIt(
 			resetBenchmarkMockBackend()
 		}
 	},
-	600_000
+	// Full-suite runs (30+ cases at concurrency 2-3) routinely exceed 10 minutes.
+	7_200_000
 )

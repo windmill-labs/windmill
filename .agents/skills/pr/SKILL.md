@@ -1,18 +1,19 @@
 ---
 name: pr
 user_invocable: true
-description: Open a draft pull request on GitHub. MUST use when you want to create/open a PR.
+description: Open a draft pull request on GitHub and drive CI review rounds until it is ready. MUST use when you want to create/open a PR.
 ---
 
 # Pull Request Skill
 
-Create a draft pull request with a clear title and explicit description of changes.
+Create a draft pull request with a clear title and explicit description of changes, then drive it through CI review rounds to ready.
 
 ## Instructions
 
 1. **Analyze branch changes**: Understand all commits since diverging from main
 2. **Push to remote**: Ensure all commits are pushed
 3. **Create draft PR**: Always open as draft for review before merging
+4. **Drive review rounds**: trigger CI reviews on the draft and only flip to ready once every verdict is a go (see "Review rounds" below)
 
 ## PR Title Format
 
@@ -55,18 +56,59 @@ The body MUST be explicit about what changed. Structure:
 
 The harness/tooling that invoked the skill may add its own attribution trailer; the skill itself does not prescribe one.
 
+## Screenshots (required for frontend changes)
+
+If `git diff main...HEAD --name-only` matches `^frontend/`, the PR body **must** include
+screenshots of the affected UI. Skip only when there is no visible UI effect (types,
+tests, build config) — and say so in the body.
+
+1. Verify the change in the browser (frontend/AGENTS.md → "Verifying Frontend Changes").
+2. Screenshot each affected page with `mcp__playwright__browser_take_screenshot` (save to a file).
+3. Host each image and get its Markdown embed by pushing to the public
+   `windmill-labs/agent-screenshots-internal` repo. **Pipe base64 through stdin** —
+   passing it as `-f content=…` fails with `argument list too long` on real images:
+
+   ```bash
+   REPO=windmill-labs/agent-screenshots-internal
+   IMG=screenshot.png                                          # repeat per page
+   DEST="shots/$(git branch --show-current)/$(date +%s)-$(basename "$IMG")"
+   base64 -w0 "$IMG" | jq -Rs --arg m "add $DEST" '{message:$m, content:.}' \
+     | gh api -X PUT "repos/$REPO/contents/$DEST" --input - >/dev/null
+   echo "![$(basename "$IMG" .png)](https://raw.githubusercontent.com/$REPO/main/$DEST)"
+   ```
+   Derive `$DEST` from the file name (as above) so distinct pages never collide — a
+   fixed name would make same-second uploads reuse one path, and the second `PUT`
+   then 422s (the Contents API needs the existing file's `sha` to overwrite).
+4. Put the printed `![…](…)` lines under a `## Screenshots` heading in the PR body.
+
+Requires `gh` (`repo` scope), `jq`, `base64` — all in the devShell. The host repo is
+public (so the raw URLs render for reviewers without a token) and its history is
+permanent — **never screenshot pages that show secrets or sensitive values** (workspace
+variables, resource values, instance settings, OAuth/SMTP config); deleting the file
+can't undo an accidental capture. (GitHub's drag-and-drop uploader needs a browser
+session and can't be driven from a token.)
+
+If `gh` can't push to the host repo (e.g. a CI token scoped only to `windmill`), do
+**not** fail the PR or skip silently — hand the upload to the user, who has push access,
+and continue once they confirm it's done.
+
 ## Execution Steps
 
 1. Run `git status` to check for uncommitted changes
 2. Run `git log main..HEAD --oneline` to see all commits in this branch
 3. Run `git diff main...HEAD` to see the full diff against main
-4. **Invoke the `local-review` skill** before creating the PR (`/local-review` in Claude Code, `$local-review` in Codex, `pi --skill local-review` / `/skill:local-review` in Pi). If issues are found, fix them and commit before proceeding. Do not skip this step.
-5. Check if remote branch exists and is up to date:
+4. **Review the diff before creating the PR — run both reviews, do not skip:**
+   - **`local-review`** — Claude-native branch-diff-reviewer (`/local-review` in Claude Code, `$local-review` in Codex, `pi --skill local-review` / `/skill:local-review` in Pi).
+   - **`local-review-codex`** — cold Codex pass, the same review CI runs, for an independent perspective the Claude pass misses (`/local-review-codex` in Claude Code, or `bash .agents/skills/local-review-codex/run.sh`). If the `codex` CLI is missing or older than the version pinned in that skill, note it in your summary and continue — never block the PR on codex being unavailable.
+
+   Run both — they catch different things. If either surfaces issues, fix them and commit before proceeding.
+5. **Screenshots for frontend changes**: if `git diff main...HEAD --name-only` matches `^frontend/`, capture and embed screenshots of the affected UI per "Screenshots" above before writing the PR body (skip only if there is no visible UI effect).
+6. Check if remote branch exists and is up to date:
    ```bash
    git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || echo "no upstream"
    ```
-6. Push to remote if needed: `git push -u origin HEAD`
-7. Create draft PR using gh CLI:
+7. Push to remote if needed: `git push -u origin HEAD`
+8. Create draft PR using gh CLI:
    ```bash
    gh pr create --draft --title "<type>: <description>" --body "$(cat <<'EOF'
    ## Summary
@@ -82,7 +124,118 @@ The harness/tooling that invoked the skill may add its own attribution trailer; 
    EOF
    )"
    ```
-8. Return the PR URL to the user
+9. Return the PR URL to the user
+10. Drive the PR through CI review rounds to ready (see "Review rounds" below)
+
+## Review rounds (draft → ready)
+
+A PR leaves draft **only after a clean CI review round**. Never run `gh pr ready` before that.
+This is the rule in every mode, autonomous included. A clean round is necessary but not always
+sufficient — see "Flip, or ask first" below. The one standing exception is an explicit request to
+leave that PR in draft (usually so it can be tested first) — honour it for that PR, and don't
+carry it over to the next one.
+
+1. **Trigger a round and wait for it**: launch the waiter as a background Bash task (a round takes 10–30 min; you are woken when it exits — do not stop the session or poll in the foreground while it runs):
+
+   ```bash
+   bash .agents/skills/pr/review-round.sh <PR_NUMBER>
+   ```
+
+   It comments `/review` on the PR — which runs the Codex, Claude and Pi CI reviewers even on a draft — waits for the spawned `PR Review Commands` workflow run(s) to complete, then prints one verdict line per reviewer and saves the full review comments to files.
+
+   `/review` (and `/codex`) are **idempotent per head SHA**: if a running or successful review already covers the current head, they skip that agent and post nothing new — the waiter reads the existing verdict for that head, so a skipped agent is *not* a missing one. A cancelled/failed head run is re-run in place; a fresh run is launched only when nothing covers the head. So an unchanged-head re-review is a near no-op, not a new round — push a commit to get genuinely fresh reviews.
+
+2. **Judge the round.** Codex is mandatory; Claude, Pi and cubic count whenever they posted. Every review starts with one of the three `REVIEW.md` verdicts:
+   - Codex verdict missing → the round is void: the waiter warns only when the head has no green Codex run (cancelled/failed/absent — not merely skipped-because-already-reviewed). Comment `/codex` on the PR, which re-runs the interrupted run in place (or launches one if none exists), wait the same way, and judge again.
+   - Any **"Should address issues before merging"** → fix the P0/P1 findings (and the nits while you're there), commit, push, and start a new round (step 1).
+   - Only **"Mergeable, but should ideally address nits"** and/or **"Good to merge"** → fix the nits too; a nit that is wrong or genuinely not worth fixing may instead be dismissed by replying to the review comment with your reasoning. Push nit-only fixes without starting another full round.
+
+3. **Flip to ready with the marker comment.** The review workflows skip the redundant `ready_for_review`-triggered round when the PR author has posted a marker naming the current head SHA **and** the PR's latest Codex review *posted before the marker* has a non-blocking verdict (reviewer evidence — a bare marker with no round behind it, or one whose last pre-marker Codex verdict is "Should address issues", skips nothing). Keep the prefix exact and use the full 40-char SHA of the head you are flipping:
+   - every verdict was "Good to merge" (head unchanged since the round):
+
+     `✅ Review round clean @ <head-sha>`
+
+   - nit-only round, nits fixed or dismissed afterwards (head may have moved past the reviewed SHA — say so):
+
+     `✅ Review round clean @ <head-sha> — nit-only verdicts at <round-sha>; nits addressed in <commit sha(s)> / dismissed in review replies`
+
+   ```bash
+   gh pr comment <PR_NUMBER> --body "✅ Review round clean @ $(git rev-parse HEAD)"
+   gh pr ready <PR_NUMBER>
+   ```
+
+   If any P0/P1 finding is unaddressed or the head moved for reasons other than nit fixes, do **not** post the marker or flip — run another round instead.
+
+### A round that never starts is usually a conflict
+
+The review workflows don't run on a PR that cannot merge, so a round that produces no verdict is
+more often a conflict with `main` than a CI outage. Check before assuming anything is broken:
+
+```bash
+gh pr view <PR_NUMBER> --json mergeable,mergeStateStatus
+```
+
+Resolve by **merging, not rebasing** — a rebase rewrites the head SHA that round verdicts and the
+clean-round marker are keyed to, invalidating work you have already paid for:
+
+```bash
+git fetch origin main
+git merge origin/main
+```
+
+**If that merge changed `backend/ee-repo-ref.txt`, move the EE worktree to match.** The file pins
+the EE commit CE builds against, so a merge that advances it leaves the EE checkout behind what CE
+now expects, and `cargo check --features private` compiles a tree neither you nor CI intends:
+
+```bash
+git -C <ee-worktree> merge "$(tr -d '[:space:]' < backend/ee-repo-ref.txt)"
+```
+
+Push both, then start a fresh round — the head moved, so the earlier verdicts no longer apply.
+
+### Flip, or ask first
+
+A clean round earns the flip; it does not always earn it *unattended*. Judge the blast radius from
+the diff first — `git diff --name-only main...HEAD` answers most of these.
+
+**Ask before flipping** when the change:
+
+- touches `*_ee.rs` (it spans the EE repo through symlinks and has a companion PR)
+- adds a migration under `backend/migrations/`
+- changes `openapi.yaml`, `openflow.openapi.yaml`, or the generated client
+- touches auth, permission, or token paths
+- changes shared worker infrastructure — the job poller, `handle_child`, an executor
+- trips `REVIEW.md`'s "Checklist for new public surfaces"
+
+**Flip without asking** when it is self-contained: a single-file fix, test-only, docs-only, one
+call site, no new public surface.
+
+Unattended (webmux oneshot) there is nobody to ask, so the judgement holds and the action
+degrades: flip the self-contained ones, and leave the rest at a clean draft with a line in the PR
+description saying why — `left in draft: adds a migration, wants a human look before ready`.
+Don't flip a wide-blast-radius change just because the round came back clean, and don't ask a
+question nobody will read.
+
+`AGENTS.local.md` (gitignored, so it may not exist) carries a "PR ready calibration" section
+recording how past ambiguous calls went. Read it before deciding; when a call is still genuinely
+ambiguous, ask, then append the answer there so the next one is less ambiguous.
+
+### When rounds stop converging
+
+Three or more rounds without a clean verdict usually means the change's shape is wrong, not that
+there is an endless supply of independent bugs. The tells:
+
+- findings keep landing in the same files round after round
+- fixing one finding creates the next
+- the findings are about coupling, duplication, or state threaded through many places, rather
+  than logic errors
+
+When that pattern holds, stop running rounds — each one costs a CI cycle and is not going to
+converge. Say plainly that the remaining findings look structural rather than incidental, and
+name the module or seam they cluster around. With a user present, suggest they run
+`/improve-codebase-architecture` over that area: it is slash-only so you cannot invoke it
+yourself, and reshaping the code is a scope change they should choose. Unattended, put the
+diagnosis in the PR description and stop there rather than grinding out more rounds.
 
 ## EE Companion PR (when `*_ee.rs` files were modified)
 

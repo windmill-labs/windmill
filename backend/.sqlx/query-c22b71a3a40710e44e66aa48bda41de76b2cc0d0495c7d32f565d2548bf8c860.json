@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT default_permissioned_as::text FROM folder WHERE workspace_id = 'test-workspace' AND name = 'fold'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "default_permissioned_as",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c22b71a3a40710e44e66aa48bda41de76b2cc0d0495c7d32f565d2548bf8c860"
+}

@@ -8,8 +8,10 @@ jobs:
     name: "Release please"
     runs-on: ubicloud
     steps:
-      - uses: GoogleCloudPlatform/release-please-action@v3
+      # Config lives in release-please-config.json / .release-please-manifest.json:
+      # a `release-type` input instead re-derives the last released version by
+      # paginating every GitHub release, which on a repo this size is slow enough
+      # to fail intermittently.
+      - uses: googleapis/release-please-action@v5
         with:
-          release-type: simple
-          package-name: windmill
           token: ${{ secrets.PAT_TOKEN }}

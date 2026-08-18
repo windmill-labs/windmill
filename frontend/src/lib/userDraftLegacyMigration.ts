@@ -1,22 +1,29 @@
 /**
- * One-off migration from the pre-UserDraft localStorage autosave entries to
- * the workspace-scoped `userdraft/w/{ws}/{kind}/{path}` format.
+ * One-shot purge of the pre-UserDraft browser-local autosave keys.
  *
- * Legacy keys (global, not workspace-scoped — assumed to belong to the user's
- * current workspace at migration time):
+ * The original autosave (pre-#9121) wrote workspace-BLIND keys:
  *
- *   `flow`            / `flow-{path}`    base64 of `encodeState({ flow, path, selectedId, draft_triggers, ... })`
- *   `app`             / `app-{path}`     base64 of `encodeState(App)`
- *   `rawapp`          / `rawapp-{path}`  base64 of `encodeState({ files, runnables, data })`
+ *   `flow`   / `flow-{path}`    base64 of `encodeState({ flow, path, selectedId, draft_triggers, ... })`
+ *   `app`    / `app-{path}`     base64 of `encodeState(App)`
+ *   `rawapp` / `rawapp-{path}`  base64 of `encodeState({ files, runnables, data })`
  *
- * Target keys: `userdraft/w/{workspace}/{flow|app|raw_app}/{path}` storing
- * `JSON.stringify({ value: <transformed legacy value> })`.
+ * Neither the key nor the decoded value records a workspace (the value carries
+ * only workspace-agnostic item paths like `u/me/x`), so these drafts cannot be
+ * attributed to the workspace they were edited in. The current editors are
+ * DB-backed and never read these keys, so they are dead data with one dangerous
+ * property: promoting them to the DB would force a GUESS of the workspace, which
+ * mis-files drafts into whatever workspace happened to be active when the
+ * migration first ran (a single global sentinel gates it). We therefore drop
+ * them instead of migrating them.
+ *
+ * Only keys that BOTH match the legacy path shape AND decode to a plausible
+ * legacy draft are removed; unrelated look-alikes (`app-recent`, garbage,
+ * non-Windmill payloads) are left untouched. The workspace-scoped interim keys
+ * (`userdraft/w/{ws}/...`, written by the editor with the correct workspace)
+ * are NOT touched here — `migrateUserDraftsToDb` still pushes those to the DB.
  *
  * Idempotent: writes a sentinel under `MIGRATION_FLAG` after the first run so
- * subsequent invocations are no-ops. Existing new-format entries are never
- * overwritten — when both an old and a new entry exist for the same item, the
- * old one is simply dropped on the assumption that the new entry is the more
- * recent edit.
+ * subsequent invocations are no-ops.
  *
  * This file is intentionally standalone — it does not import from
  * `userDraft.svelte.ts` so the new code stays uncluttered by the legacy
@@ -71,10 +78,9 @@ function decodeLegacyState(raw: string): unknown {
  * Per-kind shape gate. The legacy keys (`app-foo`, `flow-foo`, ...) are
  * unusual enough that nothing else in the codebase has used them, but
  * matching `LEGACY_PATH_SHAPE` doesn't prove the payload is actually a
- * Windmill draft (any base64-of-JSON could pass). Promoting a stray payload
- * would silently surface as a phantom "Restored from local storage" toast
- * on the next edit, so we reject anything that doesn't carry the fields the
- * legacy writers actually produced.
+ * Windmill draft (any base64-of-JSON could pass). We only delete keys we can
+ * positively recognise as legacy drafts, so a stray look-alike that happens to
+ * use this key shape is left untouched rather than silently dropped.
  */
 function isPlausibleLegacyValue(kind: LegacyKind, decoded: unknown): boolean {
 	if (decoded == null || typeof decoded !== 'object') return false
@@ -103,32 +109,6 @@ function isPlausibleLegacyValue(kind: LegacyKind, decoded: unknown): boolean {
 	}
 }
 
-function transformLegacyValue(kind: LegacyKind, decoded: unknown): unknown {
-	const obj = decoded as Record<string, unknown>
-	switch (kind) {
-		case 'flow':
-			// The legacy bundle wrapped the Flow alongside view-state fields
-			// (selectedId, draft_triggers, ...). The new entry stores only the
-			// Flow — the view-state lives elsewhere or is re-derived.
-			return obj.flow
-		case 'app':
-			// Legacy stored the App directly.
-			return obj
-		case 'raw_app':
-			// Legacy bundle missed the `summary` field that the new editor adds.
-			return {
-				files: obj.files ?? {},
-				runnables: obj.runnables ?? {},
-				data: obj.data ?? {},
-				summary: typeof obj.summary === 'string' ? obj.summary : ''
-			}
-	}
-}
-
-function newKey(workspace: string, kind: LegacyKind, path: string): string {
-	return `userdraft/w/${workspace}/${kind}/${path}`
-}
-
 function listLocalStorageKeys(): string[] {
 	const out: string[] = []
 	for (let i = 0; i < localStorage.length; i++) {
@@ -139,16 +119,11 @@ function listLocalStorageKeys(): string[] {
 }
 
 /**
- * Run the legacy → new-format migration. Idempotent: returns immediately if a
- * previous run completed (signalled by `MIGRATION_FLAG`).
- *
- * The migration is workspace-scoped because the legacy keys had no notion of
- * workspace — we treat the caller's current workspace as the owner of any
- * surviving legacy entries.
+ * Remove the workspace-blind legacy autosave keys (see file header). Idempotent:
+ * returns immediately if a previous run completed (signalled by `MIGRATION_FLAG`).
  */
-export function migrateLegacyUserDrafts(workspace: string): void {
+export function purgeLegacyUserDrafts(): void {
 	if (typeof localStorage === 'undefined') return
-	if (!workspace) return
 	if (localStorage.getItem(MIGRATION_FLAG) !== null) return
 
 	try {
@@ -157,32 +132,18 @@ export function migrateLegacyUserDrafts(workspace: string): void {
 			if (!match) continue
 			const raw = localStorage.getItem(key)
 			if (raw == null) continue
-
-			try {
-				const decoded = decodeLegacyState(raw)
-				if (!isPlausibleLegacyValue(match.newKind, decoded)) continue
-				const value = transformLegacyValue(match.newKind, decoded)
-				const target = newKey(workspace, match.newKind, match.path)
-				if (value !== undefined && localStorage.getItem(target) == null) {
-					// `lastWrittenAt` makes the migrated entry visible to
-					// `gcUserDrafts`. We stamp it as "now" so a freshly-migrated
-					// autosave gets the full retention window — sweeping it
-					// immediately on the first GC pass would lose work the
-					// legacy migration just rescued.
-					localStorage.setItem(target, JSON.stringify({ value, lastWrittenAt: Date.now() }))
-				}
-				localStorage.removeItem(key)
-			} catch (e) {
-				console.error('UserDraft legacy migration: failed to migrate', key, e)
-			}
+			// Only drop keys we can positively recognise as legacy Windmill
+			// drafts; leave unrelated or unparseable look-alikes in place.
+			if (!isPlausibleLegacyValue(match.newKind, decodeLegacyState(raw))) continue
+			localStorage.removeItem(key)
 		}
 		localStorage.setItem(MIGRATION_FLAG, new Date().toISOString())
 	} catch (e) {
-		console.error('UserDraft legacy migration: aborted', e)
+		console.error('UserDraft legacy purge: aborted', e)
 	}
 }
 
-/** Test-only: clear the sentinel so the migration can re-run. */
+/** Test-only: clear the sentinel so the purge can re-run. */
 export function __resetUserDraftLegacyMigrationForTesting(): void {
 	try {
 		localStorage.removeItem(MIGRATION_FLAG)

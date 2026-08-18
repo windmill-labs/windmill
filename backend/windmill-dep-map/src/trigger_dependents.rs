@@ -188,6 +188,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             email,
             permissioned_as.to_string(),
             Some("trigger.dependents.to.recompute.dependencies"),
+            None,
             Some(Utc::now() + Duration::seconds(*DEPENDENCY_JOB_DEBOUNCE_DELAY as i64)),
             None,
             None,

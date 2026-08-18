@@ -14,6 +14,7 @@ sed -i -e "/version: /s/: .*/: $VERSION/" ${root_dirpath}/openflow.openapi.yaml
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/typescript-client/package.json
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/typescript-client/jsr.json
 sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/frontend/package.json
+sed -i -e "/\"version\": /s/: .*,/: \"$VERSION\",/" ${root_dirpath}/windmill-yaml-validator/package.json
 sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
 sed -i -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" ${root_dirpath}/python-client/wmill/pyproject.toml
 sed -i -e "/^[[:space:]]*ModuleVersion[[:space:]]*=/s/= .*/= '$VERSION'/" ${root_dirpath}/powershell-client/WindmillClient/WindmillClient.psd1
@@ -28,3 +29,7 @@ sed -i -e "/^version =/s/= .*/= \"$VERSION\"/" ${root_dirpath}/backend/parsers/w
 sed -i -zE "s/(name = \"windmill[^\"]*\"\nversion = )\"[^\"]*\"/\\1\"$VERSION\"/g" ${root_dirpath}/backend/parsers/windmill-parser-wasm/Cargo.lock
 
 cd ${root_dirpath}/frontend && npm i --package-lock-only --ignore-scripts
+
+# The CLI installs this package on every `bun install`, which would otherwise rewrite the
+# lockfile's version and leave a dirty tree.
+cd ${root_dirpath}/windmill-yaml-validator && npm i --package-lock-only --ignore-scripts

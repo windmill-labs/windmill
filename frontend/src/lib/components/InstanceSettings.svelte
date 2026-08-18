@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { scimSamlSetting, settings, settingsKeys } from './instanceSettings'
+	import { scimSamlSetting, settings, settingsKeys, instanceSettingsSaved } from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
 	import type { TeamsChannel } from '$lib/gen/types.gen'
@@ -244,6 +244,7 @@
 
 			initialValues = JSON.parse(JSON.stringify($values))
 			initialOauths = JSON.parse(JSON.stringify(oauths))
+			instanceSettingsSaved.update((n) => n + 1)
 			initialRequirePreexistingUserForOauth = requirePreexistingUserForOauth
 			baseUrlIsFallback = false
 
@@ -279,6 +280,10 @@
 	// Per-instance OAuth providers (Snowflake, ServiceNow, …) keyed by name ->
 	// their registry connect_config_template. Adding a new one needs only a
 	// registry entry — no code here.
+	// Every per-instance templated provider is configurable here: authorization-code
+	// ones (ServiceNow, Snowflake) provide an `auth_url`, client-credentials-only
+	// ones (Coupa) provide only a `token_url`. Both need the admin to enter their
+	// instance host so the shared credentials point at the right endpoint.
 	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
 		Object.entries(oauthConnectRegistry)
 			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
@@ -308,8 +313,12 @@
 			instanceInputs[name] = v
 			if (oauths[name].connect_config?.extra_params?.[key] === v) continue
 			oauths[name].connect_config = {
-				scopes: [],
-				auth_url: tmpl.auth_url.replaceAll('{instance}', v),
+				scopes: tmpl.scopes ?? [],
+				// CC-only templated providers have no auth_url; store an empty string
+				// (not omitted) so the instance-config parser still types the entry.
+				// The backend treats an empty auth_url as the unused placeholder for
+				// the client-credentials grant.
+				auth_url: tmpl.auth_url ? tmpl.auth_url.replaceAll('{instance}', v) : '',
 				token_url: tmpl.token_url.replaceAll('{instance}', v),
 				req_body_auth: tmpl.req_body_auth ?? false,
 				extra_params: { [key]: v },
@@ -617,6 +626,7 @@
 			const v = $values[s.key]
 			initialValues[s.key] = v !== undefined ? JSON.parse(JSON.stringify(v)) : undefined
 		}
+		instanceSettingsSaved.update((n) => n + 1)
 		if (categorySettings.some((s) => s.key === 'base_url')) {
 			baseUrlIsFallback = false
 		}
@@ -1053,7 +1063,20 @@
 						<li>job usage (language, total duration, count)</li>
 						<li>git sync repo count (sync vs promotion mode)</li>
 						<li
-							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+							>feature usage (counts of which product features are used, including AI provider and
+							model identifiers and the names of public hub scripts used, last 30 days)</li
+						>
+						<li
+							>feature adoption (counts of which flow, script, trigger and worker features your
+							deployed items use)</li
+						>
+						<li
+							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
+							apps, raw apps)</li
+						>
+						<li
+							>infrastructure info (container runtime, managed database provider, database version,
+							size and cluster size, max and active connections, object storage backend)</li
 						>
 					</ul>
 					<br />For air-gapped instances, you can download the telemetry data and send it manually.
@@ -1091,7 +1114,16 @@
 						<li>user usage (author count, operator count)</li>
 						<li>development instance status</li>
 						<li
-							>AI chat usage (provider, model, mode, session count, message count — last 30 days)</li
+							>feature usage (counts of which product features are used, including AI provider and
+							model identifiers and the names of public hub scripts used, last 30 days)</li
+						>
+						<li
+							>feature adoption (counts of which flow, script, trigger and worker features your
+							deployed items use)</li
+						>
+						<li
+							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
+							apps, raw apps)</li
 						>
 					</ul>
 				</div>
@@ -1120,10 +1152,11 @@
 				description="Configure where secrets (secret variables) are stored."
 				link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
 			/>
-		{:else if category == 'GitHub Enterprise App'}
+		{:else if category == 'GitHub App'}
 			<SettingsPageHeader
-				title="GitHub Enterprise App"
-				description="Configure a self-managed GitHub App for GitHub Enterprise Server git sync."
+				title="GitHub App"
+				description="Configure a self-managed GitHub App for git sync on GitHub.com, GHE Cloud or GitHub Enterprise Server."
+				link="https://www.windmill.dev/docs/integrations/git_repository#self-managed-github-app"
 			/>
 		{:else if category == 'DB Health'}
 			<SettingsPageHeader

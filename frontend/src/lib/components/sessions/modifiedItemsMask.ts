@@ -1,0 +1,89 @@
+import type { UserDraftItemKind, WorkspaceItemDiff } from '$lib/gen'
+
+// The "modified items mask" tracks which workspace items an AI chat touched via
+// tool calls. Each key is `${UserDraftItemKind}:${storagePath}`. UserDraftItemKind
+// is canonical because it is what `itemKindFor`/`persistGlobalDraft` emit at capture
+// time and what `DraftItem.kind` (GET /drafts/list) already uses — so the mask joins
+// directly against the draft list. The fork comparison (`compareWorkspaces`) uses a
+// DIFFERENT kind taxonomy (`http_trigger` vs `trigger_http`, `schedule` vs
+// `trigger_schedule`), so `forkDiffKindToUserDraftKind` bridges the two.
+
+export function maskKey(kind: UserDraftItemKind, path: string): string {
+	return `${kind}:${path}`
+}
+
+type ForkDiffKind = WorkspaceItemDiff['kind']
+
+// Inverse of the draft→layout naming used in CompareDrafts.toLayoutKind. Only the
+// non-identity cases need an entry; everything else falls through to identity.
+// `resource_type`/`folder` have no UserDraftItemKind (never AI-authored) → undefined.
+const FORK_DIFF_KIND_TO_USER_DRAFT_KIND: Partial<Record<ForkDiffKind, UserDraftItemKind>> = {
+	schedule: 'trigger_schedule',
+	http_trigger: 'trigger_http',
+	websocket_trigger: 'trigger_websocket',
+	kafka_trigger: 'trigger_kafka',
+	nats_trigger: 'trigger_nats',
+	postgres_trigger: 'trigger_postgres',
+	mqtt_trigger: 'trigger_mqtt',
+	sqs_trigger: 'trigger_sqs',
+	gcp_trigger: 'trigger_gcp',
+	azure_trigger: 'trigger_azure',
+	email_trigger: 'trigger_default_email',
+	app: 'raw_app'
+}
+
+const IDENTITY_FORK_DIFF_KINDS = new Set<ForkDiffKind>([
+	'script',
+	'flow',
+	'raw_app',
+	'resource',
+	'variable'
+])
+
+export function forkDiffKindToUserDraftKind(kind: ForkDiffKind): UserDraftItemKind | undefined {
+	if (IDENTITY_FORK_DIFF_KINDS.has(kind)) return kind as UserDraftItemKind
+	return FORK_DIFF_KIND_TO_USER_DRAFT_KIND[kind]
+}
+
+// True when a fork-comparison diff names an item present in the chat-modified mask.
+export function diffInMask(diff: WorkspaceItemDiff, mask: Set<string>): boolean {
+	const kind = forkDiffKindToUserDraftKind(diff.kind)
+	if (kind !== undefined && mask.has(maskKey(kind, diff.path))) return true
+	// Legacy drag-and-drop apps tally fork diffs under `app`, and an explicit
+	// `?items=` mask names them `app:<path>` (the same kind the drafts list uses).
+	// The bridged lookup above reads them as `raw_app` (kept for chat masks, which
+	// only ever record raw apps), so accept the identity key too.
+	return diff.kind === 'app' && mask.has(maskKey('app', diff.path))
+}
+
+// `?items=` on the compare page: an explicit preselection mask passed in the URL
+// (the chat's open_page tool builds it; the page parses it). Comma-separated
+// `kind:path` keys — safe because Windmill paths cannot contain commas. An empty
+// value parses to an empty set, i.e. "preselect nothing", distinct from the param
+// being absent (no mask → the page's select-all default).
+export const COMPARE_ITEMS_PARAM = 'items'
+
+export function serializeItemsMaskParam(keys: readonly string[]): string {
+	return keys.join(',')
+}
+
+export function parseItemsMaskParam(value: string): Set<string> {
+	return new Set(
+		value
+			.split(',')
+			.map((k) => k.trim())
+			.filter(Boolean)
+	)
+}
+
+// Whether a mask names a draft row. Mask entries key items by storage path
+// (`maskKey`), but a never-deployed live-editor draft parks at an opaque
+// `draft_<uuid>` storage path while callers building an explicit `?items=` mask
+// know it by its visible `draft_path` — so a row matches under either name.
+export function maskHasDraftRow(
+	mask: Set<string>,
+	row: { kind: UserDraftItemKind; path: string; draft_path?: string }
+): boolean {
+	if (mask.has(maskKey(row.kind, row.path))) return true
+	return !!row.draft_path && mask.has(maskKey(row.kind, row.draft_path))
+}

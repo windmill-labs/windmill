@@ -15,6 +15,9 @@
 		disablePortal?: boolean
 		expressOAuthSetup?: boolean
 		disabled?: boolean
+		// Overrides the workspace to list/connect resources in (e.g. a fork/session editor's
+		// operating workspace). Falls back to the app-viewer context then the nav workspace.
+		workspace?: string | undefined
 	}
 
 	let {
@@ -22,12 +25,14 @@
 		resourceType = undefined,
 		disablePortal = false,
 		expressOAuthSetup = false,
-		disabled = false
+		disabled = false,
+		workspace = undefined
 	}: Props = $props()
 
 	let open = $state(false)
 	let refreshCount = $state(0)
 	const appViewerContext = getContext<AppViewerContext>('AppViewerContext')
+	let ws = $derived(workspace ?? appViewerContext?.workspace ?? $workspaceStore)
 
 	let collection = $state(value ? [{ value, label: value }] : [])
 
@@ -37,7 +42,7 @@
 		try {
 			const nc = (
 				await ResourceService.listResource({
-					workspace: appViewerContext?.workspace ?? $workspaceStore,
+					workspace: ws,
 					resourceType
 				})
 			).map((x) => ({
@@ -59,7 +64,7 @@
 	}
 
 	$effect(() => {
-		$workspaceStore && resourceType && untrack(() => loadResources(resourceType))
+		ws && resourceType && untrack(() => loadResources(resourceType))
 	})
 
 	let darkMode: boolean = $state(false)
@@ -79,7 +84,7 @@
 		{#key refreshCount}
 			{#await import('./AppConnectLightweightResourcePicker.svelte') then Module}
 				<Module.default
-					workspace={appViewerContext?.workspace ?? $workspaceStore}
+					workspace={ws}
 					{resourceType}
 					express={true}
 					on:error={(e) => {
@@ -107,7 +112,7 @@
 				<Loader2 class="animate-spin" />
 			{:then Module}
 				<Module.default
-					workspace={appViewerContext?.workspace ?? $workspaceStore}
+					workspace={ws}
 					{resourceType}
 					express={false}
 					on:error={(e) => {
@@ -186,7 +191,7 @@
 					on:click={async () => {
 						if (value) {
 							await ResourceService.deleteResource({
-								workspace: appViewerContext?.workspace ?? $workspaceStore,
+								workspace: ws,
 								path: value
 							})
 							value = undefined

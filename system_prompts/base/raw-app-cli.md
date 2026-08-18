@@ -121,10 +121,11 @@ The runnable ID is the filename without extension. For example, `get_user.ts` cr
 | C#               | `.cs`        | `myFunc.cs`      |
 | Java             | `.java`      | `myFunc.java`    |
 
-After creating a runnable, tell the user they can generate lock files by running:
+After creating or editing a backend runnable — especially when its imports or arguments changed — its local lock and `wmill-lock.yaml` go stale. Offer to run `wmill generate-metadata` and run it once the user agrees (or automatically if the project's `AGENTS.md` opts into that) — YOU run it, don't just name it and wait. It writes local files only (not a deploy), and keeping the lock current avoids noise in git-sync/CI:
 ```bash
 wmill generate-metadata
 ```
+After it runs, check the regenerated `.lock` diff and tell the user which dependency versions changed (e.g. `requests 2.31.0 → 2.32.0`), so they can catch an unwanted bump before deploying.
 
 ### Optional YAML configuration
 
@@ -212,15 +213,16 @@ data:
 
 ## CLI Commands
 
-`wmill app new` is the exception: you run it yourself, with flags, per the "Creating a Raw App" section above.
+Two commands you run yourself, not the user:
+- `wmill app new` — run it with flags, per the "Creating a Raw App" section above.
+- `wmill generate-metadata` — (re)generates local lock files and refreshes `wmill-lock.yaml` content hashes; writes local files only (not a deploy). After adding or editing a runnable, offer it and run it on agreement — or automatically if the project's `AGENTS.md` opts into that (see "After creating a runnable" above).
 
-For everything else, tell the user which command fits their intent and let them run it — these touch the workspace or local lock files, and the user should consent each time:
+For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:
 
 | Command | Description |
 |---------|-------------|
 | `wmill app dev` | Start dev server with live reload (see the `preview` skill for the full open-the-app-in-the-IDE-pane procedure). |
 | `wmill app generate-agents` | Refresh AGENTS.md and DATATABLES.md |
-| `wmill generate-metadata` | Generate lock files for backend runnables |
 | `wmill sync push` | Deploy app to Windmill |
 | `wmill sync pull` | Pull latest from Windmill |
 

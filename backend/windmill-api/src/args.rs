@@ -90,6 +90,10 @@ impl RawWebhookArgs {
         db: &DB,
         w_id: &str,
     ) -> Result<HashMap<String, Box<RawValue>>, Error> {
+        #[cfg(not(feature = "enterprise"))]
+        use crate::job_helpers_oss::{
+            bump_storage_usage, ce_storage_quota_remaining, spawn_storage_usage_recount_floored,
+        };
         use crate::job_helpers_oss::{
             get_random_file_name, get_workspace_s3_resource, upload_file_internal,
         };
@@ -139,8 +143,38 @@ impl RawWebhookArgs {
                             .into_stream()
                             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err));
 
-                        upload_file_internal(s3_client.clone(), &file_key, bytes_stream, options)
-                            .await?;
+                        // file_key is always freshly random here, so this never
+                        // overwrites an existing object; the full size is the delta.
+                        #[cfg(not(feature = "enterprise"))]
+                        let max_size = Some(ce_storage_quota_remaining(db, w_id, None).await? as usize);
+                        #[cfg(feature = "enterprise")]
+                        let max_size: Option<usize> = None;
+
+                        match upload_file_internal(
+                            s3_client.clone(),
+                            &file_key,
+                            bytes_stream,
+                            options,
+                            max_size,
+                        )
+                        .await
+                        {
+                            Ok((_, _size)) => {
+                                #[cfg(not(feature = "enterprise"))]
+                                bump_storage_usage(
+                                    db,
+                                    w_id,
+                                    windmill_object_store::DEFAULT_STORAGE,
+                                    _size as i64,
+                                )
+                                .await;
+                            }
+                            Err(e) => {
+                                #[cfg(not(feature = "enterprise"))]
+                                spawn_storage_usage_recount_floored(db, w_id);
+                                return Err(e);
+                            }
+                        }
 
                         files.entry(name).or_insert(vec![]).push(serde_json::json!({
                             "s3": &file_key
@@ -445,7 +479,10 @@ where
         let bytes = Bytes::from_request(request, _state)
             .await
             .map_err(IntoResponse::into_response)?;
-        if no_content_type && bytes.is_empty() {
+        // A request carries a body only when it signals one with Content-Length or
+        // Transfer-Encoding (RFC 9112 §6), yet it may advertise a Content-Type
+        // regardless. An empty body is therefore no args, not a malformed document.
+        if bytes.is_empty() {
             Ok(RawWebhookArgs { body: RawBody::Empty, metadata })
         } else {
             let str = String::from_utf8(bytes.to_vec())
@@ -676,6 +713,26 @@ impl WebhookArgs {
 mod tests {
 
     use super::*;
+
+    #[tokio::test]
+    async fn test_bodyless_request_with_json_content_type() {
+        let request = Request::builder()
+            .method(http::Method::GET)
+            .uri("/api/r/customer/test")
+            .header(CONTENT_TYPE, "application/json")
+            .body(axum::body::Body::empty())
+            .unwrap();
+
+        let args = try_from_request_body(request, &(), true)
+            .await
+            .unwrap_or_else(|_| panic!("bodyless GET should be accepted"));
+
+        assert!(
+            matches!(args.body, RawBody::Empty),
+            "bodyless GET should carry no args, got {:?}",
+            args.body
+        );
+    }
 
     #[tokio::test]
     async fn test_cloudevents_json_payload() {

@@ -15,8 +15,8 @@ use crate::common::{cached_result_path, get_root_job_id, save_in_cache, transfor
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
-    JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, UpdateFlow,
-    KEEP_JOB_DIR,
+    JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, StepFailureKind,
+    UpdateFlow, KEEP_JOB_DIR,
 };
 
 use anyhow::Context;
@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
 use sqlx::types::Json;
-use sqlx::{FromRow, Postgres, Transaction};
+use sqlx::{Acquire, FromRow, Postgres, Transaction};
 use tracing::instrument;
 use uuid::Uuid;
 use windmill_common::auth::get_job_perms;
@@ -51,7 +51,6 @@ use windmill_common::runnable_settings::{
     ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
 };
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
-use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{error_to_value, to_raw_value, Connection};
 use windmill_common::{
@@ -70,7 +69,7 @@ use windmill_common::{
 use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
-    insert_concurrency_key, interpolate_args,
+    insert_concurrency_key_capped, interpolate_args,
     report_error_to_workspace_handler_or_critical_side_channel, try_schedule_next_job, CanceledBy,
     FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload,
     WrappedError,
@@ -107,17 +106,6 @@ lazy_static::lazy_static! {
     static ref RESOLVED_FLOW_ENV_CACHE: quick_cache::sync::Cache<Uuid, Arc<HashMap<String, Box<RawValue>>>> =
         quick_cache::sync::Cache::new(1024);
 }
-
-#[derive(Debug)]
-pub struct SchedulePushZombieError(pub String);
-
-impl std::fmt::Display for SchedulePushZombieError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl std::error::Error for SchedulePushZombieError {}
 
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
@@ -181,7 +169,7 @@ pub async fn update_flow_status_after_job_completion(
     canceled_by: Option<CanceledBy>,
     result: Arc<Box<RawValue>>,
     flow_job_duration: Option<FlowJobDuration>,
-    unrecoverable: bool,
+    step_failure: StepFailureKind,
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
@@ -204,7 +192,7 @@ pub async fn update_flow_status_after_job_completion(
         stop_early_override,
         has_triggered_error_handler: false,
     };
-    let mut unrecoverable = unrecoverable;
+    let mut step_failure = step_failure;
     loop {
         potentially_crash_for_testing();
         let nrec = match Box::pin(update_flow_status_after_job_completion_internal(
@@ -217,7 +205,7 @@ pub async fn update_flow_status_after_job_completion(
             rec.canceled_by,
             rec.flow_job_duration.clone(),
             rec.result,
-            unrecoverable,
+            step_failure,
             same_worker_tx,
             worker_dir,
             rec.stop_early_override,
@@ -246,7 +234,7 @@ pub async fn update_flow_status_after_job_completion(
                     Arc::new(to_raw_value(&Json(&WrappedError {
                         error: json!(e.to_string()),
                     }))),
-                    true,
+                    StepFailureKind::Unrecoverable,
                     same_worker_tx,
                     worker_dir,
                     rec.stop_early_override,
@@ -261,7 +249,7 @@ pub async fn update_flow_status_after_job_completion(
                 .await?
             }
         };
-        unrecoverable = false;
+        step_failure = StepFailureKind::Normal;
 
         match nrec {
             UpdateFlowStatusAfterJobCompletion::Done(job) => {
@@ -332,14 +320,14 @@ fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<
     return (false, None, false);
 }
 
-async fn get_id_ctx_for_expr(
+async fn get_id_ctx_for_expr<'c>(
     expr: &str,
     flow: uuid::Uuid,
-    db: &DB,
+    e: impl sqlx::PgExecutor<'c>,
     status: &FlowStatus,
 ) -> error::Result<Option<IdContext>> {
     if expr.contains("results.") || expr.contains("results[") || expr.contains("results?.") {
-        let flow_job = get_mini_pulled_job(db, &flow).await?;
+        let flow_job = get_mini_pulled_job(e, &flow).await?;
         if let Some(flow_job) = flow_job {
             Ok(Some(get_transform_context(&flow_job, "", &status)))
         } else {
@@ -351,7 +339,7 @@ async fn get_id_ctx_for_expr(
 }
 
 async fn evaluate_stop_after_all_iters_if(
-    db: &DB,
+    tx: &mut Transaction<'_, Postgres>,
     stop_after_all_iters_if: &StopAfterIf,
     module_status: &FlowStatusModule,
     w_id: &str,
@@ -366,9 +354,20 @@ async fn evaluate_stop_after_all_iters_if(
     flow: uuid::Uuid,
     status: &FlowStatus,
 ) -> error::Result<()> {
+    // Test hook (see test_stop_after_all_iters_if_db_error_isolated_by_savepoint):
+    // run a query that aborts this (savepoint) transaction so the test can verify the
+    // caller's savepoint keeps the outer status-update transaction committable.
+    #[cfg(feature = "failpoints")]
+    if stop_after_all_iters_if.expr == "__wm_failpoint_abort_tx__" {
+        sqlx::query("SELECT 1/0")
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| Error::internal_err(format!("failpoint abort_tx: {e:#}")))?;
+    }
+
     let iters_result = match &module_status {
         FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. } => {
-            Arc::new(retrieve_flow_jobs_results(db, w_id, flow_jobs).await?)
+            Arc::new(retrieve_flow_jobs_results(&mut **tx, w_id, flow_jobs).await?)
         }
         _ => {
             return Err(Error::internal_err(format!(
@@ -379,7 +378,8 @@ async fn evaluate_stop_after_all_iters_if(
 
     *nresult = Some(iters_result.clone()); // as an optimization, we store the result of all jobs as when stop_early_after_all_iters evaluates to false, it would have to be computed (finished loop/branchall)
 
-    let id_ctx = get_id_ctx_for_expr(&stop_after_all_iters_if.expr, flow, db, status).await?;
+    let id_ctx =
+        get_id_ctx_for_expr(&stop_after_all_iters_if.expr, flow, &mut **tx, status).await?;
 
     let stop_early_after_all_iters = compute_bool_from_expr(
         &stop_after_all_iters_if.expr,
@@ -421,7 +421,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     canceled_by: Option<CanceledBy>,
     mut flow_job_duration: Option<FlowJobDuration>,
     result: Arc<Box<RawValue>>,
-    unrecoverable: bool,
+    step_failure: StepFailureKind,
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
@@ -976,8 +976,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
-                        if let Err(e) = evaluate_stop_after_all_iters_if(
-                            db,
+                        // Isolate the reads in a savepoint on the same connection: the
+                        // caller below swallows our error and keeps using `tx`, so a DB
+                        // read failure must not leave the outer transaction aborted (that
+                        // would fail the later commit). On error we roll back to the
+                        // savepoint, matching the previous pool-read behaviour where a
+                        // failed read left `tx` usable and the iteration was marked failed.
+                        let mut sp = tx.begin().await?;
+                        let eval_res = evaluate_stop_after_all_iters_if(
+                            &mut sp,
                             stop_after_all_iters_if,
                             module_status,
                             w_id,
@@ -992,15 +999,19 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow,
                             &old_status,
                         )
-                        .await
-                        {
-                            tracing::error!("error evaluating stop_after_all_iters_if: {e:#}");
-                            stop_early = true;
-                            skip_if_stop_early = false;
-                            stop_early_err_msg = Some(format!(
-                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
-                                stop_after_all_iters_if.expr
-                            ));
+                        .await;
+                        match eval_res {
+                            Ok(()) => sp.commit().await?,
+                            Err(e) => {
+                                let _ = sp.rollback().await;
+                                tracing::error!("error evaluating stop_after_all_iters_if: {e:#}");
+                                stop_early = true;
+                                skip_if_stop_early = false;
+                                stop_early_err_msg = Some(format!(
+                                    "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                    stop_after_all_iters_if.expr
+                                ));
+                            }
                         }
                     }
 
@@ -1054,7 +1065,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     let r = sqlx::query_scalar!(
                          "DELETE FROM parallel_monitor_lock WHERE parent_flow_id = $1 RETURNING last_ping",
                          flow,
-                     ).fetch_optional(db).await.map_err(|e| {
+                     ).fetch_optional(&mut *tx).await.map_err(|e| {
                          Error::internal_err(format!(
                              "error while deleting parallel_monitor_lock: {e:#}"
                          ))
@@ -1198,8 +1209,12 @@ pub async fn update_flow_status_after_job_completion_internal(
                     {
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
-                        if let Err(e) = evaluate_stop_after_all_iters_if(
-                            db,
+                        // See the matching savepoint comment above: isolate the reads so a
+                        // DB read failure (whose error the caller swallows) cannot abort
+                        // the outer transaction and break the later commit.
+                        let mut sp = tx.begin().await?;
+                        let eval_res = evaluate_stop_after_all_iters_if(
+                            &mut sp,
                             stop_after_all_iters_if,
                             module_status,
                             w_id,
@@ -1214,14 +1229,18 @@ pub async fn update_flow_status_after_job_completion_internal(
                             flow,
                             &old_status,
                         )
-                        .await
-                        {
-                            stop_early = true;
-                            skip_if_stop_early = false;
-                            stop_early_err_msg = Some(format!(
-                                "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
-                                stop_after_all_iters_if.expr
-                            ));
+                        .await;
+                        match eval_res {
+                            Ok(()) => sp.commit().await?,
+                            Err(e) => {
+                                let _ = sp.rollback().await;
+                                stop_early = true;
+                                skip_if_stop_early = false;
+                                stop_early_err_msg = Some(format!(
+                                    "Error evaluating stop_after_all_iters_if expression `{}`: {e:#}",
+                                    stop_after_all_iters_if.expr
+                                ));
+                            }
                         }
                     }
                 }
@@ -1279,7 +1298,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }),
                     )
                 } else {
-                    let inc = if continue_on_error {
+                    // A failure the module's error policy does not describe must reach the error
+                    // handler even on a continue_on_error step, so don't advance the step
+                    // counter past the failed module — otherwise the flow would silently
+                    // continue to the next step and hide it.
+                    let inc = if step_failure.honors_step_error_policy() && continue_on_error {
                         let retry = current_module
                             .as_ref()
                             .and_then(|x| x.retry.clone())
@@ -1458,7 +1481,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             match &new_status {
                 Some(FlowStatusModule::Success { flow_jobs: Some(jobs), .. })
                 | Some(FlowStatusModule::Failure { flow_jobs: Some(jobs), .. }) => {
-                    Arc::new(retrieve_flow_jobs_results(db, w_id, jobs).await?)
+                    Arc::new(retrieve_flow_jobs_results(&mut *tx, w_id, jobs).await?)
                 }
                 _ => result.clone(),
             }
@@ -1498,12 +1521,25 @@ pub async fn update_flow_status_after_job_completion_internal(
             });
             let require_args = concurrency_requires_args || has_debouncing;
             let mut tag = tag_and_concurrency_key.as_ref().and_then(|x| x.tag.clone());
+            // `$workspace` does not depend on the preprocessor's output, so it has to resolve even
+            // when nothing forced us to fetch args. Leaving it to the `$args` branch below writes a
+            // `$workspace`-only tag back verbatim, naming a queue no worker serves.
+            if let Some(t) = tag.as_ref().filter(|t| t.contains("$workspace")) {
+                let tag_ws =
+                    windmill_queue::tags::tag_workspace_id(&flow_job.workspace_id, db).await;
+                tag = Some(t.replace("$workspace", &tag_ws));
+            }
             let concurrency_key = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_key.clone());
-            let concurrent_limit = tag_and_concurrency_key
-                .as_ref()
-                .and_then(|x| x.concurrent_limit);
+            // `concurrent_limit` here can come straight from the raw flow JSON (see
+            // get_tag_and_concurrency), bypassing the ConcurrencySettings deserialization guard,
+            // so a stored `0` must still be coerced to disabled before we register a key for it.
+            let concurrent_limit = windmill_common::runnable_settings::none_if_non_positive(
+                tag_and_concurrency_key
+                    .as_ref()
+                    .and_then(|x| x.concurrent_limit),
+            );
             let concurrency_time_window_s = tag_and_concurrency_key
                 .as_ref()
                 .and_then(|x| x.concurrency_time_window_s);
@@ -1528,27 +1564,30 @@ pub async fn update_flow_status_after_job_completion_internal(
             if concurrency_requires_args {
                 let args = PushArgs::from(fetched_args.as_ref().unwrap());
                 if let Some(ck) = concurrency_key {
-                    insert_concurrency_key(
+                    insert_concurrency_key_capped(
                         &flow_job.workspace_id,
                         &args,
                         &flow_job.runnable_path,
                         JobKind::Flow,
                         Some(ck),
+                        concurrent_limit,
                         db,
                         flow,
                     )
                     .await?;
                 }
                 if let Some(t) = tag {
+                    // `$workspace` is already resolved above; this fills in `$args`.
                     tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
             } else if concurrent_limit.is_some() {
-                insert_concurrency_key(
+                insert_concurrency_key_capped(
                     &flow_job.workspace_id,
                     &PushArgs::from(&HashMap::new()),
                     &flow_job.runnable_path,
                     JobKind::Flow,
                     concurrency_key,
+                    concurrent_limit,
                     db,
                     flow,
                 )
@@ -1600,6 +1639,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     windmill_common::runnable_settings::RunnableSettings {
                         debouncing_settings: debouncing_hash,
                         concurrency_settings: None,
+                        retry_settings: None,
                     },
                     db,
                 )
@@ -1701,14 +1741,24 @@ pub async fn update_flow_status_after_job_completion_internal(
         // enclosing job/subflow. Detect that case and treat the flow as successful.
         let recoverable_failure_at_last_step = !success
             && is_last_step
-            && !unrecoverable
+            && step_failure.honors_step_error_policy()
             && (skip_seq_branch_failure || skip_loop_failures || continue_on_error);
 
         let should_continue_flow = match success {
             _ if stop_early => stop_early_err_msg.is_some() && flow_value.failure_module.is_some(), // if stop_early_err_msg some, we want to trigger the error handler before stopping the flow, if any
             _ if flow_job.is_canceled() => false,
             true => !is_last_step,
-            false if unrecoverable => false,
+            // A failure the module's error policy does not describe (a worker crash/OOM
+            // surfaced by the zombie handler, an error raised while updating the flow status,
+            // a suspend gate that ended without approval) must not be retried or silently
+            // skipped, but it should still trigger the flow's error handler — that is
+            // precisely when the error handler is expected to run. Continue the flow only to
+            // reach the failure module, never to retry.
+            false if !step_failure.honors_step_error_policy() => {
+                !is_failure_step
+                    && !has_triggered_error_handler
+                    && flow_value.failure_module.is_some()
+            }
             false if skip_seq_branch_failure || skip_loop_failures || continue_on_error => {
                 !is_last_step
             }
@@ -1727,7 +1777,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             success = true;
         }
 
-        tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, unrecoverable = %unrecoverable,
+        tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, step_failure = ?step_failure,
              skip_seq_branch_failure = %skip_seq_branch_failure, skip_loop_failures = %skip_loop_failures,
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
@@ -2059,6 +2109,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             worker_name,
             flow_runners,
             &killpill_rx,
+            step_failure,
         ))
         .warn_after_seconds(10)
         .await
@@ -2259,8 +2310,8 @@ async fn set_success_and_duration_in_flow_job_success<'c>(
     Ok(())
 }
 
-async fn retrieve_flow_jobs_results(
-    db: &DB,
+async fn retrieve_flow_jobs_results<'c>(
+    e: impl sqlx::PgExecutor<'c>,
     w_id: &str,
     job_uuids: &Vec<Uuid>,
 ) -> error::Result<Box<RawValue>> {
@@ -2271,7 +2322,7 @@ async fn retrieve_flow_jobs_results(
         job_uuids.as_slice(),
         w_id
     )
-    .fetch_all(db)
+    .fetch_all(e)
     .await?
     .into_iter()
     .map(|br| (br.id, br.result))
@@ -2749,6 +2800,9 @@ pub async fn handle_flow(
     worker_name: &str,
     flow_runners: Option<Arc<FlowRunners>>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
+    // How the step this flow is resuming from failed, which bounds what may be pushed next:
+    // see [`StepFailureKind`].
+    step_failure: StepFailureKind,
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
 
@@ -2863,38 +2917,81 @@ pub async fn handle_flow(
             .sleep(tokio::time::sleep)
             .await;
 
-            // Non-retryable errors (QuotaExceeded, NotFound) are handled inside
-            // try_schedule_next_job (schedule disabled, returns None), so they never
-            // reach here. This handles only transient errors after retry exhaustion.
             if let Err(err) = schedule_push_result {
-                tracing::error!(
-                    "Could not push next scheduled job for {} after retries: {err}. Disabling schedule.",
-                    schedule.path
-                );
-                if let Err(disable_err) = sqlx::query!(
-                    "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                    err.to_string(),
-                    &flow_job.workspace_id,
-                    &schedule.path
-                )
-                .execute(db)
-                .await
-                {
+                if matches!(err, Error::QuotaExceeded(_) | Error::NotFound(_)) {
+                    // try_schedule_next_job disables on these, so reaching here means
+                    // its own disable write failed. Retry it: rearm_schedule turns
+                    // these into NoOp, so without disabling here the schedule would
+                    // stay enabled yet never run.
+                    // Contract on `record_in_disable_tx`. Worth knowing here:
+                    // this is the last chance to disable, because a flow
+                    // schedule arms its next occurrence when the flow *starts*,
+                    // so once the flow is gone nothing reaches this code again.
+                    let mut history_lost = None;
+                    let disable_result = async {
+                        let mut tx = db.begin().await?;
+                        let rows = sqlx::query!(
+                            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
+                            err.to_string(),
+                            &flow_job.workspace_id,
+                            &schedule.path
+                        )
+                        .execute(&mut *tx)
+                        .await?
+                        .rows_affected();
+                        if rows > 0 {
+                            history_lost = windmill_common::trigger_history::record_in_disable_tx(
+                                &mut tx,
+                                windmill_queue::jobs::schedule_auto_disable_event(
+                                    &flow_job.workspace_id,
+                                    &schedule.path,
+                                    &err.to_string(),
+                                ),
+                            )
+                            .await;
+                        }
+                        tx.commit().await?;
+                        Ok::<(), Error>(())
+                    }
+                    .await;
+
+                    if let Err(disable_err) = disable_result {
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            &mini_job,
+                            db,
+                            format!(
+                                "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                                schedule.path,
+                            ),
+                        )
+                        .await;
+                    }
+                    if let Some(history_err) = history_lost {
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            &mini_job,
+                            db,
+                            format!(
+                                "Disabled schedule {} but could not record it in the trigger history: {history_err}",
+                                schedule.path,
+                            ),
+                        )
+                        .await;
+                    }
+                } else {
+                    // Transient error (DB contention, timeout) after retry exhaustion:
+                    // not the schedule's fault. Report it but leave the schedule
+                    // enabled; the current occurrence runs to completion and the
+                    // unarmed-schedule reconciler re-arms the next one. Do not
+                    // fail/requeue: a same-worker zombie would be canceled, losing it.
                     report_error_to_workspace_handler_or_critical_side_channel(
                         &mini_job,
                         db,
                         format!(
-                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            "Could not push next scheduled job for {} after retries: {err}. Leaving it enabled for the unarmed-schedule reconciler to re-arm.",
                             schedule.path,
                         ),
                     )
                     .await;
-                    return Err(SchedulePushZombieError(
-                        format!(
-                            "Could not push or disable schedule {} after retries",
-                            schedule.path
-                        ),
-                    ).into());
                 }
             }
         } else {
@@ -2922,6 +3019,7 @@ pub async fn handle_flow(
             flow_runners.clone(),
             job_completed_tx.clone(),
             &killpill_rx,
+            step_failure,
         ))
         .warn_after_seconds(10)
         .await?;
@@ -3104,6 +3202,9 @@ async fn push_next_flow_job(
     flow_runners: Option<Arc<FlowRunners>>,
     job_completed_tx: JobCompletedSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
+    // How the prior step failed, which bounds what may be pushed next: see
+    // [`StepFailureKind`].
+    step_failure: StepFailureKind,
 ) -> error::Result<PushNextFlowJob> {
     let job_root = flow_job
         .flow_innermost_root_job
@@ -3164,6 +3265,7 @@ async fn push_next_flow_job(
             w_id: flow_job.workspace_id.clone(),
             worker_dir: worker_dir.to_string(),
             token: client.token.clone(),
+            step_failure,
         })));
     }
 
@@ -3218,6 +3320,7 @@ async fn push_next_flow_job(
                             w_id: flow_job.workspace_id.clone(),
                             worker_dir: worker_dir.to_string(),
                             token: client.token.clone(),
+                            step_failure,
                         }
                     )));
                 }
@@ -3262,13 +3365,14 @@ async fn push_next_flow_job(
                     w_id: flow_job.workspace_id.clone(),
                     worker_dir: worker_dir.to_string(),
                     token: client.token.clone(),
+                    step_failure,
                 })));
             }
         }
     }
 
     // Compute and initialize last_job_result
-    let arc_last_job_result = if status_module.is_failure() {
+    let mut arc_last_job_result = if status_module.is_failure() {
         // if job is being retried, pass the result of its previous failure
         last_job_result.unwrap_or_else(|| Arc::new(to_raw_value(&json!("{}"))))
     } else if matches!(step, Step::Step { idx: 0, .. }) || step.is_preprocessor_step() {
@@ -3344,10 +3448,16 @@ async fn push_next_flow_job(
             // Persist approval user groups conditions, if any. Requires runnning the InputTransform
             let required_events = suspend.required_events.unwrap() as u16;
             let user_auth_required = suspend.user_auth_required.unwrap_or(false);
-            if user_auth_required {
-                let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            let self_approval_disabled = suspend.self_approval_disabled.unwrap_or(false);
+            // self_approval_disabled must be persisted even without user_auth_required, otherwise
+            // the resume boundary sees no approval_conditions and the restriction is silently
+            // dropped. user_groups_required only applies together with user_auth_required.
+            if user_auth_required || self_approval_disabled {
                 let user_groups_required: Vec<String>;
-                if let Some(user_groups_required_as_input_transform) = suspend.user_groups_required
+                if !user_auth_required {
+                    user_groups_required = Vec::new();
+                } else if let Some(user_groups_required_as_input_transform) =
+                    suspend.user_groups_required
                 {
                     match user_groups_required_as_input_transform {
                         InputTransform::Static { value } => {
@@ -3512,7 +3622,7 @@ async fn push_next_flow_job(
                         count: required_events,
                         job: last
                     }),
-                    (required_events - resume_messages.len() as u16) as i32,
+                    (required_events.saturating_sub(resume_messages.len() as u16)) as i32,
                     Duration::from_secs(
                         suspend.timeout.map(|t| t.into()).unwrap_or_else(|| 30 * 60)
                     ) as Duration,
@@ -3588,6 +3698,7 @@ async fn push_next_flow_job(
                     w_id: flow_job.workspace_id.clone(),
                     worker_dir: worker_dir.to_string(),
                     token: client.token.clone(),
+                    step_failure: StepFailureKind::SuspendNotApproved,
                 })));
             }
         }
@@ -3657,7 +3768,11 @@ async fn push_next_flow_job(
         }
     };
 
-    let retry = if matches!(&status_module, FlowStatusModule::Failure { .. },) {
+    // Retry is a policy on the step's own execution: skip it for a failure the step did not
+    // produce by running, and fall straight through to the failure module below.
+    let retry = if step_failure.honors_step_error_policy()
+        && matches!(&status_module, FlowStatusModule::Failure { .. },)
+    {
         let retry = &module.retry.clone().unwrap_or_default();
         evaluate_retry(
             retry,
@@ -3672,8 +3787,13 @@ async fn push_next_flow_job(
         None
     };
     let get_args_from_id = match &status_module {
+        // `|| !honors_step_error_policy()`: such a failure routes to the failure module even
+        // on a continue_on_error step (whose failures are normally tolerated), matching the
+        // decision in update_flow_status_after_job_completion_internal.
         FlowStatusModule::Failure { job, .. }
-            if retry.as_ref().is_some() || !module.continue_on_error.is_some_and(|x| x) =>
+            if retry.as_ref().is_some()
+                || !module.continue_on_error.is_some_and(|x| x)
+                || !step_failure.honors_step_error_policy() =>
         {
             if let Some((fail_count, retry_in)) = retry {
                 tracing::debug!(
@@ -3699,6 +3819,30 @@ async fn push_next_flow_job(
                  .context("update flow retry")?;
 
                 status_module = FlowStatusModule::WaitingForPriorSteps { id: status_module.id() };
+
+                // The failed attempt's error has already been consumed by `evaluate_retry`
+                // above. Restore `previous_result` to the preceding step's result (or the
+                // flow args for the first step) so that predicates re-evaluated for the
+                // retry (skip_if, loop iterator expressions, ...) don't see the failed
+                // attempt's error instead. Like the suspend/restart path above, this
+                // falls back to `"{}"` when the preceding step has no Success status
+                // (e.g. it failed with continue_on_error).
+                if !matches!(step, Step::FailureStep) {
+                    arc_last_job_result = if matches!(step, Step::Step { idx: 0, .. })
+                        || step.is_preprocessor_step()
+                    {
+                        Arc::new(to_raw_value(&flow_job.args))
+                    } else {
+                        match get_previous_job_result(db, flow_job.workspace_id.as_str(), &status)
+                            .warn_after_seconds(3)
+                            .await?
+                        {
+                            None => Arc::new(to_raw_value(&json!("{}"))),
+                            Some(previous_job_result) => Arc::new(previous_job_result),
+                        }
+                    };
+                }
+
                 // we get the args from the last failed job
                 status.retry.failed_jobs.last()
             /* Start the failure module ... */
@@ -3970,7 +4114,7 @@ async fn push_next_flow_job(
                 None,
                 result,
                 None,
-                false,
+                StepFailureKind::Normal,
                 same_worker_tx,
                 worker_dir,
                 None,
@@ -3998,7 +4142,8 @@ async fn push_next_flow_job(
             .as_ref()
             .is_some_and(|fr| fr.job_id == flow_job.id);
 
-    let continue_with_runners = (start_runners || (flow_runners.is_some() && !do_not_pass_runners))
+    let continue_with_runners = step_failure.keeps_worker_pin()
+        && (start_runners || (flow_runners.is_some() && !do_not_pass_runners))
         && module.suspend.is_none()
         && module.sleep.is_none();
 
@@ -4007,8 +4152,13 @@ async fn push_next_flow_job(
     let job_same_worker = flow_job.same_worker
         && matches!(flow_job.kind, JobKind::Flow)
         && flow_job.runnable_id.is_some();
-    let continue_on_same_worker =
-        (flow.same_worker || job_same_worker) && module.suspend.is_none() && module.sleep.is_none();
+    // Without a worker worth pinning to, the error handler step is pushed as a regular queued
+    // job (any live worker can pick it up) instead of being signaled via same_worker to a
+    // worker that may be dead — which would strand it forever.
+    let continue_on_same_worker = step_failure.keeps_worker_pin()
+        && (flow.same_worker || job_same_worker)
+        && module.suspend.is_none()
+        && module.sleep.is_none();
 
     /* Finally, push the job into the queue */
     let mut uuids = vec![];
@@ -4232,10 +4382,17 @@ async fn push_next_flow_job(
         let flow_root_job = get_root_job_id(&flow_job);
 
         // forward root job permissions to the new job
-        let job_perms: Option<Authed> =
-            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id)
-                .await?
-                .map(|x| x.into());
+        let root_job_perms =
+            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id).await?;
+        // The end user is a property of whoever triggered the root run, so every step (and
+        // transitively every subflow's step) must see the same WM_END_USER_EMAIL as the run.
+        // It is read from the root's `job_perms` rather than off `flow_job`: only a freshly
+        // pulled job carries `permissioned_as_end_user_email`, and every step past the first
+        // is pushed from a flow job re-fetched by `get_mini_pulled_job`, which does not.
+        let end_user_email = root_job_perms
+            .as_ref()
+            .and_then(|x| x.end_user_email.clone());
+        let job_perms: Option<Authed> = root_job_perms.map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
         let tag = resolve_flow_step_tag(
@@ -4265,7 +4422,7 @@ async fn push_next_flow_job(
             .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
         {
             check_tag_available_for_workspace_internal(
-                &db,
+                db,
                 &flow_job.workspace_id,
                 tag_str,
                 email,
@@ -4291,13 +4448,10 @@ async fn push_next_flow_job(
             )
             .await?;
 
-            if timeout_value < 0 {
-                return Err(Error::ExecutionErr(
-                    "Timeout value cannot be negative".to_string(),
-                ));
-            }
-
-            Some(timeout_value)
+            // A `<= 0` step timeout (including a negative eval) means "no override": fall back
+            // to the referenced runnable's own timeout rather than a 0-second/negative timeout
+            // that would kill the step instantly.
+            effective_flow_step_timeout(Some(timeout_value), payload_tag.timeout)
         } else {
             payload_tag.timeout
         };
@@ -4316,6 +4470,7 @@ async fn push_next_flow_job(
                 "job-span-{}",
                 flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
             )),
+            None,
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),
@@ -4332,7 +4487,7 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
             continue_with_runners,
-            None,
+            end_user_email,
             None,
             None,
         )
@@ -5058,13 +5213,13 @@ async fn compute_next_flow_transform(
                 NextStatus::NextStep,
             ))
         }
-        FlowModuleValue::AIAgent { .. } => {
+        FlowModuleValue::AIAgent { tag, .. } => {
             let path = get_path(flow_job, status, module);
             let payload = JobPayload::AIAgent { path };
             Ok(NextFlowTransform::Continue(
                 ContinuePayload::SingleJob(JobPayloadWithTag {
                     payload,
-                    tag: None,
+                    tag: tag.filter(|t| !t.trim().is_empty()),
                     delete_after_use,
                     delete_after_secs,
                     timeout: None,
@@ -5926,13 +6081,9 @@ async fn flow_to_payload(
     w_id: &str,
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
-    let FlowVersionInfo { version, on_behalf_of_email, edited_by, tag, .. } =
-        get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
-    let on_behalf_of = if let Some(email) = on_behalf_of_email {
-        Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&edited_by) })
-    } else {
-        None
-    };
+    let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+    let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
+    let FlowVersionInfo { version, tag, .. } = flow_info;
     let payload = JobPayload::Flow {
         path,
         dedicated_worker: None,
@@ -5948,6 +6099,18 @@ async fn flow_to_payload(
         timeout: None,
         on_behalf_of,
     })
+}
+
+/// Effective timeout for a flow step given the module's (already-evaluated) timeout override and
+/// the timeout inherited from the referenced runnable. A `<= 0` override — or none — means "no
+/// override": fall back to the inherited value (which is itself `None` when unset, i.e. the
+/// instance default). A positive override wins. This keeps a step `timeout: 0` equivalent to an
+/// omitted one rather than a 0-second, instant-kill timeout.
+pub(crate) fn effective_flow_step_timeout(
+    module_override: Option<i32>,
+    inherited: Option<i32>,
+) -> Option<i32> {
+    windmill_common::runnable_settings::none_if_non_positive(module_override).or(inherited)
 }
 
 pub async fn script_to_payload(
@@ -5986,6 +6149,13 @@ pub async fn script_to_payload(
         } else {
             let hash = script_hash.unwrap();
 
+            let script_info = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
+                .await?
+                .prefetch_cached(&db)
+                .await?;
+            let on_behalf_of = script_info
+                .on_behalf_of(&flow_job.workspace_id, db)
+                .await?;
             let ScriptHashInfo {
                 tag,
                 cache_ttl,
@@ -5995,24 +6165,10 @@ pub async fn script_to_payload(
                 delete_after_use,
                 delete_after_secs,
                 timeout,
-                on_behalf_of_email,
-                created_by,
                 runnable_settings:
                     ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
                 ..
-            } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
-                .await?
-                .prefetch_cached(&db)
-                .await?;
-
-            let on_behalf_of = if let Some(email) = on_behalf_of_email {
-                Some(OnBehalfOf {
-                    email,
-                    permissioned_as: username_to_permissioned_as(&created_by),
-                })
-            } else {
-                None
-            };
+            } = script_info;
             (
                 JobPayload::ScriptHash {
                     hash,
@@ -6039,11 +6195,13 @@ pub async fn script_to_payload(
         module.delete_after_use.unwrap_or(false) || delete_after_use.unwrap_or(false);
     let final_delete_after_secs = module.delete_after_secs.or(delete_after_secs);
 
-    let flow_step_timeout = if module.timeout.is_some() {
-        None
-    } else {
-        script_timeout
-    };
+    // Always carry the referenced script's own timeout as the inherited fallback. The module's
+    // timeout override (if any) is selected at the push site, where a `<= 0` override is treated
+    // as "no override" and falls back to this value — so `timeout: 0` on a step means "use the
+    // script's timeout", not a 0-second (immediate-kill) timeout. Normalize the inherited value
+    // too, so a legacy `0` script timeout resolves to the default rather than a zero-second kill.
+    let flow_step_timeout =
+        windmill_common::runnable_settings::none_if_non_positive(script_timeout);
     Ok(JobPayloadWithTag {
         payload,
         tag,
@@ -6118,8 +6276,15 @@ fn needs_resume(flow: &FlowValue, status: &FlowStatus) -> Option<(Suspend, Uuid)
         return None;
     }
 
-    if let &FlowStatusModule::Success { job, .. } = status.modules.get(prev)? {
-        Some((suspend.unwrap(), job))
+    if let &FlowStatusModule::Success { job, skipped, .. } = status.modules.get(prev)? {
+        // A step skipped via skip_if never ran, so its suspend/approval was never
+        // armed and no resume event will ever arrive. Gating the next step on it
+        // would park the flow forever.
+        if skipped {
+            None
+        } else {
+            Some((suspend.unwrap(), job))
+        }
     } else {
         None
     }
@@ -6161,8 +6326,24 @@ pub async fn get_previous_job_result(
 
 #[cfg(test)]
 mod tests {
-    use super::extract_chat_message_from_flow_result;
+    use super::{effective_flow_step_timeout, extract_chat_message_from_flow_result};
     use serde_json::{json, value::to_raw_value};
+
+    // A `<= 0` step timeout override must behave as "no override" and inherit the referenced
+    // script's timeout, not collapse to a 0-second (instant-kill) timeout. A positive override
+    // still wins. Guards the flow-step timeout footgun.
+    #[test]
+    fn flow_step_timeout_zero_or_negative_inherits_script_timeout() {
+        // zero / negative override -> inherited script timeout
+        assert_eq!(effective_flow_step_timeout(Some(0), Some(300)), Some(300));
+        assert_eq!(effective_flow_step_timeout(Some(-5), Some(300)), Some(300));
+        // no inherited timeout either -> None (falls through to the instance default)
+        assert_eq!(effective_flow_step_timeout(Some(0), None), None);
+        // positive override wins over the inherited value
+        assert_eq!(effective_flow_step_timeout(Some(120), Some(300)), Some(120));
+        // no override -> inherited
+        assert_eq!(effective_flow_step_timeout(None, Some(300)), Some(300));
+    }
 
     #[test]
     fn pretty_prints_full_result_when_no_override_is_present() {

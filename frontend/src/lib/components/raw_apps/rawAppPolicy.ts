@@ -19,10 +19,11 @@ export async function updateRawAppPolicy(
 		)
 	).filter((entry): entry is [string, TriggerableV2] => entry != null)
 	const triggerables_v2 = Object.fromEntries(entries)
-	return {
+	const next: Policy = {
 		...currentPolicy,
 		triggerables_v2
 	}
+	return next
 }
 
 type RunnableWithInlineScript = RunnableWithFields & {
@@ -60,7 +61,6 @@ async function processRunnable(
 
 	if (isRunnableByName(runnable)) {
 		let hex = await hash(runnable.inlineScript?.content)
-		console.log('hex', hex, id)
 		return [
 			`${id}:rawscript/${hex}`,
 			{

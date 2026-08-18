@@ -11,6 +11,7 @@
 	import ToggleButtonMore from './common/toggleButton-v2/ToggleButtonMore.svelte'
 	import Toggle from './Toggle.svelte'
 	import { saveConfig, removeConfig, isSameAsStoredConfig } from './aiProviderStorage'
+	import AIReasoningEffortPicker from './AIReasoningEffortPicker.svelte'
 
 	interface Props {
 		value: ProviderConfig | undefined
@@ -106,6 +107,8 @@
 			value.kind = selectedProvider
 			value.resource = ''
 			value.model = ''
+			// Reasoning effort is model-specific; reset it with the model.
+			value.reasoning_effort = undefined
 		}
 	}
 
@@ -224,6 +227,18 @@
 				bind:filterText
 			/>
 		</div>
+
+		<!-- Reasoning Effort (shown once a model is selected) -->
+		{#if value?.model}
+			<div class="flex flex-col gap-1">
+				<p class="text-xs font-normal text-primary">reasoning effort</p>
+				<AIReasoningEffortPicker
+					bind:value={() => value?.reasoning_effort, (v) => value && (value.reasoning_effort = v)}
+					providerConfig={value}
+					{disabled}
+				/>
+			</div>
+		{/if}
 
 		<!-- Use as Default Checkbox -->
 		<div class="flex justify-end pt-1">

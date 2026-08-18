@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.721.0"
+version = "1.791.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -22,6 +22,7 @@ members = [
     "./windmill-trigger-kafka",
     "./windmill-trigger-postgres",
     "./windmill-trigger-mqtt",
+    "./windmill-trigger-amqp",
     "./windmill-trigger-websocket",
     "./windmill-trigger-email",
     "./windmill-trigger-nats",
@@ -87,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.721.0"
+version = "1.791.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -112,7 +113,7 @@ strip = "none"
 default = []
 private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-dep-map/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
 agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
-enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-object-store/enterprise"]
+enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-object-store/enterprise", "license"]
 local_reports = ["windmill-common/local_reports"]
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
@@ -121,6 +122,7 @@ embedding = ["windmill-api/embedding"]
 parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-object-store/parquet", "windmill-worker/parquet"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
 flow_testing = ["windmill-worker/flow_testing"]
+failpoints = ["windmill-worker/failpoints", "windmill-queue/failpoints"]
 quickjs = ["windmill-worker/quickjs", "windmill-api/quickjs"]
 openidconnect = ["windmill-api/openidconnect", "windmill-common/openidconnect", "windmill-object-store/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud", "windmill-api/cloud"]
@@ -140,6 +142,7 @@ postgres_trigger = ["windmill-api/postgres_trigger"]
 mcp = ["windmill-ai/mcp", "windmill-api/mcp", "windmill-worker/mcp"]
 bedrock = ["windmill-ai/bedrock", "windmill-api/bedrock", "windmill-worker/bedrock"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
+amqp_trigger = ["windmill-api/amqp_trigger"]
 native_trigger = ["windmill-api/native_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
 gcp_trigger = ["windmill-api/gcp_trigger"]
@@ -165,21 +168,22 @@ mssql = ["windmill-worker/mssql"]
 mssql-kerberos = ["windmill-worker/mssql-kerberos"]  # Linux/Unix integrated auth
 mssql-winauth = ["windmill-worker/mssql-winauth"]  # Windows integrated auth
 bigquery = ["windmill-worker/bigquery"]
+snowflake = ["windmill-worker/snowflake"]
 php = ["windmill-worker/php"]
 csharp = ["windmill-worker/csharp"]
 nu = ["windmill-worker/nu"]
 java = ["windmill-worker/java"]
 ruby = ["windmill-worker/ruby"]
 rlang = ["windmill-worker/rlang"]
-all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-kerberos", "bigquery", "csharp", "nu", "php", "java", "ruby", "rlang"]
+all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-kerberos", "bigquery", "snowflake", "csharp", "nu", "php", "java", "ruby", "rlang"]
 # For windows we have another set of languages enabled
-all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
+all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "snowflake", "csharp", "nu", "php", "java", "ruby", "rlang"]
 # Edition meta-features: shared groups
 run_inline = ["windmill-api/run_inline"]
 oss_core = [
     "embedding", "parquet", "openidconnect", "license",
     "http_trigger", "zip", "oauth2", "postgres_trigger",
-    "mqtt_trigger", "websocket", "smtp", "native_trigger",
+    "mqtt_trigger", "amqp_trigger", "websocket", "smtp", "native_trigger",
     "static_frontend", "mcp", "bedrock", "run_inline",
     "quickjs"
 ]
@@ -197,10 +201,15 @@ ce = ["ce_rpi", "jemalloc", "dind", "agent_worker_server"]
 # Edition meta-features: EE variants
 ee = ["ce", "ee_core", "ee_server", "kafka-gssapi"]
 ee_rhel = ["ce_core", "ee_core", "kafka-gssapi", "all_languages"]
-ee_windows = ["ce_core", "ee_core", "all_languages_windows"]
+# The Windows binary is worker-only, but a non-agent worker runs windmill-api on
+# localhost (main.rs run_server, `if !is_agent`) and jobs call back into it, so
+# it needs every feature its own plumbing or its jobs invoke in-process; drop
+# only external/server-facing surface the worker never runs.
+worker_windows_core = ["private", "operator", "parquet", "quickjs", "enterprise", "prometheus", "otel", "jemalloc", "windmill-worker/mcp", "windmill-store/mcp", "windmill-worker/bedrock", "openidconnect", "run_inline", "windmill-api/instance_smtp", "oauth2"]
+ee_windows = ["worker_windows_core", "all_languages_windows"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
  "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "kafka-gssapi", "nats", "otel", "dind", "websocket", "http_trigger",
-  "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "azure_trigger", "smtp", "stripe",
+  "postgres_trigger", "mcp", "mqtt_trigger", "amqp_trigger", "sqs_trigger", "gcp_trigger", "azure_trigger", "smtp", "stripe",
    "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger", "quickjs",
    "windmill-git-sync/all_sqlx_features"]
 
@@ -249,6 +258,7 @@ windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-object-store.workspace = true
 windmill-git-sync.workspace = true
+windmill-store.workspace = true
 windmill-api = { workspace = true, default-features = false }
 windmill-api-agent-workers = { workspace = true, optional = true }
 windmill-api-scripts.workspace = true
@@ -325,6 +335,8 @@ async-nats.workspace = true
 aws-sdk-sqs.workspace = true
 aws-config.workspace = true
 aws-credential-types.workspace = true
+hmac.workspace = true
+hex.workspace = true
 
 
 [workspace.dependencies]
@@ -357,6 +369,7 @@ windmill-trigger = { path = "./windmill-trigger" }
 windmill-trigger-kafka = { path = "./windmill-trigger-kafka" }
 windmill-trigger-postgres = { path = "./windmill-trigger-postgres" }
 windmill-trigger-mqtt = { path = "./windmill-trigger-mqtt" }
+windmill-trigger-amqp = { path = "./windmill-trigger-amqp" }
 windmill-trigger-websocket = { path = "./windmill-trigger-websocket" }
 windmill-trigger-email = { path = "./windmill-trigger-email" }
 windmill-trigger-nats = { path = "./windmill-trigger-nats" }
@@ -420,7 +433,9 @@ tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
 tower-cookies = "^0.11"
 serde = "^1"
-serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
+# 1.0.151 introduced RawValue::from_string_unchecked, which the SQL executors use
+# to avoid re-parsing every collected row.
+serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] }
 serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
@@ -454,6 +469,7 @@ php-parser-rs = { git = "https://github.com/php-rust-tools/parser", rev = "ec4cb
 cron = "^0"
 mail-send = { version = "0.4.0", features = ["builder"], default-features=false }
 urlencoding = "^2"
+quick-xml = { version = "^0.37", features = ["serialize"] }
 url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "0.5.1"
 reqwest = { version = "^0.13", features = ["json", "stream", "gzip", "multipart", "query", "form"] }
@@ -489,6 +505,10 @@ deno_console = "0.209.0"
 deno_url = "0.209.0"
 deno_webidl = "0.209.0"
 deno_web = "0.240.0"
+# Sibling release of the pinned deno_core 0.352 / deno_web 0.240 stack
+# (its deps are deno_core ^0.352, deno_web ^0.240, deno_error =0.6.1). A newer
+# deno_crypto would force bumping the whole deno stack.
+deno_crypto = "0.223.0"
 deno_io = "0.119.0"
 deno_fs = "0.119.0"
 deno_net = "0.201.0"
@@ -550,7 +570,12 @@ dashmap = "6.1.0"
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-wasm-bindgen = "=0.2.103"
+# Not pinned exactly: the excluded `parsers/windmill-parser-wasm` workspace pins
+# =0.2.103 to match its vendored `cli/wasm/*` artifacts, yet path-depends on
+# sibling parser crates that inherit this requirement from here. Two exact pins
+# on the same semver range cannot both resolve, so keep this a range and let each
+# workspace's lockfile settle it (here, js-sys forces 0.2.108).
+wasm-bindgen = "0.2"
 serde-wasm-bindgen = "^0"
 wasm-bindgen-test = "^0"
 convert_case = "0.6.0"
@@ -572,6 +597,7 @@ rust_decimal = { version = "^1", features = ["db-postgres", "serde-float"]}
 jsonwebtoken = "8.3.0"
 pem = "3.0.1"
 nix = { version = "0.27.1", features = ["process", "signal"] }
+fs4 = "0.13"
 tinyvector = { git = "https://github.com/windmill-labs/tinyvector", rev = "20823b94c20f2b9093f318badd24026cf54dcc85" }
 hf-hub = "0.4.3"
 tokenizers = "0.14.1"
@@ -593,7 +619,7 @@ nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
 globset = "0.4.16"
 croner = "2.2.0"
-rmcp = { version = "=0.15.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "=3.1.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 rquickjs = { version = "0.11", features = ["futures", "parallel", "macro"] }
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
 
@@ -670,8 +696,14 @@ tree-sitter-ruby = "=0.23.1"
 tree-sitter-r = "=1.2.0"
 oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
+lapin = "2.5"
+tokio-executor-trait = "2.1"
+tokio-reactor-trait = "1.1"
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "0.27"
 hudsucker = { version = "0.22", features = ["rcgen-ca", "native-tls-client"] }
-hyper-http-proxy = { version = "1", default-features = false, features = ["native-tls"] }
+hyper-http-proxy = { version = "1", default-features = false, features = ["rustls-tls-native-roots"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "ring", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rustls-native-certs = "0.8"
 rcgen = "0.13"

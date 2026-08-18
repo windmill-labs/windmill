@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_completed\n                 WHERE id IN (\n                     SELECT id FROM v2_job_completed\n                     WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval\n                       AND completed_at >= COALESCE($3::timestamptz, '-infinity'::timestamptz)\n                       AND ($4::text[] IS NULL OR workspace_id NOT IN (\n                           SELECT u FROM unnest($4::text[]) AS u WHERE u IS NOT NULL\n                       ))\n                     ORDER BY completed_at ASC\n                     LIMIT $2\n                     FOR UPDATE SKIP LOCKED\n                 )\n                 RETURNING id, completed_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "completed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Timestamptz",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "e9c3e9b9dd6a54c50a7f6639b7922d59d970aa87c0d74ca461f1dea83972ccd9"
+}

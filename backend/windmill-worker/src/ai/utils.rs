@@ -557,21 +557,20 @@ pub async fn load_mcp_tools(
         tracing::debug!("Loading MCP tools from resource: {}", config.resource_path);
 
         let path = config.resource_path.trim_start_matches("$res:");
-        let mcp_resource = {
-            // Fetch the resource from database
-            let resource= sqlx::query_scalar!(
-                "SELECT value as \"value: sqlx::types::Json<Box<RawValue>>\" FROM resource WHERE path = $1 AND workspace_id = $2",
-                &path,
-                &workspace_id
-            )
-            .fetch_optional(db)
-            .await?
-            .ok_or_else(|| Error::NotFound(format!("Could not find the resource {}, update the resource path in the workspace settings", config.resource_path)))?
-            .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", config.resource_path)))?;
-
-            serde_json::from_str::<McpResource>(resource.0.get())
-                .context("Failed to parse MCP resource")?
-        };
+        // Load the resource through the job's permissioned (RLS + scope) path so
+        // a flow author cannot make the agent use an MCP resource their identity
+        // is not allowed to read (resources:read:{path}). Reading through the raw
+        // db pool here would bypass the authorization enforced by the regular MCP
+        // tools API (get_mcp_tools) and act as a confused deputy.
+        let mcp_resource = client
+            .get_resource_value::<McpResource>(path)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to load MCP resource {}: {}",
+                    config.resource_path, e
+                ))
+            })?;
 
         let resource_name = mcp_resource.name.clone();
 

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    -- Fork rows also count when a snapshot ever committed (a failed run\n                    -- preserves it): the physical table exists, so reads hit the FORK's\n                    -- data — showing 'deferred' would misstate what a query returns.\n                    -- Ancestor rows still require a clean materialization.\n                    SELECT DISTINCT asset_path AS \"asset_path!\", workspace_id AS \"workspace_id!\"\n                    FROM materialized_partition\n                    WHERE (workspace_id = $1 OR workspace_id = ANY($2))\n                      AND asset_kind = 'ducklake'\n                      AND (status = 'materialized'\n                           OR (workspace_id = $1 AND snapshot_id IS NOT NULL))\n                    ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "asset_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "8dec884a4c3b2d105afe22d1d7a01fcab837629fd3c1a09cf82b21641a890444"
+}

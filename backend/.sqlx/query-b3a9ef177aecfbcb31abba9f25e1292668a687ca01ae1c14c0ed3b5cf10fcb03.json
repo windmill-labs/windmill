@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM macro_definition WHERE workspace_id = $1 AND (provider_path = $2 OR provider_path = $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b3a9ef177aecfbcb31abba9f25e1292668a687ca01ae1c14c0ed3b5cf10fcb03"
+}

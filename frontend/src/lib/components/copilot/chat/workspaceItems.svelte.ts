@@ -7,6 +7,7 @@ import {
 	HttpTriggerService,
 	KafkaTriggerService,
 	MqttTriggerService,
+	AmqpTriggerService,
 	NatsTriggerService,
 	PostgresTriggerService,
 	ResourceService,
@@ -20,7 +21,7 @@ import { itemHref as offboardingItemHref } from '$lib/components/offboarding-uti
 import { findAndReplace } from 'mdast-util-find-and-replace'
 import { visit } from 'unist-util-visit'
 import type { Root, InlineCode, Link } from 'mdast'
-import type { ToolDisplayAction } from './shared'
+import type { CreatedResourceAction, ToolDisplayAction } from './shared'
 
 export type WindmillItemKind =
 	| 'script'
@@ -35,6 +36,7 @@ export type WindmillItemKind =
 	| 'nats_trigger'
 	| 'postgres_trigger'
 	| 'mqtt_trigger'
+	| 'amqp_trigger'
 	| 'sqs_trigger'
 	| 'gcp_trigger'
 	| 'azure_trigger'
@@ -67,9 +69,9 @@ export const WINDMILL_PATH_REGEX =
  */
 const WINDMILL_PATH_EXACT_REGEX = /^[uf]\/[A-Za-z0-9_.\-]+\/[A-Za-z0-9_./\-]*[A-Za-z0-9_\-]$/
 
-function workspaceItemTriggerKind(kind: WindmillItemKind): ToolDisplayAction['triggerKind'] {
+function workspaceItemTriggerKind(kind: WindmillItemKind): CreatedResourceAction['triggerKind'] {
 	if (!kind.endsWith('_trigger')) return undefined
-	return kind.slice(0, -'_trigger'.length) as ToolDisplayAction['triggerKind']
+	return kind.slice(0, -'_trigger'.length) as CreatedResourceAction['triggerKind']
 }
 
 /**
@@ -123,6 +125,7 @@ const workspaceItemLoaders: Array<{
 		list: (workspace) => PostgresTriggerService.listPostgresTriggers({ workspace })
 	},
 	{ kind: 'mqtt_trigger', list: (workspace) => MqttTriggerService.listMqttTriggers({ workspace }) },
+	{ kind: 'amqp_trigger', list: (workspace) => AmqpTriggerService.listAmqpTriggers({ workspace }) },
 	{ kind: 'sqs_trigger', list: (workspace) => SqsTriggerService.listSqsTriggers({ workspace }) },
 	{ kind: 'gcp_trigger', list: (workspace) => GcpTriggerService.listGcpTriggers({ workspace }) },
 	{

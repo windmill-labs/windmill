@@ -10,7 +10,7 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
+import type { CompletedJob, Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
@@ -83,6 +83,20 @@ export function isJobCancelable(j: Job): boolean {
 export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
 }
+
+// Only a top-level failure can carry a resolution: cancellations and skipped steps are not
+// failures, and a flow step resolved on its own would render orange inside a flow whose status
+// is still red. The resolve endpoint enforces the same three conditions.
+// Runs obscured from another workspace stand in with `id: '-'`; they look like failures but
+// address nothing, and one reaching the endpoint fails the whole batch on UUID parsing.
+export function isJobResolvable(j: Job): j is CompletedJob {
+	return j.type === 'CompletedJob' && !j.success && !j.canceled && !j.is_flow_step && j.id !== '-'
+}
+
+// Mirror the caps enforced by /jobs/completed/resolve, so the UI can chunk and validate
+// before the API rejects a whole action.
+export const MAX_RESOLUTION_BATCH = 1000
+export const MAX_RESOLUTION_NOTE_LEN = 2000
 
 export const WORKER_NAME_PREFIX = 'wk'
 
@@ -844,6 +858,21 @@ export function isMac(): boolean {
 	return navigator.userAgent.indexOf('Mac OS X') !== -1
 }
 
+/**
+ * True on Chromium-based browsers (Chrome, Edge, Brave, Opera, ...). Gates
+ * capabilities that are only faithful on Blink, e.g. DOM screenshot capture.
+ * userAgentData is itself Chromium-only; the UA fallback covers Chromium
+ * versions predating it ("Chrome/" never appears in Gecko or WebKit UAs).
+ */
+export function isChromiumBrowser(): boolean {
+	if (typeof navigator === 'undefined') return false
+	const brands = (navigator as any).userAgentData?.brands
+	if (Array.isArray(brands)) {
+		return brands.some((entry) => typeof entry?.brand === 'string' && /chromium/i.test(entry.brand))
+	}
+	return /chrome\//i.test(navigator.userAgent)
+}
+
 export function getModifierKey(): string {
 	return isMac() ? '⌘' : 'Ctrl+'
 }
@@ -1137,8 +1166,19 @@ export function extractCustomProperties(styleStr: string): string {
 	return customStyleStr
 }
 
-export function computeSharableHash(args: any) {
-	let nargs = {}
+// Value prefix marking the reserved `__tag` key as a carried tag: no JSON-encoded
+// arg value can start with `t:` (JSON strings start with `"`, numbers with a digit
+// or `-`, etc.), so it cannot be confused with a genuine arg named `__tag`
+const SHARABLE_HASH_TAG_PREFIX = 't:'
+
+// `tag` is carried as the reserved key `__tag` with a SHARABLE_HASH_TAG_PREFIX value;
+// entry pairs allow a duplicate `__tag` key so an arg with that name can coexist with
+// the carried tag (they are told apart by the value prefix)
+export function computeSharableHash(args: any, tag?: string) {
+	let entries: [string, string][] = []
+	if (tag) {
+		entries.push(['__tag', SHARABLE_HASH_TAG_PREFIX + tag])
+	}
 	for (let k in args) {
 		let v = args[k]
 		if (v !== undefined) {
@@ -1148,16 +1188,95 @@ export function computeSharableHash(args: any) {
 				console.error(`Value at key ${k} too big (${size}) to be shared`)
 				return ''
 			}
-			nargs[k] = JSON.stringify(v)
+			entries.push([k, JSON.stringify(v)])
 		}
 	}
 	try {
-		let r = new URLSearchParams(nargs).toString()
+		let r = new URLSearchParams(entries).toString()
 		return r.length > 1000000 ? '' : r
 	} catch (e) {
 		console.error('Error computing sharable hash', e)
 		return ''
 	}
+}
+
+// `$args[...]` tags are resolved by the backend at push time from the run's args; a
+// job's stored tag is the resolved value, so re-running with it would pin a value
+// that no longer matches edited args. `$workspace` is also interpolated but resolves
+// identically on a re-run (same workspace), so it does not make a tag dynamic here.
+export function isDynamicTag(tag: string | undefined): boolean {
+	return !!tag && tag.includes('$args[')
+}
+
+// Must mirror the backend's RE_ARG_TAG (windmill-queue/src/jobs.rs) so frontend
+// interpolation resolves exactly the same placeholders as push time.
+const RE_ARG_TAG = /\$args\[((?:\w+\.)*\w+)\]/
+
+// True when the tag contains placeholders that the backend resolves at push time.
+// A carried tag override that is itself a template re-resolves on every run, so
+// it never pins a stale resolved value.
+export function isTagTemplate(tag: string | undefined): boolean {
+	return !!tag && (tag.includes('$workspace') || RE_ARG_TAG.test(tag))
+}
+
+// Frontend mirror of the backend's `interpolate_args` (windmill-queue/src/jobs.rs):
+// `$workspace` first, then each `$args[name]` from the run's args — simple names use
+// the arg's JSON text with surrounding quotes trimmed, dotted names traverse nested
+// objects, anything missing resolves to the empty string.
+export function interpolateTag(
+	template: string,
+	workspaceId: string,
+	args: Record<string, any> | undefined
+): string {
+	const workspaced = template.replaceAll('$workspace', workspaceId)
+	return workspaced.replace(new RegExp(RE_ARG_TAG.source, 'g'), (_, name: string) => {
+		const parts = name.split('.')
+		let value: any = args?.[parts[0]]
+		for (const part of parts.slice(1)) {
+			value = value != null && typeof value === 'object' ? value[part] : undefined
+		}
+		if (value === undefined) {
+			return ''
+		}
+		return (JSON.stringify(value) ?? '').replace(/^"+|"+$/g, '')
+	})
+}
+
+// Maps a job's stored (resolved) tag back to the raw custom-tag entry it can only
+// have come from: an exact entry, or a templated entry that resolves to it with the
+// job's workspace and args. Custom tags are the only tags a user can pick as an
+// override and the only ones non-superadmins may pass explicitly, so a tag that maps
+// to no entry is backend-derived and must be re-derived on re-run, not carried.
+export function findMatchingCustomTag(
+	resolvedTag: string,
+	customTags: string[],
+	workspaceId: string,
+	args: Record<string, any> | undefined
+): string | undefined {
+	if (customTags.includes(resolvedTag)) {
+		return resolvedTag
+	}
+	return customTags.find(
+		(t) => isTagTemplate(t) && interpolateTag(t, workspaceId, args) === resolvedTag
+	)
+}
+
+// Counterpart of computeSharableHash's `tag`: extracts and removes the carried tag.
+// Only SHARABLE_HASH_TAG_PREFIX-prefixed `__tag` values are carried tags; any other
+// `__tag` value is a genuine arg with that name and is left in `params` for arg parsing.
+export function extractTagFromSharableHash(params: URLSearchParams): string | undefined {
+	const values = params.getAll('__tag')
+	const carried = values.find((v) => v.startsWith(SHARABLE_HASH_TAG_PREFIX))
+	if (carried == undefined) {
+		return undefined
+	}
+	params.delete('__tag')
+	for (const v of values) {
+		if (!v.startsWith(SHARABLE_HASH_TAG_PREFIX)) {
+			params.append('__tag', v)
+		}
+	}
+	return carried.slice(SHARABLE_HASH_TAG_PREFIX.length)
 }
 
 export function toCamel(s: string) {
@@ -1190,8 +1309,10 @@ export function isCodeInjection(expr: string | undefined): boolean {
 // app logic via the `query` context. Only params we actually own are listed
 // here — the `wm_` prefix is a naming convention, not a reserved namespace, so
 // we don't strip it wholesale (that would break apps reading their own `wm_*`
-// params). `wm_coep` is a transport flag for cross-origin isolation headers.
-export const WINDMILL_RESERVED_QUERY_PARAMS = new Set(['wm_coep'])
+// params). `wm_coep` is a transport flag for cross-origin isolation headers;
+// `wm_embed`/`wm_embedder_origin` are the opaque app viewer transport params
+// (see PublicAppFrame).
+export const WINDMILL_RESERVED_QUERY_PARAMS = new Set(['wm_coep', 'wm_embed', 'wm_embedder_origin'])
 
 export function urlParamsToObject(
 	params: URLSearchParams,
@@ -1296,13 +1417,47 @@ function replaceFalseWithUndefinedRec(obj: any) {
 	return obj
 }
 
+// Keys that are server-managed bookkeeping, never user-editable, and therefore
+// must not surface in any value diff or unsaved-change comparison. `getScriptByPath`
+// (and the flow/app equivalents) return the full DB row, so the editing object
+// carries these while the deployed side is fetched trimmed — leaving them in would
+// render as spurious metadata diff.
+//
+// `hash` is the deployed version's identity, `assets` is re-derived from the
+// script content by the editor, and `inherited_labels` is computed at read time
+// from the parent folder — none is editable content, so all three are noise in a
+// fork/workspace or version diff.
+//
+// `lock` and `extra_perms` are deliberately NOT in this set: both are legitimate,
+// user-meaningful fields in some diff contexts (lockfile changes in version-to-version
+// diffs, folder sharing-permission changes in workspace/fork diffs). The script-editor
+// noise they would otherwise cause is stripped at the source instead (the deployed side
+// in `ScriptBuilder.syncWithDeployed`, the current side in `ScriptBuilder.openDiffDrawer`).
+const CLEANED_VALUE_KEYS = new Set([
+	'parent_hash',
+	'hash',
+	'assets',
+	'inherited_labels',
+	'draft',
+	'draft_only',
+	'draft_saved_at',
+	'draft_created_at',
+	'is_draft',
+	'other_drafts_users',
+	'created_at',
+	'created_by',
+	'workspace_id',
+	'parent_hashes',
+	'lock_error_logs'
+])
+
 export function cleanValueProperties(obj: Value) {
 	if (typeof obj !== 'object') {
 		return obj
 	} else {
 		let newObj: any = {}
 		for (const key of Object.keys(obj)) {
-			if (key !== 'parent_hash' && key !== 'draft' && key !== 'draft_only') {
+			if (!CLEANED_VALUE_KEYS.has(key)) {
 				newObj[key] = structuredClone(stateSnapshot(obj[key]))
 			}
 		}
@@ -1538,6 +1693,8 @@ export type Item = {
 	action?: (e: MouseEvent) => void
 	icon?: any
 	iconColor?: string
+	/** Extra props for `icon`, for an icon that does not take lucide's `size`. */
+	iconProps?: Record<string, any>
 	href?: string
 	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean
@@ -1547,6 +1704,10 @@ export type Item = {
 	id?: string
 	tooltip?: string
 	separatorTop?: boolean
+	/** Renders an on/off switch at the end of the row, so `icon` keeps the leading
+	 * slot. Presentational: the row's own click is what flips it, so `action` must
+	 * apply the change. */
+	toggle?: boolean
 	submenuItems?: Item[]
 	shortcut?: string
 	// Renders a trailing check on the right of the label to mark the
@@ -1874,6 +2035,8 @@ export function validateRetryConfig(retry: Retry | undefined): string | null {
 }
 export type CssColor = keyof (typeof tokensFile)['tokens']['light']
 import tokensFile from './assets/tokens/tokens.json'
+// Hand-authored variant kept out of the Figma-generated tokens.json.
+import githubDarkTokens from './assets/tokens/githubDark.json'
 import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
 import BarsStaggered from './components/icons/BarsStaggered.svelte'
 import { GitIcon } from './components/icons'
@@ -1886,7 +2049,7 @@ export function getCssColor(
 		format = 'css-var'
 	}: {
 		alpha?: number
-		format?: 'css-var' | 'hex-dark' | 'hex-light'
+		format?: 'css-var' | 'hex-dark' | 'hex-light' | 'hex-github-dark'
 	}
 ): string {
 	if (format === 'hex-light') {
@@ -1894,6 +2057,9 @@ export function getCssColor(
 	}
 	if (format === 'hex-dark') {
 		return tokensFile.tokens[darkModeName][color]
+	}
+	if (format === 'hex-github-dark') {
+		return githubDarkTokens[color]
 	}
 	return `rgb(var(--color-${color}) / ${alpha})`
 }
@@ -2084,17 +2250,27 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly
 
 export function parseDbInputFromAssetSyntax(path: string): DbInput | null {
 	const [p1, _p2] = path.split('://')
-	const [p2, _p3] = _p2.split('/')
-	const [p3, p4] = _p3.split('.')
+	const [p2, _p3] = (_p2 ?? '').split('/')
+	// `_p3` is undefined for a catalog-only path (e.g. `ducklake://main`, no
+	// table segment) — guard the split so the helper returns a table-less input
+	// instead of throwing.
+	const [p3, p4] = (_p3 ?? '').split('.')
+	const specificTable = p4 || p3 || undefined
+	const specificSchema = p4 ? p3 : undefined
 	return p1 === 'ducklake'
-		? { type: 'ducklake', ducklake: p2 || 'main', specificTable: p4 ?? p3 }
+		? {
+				type: 'ducklake',
+				ducklake: p2 || 'main',
+				specificTable,
+				specificSchema
+			}
 		: p1 === 'datatable'
 			? {
 					type: 'database',
 					resourcePath: `datatable://${p2 || 'main'}`,
 					resourceType: 'postgresql',
-					specificTable: p4 ?? p3,
-					specificSchema: p4 ? p3 : undefined
+					specificTable,
+					specificSchema
 				}
 			: null
 }
@@ -2293,4 +2469,15 @@ export function parsePrettyDate(text: string): Date | null {
 	// Fallback to standard Date parsing (e.g., ISO strings)
 	const date = new Date(text)
 	return isNaN(date.getTime()) ? null : date
+}
+
+// Surface the backend's explanation: API errors carry the real message in
+// `.body` (plain text for Windmill 4xx), while `.message` is only the generic
+// status text ("Bad Request") the generated client fills in per status code.
+export function apiErrorMessage(e: any): string {
+	const body = e?.body
+	if (typeof body === 'string' && body.trim() !== '') return body
+	if (body && typeof body === 'object')
+		return body.error?.message ?? body.message ?? JSON.stringify(body)
+	return e?.message ?? String(e)
 }

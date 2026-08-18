@@ -2,7 +2,6 @@
 	import {
 		FlowService,
 		type Flow,
-		DraftService,
 		type PathScript,
 		type OpenFlow,
 		type InputTransform,
@@ -11,9 +10,21 @@
 		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
-	import { enterpriseLicense, userStore, workspaceStore, usedTriggerKinds } from '$lib/stores'
 	import {
-		cleanValueProperties,
+		clearLinkedAgentTools,
+		linkedAgentToolsForScope,
+		linkedToolsScope,
+		linkedAgentToolsVersion,
+		migrateLinkedAgentToolsScope
+	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
+	import {
+		enterpriseLicense,
+		userStore,
+		userWorkspaces,
+		workspaceStore,
+		usedTriggerKinds
+	} from '$lib/stores'
+	import {
 		generateRandomString,
 		orderedJsonStringify,
 		readFieldsRecursively,
@@ -25,28 +36,35 @@
 		type Value
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { Drawer } from '$lib/components/common'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { createRawSnippet, onMount, setContext, untrack } from 'svelte'
+	import { createRawSnippet, getContext, setContext, untrack } from 'svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
+	import WorkspaceScriptSettingsDrawer from './flows/content/WorkspaceScriptSettingsDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
+	import {
+		claimLinkedToolsFetch,
+		invalidateLinkedToolsFetches,
+		publishLinkedAgentTools
+	} from './flows/flowState'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
+	import { setFlowPanelPlacementTelemetry } from './flows/flowEditorTelemetry'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { NoteEditor } from './graph/noteEditor.svelte'
 	import { setNoteEditorContext } from './graph/noteEditor.svelte'
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
 	import {
-		Save,
 		DiffIcon,
 		HistoryIcon,
 		FileJson,
@@ -71,18 +89,15 @@
 	import { tutorialsToDo } from '$lib/stores'
 	import { getTutorialIndex } from '$lib/tutorials/config'
 	import EditorHeader from './EditorHeader.svelte'
+	import AutosaveIndicator from './AutosaveIndicator.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
-	import type { FlowWithDraftAndDraftTriggers, Trigger } from './triggers/utils'
-	import {
-		deployTriggers,
-		filterDraftTriggers,
-		handleSelectTriggerFromKind
-	} from './triggers/utils'
+	import type { Trigger } from './triggers/utils'
+	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftTriggersConfirmationModal from './common/confirmationModal/DraftTriggersConfirmationModal.svelte'
 	import { Triggers } from './triggers/triggers.svelte'
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
@@ -97,10 +112,10 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
-	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
-	import { buildForkEditUrl } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserDraft } from '$lib/userDraft.svelte'
+	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	let {
 		initialPath = $bindable(''),
@@ -118,35 +133,53 @@
 		disabledFlowInputs = false,
 		savedPrimarySchedule = undefined,
 		version = undefined,
-		setSavedraftCb = undefined,
+		draftBaseVersion = undefined,
 		draftTriggersFromUrl = undefined,
 		selectedTriggerIndexFromUrl = undefined,
 		children,
 		loadedFromHistoryFromUrl,
 		noInitial = false,
 		liveEditorDraftStoragePath = undefined,
-		onSaveInitial,
-		onSaveDraft,
+		autosaveWorkspace = undefined,
+		autosavePath = undefined,
 		onDeploy,
 		onDeployError,
 		onDetails,
-		onSaveDraftError,
-		onSaveDraftOnlyAtNewPath,
 		onHistoryRestore,
 		onNavigate,
-		onTestJob
+		onResetToDeployed,
+		loadedFromDraft = false,
+		othersDraftsCount = 0,
+		onOpenOthersDrafts,
+		onTestJob,
+		condensedHeader = false
 	}: FlowBuilderProps = $props()
+
+	// Top-bar button size + bar height. Condensed (session preview) uses the
+	// smallest well-supported unified size (`sm`) so the bar is thinner.
+	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
+
+	// The workspace this editor operates on: deploy, save-draft, trigger loading
+	// and the AutosaveIndicator all target it. Falls back to the global store, so
+	// the full-page editor is unchanged; the sessions preview overrides it to the
+	// session's (forked) workspace, so an embedded editor acts on the session's
+	// fork rather than the navigation workspace ($workspaceStore, which stays put).
+	// indicatorPath is the matching draft path.
+	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	let initialPathStore = writable(initialPath)
 
 	// For preserve_on_behalf_of feature
 	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
+	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
 	$effect(() => {
 		if (savedFlow?.on_behalf_of_email !== undefined) {
 			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
+			savedOnBehalfOfPermissionedAs.set(savedFlow.on_behalf_of)
 		}
 	})
 
@@ -167,6 +200,30 @@
 	// (session pane, drawer, etc.) where the viewport stays wide.
 	let topbarWidth = $state(0)
 	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+
+	const diffEnabled = $derived(customUi?.topBar?.diff != false)
+	// Nothing to compare against until a deployed version exists.
+	const diffDisabled = $derived(!savedFlow || newFlow || savedFlow?.no_deployed === true)
+	const diffTitle = $derived(
+		diffDisabled ? 'Deploy this flow once to compare against the deployed version' : 'Diff'
+	)
+	// The narrow bar (sessions) and the width-collapsed one have no room for a Diff
+	// button, so it moves into the menu ahead of Deployment History instead of
+	// dropping out of reach.
+	const diffInMenu = $derived(condensedHeader || compactTopbar)
+	const diffMenuItems: Item[] = $derived(
+		diffEnabled && diffInMenu
+			? [
+					{
+						displayName: 'Diff',
+						icon: DiffIcon,
+						action: () => openDiffDrawer(),
+						disabled: diffDisabled,
+						tooltip: diffDisabled ? diffTitle : undefined
+					}
+				]
+			: []
+	)
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
 
 	// AI changes warning modal
@@ -185,6 +242,14 @@
 		draftTriggersModalOpen = false
 		confirmDeploymentCallback(selectedTriggers)
 	}
+
+	// Inside an AI session pane (SessionEditorTarget injects an aiChatManager via
+	// context) the collaborator presence badge is spurious: the editor is embedded
+	// in the shared /sessions URL under the session's own workspace identity, so
+	// presence keyed on that URL leaks a phantom self-badge. Hide it here.
+	const inSessionPane = !!getContext('aiChatManager')
+
+	setFlowPanelPlacementTelemetry(!inSessionPane)
 
 	function hasAIChanges(): boolean {
 		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
@@ -218,17 +283,22 @@
 	}
 	let onLatest = true
 	async function compareVersions() {
-		if (version === undefined) {
+		// Compare the draft's pinned fork base against the current head when editing
+		// a draft, else the load-time head. This catches both a concurrent deploy
+		// (head moved since open) AND a stale draft reopened after a deploy (head ==
+		// load-time head, but the draft was forked from an older version).
+		const base = draftBaseVersion ?? version
+		if (base === undefined) {
 			return
 		}
 		try {
 			if (initialPath && initialPath != '') {
 				const flowVersion = await FlowService.getFlowLatestVersion({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: initialPath
 				})
 
-				onLatest = version === flowVersion?.id
+				onLatest = base === flowVersion?.id
 			} else {
 				onLatest = true
 			}
@@ -262,128 +332,47 @@
 	}
 
 	let loadingSave = $state(false)
-	let loadingDraft = $state(false)
 
-	export async function saveDraft(forceSave = false): Promise<void> {
-		withAIChangesWarning(async () => {
-			await saveDraftInternal(forceSave)
+	// Ctrl/Cmd+S forces an immediate save of whatever the page-level
+	// autosave has pending. Unlike ScriptBuilder we don't have a direct
+	// Monaco ref to flush — any focused module Monaco's pending text is
+	// constrained by the editor's own ~1s max-wait cap, so the flush
+	// here picks up whatever's already in `pendingSaveOpts`. Worst case
+	// the user's very last keystroke (<1s ago) isn't in this POST and
+	// follows in the next autosave round.
+	//
+	// No toast — the AutosaveIndicator narrates the flush (Saving... →
+	// Saved / Save failed). A toast here would also lie on network
+	// failure: `flush` never rejects (postSave catches and routes errors
+	// to the failures map), so the success branch fired regardless.
+	export async function saveDraft(): Promise<void> {
+		if (!opWorkspace || !liveEditorDraftStoragePath) return
+		await UserDraftDbSyncer.flush({
+			workspace: opWorkspace,
+			itemKind: 'flow',
+			path: liveEditorDraftStoragePath
 		})
 	}
 
-	async function saveDraftInternal(forceSave = false): Promise<void> {
-		if (!newFlow && !savedFlow) {
-			return
-		}
-
-		if (savedFlow) {
-			const draftOrDeployed = cleanValueProperties(savedFlow.draft || savedFlow)
-			const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-			const current = cleanValueProperties(
-				$state.snapshot({
-					...flowStore.val,
-					path: $pathStore,
-					draft_triggers: currentDraftTriggers
-				})
-			)
-			if (!forceSave && orderedJsonStringify(draftOrDeployed) === orderedJsonStringify(current)) {
-				sendUserToast('No changes detected, ignoring', false, [
-					{
-						label: 'Save anyway',
-						callback: () => {
-							saveDraftInternal(true)
-						}
-					}
-				])
-				return
-			}
-		}
-		loadingDraft = true
-		try {
-			const flow = cleanFlow(flowStore.val)
-			if (newFlow || savedFlow?.draft_only) {
-				if (savedFlow?.draft_only) {
-					await FlowService.deleteFlowByPath({
-						workspace: $workspaceStore!,
-						path: initialPath,
-						keepCaptures: true
-					})
-				}
-				if (!initialPath || $pathStore != initialPath) {
-					await CaptureService.moveCapturesAndConfigs({
-						workspace: $workspaceStore!,
-						path: initialPath || fakeInitialPath,
-						requestBody: {
-							new_path: $pathStore
-						},
-						runnableKind: 'flow'
-					})
-				}
-				await FlowService.createFlow({
-					workspace: $workspaceStore!,
-					requestBody: {
-						path: $pathStore,
-						summary: flow.summary ?? '',
-						description: flow.description ?? '',
-						value: flow.value,
-						schema: flow.schema,
-						tag: flow.tag,
-						draft_only: true,
-						ws_error_handler_muted: flow.ws_error_handler_muted,
-						visible_to_runner_only: flow.visible_to_runner_only,
-						on_behalf_of_email: flow.on_behalf_of_email,
-						labels: (flow as any).labels
-					}
-				})
-			}
-			await DraftService.createDraft({
-				workspace: $workspaceStore!,
-				requestBody: {
-					path: newFlow || savedFlow?.draft_only ? $pathStore : initialPath,
-					typ: 'flow',
-					value: {
-						...flow,
-						path: $pathStore,
-						draft_triggers: triggersState.getDraftTriggersSnapshot()
-					}
-				}
-			})
-
-			savedFlow = {
-				...(newFlow || savedFlow?.draft_only
-					? {
-							...structuredClone($state.snapshot(flowStore.val)),
-							path: $pathStore,
-							draft_only: true
-						}
-					: savedFlow),
-				draft: {
-					...structuredClone($state.snapshot(flowStore.val)),
-					path: $pathStore,
-					draft_triggers: structuredClone(triggersState.getDraftTriggersSnapshot())
-				}
-			} as FlowWithDraftAndDraftTriggers
-
-			let savedAtNewPath = false
-			if (newFlow) {
-				onSaveInitial?.({ path: $pathStore, id: getSelectedId() ?? 'settings' })
-			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
-				savedAtNewPath = true
-				initialPath = $pathStore
-				onSaveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() ?? 'settings' })
-				// this is so we can use the flow builder outside of sveltekit
-			}
-			onSaveDraft?.({ path: $pathStore, savedAtNewPath, newFlow })
-			sendUserToast('Saved as draft')
-		} catch (error) {
-			sendUserToast(`Error while saving the flow as a draft: ${error.body || error.message}`, true)
-			onSaveDraftError?.({ error })
-		}
-		loadingDraft = false
-	}
-
-	onMount(() => {
-		setSavedraftCb?.(() => saveDraft())
+	// Monaco swallows the keydown, so an editor with focus never reaches the
+	// window handler; Editor/SimpleEditor/TemplateEditor re-broadcast it
+	// (untyped event, hence the manual listener). A step's code editor also
+	// flushes through its `formatAction`, and a redundant flush is a no-op.
+	$effect(() => {
+		window.addEventListener('wm-monaco-save-shortcut', saveDraft)
+		return () => window.removeEventListener('wm-monaco-save-shortcut', saveDraft)
 	})
+
+	// Materialize a brand-new flow's draft before the session preview loads it by
+	// path — an untouched new flow never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		await saveDraft()
+		if (opWorkspace && liveEditorDraftStoragePath && newFlow) {
+			await UserDraft.forcePersist('flow', liveEditorDraftStoragePath, { workspace: opWorkspace })
+		}
+	}
 
 	export function computeUnlockedSteps(flow: Flow) {
 		return Object.fromEntries(
@@ -401,7 +390,7 @@
 
 	async function handleSaveFlowInternal(deploymentMsg?: string) {
 		await compareVersions()
-		if (onLatest || initialPath == '' || savedFlow?.draft_only) {
+		if (onLatest || initialPath == '' || newFlow) {
 			// Handle directly
 			await saveFlow(deploymentMsg)
 		} else {
@@ -427,7 +416,7 @@
 	}
 	async function syncWithDeployed() {
 		const flow = await FlowService.getFlowByPath({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: initialPath,
 			withStarredInfo: true
 		})
@@ -482,9 +471,24 @@
 			// loadingSave = false // del
 			// return
 
-			if (newFlow) {
+			// `newFlow` comes from the embedder, and updating a path that has no
+			// deployed flow 404s. Confirm with the server before taking the update
+			// branch so a first deploy still lands.
+			let isNewFlow = newFlow
+			if (!isNewFlow) {
+				try {
+					isNewFlow =
+						initialPath === '' ||
+						!(await FlowService.existsFlowByPath({ workspace: opWorkspace!, path: initialPath }))
+				} catch (err) {
+					// Unreachable check: keep the caller's intent rather than failing the deploy.
+					console.error('Could not check flow existence', err)
+				}
+			}
+
+			if (isNewFlow) {
 				await FlowService.createFlow({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					requestBody: {
 						path: $pathStore,
 						summary: flow.summary ?? '',
@@ -496,13 +500,14 @@
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels
 					}
 				})
 				await CaptureService.moveCapturesAndConfigs({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: fakeInitialPath,
 					requestBody: {
 						new_path: $pathStore
@@ -512,7 +517,7 @@
 				if (triggersToDeploy) {
 					await deployTriggers(
 						triggersToDeploy,
-						$workspaceStore,
+						opWorkspace,
 						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 						usedTriggerKinds,
 						$pathStore,
@@ -523,7 +528,7 @@
 				if (triggersToDeploy) {
 					await deployTriggers(
 						triggersToDeploy,
-						$workspaceStore,
+						opWorkspace,
 						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
 						usedTriggerKinds,
 						initialPath
@@ -531,7 +536,7 @@
 				}
 
 				await FlowService.updateFlow({
-					workspace: $workspaceStore!,
+					workspace: opWorkspace!,
 					path: initialPath,
 					requestBody: {
 						path: $pathStore,
@@ -544,6 +549,7 @@
 						ws_error_handler_muted: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
+						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels
@@ -553,7 +559,7 @@
 
 			// New/updated path now exists server-side — drop the autocomplete
 			// cache so it shows up immediately instead of after the 60s TTL.
-			invalidateWorkspacePaths($workspaceStore!)
+			invalidateWorkspacePaths(opWorkspace!)
 
 			const { draft_triggers: _, ...newSavedFlow } = flowStore.val as OpenFlow & {
 				draft_triggers: Trigger[]
@@ -588,13 +594,176 @@
 
 	const previewArgsStore = $state({ val: untrack(() => initialArgs) })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
+	const workspaceScriptSettingsDrawer = writable<WorkspaceScriptSettingsDrawer | undefined>(
+		undefined
+	)
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
 
+	// Linked-agent tool resolutions are scoped by workspace + flow path, but publishers key by the
+	// flow doc's own path while readers use the live-edited $pathStore — which diverge for renames
+	// and renamed drafts. Sweep the doc-path bucket into the live scope on every rename and every
+	// publish (initFlowState re-runs on session-draft sync and republishes under the doc path).
+	let prevLinkedToolsScope = untrack(() => linkedToolsScope(opWorkspace, $pathStore))
 	$effect(() => {
-		if (liveEditorDraftStoragePath === undefined || !$workspaceStore) return
-		const workspace = $workspaceStore
+		linkedAgentToolsVersion()
+		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		const docScope = linkedToolsScope(
+			opWorkspace,
+			(flowStore.val as { path?: string }).path ?? $pathStore
+		)
+		untrack(() => {
+			if (scope !== prevLinkedToolsScope) {
+				sweepLinkedToolsScope(prevLinkedToolsScope, scope, opWorkspace, true)
+				prevLinkedToolsScope = scope
+			}
+			if (docScope !== scope) {
+				sweepLinkedToolsScope(docScope, scope, opWorkspace, false)
+			}
+		})
+	})
+
+	// `renamed` distinguishes the two sources. After a rename every fetch still running against the
+	// old scope is stale by definition, empty bucket or not — its result would land in a scope
+	// readers have left and be swept forward later. The doc-scope sweep has no such cut-off: fetches
+	// there belong to the refresh in progress, so it only acts once that scope holds something.
+	function sweepLinkedToolsScope(
+		from: string,
+		to: string,
+		ws: string | undefined,
+		renamed: boolean
+	) {
+		const sourceHasTools = Object.keys(linkedAgentToolsForScope(from)).length > 0
+		if (!renamed && !sourceHasTools) {
+			return
+		}
+		invalidateLinkedToolsFetches(from)
+		if (sourceHasTools) {
+			migrateLinkedAgentToolsScope(from, to)
+		}
+		// Restart what that cancelled: a link still loading has nothing in `to`, whereas one whose
+		// tools migrated is already current. A link changed in the same tick keeps the old agent's
+		// tools here, so it is left for the watcher below, which compares links rather than presence.
+		const resolved = linkedAgentToolsForScope(to)
+		for (const [moduleId, agentPath] of linkedAgentEntries(linkedAgentRefs)) {
+			if (resolved[moduleId] === undefined) {
+				publishLinkedAgentTools(agentPath, ws, to, moduleId)
+			}
+		}
+	}
+
+	// Re-resolve linked agents whenever the set of links changes. Wholesale replacements — undo/redo,
+	// YAML or AI apply, session restore — swap `agent` without re-running initFlowState, and the step
+	// editor only watches the step it is mounted on, so an unselected step would keep showing (and
+	// binding against) the previous agent's tools.
+	let linkedAgentRefs = $derived(
+		dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+			.flatMap((m) => {
+				const value = m?.value as
+					| { type?: string; agent?: string; tools?: { id: string; value?: unknown }[] }
+					| undefined
+				if (value?.type !== 'aiagent') {
+					return []
+				}
+				const refs = value.agent ? [`${m.id}\u0000${value.agent}`] : []
+				// A linked agent nested as a tool is invisible to the walk above (tool nodes are skipped
+				// so resource-owned ids can't alias flow modules), yet it has its own store entry under
+				// the ancestry-qualified key the step editor writes.
+				for (const tool of value.tools ?? []) {
+					const nested = tool?.value as { type?: string; agent?: string } | undefined
+					if (nested?.type === 'aiagent' && nested.agent) {
+						refs.push(`${m.id}/${tool.id}\u0000${nested.agent}`)
+					}
+				}
+				return refs
+			})
+			.filter((x): x is string => x !== undefined)
+			.join('\u0001')
+	)
+	// The link each module's stored tools belong to. Seeded with the top-level links only, because
+	// those are exactly what initFlowState resolves — seeding the whole set would mark a nested
+	// linked agent as current when nothing has fetched it, and seeding nothing would clear and
+	// refetch every step on the first run.
+	let publishedAgentByModule = untrack(() =>
+		linkedAgentEntries(
+			dfsApply(flowStore.val.value?.modules ?? [], (m) => m, { skipToolNodes: true })
+				.map((m) => {
+					const value = m?.value as { type?: string; agent?: string } | undefined
+					return value?.type === 'aiagent' && value.agent
+						? `${m.id}\u0000${value.agent}`
+						: undefined
+				})
+				.filter((x): x is string => x !== undefined)
+				.join('\u0001')
+		)
+	)
+	$effect(() => {
+		const refs = linkedAgentRefs
+		const ws = opWorkspace
+		const scope = linkedToolsScope(opWorkspace, $pathStore)
+		untrack(() => {
+			const next = linkedAgentEntries(refs)
+			// Only links that actually changed are re-resolved, so a plain rename costs nothing: the
+			// sweep above carries its buckets to the new scope and every entry compares equal. A
+			// restore that renames and relinks in one tick still gets both.
+			for (const [moduleId, agentPath] of next) {
+				if (publishedAgentByModule.get(moduleId) === agentPath) {
+					continue
+				}
+				// Drop the previous agent's tools up front: the fetch below lands later, and until it
+				// does the graph and the step's binding editor would otherwise still be showing — and
+				// writing overrides against — the tool ids of the agent that was just replaced.
+				claimLinkedToolsFetch(scope, moduleId)
+				clearLinkedAgentTools(scope, moduleId)
+				publishLinkedAgentTools(agentPath, ws, scope, moduleId)
+			}
+			publishedAgentByModule = next
+		})
+	})
+
+	function linkedAgentEntries(refs: string): Map<string, string> {
+		const entries = new Map<string, string>()
+		for (const entry of refs ? refs.split('\u0001') : []) {
+			const [moduleId, agentPath] = entry.split('\u0000')
+			entries.set(moduleId, agentPath)
+		}
+		return entries
+	}
+
+	// "Open in AI session" target: the URL draft path the editor loads/saves by
+	// (which for a new flow differs from the live-edited friendly `$pathStore`),
+	// falling back to `$pathStore` in drawer mounts that carry no storage path.
+	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
+
+	const sessionOpen = $derived(
+		sessionTargetPath
+			? {
+					target: { kind: 'flow' as const, path: sessionTargetPath },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+
+	// Reaches the AI entry point in a step's inline-editor toolbar, which the
+	// recursive module wrapper sits too deep under to be handed a prop. `selected`
+	// is the flow editor's own step param, so the session preview opens on the
+	// step whose code the user was editing. Withheld under `disableAi` (same gate
+	// as the graph toolbar's button): an embed that turned AI off must not get an
+	// entry point that navigates the host out to /sessions.
+	setOpenInSessionHandoff({
+		source: (opts) =>
+			disableAi || !sessionOpen
+				? undefined
+				: opts?.moduleId
+					? { ...sessionOpen, previewParams: { selected: opts.moduleId } }
+					: sessionOpen
+	})
+
+	$effect(() => {
+		if (liveEditorDraftStoragePath === undefined || !opWorkspace) return
+		const workspace = opWorkspace
 		UserDraft.setLiveEditorDraft({
 			workspace,
 			itemKind: 'flow',
@@ -618,8 +787,10 @@
 
 	const stepsInputArgs = new StepsInputArgs()
 
+	// Every caller is a deliberate "show me that panel" action (a toolbar button, the
+	// preview's trigger shortcut), so the panel must open even in modal mode.
 	function select(selectedId: string) {
-		selectionManager.selectId(selectedId)
+		selectionManager.selectId(selectedId, { openPanel: true })
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
@@ -632,6 +803,7 @@
 		currentEditor: writable(undefined),
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		workspaceScriptSettingsDrawer,
 		flowEditorDrawer,
 		history,
 		flowStateStore: untrack(() => flowStateStore),
@@ -649,7 +821,9 @@
 		modulesTestStates,
 		outputPickerOpenFns,
 		preserveOnBehalfOf,
-		savedOnBehalfOfEmail
+		savedOnBehalfOfEmail,
+		savedOnBehalfOfPermissionedAs,
+		opWorkspace: () => opWorkspace
 	})
 
 	// Set up NoteEditor context for note editing capabilities
@@ -678,7 +852,7 @@
 			[
 				{ type: 'webhook', path: '', isDraft: false },
 				{ type: 'default_email', path: '', isDraft: false },
-				...(untrack(() => draftTriggersFromUrl) ?? savedFlow?.draft?.draft_triggers ?? [])
+				...(untrack(() => draftTriggersFromUrl) ?? [])
 			],
 			untrack(() => selectedTriggerIndexFromUrl)
 		)
@@ -694,23 +868,19 @@
 	export async function loadTriggers() {
 		if (initialPath == '') return
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
-			workspace: $workspaceStore!,
+			workspace: opWorkspace!,
 			path: initialPath
 		})
 
 		// Initialize triggers using utility function
 		await triggersState.fetchTriggers(
 			triggersCount,
-			$workspaceStore,
+			opWorkspace,
 			initialPath,
 			true,
 			$primaryScheduleStore,
 			$userStore
 		)
-
-		if (savedFlow && savedFlow.draft) {
-			savedFlow = filterDraftTriggers(savedFlow, triggersState) as FlowWithDraftAndDraftTriggers
-		}
 	}
 
 	function handleUndo() {
@@ -723,13 +893,16 @@
 		for (const mod of restoredModules) {
 			if (mod) {
 				try {
-					loadFlowModuleState(mod).then((state) => (flowStateStore.val[mod.id] = state))
+					loadFlowModuleState(mod, opWorkspace).then(
+						(state) => (flowStateStore.val[mod.id] = state)
+					)
 				} catch (e) {
 					console.error('Error loading state for restored node', e)
 				}
 			}
 		}
-		selectionManager.selectId('Input')
+		// Undo restores a selection as a side effect; it is not a request to see Input.
+		selectionManager.selectId('Input', { openPanel: false })
 	}
 
 	function handleRedo() {
@@ -767,7 +940,9 @@
 				}
 				break
 			case 's':
-				if (event.ctrlKey || event.metaKey) {
+				// Shift excluded: the switch lowercases so Ctrl+Shift+S lands here
+				// too, and swallowing it would steal the browser/OS shortcut.
+				if ((event.ctrlKey || event.metaKey) && !event.shiftKey) {
 					saveDraft()
 					event.preventDefault()
 				}
@@ -777,7 +952,9 @@
 					let ids = generateIds()
 					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > -1 && idx < ids.length - 1) {
-						selectionManager.selectId(ids[idx + 1])
+						// Traversal, not a request to see any one panel: the ids list starts with
+						// flow-level entries, and opening the modal mid-walk swallows the arrows.
+						selectionManager.selectId(ids[idx + 1], { openPanel: false })
 						event.preventDefault()
 					}
 				}
@@ -788,7 +965,7 @@
 					let ids = generateIds()
 					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > 0 && idx < ids.length) {
-						selectionManager.selectId(ids[idx - 1])
+						selectionManager.selectId(ids[idx - 1], { openPanel: false })
 						event.preventDefault()
 					}
 				}
@@ -811,8 +988,10 @@
 		onClick: () => void
 	}> = []
 
-	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
-		if (savedFlow?.draft_only === false || savedFlow?.draft_only === undefined) {
+	// In a session pane every one of these leaves the session (details page, new
+	// tab), so the deploy button carries no dropdown there — as in ScriptBuilder.
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false && !inSessionPane) {
+		if (!newFlow) {
 			dropdownItems.push({
 				label: 'Exit & see details',
 				// Use the deployed path, not the live `$pathStore` — the latter
@@ -829,10 +1008,14 @@
 			})
 		}
 
-		if (!untrack(() => newFlow) && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')) {
+		if (
+			!untrack(() => newFlow) &&
+			!isCloudHosted() &&
+			editInForkAllowed(opWorkspace, $userWorkspaces)
+		) {
 			dropdownItems.push({
-				label: 'Edit in workspace fork',
-				onClick: () => window.open(buildForkEditUrl('flow', initialPath))
+				label: editInForkLabel(opWorkspace, $userWorkspaces),
+				onClick: () => openEditInFork('flow', initialPath, opWorkspace)
 			})
 		}
 	}
@@ -846,7 +1029,6 @@
 		diffDrawer?.setDiff({
 			mode: 'normal',
 			deployed: deployedValue ?? savedFlow,
-			draft: savedFlow?.draft,
 			current: {
 				...currentFlow,
 				path: $pathStore,
@@ -891,33 +1073,16 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
-		// When the top bar is compact, fold the inline Diff + Save draft buttons
-		// in here so they stay reachable. Save draft keeps its keyboard shortcut.
-		const compactExtras: Item[] = compactTopbar
-			? [
-					...(customUi?.topBar?.draft !== false
-						? [
-								{
-									displayName: 'Save draft',
-									icon: Save,
-									action: () => saveDraft(),
-									shortcut: `${mod}S`,
-									disabled: (!newFlow && !savedFlow) || loading
-								}
-							]
-						: [])
-				]
-			: []
+		const leadingItems = [...diffMenuItems, ...baseMenuItems]
 		return [
-			...compactExtras,
-			...baseMenuItems,
+			...leadingItems,
 			{
 				displayName: 'Undo',
 				icon: Undo,
 				action: () => handleUndo(),
 				disabled: $history.index === 0,
 				shortcut: `${mod}Z`,
-				separatorTop: compactExtras.length > 0 || baseMenuItems.length > 0
+				separatorTop: leadingItems.length > 0
 			},
 			{
 				displayName: 'Redo',
@@ -1030,17 +1195,7 @@
 		]
 	}
 
-	function handleDeployTrigger(trigger: Trigger) {
-		const { id, path, type } = trigger
-		//Update the saved flow to remove the draft trigger that is deployed
-		if (savedFlow && savedFlow.draft && savedFlow.draft.draft_triggers) {
-			const newSavedDraftTrigers = savedFlow.draft.draft_triggers.filter(
-				(t) => t.id !== id || t.path !== path || t.type !== type
-			)
-			savedFlow.draft.draft_triggers =
-				newSavedDraftTrigers.length > 0 ? newSavedDraftTrigers : undefined
-		}
-	}
+	function handleDeployTrigger(_trigger: Trigger) {}
 
 	let forceTestTab: Record<string, boolean> = $state({})
 	let highlightArg: Record<string, string | undefined> = $state({})
@@ -1070,11 +1225,34 @@
 		if (p) untrack(() => ($pathStore = p))
 	})
 
+	// Persist the user-typed path into the draft JSON as `draft_path`
+	// when it differs from the deployed/seeded `flow.path`. The Path
+	// widget binds `$pathStore` one-way to the popover input — without
+	// this, the friendly auto-name on `/flows/add` and any in-place
+	// rename never reach the autosaved Flow, so the home-list draft row
+	// kept showing the autogenerated `u/{user}/draft_{uuid}` slot. Drop
+	// the field once it matches the baseline again so it doesn't
+	// linger after a revert; deploy clears the whole draft, so the
+	// field naturally disappears post-deploy too.
+	$effect(() => {
+		const typed = $pathStore
+		const baseline = (flowStore.val as Flow | undefined)?.path ?? ''
+		const flow = flowStore.val as (Flow & { draft_path?: string }) | undefined
+		if (!flow) return
+		untrack(() => {
+			if (typed && typed !== baseline) {
+				flow.draft_path = typed
+			} else if (flow.draft_path !== undefined) {
+				delete (flow as any).draft_path
+			}
+		})
+	})
+
 	$effect.pre(() => {
 		selectedId && untrack(() => select(selectedId))
 	})
 	$effect.pre(() => {
-		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
+		initialPath && initialPath != '' && opWorkspace && untrack(() => loadTriggers())
 	})
 	$effect.pre(() => {
 		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
@@ -1085,7 +1263,7 @@
 		await stepHistoryLoader.loadIndividualStepsStates(
 			flowStore.val as Flow,
 			flowStateStore,
-			$workspaceStore!,
+			opWorkspace!,
 			$initialPathStore,
 			$pathStore
 		)
@@ -1185,69 +1363,85 @@
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
+		<WorkspaceScriptSettingsDrawer bind:this={$workspaceScriptSettingsDrawer} />
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
-		<div bind:this={flowBuilderRoot} class="flex flex-col flex-1 h-screen">
+		<div bind:this={flowBuilderRoot} class="flex flex-col h-full">
 			<!-- Nav between steps-->
 			<div
 				bind:clientWidth={topbarWidth}
-				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto max-h-12 h-full relative"
+				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto h-full relative {condensedHeader
+					? 'max-h-9'
+					: 'max-h-12'}"
 			>
-				<div class="min-w-[200px] max-w-full">
-					<EditorHeader
-						bind:summary={flowStore.val.summary}
-						bind:path={$pathStore}
-						savedPath={initialPath}
-						onBehalfOfEmail={$savedOnBehalfOfEmail}
-						onNavigate={(item) => onNavigate?.(item)}
-					/>
+				<div class="flex flex-row items-center gap-2 min-w-0">
+					{#if customUi?.topBar?.path != false}
+						<div class="min-w-0 overflow-hidden">
+							<EditorHeader
+								bind:summary={flowStore.val.summary}
+								bind:path={$pathStore}
+								savedPath={initialPath}
+								onBehalfOfEmail={$savedOnBehalfOfEmail}
+								summaryEditable={customUi?.topBar?.editableSummary != false}
+								pathEditable={customUi?.topBar?.editablePath != false}
+								hidePath={condensedHeader}
+								workspaceId={autosaveWorkspace}
+								onNavigate={(item) => onNavigate?.(item)}
+							/>
+						</div>
+					{/if}
+					{#if opWorkspace && indicatorPath !== undefined}
+						<AutosaveIndicator
+							workspace={opWorkspace}
+							itemKind="flow"
+							path={indicatorPath}
+							draftOnly={newFlow}
+							{onResetToDeployed}
+							{loadedFromDraft}
+							{othersDraftsCount}
+							{onOpenOthersDrafts}
+						/>
+					{/if}
 				</div>
-				<div class="flex flex-row gap-2 items-center">
-					{#if $enterpriseLicense && !newFlow}
+				<div class="flex flex-row gap-2 items-center shrink-0">
+					{#if $enterpriseLicense && !newFlow && !inSessionPane}
 						<Awareness />
 					{/if}
 					<div class="relative">
-						<Dropdown items={getMoreItems} />
+						<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
 						{#if $tutorialsToDo.includes(getTutorialIndex('flow-live-tutorial')) || $tutorialsToDo.includes(getTutorialIndex('troubleshoot-flow'))}
 							<span
 								class="absolute top-0.5 right-0.5 block w-2 h-2 rounded-full bg-surface-accent-primary pointer-events-none"
 							></span>
 						{/if}
 					</div>
-					{#if customUi?.topBar?.diff != false}
-						<Button
-							variant="default"
-							unifiedSize="md"
-							on:click={() => openDiffDrawer()}
-							disabled={!savedFlow}
-							iconOnly={compactTopbar}
-							title="Diff"
-							startIcon={{ icon: DiffIcon }}
-						>
-							Diff
-						</Button>
+					{#if diffEnabled && !diffInMenu}
+						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+						     it never shows on hover. pointer-events-none on the button lets the
+						     hover reach this titled wrapper instead. -->
+						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+							<Button
+								variant="default"
+								unifiedSize={headerBtnSize}
+								on:click={() => openDiffDrawer()}
+								disabled={diffDisabled}
+								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+								title={diffTitle}
+								startIcon={{ icon: DiffIcon }}
+							>
+								Diff
+							</Button>
+						</div>
 					{/if}
 					{#if !compactTopbar}
 						{@render previewButtons()}
-					{/if}
-					{#if customUi?.topBar?.draft !== false && !compactTopbar}
-						<Button
-							loading={loadingDraft}
-							unifiedSize="md"
-							variant="accent"
-							startIcon={{ icon: Save }}
-							on:click={() => saveDraft()}
-							disabled={(!newFlow && !savedFlow) || loading}
-							shortCut={{ key: 'S' }}
-						>
-							Draft
-						</Button>
 					{/if}
 
 					<DeployButton
 						on:save={async ({ detail }) => await handleSaveFlow(detail)}
 						{loading}
 						{loadingSave}
+						unifiedSize={headerBtnSize}
 						{dropdownItems}
 					/>
 				</div>
@@ -1258,6 +1452,7 @@
 			{#snippet previewButtons()}
 				<FlowPreviewButtons
 					{suspendStatus}
+					unifiedSize={headerBtnSize}
 					on:openTriggers={(e) => {
 						select('Trigger')
 						handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
@@ -1287,6 +1482,7 @@
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
+					modalPanel={customUi?.modalPanel != false}
 					{loading}
 					on:reload={() => {
 						renderCount += 1
@@ -1308,7 +1504,7 @@
 					{savedFlow}
 					onDeployTrigger={handleDeployTrigger}
 					onEditInput={(moduleId, key) => {
-						selectionManager.selectId(moduleId)
+						selectionManager.selectId(moduleId, { openPanel: true })
 						// Use new prop-based system
 						forceTestTab[moduleId] = true
 						highlightArg[moduleId] = key
@@ -1323,6 +1519,7 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
+					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}
 					localModuleStates={showJobStatus ? localModuleStates : {}}
 					{showJobStatus}

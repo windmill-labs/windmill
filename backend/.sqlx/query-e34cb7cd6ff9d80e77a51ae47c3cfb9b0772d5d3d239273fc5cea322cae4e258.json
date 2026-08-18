@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)\n            SELECT c.id, c.workspace_id, NULL, NULL, true\n                FROM v2_job_completed c\n                JOIN v2_job j ON j.id = c.id\n                WHERE c.status = 'failure'\n                    AND c.workspace_id = $2\n                    AND j.flow_step_id IS NULL\n                    AND j.runnable_id IS NOT DISTINCT FROM $3\n                    AND EXISTS (\n                        SELECT 1 FROM v2_job_completed sc\n                        JOIN v2_job sj ON sj.id = sc.id\n                        JOIN native_retry_attempt nra ON nra.job_id = sc.id\n                        WHERE sc.status = 'success'\n                            AND sc.workspace_id = $2\n                            AND sj.parent_job = $1\n                            AND sj.runnable_id IS NOT DISTINCT FROM $3\n                    )\n                    AND (\n                        (j.parent_job = $1\n                            AND EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))\n                        OR (c.id = $1 AND j.parent_job IS NULL\n                            AND NOT EXISTS (SELECT 1 FROM native_retry_attempt WHERE job_id = c.id))\n                    )\n            ON CONFLICT (job_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e34cb7cd6ff9d80e77a51ae47c3cfb9b0772d5d3d239273fc5cea322cae4e258"
+}

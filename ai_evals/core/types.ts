@@ -31,6 +31,11 @@ export interface EvalCaseRuntimeSpec {
   maxTurns?: number;
   backendPreview?: EvalCaseRuntimeBackendPreview;
   appContext?: EvalCaseRuntimeAppContextSpec;
+  // Global mode: run as a session chat (preview tools + session prompt) vs the standalone chat.
+  sessionChat?: boolean;
+  // Global session chats: start the case in plan mode, so the workspace-changing tools are
+  // refused until the model hands over a plan with exit_plan_mode.
+  planMode?: boolean;
 }
 
 export interface FlowValidationSpec {
@@ -47,7 +52,7 @@ export interface FlowValidationSpec {
   }>;
   topLevelStepTypes?: Array<{
     id: string;
-    type: string;
+    type: string | string[];
   }>;
   moduleRules?: Array<{
     id: string;
@@ -164,15 +169,49 @@ export interface ToolCallArgumentRule {
    * tool — e.g. SQL where a mutation is mixed with verification SELECTs.
    */
   stringIncludesAnyOf?: string[];
+  /**
+   * Universal over calls: every recorded call to `tool` must carry `field` as a
+   * non-blank string. Use for a required argument whose value is free text, where
+   * the point is that the model filled it in at all rather than what it said.
+   */
+  nonEmpty?: boolean;
+  /**
+   * Universal over calls: no recorded call to `tool` may pass `field` at all.
+   * For partial-update tools, where supplying a field the model could not have
+   * read is itself the failure — e.g. `write_variable.value` on a secret.
+   */
+  fieldMustBeAbsent?: boolean;
+}
+
+/**
+ * Several field constraints that must hold on the *same* call, where separate
+ * calls each satisfying one of them would not be the requested behavior — e.g.
+ * opening one Runs page filtered by both a label and a worker, rather than two
+ * pages each carrying one filter.
+ */
+export interface ToolCallSameCallRule {
+  tool: string;
+  args: { field: string; stringIncludesAnyOf: string[] }[];
 }
 
 export interface ToolValidationSpec {
   requiredToolsUsed?: string[];
+  /**
+   * Each inner array is an alternatives group: the check passes when at least
+   * one tool in the group was used. Use when several tools satisfy the same
+   * intent so a model that picks any valid path passes — e.g. inspecting an
+   * app's files via either `read_app_file` or `search_app`.
+   */
+  requiredToolsAnyOf?: string[][];
   forbiddenToolsUsed?: string[];
   toolCallArgs?: ToolCallArgumentRule[];
+  toolCallArgsSameCall?: ToolCallSameCallRule[];
 }
 
-export type EvalValidationSpec = FlowValidationSpec | AppValidationSpec | GlobalValidationSpec;
+export type EvalValidationSpec =
+  | FlowValidationSpec
+  | AppValidationSpec
+  | GlobalValidationSpec;
 
 export interface EvalCase {
   id: string;
@@ -249,6 +288,12 @@ export interface ModeRunOutput<TActual> {
   toolCallDetails?: ToolCallDetail[];
   skillsInvoked: string[];
   tokenUsage?: BenchmarkTokenUsage | null;
+  /**
+   * Total input tokens occupying the context window on the LAST model request
+   * of the agentic loop (input + cache-creation + cache-read). Complements the
+   * cumulative `tokenUsage.prompt`, which sums every iteration's input.
+   */
+  finalContextTokens?: number | null;
 }
 
 export interface ModeRunContext {
@@ -294,6 +339,12 @@ export interface ModeRunner<TInitial, TExpected, TActual> {
     context: ModeRunContext;
   }): Promise<BackendValidationResult | null>;
   buildArtifacts?(actual: TActual): BenchmarkArtifactFile[];
+  /**
+   * Optional transform applied to `actual` before it is handed to the LLM judge.
+   * Use it to strip fields the judge must stay blind to (e.g. which docs-tool
+   * arm produced an answer). When omitted, the judge receives `actual` as-is.
+   */
+  prepareJudgeActual?(actual: TActual): unknown;
 }
 
 export interface BenchmarkAttemptResult {
@@ -310,6 +361,7 @@ export interface BenchmarkAttemptResult {
   judgeSummary: string | null;
   error: string | null;
   tokenUsage?: BenchmarkTokenUsage | null;
+  finalContextTokens?: number | null;
   artifactsPath?: string | null;
   artifactFiles?: BenchmarkArtifactFile[];
 }
@@ -340,6 +392,8 @@ export interface BenchmarkRunResult {
   totalPassedTokenUsage?: BenchmarkTokenUsage | null;
   averageTokenUsagePerAttempt?: BenchmarkTokenUsage | null;
   averageTokenUsagePerPassedAttempt?: BenchmarkTokenUsage | null;
+  averageFinalContextTokensPassed?: number | null;
+  maxFinalContextTokensPassed?: number | null;
   artifactsPath?: string | null;
   cases: BenchmarkCaseResult[];
 }

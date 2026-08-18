@@ -78,6 +78,7 @@ export interface SyncOptions {
   skipResourceTypes?: boolean;
   skipSecrets?: boolean;
   skipWorkspaceDependencies?: boolean;
+  skipDatatableMigrations?: boolean;
   skipScripts?: boolean;
   skipFlows?: boolean;
   skipApps?: boolean;
@@ -343,6 +344,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "includeSchedules"
       | "includeTriggers"
       | "skipWorkspaceDependencies"
+      | "skipDatatableMigrations"
       | "skipScripts"
       | "skipFlows"
       | "skipApps"
@@ -375,6 +377,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeSettings: false,
   includeKey: false,
   skipWorkspaceDependencies: false,
+  skipDatatableMigrations: false,
   nonDottedPaths: false,
   syncBehavior: "v1",
 } as const;
@@ -405,7 +408,9 @@ export async function validateBranchConfiguration(
 
   let currentBranch: string | null;
   if (originalBranchIfForked) {
-    log.info(
+    // The fork targeting itself is announced by tryResolveBranchWorkspace;
+    // this validation detail stays at debug to avoid a near-duplicate line.
+    log.debug(
       `Workspace fork detected from branch name \`${rawBranch}\`. Validating workspace configuration using original branch \`${originalBranchIfForked}\``
     );
     currentBranch = originalBranchIfForked;
@@ -563,7 +568,7 @@ export async function getEffectiveSettings(
 
     const branch = originalBranchIfForked ?? rawGitBranch;
     if (originalBranchIfForked) {
-      log.info(
+      log.debug(
         `Using overrides from original branch \`${originalBranchIfForked}\``
       );
     }

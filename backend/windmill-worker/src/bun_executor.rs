@@ -1,6 +1,11 @@
 #[cfg(feature = "deno_core")]
 use std::time::Instant;
-use std::{collections::HashMap, fs, process::Stdio};
+use std::{
+    collections::{HashMap, HashSet},
+    fs,
+    process::Stdio,
+    sync::Arc,
+};
 
 use base64::Engine;
 use itertools::Itertools;
@@ -27,9 +32,10 @@ use crate::{
     NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
+    cache,
     client::AuthedClient,
     jobs::JobKind,
-    scripts::{id_to_codebase_info, CodebaseInfo, ScriptLang},
+    scripts::{id_to_codebase_info, CodebaseInfo, ScriptHash, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
 };
@@ -44,7 +50,6 @@ use tokio::io::AsyncReadExt;
 
 use windmill_common::{
     error::{self, Result},
-    get_latest_hash_for_path,
     worker::{write_file, Connection, DISABLE_BUNDLING},
     DB,
 };
@@ -566,12 +571,8 @@ async fn gen_bunfig(
         NPMRC.read().await.clone()
     };
 
-    if let Some(ref npmrc_content) = npmrc {
-        if !npmrc_content.trim().is_empty() {
-            tracing::debug!("Writing .npmrc for bun from npmrc setting");
-            write_file(job_dir, ".npmrc", npmrc_content)?;
-            return Ok(());
-        }
+    if npmrc.as_ref().is_some_and(|c| !c.trim().is_empty()) {
+        return write_bun_registry_config(job_dir, npmrc, None, None);
     }
 
     let (registry, bunfig_install_scopes) = if let Some(conn) = db {
@@ -601,6 +602,35 @@ async fn gen_bunfig(
             BUNFIG_INSTALL_SCOPES.read().await.clone(),
         )
     };
+    write_bun_registry_config(job_dir, None, registry, bunfig_install_scopes)
+}
+
+/// The files [`write_bun_registry_config`] may create in the directory bun installs from.
+/// Both can hold a registry auth token, so `prepare-deps` deletes them by these names once
+/// the install is over.
+pub(crate) const BUN_NPMRC_FILE: &str = ".npmrc";
+pub(crate) const BUN_CONFIG_FILE: &str = "bunfig.toml";
+
+/// Write the registry configuration `bun install` picks up from its working directory: the
+/// `npmrc` setting verbatim as `.npmrc` when set, otherwise a `bunfig.toml` holding the
+/// registry URL, its auth token and the install scopes.
+///
+/// Shared with the debugger's `prepare-deps`, which resolves the same settings without a
+/// database (see `prepare_deps.rs`), so the two install paths configure bun identically.
+pub(crate) fn write_bun_registry_config(
+    job_dir: &str,
+    npmrc: Option<String>,
+    registry: Option<String>,
+    bunfig_install_scopes: Option<String>,
+) -> Result<()> {
+    if let Some(ref npmrc_content) = npmrc {
+        if !npmrc_content.trim().is_empty() {
+            tracing::debug!("Writing .npmrc for bun from npmrc setting");
+            write_file(job_dir, BUN_NPMRC_FILE, npmrc_content)?;
+            return Ok(());
+        }
+    }
+
     if registry.is_some() || bunfig_install_scopes.is_some() {
         let (url, token_opt) = if let Some(ref s) = registry {
             let url = s.trim();
@@ -630,7 +660,7 @@ registry = {}
                 .unwrap_or("".to_string())
         );
         tracing::debug!("Writing following bunfig.toml: {bunfig_toml}");
-        let _ = write_file(&job_dir, "bunfig.toml", &bunfig_toml)?;
+        let _ = write_file(&job_dir, BUN_CONFIG_FILE, &bunfig_toml)?;
     }
     Ok(())
 }
@@ -1242,16 +1272,101 @@ pub fn ensure_bundle_output_exists(bundle_path: &str) -> Result<()> {
 
 pub const BUN_BUNDLE_OBJECT_STORE_PREFIX: &str = "bun_bundle/";
 
-async fn get_script_import_updated_at(db: &DB, w_id: &str, script_path: &str) -> Result<String> {
-    let script_hash = get_latest_hash_for_path(db, w_id, script_path, false).await?;
-    let last_updated_at = sqlx::query_scalar!(
-        "SELECT created_at FROM script WHERE workspace_id = $1 AND hash = $2",
-        w_id,
-        script_hash.0 .0
+// A script version's relative-import list never changes (content is immutable
+// per hash), so parses are memoized without any invalidation.
+lazy_static::lazy_static! {
+    static ref RELATIVE_IMPORTS_PER_HASH: quick_cache::sync::Cache<i64, Arc<Vec<String>>> =
+        quick_cache::sync::Cache::new(1000);
+}
+
+const MAX_TRANSITIVE_IMPORT_PATHS: usize = 256;
+
+/// `(path, latest hash)` for the whole transitive closure of relative imports
+/// of `inner_content` — the set of scripts whose code gets inlined into the
+/// bundle, so all of them must key the bundle cache. Resolution goes through
+/// `IMPORTED_SCRIPT_HASH_CACHE` (notify-evicted, 60s TTL fallback, same
+/// version-selection predicate as the loader's content endpoint) and the
+/// per-hash script/parse caches, so steady state costs no DB queries.
+async fn collect_transitive_import_versions(
+    db: &DB,
+    w_id: &str,
+    script_path: &str,
+    inner_content: &str,
+) -> Vec<(String, i64)> {
+    let conn = Connection::from(db.clone());
+    let mut queue = crate::worker_lockfiles::extract_relative_imports(
+        inner_content,
+        script_path,
+        &Some(ScriptLang::Bun),
     )
-    .fetch_one(db)
-    .await?;
-    Ok(last_updated_at.to_string())
+    .unwrap_or_default();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut versions: Vec<(String, i64)> = vec![];
+    while let Some(path) = queue.pop() {
+        if !visited.insert(path.clone()) {
+            continue;
+        }
+        if visited.len() > MAX_TRANSITIVE_IMPORT_PATHS {
+            tracing::warn!(
+                "transitive relative-import closure of {script_path} exceeds \
+                {MAX_TRANSITIVE_IMPORT_PATHS} scripts; bundle cache key covers only the first \
+                {MAX_TRANSITIVE_IMPORT_PATHS}"
+            );
+            break;
+        }
+        let hash = match windmill_common::get_latest_script_hash_for_import_cached(db, w_id, &path)
+            .await
+        {
+            Ok(Some(hash)) => hash,
+            // Not a deployed script at this path (deleted, or not a script):
+            // excluded from the key, matching what the bundler can inline.
+            Ok(None) => continue,
+            Err(e) => {
+                tracing::warn!(
+                    "could not resolve import {path} while computing bundle cache key for \
+                    {script_path}: {e:#}"
+                );
+                continue;
+            }
+        };
+        versions.push((path.clone(), hash));
+        let imports = match RELATIVE_IMPORTS_PER_HASH.get(&hash) {
+            Some(imports) => imports,
+            None => match cache::script::fetch(&conn, ScriptHash(hash)).await {
+                Ok((data, meta)) => {
+                    let imports = Arc::new(match meta.language {
+                        Some(ScriptLang::Bun)
+                        | Some(ScriptLang::Bunnative)
+                        | Some(ScriptLang::Deno) => {
+                            crate::worker_lockfiles::extract_relative_imports(
+                                &data.code,
+                                &path,
+                                &meta.language,
+                            )
+                            .unwrap_or_default()
+                        }
+                        _ => vec![],
+                    });
+                    RELATIVE_IMPORTS_PER_HASH.insert(hash, imports.clone());
+                    imports
+                }
+                // A fetch error is transient, not a property of the (immutable)
+                // content — memoizing it would drop this subtree from the key
+                // until worker restart. Skip caching and retry next run.
+                Err(e) => {
+                    tracing::warn!(
+                        "could not fetch import {path} (hash {hash}) while computing bundle \
+                        cache key for {script_path}: {e:#}"
+                    );
+                    Arc::new(vec![])
+                }
+            },
+        };
+        queue.extend(imports.iter().cloned());
+    }
+    // deterministic key regardless of traversal order
+    versions.sort();
+    versions
 }
 
 pub async fn compute_bundle_local_and_remote_path(
@@ -1265,16 +1380,13 @@ pub async fn compute_bundle_local_and_remote_path(
     let mut input_src = format!("{inner_content}{lock}",);
 
     if let Some(db) = db {
-        let relative_imports = crate::worker_lockfiles::extract_relative_imports(
-            &inner_content,
-            script_path,
-            &Some(ScriptLang::Bun),
-        );
-        for path in relative_imports.unwrap_or_default() {
-            if let Ok(updated_at) = get_script_import_updated_at(&db, w_id, &path).await {
-                input_src.push_str(&path);
-                input_src.push_str(&updated_at.to_string());
-            }
+        // The bundle inlines the whole transitive relative-import closure, so a
+        // new deployed version of ANY script in it must change the key.
+        for (path, hash) in
+            collect_transitive_import_versions(db, w_id, script_path, inner_content).await
+        {
+            input_src.push_str(&path);
+            input_src.push_str(&hash.to_string());
         }
     };
 
@@ -1712,6 +1824,10 @@ pub async fn handle_bun_job(
             format!("argsObjToArr(args)")
         };
 
+        // Kept comment-free — this string is written out per job.
+        // `_takePendingStepFailure` / `_takePendingSuspend` hand back what the body
+        // caught and swallowed; honour them instead of reporting a `complete` (see
+        // `_pendingStepFailure` in client.ts). Optional: npm clients may predate them.
         let wrapper_content = if is_wac_v2 {
             format!(
                 r#"
@@ -1756,6 +1872,14 @@ async function run() {{
     try {{
         const result = await workflowFn(...argsArr);
         setWorkflowCtx(null);
+        const failed = ctx._takePendingStepFailure?.();
+        if (failed) {{
+            throw failed.error;
+        }}
+        const swallowed = ctx._takePendingSuspend?.();
+        if (swallowed) {{
+            throw swallowed;
+        }}
         // Flush any unawaited tasks (e.g. forgotten await on last statement)
         const trailing = ctx._flushPending();
         if (trailing.length > 0) {{
@@ -1779,6 +1903,10 @@ async function run() {{
                 return {{ type: "sleep", key: dispatch.key, seconds: dispatch.seconds }};
             }}
             return {{ type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] }};
+        }}
+        const failed = ctx._takePendingStepFailure?.();
+        if (failed) {{
+            throw failed.error;
         }}
         throw e;
     }}
@@ -2700,86 +2828,97 @@ pub async fn handle_wac_v2_output(
             let push_result: error::Result<()> = async {
                 for (step, (_, child_uuid)) in steps.iter().zip(job_ids.iter()) {
                     // Resolve job payload based on dispatch_type
-                    let (job_payload, child_args, is_external) = match step.dispatch_type.as_str() {
-                        "script" if step.script.starts_with("./") => {
-                            // Module-relative path: resolve from parent script's modules
-                            let module_key = step.script.strip_prefix("./").unwrap();
-                            let module = resolve_parent_module(modules, module_key)?;
-                            let payload = JobPayload::Code(RawCode {
-                                content: module.content,
-                                path: job.runnable_path.clone(),
-                                hash: None,
-                                language: module.language,
-                                lock: module.lock,
-                                cache_ttl: job.cache_ttl,
-                                cache_ignore_s3_path: job.cache_ignore_s3_path,
-                                dedicated_worker: None,
-                                concurrency_settings: ConcurrencySettingsWithCustom::default(),
-                                debouncing_settings: DebouncingSettings::default(),
-                                modules: None,
-                                tag: None,
-                            });
-                            let step_args: HashMap<String, Box<RawValue>> = step
-                                .args
-                                .iter()
-                                .map(|(k, v)| {
-                                    let raw = serde_json::value::to_raw_value(v).unwrap();
-                                    (k.clone(), raw)
-                                })
-                                .collect();
-                            (payload, step_args, true)
-                        }
-                        "script" => {
-                            // Resolve script path to job payload (handles hash, lang, etc.)
-                            let (payload, _, _, _, _, _) = script_path_to_payload(
-                                &step.script,
-                                None, // no authed db for background workers
-                                db.clone(),
-                                &job.workspace_id,
-                                Some(true), // skip preprocessor
-                            )
-                            .await?;
-                            let step_args: HashMap<String, Box<RawValue>> = step
-                                .args
-                                .iter()
-                                .map(|(k, v)| {
-                                    let raw = serde_json::value::to_raw_value(v).unwrap();
-                                    (k.clone(), raw)
-                                })
-                                .collect();
-                            (payload, step_args, true)
-                        }
-                        "flow" => {
-                            let flow_info = get_latest_flow_version_info_for_path(
-                                None,
-                                db,
-                                &job.workspace_id,
-                                &step.script,
-                                true,
-                            )
-                            .await?;
-                            let payload = JobPayload::Flow {
-                                path: step.script.clone(),
-                                dedicated_worker: flow_info.dedicated_worker,
-                                apply_preprocessor: false,
-                                version: flow_info.version,
-                                labels: flow_info.labels.clone(),
-                            };
-                            let step_args: HashMap<String, Box<RawValue>> = step
-                                .args
-                                .iter()
-                                .map(|(k, v)| {
-                                    let raw = serde_json::value::to_raw_value(v).unwrap();
-                                    (k.clone(), raw)
-                                })
-                                .collect();
-                            (payload, step_args, true)
-                        }
-                        _ => {
-                            // "inline" — re-run parent with _executing_key
-                            (job_payload_template.clone(), parent_args.clone(), false)
-                        }
-                    };
+                    let (job_payload, child_args, is_external, on_behalf_of) =
+                        match step.dispatch_type.as_str() {
+                            "script" if step.script.starts_with("./") => {
+                                // Module-relative path: resolve from parent script's modules
+                                let module_key = step.script.strip_prefix("./").unwrap();
+                                let module = resolve_parent_module(modules, module_key)?;
+                                let payload = JobPayload::Code(RawCode {
+                                    content: module.content,
+                                    path: job.runnable_path.clone(),
+                                    hash: None,
+                                    language: module.language,
+                                    lock: module.lock,
+                                    cache_ttl: job.cache_ttl,
+                                    cache_ignore_s3_path: job.cache_ignore_s3_path,
+                                    dedicated_worker: None,
+                                    concurrency_settings: ConcurrencySettingsWithCustom::default(),
+                                    debouncing_settings: DebouncingSettings::default(),
+                                    modules: None,
+                                    tag: None,
+                                });
+                                let step_args: HashMap<String, Box<RawValue>> = step
+                                    .args
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        let raw = serde_json::value::to_raw_value(v).unwrap();
+                                        (k.clone(), raw)
+                                    })
+                                    .collect();
+                                // Inline module code, not a separate runnable: it has no
+                                // identity of its own and runs as the parent.
+                                (payload, step_args, true, None)
+                            }
+                            "script" => {
+                                // Resolve script path to job payload (handles hash, lang, etc.)
+                                let (payload, _, _, _, _, on_behalf_of) = script_path_to_payload(
+                                    &step.script,
+                                    None, // no authed db for background workers
+                                    db.clone(),
+                                    &job.workspace_id,
+                                    Some(true), // skip preprocessor
+                                )
+                                .await?;
+                                let step_args: HashMap<String, Box<RawValue>> = step
+                                    .args
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        let raw = serde_json::value::to_raw_value(v).unwrap();
+                                        (k.clone(), raw)
+                                    })
+                                    .collect();
+                                (payload, step_args, true, on_behalf_of)
+                            }
+                            "flow" => {
+                                let flow_info = get_latest_flow_version_info_for_path(
+                                    None,
+                                    db,
+                                    &job.workspace_id,
+                                    &step.script,
+                                    true,
+                                )
+                                .await?;
+                                let payload = JobPayload::Flow {
+                                    path: step.script.clone(),
+                                    dedicated_worker: flow_info.dedicated_worker,
+                                    apply_preprocessor: false,
+                                    version: flow_info.version,
+                                    labels: flow_info.labels.clone(),
+                                };
+                                let on_behalf_of = flow_info
+                                    .on_behalf_of(&job.workspace_id, db)
+                                    .await?;
+                                let step_args: HashMap<String, Box<RawValue>> = step
+                                    .args
+                                    .iter()
+                                    .map(|(k, v)| {
+                                        let raw = serde_json::value::to_raw_value(v).unwrap();
+                                        (k.clone(), raw)
+                                    })
+                                    .collect();
+                                (payload, step_args, true, on_behalf_of)
+                            }
+                            _ => {
+                                // "inline" — re-run parent with _executing_key
+                                (
+                                    job_payload_template.clone(),
+                                    parent_args.clone(),
+                                    false,
+                                    None,
+                                )
+                            }
+                        };
 
                     let push_args = PushArgs { args: &child_args, extra: None };
 
@@ -2827,6 +2966,21 @@ pub async fn handle_wac_v2_output(
                         }
                     }
 
+                    // A target runnable that opts into on-behalf-of runs under its own
+                    // identity, never the caller's, so a step that reaches it through a
+                    // workflow cannot widen or narrow its permissions. `created_by` still
+                    // credits the caller, matching how the run API pushes these jobs.
+                    let (child_email, child_permissioned_as) = match on_behalf_of.as_ref() {
+                        Some(on_behalf_of) => (
+                            on_behalf_of.email.as_str(),
+                            on_behalf_of.permissioned_as.clone(),
+                        ),
+                        None => (
+                            job.permissioned_as_email.as_str(),
+                            job.permissioned_as.clone(),
+                        ),
+                    };
+
                     let (_, mut tx) = push(
                         db,
                         PushIsolationLevel::IsolatedRoot(db.clone()),
@@ -2834,8 +2988,9 @@ pub async fn handle_wac_v2_output(
                         job_payload,
                         push_args,
                         &job.created_by,
-                        &job.permissioned_as_email,
-                        job.permissioned_as.clone(),
+                        child_email,
+                        child_permissioned_as,
+                        None,
                         None,
                         None,
                         None,
@@ -3038,15 +3193,12 @@ pub async fn handle_wac_v2_output(
                 }
             }
 
-            // Generate resume URLs for the inline approval buttons.
-            // Use a hash of the step key as resume_id so each waitForApproval()
-            // in the same workflow gets a unique resume_job record.
-            let resume_id: u32 = {
-                use std::hash::{Hash, Hasher};
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                key.hash(&mut hasher);
-                (hasher.finish() & 0xFFFF_FFFF) as u32
-            };
+            // Generate resume URLs for the inline approval buttons. The resume_id
+            // is derived from the step key so each waitForApproval() in the same
+            // workflow gets a unique resume_job record, and so URLs the workflow
+            // minted for this step ahead of time (getApprovalUrls) address the
+            // same one.
+            let resume_id: u32 = windmill_common::wac::approval_resume_id(&key);
             // Generate stateless approval token using shared utility
             let approval_token =
                 windmill_common::variables::generate_approval_token(&job.workspace_id, job.id, db)
@@ -3367,8 +3519,11 @@ pub fn build_nativets_env_code(
         reserved_variables
             .iter()
             .map(|(k, v)| {
-                let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
-                format!("process.env['{}'] = '{}';", k, escaped)
+                // The key is attacker-controllable (custom workspace env vars), so
+                // escape it as a string literal too, not just the value.
+                let key_literal = windmill_common::variables::escape_js_single_quoted(k);
+                let escaped = windmill_common::variables::escape_js_single_quoted(v);
+                format!("process.env['{key_literal}'] = '{escaped}';")
             })
             .collect::<Vec<String>>()
             .join("\n")

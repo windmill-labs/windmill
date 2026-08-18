@@ -25,7 +25,9 @@ import {
 import { runSuite } from "../core/runSuite";
 import { EVAL_MODES, type EvalMode } from "../core/types";
 import { DEFAULT_JUDGE_MODEL } from "../core/judge";
-import { createCliModeRunner } from "../modes/cli";
+// createCliModeRunner is imported lazily in runCliBenchmark so the non-cli modes
+// (global/flow/script/app) don't pull in the wmill CLI toolchain and its JSR deps
+// (e.g. @cliffy/*) just to load this entrypoint.
 import { runFrontendBenchmarkAdapter } from "../adapters/frontend/runtime";
 import { resolveWindmillBackendSettings } from "../core/windmillBackendSettings";
 import { assertWindmillBackendReachable } from "../adapters/frontend/windmillBackend";
@@ -97,6 +99,11 @@ async function main() {
       "comma-separated model aliases to run sequentially",
     )
     .option("--verbose", "stream assistant output during frontend runs")
+    .option("--skip-judge", "skip LLM judge scoring for this run")
+    .option(
+      "--execution-only",
+      "only require the model/proxy/frontend loop to complete",
+    )
     .option(
       "--record",
       "append a compact summary line to ai_evals/history/<mode>.jsonl",
@@ -115,6 +122,8 @@ async function main() {
           model?: string;
           models?: string;
           verbose?: boolean;
+          skipJudge?: boolean;
+          executionOnly?: boolean;
           record?: boolean;
           backendValidation?: string;
         },
@@ -127,6 +136,8 @@ async function main() {
           model: options.model,
           models: options.models,
           verbose: options.verbose ?? false,
+          skipJudge: options.skipJudge ?? false,
+          executionOnly: options.executionOnly ?? false,
           record: options.record ?? false,
           backendValidation: options.backendValidation,
         });
@@ -175,6 +186,8 @@ async function handleRun(input: {
   model?: string;
   models?: string;
   verbose: boolean;
+  skipJudge: boolean;
+  executionOnly: boolean;
   record: boolean;
   backendValidation?: string;
 }) {
@@ -230,6 +243,8 @@ async function handleRun(input: {
             input.runs,
             getCliEvalModel(model),
             runModel,
+            input.skipJudge,
+            input.executionOnly,
           )
         : await runFrontendBenchmarkAdapter({
             mode: input.mode,
@@ -237,6 +252,8 @@ async function handleRun(input: {
             runs: input.runs,
             model: model.id,
             verbose: input.verbose,
+            skipJudge: input.skipJudge,
+            executionOnly: input.executionOnly,
             backendValidation,
           });
 
@@ -278,20 +295,25 @@ async function runCliBenchmark(
   runs: number,
   model: ReturnType<typeof getCliEvalModel>,
   runModel: string,
+  skipJudge: boolean,
+  executionOnly: boolean,
 ) {
+  const { createCliModeRunner } = await import("../modes/cli");
+  const judgeModel = skipJudge || executionOnly ? null : DEFAULT_JUDGE_MODEL;
   const caseResults = await runSuite({
     modeRunner: createCliModeRunner(model),
     cases,
     runs,
     runModel,
-    judgeModel: DEFAULT_JUDGE_MODEL,
+    judgeModel,
+    executionOnly,
   });
 
   return buildRunResult({
     mode: "cli",
     runs,
     runModel,
-    judgeModel: DEFAULT_JUDGE_MODEL,
+    judgeModel,
     caseResults,
   });
 }

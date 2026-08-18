@@ -1,0 +1,4 @@
+-- Irreversible: the original `created_at` values were already lost by
+-- 20260609165313 (it defaulted them to the migration's now()); this migration
+-- only changed them from the migration timestamp to the epoch, so there is
+-- nothing to restore.

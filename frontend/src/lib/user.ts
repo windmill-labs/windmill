@@ -4,15 +4,16 @@ import type { UserExt } from './stores.js'
 export async function getUserExt(workspace: string): Promise<UserExt | undefined> {
 	try {
 		const user = await UserService.whoami({ workspace })
-		return mapUserToUserExt(user)
+		return mapUserToUserExt(user, workspace)
 	} catch (error) {
 		return undefined
 	}
 }
 
-function mapUserToUserExt(user: User): UserExt {
+function mapUserToUserExt(user: User, workspace: string): UserExt {
 	const ext: UserExt = {
 		...user,
+		workspace_id: workspace,
 		groups: user.groups!,
 		pgroups: user.groups!.map((x) => `g/${x}`)
 	}

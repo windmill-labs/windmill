@@ -38,7 +38,10 @@
                 "google",
                 "ci_test",
                 "github",
-                "azure"
+                "azure",
+                "asset",
+                "freshness",
+                "amqp"
               ]
             }
           }
@@ -75,7 +78,10 @@
                 "google",
                 "ci_test",
                 "github",
-                "azure"
+                "azure",
+                "asset",
+                "freshness",
+                "amqp"
               ]
             }
           }

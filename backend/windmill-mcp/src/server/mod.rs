@@ -11,18 +11,22 @@ pub mod runner;
 pub mod tools;
 
 // Re-export main types
-pub use backend::{BackendResult, McpAuth, McpBackend};
-pub use endpoints::{endpoint_tool_to_mcp_tool, is_endpoint_read_only, EndpointTool};
+pub use crate::common::types::{McpToken, MultiWorkspaceMcp, WorkspaceInfo};
+pub use backend::{BackendResult, McpAuth, McpBackend, PathFilter};
+pub use endpoints::{
+    endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, is_endpoint_read_only,
+    list_workspaces_tool, EndpointTool,
+};
 pub use runner::Runner;
 pub use tools::create_tool_from_item;
 
 // Re-export rmcp types for convenience
 pub use rmcp::handler::server::ServerHandler;
 pub use rmcp::model::{
-    Annotated, CallToolRequestParams, CallToolResult, Content, Implementation,
-    InitializeRequestParams, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
-    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion, RawContent,
-    RawTextContent, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+    CallToolRequestParams, CallToolResult, ContentBlock, Implementation, InitializeRequestParams,
+    InitializeResult, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
+    ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo, Tool,
+    ToolAnnotations,
 };
 pub use rmcp::service::{RequestContext, RoleServer};
 pub use rmcp::transport::streamable_http_server::{

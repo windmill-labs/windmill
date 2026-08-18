@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE workspace_settings\n            SET git_sync = jsonb_set(\n                git_sync,\n                '{repositories}',\n                (SELECT jsonb_agg(\n                    CASE WHEN elem->>'git_repo_resource_path' IN ($2, '$res:' || $2)\n                        THEN CASE WHEN $3::text IS NULL THEN elem - 'open_pr_error'\n                             ELSE jsonb_set(elem, '{open_pr_error}', to_jsonb($3::text), true) END\n                        ELSE elem END)\n                 FROM jsonb_array_elements(git_sync->'repositories') AS elem)\n            )\n            WHERE workspace_id = $1\n              AND jsonb_typeof(git_sync->'repositories') = 'array'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "71faf95db96589e5554882e1dd036bd19923e0b0581efbae448197d6accf01f3"
+}

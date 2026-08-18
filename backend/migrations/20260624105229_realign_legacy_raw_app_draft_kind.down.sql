@@ -1,0 +1,3 @@
+-- Irreversible data backfill: once a raw app's draft is retyped to 'raw_app' it
+-- is indistinguishable from one saved as 'raw_app' by the per-kind code, so the
+-- original typ='app' state cannot be reconstructed. No-op on revert.

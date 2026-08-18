@@ -101,11 +101,48 @@ pub struct GoogleExtraContent {
     pub thought_signature: Option<String>,
 }
 
+/// Bedrock-specific extra content carrying the Claude reasoning block emitted
+/// in the same assistant turn as a tool call. Anthropic requires reasoning
+/// blocks (text + signature, unmodified) to be replayed before `toolUse` when
+/// thinking is enabled, so the proxy round-trips them through the
+/// OpenAI-shaped tool call.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct BedrockExtraContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    /// Base64 of a redacted (encrypted) reasoning block, when the provider
+    /// returned one instead of readable text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redacted_content: Option<String>,
+}
+
+/// Native-Anthropic reasoning block emitted in the same assistant turn as a
+/// tool call. Like Bedrock, Anthropic requires the thinking block (text +
+/// unmodified signature, or redacted bytes) to precede `tool_use` on replay when
+/// thinking is enabled, so it is round-tripped through the OpenAI-shaped tool call.
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct AnthropicExtraContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+    /// Base64 `data` of a redacted (encrypted) thinking block, when the provider
+    /// returned one instead of readable text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redacted_thinking: Option<String>,
+}
+
 /// Extra content for provider-specific metadata (e.g., Google thought signatures)
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct ExtraContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub google: Option<GoogleExtraContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bedrock: Option<BedrockExtraContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anthropic: Option<AnthropicExtraContent>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]

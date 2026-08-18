@@ -30,16 +30,20 @@
 	import { Check, X, Loader2 } from 'lucide-svelte'
 
 	interface Props {
+		// Workspace whose datatables are cloned into the fork (the fork's base). Falls back to the
+		// current workspace so existing callers keep working.
+		sourceWorkspace?: string
 		onAllDone?: () => void
 		onCanceled?: () => void
 	}
 
-	let { onAllDone, onCanceled }: Props = $props()
+	let { sourceWorkspace, onAllDone, onCanceled }: Props = $props()
 
-	let allDatatables = resource([], async () =>
-		$workspaceStore
-			? WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
-			: undefined
+	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
+
+	let allDatatables = resource(
+		() => effectiveSource,
+		async (ws) => (ws ? WorkspaceService.listDataTables({ workspace: ws }) : undefined)
 	)
 
 	let datatableBehaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> =
@@ -83,7 +87,7 @@
 					steps,
 					_newDbName: newDbName,
 					_isInstance: isInstance,
-					_sourceWorkspace: $workspaceStore!,
+					_sourceWorkspace: effectiveSource!,
 					_targetWorkspace: targetWorkspaceId,
 					_resourcePath: dt.resource_path
 				}

@@ -42,6 +42,7 @@
 			label={`User (${$userStore?.username ?? $userStore?.email})`}
 			{isCollapsed}
 			{lightMode}
+			showChevron
 			{trigger}
 		/>
 	{/snippet}
@@ -52,12 +53,22 @@
 				{$userStore?.email}
 			</p>
 			<span class="text-xs text-primary flex flex-row gap-2 items-center">
-				{#if $userStore?.is_admin}
+				{#if $userStore?.non_member}
+					Superadmin, not a member of this workspace <Crown size={14} />
+				{:else if $userStore?.is_admin}
 					Admin of this workspace <Crown size={14} />
 				{:else if $userStore?.operator}
 					Operator in this workspace <ServerCog size={14} />
 				{/if}
 			</span>
+			{#if $userStore?.non_member}
+				<span class="text-xs text-tertiary block mt-1">
+					You are not a member, but as a superadmin you can access this workspace. You act here
+					under the username
+					<span class="font-mono font-medium text-primary">{$userStore?.username}</span>
+					with admin permissions.
+				</span>
+			{/if}
 		</div>
 		<div class="py-1">
 			<MenuItem href={USER_SETTINGS_HASH} class={itemClass} {item}>

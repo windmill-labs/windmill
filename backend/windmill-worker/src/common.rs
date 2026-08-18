@@ -528,7 +528,7 @@ pub async fn get_reserved_variables(
     };
 
     let tested_runnable = match (&job.trigger_kind, &job.trigger) {
-        (Some(windmill_common::jobs::JobTriggerKind::CiTest), Some(t)) => Some(t.clone()),
+        (Some(k), Some(t)) if k.is(windmill_common::jobs::JobTriggerKind::CiTest) => Some(t.clone()),
         _ => None,
     };
 
@@ -748,17 +748,20 @@ lazy_static! {
 const MEMORY_LIMIT_1CU: usize = 2 * 1024 * 1024 * 1024;
 
 /// Wrapper that holds a Windows Job Object handle alongside the child process.
-/// The job object enforces memory limits and is closed when the child is dropped.
+/// The job object carries KILL_ON_JOB_CLOSE and/or a memory limit. With
+/// KILL_ON_JOB_CLOSE, the worker process dying closes the handle and the OS reaps the
+/// whole child tree — preventing orphans when the worker is force-killed (e.g. a second
+/// CTRL_BREAK_EVENT or Nomad's kill_timeout) before a job has drained.
 #[cfg(windows)]
-struct MemoryLimitedChild {
+struct WindowsJobChild {
     inner: Box<dyn TokioChildWrapper>,
     _job_handle: Win32JobHandle,
 }
 
 #[cfg(windows)]
-impl std::fmt::Debug for MemoryLimitedChild {
+impl std::fmt::Debug for WindowsJobChild {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MemoryLimitedChild").finish()
+        f.debug_struct("WindowsJobChild").finish()
     }
 }
 
@@ -781,7 +784,7 @@ impl Drop for Win32JobHandle {
 }
 
 #[cfg(windows)]
-impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
+impl process_wrap::tokio::TokioChildWrapper for WindowsJobChild {
     fn inner(&self) -> &tokio::process::Child {
         self.inner.inner()
     }
@@ -789,7 +792,11 @@ impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
         self.inner.inner_mut()
     }
     fn into_inner(self: Box<Self>) -> tokio::process::Child {
-        self.inner.into_inner()
+        // Leak the job handle: with KILL_ON_JOB_CLOSE, closing the last handle reaps
+        // the (still-running) child, so extracting the inner Child must not close it.
+        let WindowsJobChild { inner, _job_handle } = *self;
+        std::mem::forget(_job_handle);
+        inner.into_inner()
     }
     fn start_kill(&mut self) -> std::io::Result<()> {
         self.inner.start_kill()
@@ -805,9 +812,59 @@ impl process_wrap::tokio::TokioChildWrapper for MemoryLimitedChild {
     }
 }
 
-/// Create a Windows Job Object with a memory limit and assign the process to it.
+/// Resume all threads of a process created with CREATE_SUSPENDED. We create the child
+/// suspended so it can be assigned to its job object before running any code; otherwise
+/// a child that forks a helper at startup could create it before the assignment and
+/// leave it outside the job (escaping KILL_ON_JOB_CLOSE reaping / the memory cap).
+/// (Ported from process-wrap's resume_threads.)
 #[cfg(windows)]
-fn apply_job_memory_limit(pid: u32, memory_limit: usize) -> Result<Win32JobHandle, std::io::Error> {
+fn resume_process(pid: u32) -> Result<(), std::io::Error> {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Thread32First, Thread32Next, TH32CS_SNAPTHREAD, THREADENTRY32,
+    };
+    use windows::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
+
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0).map_err(|e| {
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("CreateToolhelp32Snapshot: {e}"),
+            )
+        })?;
+        let mut entry = THREADENTRY32 {
+            dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
+            cntUsage: 0,
+            th32ThreadID: 0,
+            th32OwnerProcessID: 0,
+            tpBasePri: 0,
+            tpDeltaPri: 0,
+            dwFlags: 0,
+        };
+        let mut res = Thread32First(snapshot, &mut entry);
+        while res.is_ok() {
+            if entry.th32OwnerProcessID == pid {
+                if let Ok(thread) = OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID) {
+                    ResumeThread(thread);
+                    let _ = windows::Win32::Foundation::CloseHandle(thread);
+                }
+            }
+            res = Thread32Next(snapshot, &mut entry);
+        }
+        let _ = windows::Win32::Foundation::CloseHandle(snapshot);
+    }
+    Ok(())
+}
+
+/// Create a Windows Job Object and assign the process to it, optionally with
+/// KILL_ON_JOB_CLOSE (so the child tree is reaped when the worker drops the handle /
+/// dies) and/or a memory limit. Assigning post-spawn (rather than via process-wrap's
+/// suspend/resume JobObject wrap) keeps the dotnet-safe behavior that csharp relies on.
+#[cfg(windows)]
+fn assign_job_object(
+    pid: u32,
+    memory_limit: Option<usize>,
+    kill_on_close: bool,
+) -> Result<Win32JobHandle, std::io::Error> {
     use windows::Win32::System::JobObjects::*;
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
 
@@ -817,8 +874,13 @@ fn apply_job_memory_limit(pid: u32, memory_limit: usize) -> Result<Win32JobHandl
         })?;
 
         let mut info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_JOB_MEMORY;
-        info.JobMemoryLimit = memory_limit;
+        if kill_on_close {
+            info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        }
+        if let Some(memory_limit) = memory_limit {
+            info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
+            info.JobMemoryLimit = memory_limit;
+        }
 
         SetInformationJobObject(
             job,
@@ -909,6 +971,28 @@ pub async fn start_child_process(
     use process_wrap::tokio::*;
     let mut cmd = TokioCommandWrap::from(cmd);
 
+    // On Windows, put the child in its own console process group so a CTRL_BREAK_EVENT
+    // sent to the worker's group (e.g. by Nomad on scale-in) is not delivered to it.
+    // Otherwise the whole child tree dies instantly with STATUS_CONTROL_C_EXIT
+    // (0xC000013A) before the worker can drain running jobs.
+    //
+    // This deliberately does NOT use process-wrap's JobObject wrap: its pre_spawn calls
+    // command.creation_flags(CREATE_SUSPENDED | get_wrap::<CreationFlags>()), but
+    // get_wrap returns None mid-spawn (process-wrap 8.2.1 takes the wrappers out of
+    // `self` before running pre_spawn), so it silently overwrites and drops
+    // CREATE_NEW_PROCESS_GROUP. Job-object grouping is done post-spawn below instead,
+    // which also matches the dotnet-safe assignment csharp already relies on.
+    #[cfg(windows)]
+    if !*DISABLE_PROCESS_GROUP {
+        use process_wrap::tokio::CreationFlags;
+        use windows::Win32::System::Threading::{CREATE_NEW_PROCESS_GROUP, CREATE_SUSPENDED};
+        // Also create the child suspended so it can be placed in its job object (below)
+        // before it runs any code; otherwise a child that forks a helper at startup could
+        // create it before the assignment and leave it outside the job. Resumed right
+        // after the job assignment.
+        cmd.wrap(CreationFlags(CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED));
+    }
+
     if !*DISABLE_PROCESS_GROUP && !disable_process_group {
         #[cfg(unix)]
         {
@@ -916,31 +1000,51 @@ pub async fn start_child_process(
 
             cmd.wrap(ProcessGroup::leader());
         }
-        #[cfg(windows)]
-        {
-            cmd.wrap(JobObject);
-        }
     }
 
     let child: Box<dyn TokioChildWrapper> = cmd
         .spawn()
         .map_err(|err| tentatively_improve_error(err.into(), executable))?;
 
+    // On Windows, assign the child to a job object. KILL_ON_JOB_CLOSE makes the OS reap
+    // the whole child tree when the worker drops the handle or dies, so jobs aren't
+    // orphaned if the worker is force-killed (second CTRL_BREAK_EVENT, or Nomad exceeding
+    // kill_timeout) before they drain; it is gated on the DISABLE_PROCESS_GROUP escape
+    // hatch alongside CREATE_NEW_PROCESS_GROUP above. The LIMIT_WINDOWS_TO_1CU memory cap
+    // is independent of that hatch (it's its own opt-in), so it's applied whenever set.
+    // Assigning post-spawn does not touch the creation flags (so it composes with
+    // CREATE_NEW_PROCESS_GROUP) and is the dotnet-safe path csharp already uses.
     #[cfg(windows)]
-    if *windmill_common::worker::LIMIT_WINDOWS_TO_1CU {
-        if let Some(pid) = child.inner().id() {
-            match apply_job_memory_limit(pid, MEMORY_LIMIT_1CU) {
-                Ok(job_handle) => {
-                    tracing::info!(
-                        "Applied 2GB memory limit (LIMIT_WINDOWS_TO_1CU) to child process {pid}"
-                    );
-                    return Ok(Box::new(MemoryLimitedChild {
-                        inner: child,
-                        _job_handle: job_handle,
-                    }));
+    {
+        let kill_on_close = !*DISABLE_PROCESS_GROUP;
+        let memory_limit =
+            (*windmill_common::worker::LIMIT_WINDOWS_TO_1CU).then_some(MEMORY_LIMIT_1CU);
+        if kill_on_close || memory_limit.is_some() {
+            if let Some(pid) = child.inner().id() {
+                let assigned = assign_job_object(pid, memory_limit, kill_on_close);
+                // When kill_on_close, the child was created suspended (CREATE_SUSPENDED
+                // above) so it could be placed in the job before running. Resume it now —
+                // unconditionally of assign success, so a failed assign never leaves it hung.
+                if kill_on_close {
+                    if let Err(e) = resume_process(pid) {
+                        tracing::error!("Failed to resume child process {pid}: {e}");
+                    }
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to apply memory limit to child process {pid}: {e}");
+                match assigned {
+                    Ok(job_handle) => {
+                        if memory_limit.is_some() {
+                            tracing::info!(
+                                "Applied 2GB memory limit (LIMIT_WINDOWS_TO_1CU) to child process {pid}"
+                            );
+                        }
+                        return Ok(Box::new(WindowsJobChild {
+                            inner: child,
+                            _job_handle: job_handle,
+                        }));
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to assign child process {pid} to job object: {e}");
+                    }
                 }
             }
         }
@@ -977,7 +1081,9 @@ pub async fn resolve_job_timeout(
         *MAX_TIMEOUT_DURATION
     };
 
-    match custom_timeout_secs {
+    // A `custom_timeout_secs <= 0` is not a 0-second limit but "unset": fall through to the
+    // default/global-max timeout instead of killing the job immediately.
+    match windmill_common::runnable_settings::none_if_non_positive(custom_timeout_secs) {
         Some(timeout_secs)
             if Duration::from_secs(timeout_secs as u64) < global_max_timeout_duration =>
         {
@@ -1018,6 +1124,45 @@ pub async fn resolve_nsjail_timeout(
 ) -> String {
     let (duration, _, _) = resolve_job_timeout(conn, w_id, job_id, custom_timeout).await;
     (duration.as_secs() + 15).to_string()
+}
+
+/// Render the `rlimit_as` line for an nsjail run config, honoring a per-language
+/// env-var override.
+///
+/// nsjail caps a jailed job's virtual address space at `rlimit_as` MiB. JIT
+/// runtimes (Bun/JavaScriptCore, the JVM) reserve large virtual ranges up front,
+/// so a subprocess spawned from a jailed Python/Ansible job can crash against this
+/// cap even when its physical memory use is modest. Lifting it lets operators run
+/// such workloads on a dedicated worker pool (set the env var only there) without
+/// giving up the mount/PID/user-namespace isolation that provides the real
+/// security boundary. Only the address-space limit is affected; the other rlimits
+/// (cpu/fsize/nofile) in the proto are untouched.
+///
+/// `env_override` is the raw value of the language's `NSJAIL_*_RLIMIT_AS_MB` env var:
+/// - unset/empty -> historical default (`rlimit_as: {default_mb}`)
+/// - `unlimited`/`none`/`inf`/`0` -> `rlimit_as_type: INF` (address space uncapped)
+/// - a positive integer (MiB) -> `rlimit_as: {n}`
+pub fn render_nsjail_rlimit_as(env_override: Option<&str>, default_mb: u32) -> String {
+    match env_override.map(str::trim) {
+        None | Some("") => format!("rlimit_as: {default_mb}"),
+        Some(v)
+            if v.eq_ignore_ascii_case("unlimited")
+                || v.eq_ignore_ascii_case("none")
+                || v.eq_ignore_ascii_case("inf")
+                || v == "0" =>
+        {
+            "rlimit_as_type: INF".to_string()
+        }
+        Some(v) => match v.parse::<u32>() {
+            Ok(mb) => format!("rlimit_as: {mb}"),
+            Err(_) => {
+                tracing::warn!(
+                    "Invalid nsjail rlimit_as override {v:?}, using default {default_mb}MiB"
+                );
+                format!("rlimit_as: {default_mb}")
+            }
+        },
+    }
 }
 
 /// Default size (in bytes) of the `/tmp` tmpfs mount inside nsjail sandboxes,
@@ -1127,6 +1272,49 @@ pub(crate) async fn resolve_nsjail_tmp_mount_block(job_dir: &str) -> String {
         }
     }
     bind_mount_block(&jail_tmp)
+}
+
+#[cfg(test)]
+mod nsjail_rlimit_as_tests {
+    use super::render_nsjail_rlimit_as;
+
+    #[test]
+    fn unset_uses_default() {
+        assert_eq!(render_nsjail_rlimit_as(None, 4096), "rlimit_as: 4096");
+        assert_eq!(render_nsjail_rlimit_as(Some("  "), 4096), "rlimit_as: 4096");
+    }
+
+    #[test]
+    fn numeric_override_is_used() {
+        assert_eq!(
+            render_nsjail_rlimit_as(Some("16384"), 4096),
+            "rlimit_as: 16384"
+        );
+        assert_eq!(
+            render_nsjail_rlimit_as(Some("  8192 "), 4096),
+            "rlimit_as: 8192"
+        );
+    }
+
+    #[test]
+    fn unlimited_keywords_emit_inf() {
+        for v in ["unlimited", "UNLIMITED", "none", "inf", "0"] {
+            assert_eq!(
+                render_nsjail_rlimit_as(Some(v), 4096),
+                "rlimit_as_type: INF",
+                "value {v:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_falls_back_to_default() {
+        assert_eq!(
+            render_nsjail_rlimit_as(Some("abc"), 4096),
+            "rlimit_as: 4096"
+        );
+        assert_eq!(render_nsjail_rlimit_as(Some("-1"), 4096), "rlimit_as: 4096");
+    }
 }
 
 #[cfg(test)]
@@ -2150,4 +2338,96 @@ mod tests {
 
         assert!(result.is_err());
     }
+}
+
+lazy_static::lazy_static! {
+    static ref TEMPLATE_RE: regex::Regex =
+        regex::Regex::new(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}").unwrap();
+}
+
+/// Substitute `{{ arg_name }}` placeholders with values from `args`.
+/// Strings are used raw; numbers/bools are stringified. Other types are rejected.
+pub(crate) fn interpolate_template(
+    template: &str,
+    args: Option<&HashMap<String, Box<RawValue>>>,
+    field_name: &str,
+) -> error::Result<String> {
+    let mut last_err: Option<error::Error> = None;
+    let result = TEMPLATE_RE.replace_all(template, |caps: &regex::Captures| {
+        let name = &caps[1];
+        let raw = args.and_then(|a| a.get(name));
+        let Some(raw) = raw else {
+            last_err = Some(error::Error::BadRequest(format!(
+                "`{}` references `{{{{ {} }}}}` but no such argument was provided",
+                field_name, name
+            )));
+            return String::new();
+        };
+        let json: serde_json::Value = match serde_json::from_str(raw.get()) {
+            Ok(v) => v,
+            Err(e) => {
+                last_err = Some(error::Error::BadRequest(format!(
+                    "`{}` could not parse argument `{}` as JSON: {e}",
+                    field_name, name
+                )));
+                return String::new();
+            }
+        };
+        match json {
+            serde_json::Value::String(s) => s,
+            serde_json::Value::Number(n) => n.to_string(),
+            serde_json::Value::Bool(b) => b.to_string(),
+            serde_json::Value::Null => {
+                last_err = Some(error::Error::BadRequest(format!(
+                    "`{}` references `{{{{ {} }}}}` but the argument is null",
+                    field_name, name
+                )));
+                String::new()
+            }
+            _ => {
+                last_err = Some(error::Error::BadRequest(format!(
+                    "`{}` references `{{{{ {} }}}}` but the argument is not a primitive (string/number/bool)",
+                    field_name, name
+                )));
+                String::new()
+            }
+        }
+    });
+    if let Some(e) = last_err {
+        return Err(e);
+    }
+    Ok(result.into_owned())
+}
+
+/// Reject absolute paths and `..` segments to prevent escaping the cloned repo directory.
+pub(crate) fn validate_relative_path(path: &str, field_name: &str) -> error::Result<()> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err(error::Error::BadRequest(format!(
+            "`{}` resolved to an empty path",
+            field_name
+        )));
+    }
+    let p = std::path::Path::new(trimmed);
+    for component in p.components() {
+        match component {
+            // RootDir catches leading `/` or `\`; Prefix catches Windows drive
+            // letters and UNC paths. `Path::is_absolute()` alone misses
+            // RootDir-only paths on Windows (e.g. `/etc/passwd`).
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                return Err(error::Error::BadRequest(format!(
+                    "`{}` must be a relative path inside the cloned repo, got: {}",
+                    field_name, trimmed
+                )));
+            }
+            std::path::Component::ParentDir => {
+                return Err(error::Error::BadRequest(format!(
+                    "`{}` must not contain `..` segments, got: {}",
+                    field_name, trimmed
+                )));
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }

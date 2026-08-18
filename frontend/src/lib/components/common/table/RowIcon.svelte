@@ -3,6 +3,7 @@
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
@@ -16,8 +17,10 @@
 		LayoutDashboard,
 		Mail,
 		Route,
-		Unplug
+		Unplug,
+		Workflow
 	} from 'lucide-svelte'
+	import FileIcon from '$lib/components/raw_apps/FileIcon.svelte'
 
 	interface Props {
 		kind:
@@ -25,6 +28,7 @@
 			| 'flow'
 			| 'app'
 			| 'raw_app'
+			| 'raw_app_file'
 			| 'resource'
 			| 'variable'
 			| 'resource_type'
@@ -38,6 +42,7 @@
 			| 'kafka'
 			| 'nats'
 			| 'mqtt'
+			| 'amqp'
 			| 'sqs'
 			| 'gcp'
 			| 'emails'
@@ -47,16 +52,22 @@
 			| 'nats_trigger'
 			| 'postgres_trigger'
 			| 'mqtt_trigger'
+			| 'amqp_trigger'
 			| 'sqs_trigger'
 			| 'gcp_trigger'
 			| 'azure_trigger'
 			| 'email_trigger'
+			| 'data_pipeline'
+			| 'datatable_migration'
 		/** For 'trigger' kind, specifies the specific trigger type (routes, schedules, etc.) */
 		triggerKind?: string | undefined
+		/** For 'raw_app_file' kind: the file name/path, used to pick an
+		 * extension-specific icon. */
+		path?: string | undefined
 		size?: number
 	}
 
-	let { kind, triggerKind = undefined, size = 16 }: Props = $props()
+	let { kind, triggerKind = undefined, path = undefined, size = 16 }: Props = $props()
 
 	// Map per-kind backend names (e.g. `kafka_trigger`) to the legacy short
 	// names the icon switch already handles, so we don't have to duplicate cases.
@@ -67,6 +78,7 @@
 		nats_trigger: 'nats',
 		postgres_trigger: 'postgres',
 		mqtt_trigger: 'mqtt',
+		amqp_trigger: 'amqp',
 		sqs_trigger: 'sqs',
 		gcp_trigger: 'gcp',
 		azure_trigger: 'azure',
@@ -83,6 +95,8 @@
 		<BarsStaggered {size} class="text-teal-500" />
 	{:else if effectiveKind === 'app' || effectiveKind === 'raw_app'}
 		<LayoutDashboard {size} class="text-orange-500" />
+	{:else if effectiveKind === 'raw_app_file'}
+		<FileIcon name={path ?? ''} {size} />
 	{:else if effectiveKind === 'script'}
 		<Code2 {size} class="text-blue-500" />
 	{:else if effectiveKind === 'variable'}
@@ -107,6 +121,8 @@
 		<NatsIcon {size} class="text-gray-400" />
 	{:else if effectiveKind === 'mqtt'}
 		<MqttIcon {size} class="text-gray-400" />
+	{:else if effectiveKind === 'amqp'}
+		<AmqpIcon {size} class="text-gray-400" />
 	{:else if effectiveKind === 'sqs'}
 		<AwsIcon {size} class="text-gray-400" />
 	{:else if effectiveKind === 'gcp'}
@@ -117,6 +133,10 @@
 		<Mail {size} class="text-gray-400" />
 	{:else if effectiveKind === 'trigger'}
 		<Calendar {size} class="text-gray-400" />
+	{:else if effectiveKind === 'data_pipeline'}
+		<Workflow {size} class="text-indigo-500" />
+	{:else if effectiveKind === 'datatable_migration'}
+		<Database {size} class="text-violet-500" />
 	{:else}
 		<div style="width: {size}px;"></div>
 	{/if}

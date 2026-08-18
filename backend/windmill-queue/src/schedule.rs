@@ -22,6 +22,7 @@ use windmill_common::get_latest_flow_version_id_for_path;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
 use windmill_common::jobs::JobTriggerKind;
+use windmill_common::jobs::OnBehalfOf;
 use windmill_common::runnable_settings::ConcurrencySettings;
 use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::schedule::schedule_to_user;
@@ -34,19 +35,18 @@ use windmill_common::DB;
 use windmill_common::{
     error::{self, Result},
     schedule::Schedule,
-    users::username_to_permissioned_as,
     utils::{now_from_db, ScheduleType, StripPath},
 };
 
 /// Helper to fetch metadata for a schedule's script or flow
 async fn get_schedule_metadata<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    db: &DB,
     schedule: &Schedule,
 ) -> Result<(
     Option<String>,     // tag
     Option<i32>,        // timeout
-    Option<String>,     // on_behalf_of_email
-    String,             // created_by
+    Option<OnBehalfOf>, // identity the runnable is deployed to run as
     Option<ScriptHash>, // hash (for scripts)
     Option<i64>,        // flow_version (for flows)
     Option<Retry>,      // retry
@@ -66,20 +66,18 @@ async fn get_schedule_metadata<'c>(
         )
         .await?;
 
-        let FlowVersionInfo { tag, on_behalf_of_email, edited_by, .. } =
-            get_flow_version_info_from_version(
-                &mut **tx,
-                version,
-                &schedule.workspace_id,
-                &schedule.script_path,
-            )
-            .await?;
+        let flow_info = get_flow_version_info_from_version(
+            &mut **tx,
+            version,
+            &schedule.workspace_id,
+            &schedule.script_path,
+        )
+        .await?;
 
         Ok((
-            tag,
+            flow_info.tag.clone(),
             None,
-            on_behalf_of_email,
-            edited_by,
+            flow_info.on_behalf_of(&schedule.workspace_id, db).await?,
             None,
             Some(version),
             parsed_retry,
@@ -99,27 +97,19 @@ async fn get_schedule_metadata<'c>(
             _dedicated_worker,
             _priority,
             timeout,
-            on_behalf_of_email,
-            created_by,
+            on_behalf_of,
             _runnable_settings_handle,
             _labels,
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
+            db,
             &schedule.workspace_id,
             &schedule.script_path,
             false,
         )
         .await?;
 
-        Ok((
-            tag,
-            timeout,
-            on_behalf_of_email,
-            created_by,
-            Some(hash),
-            None,
-            parsed_retry,
-        ))
+        Ok((tag, timeout, on_behalf_of, Some(hash), None, parsed_retry))
     }
 }
 
@@ -227,11 +217,30 @@ pub async fn push_scheduled_job<'c>(
         }
     }
 
+    // Managed ducklake maintenance schedule (enterprise): the runnable is a
+    // generated DuckDB script, not a deployed one — built in the EE module.
+    // None (CE build, or no enabled maintenance config for the path's lake)
+    // falls through to normal script resolution, so a user schedule that
+    // pre-dates the reserved prefix keeps running its script and a stale
+    // managed row fails resolution with NotFound (auto-disabling it with
+    // schedule.error recorded).
+    let maintenance_payload =
+        if windmill_common::workspaces::lake_from_ducklake_maintenance_path(&schedule.path)
+            .is_some()
+        {
+            crate::ducklake_maintenance::build_maintenance_schedule_payload(&mut tx, schedule)
+                .await?
+        } else {
+            None
+        };
+
     // If schedule handler is defined, wrap the scheduled job in a synthetic flow
     // with the handler as the first step (with stop_after_if to skip if handler returns false)
-    let (payload, tag, timeout, on_behalf_of_email, created_by) = if let Some(handler_path) =
-        &schedule.dynamic_skip
+    let (payload, tag, timeout, on_behalf_of) = if let Some(maintenance_payload) =
+        maintenance_payload
     {
+        maintenance_payload
+    } else if let Some(handler_path) = &schedule.dynamic_skip {
         // Build skip handler args
         let mut skip_handler_args = HashMap::<String, Box<serde_json::value::RawValue>>::new();
         skip_handler_args.insert(
@@ -247,14 +256,15 @@ pub async fn push_scheduled_job<'c>(
         );
 
         // Get metadata from the scheduled script/flow for tag, timeout, etc.
-        let (tag, timeout, on_behalf_of_email, created_by, hash, flow_version, retry) =
-            get_schedule_metadata(&mut tx, schedule).await?;
+        let (tag, timeout, on_behalf_of, hash, flow_version, retry) =
+            get_schedule_metadata(&mut tx, db, schedule).await?;
 
         (
             JobPayload::SingleStepFlow {
                 path: schedule.script_path.clone(),
                 hash,
                 flow_version,
+                language: None,
                 args: args.clone(),
                 retry,
                 error_handler_path: None,
@@ -280,8 +290,7 @@ pub async fn push_scheduled_job<'c>(
                 tag
             },
             timeout,
-            on_behalf_of_email,
-            created_by,
+            on_behalf_of,
         )
     } else if schedule.is_flow {
         let version = get_latest_flow_version_id_for_path(
@@ -294,15 +303,7 @@ pub async fn push_scheduled_job<'c>(
         .warn_after_seconds_with_sql(1, "get_latest_flow_version_id_for_path".to_string())
         .await?;
 
-        let FlowVersionInfo {
-            version,
-            tag,
-            dedicated_worker,
-            on_behalf_of_email,
-            edited_by,
-            labels,
-            ..
-        } = get_flow_version_info_from_version(
+        let flow_info = get_flow_version_info_from_version(
             &mut *tx,
             version,
             &schedule.workspace_id,
@@ -310,6 +311,8 @@ pub async fn push_scheduled_job<'c>(
         )
         .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
         .await?;
+        let on_behalf_of = flow_info.on_behalf_of(&schedule.workspace_id, db).await?;
+        let FlowVersionInfo { version, tag, dedicated_worker, labels, .. } = flow_info;
 
         (
             JobPayload::Flow {
@@ -321,8 +324,7 @@ pub async fn push_scheduled_job<'c>(
             },
             tag,
             None,
-            on_behalf_of_email,
-            edited_by,
+            on_behalf_of,
         )
     } else {
         let (
@@ -339,12 +341,12 @@ pub async fn push_scheduled_job<'c>(
             dedicated_worker,
             priority,
             timeout,
-            on_behalf_of_email,
-            created_by,
+            on_behalf_of,
             runnable_settings_handle,
             labels,
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
+            db,
             &schedule.workspace_id,
             &schedule.script_path,
             false,
@@ -352,6 +354,11 @@ pub async fn push_scheduled_job<'c>(
         .warn_after_seconds_with_sql(1, "get_latest_hash_for_path".to_string())
         .await?;
 
+        // NB: read on the non-RLS pool (`db`), not `tx`. push_scheduled_job is
+        // also invoked with an RLS user_db transaction (api-schedule/api-flows),
+        // under which these lookups would resolve against the caller's row
+        // visibility rather than the full table. The dual-connection here is
+        // intentional and required for correctness.
         let (debouncing_settings, concurrency_settings) =
             windmill_common::runnable_settings::prefetch_cached_from_handle(
                 runnable_settings_handle,
@@ -371,12 +378,20 @@ pub async fn push_scheduled_job<'c>(
             for (arg_name, arg_value) in args.clone() {
                 static_args.insert(arg_name, arg_value);
             }
-            // if retry is set, we wrap the script into a one step flow with a retry on the module
+            // A retry on a scheduled script is materialized into a native retry
+            // (see `push`): `Some(language)` opts in. Completion handlers are
+            // driven from the terminal attempt, and the per-occurrence
+            // failure/recovery counting queries (apply_schedule_handlers) resolve
+            // terminal status across the retry chain — so on_failure/on_recovery
+            // (incl. multi-count/exact) are all handled. A `retry_if` gate is
+            // evaluated at failure time; on a worker built without quickjs it
+            // cannot be evaluated and fails closed (no retry).
             (
                 JobPayload::SingleStepFlow {
                     path: schedule.script_path.clone(),
                     hash: Some(hash),
                     flow_version: None,
+                    language: Some(language),
                     retry: Some(parsed_retry),
                     error_handler_path: None,
                     error_handler_args: None,
@@ -388,8 +403,12 @@ pub async fn push_scheduled_job<'c>(
                     tag_override: schedule.tag.clone(),
                     trigger_path: None,
                     apply_preprocessor: false,
-                    concurrency_settings: ConcurrencySettings::default(),
-                    debouncing_settings: DebouncingSettings::default(),
+                    // Carry the script's concurrency/debounce settings (fetched
+                    // above) into the native retry materialization, so a retrying
+                    // concurrency-limited scheduled script still inserts its
+                    // concurrency_key instead of running unbounded.
+                    concurrency_settings,
+                    debouncing_settings,
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -397,8 +416,7 @@ pub async fn push_scheduled_job<'c>(
                     tag
                 },
                 timeout,
-                on_behalf_of_email,
-                created_by,
+                on_behalf_of.clone(),
             )
         } else {
             (
@@ -426,8 +444,7 @@ pub async fn push_scheduled_job<'c>(
                     tag
                 },
                 timeout,
-                on_behalf_of_email,
-                created_by,
+                on_behalf_of,
             )
         }
     };
@@ -448,8 +465,8 @@ pub async fn push_scheduled_job<'c>(
         );
     };
 
-    let (email, permissioned_as, push_authed, revert_to_windmill_user) = if let Some(email) =
-        on_behalf_of_email.as_ref()
+    let (email, permissioned_as, push_authed, revert_to_windmill_user) = if let Some(obo) =
+        on_behalf_of.as_ref()
     {
         let is_windmill_user =
             sqlx::query_scalar!("SELECT CURRENT_USER = 'windmill_user' as \"is_windmill_user!\"")
@@ -463,8 +480,8 @@ pub async fn push_scheduled_job<'c>(
                 .await?;
         }
         (
-            email.clone(),
-            username_to_permissioned_as(&created_by),
+            obo.email.clone(),
+            obo.permissioned_as.clone(),
             None,
             is_windmill_user,
         )
@@ -497,7 +514,7 @@ pub async fn push_scheduled_job<'c>(
 
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         check_tag_available_for_workspace_internal(
-            &db,
+            db,
             &schedule.workspace_id,
             &tag,
             &email,
@@ -524,6 +541,7 @@ pub async fn push_scheduled_job<'c>(
         &email,
         permissioned_as,
         Some(&schedule.path),
+        None,
         Some(next),
         Some(schedule.path.clone()),
         None,
@@ -558,6 +576,121 @@ pub async fn push_scheduled_job<'c>(
     }
 
     Ok(tx) // TODO: Bubble up pushed UUID from here
+}
+
+/// Enabled schedules with no occurrence in the queue, as `(workspace_id, path)`.
+///
+/// Every path that completes a scheduled job pushes the next occurrence in the
+/// same transaction (for flows, on entry to step 0), so an enabled schedule
+/// always has a queued occurrence — a run in progress is itself one. A run that
+/// dies through an abnormal path can skip that push though, leaving the schedule
+/// enabled yet dead until it is manually disabled and re-enabled. This is how the
+/// monitor spots that state; see `rearm_schedule` for the recovery.
+///
+/// Not an authorization boundary: it reports schedules across every workspace, so
+/// this is for system callers (the monitor's reconciliation pass) only and its
+/// result must never be returned to a user unfiltered.
+pub async fn find_unarmed_schedules(db: &DB) -> Result<Vec<(String, String)>> {
+    let rows = sqlx::query!(
+        // Query plan: the anti-join builds from `v2_job_queue` (only pending and
+        // running jobs) rather than probing `v2_job` once per schedule.
+        "SELECT s.workspace_id, s.path
+         FROM schedule s JOIN workspace w ON w.id = s.workspace_id AND NOT w.deleted
+         WHERE s.enabled IS TRUE
+             AND NOT EXISTS (
+                 SELECT 1 FROM v2_job_queue q JOIN v2_job j USING (id)
+                 WHERE j.workspace_id = s.workspace_id
+                     AND j.trigger_kind = 'schedule'
+                     AND j.trigger = s.path
+                     AND j.runnable_path = s.script_path
+                     AND j.parent_job IS NULL
+             )"
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.workspace_id, r.path)).collect())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RearmOutcome {
+    /// The next occurrence was pushed.
+    Rearmed,
+    /// Nothing to do: the schedule was deleted or disabled since it was found.
+    NoOp,
+}
+
+/// Push the next occurrence of a schedule that has none queued.
+///
+/// Only ever starts a schedule, never stops one: re-arming something that did not
+/// need it costs one extra run, whereas wrongly disabling one is the silent
+/// permanent stoppage this whole mechanism exists to prevent. So an occurrence
+/// that cannot be pushed is logged and left alone — the schedule is already not
+/// running, and `try_schedule_next_job` still disables on the completion path,
+/// where the population is limited to actively-cycling schedules. Keep it that
+/// way: this sweeps *every* enabled schedule, including ones broken long before
+/// this code existed and never swept before.
+///
+/// Not an authorization boundary: it pushes under the schedule's own
+/// `permissioned_as` identity for any `(w_id, path)`, so this is for system
+/// callers (the monitor's reconciliation pass) only. A caller acting for a user
+/// MUST already have enforced their permissions on `w_id` and `path`.
+pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutcome> {
+    let mut tx = db.begin().await?;
+    // Lock the row for the whole push: an edit or a disable committing between the
+    // read and the push would otherwise leave a queued occurrence for a schedule
+    // that is disabled, or one built from superseded settings.
+    let schedule = sqlx::query_as::<_, Schedule>(
+        "SELECT workspace_id, path, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, args, extra_perms, email, permissioned_as, error, on_failure, on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery, on_recovery_times, on_recovery_extra_args, on_success, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, summary, description, tag, paused_until, cron_version, dynamic_skip, labels FROM schedule WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+    )
+    .bind(path)
+    .bind(w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(schedule) = schedule else {
+        return Ok(RearmOutcome::NoOp);
+    };
+    if !schedule.enabled {
+        return Ok(RearmOutcome::NoOp);
+    }
+    // Re-check for a queued occurrence now that the row is locked: a normal
+    // completion, an edit, or a re-enable could have pushed one between the unarmed
+    // scan and this lock. push_scheduled_job only dedups the exact computed
+    // scheduled_for, so re-arming a schedule that has since become armed and crossed a
+    // cron boundary would queue a second root occurrence. Mirrors the anti-join in
+    // find_unarmed_schedules.
+    let already_armed: bool = sqlx::query_scalar(
+        "SELECT EXISTS (
+             SELECT 1 FROM v2_job_queue q JOIN v2_job j USING (id)
+             WHERE j.workspace_id = $1
+                 AND j.trigger_kind = 'schedule'
+                 AND j.trigger = $2
+                 AND j.runnable_path = $3
+                 AND j.parent_job IS NULL
+         )",
+    )
+    .bind(w_id)
+    .bind(path)
+    .bind(&schedule.script_path)
+    .fetch_one(&mut *tx)
+    .await?;
+    if already_armed {
+        return Ok(RearmOutcome::NoOp);
+    }
+    match push_scheduled_job(db, tx, &schedule, None, None).await {
+        Ok(tx) => {
+            tx.commit().await?;
+            Ok(RearmOutcome::Rearmed)
+        }
+        // An occurrence that can never be pushed (runnable gone, quota blown) is
+        // reported, not acted on — see the note above on why this never disables.
+        Err(err @ (error::Error::NotFound(_) | error::Error::QuotaExceeded(_))) => {
+            tracing::error!(
+                "Could not re-arm schedule {path} in {w_id}: {err}. Leaving it enabled; it will not run until the cause is fixed."
+            );
+            Ok(RearmOutcome::NoOp)
+        }
+        Err(err) => Err(err),
+    }
 }
 
 pub async fn get_schedule_opt<'c>(
@@ -600,7 +733,9 @@ pub async fn clear_schedule<'c>(
     w_id: &str,
 ) -> Result<()> {
     tracing::info!("Clearing schedule {}", path);
-    sqlx::query!(
+    // Delete the queued jobs (cascading their v2_job_queue-keyed side tables), then route the
+    // freed ids through delete_jobs so v2_job and its no-longer-cascading side tables go too.
+    let deleted_ids: Vec<uuid::Uuid> = sqlx::query_scalar!(
         "WITH to_delete AS (
             SELECT id FROM v2_job_queue
                 JOIN v2_job j USING (id)
@@ -610,15 +745,16 @@ pub async fn clear_schedule<'c>(
                 AND flow_step_id IS NULL
                 AND running = false
             FOR UPDATE
-        ), deleted AS (
-            DELETE FROM v2_job_queue
-            WHERE id IN (SELECT id FROM to_delete)
-            RETURNING id
-        ) DELETE FROM v2_job WHERE id IN (SELECT id FROM deleted)",
+        )
+        DELETE FROM v2_job_queue
+        WHERE id IN (SELECT id FROM to_delete)
+        RETURNING id",
         path,
         w_id
     )
-    .execute(&mut **tx)
+    .fetch_all(&mut **tx)
     .await?;
+
+    windmill_common::jobs::delete_jobs(&mut **tx, &deleted_ids).await?;
     Ok(())
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
@@ -15,9 +16,12 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
+	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
+	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -36,10 +40,13 @@
 		newPath,
 		hideSecretUrl = false,
 		preserveOnBehalfOf = $bindable(false),
-		rawApp = false
+		labels = $bindable(),
+		rawApp = false,
+		newApp = false,
+		operatingWorkspace = undefined
 	}: {
 		policy: any
-		setPublishState: () => void
+		setPublishState: (message?: string) => void
 		appPath: string
 		customPath: string | undefined
 		onLatest: boolean
@@ -52,14 +59,37 @@
 		newPath: string
 		hideSecretUrl?: boolean
 		preserveOnBehalfOf?: boolean
+		labels?: string[] | undefined
 		// Raw apps need cross-origin isolation (wm_coep) to be embeddable. Classic
 		// (low-code) apps must NOT get the flag — it would force COEP on the
 		// document and break no-CORP cross-origin subresources (external images,
 		// {@html} embeds, CDN imports).
 		rawApp?: boolean
+		/** True while the editor is on a draft-only URL (`/edit/u/{user}/draft_{uuid}`
+		 *  with no deployed row yet). Suppresses the public-secret-URL fetch
+		 *  (`/secret_of/...` 404s with no `app` row) and renders a placeholder
+		 *  instead of the eternally-spinning link. */
+		newApp?: boolean
+		/** Workspace the app is deployed to — the session's acting workspace when
+		 *  embedded in a session preview, else the navigation `$workspaceStore`.
+		 *  The secret-URL / custom-path / folder / on-behalf-of lookups must target
+		 *  it, not `$workspaceStore` (which stays on the nav workspace in a session). */
+		operatingWorkspace?: string
 	} = $props()
 
+	const opWs = $derived(operatingWorkspace ?? $workspaceStore)
+
 	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	// Admins always pass the backend check. For everyone else, fail closed
+	// while the workspace protection rules are still loading so the toggle
+	// is never briefly enabled for a user the rules will end up restricting.
+	let rulesetsLoaded = $derived(protectionRulesState.rulesets !== undefined)
+	let canSetAnonymous = $derived(
+		!!$userStore?.is_admin ||
+			!!$userStore?.is_super_admin ||
+			(rulesetsLoaded &&
+				canUserBypassRuleKind('RestrictAnonymousAppDeployment', $userStore ?? undefined))
+	)
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
@@ -72,7 +102,7 @@
 
 	async function appExists(customPath: string) {
 		return await AppService.customPathExists({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			customPath
 		})
 	}
@@ -94,7 +124,7 @@
 	let secretUrlHref = $derived(secretUrl ? computeSecretUrl(secretUrl) : undefined)
 	let fullCustomUrl = $derived(
 		`${window.location.origin}${base}/a/${
-			isCloudHosted() || globalWorkspacedRoute ? $workspaceStore + '/' : ''
+			isCloudHosted() || globalWorkspacedRoute ? opWs + '/' : ''
 		}${customPath}`
 	)
 
@@ -110,7 +140,7 @@
 	}
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
-			workspace: $workspaceStore!,
+			workspace: opWs!,
 			path: appPath
 		})
 	}
@@ -139,7 +169,15 @@
 	})
 
 	$effect(() => {
-		appPath && appPath != '' && savedApp && secretUrl == undefined && untrack(() => getSecretUrl())
+		// Skip the secret URL fetch on draft-only items — `/secret_of/...`
+		// has no `app` row to look up and would 404, leaving the UI
+		// component spinning indefinitely.
+		!newApp &&
+			appPath &&
+			appPath != '' &&
+			savedApp &&
+			secretUrl == undefined &&
+			untrack(() => getSecretUrl())
 	})
 </script>
 
@@ -175,6 +213,8 @@
 		bind:value={summary}
 	/>
 </div>
+<div class="pt-3"></div>
+<LabelsInput bind:labels class="-mt-4" />
 <div class="py-6"></div>
 <label for="deploymentMsg" class="text-emphasis text-xs font-semibold">Deployment message</label>
 <div class="w-full pt-1">
@@ -198,6 +238,7 @@
 	namePlaceholder="app"
 	kind="app"
 	autofocus={false}
+	workspaceOverride={operatingWorkspace}
 />
 
 <div class="py-2"></div>
@@ -216,7 +257,7 @@
 			Because you are either an admin or part of the {WM_DEPLOYERS_GROUP} group, you can select another
 			user to run this app on behalf of. Once deployed the app will be run on behalf of
 			<OnBehalfOfSelector
-				targetWorkspace={$workspaceStore ?? ''}
+				targetWorkspace={opWs ?? ''}
 				targetValue={savedOnBehalfOfEmail}
 				selected={onBehalfOfChoice}
 				onSelect={(choice, details) => {
@@ -249,10 +290,115 @@
 
 <div class="mt-10"></div>
 
+<div class="flex items-center gap-2">
+	<h2>Sandbox isolation</h2>
+	<Badge color="yellow">Alpha</Badge>
+</div>
+<div class="my-6">
+	<Toggle
+		options={{ right: "Isolate the app from the viewer's browser session" }}
+		checked={policy.sandbox == true}
+		on:change={(e) => {
+			policy.sandbox = e.detail || undefined
+			// Frontend API access exists only for a sandboxed app, so turning
+			// isolation off drops the declared scopes with it rather than leaving
+			// them set but inert.
+			if (!e.detail) {
+				policy.frontend_sdk_scopes = undefined
+			}
+			// A not-yet-deployed app has no row to PATCH — `setPublishState` (POST
+			// /apps/update) would 404. The flag rides along in the `policy` the first
+			// deploy sends (createApp), so here we only mutate it locally. Persist
+			// incrementally once the app exists.
+			if (savedApp && !newApp) {
+				setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
+			}
+		}}
+		disabled={!savedApp}
+	/>
+	<div class="text-xs text-secondary mt-1">
+		Controls what the app's browser-side code can reach in each viewer's browser — distinct from the
+		on-behalf-of model above (which sets who its runnables run as). Off by default, the app's code
+		uses the viewer's own session; enable it to confine the app to a narrowly-scoped token instead,
+		on every surface (public URL and in-workspace). Leave it off if the app needs full browser
+		features (IndexedDB, third-party auth/SDKs, OAuth redirects).
+	</div>
+	{#if newApp}
+		<div class="text-xs text-tertiary mt-1">Takes effect when you first deploy this app.</div>
+	{/if}
+	{#if policy.sandbox == true}
+		<div class="mt-2">
+			<Alert type="warning" title="Alpha feature" size="xs">
+				Sandbox isolation is in alpha. After enabling, open the app from its public URL to confirm
+				it still works, and report any broken behavior.
+			</Alert>
+		</div>
+	{/if}
+</div>
+
+{#if rawApp && policy.sandbox == true}
+	<h2 class="text-xs font-semibold">Frontend API access</h2>
+	<div class="mb-6 mt-2">
+		<div class="text-xs text-secondary mb-3">
+			Let the app's frontend code call the Windmill API through the <code>windmill-client</code>
+			SDK, authenticated as <b>the viewer</b> (unlike runnables, which run on behalf of the
+			publisher). Each viewer is asked to approve the scopes below before the app runs. Grant only
+			what the app needs: its code — or an XSS bug in it — can use them as that viewer. Add
+			<code>windmill-client</code> to the app's dependencies to import it; it configures itself from
+			the token handed to the bundle.
+		</div>
+		{#each FRONTEND_SDK_SCOPES as scope (scope.value)}
+			<div class="mb-2">
+				<Toggle
+					size="xs"
+					options={{ right: scope.label }}
+					checked={policy.frontend_sdk_scopes?.includes(scope.value) ?? false}
+					on:change={(e) => {
+						const current: string[] = policy.frontend_sdk_scopes ?? []
+						const next = e.detail
+							? [...current, scope.value]
+							: current.filter((s) => s !== scope.value)
+						// Keep the curated order so the consent banner and the stored
+						// consent compare stably across deploys.
+						const ordered = FRONTEND_SDK_SCOPES.map((s) => s.value).filter((s) => next.includes(s))
+						policy.frontend_sdk_scopes = ordered.length > 0 ? ordered : undefined
+						// Same as sandbox: a not-yet-deployed app has no row to PATCH, so the
+						// scopes ride along in the first deploy's policy instead.
+						if (savedApp && !newApp) {
+							setPublishState('Frontend API access updated')
+						}
+					}}
+					disabled={!savedApp}
+				/>
+				<div class="text-xs text-hint ml-9">{scope.description}</div>
+			</div>
+		{/each}
+		{#if newApp}
+			<div class="text-xs text-tertiary mt-1">Takes effect when you first deploy this app.</div>
+		{/if}
+		{#if policy.frontend_sdk_scopes?.length}
+			<div class="mt-2">
+				<Alert type="info" title="Redeploy to use the SDK from a sandboxed app" size="xs">
+					A sandboxed app calls the API cross-origin, which older <code>windmill-client</code> versions
+					cannot do. An app bundled before this Windmill version fails with a CORS error until you deploy
+					it again, which re-bundles it against a current client.
+				</Alert>
+			</div>
+		{/if}
+	</div>
+{/if}
+
 {#if !hideSecretUrl}
 	<h2>Public URL</h2>
 
 	<div class="my-6">
+		{#if rulesetsLoaded && !canSetAnonymous}
+			<Alert type="warning" title="Restricted by a workspace protection rule" size="xs">
+				Making this app publicly accessible without login is restricted to workspace admins and
+				bypass users by a workspace protection rule
+			</Alert>
+			<div class="mb-2"></div>
+		{/if}
 		<div class="flex gap-2 items-center mb-2">
 			<Toggle
 				options={{
@@ -262,13 +408,18 @@
 				checked={policy.execution_mode == 'anonymous'}
 				on:change={(e) => {
 					policy.execution_mode = e.detail ? 'anonymous' : 'publisher'
-					setPublishState()
+					// Same as sandbox: a not-yet-deployed app has no row to PATCH, so
+					// `setPublishState` would 404. The mode is carried by the first
+					// deploy's policy; persist incrementally only once the app exists.
+					if (savedApp && !newApp) {
+						setPublishState()
+					}
 				}}
-				disabled={!savedApp}
+				disabled={!savedApp || (!canSetAnonymous && policy.execution_mode != 'anonymous')}
 			/>
 		</div>
-		{#if !savedApp}
-			<ClipboardPanel content={`Save this app once to get the public secret URL`} size="md" />
+		{#if !savedApp || newApp}
+			<ClipboardPanel content={`Deploy this app once to get the public secret URL`} size="md" />
 		{:else if secretUrlHref}
 			<div class="flex justify-end mb-1">
 				<Toggle

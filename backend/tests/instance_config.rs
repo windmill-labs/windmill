@@ -1431,3 +1431,57 @@ async fn test_no_alert_in_config_table_after_migration(db: Pool<Postgres>) {
         rows.iter().map(|(n,)| n.as_str()).collect::<Vec<_>>()
     );
 }
+
+/// The declarative writers bypass the HTTP pre-write hook entirely, so this path owns
+/// validating `github_app_webhook_base_url` itself. A rejected value must not be
+/// half-applied: nothing at all may be written, or an unreachable receiver would be
+/// persisted and only surface much later as a repository falling back to polling.
+#[sqlx::test(fixtures("base"))]
+async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+    let before = count_global_settings(&db).await;
+
+    let mut desired = BTreeMap::new();
+    desired.insert("base_url".to_string(), serde_json::json!("https://wm.example.com"));
+    desired.insert(
+        "github_app_webhook_base_url".to_string(),
+        serde_json::json!("httpss://hooks.example.com"),
+    );
+
+    let err = windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+    )
+    .await
+    .expect_err("an invalid webhook base url must fail the sync");
+    assert!(
+        err.to_string().contains("github_app_webhook_base_url"),
+        "the error should name the offending setting, got: {err}"
+    );
+
+    // A non-string shape must be rejected too, not silently treated as "absent" and
+    // then persisted by the diff.
+    let mut wrong_type = BTreeMap::new();
+    wrong_type.insert(
+        "github_app_webhook_base_url".to_string(),
+        serde_json::json!(true),
+    );
+    windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &wrong_type,
+    )
+    .await
+    .expect_err("a non-string webhook base url must fail the sync");
+
+    assert_eq!(
+        count_global_settings(&db).await,
+        before,
+        "validation must run before anything is applied"
+    );
+    assert!(
+        get_global_setting(&db, "base_url").await.is_none(),
+        "the other settings in the same apply must not have been written either"
+    );
+}

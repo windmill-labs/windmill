@@ -214,15 +214,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2",
         "u/test-user/script_admin_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Admin should preserve on_behalf_of_email"
     );
 
@@ -249,15 +249,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/script_deployer_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Deployer should preserve on_behalf_of_email"
     );
 
@@ -284,15 +284,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/script_no_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("test2@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/test-user-2"),
         "Non-admin should have their own email as on_behalf_of_email"
     );
 
@@ -319,15 +319,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/test-user/flow_admin_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Admin should preserve flow on_behalf_of_email"
     );
 
@@ -354,15 +354,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/flow_deployer_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Deployer should preserve flow on_behalf_of_email"
     );
 
@@ -389,15 +389,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/flow_no_preserve",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("test2@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/test-user-2"),
         "Non-admin should have their own email as flow on_behalf_of_email"
     );
 
@@ -745,15 +745,15 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2",
         "u/test-user/script_no_flag",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("test@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/test-user"),
         "Without preserve flag, admin's email should be used"
     );
 
@@ -841,15 +841,15 @@ async fn test_script_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         "u/original-user/script_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Admin update should preserve script on_behalf_of_email"
     );
 
@@ -896,15 +896,15 @@ async fn test_script_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         "u/deployer-user/script_deploy_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Deployer update should preserve script on_behalf_of_email"
     );
 
@@ -951,15 +951,15 @@ async fn test_script_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow
     );
 
     let script = sqlx::query!(
-        "SELECT on_behalf_of_email FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
+        "SELECT on_behalf_of FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         "u/test-user-2/script_nonadmin_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        script.on_behalf_of_email.as_deref(),
-        Some("test2@windmill.dev"),
+        script.on_behalf_of.as_deref(),
+        Some("u/test-user-2"),
         "Non-admin update should overwrite script on_behalf_of_email with their own"
     );
 
@@ -1025,15 +1025,15 @@ async fn test_flow_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow::
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/original-user/flow_to_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Admin update should preserve flow on_behalf_of_email"
     );
 
@@ -1091,15 +1091,15 @@ async fn test_flow_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow::
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/deployer-user/flow_deploy_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("original@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/original-user"),
         "Deployer update should preserve flow on_behalf_of_email"
     );
 
@@ -1157,15 +1157,15 @@ async fn test_flow_update_preserves_on_behalf_of(db: Pool<Postgres>) -> anyhow::
     );
 
     let flow = sqlx::query!(
-        "SELECT on_behalf_of_email FROM flow WHERE path = $1 AND workspace_id = $2",
+        "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
         "u/test-user-2/flow_nonadmin_update",
         "test-workspace"
     )
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        flow.on_behalf_of_email.as_deref(),
-        Some("test2@windmill.dev"),
+        flow.on_behalf_of.as_deref(),
+        Some("u/test-user-2"),
         "Non-admin update should overwrite flow on_behalf_of_email with their own"
     );
 
@@ -2704,7 +2704,9 @@ async fn test_schedule_permissions_workspace_admin(db: Pool<Postgres>) -> anyhow
     Ok(())
 }
 
-/// Superadmin NOT in workspace creates a schedule — uses email as permissioned_as
+/// Superadmin NOT in workspace creates a schedule — uses their instance-derived
+/// username (`password.username`) as permissioned_as, not the raw email. The
+/// email is still stored directly on the schedule for downstream resolution.
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
 async fn test_schedule_permissions_superadmin_not_in_workspace(
     db: Pool<Postgres>,
@@ -2758,16 +2760,16 @@ async fn test_schedule_permissions_superadmin_not_in_workspace(
     .fetch_one(&db)
     .await?;
 
-    // Superadmin not in workspace: username_to_permissioned_as uses the email directly
-    // since the authed username for a superadmin not in workspace IS the email
+    // Superadmin not in workspace: the authed username is now their instance-derived
+    // username (`password.username` = 'superadmin-external'), so permissioned_as is
+    // `u/<derived>` rather than the raw email. The email is still stored directly.
     assert_eq!(
         schedule.email, "superadmin-external@windmill.dev",
         "schedule email should be superadmin email"
     );
     assert_eq!(
-        schedule.permissioned_as,
-        schedule.email.clone(),
-        "permissioned_as should match email for superadmin not in workspace"
+        schedule.permissioned_as, "u/superadmin-external",
+        "permissioned_as should use the instance-derived username, not the email"
     );
 
     // Update by the same superadmin

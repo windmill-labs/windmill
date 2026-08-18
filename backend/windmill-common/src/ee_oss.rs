@@ -20,6 +20,7 @@ lazy_static::lazy_static! {
   pub static ref LICENSE_KEY: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
   pub static ref LICENSE_OFFLINE_METADATA: arc_swap::ArcSwap<Option<OfflineMetadata>> = arc_swap::ArcSwap::from_pointee(None);
   pub static ref LICENSE_OFFLINE_OVER_CU_CAP: AtomicBool = AtomicBool::new(false);
+  pub static ref LICENSE_OFFLINE_OVER_SEAT_CAP: AtomicBool = AtomicBool::new(false);
   pub static ref LICENSE_OFFLINE_LAST_STATUS: arc_swap::ArcSwap<Option<OfflineCapStatus>> = arc_swap::ArcSwap::from_pointee(None);
   pub static ref LICENSE_OFFLINE_LAST_CHECKED_AT: arc_swap::ArcSwap<Option<chrono::DateTime<chrono::Utc>>> = arc_swap::ArcSwap::from_pointee(None);
 }
@@ -63,6 +64,14 @@ pub async fn check_seat_cap_for_new_user(
 }
 
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub async fn check_seat_cap_for_reactivation(
+    _db: &DB,
+    _email: &str,
+) -> anyhow::Result<Option<String>> {
+    Ok(None)
+}
+
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
 pub async fn compute_instance_hash(_db: &DB) -> anyhow::Result<Option<String>> {
     // Implementation is not open source
     Ok(None)
@@ -72,6 +81,11 @@ pub async fn compute_instance_hash(_db: &DB) -> anyhow::Result<Option<String>> {
 pub async fn enforce_offline_caps(_db: &DB) -> anyhow::Result<Option<OfflineCapStatus>> {
     // Implementation is not open source
     Ok(None)
+}
+
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub async fn alert_on_online_license_expired(_db: &DB) {
+    // Implementation is not open source
 }
 
 #[cfg(not(feature = "private"))]

@@ -1,7 +1,8 @@
 import { test, expect } from "bun:test";
 import { writeFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import { withTestBackend } from "./test_backend.ts";
+import { withTestBackend, type TestBackend } from "./test_backend.ts";
+import { waitForDeploymentJobs } from "./new_commands_helpers.ts";
 import { addWorkspace } from "../src/commands/workspace/workspace.ts";
 
 /**
@@ -13,6 +14,21 @@ import { addWorkspace } from "../src/commands/workspace/workspace.ts";
  * generate-metadata created duplicate content files (e.g., fetch_users.ts alongside a.ts).
  * On next push, loadRunnablesFromBackend auto-detected the orphans as new runnables.
  */
+
+/** Fails with the CLI's own output, which is otherwise swallowed. */
+async function runCLI(
+  backend: TestBackend,
+  args: string[],
+  tempDir: string,
+): Promise<void> {
+  const result = await backend.runCLICommand(args, tempDir);
+  if (result.code !== 0) {
+    throw new Error(
+      `wmill ${args.join(" ")} exited with ${result.code}\n${result.stdout}\n${result.stderr}`,
+    );
+  }
+}
+
 test("Raw app: generate-metadata must not create duplicate files when runnable key != name", async () => {
   await withTestBackend(async (backend, tempDir) => {
     const testWorkspace = {
@@ -70,23 +86,25 @@ test("Raw app: generate-metadata must not create duplicate files when runnable k
       { method: "POST", headers: { Authorization: `Bearer ${backend.token}` }, body: formData },
     );
     expect(createResp.ok).toBeTruthy();
+    // Deploying queues a dependency job that writes the generated locks back into
+    // the app value. Pulling mid-flight leaves the locks out locally, which turns
+    // the push below into a real change — and rebuilding a raw app bundle needs a
+    // package.json this fixture has no reason to carry.
+    await waitForDeploymentJobs(backend);
 
     // Pull the app
-    const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], tempDir);
-    expect(pullResult.code).toEqual(0);
+    await runCLI(backend, ["sync", "pull", "--yes"], tempDir);
 
     const backendDir = path.join(tempDir, "f/test/diffname_app.raw_app", "backend");
     let files = await readdir(backendDir);
 
-    // After pull: files named by KEY (a, b).
-    // Lock files are generated asynchronously by the backend worker and may not
-    // have landed yet — exclude them from this precondition to avoid a Windows race.
-    const nonLockFiles = files.filter((f) => !f.endsWith(".lock")).sort();
-    expect(nonLockFiles).toEqual(["a.ts", "a.yaml", "b.ts", "b.yaml"]);
+    // After pull: files named by KEY (a, b), locks included.
+    expect(files.sort()).toEqual([
+      "a.lock", "a.ts", "a.yaml", "b.lock", "b.ts", "b.yaml",
+    ]);
 
     // Run generate-metadata — this previously created duplicate files named by NAME
-    const metaResult = await backend.runCLICommand(["generate-metadata", "--yes"], tempDir);
-    expect(metaResult.code).toEqual(0);
+    await runCLI(backend, ["generate-metadata", "--yes"], tempDir);
 
     // After generate-metadata: must still only have KEY-based files, no NAME-based duplicates
     files = await readdir(backendDir);
@@ -102,8 +120,7 @@ test("Raw app: generate-metadata must not create duplicate files when runnable k
     expect(files).not.toContain("update_record.lock");
 
     // Push should be a no-op (no phantom changes)
-    const pushResult = await backend.runCLICommand(["sync", "push", "--yes"], tempDir);
-    expect(pushResult.code).toEqual(0);
+    await runCLI(backend, ["sync", "push", "--yes"], tempDir);
 
     // Backend should still have exactly 2 runnables
     const getResp = await fetch(

@@ -25,23 +25,44 @@ describe("generateCommentedTemplate", () => {
     expect(typeof config).toBe("object");
   });
 
-  test("uses provided branch name in workspaces", () => {
-    const config = parse(generateCommentedTemplate("my-feature"));
-    expect(config.workspaces["my-feature"]).toBeDefined();
+  // Without bindings, `workspaces` must stay EMPTY (a live `<branch>: {}`
+  // placeholder is unresolvable — no baseUrl — yet counts as a configured
+  // workspace, breaking auto-selection and making a later bind ambiguous).
+  // The branch name only appears in the commented example.
+  test("uses provided branch name in the commented workspaces example only", () => {
+    const yaml = generateCommentedTemplate("my-feature");
+    const config = parse(yaml);
+    expect(config.workspaces).toEqual({});
+    expect(yaml).toContain("# my-feature:");
   });
 
   test("defaults to 'main' when no branch name given", () => {
-    const config = parse(generateCommentedTemplate());
-    expect(config.workspaces["main"]).toBeDefined();
+    const yaml = generateCommentedTemplate();
+    const config = parse(yaml);
+    expect(config.workspaces).toEqual({});
+    expect(yaml).toContain("# main:");
   });
 
   test("quotes branch names with YAML-special characters", () => {
     const specialBranches = ["fix: something", "feat/my branch", "release#1"];
     for (const branch of specialBranches) {
       const yaml = generateCommentedTemplate(branch);
+      // Still valid YAML with an empty workspaces map; the (quoted) branch
+      // name only appears in comments.
       const config = parse(yaml);
-      expect(config.workspaces[branch]).toBeDefined();
+      expect(config.workspaces).toEqual({});
+      expect(yaml).toContain(branch);
     }
+  });
+
+  test("renders live workspaces entries when bindings are provided", () => {
+    const yaml = generateCommentedTemplate("main", undefined, [
+      { name: "prod", baseUrl: "https://app.windmill.dev/", workspaceId: "prod-ws" },
+    ]);
+    const config = parse(yaml);
+    expect(config.workspaces["prod"]).toBeDefined();
+    expect(config.workspaces["prod"].baseUrl).toBe("https://app.windmill.dev/");
+    expect(config.workspaces["prod"].workspaceId).toBe("prod-ws");
   });
 
   test("contains yaml-language-server schema directive", () => {

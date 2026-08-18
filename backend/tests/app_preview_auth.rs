@@ -17,7 +17,14 @@
 //!     must not over-block the legitimate editor flow),
 //!   - preview is confined to paths the caller can read (defense-in-depth
 //!     against scoped tokens / cross-namespace preview), and
-//!   - run mode (no `force_viewer_static_fields`) is unaffected by the guard.
+//!   - run mode (no `force_viewer_static_fields`) is unaffected by the preview
+//!     guard, and
+//!   - run mode against a deployed Viewer app rejects caller-supplied inline
+//!     `raw_code` whose sha is not publisher-pinned (CVE-2026-22683 residual:
+//!     the Viewer default-triggerable fallback let any caller / an operator run
+//!     arbitrary code as themselves, bypassing the content-hash pin), and
+//!   - a path-qualified `apps:run|write:<path>` token reaches only that app
+//!     (the route layer is resource-blind, so the handler must path-check).
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -253,6 +260,133 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
         body.contains("jobs:run"),
         "rejection must be the jobs:run scope gate, got: {body}"
     );
+
+    // 9. RUN-MODE REGRESSION (CVE-2026-22683 residual): in run mode (no
+    //    `force_viewer_static_fields`) against a deployed Viewer-mode app,
+    //    caller-supplied inline `raw_code` whose `rawscript/<sha>` is not pinned
+    //    in the app's `triggerables_v2` must be rejected by the policy — it must
+    //    not resolve via the Viewer default triggerable and run as the caller
+    //    (the same preview-class execution an operator is denied in step 1).
+    let run_mode_raw_code = json!({
+        "args": {},
+        "component": "comp",
+        "raw_code": {
+            "language": "bash",
+            "content": "id; echo RCE_$(whoami)",
+            "path": "x"
+        }
+    });
+    let resp = authed(
+        client().post(format!("{base}/u/test-user/vapp")),
+        "OPERATOR_TOKEN",
+    )
+    .json(&run_mode_raw_code)
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 400,
+        "run-mode inline raw_code against a Viewer app must be rejected, not run as the caller (got {status}): {body}"
+    );
+    assert!(
+        body.contains("forbidden by policy"),
+        "rejection must be the content-hash pin (unpinned rawscript), got: {body}"
+    );
+
+    // 10. The content-pin fix is not operator-specific: even a regular
+    //     non-operator member (who could run their own code via
+    //     `/jobs/run/preview`) must not be able to substitute unpinned code into
+    //     someone else's deployed Viewer app — the deployed-app integrity break.
+    let resp = authed(
+        client().post(format!("{base}/u/test-user/vapp")),
+        "SECRET_TOKEN_2",
+    )
+    .json(&run_mode_raw_code)
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 400,
+        "run-mode unpinned raw_code must be rejected for any caller, not just operators (got {status}): {body}"
+    );
+
+    // 11. The pin requirement also covers `raw_code` carrying an `app_script`
+    //     `id`. The id resolves to `rawscript/<code_sha256>` of any app_script row
+    //     by number (no app scoping), so without the pin a caller could run a
+    //     script belonging to another app against this Viewer app. Here `999777`
+    //     belongs to `u/test-user/private`, not to the targeted `vapp`, and its
+    //     sha is absent from `vapp`'s empty `triggerables_v2` — it must be
+    //     rejected, not fall back to the Viewer default.
+    let resp = authed(
+        client().post(format!("{base}/u/test-user/vapp")),
+        "OPERATOR_TOKEN",
+    )
+    .json(&json!({
+        "args": {},
+        "component": "comp",
+        "id": 999777,
+        "raw_code": {
+            "language": "deno",
+            "content": "export function main() { return 1; }",
+            "path": "x"
+        }
+    }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 400,
+        "run-mode raw_code with an unpinned app_script id must be rejected against a Viewer app (got {status}): {body}"
+    );
+    assert!(
+        body.contains("forbidden by policy"),
+        "rejection must be the content-hash pin (unpinned app_script sha), got: {body}"
+    );
+
+    // 12. Path confinement: the scope picker mints `apps:run:<path>` /
+    //     `apps:write:<path>`, but the route layer matches domain + action only, so the
+    //     handler is the only place the path is enforced. A token scoped to `vapp` must
+    //     not execute another app's components — those run under that app's identity.
+    for token in ["APPS_RUN_VAPP_TOKEN", "APPS_WRITE_VAPP_TOKEN"] {
+        let resp = authed(client().post(format!("{base}/u/test-user/private")), token)
+            .json(&json!({ "args": {}, "component": "comp", "path": "script/u/test-user/private" }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        assert_eq!(
+            status, 403,
+            "{token} must not execute an app outside its scope path (got {status}): {body}"
+        );
+        assert!(
+            body.contains("apps:run:u/test-user/private"),
+            "rejection must be the app path scope gate, got: {body}"
+        );
+    }
+
+    // 13. ...and must not over-block the app it IS scoped to: both tokens clear the
+    //     scope gate for `vapp` and reach the policy (which then rejects the unpinned
+    //     code, as in step 9). `apps:write` covering run is what keeps an app-editor
+    //     token working without it also holding `apps:run`.
+    for token in ["APPS_RUN_VAPP_TOKEN", "APPS_WRITE_VAPP_TOKEN"] {
+        let resp = authed(client().post(format!("{base}/u/test-user/vapp")), token)
+            .json(&run_mode_raw_code)
+            .send()
+            .await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        assert_eq!(
+            status, 400,
+            "{token} must clear the scope gate for its own app and reach the policy (got {status}): {body}"
+        );
+        assert!(
+            body.contains("forbidden by policy"),
+            "{token} must be stopped by the policy, not the scope gate, got: {body}"
+        );
+    }
 
     Ok(())
 }

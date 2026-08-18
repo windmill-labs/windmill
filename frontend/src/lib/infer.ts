@@ -44,6 +44,14 @@ import initYamlParser, {
 	parse_ansible,
 	parse_ansible_delegate
 } from 'windmill-parser-wasm-yaml'
+// `parse_dbt` is newer than the published `windmill-parser-wasm-yaml`, and a
+// NAMED import of an export a package does not have is a link-time failure —
+// which takes this whole module down, and with it every language's inference.
+// Reached through the namespace instead, so a package predating it degrades to
+// "no schema inferred for dbt" (the deployed script's own, derived server-side
+// by `dbt_arg_schema`, is unaffected).
+import * as yamlParser from 'windmill-parser-wasm-yaml'
+const parse_dbt: ((code: string) => string) | undefined = (yamlParser as any).parse_dbt
 import initCSharpParser, { parse_csharp } from 'windmill-parser-wasm-csharp'
 import initNuParser, { parse_nu } from 'windmill-parser-wasm-nu'
 import initJavaParser, { parse_java } from 'windmill-parser-wasm-java'
@@ -68,6 +76,7 @@ import wasmUrlWac from 'windmill-parser-wasm-wac/windmill_parser_wasm_bg.wasm?ur
 import { workspaceStore } from './stores.js'
 import { argSigToJsonSchemaType } from 'windmill-utils-internal'
 import { type AssetWithAccessType } from './components/assets/lib.js'
+import { type ColumnLineage } from './components/assets/AssetGraph/parsePipelineAnnotations'
 
 const loadSchemaLastRun = writable<
 	| [
@@ -169,6 +178,10 @@ type InferAssetsResult =
 			assets: AssetWithAccessType[]
 			sql_queries?: InferAssetsSqlQueryDetails[]
 			columns?: Record<string, AssetUsageAccessType>
+			// Body-inferred column lineage (DuckDB SQL AST). Present once the
+			// `windmill-parser-wasm-asset` package is rebuilt with the inference;
+			// the spread below already forwards it from the parser output.
+			column_lineage?: ColumnLineage[]
 	  }
 	| {
 			status: 'error'
@@ -516,6 +529,12 @@ export async function inferArgs(
 			} catch {
 				inferedSchema = parseRSignatureFallback(code)
 			}
+		} else if (language == 'dbt') {
+			// Absent on a parser package predating dbt: the editor keeps whatever
+			// schema it has rather than clearing the run form to nothing.
+			if (!parse_dbt) return null
+			await initWasmYaml()
+			inferedSchema = JSON.parse(parse_dbt(code))
 			// for related places search: ADD_NEW_LANG
 		} else {
 			return null
@@ -574,7 +593,12 @@ export async function inferArgs(
 	}
 }
 
-export async function loadSchemaFromPath(path: string, hash?: string): Promise<Schema> {
+export async function loadSchemaFromPath(
+	path: string,
+	hash?: string,
+	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
+	workspace?: string
+): Promise<Schema> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema } = await ScriptService.getHubScriptByPath({ path })
 
@@ -587,14 +611,14 @@ export async function loadSchemaFromPath(path: string, hash?: string): Promise<S
 		}
 	} else if (hash) {
 		const script = await ScriptService.getScriptByHash({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			hash
 		})
 
 		return inferSchemaIfNecessary(script)
 	} else {
 		const script = await ScriptService.getScriptByPath({
-			workspace: get(workspaceStore)!,
+			workspace: workspace ?? get(workspaceStore)!,
 			path: path ?? ''
 		})
 		return inferSchemaIfNecessary(script)

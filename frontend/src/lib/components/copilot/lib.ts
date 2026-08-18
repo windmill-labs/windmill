@@ -14,9 +14,21 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { getDefaultChatTemperature, modelDisallowsSamplingParams } from './modelConfig'
+import {
+	requiresMaxCompletionTokens,
+	usesAnthropicMessagesApi,
+	usesOpenRouterPromptCaching
+} from './modelConfig'
+import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
-import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
+import {
+	appendPendingToolImages,
+	processToolCall,
+	queuedToolStatus,
+	type Tool,
+	type ToolCallbacks
+} from './chat/shared'
+import { hasValidToolCallArguments } from './chat/toolCallArguments'
 import {
 	getNonStreamingOpenAIResponsesCompletion,
 	getOpenAIResponsesCompletionStream
@@ -33,6 +45,7 @@ import {
 import {
 	buildAssistantTextMessage,
 	buildAssistantToolCallMessage,
+	splitContentDelta,
 	getReasoningContentDelta
 } from './chat/openaiReasoning'
 import { parseFimCompletionChoice } from './fim'
@@ -44,15 +57,20 @@ interface AIProviderDetails {
 	defaultModels: string[]
 }
 
+// The first entry is what a new workspace is created with (see
+// CreateWorkspaceInner), so each list leads with the balanced tier rather than
+// the frontier model. The gpt-5 family is deprecated (retires 2026-12-11) but
+// still served, so it stays in the list below the 5.6 models.
 const OPENAI_MODELS = [
+	'gpt-5.6-terra',
+	'gpt-5.6-sol',
+	'gpt-5.6-luna',
 	'gpt-5',
 	'gpt-5-mini',
-	'gpt-5-nano',
 	'gpt-4o',
 	'gpt-4o-mini',
 	'o4-mini',
-	'o3',
-	'o3-mini'
+	'o3'
 ]
 
 export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
@@ -60,36 +78,49 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 		label: 'OpenAI',
 		defaultModels: OPENAI_MODELS
 	},
-	azure_openai: {
-		label: 'Azure OpenAI',
-		defaultModels: OPENAI_MODELS
-	},
 	anthropic: {
 		label: 'Anthropic',
-		defaultModels: ['claude-sonnet-4-6', 'claude-sonnet-4-6/thinking', 'claude-3-5-haiku-latest']
-	},
-	mistral: {
-		label: 'Mistral',
-		defaultModels: ['codestral-latest']
-	},
-	deepseek: {
-		label: 'DeepSeek',
-		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
+		defaultModels: ['claude-sonnet-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-haiku-4-5']
 	},
 	googleai: {
 		label: 'Google AI',
 		defaultModels: [
-			'gemini-2.5-flash',
+			'gemini-3.6-flash',
+			'gemini-3.5-flash',
+			'gemini-3.1-pro-preview',
+			'gemini-3.5-flash-lite',
+			'gemini-3.1-flash-lite',
 			'gemini-2.5-pro',
-			'gemini-2.5-flash-lite',
-			'gemini-3-flash',
-			'gemini-3.1-pro',
-			'gemini-3.1-flash-lite'
+			'gemini-2.5-flash'
 		]
+	},
+	azure_openai: {
+		label: 'Azure OpenAI',
+		defaultModels: OPENAI_MODELS
+	},
+	azure_foundry: {
+		label: 'Azure AI Foundry',
+		defaultModels: [
+			'gpt-5.6-terra',
+			'gpt-5.6-sol',
+			'claude-sonnet-5',
+			'claude-opus-5',
+			'DeepSeek-V4-Pro',
+			'Llama-3.3-70B-Instruct',
+			'Phi-4'
+		]
+	},
+	mistral: {
+		label: 'Mistral',
+		defaultModels: ['mistral-medium-latest', 'codestral-latest']
+	},
+	deepseek: {
+		label: 'DeepSeek',
+		defaultModels: ['deepseek-v4-pro', 'deepseek-v4-flash']
 	},
 	groq: {
 		label: 'Groq',
-		defaultModels: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
+		defaultModels: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']
 	},
 	openrouter: {
 		label: 'OpenRouter',
@@ -101,7 +132,11 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	aws_bedrock: {
 		label: 'AWS Bedrock',
-		defaultModels: ['global.anthropic.claude-haiku-4-5-20251001-v1:0']
+		defaultModels: [
+			'global.anthropic.claude-sonnet-5',
+			'global.anthropic.claude-opus-5',
+			'global.anthropic.claude-haiku-4-5-20251001-v1:0'
+		]
 	},
 	customai: {
 		label: 'Custom AI',
@@ -265,12 +300,25 @@ export async function fetchAvailableModels(
 export function getModelMaxTokens(provider: AIProvider, model: string) {
 	if (model.includes('gpt-5')) {
 		return 128000
-	} else if ((provider === 'azure_openai' || provider === 'openai') && model.startsWith('o')) {
+	} else if (
+		(provider === 'azure_openai' || provider === 'openai' || provider === 'azure_foundry') &&
+		model.startsWith('o')
+	) {
 		return 100000
 	} else if (
+		// Raising this further would also raise the worst case of the
+		// non-streaming completion path, which the Anthropic SDK refuses once
+		// the request could run past ~10 minutes.
 		model.includes('claude-sonnet') ||
+		model.includes('claude-haiku') ||
+		model.includes('claude-fable') ||
+		model.includes('claude-mythos') ||
+		// Opus only from 4.5 on. Opus 4.1 and older cap at 32K and fall through
+		// to the row below. Dots are normalized because OpenRouter writes
+		// `anthropic/claude-opus-4.5` where Anthropic writes `claude-opus-4-5`.
+		/claude-opus-(4-(5|6|7|8)|5)(?!\d)/.test(model.replace(/\./g, '-')) ||
 		model.includes('gemini-2.5') ||
-		model.includes('claude-haiku')
+		model.includes('gemini-3')
 	) {
 		return 64000
 	} else if (model.includes('gpt-4.1')) {
@@ -285,26 +333,12 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	return 8192
 }
 
-export function getModelContextWindow(model: string) {
-	if (model.includes('gpt-4.1') || model.includes('gemini')) {
-		return 1000000
-	} else if (model.includes('gpt-5')) {
-		return 400000
-	} else if (model.includes('gpt-4o') || model.includes('llama-3.3')) {
-		return 128000
-	} else if (model.includes('claude') || model.includes('o4-mini') || model.includes('o3')) {
-		return 200000
-	} else if (model.includes('codestral')) {
-		return 32000
-	} else {
-		return 128000
-	}
-}
-
-function getModelSpecificConfig(
-	modelProvider: AIProviderModel,
-	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
-) {
+// Resolves the completion token cap for a model: the workspace's per-model
+// override when set, otherwise the built-in default. Shared by the OpenAI and
+// Anthropic request paths so both honor the same limit. `cap` bounds the result
+// (used by short metadata completions, see METADATA_MAX_TOKENS) — a hard ceiling
+// that wins over both the workspace override and the default.
+function resolveMaxTokens(modelProvider: AIProviderModel, cap?: number): number {
 	const defaultMaxTokens = getModelMaxTokens(modelProvider.provider, modelProvider.model)
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
 	let customMaxTokensStore: Record<string, number> | undefined
@@ -313,11 +347,28 @@ function getModelSpecificConfig(
 	} catch {
 		// copilotInfo store may not be initialized in vitest
 	}
-	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
-	const defaultTemperature = getDefaultChatTemperature(modelProvider)
+	const resolved = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
+	return cap !== undefined ? Math.min(resolved, cap) : resolved
+}
+
+// Token cap for metadata completions (session titles, cron/predicate/step-input
+// generation). These outputs are short, and the Anthropic SDK refuses a
+// non-streaming request whose max_tokens implies a >10-minute worst case
+// (60min × max_tokens / 128000): the model defaults (sonnet/haiku 64000, opus
+// 32000) all trip it. Capping keeps every provider's metadata call non-streaming.
+export const METADATA_MAX_TOKENS = 4096
+
+function getModelSpecificConfig(
+	modelProvider: AIProviderModel,
+	tools?: OpenAI.Chat.Completions.ChatCompletionTool[],
+	maxTokensCap?: number
+) {
+	const maxTokens = resolveMaxTokens(modelProvider, maxTokensCap)
 	if (
-		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
-		modelDisallowsSamplingParams(modelProvider.model)
+		(modelProvider.provider === 'openai' ||
+			modelProvider.provider === 'azure_openai' ||
+			modelProvider.provider === 'azure_foundry') &&
+		requiresMaxCompletionTokens(modelProvider.model)
 	) {
 		return {
 			model: modelProvider.model,
@@ -326,25 +377,75 @@ function getModelSpecificConfig(
 		}
 	} else {
 		return {
-			...(modelProvider.model.endsWith('/thinking')
-				? {
-						thinking: {
-							type: 'enabled',
-							budget_tokens: 1024
-						},
-						model: modelProvider.model.slice(0, -9)
-					}
-				: {
-						model: modelProvider.model,
-						...(defaultTemperature !== undefined ? { temperature: defaultTemperature } : {})
-					}),
+			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
 			max_tokens: maxTokens
 		}
 	}
 }
 
-function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessageParam[]) {
+const EPHEMERAL_CACHE_CONTROL = { type: 'ephemeral' } as const
+
+// Returns a copy carrying a cache breakpoint on its last text part. The message objects
+// are the live chat history and are also replayed through the Anthropic path, so they
+// must not be mutated. Parts other than text (images) are left alone: only text blocks
+// are documented to carry the field over the OpenAI-compatible surface.
+function withCacheBreakpoint(message: ChatCompletionMessageParam): ChatCompletionMessageParam {
+	const content = message.content
+	if (typeof content === 'string') {
+		if (!content) return message
+		return {
+			...message,
+			// `cache_control` is an OpenRouter passthrough field, absent from the OpenAI types.
+			content: [{ type: 'text', text: content, cache_control: EPHEMERAL_CACHE_CONTROL } as any]
+		} as ChatCompletionMessageParam
+	}
+	if (!Array.isArray(content)) return message
+	let last = -1
+	for (let i = content.length - 1; i >= 0; i--) {
+		if ((content[i] as { type?: string }).type === 'text') {
+			last = i
+			break
+		}
+	}
+	if (last < 0) return message
+	return {
+		...message,
+		content: content.map((part, i) =>
+			i === last ? { ...part, cache_control: EPHEMERAL_CACHE_CONTROL } : part
+		)
+	} as ChatCompletionMessageParam
+}
+
+// Anthropic caches the whole prefix up to a breakpoint, ordered tools -> system ->
+// messages, so the one on the system message also covers the tool definitions, by far
+// the largest static block of a chat request. The second covers the settled conversation
+// up to the newest user turn. Tool results appended after it inside an agent loop stay
+// outside the cached prefix: reaching those needs a breakpoint on a `tool` message, and
+// OpenRouter documents the field on text content blocks only. Two of a budget of four.
+function withOpenRouterCacheBreakpoints(
+	messages: ChatCompletionMessageParam[]
+): ChatCompletionMessageParam[] {
+	const prepared = [...messages]
+	const system = prepared.findIndex((m) => m.role === 'system')
+	if (system >= 0) prepared[system] = withCacheBreakpoint(prepared[system])
+	for (let i = prepared.length - 1; i > system; i--) {
+		if (prepared[i].role === 'user') {
+			prepared[i] = withCacheBreakpoint(prepared[i])
+			break
+		}
+	}
+	return prepared
+}
+
+function prepareMessages(
+	aiProvider: AIProvider,
+	messages: ChatCompletionMessageParam[],
+	{ model, promptCaching }: { model: string; promptCaching?: boolean }
+) {
+	if (promptCaching && usesOpenRouterPromptCaching(aiProvider, model)) {
+		return withOpenRouterCacheBreakpoints(messages)
+	}
 	switch (aiProvider) {
 		case 'googleai':
 			// system messages are not supported by gemini
@@ -377,6 +478,7 @@ const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCreateParams> = {
 	openai: DEFAULT_COMPLETION_CONFIG,
 	azure_openai: DEFAULT_COMPLETION_CONFIG,
+	azure_foundry: DEFAULT_COMPLETION_CONFIG,
 	groq: DEFAULT_COMPLETION_CONFIG,
 	openrouter: DEFAULT_COMPLETION_CONFIG,
 	togetherai: DEFAULT_COMPLETION_CONFIG,
@@ -474,19 +576,12 @@ export async function testKey({
 		throw new Error('Missing a model to test')
 	}
 
-	// Use Anthropic SDK for Anthropic provider
-	if (aiProvider === 'anthropic') {
-		await testAnthropicKey({
-			apiKey,
-			workspace,
-			resourcePath,
-			model: modelToTest,
-			abortController,
-			messages
-		})
-		return
-	}
-
+	// getNonStreamingCompletion routes Anthropic-Messages-API models (native
+	// Anthropic and Claude on Azure Foundry) through the Anthropic SDK and
+	// everything else through OpenAI chat completions, so the test exercises the
+	// same request shape the feature actually sends. The cap keeps max_tokens
+	// under the Anthropic SDK's non-streaming pre-flight limit (~21k tokens),
+	// which would otherwise reject the request before it is sent.
 	await getNonStreamingCompletion(messages, abortController, {
 		apiKey,
 		workspace,
@@ -494,31 +589,42 @@ export async function testKey({
 		forceModelProvider: {
 			model: modelToTest,
 			provider: aiProvider
-		}
+		},
+		maxTokensCap: METADATA_MAX_TOKENS
 	})
 }
 
-async function testAnthropicKey({
-	apiKey,
-	workspace,
-	resourcePath,
-	model,
-	abortController,
-	messages
-}: {
+// Providers served through the Anthropic Messages API (native Anthropic, and
+// Claude deployments on Azure Foundry) require the Anthropic SDK request shape:
+// OpenAI chat-completions requests fail against them because the proxy forwards
+// the body verbatim and, for Foundry, rewrites the URL to the /anthropic/v1
+// surface that only serves /messages. This centralizes the client/header/message
+// setup so every completion entry point routes them the same way the chat does.
+interface AnthropicCompletionParams {
+	messages: ChatCompletionMessageParam[]
+	modelProvider: AIProviderModel
+	abortController: AbortController
 	apiKey?: string
 	workspace?: string
 	resourcePath?: string
-	model: string
-	abortController: AbortController
-	messages: ChatCompletionMessageParam[]
-}) {
+	maxTokensCap?: number
+}
+
+function buildAnthropicProxyRequest({
+	messages,
+	modelProvider,
+	apiKey,
+	workspace,
+	resourcePath,
+	maxTokensCap
+}: Omit<AnthropicCompletionParams, 'abortController'>) {
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 
+	// X-Provider must be the real provider (e.g. azure_foundry) so the backend
+	// resolves the right credentials and Anthropic URL.
 	const headers: Record<string, string> = {
-		'X-Provider': 'anthropic',
-		'anthropic-version': '2023-06-01',
-		'X-Anthropic-SDK': 'true'
+		'X-Provider': modelProvider.provider,
+		'anthropic-version': '2023-06-01'
 	}
 
 	if (resourcePath) {
@@ -527,24 +633,65 @@ async function testAnthropicKey({
 		headers['X-API-Key'] = apiKey
 	}
 
-	const anthropicClient = apiKey
+	const client = apiKey
 		? createAnthropicProxyClient(getAiProxyBaseURL())
 		: workspace
 			? workspaceAIClients.createAnthropicClient(workspace)
 			: workspaceAIClients.getAnthropicClient()
 
-	await anthropicClient.messages.create(
-		{
-			model,
-			max_tokens: 100,
-			messages: anthropicMessages,
-			...(system && { system })
-		},
-		{
-			signal: abortController.signal,
-			headers
+	const body = {
+		model: modelProvider.model,
+		max_tokens: resolveMaxTokens(modelProvider, maxTokensCap),
+		messages: anthropicMessages,
+		...(system && { system })
+	}
+
+	return { client, headers, body }
+}
+
+async function getAnthropicNonStreamingCompletion({
+	abortController,
+	...params
+}: AnthropicCompletionParams): Promise<string> {
+	const { client, headers, body } = buildAnthropicProxyRequest(params)
+
+	const message = await client.messages.create(body, {
+		signal: abortController.signal,
+		headers
+	})
+
+	return message.content.map((block) => (block.type === 'text' ? block.text : '')).join('')
+}
+
+// Adapts an Anthropic Messages stream into the OpenAI ChatCompletionChunk shape
+// the completion consumers already iterate, so they need no Anthropic-specific
+// handling. Only text deltas are surfaced (these paths don't use tool calls).
+function getAnthropicStreamingCompletion({
+	abortController,
+	...params
+}: AnthropicCompletionParams): Stream<ChatCompletionChunk> {
+	const { client, headers, body } = buildAnthropicProxyRequest(params)
+
+	const stream = client.messages.stream(body, {
+		signal: abortController.signal,
+		headers
+	})
+
+	async function* toOpenAIChunks(): AsyncGenerator<ChatCompletionChunk> {
+		for await (const event of stream) {
+			if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+				yield {
+					id: '',
+					object: 'chat.completion.chunk',
+					created: 0,
+					model: params.modelProvider.model,
+					choices: [{ index: 0, delta: { content: event.delta.text }, finish_reason: null }]
+				}
+			}
 		}
-	)
+	}
+
+	return toOpenAIChunks() as unknown as Stream<ChatCompletionChunk>
 }
 
 interface BaseOptions {
@@ -720,16 +867,34 @@ const PROMPTS_CONFIGS = {
 	gen: GEN_CONFIG
 }
 
+/**
+ * Whether a provider can use native web search automatically in the web chat.
+ * Azure OpenAI can expose Responses API `web_search` for some deployments, but
+ * it is subscription/admin controlled and routes data through Grounding with
+ * Bing, so do not silently enable it until there is explicit Azure-specific UI.
+ * Providers behind OpenAI-compatible/native-translation proxy paths have no
+ * forwardable native web-search tool.
+ */
+export function providerSupportsWebSearch(provider: AIProvider | undefined): boolean {
+	return provider === 'openai' || provider === 'anthropic'
+}
+
 export function getProviderAndCompletionConfig<K extends boolean>({
 	messages,
 	stream,
 	tools,
-	forceModelProvider
+	forceModelProvider,
+	maxTokensCap,
+	promptCaching
 }: {
 	messages: ChatCompletionMessageParam[]
 	stream: K
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 	forceModelProvider?: AIProviderModel
+	maxTokensCap?: number
+	// Opt-in: a cache write costs more than an uncached read, so it only pays off where
+	// the same prefix is sent again. True for the chat loop, false for one-shot calls.
+	promptCaching?: boolean
 }): {
 	provider: AIProvider
 	config: K extends true
@@ -738,12 +903,15 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 } {
 	const modelProvider = forceModelProvider ?? getCurrentModel()
 	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
-	const processedMessages = prepareMessages(modelProvider.provider, messages)
+	const processedMessages = prepareMessages(modelProvider.provider, messages, {
+		model: modelProvider.model,
+		promptCaching
+	})
 	return {
 		provider: modelProvider.provider,
 		config: {
 			...providerConfig,
-			...getModelSpecificConfig(modelProvider, tools),
+			...getModelSpecificConfig(modelProvider, tools, maxTokensCap),
 			messages: processedMessages,
 			stream
 		} as any
@@ -758,13 +926,29 @@ export async function getNonStreamingCompletion(
 		resourcePath?: string // testing resource path passed as a header to the backend proxy
 		workspace?: string // use a specific workspace proxy when testing a workspace resource
 		forceModelProvider?: AIProviderModel
+		maxTokensCap?: number // hard ceiling on output tokens (see METADATA_MAX_TOKENS)
 	}
 ) {
+	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
+
+	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
+		return getAnthropicNonStreamingCompletion({
+			messages,
+			modelProvider,
+			abortController,
+			apiKey: options?.apiKey,
+			workspace: options?.workspace,
+			resourcePath: options?.resourcePath,
+			maxTokensCap: options?.maxTokensCap
+		})
+	}
+
 	let response: string | undefined = ''
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: false,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		maxTokensCap: options?.maxTokensCap
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
@@ -821,7 +1005,8 @@ export async function getNonStreamingMetadataCompletion(
 	abortController: AbortController
 ) {
 	return getNonStreamingCompletion(messages, abortController, {
-		forceModelProvider: getMetadataModel()
+		forceModelProvider: getMetadataModel(),
+		maxTokensCap: METADATA_MAX_TOKENS
 	})
 }
 
@@ -833,6 +1018,14 @@ export async function getFimCompletion(
 	providerModel: AIProviderModel,
 	abortController: AbortController
 ): Promise<string | undefined> {
+	// The Anthropic Messages API has no fill-in-the-middle endpoint, and Foundry
+	// Claude deployments don't expose the OpenAI-compatible completions surface the
+	// FIM proxy targets. Skip autocomplete for these models rather than issuing a
+	// request that can't succeed.
+	if (usesAnthropicMessagesApi(providerModel.provider, providerModel.model)) {
+		return undefined
+	}
+
 	const fetchOptions: {
 		signal: AbortSignal
 		headers: Record<string, string>
@@ -892,13 +1085,22 @@ export async function getCompletion(
 		forceCompletions?: boolean
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
+		reasoningEffort?: string
+		promptCaching?: boolean
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
+	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
+
+	if (usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)) {
+		return getAnthropicStreamingCompletion({ messages, modelProvider, abortController })
+	}
+
 	const { provider, config } = getProviderAndCompletionConfig({
 		messages,
 		stream: true,
 		tools,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		promptCaching: options?.promptCaching
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
@@ -906,7 +1108,8 @@ export async function getCompletion(
 		try {
 			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
 				forceModelProvider: options?.forceModelProvider,
-				openaiClient: options?.openaiClient
+				openaiClient: options?.openaiClient,
+				reasoningEffort: options?.reasoningEffort
 			}) as any
 			return stream
 		} catch (error) {
@@ -916,9 +1119,12 @@ export async function getCompletion(
 
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
-	const completionConfig =
-		(provider === 'openai' || provider === 'azure_openai' || provider === 'googleai') &&
-		config.stream
+	const completionConfig = applyReasoningToConfig(
+		(provider === 'openai' ||
+			provider === 'azure_openai' ||
+			provider === 'azure_foundry' ||
+			provider === 'googleai') &&
+			config.stream
 			? {
 					...config,
 					stream_options: {
@@ -926,7 +1132,10 @@ export async function getCompletion(
 						include_usage: true
 					}
 				}
-			: config
+			: config,
+		provider === 'deepseek' ? 'deepseek' : provider === 'mistral' ? 'mistral' : 'completions',
+		options?.reasoningEffort
+	)
 	const completion = client.chat.completions.create(completionConfig, {
 		signal: abortController.signal,
 		headers: {
@@ -957,9 +1166,12 @@ export async function parseOpenAICompletion(
 	tools: Tool<any>[],
 	helpers: any,
 	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
-	options?: { workspace?: string }
+	options?: { workspace?: string; provider?: string }
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+	// The tool call currently receiving argument deltas; when the stream moves on
+	// to the next call, the previous one is demoted to queued.
+	let streamingToolCallId: string | undefined = undefined
 	let malformedFunctionCallError = false
 	let tokenUsage = emptyChatTokenUsage()
 
@@ -988,13 +1200,19 @@ export async function parseOpenAICompletion(
 			malformedFunctionCallError = true
 		}
 
+		// Mistral nests reasoning inside structured content parts; split them out
+		// so a content delta never leaks "[object Object]" into the answer.
+		const structured = splitContentDelta(delta.content)
 		const reasoningDelta = getReasoningContentDelta(delta)
-		if (typeof reasoningDelta === 'string') {
+		const reasoningText =
+			(typeof reasoningDelta === 'string' ? reasoningDelta : '') + structured.reasoning
+		if (typeof reasoningDelta === 'string' || structured.reasoning) {
 			hasReasoningContent = true
-			reasoningContent += reasoningDelta
+			reasoningContent += reasoningText
+			callbacks.onReasoningDelta?.(reasoningText)
 		}
 
-		const contentDelta = delta.content
+		const contentDelta = structured.text
 		if (contentDelta) {
 			answer += contentDelta
 			assistantContent += contentDelta
@@ -1044,10 +1262,17 @@ export async function parseOpenAICompletion(
 					id: toolCallId
 				} = finalToolCall
 				if (funcName && toolCallId) {
-					const tool = tools.find((t) => t.def.function.name === funcName)
-					if (tool && tool.preAction) {
-						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
+					if (streamingToolCallId !== undefined && streamingToolCallId !== toolCallId) {
+						const previous = Object.values(finalToolCalls).find(
+							(tc) => tc.id === streamingToolCallId
+						)
+						callbacks.setToolStatus(
+							streamingToolCallId,
+							queuedToolStatus(tools, previous?.function?.name ?? '', previous?.function?.arguments)
+						)
 					}
+					streamingToolCallId = toolCallId
+					const tool = tools.find((t) => t.def.function.name === funcName)
 
 					const shouldStream = tool?.streamArguments ?? false
 					const accumulatedArgs = finalToolCall.function.arguments
@@ -1060,10 +1285,13 @@ export async function parseOpenAICompletion(
 						}
 					}
 
-					// Display tool call with streaming parameters if enabled
+					// Display tool call with streaming parameters if enabled. isQueued is
+					// cleared explicitly: a provider may interleave deltas of parallel
+					// calls, re-promoting a call that was already demoted to queued.
 					callbacks.setToolStatus(toolCallId, {
 						isLoading: true,
-						content: `Calling ${funcName}...`,
+						isQueued: false,
+						content: tool?.streamingLabel ?? `Preparing ${funcName}...`,
 						toolName: funcName,
 						isStreamingArguments: shouldStream,
 						showFade: tool?.showFade,
@@ -1088,19 +1316,25 @@ export async function parseOpenAICompletion(
 
 	callbacks.onMessageEnd()
 
-	// Clear streaming state for all tool calls
+	// Stream over: every parsed call is queued until its turn in processToolCall.
 	for (const toolCall of Object.values(finalToolCalls)) {
 		if (toolCall.id) {
-			callbacks.setToolStatus(toolCall.id, { isStreamingArguments: false })
+			callbacks.setToolStatus(
+				toolCall.id,
+				queuedToolStatus(tools, toolCall.function?.name ?? '', toolCall.function?.arguments)
+			)
 		}
 	}
 
 	if (toolCalls.length > 0) {
+		const invalidToolCallIds = new Set(
+			toolCalls.filter((t) => !hasValidToolCallArguments(t.function.arguments)).map((t) => t.id)
+		)
 		const normalizedToolCalls = toolCalls.map((t) => ({
 			...t,
 			function: {
 				...t.function,
-				arguments: t.function.arguments || '{}'
+				arguments: invalidToolCallIds.has(t.id) ? '{}' : t.function.arguments || '{}'
 			}
 		}))
 		const toAdd = buildAssistantToolCallMessage({
@@ -1109,11 +1343,29 @@ export async function parseOpenAICompletion(
 				hasReasoningContent,
 				reasoningContent
 			},
-			toolCalls: normalizedToolCalls
+			toolCalls: normalizedToolCalls,
+			provider: options?.provider
 		})
 		messages.push(toAdd)
 		addedMessages.push(toAdd)
 		for (const toolCall of toolCalls) {
+			if (invalidToolCallIds.has(toolCall.id)) {
+				callbacks.setToolStatus(toolCall.id, {
+					isLoading: false,
+					isQueued: false,
+					isStreamingArguments: false,
+					error: 'Tool call arguments were invalid or truncated'
+				})
+				const messageToAdd = {
+					role: 'tool' as const,
+					tool_call_id: toolCall.id,
+					content:
+						'The tool call arguments were invalid or truncated JSON, so the tool was NOT executed. Retry the call; if the arguments were long, split the work into several smaller calls.'
+				}
+				messages.push(messageToAdd)
+				addedMessages.push(messageToAdd)
+				continue
+			}
 			const messageToAdd = await processToolCall({
 				tools,
 				toolCall,
@@ -1124,6 +1376,7 @@ export async function parseOpenAICompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+		appendPendingToolImages(messages, addedMessages, callbacks)
 	} else if (malformedFunctionCallError) {
 		// Malformed function call with no tool calls - create artificial tool call to inform AI
 		const fakeToolCallId = generateRandomString()

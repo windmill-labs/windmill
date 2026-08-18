@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { listMock, schemaMock, runSqlMock } = vi.hoisted(() => ({
+const { listMock, schemaMock, runScriptMock, executeTestRunMock } = vi.hoisted(() => ({
 	listMock: vi.fn(),
 	schemaMock: vi.fn(),
-	runSqlMock: vi.fn()
+	runScriptMock: vi.fn(),
+	executeTestRunMock: vi.fn()
 }))
 
 vi.mock('./shared', () => ({
 	createToolDef: (_schema: unknown, name: string, description: string) => ({
 		type: 'function',
 		function: { name, description, parameters: {} }
-	})
+	}),
+	executeTestRun: executeTestRunMock
 }))
 
 vi.mock('$lib/gen', () => ({
@@ -21,8 +23,22 @@ vi.mock('$lib/gen', () => ({
 }))
 
 vi.mock('$lib/components/jobs/utils', () => ({
-	runScriptAndPollResult: runSqlMock
+	runScript: runScriptMock
 }))
+
+// exec_datatable_sql now routes through executeTestRun; stub it to exercise the
+// jobStarter (so runScript args can be asserted) and then hand a completed job to
+// the tool's formatCompletion — which owns the datatable-specific result shaping.
+// The detach/tray orchestration itself is covered by shared.test.ts.
+function stubExecuteTestRunWithJob(job: { success: boolean; result: unknown }) {
+	runScriptMock.mockResolvedValue('job-123')
+	executeTestRunMock.mockImplementation(async (config: any) => {
+		await config.jobStarter()
+		const { llmText, card } = config.formatCompletion(job)
+		config.toolCallbacks.setToolStatus(config.toolId, card)
+		return llmText
+	})
+}
 
 import { getDatatableTools } from './datatableTools'
 
@@ -54,7 +70,8 @@ function run(name: string, args: Record<string, unknown> = {}) {
 beforeEach(() => {
 	listMock.mockReset()
 	schemaMock.mockReset()
-	runSqlMock.mockReset()
+	runScriptMock.mockReset()
+	executeTestRunMock.mockReset()
 })
 
 describe('list_datatables', () => {
@@ -134,21 +151,10 @@ describe('exec_datatable_sql', () => {
 		expect(getTool('exec_datatable_sql').requiresConfirmation).toBe(true)
 	})
 
-	it('returns all rows when the result is at or below the cap', async () => {
-		const rows = Array.from({ length: 100 }, (_, i) => ({ id: i }))
-		runSqlMock.mockResolvedValue(rows)
-
-		const result = await run('exec_datatable_sql', {
-			datatable_name: 'main',
-			sql: 'SELECT * FROM t'
-		})
-
-		const parsed = JSON.parse(result)
-		expect(parsed.success).toBe(true)
-		expect(parsed.rowCount).toBe(100)
-		expect(parsed.result).toHaveLength(100)
-		expect(parsed.note).toBeUndefined()
-		expect(runSqlMock).toHaveBeenCalledWith({
+	it('starts the query as a postgresql job scoped to the datatable', async () => {
+		stubExecuteTestRunWithJob({ success: true, result: [] })
+		await run('exec_datatable_sql', { datatable_name: 'main', sql: 'SELECT * FROM t' })
+		expect(runScriptMock).toHaveBeenCalledWith({
 			workspace: 'test-workspace',
 			requestBody: {
 				language: 'postgresql',
@@ -158,18 +164,33 @@ describe('exec_datatable_sql', () => {
 		})
 	})
 
+	it('returns all rows when the result is at or below the cap', async () => {
+		const rows = Array.from({ length: 100 }, (_, i) => ({ id: i }))
+		stubExecuteTestRunWithJob({ success: true, result: rows })
+
+		const parsed = JSON.parse(
+			await run('exec_datatable_sql', { datatable_name: 'main', sql: 'SELECT * FROM t' })
+		)
+		expect(parsed.success).toBe(true)
+		expect(parsed.rowCount).toBe(100)
+		expect(parsed.result).toHaveLength(100)
+		expect(parsed.note).toBeUndefined()
+	})
+
 	it('truncates results above the cap and reports the full count', async () => {
 		const rows = Array.from({ length: 150 }, (_, i) => ({ id: i }))
-		runSqlMock.mockResolvedValue(rows)
+		stubExecuteTestRunWithJob({ success: true, result: rows })
 
-		const parsed = JSON.parse(await run('exec_datatable_sql', { datatable_name: 'main', sql: 'SELECT 1' }))
+		const parsed = JSON.parse(
+			await run('exec_datatable_sql', { datatable_name: 'main', sql: 'SELECT 1' })
+		)
 		expect(parsed.rowCount).toBe(150)
 		expect(parsed.result).toHaveLength(100)
 		expect(parsed.note).toBe('Showing first 100 of 150 rows')
 	})
 
 	it('treats a non-array result (e.g. DDL) as zero rows', async () => {
-		runSqlMock.mockResolvedValue(undefined)
+		stubExecuteTestRunWithJob({ success: true, result: undefined })
 		const parsed = JSON.parse(
 			await run('exec_datatable_sql', {
 				datatable_name: 'main',
@@ -180,13 +201,18 @@ describe('exec_datatable_sql', () => {
 	})
 
 	it('returns a failure object when the SQL job errors', async () => {
-		runSqlMock.mockRejectedValue(new Error('syntax error'))
-		const parsed = JSON.parse(await run('exec_datatable_sql', { datatable_name: 'main', sql: 'SLECT' }))
+		stubExecuteTestRunWithJob({ success: false, result: { error: { message: 'syntax error' } } })
+		const parsed = JSON.parse(
+			await run('exec_datatable_sql', { datatable_name: 'main', sql: 'SLECT' })
+		)
 		expect(parsed).toEqual({ success: false, error: 'syntax error' })
 	})
 
 	it('turns the backend "datatable not found" error into an actionable, blocking message', async () => {
-		runSqlMock.mockRejectedValue(new Error('Internal: datatable main not found @workspaces.rs:565:20'))
+		stubExecuteTestRunWithJob({
+			success: false,
+			result: { error: { message: 'Internal: datatable main not found @workspaces.rs:565:20' } }
+		})
 		const parsed = JSON.parse(
 			await run('exec_datatable_sql', { datatable_name: 'main', sql: 'CREATE TABLE t (id int)' })
 		)

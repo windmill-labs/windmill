@@ -14,11 +14,14 @@ import {
   ignoreF,
   readDirRecursiveWithIgnore,
 } from "../sync/sync.ts";
+// Imported from source rather than the published windmill-yaml-validator package: the
+// package bakes in a copy of openflow.openapi.yaml at publish time, so lint would
+// validate against whatever schema the last npm release happened to carry.
 import {
   getValidationTargetFromFilename,
   type ValidationTarget,
   WindmillYamlValidator,
-} from "windmill-yaml-validator";
+} from "../../../../windmill-yaml-validator/src/index.ts";
 import {
   inferContentTypeFromFilePath,
   languageNeedsLock,

@@ -180,12 +180,13 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 		})
 		.filter(Boolean) as { s3_path: string; storage?: string | undefined }[]
 
-	return {
+	const next = {
 		...(currentPolicy ?? {}),
 		allowed_s3_keys: s3FileKeys,
 		s3_inputs,
 		triggerables_v2: ntriggerables
 	}
+	return next
 }
 
 export async function processRunnable(

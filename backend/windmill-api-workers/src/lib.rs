@@ -21,6 +21,7 @@ use windmill_common::{
     jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    workspaces::workspace_with_fork_ancestors,
     DB,
 };
 
@@ -161,9 +162,25 @@ async fn exists_workers_with_tags(
         let has_devops_role = require_devops_role(&db, &authed.email).await.is_ok();
         if !has_devops_role {
             if let Some(ref workspace) = tags_query.workspace {
+                // This route is global, so the workspace is an unauthorized query param: check
+                // membership before reading its lineage, which would otherwise disclose whether
+                // an arbitrary workspace descends from one named by a `tag(parent*)` rule.
+                let is_member = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
+                    workspace,
+                    &authed.email
+                )
+                .fetch_one(&db)
+                .await?
+                .unwrap_or(false);
+                if !is_member {
+                    return Ok(Json(std::collections::HashMap::new()));
+                }
+
                 // Filter to only tags visible in this workspace
+                let chain = workspace_with_fork_ancestors(&db, workspace).await?;
                 let custom_tags = CUSTOM_TAGS_PER_WORKSPACE.load();
-                let allowed_tags = custom_tags.to_string_vec(Some(workspace.clone()));
+                let allowed_tags = custom_tags.to_string_vec(Some(&chain));
                 tags.retain(|t| allowed_tags.contains(t));
             } else {
                 // No workspace provided and not superadmin - return empty
@@ -222,10 +239,12 @@ async fn get_custom_tags(
 
 async fn get_custom_tags_for_workspace(
     _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<String>> {
+    let chain = workspace_with_fork_ancestors(&db, &w_id).await?;
     let tags_o = CUSTOM_TAGS_PER_WORKSPACE.load();
-    let all_tags = tags_o.to_string_vec(Some(w_id));
+    let all_tags = tags_o.to_string_vec(Some(&chain));
     Ok(Json(all_tags))
 }
 

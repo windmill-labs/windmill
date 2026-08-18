@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET datatable = jsonb_set(datatable, ARRAY['datatables', $2::text, 'migrations_enabled'], 'false'::jsonb) WHERE workspace_id = $1 AND jsonb_exists(datatable->'datatables', $2) RETURNING 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9eea74f68a0c99d5ce6601fd854c1d18df0ab30f528ef4ce7910c43dd44f4cfb"
+}

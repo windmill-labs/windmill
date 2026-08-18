@@ -219,12 +219,16 @@ struct DatabaseCheckResult {
 
 async fn check_database_with_latency(db: &DB) -> DatabaseCheckResult {
     let start = std::time::Instant::now();
+    // `pg_is_in_recovery()` is true on standbys/read-only replicas, so a primary
+    // returns true here. A read-only replica (e.g. after a failover where the
+    // primary became a secondary) reports unhealthy, letting liveness probes
+    // restart the pod instead of silently failing all writes.
     let healthy = tokio::time::timeout(
         HEALTH_CHECK_TIMEOUT,
-        sqlx::query_scalar!("SELECT 1").fetch_one(db),
+        sqlx::query_scalar!("SELECT NOT pg_is_in_recovery()").fetch_one(db),
     )
     .await
-    .map(|r| r.is_ok())
+    .map(|r| matches!(r, Ok(Some(true))))
     .unwrap_or(false);
     let latency_ms = start.elapsed().as_millis() as i64;
 

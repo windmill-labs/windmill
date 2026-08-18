@@ -52,6 +52,7 @@ export function createScriptModeRunner(
         toolCallDetails: result.toolCallDetails,
         skillsInvoked: [],
         tokenUsage: result.tokenUsage,
+        finalContextTokens: result.finalContextTokens,
       };
     },
     validate({ actual, initial, expected }) {

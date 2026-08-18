@@ -199,6 +199,25 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let list = resp.json::<Vec<serde_json::Value>>().await?;
     assert!(!list.is_empty());
 
+    // Values are capped so the search modal never has to hold a whole workspace of
+    // resource content in memory.
+    let find = |path: &str| {
+        list.iter()
+            .find(|r| r["path"] == path)
+            .unwrap_or_else(|| panic!("{path} missing from list_search"))
+            .clone()
+    };
+    let oversized = find("u/test-user/oversized_resource");
+    assert_eq!(oversized["value"].as_str().unwrap().chars().count(), 4000);
+    assert_eq!(oversized["truncated"], true);
+
+    let simple = find("u/test-user/simple_resource");
+    assert!(simple["value"].as_str().unwrap().contains("\"host\""));
+    assert_eq!(simple["truncated"], false);
+
+    // A null value must still come back as searchable text, not null.
+    assert_eq!(find("u/test-user/null_resource")["value"], "");
+
     // --- list_names ---
     let resp = authed(client().get(format!("{base}/list_names/object")))
         .send()
@@ -274,6 +293,19 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resp = authed_get(port, "get", "u/test-user/new_resource").await;
     let body = resp.json::<serde_json::Value>().await?;
     assert_eq!(body["description"], "Updated description");
+
+    // --- update (resource_type) ---
+    // An update that only changes resource_type must persist it.
+    let resp = authed(client().post(resource_url(port, "update", "u/test-user/new_resource")))
+        .json(&json!({"resource_type": "mcp_server"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let resp = authed_get(port, "get", "u/test-user/new_resource").await;
+    let body = resp.json::<serde_json::Value>().await?;
+    assert_eq!(body["resource_type"], "mcp_server");
 
     // --- update_value ---
     let resp = authed(client().post(resource_url(
@@ -743,37 +775,26 @@ async fn test_mcp_client_get_job_and_logs(db: Pool<Postgres>) -> anyhow::Result<
     .auth_header("MCP_TOKEN");
     let transport = StreamableHttpClientTransport::from_config(config);
 
-    let client_info = ClientInfo {
-        protocol_version: Default::default(),
-        capabilities: ClientCapabilities::default(),
-        client_info: Implementation {
-            name: "test-client".to_string(),
-            title: None,
-            version: "0.0.1".to_string(),
-            description: None,
-            website_url: None,
-            icons: None,
-        },
-        meta: None,
-    };
+    let client_info = ClientInfo::new(
+        ClientCapabilities::default(),
+        Implementation::new("test-client", "0.0.1"),
+    );
 
     let client: RunningService<RoleClient, InitializeRequestParams> =
         client_info.serve(transport).await?;
 
     // --- Test getJob ---
     let result = client
-        .call_tool(CallToolRequestParams {
-            name: "getJob".into(),
-            arguments: Some(serde_json::from_value(json!({ "id": job_id.to_string() }))?),
-            task: None,
-            meta: None,
-        })
+        .call_tool(
+            CallToolRequestParams::new("getJob")
+                .with_arguments(serde_json::from_value(json!({ "id": job_id.to_string() }))?),
+        )
         .await?;
 
     let text = result
         .content
         .first()
-        .and_then(|c| c.raw.as_text())
+        .and_then(|c| c.as_text())
         .expect("getJob should return text content");
     let job: serde_json::Value = serde_json::from_str(&text.text)?;
     assert_eq!(job["id"], job_id.to_string());
@@ -787,18 +808,16 @@ async fn test_mcp_client_get_job_and_logs(db: Pool<Postgres>) -> anyhow::Result<
 
     // --- Test getJobLogs ---
     let result = client
-        .call_tool(CallToolRequestParams {
-            name: "getJobLogs".into(),
-            arguments: Some(serde_json::from_value(json!({ "id": job_id.to_string() }))?),
-            task: None,
-            meta: None,
-        })
+        .call_tool(
+            CallToolRequestParams::new("getJobLogs")
+                .with_arguments(serde_json::from_value(json!({ "id": job_id.to_string() }))?),
+        )
         .await?;
 
     let text = result
         .content
         .first()
-        .and_then(|c| c.raw.as_text())
+        .and_then(|c| c.as_text())
         .expect("getJobLogs should return text content");
     // The logs endpoint returns text/plain, which gets wrapped as a JSON string by call_endpoint
     let logs: String = serde_json::from_str(&text.text)?;

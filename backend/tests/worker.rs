@@ -587,6 +587,69 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_same_worker_survives_empty_branch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server: ApiServer = ApiServer::start(db.clone()).await?;
+
+    // No branch matches and the default is empty, so `a` completes without spawning a job and
+    // hands the flow back over the UpdateFlow channel. `b` must still be pinned to the worker.
+    let flow: FlowValue = serde_json::from_value(json!({
+        "same_worker": true,
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "branchone",
+                    "branches": [{
+                        "expr": "false",
+                        "modules": [{
+                            "id": "c",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": "export function main(){ return 1 }",
+                            }
+                        }]
+                    }],
+                    "default": []
+                }
+            },
+            {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(){ return 42 }",
+                }
+            }
+        ]
+    }))
+    .unwrap();
+
+    let job = run_job_in_new_worker_until_complete(
+        &db,
+        false,
+        JobPayload::RawFlow { value: flow, path: None, restarted_from: None },
+        server.addr.port(),
+    )
+    .await;
+    assert_eq!(job.json_result().unwrap(), json!(42));
+
+    let same_worker: Option<bool> = sqlx::query_scalar(
+        "SELECT same_worker FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'b'",
+    )
+    .bind(job.id)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(same_worker, Some(true));
+
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_result_by_id(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -3990,6 +4053,261 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Push `flow`, run it on a real worker until its first step is running, then simulate
+/// `monitor::handle_zombie_jobs` reaping that step unrecoverably (its worker crashed/OOM'd)
+/// by calling `handle_job_error(..., StepFailureKind::Unrecoverable, ...)` exactly as the monitor does.
+/// Returns the flow's completed result.
+#[cfg(feature = "deno_core")]
+async fn run_flow_until_step_running_then_fail_unrecoverably(
+    db: &Pool<Postgres>,
+    port: u16,
+    flow: FlowValue,
+) -> serde_json::Value {
+    use std::sync::atomic::AtomicU16;
+    use std::sync::Arc;
+    use tokio::sync::mpsc;
+    use windmill_common::auth::create_token_for_owner;
+    use windmill_common::client::AuthedClient;
+    use windmill_common::KillpillSender;
+    use windmill_queue::{get_queued_job_v2, MiniCompletedJob, SameWorkerPayload};
+    use windmill_worker::{JobCompletedSender, SameWorkerSender, StepFailureKind};
+
+    let flow_id =
+        RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+            .push(db)
+            .await;
+
+    let db_ = db.clone();
+    in_test_worker(
+        db,
+        async move {
+            let db = db_;
+
+            // Wait for the first step to be running on the worker.
+            let step_job = loop {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                let running = sqlx::query_scalar!(
+                    "SELECT q.id FROM v2_job_queue q JOIN v2_job j USING (id)
+                     WHERE j.parent_job = $1 AND q.running = true",
+                    flow_id
+                )
+                .fetch_optional(&db)
+                .await
+                .unwrap();
+                if let Some(step_id) = running {
+                    if let Some(job) = get_queued_job_v2(&db, &step_id).await.unwrap() {
+                        break job;
+                    }
+                }
+            };
+
+            // The dummy `same_worker_tx` mirrors the monitor, which has no live worker channel.
+            let (sw_tx, _sw_rx) = mpsc::channel::<SameWorkerPayload>(1);
+            let sw_tx = SameWorkerSender(sw_tx, Arc::new(AtomicU16::new(0)));
+            let (jc_tx, _jc_rx) = JobCompletedSender::new_never_used();
+            let (_kp_tx, kp_rx) = KillpillSender::new(1);
+            let token = create_token_for_owner(
+                &db,
+                "test-workspace",
+                "u/test-user",
+                "",
+                100,
+                "",
+                &Uuid::nil(),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            let client = AuthedClient::new(
+                format!("http://localhost:{port}"),
+                "test-workspace".to_string(),
+                token,
+                None,
+            );
+
+            windmill_worker::result_processor::handle_job_error(
+                &db,
+                &client,
+                &MiniCompletedJob::from(step_job),
+                0,
+                None,
+                windmill_common::error::Error::ExecutionErr(
+                    "simulated worker OOM crash".to_string(),
+                ),
+                StepFailureKind::Unrecoverable,
+                Some(&sw_tx),
+                "",
+                "test-monitor",
+                jc_tx,
+                &kp_rx,
+            )
+            .await;
+
+            // The flow should now run its failure module and complete.
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                let done = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM v2_job_completed WHERE id = $1)",
+                    flow_id
+                )
+                .fetch_one(&db)
+                .await
+                .unwrap()
+                .unwrap_or(false);
+                if done {
+                    break;
+                }
+            }
+        },
+        port,
+    )
+    .await;
+
+    completed_job(flow_id, db).await.json_result().unwrap()
+}
+
+/// The hanging-forever first step: only ever completed by the simulated zombie handler.
+#[cfg(feature = "deno_core")]
+fn hanging_step_value() -> serde_json::Value {
+    serde_json::json!({
+        "input_transforms": {},
+        "type": "rawscript",
+        "language": "deno",
+        "content": "export async function main() { await new Promise((r) => setTimeout(r, 600000)); }",
+    })
+}
+
+/// The error handler module that marks itself so tests can assert it ran.
+#[cfg(feature = "deno_core")]
+fn marker_failure_module() -> serde_json::Value {
+    serde_json::json!({
+        "value": {
+            "input_transforms": { "error": { "type": "javascript", "expr": "previous_result", } },
+            "type": "rawscript",
+            "language": "deno",
+            "content": "export function main(error) { return { handled_unrecoverable: true, error } }",
+        }
+    })
+}
+
+/// Regression test for WIN-2070: a flow step that fails *unrecoverably* — e.g. its worker was
+/// OOM-killed and the failure is surfaced by the zombie job handler — must still trigger the
+/// flow's error handler (failure module). Previously, `unrecoverable` failures silently
+/// completed the flow with an error and skipped the failure module entirely.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_failure_module_triggered_on_unrecoverable_failure(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{ "id": "a", "value": hanging_step_value() }],
+        "failure_module": marker_failure_module(),
+    }))
+    .unwrap();
+
+    let result = run_flow_until_step_running_then_fail_unrecoverably(&db, port, flow).await;
+
+    server.close().await.unwrap();
+
+    assert_eq!(
+        result["handled_unrecoverable"],
+        json!(true),
+        "failure module (flow error handler) should run for an unrecoverable step failure, got: {result}"
+    );
+    Ok(())
+}
+
+/// WIN-2070: an unrecoverable failure must NOT be retried even when the step has a retry
+/// policy — the original worker is gone, so retrying is pointless. It should fall straight
+/// through to the error handler (failure module) instead.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_unrecoverable_failure_skips_retry_runs_failure_module(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "id": "a",
+            "value": hanging_step_value(),
+            "retry": { "constant": { "attempts": 5, "seconds": 0 } },
+        }],
+        "failure_module": marker_failure_module(),
+    }))
+    .unwrap();
+
+    let result = run_flow_until_step_running_then_fail_unrecoverably(&db, port, flow).await;
+
+    server.close().await.unwrap();
+
+    assert_eq!(
+        result["handled_unrecoverable"],
+        json!(true),
+        "unrecoverable failure should skip retry and run the failure module, got: {result}"
+    );
+    Ok(())
+}
+
+/// WIN-2070: an unrecoverable failure on a `continue_on_error` step must still route to the
+/// error handler rather than silently advancing to the next step (which would hide the worker
+/// death). A normal failure on a `continue_on_error` step is tolerated and the flow continues;
+/// a worker crash/OOM is not.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_unrecoverable_failure_on_continue_on_error_runs_failure_module(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Step 'a' hangs (and tolerates failures via continue_on_error); step 'b' would run next
+    // if the unrecoverable failure were (wrongly) tolerated.
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": hanging_step_value(),
+                "continue_on_error": true,
+            },
+            {
+                "id": "b",
+                "value": {
+                    "input_transforms": {},
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main() { return { ran_b: true }; }",
+                },
+            },
+        ],
+        "failure_module": marker_failure_module(),
+    }))
+    .unwrap();
+
+    let result = run_flow_until_step_running_then_fail_unrecoverably(&db, port, flow).await;
+
+    server.close().await.unwrap();
+
+    assert_eq!(
+        result["handled_unrecoverable"],
+        json!(true),
+        "unrecoverable failure on a continue_on_error step should run the failure module, got: {result}"
+    );
+    assert!(
+        result.get("ran_b").is_none(),
+        "the step after a continue_on_error step must NOT run on an unrecoverable failure, got: {result}"
+    );
+    Ok(())
+}
+
 #[cfg(feature = "deno_core")]
 #[sqlx::test(fixtures("base"))]
 async fn test_run_wait_result_early_return_with_failure_module(
@@ -4111,7 +4429,9 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
                         "lock": null,
                         "path": null,
                         "type": "rawscript",
-                        "content": "import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main() {\n  return wmill\n}\n",
+                        // Any remote specifier exercises deno lock generation; jsr is the
+                        // registry Deno maintains, so prefer it over `deno.land/x`.
+                        "content": "import { encodeBase64 } from \"jsr:@std/encoding@1/base64\"\n\nexport async function main() {\n  return encodeBase64(\"test\")\n}\n",
                         "language": "deno",
                         "input_transforms": {}
                     },
@@ -4163,33 +4483,58 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
         &format!("http://localhost:{port}"),
         "SECRET_TOKEN".to_owned(),
     );
-    client
-        .create_flow(
-            "test-workspace",
-            &CreateFlowBody {
-                open_flow_w_path: windmill_api_client::types::OpenFlowWPath {
-                    open_flow: flow,
-                    path: "g/all/flow_lock_all".to_owned(),
-                    tag: None,
-                    ws_error_handler_muted: None,
-                    priority: None,
-                    dedicated_worker: None,
-                    timeout: None,
-                    visible_to_runner_only: None,
-                    on_behalf_of_email: None,
+    // Every module resolves a dependency from an external registry, and a registry failure
+    // writes `lock: null` for that module and fails the job — which the assertion below can
+    // only report as a module dump. So retry once, and keep the job's own error: without it
+    // a registry outage is indistinguishable from a broken locker.
+    let mut locked_path = None;
+    let mut last_error = None;
+    for attempt in 0..2 {
+        let path = format!(
+            "g/all/flow_lock_all{}",
+            if attempt == 0 { "" } else { "_retry" }
+        );
+        client
+            .create_flow(
+                "test-workspace",
+                &CreateFlowBody {
+                    open_flow_w_path: windmill_api_client::types::OpenFlowWPath {
+                        open_flow: flow.clone(),
+                        path: path.clone(),
+                        tag: None,
+                        ws_error_handler_muted: None,
+                        priority: None,
+                        dedicated_worker: None,
+                        timeout: None,
+                        visible_to_runner_only: None,
+                        on_behalf_of_email: None,
+                    },
+                    deployment_message: None,
+                    draft_only: None,
                 },
-                draft_only: None,
-                deployment_message: None,
-            },
-        )
-        .await
-        .unwrap();
-    let mut str = listen_for_completed_jobs(&db).await;
-    let listen_first_job = str.next();
-    in_test_worker(&db, listen_first_job, port).await;
+            )
+            .await
+            .unwrap();
+        let mut str = listen_for_completed_jobs(&db).await;
+        let listen_first_job = str.next();
+        let uuid = in_test_worker(&db, listen_first_job, port)
+            .await
+            .expect("the flow dependency job should complete");
+        let job = completed_job(uuid, &db).await;
+        if job.success {
+            locked_path = Some(path);
+            break;
+        }
+        last_error = Some(job.result);
+    }
+    let Some(locked_path) = locked_path else {
+        panic!(
+            "flow dependency job failed to lock every module, twice. Last error: {last_error:?}"
+        );
+    };
 
     let modules = client
-        .get_flow_by_path("test-workspace", "g/all/flow_lock_all", None)
+        .get_flow_by_path("test-workspace", &locked_path, None)
         .await
         .unwrap()
         .open_flow
@@ -4997,6 +5342,7 @@ async fn test_workflow_as_code(db: Pool<Postgres>) -> anyhow::Result<()> {
                 RunJob::from(JobPayload::Code(RawCode {
                     language: ScriptLang::Python3,
                     content: WORKFLOW_AS_CODE.into(),
+                    tag: None,
                     ..RawCode::default()
                 }))
                 .arg("n", json!(3))
@@ -5082,9 +5428,10 @@ async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
 /// This validates that `check_tag_available_for_workspace_internal` is properly called
 /// when pushing jobs from worker_flow.
 #[sqlx::test(fixtures("base"))]
+#[serial]
 async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow::Result<()> {
     use windmill_common::worker::{
-        CustomTags, SpecificTagData, SpecificTagType, CUSTOM_TAGS_PER_WORKSPACE,
+        CustomTags, SpecificTagData, SpecificTagType, WorkspaceMatcher, CUSTOM_TAGS_PER_WORKSPACE,
     };
 
     initialize_tracing().await;
@@ -5098,7 +5445,10 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
             "restricted-tag".to_string(),
             SpecificTagData {
                 tag_type: SpecificTagType::NoneExcept,
-                workspaces: vec!["other-workspace".to_string()],
+                workspaces: vec![WorkspaceMatcher {
+                    id: "other-workspace".to_string(),
+                    include_forks: false,
+                }],
             },
         )]),
     }));
@@ -5143,6 +5493,61 @@ async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow:
     );
 
     // Clean up: reset custom tags
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
+
+    Ok(())
+}
+
+/// The `*` fork marker only grants through a real `parent_workspace_id` lineage lookup, which the
+/// parse-level unit tests cannot reach: they hand `applies_to_workspace` a synthetic chain, so a
+/// regression in the lookup or in the `is_fork_scoped()` gate that skips it would pass them.
+#[sqlx::test(fixtures("base"))]
+#[serial]
+async fn test_fork_marker_tag_admission_through_lineage(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::jobs::check_tag_available_for_workspace_internal;
+    use windmill_common::worker::{CustomTags, CUSTOM_TAGS_PER_WORKSPACE};
+
+    initialize_tracing().await;
+
+    // The ancestor chain is cached process-wide by workspace id, so use one no other test takes.
+    let fork = "wm-fork-tagmarker";
+    sqlx::query!(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ($1, $1, 'test-user', 'test-workspace')",
+        fork
+    )
+    .execute(&db)
+    .await?;
+
+    CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::from(vec![
+        "forky(test-workspace*)".to_string(),
+        "bare(test-workspace)".to_string(),
+    ])));
+
+    // test2 is not a superadmin, who would bypass the scope check entirely.
+    let email = "test2@windmill.dev";
+
+    for (w_id, tag) in [("test-workspace", "bare"), ("test-workspace", "forky")] {
+        assert!(
+            check_tag_available_for_workspace_internal(&db, w_id, tag, email, None)
+                .await
+                .is_ok(),
+            "{tag} should be available in the workspace it names"
+        );
+    }
+    assert!(
+        check_tag_available_for_workspace_internal(&db, fork, "forky", email, None)
+            .await
+            .is_ok(),
+        "a `*` tag must be granted to a fork through its parent lineage"
+    );
+    assert!(
+        check_tag_available_for_workspace_internal(&db, fork, "bare", email, None)
+            .await
+            .is_err(),
+        "an unmarked tag must not reach a fork of the workspace it names"
+    );
+
     CUSTOM_TAGS_PER_WORKSPACE.store(std::sync::Arc::new(CustomTags::default()));
 
     Ok(())
@@ -5335,6 +5740,74 @@ async fn test_stop_after_all_iters_if_bad_expr_parallel_forloop(
         "flow should fail when stop_after_all_iters_if has bad expression"
     );
 
+    let result = cjob.json_result().unwrap();
+    let error_msg = result["error"]["message"].as_str().unwrap_or("");
+    assert!(
+        error_msg.contains("stop_after_all_iters_if"),
+        "error should mention stop_after_all_iters_if, got: {error_msg}"
+    );
+
+    Ok(())
+}
+
+// Regression for the savepoint added around `evaluate_stop_after_all_iters_if`.
+// The failpoint makes the in-evaluation DB read fail with a transaction-aborting
+// error (SELECT 1/0). The caller swallows that error and keeps using the outer
+// status-update transaction (later reads + commit). Without the savepoint the
+// outer transaction would be aborted and the commit would fail, so the flow job
+// would never be marked completed (the worker would error/retry). With the
+// savepoint the read failure is isolated, the iteration is marked failed, and
+// the flow completes — which is what this test asserts.
+#[cfg(all(feature = "failpoints", feature = "quickjs", feature = "python"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_stop_after_all_iters_if_db_error_isolated_by_savepoint(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let port = 123;
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": { "type": "javascript", "expr": "result.items" },
+                    "skip_failures": false,
+                    "parallel": true,
+                    "modules": [{
+                        "value": {
+                            "input_transforms": {
+                                "n": { "type": "javascript", "expr": "flow_input.iter.value" },
+                            },
+                            "type": "rawscript",
+                            "language": "python3",
+                            "content": "def main(n): return n",
+                        },
+                    }],
+                },
+                "stop_after_all_iters_if": {
+                    "expr": "__wm_failpoint_abort_tx__",
+                    "skip_if_stopped": false,
+                },
+            },
+        ],
+    }))
+    .unwrap();
+    let job = JobPayload::RawFlow { value: flow, path: None, restarted_from: None };
+
+    // If the savepoint failed to isolate the aborted read, the status-update
+    // transaction would be poisoned and the job would never complete, so this
+    // call would hang until the worker times out rather than returning.
+    let cjob = RunJob::from(job)
+        .arg("items", json!([1, 2, 3]))
+        .run_until_complete(&db, false, port)
+        .await;
+
+    assert!(
+        !cjob.success,
+        "iteration should be marked failed after the injected read error"
+    );
     let result = cjob.json_result().unwrap();
     let error_msg = result["error"]["message"].as_str().unwrap_or("");
     assert!(

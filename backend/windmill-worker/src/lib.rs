@@ -1,8 +1,8 @@
-#[cfg(all(feature = "enterprise", feature = "bigquery"))]
+#[cfg(feature = "bigquery")]
 mod bigquery_executor;
 #[cfg(all(feature = "enterprise", feature = "mssql"))]
 mod mssql_executor;
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "snowflake")]
 mod snowflake_executor;
 
 mod agent_workers;
@@ -22,11 +22,20 @@ mod r_executor;
 
 mod ai;
 mod ai_executor;
+
+// Exposed for the MCP resource-authorization regression test
+// (tests/mcp_resource_authz.rs): the AI agent worker must load MCP resources
+// through the job's permissioned client, not the raw DB pool.
+#[cfg(feature = "mcp")]
+pub use ai::utils::{load_mcp_tools, McpResourceConfig};
 mod bun_executor;
 pub mod common;
 mod config;
 mod csharp_executor;
 
+mod dbt_engine;
+mod dbt_executor;
+mod dbt_profiles;
 #[cfg(feature = "private")]
 mod dedicated_worker_ee;
 mod dedicated_worker_oss;
@@ -34,6 +43,8 @@ mod deno_executor;
 mod docker_v2;
 #[cfg(feature = "duckdb")]
 mod duckdb_executor;
+#[cfg(all(feature = "duckdb", feature = "private"))]
+mod duckdb_isolation_ee;
 mod global_cache;
 mod go_executor;
 mod graphql_executor;
@@ -75,6 +86,9 @@ mod sanitized_sql_params;
 mod schema;
 mod sql_s3_input;
 pub mod sql_utils;
+#[cfg(feature = "private")]
+mod ssh_executor_ee;
+mod ssh_executor_oss;
 mod universal_pkg_installer;
 #[cfg(feature = "private")]
 mod volume_ee;

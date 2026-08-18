@@ -30,7 +30,7 @@ use crate::{
         par_install_language_dependencies_seq, DependencyGraph, InstallDeps, RequiredDependency,
     },
     DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, R_CACHE_DIR,
-    TRACING_PROXY_CA_CERT_PATH,
+    TRACING_PROXY_CA_CERT_PATH, WIN_ENVS,
 };
 use windmill_common::scripts::ScriptLang;
 
@@ -314,6 +314,38 @@ struct RenvPackage {
     dependencies: Vec<String>,
 }
 
+/// Reject renv package names/versions that could break out of the R string
+/// literal they are interpolated into (`renv::install("name@version", ...)`),
+/// preventing command injection (CWE-78) via crafted renv.lock content.
+/// CRAN package names are letters/digits/'.' starting with a letter; versions
+/// are dotted numerics optionally with '-'/'_'/'+' separators.
+fn validate_renv_package(name: &str, version: &str) -> Result<(), Error> {
+    let name_ok = name
+        .chars()
+        .next()
+        .map_or(false, |c| c.is_ascii_alphabetic())
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.');
+    let version_ok = !version.is_empty()
+        && version
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'));
+    if !name_ok || !version_ok {
+        return Err(Error::ExecutionErr(format!(
+            "Invalid renv package name '{}' / version '{}': name must be alphanumeric or '.', \
+             version alphanumeric or '.-_+'",
+            name.chars().take(50).collect::<String>(),
+            version.chars().take(50).collect::<String>(),
+        )));
+    }
+    Ok(())
+}
+
+/// Escape a value for safe interpolation into an R double-quoted string literal:
+/// backslash and double-quote are the only metacharacters inside `"..."`.
+fn escape_r_double_quoted(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Parse renv.lock JSON and extract package info including dependency edges.
 fn parse_renv_lock(lockfile: &str) -> Result<Vec<RenvPackage>, Error> {
     let lock: serde_json::Value = serde_json::from_str(lockfile)
@@ -378,6 +410,7 @@ fn parse_renv_lock(lockfile: &str) -> Result<Vec<RenvPackage>, Error> {
         // Skip renv itself — it's already loaded and reinstalling it while
         // loaded triggers a noisy "Restart your R session" message.
         if !pkg_name.is_empty() && !version.is_empty() && pkg_name != "renv" {
+            validate_renv_package(&pkg_name, &version)?;
             result.push(RenvPackage { name: pkg_name, version, repo_url, dependencies });
         }
     }
@@ -485,6 +518,9 @@ async fn install<'a>(
             cmd.env_clear()
                 .current_dir(&job_dir)
                 .env("PATH", PATH_ENV.as_str())
+                // On Windows, renv needs SystemRoot (winsock init — without it DNS
+                // and sockets fail) and LOCALAPPDATA (its cache root) to install.
+                .envs(WIN_ENVS.to_vec())
                 .envs(R_PROXY_ENVS.clone());
             cmd
                 .args(&[
@@ -493,9 +529,9 @@ async fn install<'a>(
                         r#"options(renv.verbose = {verbose_r}, renv.config.install.verbose = {install_verbose_r}, renv.config.restart.enabled = FALSE); renv::install("{pkg}@{version}", library = "{lib}", dependencies = FALSE)"#,
                         verbose_r = verbose_r,
                         install_verbose_r = install_verbose_r,
-                        pkg = dependency.custom_payload.pkg,
-                        version = dependency.custom_payload.version,
-                        lib = install_lib,
+                        pkg = escape_r_double_quoted(&dependency.custom_payload.pkg),
+                        version = escape_r_double_quoted(&dependency.custom_payload.version),
+                        lib = escape_r_double_quoted(&install_lib),
                     ),
                     // install.packages fallback (no version pinning):
                     // &format!(
@@ -661,15 +697,7 @@ async fn run<'a>(
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        #[cfg(windows)]
-        {
-            cmd.env("SystemRoot", crate::SYSTEM_ROOT.as_str())
-                .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
-                .env(
-                    "TMP",
-                    std::env::var("TMP").unwrap_or_else(|_| String::from("/tmp")),
-                );
-        }
+        cmd.envs(WIN_ENVS.to_vec());
         start_child_process(cmd, rscript_executable, false).await?
     };
     handle_child::handle_child(
@@ -729,4 +757,66 @@ tryCatch({{
         inner_content = inner_content,
         spread = spread,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{escape_r_double_quoted, parse_renv_lock, validate_renv_package};
+
+    #[test]
+    fn test_validate_renv_package_accepts_real() {
+        for (n, v) in [
+            ("ggplot2", "3.4.4"),
+            ("data.table", "1.14.8"),
+            ("Rcpp", "1.0.11"),
+            ("renv", "1.0.3"),
+            ("pkg", "1.2-3"),
+            ("x", "0.9.8.9000"),
+        ] {
+            assert!(
+                validate_renv_package(n, v).is_ok(),
+                "{n}@{v} should be valid"
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_renv_package_rejects_injection() {
+        // name breakouts, version breakouts, leading non-letter, empty
+        for (n, v) in [
+            ("ggplot2\", library=system(\"id\"))#", "1.0"),
+            ("ok", "1.0\"); system(\"id\"); (\""),
+            ("ok", "1.0\\\"x"),
+            ("9pkg", "1.0"),
+            ("pkg name", "1.0"),
+            ("ok", ""),
+        ] {
+            assert!(
+                validate_renv_package(n, v).is_err(),
+                "{n:?}@{v:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_escape_r_double_quoted() {
+        assert_eq!(escape_r_double_quoted(r#"a"b"#), r#"a\"b"#);
+        assert_eq!(escape_r_double_quoted(r"a\b"), r"a\\b");
+        // backslash escaped before quote so \" cannot be reinterpreted
+        assert_eq!(escape_r_double_quoted(r#"\""#), r#"\\\""#);
+    }
+
+    #[test]
+    fn test_parse_renv_lock_rejects_unsafe_name() {
+        let lock = r#"{"Packages": {"evil": {"Package": "evil\"); system(\"id\"); (\"", "Version": "1.0"}}}"#;
+        assert!(parse_renv_lock(lock).is_err());
+    }
+
+    #[test]
+    fn test_parse_renv_lock_accepts_clean() {
+        let lock = r#"{"Packages": {"ggplot2": {"Package": "ggplot2", "Version": "3.4.4"}}}"#;
+        let pkgs = parse_renv_lock(lock).unwrap();
+        assert_eq!(pkgs.len(), 1);
+        assert_eq!(pkgs[0].name, "ggplot2");
+    }
 }

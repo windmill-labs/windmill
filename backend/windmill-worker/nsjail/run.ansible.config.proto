@@ -5,7 +5,7 @@ hostname: "ansible"
 log_level: ERROR
 time_limit: {TIMEOUT}
 
-rlimit_as: 4096
+{RLIMIT_AS}
 rlimit_cpu: 1000
 rlimit_fsize: 1000
 rlimit_nofile: 10000
@@ -44,6 +44,7 @@ mount {
     src: "/root/.local/share/uv/tools/ansible"
     dst: "/root/.local/share/uv/tools/ansible"
     is_bind: true
+    mandatory: false
 }
 
 mount {
@@ -97,6 +98,7 @@ mount {
     src: "{JOB_DIR}/ansible_collections/"
     dst: "/tmp/ansible_collections/"
     is_bind: true
+    mandatory: false
 }
 
 mount {
@@ -173,3 +175,6 @@ envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
 envar: "PYTHONPATH={ADDITIONAL_PYTHON_PATHS}"
 envar: "HOME=/tmp"
 envar: "ANSIBLE_CONFIG=/tmp/ansible.cfg"
+# Ansible never flushes its own stdout; on the pipe Windmill gives it, python block-buffers
+# and the job log arrives in bursts instead of as tasks run. Mirrors ansible_executor.rs.
+envar: "PYTHONUNBUFFERED=1"

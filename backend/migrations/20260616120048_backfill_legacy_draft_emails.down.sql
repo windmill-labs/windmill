@@ -1,0 +1,3 @@
+-- Irreversible data backfill: once an email is attached, the row is
+-- indistinguishable from a draft that was always per-user owned, so the
+-- original NULL state cannot be reconstructed. No-op on revert.

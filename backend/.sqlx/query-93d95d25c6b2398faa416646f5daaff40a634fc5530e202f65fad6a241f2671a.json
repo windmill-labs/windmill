@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_multipart_inflight\n           (workspace_id, upload_id, part_id, storage, part_bytes, target_existing_size)\n         VALUES ($1, $2, $3, $4, $5, $6)\n         ON CONFLICT (workspace_id, upload_id, part_id)\n         DO UPDATE SET part_bytes = $5",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "93d95d25c6b2398faa416646f5daaff40a634fc5530e202f65fad6a241f2671a"
+}

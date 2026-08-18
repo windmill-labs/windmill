@@ -126,10 +126,11 @@ The runnable ID is the filename without extension. For example, `get_user.ts` cr
 | C#               | `.cs`        | `myFunc.cs`      |
 | Java             | `.java`      | `myFunc.java`    |
 
-After creating a runnable, tell the user they can generate lock files by running:
+After creating or editing a backend runnable — especially when its imports or arguments changed — its local lock and `wmill-lock.yaml` go stale. Offer to run `wmill generate-metadata` and run it once the user agrees (or automatically if the project's `AGENTS.md` opts into that) — YOU run it, don't just name it and wait. It writes local files only (not a deploy), and keeping the lock current avoids noise in git-sync/CI:
 ```bash
 wmill generate-metadata
 ```
+After it runs, check the regenerated `.lock` diff and tell the user which dependency versions changed (e.g. `requests 2.31.0 → 2.32.0`), so they can catch an unwanted bump before deploying.
 
 ### Optional YAML configuration
 
@@ -217,15 +218,16 @@ data:
 
 ## CLI Commands
 
-`wmill app new` is the exception: you run it yourself, with flags, per the "Creating a Raw App" section above.
+Two commands you run yourself, not the user:
+- `wmill app new` — run it with flags, per the "Creating a Raw App" section above.
+- `wmill generate-metadata` — (re)generates local lock files and refreshes `wmill-lock.yaml` content hashes; writes local files only (not a deploy). After adding or editing a runnable, offer it and run it on agreement — or automatically if the project's `AGENTS.md` opts into that (see "After creating a runnable" above).
 
-For everything else, tell the user which command fits their intent and let them run it — these touch the workspace or local lock files, and the user should consent each time:
+For the rest, tell the user which command fits their intent and let them run it — these deploy to the workspace, overwrite local files, or launch a long-running server, so the user should consent each time:
 
 | Command | Description |
 |---------|-------------|
 | `wmill app dev` | Start dev server with live reload (see the `preview` skill for the full open-the-app-in-the-IDE-pane procedure). |
 | `wmill app generate-agents` | Refresh AGENTS.md and DATATABLES.md |
-| `wmill generate-metadata` | Generate lock files for backend runnables |
 | `wmill sync push` | Deploy app to Windmill |
 | `wmill sync pull` | Pull latest from Windmill |
 
@@ -247,7 +249,23 @@ A raw app has three logical parts:
 
 ### Entrypoint
 
-`index.tsx` is the bundling entrypoint. It typically renders a top-level `App` component. The bundler is esbuild.
+The entrypoint is `index.tsx` for React and `index.ts` for Svelte and Vue. It is both the bundling entrypoint (the bundler is esbuild) and the **mount** entrypoint: the preview executes the bundle against an empty `<div id="root">` and auto-renders nothing, so the entrypoint must mount a top-level `App` itself. Keep the UI in `App.tsx` / `App.svelte` / `App.vue` and keep the entrypoint as the mount shim.
+
+React (`index.tsx`):
+
+```tsx
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import App from './App'
+
+createRoot(document.getElementById('root')!).render(<App />)
+```
+
+Svelte (`index.ts`): `mount(App, { target: document.getElementById('root')! })`. Vue (`index.ts`): `createApp(App).mount('#root')`.
+
+**Never replace the entrypoint with a bare component** (`export default function App() { ... }` and no mount call). A component that is defined but never mounted renders a blank screen with **no error thrown** — it never executes, so nothing reaches the console or the error overlay. If an app renders blank, check that the entrypoint still mounts `App` into `#root`.
+
+**Always begin every React file (`.tsx`/`.jsx`) that uses JSX with `import React from 'react'`.** esbuild uses the classic JSX transform, so `React` must be in scope wherever JSX appears — a missing import compiles fine but throws `React is not defined` at runtime, leaving a blank screen.
 
 ### Generated bindings (`wmill.d.ts` / `wmill.ts`)
 
@@ -265,6 +283,18 @@ const user = await backend.get_user({ user_id: '123' });
 ```
 
 The frontend cannot reach datatables, workspace items, or external services on its own — it goes through `backend.<key>(args)` for everything server-side.
+
+### Keeping data out of recorded demos
+
+An app can be demoed by recording a session: every interaction becomes a step carrying a snapshot of the page, replayed publicly or on the Hub. Password inputs are masked automatically. Mark anything else that must not appear with `data-wm-no-record` — the whole marked subtree is dropped from every snapshot, along with its values and the step's own metadata:
+
+```tsx
+<label data-wm-no-record>
+  Customer SSN <input value={ssn} onChange={onSsn} />
+</label>
+```
+
+Apply it to customer data, internal notes and anything else a viewer of the demo should not see. It costs nothing when the app is never recorded.
 
 ## Backend runnables
 
@@ -368,3 +398,4 @@ def main(user_id: str):
 3. **Keep runnables focused** — one function per runnable; small surface area.
 4. **Use descriptive keys** — `get_user`, not `a`.
 5. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in `data.tables` first.
+6. **Mark sensitive UI with `data-wm-no-record`** — it is what keeps that data out of a recorded demo; passwords are handled for you.

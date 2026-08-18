@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT datatable, timestamp, name, code_up, code_down FROM datatable_migrations WHERE workspace_id = $1 ORDER BY datatable, timestamp ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "datatable",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "timestamp",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "code_up",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "code_down",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a8cec061756c7be61af829f4a5207ba6333ad5feb4557a9341427e9e68608025"
+}
