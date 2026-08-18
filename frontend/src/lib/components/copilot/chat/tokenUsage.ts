@@ -158,8 +158,10 @@ export function openAICompletionsUsageToChatTokenUsage(
 				total_tokens?: number | null
 				prompt_tokens_details?: {
 					cached_tokens?: number | null
-					/** OpenRouter surfaces Anthropic's cache creation here; OpenAI, whose
-					 * caching is automatic and unbilled, reports no such field. */
+					/** Cache creation, reported by the providers that bill for it: OpenRouter
+					 * passes Anthropic's through, and the Bedrock proxy folds
+					 * `cacheWriteInputTokens` in here. OpenAI, whose caching is automatic and
+					 * unbilled, reports no such field. */
 					cache_write_tokens?: number | null
 				} | null
 				/** OpenRouter reports what it actually charged when the request opts in. */
