@@ -797,6 +797,9 @@ function stringifyErrorBody(body: unknown): string {
 	}
 }
 
+/** Closed vocabulary for the `ai_chat`/`tool` counter's `<name>:<status>` key. */
+type ToolCallStatus = 'ok' | 'error' | 'declined' | 'rejected' | 'blocked_plan_mode'
+
 export async function processToolCall<T>({
 	tools,
 	toolCall,
@@ -810,10 +813,24 @@ export async function processToolCall<T>({
 	toolCallbacks: ToolCallbacks
 	workspace?: string
 }): Promise<ChatCompletionMessageParam> {
+	const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
+	const workspaceId = workspace ?? get(workspaceStore) ?? ''
+
+	// Exactly once per call, on whichever path ends it. Keyed by the resolved tool's
+	// declared name, not the model-provided string, so hallucinated tool names never
+	// enter telemetry — an unresolved name is counted nowhere.
+	let outcomeLogged = false
+	const logToolOutcome = (status: ToolCallStatus) => {
+		if (!tool || outcomeLogged) return
+		outcomeLogged = true
+		logFeatureUsage('ai_chat', 'tool', {
+			key: `${tool.def.function.name}:${status}`,
+			workspace: workspaceId
+		})
+	}
+
 	try {
 		const args = JSON.parse(toolCall.function.arguments || '{}')
-		const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
-		const workspaceId = workspace ?? get(workspaceStore) ?? ''
 
 		// Fails closed: untagged is blocked, only the safety tag exempt. Runs before anything
 		// belonging to the tool, so a validator cannot probe while planning — and again after
@@ -830,6 +847,7 @@ export async function processToolCall<T>({
 					: { label: PLAN_MODE_MESSAGES.blockedLabel, result: PLAN_MODE_MESSAGES.blockedResult }
 			if (!refusal) return undefined
 			toolCallbacks.onToolBlockedByPlanMode?.()
+			logToolOutcome('blocked_plan_mode')
 			toolCallbacks.setToolStatus(toolCall.id, {
 				content: refusal.label,
 				parameters: args,
@@ -858,6 +876,7 @@ export async function processToolCall<T>({
 			await tool?.validateBeforeConfirmation?.({ args, workspace: workspaceId, helpers })
 		)
 		if (rejection) {
+			logToolOutcome('rejected')
 			toolCallbacks.setToolStatus(toolCall.id, {
 				content: rejection.label,
 				parameters: args,
@@ -912,6 +931,7 @@ export async function processToolCall<T>({
 			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id, toolCall.function.name)
 
 			if (!confirmed) {
+				logToolOutcome('declined')
 				toolCallbacks.setToolStatus(toolCall.id, {
 					content: 'Cancelled by user',
 					isLoading: false,
@@ -940,11 +960,6 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
-		// Key by the resolved tool's declared name, not the model-provided string,
-		// so hallucinated tool names never enter telemetry.
-		if (tool) {
-			logFeatureUsage('ai_chat', 'tool', { key: tool.def.function.name, workspace: workspaceId })
-		}
 		try {
 			result = await callTool({
 				tools,
@@ -955,12 +970,14 @@ export async function processToolCall<T>({
 				toolCallbacks,
 				toolId: toolCall.id
 			})
+			logToolOutcome('ok')
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
 				isStreamingArguments: false
 			})
 		} catch (err) {
 			console.error(err)
+			logToolOutcome('error')
 			const errorMessage = formatToolError(err)
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
@@ -977,6 +994,7 @@ export async function processToolCall<T>({
 		return toAdd
 	} catch (err) {
 		console.error(err)
+		logToolOutcome('error')
 		const errorMessage = formatToolError(err)
 		toolCallbacks.setToolStatus(toolCall.id, {
 			isLoading: false,

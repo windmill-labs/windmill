@@ -7,6 +7,11 @@ vi.mock('monaco-editor', () => ({
 	editor: {}
 }))
 
+vi.mock('$lib/utils/featureUsage', () => ({
+	logFeatureUsage: vi.fn(),
+	logHubScriptPick: vi.fn()
+}))
+
 const userHolder = vi.hoisted(() => ({
 	current: { is_super_admin: true } as { is_super_admin: boolean }
 }))
@@ -901,6 +906,48 @@ describe('processToolCall', () => {
 				error: 'An error occurred while calling the tool'
 			})
 		)
+	})
+
+	// The counter is silently dropped by the backend when the key is malformed, so nothing
+	// here fails loudly if a path stops logging or logs the wrong status.
+	it('logs one feature-usage outcome per tool call, keyed <tool>:<status>', async () => {
+		const { createToolDef } = await import('./shared')
+		const { logFeatureUsage } = await import('$lib/utils/featureUsage')
+
+		const outcomeKeys = async (
+			tool: Partial<import('./shared').Tool<any>> = {},
+			toolCallbacks: Partial<import('./shared').ToolCallbacks> = {}
+		) => {
+			vi.mocked(logFeatureUsage).mockClear()
+			await runToolCall(
+				{
+					def: createToolDef(z.object({}), 'run_script', 'Run script'),
+					fn: vi.fn().mockResolvedValue('done'),
+					...tool
+				},
+				toolCallbacks
+			)
+			return vi
+				.mocked(logFeatureUsage)
+				.mock.calls.map(([feature, kind, opts]) => [feature, kind, opts?.key])
+		}
+
+		expect(await outcomeKeys()).toEqual([['ai_chat', 'tool', 'run_script:ok']])
+		expect(await outcomeKeys({ fn: vi.fn().mockRejectedValue(new Error('boom')) })).toEqual([
+			['ai_chat', 'tool', 'run_script:error']
+		])
+		expect(await outcomeKeys({ validateBeforeConfirmation: () => 'not deployed' })).toEqual([
+			['ai_chat', 'tool', 'run_script:rejected']
+		])
+		expect(
+			await outcomeKeys(
+				{ requiresConfirmation: true },
+				{ requestConfirmation: vi.fn().mockResolvedValue(false) }
+			)
+		).toEqual([['ai_chat', 'tool', 'run_script:declined']])
+		expect(await outcomeKeys({}, { isPlanModeActive: () => true })).toEqual([
+			['ai_chat', 'tool', 'run_script:blocked_plan_mode']
+		])
 	})
 })
 
