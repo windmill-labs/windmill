@@ -149,9 +149,10 @@ $NAV --root backend callees "X"                           # what does X call?
   committed. Write the paths in `rm`/`mv`/`cp` out literally: a PreToolUse hook proves each
   operand, and auto-allows deletes, moves, copies and mode changes under `/tmp` or inside this
   checkout, as long as one operation stays within a single one of those two roots (`tar` and
-  `unzip` stay `/tmp`-only). Chaining and line breaks are fine, since every command on the line
-  is proved on its own operands, but a quoted or `$VAR` operand, a `~`, a redirect, or a wrapper
-  like `xargs rm` cannot be proved, and that deferral is what turns a cleanup into a prompt.
+  `unzip` stay `/tmp`-only). Chain deletes freely, each proved on its own operands, but keep
+  writes to one per line and name the destination rather than a directory to drop it in. A
+  quoted or `$VAR` operand, a `~`, a redirect, a `$(…)`, a relative `cd`, or a wrapper like
+  `xargs rm` cannot be proved, and that deferral is what turns a cleanup into a prompt.
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked
