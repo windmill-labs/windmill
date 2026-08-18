@@ -1,12 +1,13 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #FF3621 per Databricks' own logo asset (databricks.com/sites/default/files/2023-08/databricks-default.png). -->
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	role="img"

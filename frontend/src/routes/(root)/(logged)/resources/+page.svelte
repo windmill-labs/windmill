@@ -23,6 +23,10 @@
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
+	import {
+		resourceTypeSearchText,
+		sortResourceTypesByMatch
+	} from '$lib/components/resourceTypeDisplay'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
@@ -174,16 +178,29 @@
 	let filteredResourceTypes = $derived.by(() => {
 		if (!resourceTypes) return resourceTypes
 		const f = resourceTypesFilters.val
-		const defaultSearch = f._default_?.toLowerCase()
+		// Bare search covers name and description together, like the add-resource drawer --
+		// `gdrive` is only findable as "google" through its description. The `name:` and
+		// `description:` facets stay scoped to their own field.
+		const defaultSearch = f._default_?.trim().toLowerCase()
 		const nameSearch = f.name?.toLowerCase()
 		const descSearch = f.description?.toLowerCase()
 		if (!defaultSearch && !nameSearch && !descSearch) return resourceTypes
-		return resourceTypes.filter((rt) => {
-			if (defaultSearch && !rt.name.toLowerCase().includes(defaultSearch)) return false
+		const matched = resourceTypes.filter((rt) => {
+			if (
+				defaultSearch &&
+				!resourceTypeSearchText(rt.name, rt.description).toLowerCase().includes(defaultSearch)
+			)
+				return false
 			if (nameSearch && !rt.name.toLowerCase().includes(nameSearch)) return false
 			if (descSearch && !(rt.description ?? '').toLowerCase().includes(descSearch)) return false
 			return true
 		})
+		return sortResourceTypesByMatch(
+			matched,
+			defaultSearch ?? '',
+			(rt) => rt.name,
+			(rt) => rt.description
+		)
 	})
 
 	let folderPresets = $derived([
@@ -718,18 +735,19 @@
 
 <Drawer bind:this={resourceTypeViewer} size="800px">
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
-		<div>
-			<h1 class="mb-8 mt-4"
-				><IconedResourceType
-					name={resourceTypeViewerObj.rt}
-					formatExtension={resourceTypeViewerObj.formatExtension}
-					isFileset={resourceTypeViewerObj.isFileset}
-				/></h1
-			>
+		{#snippet titleExtra()}
+			<IconedResourceType
+				name={resourceTypeViewerObj.rt}
+				formatExtension={resourceTypeViewerObj.formatExtension}
+				isFileset={resourceTypeViewerObj.isFileset}
+				silent
+				width="20px"
+				height="20px"
+			/>
+		{/snippet}
+		<div class="flex flex-col gap-6">
 			{#if resourceTypeViewerObj.description}
-				<div class="py-2 box prose mb-8 text-secondary">
-					<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
-				</div>
+				<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} prose="sm" noPadding />
 			{/if}
 			{#if resourceTypeViewerObj.isFileset}
 				<Alert type="info" title="Fileset resource type">
@@ -1147,9 +1165,14 @@
 												</a>
 											</Cell>
 											<Cell>
-												<span class="text-primary text-xs">
-													{removeMarkdown(truncate(description ?? '', 30))}
-												</span>
+												<div class="flex items-center min-h-8 w-full min-w-0 max-w-[30rem]">
+													<span
+														class="text-primary text-xs whitespace-pre-wrap ellipsize-multi-line [-webkit-line-clamp:2]"
+														title={removeMarkdown(description ?? '')}
+													>
+														{removeMarkdown(truncate(description ?? '', 200))}
+													</span>
+												</div>
 											</Cell>
 											<Cell>
 												<div class="flex flex-row text-center">
@@ -1367,19 +1390,31 @@
 												</a>
 											</Cell>
 											<Cell>
-												<span class="text-primary text-xs w-96 flex flex-wrap whitespace-pre-wrap">
-													{removeMarkdown(truncate(description ?? '', 200))}
-												</span>
+												<!-- Fixed at two lines: min-h so short descriptions still set the same row
+													height as long ones, line-clamp so long ones cannot push the row taller.
+													title carries the whole thing, since the clamp hides the rest. -->
+												<div class="flex items-center min-h-8 w-full min-w-0 max-w-[30rem]">
+													<span
+														class="text-primary text-xs whitespace-pre-wrap ellipsize-multi-line [-webkit-line-clamp:2]"
+														title={removeMarkdown(description ?? '')}
+													>
+														{removeMarkdown(truncate(description ?? '', 200))}
+													</span>
+												</div>
 											</Cell>
-											<Cell last stickyEnd>
+											<Cell last stickyEnd class="border-l-0 text-right">
 												{#if !canWrite}
-													<Badge>
-														Shared globally
-														<Tooltip>
-															This resource type is from the 'admins' workspace shared with all
-															workspaces
-														</Tooltip>
-													</Badge>
+													<!-- Badge is inline-flex, so it needs a right-aligning wrapper to sit
+														flush with the action buttons on the rows that have them. -->
+													<div class="flex justify-end">
+														<Badge>
+															Shared globally
+															<Tooltip>
+																This resource type is from the 'admins' workspace shared with all
+																workspaces
+															</Tooltip>
+														</Badge>
+													</div>
 												{:else if $userStore?.is_admin || $userStore?.is_super_admin}
 													<div class="flex flex-row-reverse gap-2">
 														<Button

@@ -7,7 +7,9 @@
 	let { height = 24, width = 24 }: Props = $props()
 </script>
 
+<!-- #000000 / #FFFFFF per modelcontextprotocol/modelcontextprotocol. -->
 <svg
+	class="text-[#000000] dark:text-[#FFFFFF]"
 	fill="currentColor"
 	fill-rule="evenodd"
 	{height}

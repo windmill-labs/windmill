@@ -1,12 +1,13 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #F1007E (grey half #6D6D6D) per activitypub.rocks/static/images/ActivityPub-logo.svg. -->
 <svg
 	x="0px"
 	y="0px"

@@ -1,13 +1,15 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #E10098 / #FFFFFF per graphql.org. -->
 <svg
+	class="text-[#E10098] dark:text-[#FFFFFF]"
 	version="1.1"
 	id="GraphQL_Logo"
 	xmlns="http://www.w3.org/2000/svg"
