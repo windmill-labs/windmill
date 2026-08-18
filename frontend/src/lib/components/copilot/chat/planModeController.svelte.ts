@@ -150,7 +150,7 @@ export class PlanModeController {
 				return PLAN_MODE_MESSAGES.persistenceFailed
 			}
 			// Only to the round this approval belongs to: ending a re-entered round would drop the
-			// user out of a read-only posture they just chose.
+			// user out of a planning posture they just chose.
 			if (this.#host.active && epoch === this.#epoch) this.#host.restore()
 			return PLAN_MODE_MESSAGES.approvedWithDoc
 		}

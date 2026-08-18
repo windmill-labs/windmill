@@ -287,8 +287,11 @@ pub type AllowUserResources = Vec<String>;
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ExecutionMode {
-    #[default]
     Anonymous,
+    /// Default for a policy that omits `execution_mode`. It MUST stay a mode
+    /// that requires an authenticated viewer: an omitted field must never be
+    /// able to publish an app anonymously (publicly executable).
+    #[default]
     Publisher,
     Viewer,
 }
@@ -334,7 +337,13 @@ pub struct Policy {
     pub triggerables: Option<HashMap<String, StaticFields>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub triggerables_v2: Option<HashMap<String, PolicyTriggerableInputs>>,
-    pub execution_mode: ExecutionMode,
+    /// `None` when the policy states no mode, which the OpenAPI schema (and so
+    /// the MCP tools generated from it) allows. Create resolves that to
+    /// [`ExecutionMode::default`]; update keeps the deployed app's mode, so a
+    /// partial policy cannot silently re-permission an app. Read the effective
+    /// mode with [`Policy::execution_mode`], never this field.
+    #[serde(default, rename = "execution_mode")]
+    stated_execution_mode: Option<ExecutionMode>,
     pub s3_inputs: Option<Vec<S3Input>>,
     pub allowed_s3_keys: Option<Vec<S3Key>>,
     // WIN-2006: publisher opt-in to iframe sandbox isolation (alpha). When true the
@@ -349,6 +358,25 @@ pub struct Policy {
     /// `FRONTEND_SDK_ALLOWED_SCOPES`; absent means no credential (the default).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frontend_sdk_scopes: Option<Vec<String>>,
+}
+
+impl Policy {
+    /// The mode this policy runs under. A policy that states none resolves to
+    /// [`ExecutionMode::default`], never to `anonymous`, so an app can only be
+    /// publicly executable because someone said so.
+    pub fn execution_mode(&self) -> ExecutionMode {
+        self.stated_execution_mode.unwrap_or_default()
+    }
+
+    /// What the policy states, or `None` for "not stated". Only the write paths
+    /// need this: everything else wants [`Policy::execution_mode`].
+    fn stated_execution_mode(&self) -> Option<ExecutionMode> {
+        self.stated_execution_mode
+    }
+
+    pub fn set_execution_mode(&mut self, execution_mode: ExecutionMode) {
+        self.stated_execution_mode = Some(execution_mode);
+    }
 }
 
 #[derive(Deserialize)]
@@ -1189,7 +1217,7 @@ async fn get_public_app_by_secret(
 
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
-    if !matches!(policy.execution_mode, ExecutionMode::Anonymous) {
+    if !matches!(policy.execution_mode(), ExecutionMode::Anonymous) {
         if opt_authed.is_none() {
             return Err(Error::NotAuthorized(
                 "App visibility does not allow public access and you are not logged in".to_string(),
@@ -2199,7 +2227,10 @@ async fn create_app_internal<'a>(
             ));
         }
     }
-    if matches!(app.policy.execution_mode, ExecutionMode::Anonymous) {
+    // Pin the mode the app is created under, so the stored policy states one
+    // even when the caller did not.
+    app.policy.set_execution_mode(app.policy.execution_mode());
+    if matches!(app.policy.execution_mode(), ExecutionMode::Anonymous) {
         if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
             w_id,
             &ProtectionRuleKind::RestrictAnonymousAppDeployment,
@@ -2612,7 +2643,7 @@ async fn update_app(
     let opath = path.to_string();
     let db2 = db.clone();
     let (new_tx, npath, v_id) =
-        update_app_internal(authed, db, user_db, &w_id, path, false, ns).await?;
+        update_app_internal(authed, db, user_db, &w_id, path, false, ns, None).await?;
     new_tx.commit().await?;
 
     tally_app_rename(&db2, &w_id, &opath, &npath, v_id).await;
@@ -2671,7 +2702,7 @@ async fn update_app_raw_source(
             "value with the app's `files` is required to deploy a raw app".to_string(),
         ));
     };
-    let files: RawAppSourceFiles = serde_json::from_str(value.0.get())
+    let value: RawAppSourceValue = serde_json::from_str(value.0.get())
         .map_err(|e| Error::BadRequest(format!("app value is not a raw app source: {e}")))?;
 
     // All before the compile, which costs a job on a worker: it must not run for
@@ -2690,17 +2721,41 @@ async fn update_app_raw_source(
         reject_kind_change(path, true, Some(deployed_raw_app))?;
     }
 
-    let (js, css) =
-        apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files)
-            .await?;
+    let bundled = apps_raw_bundle::bundle_raw_app_sources(
+        &db,
+        &user_db,
+        &authed,
+        &w_id,
+        &value.files,
+        &value.runnables,
+    )
+    .await?;
 
     let opath = path.to_string();
     let db2 = db.clone();
-    let (mut tx, npath, v_id) =
-        update_app_internal(authed, db, user_db, &w_id, path, true, ns).await?;
-    store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(js), &mut tx).await?;
-    if !css.is_empty() {
-        store_raw_app_file(&w_id, &v_id, "css", bytes::Bytes::from(css), &mut tx).await?;
+    // The new sources bring new runnables, so the deployed triggerables no longer
+    // describe them. Merged inside, under the app-row lock.
+    let (mut tx, npath, v_id) = update_app_internal(
+        authed,
+        db,
+        user_db,
+        &w_id,
+        path,
+        true,
+        ns,
+        Some(bundled.triggerables_v2),
+    )
+    .await?;
+    store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(bundled.js), &mut tx).await?;
+    if !bundled.css.is_empty() {
+        store_raw_app_file(
+            &w_id,
+            &v_id,
+            "css",
+            bytes::Bytes::from(bundled.css),
+            &mut tx,
+        )
+        .await?;
     }
     tx.commit().await?;
     tally_app_rename(&db2, &w_id, &opath, &npath, v_id).await;
@@ -2775,7 +2830,7 @@ async fn create_app_raw_source(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
-    Json(app): Json<CreateApp>,
+    Json(mut app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
     if authed.is_operator {
         return Err(Error::NotAuthorized(
@@ -2801,7 +2856,7 @@ async fn create_app_raw_source(
         return Err(Error::PermissionDenied(msg));
     }
 
-    let files: RawAppSourceFiles = serde_json::from_str(app.value.0.get())
+    let value: RawAppSourceValue = serde_json::from_str(app.value.0.get())
         .map_err(|e| Error::BadRequest(format!("app value is not a raw app source: {e}")))?;
 
     // Before the compile, which costs a job on a worker: it must not run for a
@@ -2816,14 +2871,31 @@ async fn create_app_raw_source(
         )));
     }
 
-    let (js, css) =
-        apps_raw_bundle::bundle_raw_app_sources(&db, &user_db, &authed, &w_id, &files.files)
-            .await?;
+    let bundled = apps_raw_bundle::bundle_raw_app_sources(
+        &db,
+        &user_db,
+        &authed,
+        &w_id,
+        &value.files,
+        &value.runnables,
+    )
+    .await?;
+    // The bundle carries the grants for the runnables it was built from, so the
+    // app cannot be deployed with a policy that does not describe them.
+    app.policy.triggerables = None;
+    app.policy.triggerables_v2 = Some(bundled.triggerables_v2);
 
     let (mut tx, npath, v_id) = create_app_internal(authed, db, user_db, &w_id, true, app).await?;
-    store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(js), &mut tx).await?;
-    if !css.is_empty() {
-        store_raw_app_file(&w_id, &v_id, "css", bytes::Bytes::from(css), &mut tx).await?;
+    store_raw_app_file(&w_id, &v_id, "js", bytes::Bytes::from(bundled.js), &mut tx).await?;
+    if !bundled.css.is_empty() {
+        store_raw_app_file(
+            &w_id,
+            &v_id,
+            "css",
+            bytes::Bytes::from(bundled.css),
+            &mut tx,
+        )
+        .await?;
     }
     tx.commit().await?;
 
@@ -2835,11 +2907,19 @@ async fn create_app_raw_source(
     Ok((StatusCode::CREATED, npath))
 }
 
-/// The part of a raw app's value the bundler needs.
+/// The part of a raw app's value the source endpoints read: `files` to bundle,
+/// and `runnables` to derive the policy from, passed through untouched because
+/// the CLI is what reads them.
 #[derive(Deserialize)]
-struct RawAppSourceFiles {
+struct RawAppSourceValue {
     #[serde(default)]
     files: HashMap<String, String>,
+    #[serde(default = "empty_runnables")]
+    runnables: Box<RawValue>,
+}
+
+fn empty_runnables() -> Box<RawValue> {
+    RawValue::from_string("{}".to_string()).expect("valid json")
 }
 
 fn reject_kind_change(path: &str, raw_app: bool, deployed_raw_app: Option<bool>) -> Result<()> {
@@ -2945,7 +3025,11 @@ async fn update_app_raw<'a>(
         &w_id,
         path,
         multipart,
-        update_app_internal
+        // `/apps/update_raw` carries a whole prebuilt app: its policy comes from
+        // the caller (the editor, the CLI), which derived the triggerables itself.
+        |authed, db, user_db, w_id, path, raw_app, app| update_app_internal(
+            authed, db, user_db, w_id, path, raw_app, app, None
+        )
     )
     .await?;
     tally_app_rename(&db2, &w_id, &opath, &npath, v_id).await;
@@ -2976,7 +3060,11 @@ async fn update_app_internal<'a>(
     w_id: &str,
     path: &str,
     raw_app: bool,
-    ns: EditApp,
+    mut ns: EditApp,
+    // Raw-app source deploys derive these from the value on a worker. Merged
+    // into the policy here rather than by the caller so it happens under the
+    // app-row lock taken below.
+    derived_triggerables: Option<HashMap<String, PolicyTriggerableInputs>>,
 ) -> Result<(sqlx::Transaction<'a, sqlx::Postgres>, String, i64)> {
     use sql_builder::prelude::*;
 
@@ -3021,6 +3109,10 @@ async fn update_app_internal<'a>(
         || ns.summary.is_some()
         || ns.custom_path.is_some()
         || ns.labels.is_some()
+        // A source deploy may send nothing but the value, and its runnables are
+        // what the derived grants describe: skipping the UPDATE here would keep
+        // the grants keyed to the sources this deploy just replaced.
+        || derived_triggerables.is_some()
     {
         let mut sqlb = SqlBuilder::update_table("app");
         sqlb.and_where_eq("path", "?".bind(&path));
@@ -3088,24 +3180,66 @@ async fn update_app_internal<'a>(
             }
         }
 
-        if let Some(mut npolicy) = ns.policy {
+        // A source deploy brings triggerables derived from its value but may send
+        // no policy at all, in which case the rest of the deployed one carries
+        // over. Either way a policy is about to be written wholesale.
+        let caller_sent_policy = ns.policy.is_some();
+        if caller_sent_policy || derived_triggerables.is_some() {
+            // One locked read serving everything below: the mode an omitted one
+            // inherits, the already-anonymous check, and the policy a source
+            // deploy carries over. FOR UPDATE holds the row until this
+            // transaction's UPDATE commits, so a policy edit landing between the
+            // read and the write cannot be clobbered by this stale snapshot.
+            let deployed = sqlx::query_scalar!(
+                "SELECT policy FROM app WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+                path,
+                w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            let deployed_policy = deployed
+                .as_ref()
+                .and_then(|p| serde_json::from_value::<Policy>(p.clone()).ok());
+
+            let mut npolicy = match ns.policy.take() {
+                Some(npolicy) => npolicy,
+                // Carrying the deployed policy forward is only safe if all of it
+                // survived the round trip; a partial one would silently drop
+                // `on_behalf_of`, sandboxing or S3 rules.
+                None => deployed_policy.clone().ok_or_else(|| {
+                    Error::internal_err(format!(
+                        "app {path} has no readable policy to deploy its new sources under"
+                    ))
+                })?,
+            };
+            if let Some(triggerables) = derived_triggerables {
+                npolicy.triggerables = None;
+                npolicy.triggerables_v2 = Some(triggerables);
+            }
             validate_frontend_sdk_scopes(&npolicy)?;
-            if matches!(npolicy.execution_mode, ExecutionMode::Anonymous) && !authed.is_admin {
+            // The policy is written wholesale, so one that states no mode would
+            // otherwise re-permission the app to the create-time default: a
+            // `viewer` app would start running on the publisher's identity. Keep
+            // the deployed mode instead, and make the stored policy state it.
+            if npolicy.stated_execution_mode().is_none() {
+                npolicy.set_execution_mode(
+                    deployed_policy
+                        .as_ref()
+                        .map(|d| d.execution_mode())
+                        .unwrap_or_default(),
+                );
+            }
+            if matches!(npolicy.execution_mode(), ExecutionMode::Anonymous) && !authed.is_admin {
                 // Restricted users may keep deploying an app that is already
                 // public, but flipping an app to anonymous (public) access is
                 // gated by the RestrictAnonymousAppDeployment protection rule.
-                // FOR UPDATE locks the row until this transaction's policy
-                // UPDATE commits, so a concurrent admin downgrade cannot be
-                // silently overwritten by a stale redeploy keeping anonymous.
-                let already_anonymous = sqlx::query_scalar!(
-                    "SELECT policy->>'execution_mode' = 'anonymous' FROM app WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
-                    path,
-                    w_id
-                )
-                .fetch_optional(&mut *tx)
-                .await?
-                .flatten()
-                .unwrap_or(false);
+                // An unreadable deployed policy reads as not-anonymous, the
+                // strict direction.
+                let already_anonymous = deployed
+                    .as_ref()
+                    .and_then(|p| p.get("execution_mode"))
+                    .and_then(|m| m.as_str())
+                    == Some("anonymous");
                 if !already_anonymous {
                     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
                         w_id,
@@ -3131,7 +3265,10 @@ async fn update_app_internal<'a>(
                         preserved_on_behalf_of = Some(obo_email.clone());
                     }
                 }
-            } else {
+            } else if caller_sent_policy {
+                // Submitting a policy is how a deployer claims the app's
+                // execution identity. A source deploy that sent none is not
+                // claiming anything, so whoever the app already runs as stays.
                 npolicy.on_behalf_of = Some(username_to_permissioned_as(&authed.username));
                 npolicy.on_behalf_of_email = Some(authed.email.clone());
             }
@@ -3345,7 +3482,7 @@ async fn get_on_behalf_details_from_policy_and_authed(
     policy: &Policy,
     opt_authed: &Option<ApiAuthed>,
 ) -> Result<(String, String, String)> {
-    let (username, permissioned_as, email) = match policy.execution_mode {
+    let (username, permissioned_as, email) = match policy.execution_mode() {
         ExecutionMode::Anonymous => {
             let username = opt_authed
                 .as_ref()
@@ -3542,7 +3679,7 @@ async fn execute_component(
             force_viewer_delete_after_secs,
             ..
         } => (
-            &Policy { execution_mode: ExecutionMode::Viewer, ..Default::default() },
+            &Policy { stated_execution_mode: Some(ExecutionMode::Viewer), ..Default::default() },
             &PolicyTriggerableInputs {
                 static_inputs,
                 one_of_inputs: force_viewer_one_of_fields.unwrap_or_default(),
@@ -3639,7 +3776,7 @@ async fn execute_component(
             let policy_triggerables = triggerables_v2
                 .get(path) // start with `path` in case we can avoid the next` format!`.
                 .or_else(|| triggerables_v2.get(&format!("{}:{}", payload.component, &path)))
-                .or(match policy.execution_mode {
+                .or(match policy.execution_mode() {
                     // A Viewer app may invoke any deployed `script`/`flow` it
                     // references (resolved as the caller), but caller-supplied
                     // inline `raw_code` must match a publisher-pinned
@@ -3658,7 +3795,7 @@ async fn execute_component(
     };
 
     // Check rate limit for anonymous (public) executions
-    if matches!(policy.execution_mode, ExecutionMode::Anonymous) && opt_authed.is_none() {
+    if matches!(policy.execution_mode(), ExecutionMode::Anonymous) && opt_authed.is_none() {
         if let Some(limit) = crate::workspaces::get_public_app_rate_limit(&db, &w_id).await? {
             if limit > 0 {
                 crate::public_app_rate_limit::check_and_increment(&w_id, limit)?;
@@ -3668,7 +3805,8 @@ async fn execute_component(
 
     // Execution is publisher and an user is authenticated: check if the user is authorized to
     // execute the app.
-    if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode, opt_authed.as_ref()) {
+    if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode(), opt_authed.as_ref())
+    {
         lazy_static! {
             /// Cache for the permit to execute an app component.
             static ref PERMIT_CACHE: cache::Cache<[u8; 32], bool> = cache::Cache::new(1000);
@@ -3993,7 +4131,7 @@ async fn upload_s3_file_from_app(
         }
         check_scopes(authed, || format!("apps:write:{}", path.to_path()))?;
         Some(Policy {
-            execution_mode: ExecutionMode::Viewer,
+            stated_execution_mode: Some(ExecutionMode::Viewer),
             triggerables: None,
             triggerables_v2: None,
             on_behalf_of: None,
@@ -4406,7 +4544,7 @@ async fn get_on_behalf_authed_from_app(
 ) -> Result<(ApiAuthed, Policy)> {
     let policy = if let Some(force_allowed_s3_keys) = force_allowed_s3_keys {
         Policy {
-            execution_mode: ExecutionMode::Viewer,
+            stated_execution_mode: Some(ExecutionMode::Viewer),
             triggerables: None,
             triggerables_v2: None,
             on_behalf_of: None,
@@ -4430,7 +4568,7 @@ async fn get_on_behalf_authed_from_app(
             .map(|p| serde_json::from_value::<Policy>(p).map_err(to_anyhow))
             .transpose()?
             .unwrap_or_else(|| Policy {
-                execution_mode: ExecutionMode::Viewer,
+                stated_execution_mode: Some(ExecutionMode::Viewer),
                 triggerables: None,
                 triggerables_v2: None,
                 on_behalf_of: None,
@@ -4497,7 +4635,7 @@ async fn check_if_allowed_to_access_s3_file_from_app(
         }
     }
 
-    if matches!(policy.execution_mode, ExecutionMode::Viewer) && !is_app_embed {
+    if matches!(policy.execution_mode(), ExecutionMode::Viewer) && !is_app_embed {
         // Viewer mode: the on-behalf identity IS the viewer, so the downstream
         // get_workspace_s3_resource_and_check_paths already bounds the read by
         // their own perms — no provenance gate (it would over-restrict). Embed
@@ -5505,5 +5643,27 @@ mod embed_token_tests {
 
         // Invalid JSON still errors.
         assert!(parse_embed_policy("not json").is_err());
+    }
+}
+
+#[cfg(test)]
+mod policy_tests {
+    /// `execution_mode` is optional in the OpenAPI schema the API clients and the
+    /// MCP tools are generated from, so an omitted one must deserialize. It must
+    /// resolve to `publisher`, never `anonymous`, and must stay distinguishable
+    /// from a stated `publisher` so the update path can keep the deployed mode
+    /// instead of re-permissioning the app.
+    #[test]
+    fn policy_execution_mode_defaults_to_publisher() {
+        use super::{ExecutionMode, Policy};
+
+        let p: Policy = serde_json::from_str("{}").expect("empty policy must deserialize");
+        assert_eq!(p.execution_mode(), ExecutionMode::Publisher);
+        assert_eq!(p.stated_execution_mode(), None);
+
+        // An explicit mode still wins, and reads back as stated.
+        let p: Policy = serde_json::from_str(r#"{"execution_mode": "anonymous"}"#).unwrap();
+        assert_eq!(p.execution_mode(), ExecutionMode::Anonymous);
+        assert_eq!(p.stated_execution_mode(), Some(ExecutionMode::Anonymous));
     }
 }

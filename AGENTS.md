@@ -42,6 +42,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Domain vocabulary**: `CONTEXT.md` — the words this codebase uses for its own concepts (step, step setting, trigger step, …). Name things the way it does.
 - **CLI commands**: when adding/modifying/removing a command, subcommand, option, or description in `cli/src/commands/`, run `python system_prompts/generate.py` to refresh `system_prompts/auto-generated/` and `cli/src/guidance/skills.gen.ts`. The CLI docs the agents use to operate `wmill` are derived from the source — stale generated files give agents the wrong flags.
 - **Session recorder**: `frontend/src/lib/components/recording/` is also the recorder `wmill app dev --recording` serves, vendored into the CLI as `cli/src/commands/app/devRecorderBundle.gen.ts`. After changing `rawAppSnapshot.ts` or `rawAppRecording.svelte.ts`, run `bun run gen:dev-recorder` from `cli/` (`cli/test/dev_recorder_bundle_unit.test.ts` fails otherwise).
+- **Raw-app policy**: `frontend/src/lib/components/raw_apps/rawAppPolicy.ts` also derives the policy the server's raw-app deploy stores, vendored into the bundle job as `backend/windmill-api/src/apps_raw_policy.gen.js`. After changing it or anything it imports, run `bun run gen:app-policy` from `cli/` (`cli/test/app_policy_bundle_unit.test.ts` fails otherwise). It rides in the job rather than being read from the CLI the job runs because the images install `windmill-cli` unpinned, so an image can carry one older than its server.
 
 ## Dev Environment
 
