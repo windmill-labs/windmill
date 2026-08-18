@@ -57,9 +57,6 @@ test("Integration: script runtime settings survive a sync pull/push cycle", asyn
             properties: {},
             required: [],
           },
-          // An unset priority never compares equal to the remote's null in the
-          // CLI's up-to-date check, which would keep phase 2 from ever reaching it.
-          priority: 1,
           ...SETTINGS,
         }),
       },

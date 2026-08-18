@@ -8,6 +8,7 @@
 import { expect, test } from "bun:test";
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
+import { waitForDeploymentJobs } from "./new_commands_helpers.ts";
 
 test("Integration: script push skips an unchanged script and deploys a changed one", async () => {
   await withTestBackend(async (backend, tempDir) => {
@@ -55,6 +56,9 @@ test("Integration: script push skips an unchanged script and deploys a changed o
     expect(createResp.ok).toEqual(true);
 
     await writeFile(`${tempDir}/wmill.yaml`, wmillYaml("bun"), "utf-8");
+    // The lock a deploy's dependency job writes is part of the comparison, so every
+    // pull has to happen after that job has landed or the skip races it.
+    await waitForDeploymentJobs(backend);
     expect((await backend.runCLICommand(["sync", "pull", "--yes"], tempDir)).code).toEqual(0);
 
     const hashBefore = (await getScript()).hash;
@@ -70,7 +74,17 @@ test("Integration: script push skips an unchanged script and deploys a changed o
     expect((await push()).stdout).not.toContain("is up to date");
     expect((await getScript()).labels).toEqual(["l2"]);
 
+    // A priority of exactly 1 was the one value the old comparison got right
+    // (`1 == true`), so the skip is pinned at a different one.
+    await waitForDeploymentJobs(backend);
     expect((await backend.runCLICommand(["sync", "pull", "--yes"], tempDir)).code).toEqual(0);
+    await writeFile(metadataPath, (await readFile(metadataPath, "utf-8")) + "priority: 2\n", "utf-8");
+    expect((await push()).stdout).not.toContain("is up to date");
+    expect((await getScript()).priority).toEqual(2);
+    await waitForDeploymentJobs(backend);
+    expect((await backend.runCLICommand(["sync", "pull", "--yes"], tempDir)).code).toEqual(0);
+    expect((await push()).stdout).toContain("is up to date");
+
     await writeFile(`${tempDir}/wmill.yaml`, wmillYaml("deno"), "utf-8");
     expect((await push()).stdout).not.toContain("is up to date");
     expect((await getScript()).language).toEqual("deno");
