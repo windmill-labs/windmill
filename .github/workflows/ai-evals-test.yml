@@ -22,6 +22,7 @@ on:
       - "frontend/src/lib/userDraft.svelte.ts"
       - "frontend/src/lib/userDraftDbSyncer.svelte.ts"
       - "frontend/src/lib/infer.ts"
+      - "frontend/src/lib/components/sessions/**"
       - ".github/workflows/ai-evals-test.yml"
   pull_request:
     types: [opened, reopened, ready_for_review]
@@ -35,6 +36,7 @@ on:
       - "frontend/src/lib/userDraft.svelte.ts"
       - "frontend/src/lib/userDraftDbSyncer.svelte.ts"
       - "frontend/src/lib/infer.ts"
+      - "frontend/src/lib/components/sessions/**"
       - ".github/workflows/ai-evals-test.yml"
 
 concurrency:
@@ -123,6 +125,11 @@ jobs:
         run: |
           bun install
           bun test adapters/
+
+      # Harness code that reaches into the frontend module graph; bun cannot load it.
+      - name: Run harness unit tests (frontend graph)
+        working-directory: ./ai_evals
+        run: bun run test:frontend-graph
 
       - name: Run global AI evals
         timeout-minutes: 20

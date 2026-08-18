@@ -4,6 +4,9 @@ import type {
 	ChatCompletionMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import type { UserDraftItemKind } from '$lib/gen'
+// The gate's two refusals, from a module that holds prose and one size limit: under the
+// shallow-import rule below, the rest of plan mode is not reachable from here.
+import { PLAN_MODE_MESSAGES } from './planModeMessages'
 
 // The tool modules that import this one (workspaceTools, flow/core, global/core, ...)
 // call createToolDef and read SPECIAL_MODULE_IDS at *module scope*, so if a chunk cycle
@@ -45,7 +48,7 @@ import {
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
-import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { logFeatureUsage, logHubScriptPick } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
@@ -600,6 +603,16 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
+	planArtifactId?: string
+	/** The version this card's proposal wrote, so a card scrolled far up still opens the plan
+	 * it proposed rather than what the document became. */
+	planVersion?: number
+	/** Refused by the plan-mode gate. Renders as its own lean row rather than a tool
+	 * error, so the transcript says the mode stopped it and not that the call failed. */
+	blockedByPlanMode?: boolean
+	/** The user declined: the reject button, a Stop, or a posture switch. Set only there, so
+	 * a decision is distinguishable from every other way a call errors. */
+	declinedByUser?: boolean
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -720,17 +733,24 @@ async function callTool<T>({
 
 type MaybePromise<T> = T | Promise<T>
 
+/** A refused tool call: the row the user reads, and the result the model gets. A bare string
+ * is both at once. */
+export type ToolRejection = string | { label: string; result: string }
+
+function normalizeToolRejection(
+	rejection: ToolRejection | undefined
+): { label: string; result: string } | undefined {
+	if (rejection === undefined) return undefined
+	return typeof rejection === 'string' ? { label: rejection, result: rejection } : rejection
+}
+
 /**
  * Key paths present in `supplied` that a strip-mode parse discarded. Sub-fields of a
  * schedule's `retry` are all optional, so a guessed shape validates clean, loses the
  * misspelled keys and saves a policy that does nothing. Recursive because dropping one
  * nested key leaves the parent non-empty.
  */
-export function droppedOptionKeys(
-	supplied: unknown,
-	parsed: unknown,
-	prefix = ''
-): string[] {
+export function droppedOptionKeys(supplied: unknown, parsed: unknown, prefix = ''): string[] {
 	if (supplied === null || typeof supplied !== 'object' || Array.isArray(supplied)) {
 		return parsed === undefined && prefix ? [prefix] : []
 	}
@@ -738,7 +758,11 @@ export function droppedOptionKeys(
 		return Object.keys(supplied).length && prefix ? [prefix] : []
 	}
 	return Object.entries(supplied).flatMap(([key, value]) =>
-		droppedOptionKeys(value, (parsed as Record<string, unknown>)[key], prefix ? `${prefix}.${key}` : key)
+		droppedOptionKeys(
+			value,
+			(parsed as Record<string, unknown>)[key],
+			prefix ? `${prefix}.${key}` : key
+		)
 	)
 }
 
@@ -791,19 +815,56 @@ export async function processToolCall<T>({
 		const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
 		const workspaceId = workspace ?? get(workspaceStore) ?? ''
 
-		const validationError = await tool?.validateBeforeConfirmation?.({
-			args,
-			workspace: workspaceId,
-			helpers
-		})
-		if (validationError) {
+		// Fails closed: untagged is blocked, only the safety tag exempt. Runs before anything
+		// belonging to the tool, so a validator cannot probe while planning — and again after
+		// the confirmation wait, since plan mode can be entered while a card is pending.
+		// An unresolved name is left alone, so it still reads as the unknown tool it is.
+		const planModeBlock = (): ChatCompletionMessageParam | undefined => {
+			if (!toolCallbacks.isPlanModeActive?.() || !tool) return undefined
+			// A tagged tool may still name arguments it refuses: the tag says the tool is usable
+			// while planning, not that every call of it is. Asked only once the tag has passed, so
+			// it can narrow what the gate admits and never widen it.
+			const refusal =
+				tool.planModeSafe === true
+					? normalizeToolRejection(tool.refuseInPlanMode?.({ args, helpers }))
+					: { label: PLAN_MODE_MESSAGES.blockedLabel, result: PLAN_MODE_MESSAGES.blockedResult }
+			if (!refusal) return undefined
+			toolCallbacks.onToolBlockedByPlanMode?.()
 			toolCallbacks.setToolStatus(toolCall.id, {
-				content: validationError,
+				content: refusal.label,
 				parameters: args,
 				isLoading: false,
 				isQueued: false,
 				isStreamingArguments: false,
-				error: validationError,
+				error: refusal.result,
+				blockedByPlanMode: true,
+				needsConfirmation: false,
+				showDetails: tool.showDetails,
+				autoCollapseDetails: tool.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: refusal.result
+			}
+		}
+
+		const preConfirmationBlock = planModeBlock()
+		if (preConfirmationBlock) {
+			return preConfirmationBlock
+		}
+
+		const rejection = normalizeToolRejection(
+			await tool?.validateBeforeConfirmation?.({ args, workspace: workspaceId, helpers })
+		)
+		if (rejection) {
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: rejection.label,
+				parameters: args,
+				isLoading: false,
+				isQueued: false,
+				isStreamingArguments: false,
+				error: rejection.label,
 				needsConfirmation: false,
 				showDetails: tool?.showDetails,
 				autoCollapseDetails: tool?.autoCollapseDetails
@@ -811,14 +872,16 @@ export async function processToolCall<T>({
 			return {
 				role: 'tool' as const,
 				tool_call_id: toolCall.id,
-				content: validationError
+				content: rejection.result
 			}
 		}
 
-		// Check if tool requires confirmation
 		const requiresConfirmation = tool?.requiresConfirmation === true
+		// By name: skipping the wait is itself an answer on the user's behalf, and one tool
+		// must not be answered for.
 		const autoAcceptConfirmation =
-			requiresConfirmation && toolCallbacks.shouldAutoAcceptToolConfirmations?.() === true
+			requiresConfirmation &&
+			toolCallbacks.shouldAutoAcceptToolConfirmations?.(toolCall.function.name) === true
 		const needsConfirmation = requiresConfirmation && !autoAcceptConfirmation
 
 		const confirmationContent =
@@ -845,7 +908,8 @@ export async function processToolCall<T>({
 
 		// If confirmation is needed and we have the callback, wait for it
 		if (needsConfirmation && toolCallbacks.requestConfirmation) {
-			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id)
+			tool?.onConfirmationRequested?.({ args, toolCallbacks, toolId: toolCall.id })
+			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id, toolCall.function.name)
 
 			if (!confirmed) {
 				toolCallbacks.setToolStatus(toolCall.id, {
@@ -853,13 +917,19 @@ export async function processToolCall<T>({
 					isLoading: false,
 					isStreamingArguments: false,
 					error: 'Tool execution was cancelled by user',
+					declinedByUser: true,
 					needsConfirmation: false
 				})
 				return {
 					role: 'tool' as const,
 					tool_call_id: toolCall.id,
-					content: 'Tool execution was cancelled by user'
+					content: tool?.cancellationMessage ?? 'Tool execution was cancelled by user'
 				}
+			}
+
+			const postConfirmationBlock = planModeBlock()
+			if (postConfirmationBlock) {
+				return postConfirmationBlock
 			}
 
 			// Update status to executing after confirmation
@@ -958,16 +1028,31 @@ export interface Tool<T> {
 		toolId: string
 	}) => Promise<string>
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
+	/** Refuse the call before any confirmation is offered. A bare string is both the row the
+	 * user reads and the result the model gets; return the pair when the model needs a steer
+	 * too long to be a transcript row. */
 	validateBeforeConfirmation?: (p: {
 		args: any
 		workspace: string
 		helpers: T
-	}) => MaybePromise<string | undefined>
+	}) => MaybePromise<ToolRejection | undefined>
 	setSchema?: (helpers: any) => Promise<void>
+	/** Safe to run while plan mode is active. Absence fails closed. */
+	planModeSafe?: boolean
+	/** The arguments a plan-mode-safe tool still refuses while the posture holds — for a tool
+	 * that is admissible in general but not on every target. Consulted only once `planModeSafe`
+	 * is true. */
+	refuseInPlanMode?: (p: { args: any; helpers: T }) => ToolRejection | undefined
 	requiresConfirmation?: boolean
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
+	/** Only when a card gates the call, so `fn` must not rely on it. Not awaited, so it may
+	 * not throw, and must be safe for a call the user then declines. */
+	onConfirmationRequested?: (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => void
+	/** Model-facing result returned when the user rejects the confirmation; defaults
+	 * to a generic cancellation. */
+	cancellationMessage?: string
 	showDetails?: boolean
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean
@@ -1111,8 +1196,10 @@ export interface ToolCallbacks {
 	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
 	 * no summary text is returned (e.g. OpenAI reasoning models). */
 	onReasoningStart?: () => void
-	requestConfirmation?: (toolId: string) => Promise<boolean>
-	shouldAutoAcceptToolConfirmations?: () => boolean
+	requestConfirmation?: (toolId: string, toolName?: string) => Promise<boolean>
+	shouldAutoAcceptToolConfirmations?: (toolName?: string) => boolean
+	isPlanModeActive?: () => boolean
+	onToolBlockedByPlanMode?: () => void
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
@@ -1236,6 +1323,7 @@ export function isHubPath(path: string): boolean {
 
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
+	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Searching for hub scripts related to "' + args.query + '"...'
@@ -1256,6 +1344,9 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 				if (!withContent) {
 					return { path, summary: s.summary }
 				}
+				// The content fetch, not the listing above: these are the few candidates
+				// the AI pulled to choose between, which is the closest signal we have.
+				logHubScriptPick(s, 'ai')
 				try {
 					// get_full, not the raw content endpoint: callers are told to match the
 					// script's language, which raw content does not carry.
@@ -2085,6 +2176,7 @@ export const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
 export const createSearchWorkspaceTool = () => ({
 	def: searchWorkspaceToolDef,
+	planModeSafe: true,
 	fn: async ({
 		args,
 		workspace,
@@ -2135,6 +2227,7 @@ const getRunnableDetailsToolDef = createToolDef(
 
 export const createGetRunnableDetailsTool = () => ({
 	def: getRunnableDetailsToolDef,
+	planModeSafe: true,
 	fn: async ({
 		args,
 		workspace,

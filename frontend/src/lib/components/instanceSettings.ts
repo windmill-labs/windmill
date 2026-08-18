@@ -1005,9 +1005,11 @@ export const settings: Record<string, Setting[]> = {
 	],
 	'GitHub App': [
 		{
-			label: 'GitHub App',
+			// The category header above already names the section; this labels the
+			// card that holds the app credentials, next to the webhook base url one.
+			label: 'App configuration',
 			description:
-				'Configure a self-managed GitHub App to enable git sync without stats.windmill.dev.',
+				'Use your own GitHub App instead of the Windmill-managed one on stats.windmill.dev.',
 			key: 'github_enterprise_app',
 			fieldType: 'github_enterprise_app',
 			storage: 'setting',

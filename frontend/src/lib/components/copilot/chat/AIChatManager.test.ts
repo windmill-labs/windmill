@@ -6,6 +6,7 @@ import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
 
 // This suite forces esm-env BROWSER=true (below). That makes @sveltejs/kit's
@@ -405,6 +406,121 @@ describe('AIChatManager autonomy mode', () => {
 
 		expect(jobId).toBe('job-flow-preview')
 		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
+	})
+})
+
+// The posture's own behaviour lives in planModeController.test.ts. What is left here is the
+// wiring only the manager owns: which pending confirmation cards a change of autonomy mode
+// answers, and with what.
+describe('AIChatManager plan mode posture', () => {
+	beforeEach(() => {
+		localStorage.clear()
+		// Plan mode is never the persisted posture, so a case starts from the one it is
+		// entered from and hands back to.
+		localStorage.setItem(`ai-chat-autonomy-mode::${TEST_EMAIL}`, AIAutonomyMode.DEFAULT)
+		vi.clearAllMocks()
+	})
+
+	const sessionManager = (mode = AIAutonomyMode.DEFAULT) => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.setAutonomyMode(mode)
+		return manager
+	}
+
+	it('enters plan mode through the tool and remembers the posture to hand back to', async () => {
+		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
+
+		await manager.planMode.enterTool.fn({
+			args: { reason: 'research the change first' },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_enter'
+		})
+
+		expect(manager.planModeActive).toBe(true)
+		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+	})
+
+	it('refuses to move a session chat out of GLOBAL, so the gate cannot lift under it', () => {
+		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(manager.planModeActive).toBe(true)
+		// Without a configured model changeMode returns early on SCRIPT, and the case would pass
+		// against the very guard it is meant to pin.
+		mocks.getCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+		const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+		manager.changeMode(AIMode.SCRIPT)
+
+		expect(manager.mode).toBe(AIMode.GLOBAL)
+		expect(manager.planModeActive).toBe(true)
+		// A switch that silently does nothing gives its caller no way to learn why.
+		expect(logged).toHaveBeenCalled()
+		logged.mockRestore()
+	})
+
+	it('never auto-accepts an enter_plan_mode card, whichever side of the switch it lands on', async () => {
+		// Switching to YOLO answers every pending confirmation — except this one. "Run it
+		// without asking" must not be answered by forcing the user into a read-only posture.
+		const before = sessionManager()
+		const enterPending = before.requestConfirmation('call_enter', 'enter_plan_mode')
+		const writePending = before.requestConfirmation('call_write', 'write_script')
+		before.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(await enterPending).toBe(false)
+		expect(await writePending).toBe(true)
+	})
+
+	it('declines an enter_plan_mode that arrives after the switch to YOLO', async () => {
+		// The tool set is snapshotted per iteration, so a call can still arrive once the user
+		// has moved to YOLO. Driven through processToolCall rather than requestConfirmation
+		// directly: an auto-accepting posture skips the confirmation wait entirely, so asserting
+		// against the wait would pass on a build that never reaches it.
+		const { processToolCall } = await import('./shared')
+		const manager = sessionManager(AIAutonomyMode.YOLO)
+
+		const result = await processToolCall({
+			tools: [manager.planMode.enterTool] as any,
+			toolCall: {
+				id: 'call_enter',
+				type: 'function',
+				function: { name: 'enter_plan_mode', arguments: JSON.stringify({ reason: 'research' }) }
+			} as any,
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: manager.requestConfirmation,
+				shouldAutoAcceptToolConfirmations: manager.shouldAutoAcceptTool
+			} as any
+		})
+
+		expect(result.content).toBe(PLAN_MODE_MESSAGES.enterDeclined)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+		expect(manager.planModeActive).toBe(false)
+	})
+
+	it('answers a pending plan card the way the picker was moved', async () => {
+		const entering = sessionManager()
+		const enterPending = entering.requestConfirmation('call_enter', 'enter_plan_mode')
+		entering.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(await enterPending).toBe(true)
+
+		// Leaving plan mode any other way is not a sign-off on the plan on the card.
+		const leaving = sessionManager(AIAutonomyMode.PLAN)
+		const exitPending = leaving.requestConfirmation('call_exit', 'exit_plan_mode')
+		leaving.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		expect(await exitPending).toBe(false)
+
+		// Opting into YOLO does mean "run it".
+		const yolo = sessionManager(AIAutonomyMode.PLAN)
+		const yoloPending = yolo.requestConfirmation('call_exit', 'exit_plan_mode')
+		yolo.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(await yoloPending).toBe(true)
 	})
 })
 

@@ -53,6 +53,13 @@
 		hideTabs = false
 	}: Props = $props()
 
+	// The callback lands on a frontend route, so a base url that is not the origin
+	// the admin is browsing is almost always a misconfiguration.
+	let browserOrigin = typeof window !== 'undefined' ? window.location.origin : ''
+	let baseUrlMismatch = $derived(
+		!!baseUrl && !!browserOrigin && baseUrl.replace(/\/$/, '') !== browserOrigin
+	)
+
 	$effect(() => {
 		if (oauths == undefined) {
 			oauths = {}
@@ -522,6 +529,27 @@
 										bind:password={oauths[k]['secret']}
 									/>
 								</label>
+								<div class="flex flex-col gap-1">
+									<span class="text-primary font-semibold text-xs">Redirect URL</span>
+									{#if !baseUrl}
+										<Alert type="warning" title="No instance base url configured" size="xs">
+											Set it in Core settings. The redirect url is built from it, and {k} needs the exact
+											value.
+										</Alert>
+									{:else}
+										<ClipboardPanel content="{baseUrl}/oauth/callback/{k}" size="sm" />
+									{/if}
+									{#if baseUrlMismatch}
+										<Alert
+											type="warning"
+											title="Does not match the url you are on ({browserOrigin})"
+											size="xs"
+										>
+											This is built from the instance base url. Update it in Core settings if it is
+											wrong, or {k} will reject the callback.
+										</Alert>
+									{/if}
+								</div>
 								<div class="flex flex-col gap-2 mb-2">
 									<span class="text-xs font-semibold text-emphasis">These credentials are for</span>
 									{#if !windmillBuiltins.includes(k) || (registryCcCapable(k) && registryAuthCodeCapable(k))}

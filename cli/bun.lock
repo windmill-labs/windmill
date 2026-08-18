@@ -9,7 +9,7 @@
         "@cliffy/command": "npm:@jsr/cliffy__command@1.0.0",
         "@cliffy/prompt": "npm:@jsr/cliffy__prompt@1.0.0",
         "@cliffy/table": "npm:@jsr/cliffy__table@1.0.0",
-        "@windmill-labs/shared-utils": "^1.0.12",
+        "@windmill-labs/shared-utils": "^1.0.13",
         "diff": "^5.2.0",
         "esbuild": "0.28.0",
         "get-port": "7.1.0",
@@ -175,7 +175,7 @@
 
     "@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
-    "@windmill-labs/shared-utils": ["@jsr/windmill-labs__shared-utils@1.0.12", "https://npm.jsr.io/~/11/@jsr/windmill-labs__shared-utils/1.0.12.tgz", {}, "sha512-bJOacyfxxNPwNTzA4AxCB5iGFop0h3mCgs+E9j3ZaJYDo1soblY16CebnQ56EPy/M3V344X/QoOFBORyRo1Mnw=="],
+    "@windmill-labs/shared-utils": ["@windmill-labs/shared-utils@1.0.13", "", {}, "sha512-LB3bFq8i0bS2fwM8EqGRODrR1CXLXXyiNa766By1ZbSJYCmTzK8NVXqcluJP1ne7is80LRVZdOgWTw6YX+61Dg=="],
 
     "acorn": ["acorn@8.16.0", "", { "bin": "bin/acorn" }, "sha512-UVJyE9MttOsBQIDKw1skb9nAwQuR5wuGD3+82K6JgJlm/Y+KI92oNsMNGZCYdDsVtRHSak0pcV5Dno5+4jh9sw=="],
 

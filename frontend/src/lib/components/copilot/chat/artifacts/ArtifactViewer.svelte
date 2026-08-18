@@ -2,7 +2,7 @@
 	import { untrack } from 'svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import { Code, Eye, FileText, Copy, Check, Download } from 'lucide-svelte'
+	import { Code, Eye, FileText, Copy, Check, Download, ClipboardList } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -22,6 +22,8 @@
 	import type { SessionArtifactsStore } from './artifactsState.svelte'
 	import { History } from 'lucide-svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import { planBadge, planVersionView, PLAN_MODE_TEXT_COLOR } from '../planMode'
 
 	interface Props {
 		artifact: PersistedArtifact
@@ -55,9 +57,13 @@
 	$effect(() => {
 		const version = pinned
 		void readAttempt // dependency: see selectVersion
-		if (version === undefined) {
+		// A pin not behind the document is cleared rather than shown: the stale bar below keys on
+		// the snapshot alone, so it would label current text as history.
+		// `latest` untracked — as a dependency it would re-read the snapshot on every version added.
+		if (version === undefined || version >= untrack(() => latest)) {
 			pinnedContent = undefined
 			restoringPin = false
+			if (version !== undefined) onPin(undefined)
 			return
 		}
 		const id = artifact.id
@@ -89,6 +95,23 @@
 
 	// Markdown is the only rendered kind in v1; anything else shows source only.
 	const canPreview = $derived(artifact.kind === 'md')
+	const isPlan = $derived(artifact.role === 'plan')
+	// Which pill and which bar this version earns — one place, so the list and this header
+	// cannot disagree about what counts as the plan.
+	// Silent until the snapshot lands, like the body below: `shownVersion` is still the head
+	// then, so a plan opened at the version its reader approved would wear the draft's badge
+	// and warning for the length of the read. Judging `pinned` instead would print the
+	// approved signal over text that is still the draft, which is worse.
+	const view = $derived(
+		restoringPin
+			? { badge: undefined, bar: undefined, backToPlan: undefined }
+			: planVersionView(artifact, shownVersion)
+	)
+	const badge = $derived(planBadge(view.badge))
+	// Browsing history offers the plan rather than the newest text, since that is what the
+	// user settled on — and the bar on the plan leads on to the draft, so neither needs a
+	// second button. The approved version is never pruned, so it is always still reachable.
+	const backTo = $derived(view.backToPlan)
 	let showSource = $state(false)
 	const source = $derived(!canPreview || showSource)
 
@@ -112,10 +135,28 @@
 <div class="flex flex-col h-full bg-surface-tertiary">
 	<div class="flex items-center justify-between gap-2 px-8 py-2">
 		<div class="flex items-center gap-1.5 min-w-0 flex-1">
-			<FileText size={14} class="shrink-0 text-secondary" />
+			{#if isPlan}
+				<ClipboardList size={14} class={twMerge('shrink-0', PLAN_MODE_TEXT_COLOR)} />
+			{:else}
+				<FileText size={14} class="shrink-0 text-secondary" />
+			{/if}
 			<span class="truncate text-xs font-normal text-emphasis" title={shown.name}>
 				{shown.name}
 			</span>
+			{#if badge}
+				<!-- Sized against the title beside it, not the Copy button opposite: at the
+				     list's text-2xs it reads as heavy as the 12px name it annotates.
+				     `pt-px pb-0` is optical, not a typo: an all-caps word leaves the line
+				     box's descender space empty, so symmetric padding sits it 1px high. -->
+				<span
+					class={twMerge(
+						'shrink-0 rounded px-1 pt-px pb-0 text-3xs uppercase tracking-wide',
+						badge.class
+					)}
+				>
+					{badge.label}
+				</span>
+			{/if}
 			{#if hasHistory}
 				<!-- The body is blank while restoring, so the chip names the version being fetched:
 				     the latest is the one version certainly not on screen. -->
@@ -171,7 +212,24 @@
 		</div>
 	</div>
 
-	{#if pinnedContent}
+	{#if view.bar === 'approved-with-newer'}
+		<!-- Before the stale bar below, because this version is reached by pinning too — and
+		     it is the one pinned version that is not stale. -->
+		<div
+			class="flex items-center gap-2 px-8 py-1 text-2xs font-normal
+				bg-teal-600/10 text-teal-700 dark:bg-teal-500/10 dark:text-teal-500"
+		>
+			<ClipboardList size={12} class="shrink-0" />
+			<span class="truncate">
+				This is the plan you approved · a newer draft (v{latest}) is not approved
+			</span>
+			<div class="ml-auto shrink-0">
+				<Button unifiedSize="xs" variant="default" onClick={() => selectVersion(undefined)}>
+					View last draft
+				</Button>
+			</div>
+		</div>
+	{:else if pinnedContent}
 		<!-- Everything below is stale text; say so where it cannot be scrolled past unnoticed. -->
 		<div
 			class="flex items-center gap-2 px-8 py-1 text-2xs font-normal
@@ -184,8 +242,25 @@
 				<TimeAgo date={new Date(pinnedContent.savedAt).toISOString()} compact /> ago
 			</span>
 			<div class="ml-auto shrink-0">
-				<Button unifiedSize="xs" variant="default" onClick={() => selectVersion(undefined)}>
-					Back to latest
+				<Button unifiedSize="xs" variant="default" onClick={() => selectVersion(backTo)}>
+					{backTo === undefined ? 'Back to latest' : `Back to the plan (v${backTo})`}
+				</Button>
+			</div>
+		</div>
+	{:else if view.bar === 'unapproved-head'}
+		<!-- Same bar as above rather than a second signal: both say "this is not the text you
+		     settled on", and they are mutually exclusive, so only one is ever on screen. -->
+		<div
+			class="flex items-center gap-2 px-8 py-1 text-2xs font-normal
+				bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300"
+		>
+			<ClipboardList size={12} class="shrink-0" />
+			<span class="truncate">
+				This revision is not approved · the plan you approved is v{view.backToPlan}
+			</span>
+			<div class="ml-auto shrink-0">
+				<Button unifiedSize="xs" variant="default" onClick={() => selectVersion(view.backToPlan)}>
+					View the plan
 				</Button>
 			</div>
 		</div>

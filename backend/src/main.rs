@@ -1629,6 +1629,10 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
 
+        // `workers_f` must stay ahead of `server_f`: these are polled on one task in
+        // declaration order, and `run_server` yields once after handing over the base
+        // internal url so the workers get past that oneshot before it builds its router.
+        // Ordering `server_f` first makes them wait out the whole build instead.
         if mcp_mode {
             futures::try_join!(workers_f, server_f)?;
         } else {
@@ -1691,7 +1695,8 @@ async fn process_notify_event(
         "restart_worker_group" => {
             if worker_mode && payload == *WORKER_GROUP {
                 tracing::info!("Restart requested for worker group '{payload}'");
-                spawn_graceful_killpill(tx, db, 30, "worker group restart requested").await;
+                spawn_graceful_killpill(tx, db, 30, "worker group restart requested", server_mode)
+                    .await;
             }
         }
         "notify_webhook_change" => {
@@ -1997,8 +2002,14 @@ async fn process_notify_event(
                     reload_otel_tracing_proxy_setting(conn).await;
                     if worker_mode {
                         tracing::info!("OTEL tracing proxy setting changed, restarting worker");
-                        spawn_graceful_killpill(tx, db, 30, "OTEL tracing proxy setting change")
-                            .await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "OTEL tracing proxy setting change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
@@ -2009,12 +2020,20 @@ async fn process_notify_event(
                 }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
-                    spawn_graceful_killpill(tx, db, 30, "metrics setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "metrics setting change", server_mode)
+                        .await;
                 }
                 EMAIL_DOMAIN_SETTING => {
                     tracing::info!("Email domain setting changed");
                     if server_mode {
-                        spawn_graceful_killpill(tx, db, 30, "email domain setting change").await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "email domain setting change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -2050,19 +2069,26 @@ async fn process_notify_event(
                 }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");
-                    spawn_graceful_killpill(tx, db, 30, "OTEL setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "OTEL setting change", server_mode).await;
                 }
                 REQUEST_SIZE_LIMIT_SETTING => {
                     if server_mode {
                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                        spawn_graceful_killpill(tx, db, 30, "request size limit change").await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "request size limit change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 SAML_METADATA_SETTING => {
                     tracing::info!(
                         "SAML metadata change detected, killing server expecting to be restarted"
                     );
-                    spawn_graceful_killpill(tx, db, 30, "SAML metadata change").await;
+                    spawn_graceful_killpill(tx, db, 30, "SAML metadata change", server_mode).await;
                 }
                 HUB_BASE_URL_SETTING => {
                     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
@@ -2183,12 +2209,7 @@ pub async fn run_workers(
     // #[cfg(tokio_unstable)]
     // let monitor = tokio_metrics::TaskMonitor::new();
 
-    let ip = windmill_common::external_ip::get_ip()
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = e.to_string(), "failed to get external IP");
-            "unretrievable IP".to_string()
-        });
+    windmill_common::external_ip::resolve_ip_in_background();
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
@@ -2232,7 +2253,6 @@ pub async fn run_workers(
         let conn1 = wk_conf.conn.clone();
         let worker_name = wk_conf.worker_name.clone();
         WORKERS_NAMES.write().await.push(worker_name.clone());
-        let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
@@ -2249,7 +2269,6 @@ pub async fn run_workers(
                 worker_name,
                 i as u64,
                 num_workers as u32,
-                &ip,
                 rx,
                 tx,
                 &base_internal_url,
@@ -2286,16 +2305,24 @@ pub async fn run_workers(
 /// then the sleep+kill is spawned in the background so the notification handler is not blocked.
 ///
 /// Falls back to drain-only delay if DB coordination fails.
+///
+/// Only `server_mode` processes coordinate, on the strength of the worker case: a worker
+/// group restarting costs queue latency rather than lost work, `v2_job_queue` being durable.
+/// Were workers to take part, one could claim the `is_first` slot and leave every server
+/// holding its shutdown open for a peer that serves no API traffic.
 async fn spawn_graceful_killpill(
     tx: &KillpillSender,
     db: &Pool<Postgres>,
     safety_margin_secs: u64,
     context: &str,
+    server_mode: bool,
 ) {
     // Minimum delay before any restart to let in-flight requests drain
     const DRAIN_DELAY_SECS: u64 = 3;
 
-    let (delay, is_first) =
+    let (delay, is_first) = if !server_mode {
+        (DRAIN_DELAY_SECS, true)
+    } else {
         match coordinate_restart_delay(db, safety_margin_secs, DRAIN_DELAY_SECS).await {
             Ok(r) => r,
             Err(e) => {
@@ -2305,7 +2332,8 @@ async fn spawn_graceful_killpill(
                 );
                 (DRAIN_DELAY_SECS, true)
             }
-        };
+        }
+    };
 
     tracing::info!(
         "Scheduling {context} graceful shutdown in {delay}s (first_to_restart={is_first})"

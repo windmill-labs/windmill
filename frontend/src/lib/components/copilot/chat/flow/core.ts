@@ -366,6 +366,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	...createWorkspaceMutationTools<FlowAIChatHelpers>(),
 	{
 		def: resourceTypeToolDef,
+		planModeSafe: true,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
 			const parsedArgs = resourceTypeToolSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -384,6 +385,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: getInstructionsForCodeGenerationToolDef,
+		planModeSafe: true,
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
 			const langContext = getLangContext(parsedArgs.language, {
@@ -473,6 +475,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: inspectInlineScriptToolDef,
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = inspectInlineScriptSchema.parse(args)
 			const moduleId = parsedArgs.moduleId
@@ -796,6 +799,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: getLintErrorsToolDef,
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = getLintErrorsSchema.parse(args)
 

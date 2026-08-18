@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('$lib/gen', () => ({ OpenAPI: { BASE: '/api' } }))
 vi.mock('$lib/stores', () => ({ workspaceStore: { subscribe: () => () => {} } }))
 
-import { createFeatureUsageBuffer, type FeatureUsageEventPayload } from './featureUsage'
+import {
+	createFeatureUsageBuffer,
+	hubScriptUsageKey,
+	type FeatureUsageEventPayload
+} from './featureUsage'
 
 describe('createFeatureUsageBuffer', () => {
 	it('sums repeated events per (feature, kind, key, entity) and flushes one batch', async () => {
@@ -76,5 +80,30 @@ describe('createFeatureUsageBuffer', () => {
 		const sent = send.mock.calls.flatMap((c) => c[1] as FeatureUsageEventPayload[])
 		expect(send.mock.calls[0][1]).toHaveLength(50)
 		expect(sent).toHaveLength(60)
+	})
+})
+
+describe('hubScriptUsageKey', () => {
+	it('names a public hub script by app and summary', () => {
+		expect(
+			hubScriptUsageKey({ version_id: 9084, app: 'slack', summary: 'Send message to channel' })
+		).toBe('slack/send_message_to_channel')
+	})
+
+	it('never reports a private hub script name', () => {
+		// Above PRIVATE_HUB_MIN_VERSION the app and summary are the customer's own.
+		expect(
+			hubScriptUsageKey({
+				version_id: 10_000_001,
+				app: 'acme_internal',
+				summary: 'Payroll export'
+			})
+		).toBe('private')
+	})
+
+	it('slugifies punctuation rather than filing the script under private', () => {
+		expect(
+			hubScriptUsageKey({ version_id: 12, app: 'acme', summary: "List a user's items, sorted" })
+		).toBe('acme/list_a_user_s_items_sorted')
 	})
 })

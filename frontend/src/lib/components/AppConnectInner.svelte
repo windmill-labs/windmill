@@ -566,7 +566,9 @@
 				args = {}
 			} else {
 				getResourceTypeInfo()
-				getScopesAndParams()
+				// Awaited: the popup is built from `scopes`, so advancing before this
+				// resolves sends the user to an authorize url with no scope at all.
+				await getScopesAndParams()
 			}
 			step += 1
 		} else if (step == 2 && !manual) {
