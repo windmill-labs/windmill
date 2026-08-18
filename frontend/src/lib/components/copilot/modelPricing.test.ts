@@ -23,6 +23,18 @@ describe('resolveModelPrice', () => {
 		expect(resolveModelPrice('openai', 'gpt-4-1106-preview', undefined)?.price.input).not.toBe(2)
 	})
 
+	it('prices flat-rate Gemini Flash while leaving the tiered Pro alone', () => {
+		expect(resolveModelPrice('googleai', 'gemini-2.5-flash', undefined)?.price.input).toBe(0.3)
+		expect(resolveModelPrice('googleai', 'gemini-2.5-flash-lite', undefined)?.price.input).toBe(0.1)
+		expect(resolveModelPrice('googleai', 'gemini-3.5-flash', undefined)?.price.output).toBe(9)
+		// Pro charges roughly double above a 200k prompt, which a per-model rate cannot
+		// express, so it must stay unpriced rather than be estimated at the low tier.
+		expect(resolveModelPrice('googleai', 'gemini-2.5-pro', undefined)).toBeUndefined()
+		expect(resolveModelPrice('googleai', 'gemini-3.1-pro', undefined)).toBeUndefined()
+		// Promotional rates carry an end date a timeless table cannot represent.
+		expect(resolveModelPrice('googleai', 'gemini-3.7-flash', undefined)).toBeUndefined()
+	})
+
 	it('reports an unknown model as unpriced rather than guessing', () => {
 		expect(resolveModelPrice('customai', 'some-in-house-model', undefined)).toBeUndefined()
 	})
@@ -90,17 +102,17 @@ describe('resolveModelPrice', () => {
 	})
 
 	it('bills an unpriced model’s cached tokens at its input rate', () => {
-		// Gemini has no built-in entry, so there is no ratio to inherit. Falling back
-		// to Anthropic's tenth would invent a discount the provider may not give; the
-		// admin states the cache rates explicitly or pays full input.
-		const resolved = resolveModelPrice('googleai', 'gemini-2.5-flash', {
-			'googleai:gemini-2.5-flash': { input: 2, output: 8 }
+		// Gemini Pro is deliberately unpriced, so there is no ratio to inherit. Falling
+		// back to Anthropic's tenth would invent a discount the provider may not give;
+		// the admin states the cache rates explicitly or pays full input.
+		const resolved = resolveModelPrice('googleai', 'gemini-2.5-pro', {
+			'googleai:gemini-2.5-pro': { input: 2, output: 8 }
 		})
 		expect(resolved?.price.cacheRead).toBe(2)
 		expect(resolved?.price.cacheWrite).toBe(2)
 
-		const stated = resolveModelPrice('googleai', 'gemini-2.5-flash', {
-			'googleai:gemini-2.5-flash': { input: 2, output: 8, cache_read: 0.5, cache_write: 1 }
+		const stated = resolveModelPrice('googleai', 'gemini-2.5-pro', {
+			'googleai:gemini-2.5-pro': { input: 2, output: 8, cache_read: 0.5, cache_write: 1 }
 		})
 		expect(stated?.price.cacheRead).toBe(0.5)
 		expect(stated?.price.cacheWrite).toBe(1)

@@ -114,10 +114,18 @@ const MODEL_PRICES: [name: string, price: PriceEntry | null][] = [
 	['o4-mini', { input: 1.1, output: 4.4, cacheRead: 0.275 }],
 	['o3-mini', { input: 1.1, output: 4.4, cacheRead: 0.55 }],
 	['o3', { input: 2, output: 8, cacheRead: 0.5 }],
-	// Google — left unpriced. Gemini's cached-input rates do not follow a single
-	// ratio and its Pro tier charges more above a context threshold, which a flat
-	// per-model rate cannot express; an estimate here would be wrong in a direction
-	// nobody can see. A workspace that runs Gemini sets its own rates.
+	// Google — Flash takes a flat rate and is priced; Pro is not, because both its
+	// input and output roughly double above a 200k-token prompt and a per-model rate
+	// cannot express a threshold. Explicit context caching also bills storage per hour,
+	// which nothing here represents, so a workspace using it sees an underestimate.
+	// Gemini 3.7 and 3.6 Flash run a promotional rate with an end date, and stay
+	// unpriced for the same reason Sonnet 5 does.
+	['gemini-2.5-flash-lite', { input: 0.1, output: 0.4, cacheRead: 0.01 }],
+	['gemini-2.5-flash', { input: 0.3, output: 2.5, cacheRead: 0.03 }],
+	['gemini-3.5-flash-lite', { input: 0.3, output: 2.5, cacheRead: 0.03 }],
+	['gemini-3.5-flash', { input: 1.5, output: 9, cacheRead: 0.15 }],
+	['gemini-3.7', null],
+	['gemini-3.6', null],
 	['gemini-3.1', null],
 	['gemini-3', null],
 	['gemini-2.5', null]
