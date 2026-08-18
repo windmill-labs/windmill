@@ -56,6 +56,7 @@ import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '..
 import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
+import { isCloudHosted } from '$lib/cloud'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -114,6 +115,7 @@ import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
 import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
+import type { Runnable } from '$lib/components/apps/inputType'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -295,7 +297,7 @@ const getInstructionsSchema = z.object({
 	language: scriptLangSchema
 		.optional()
 		.describe(
-			'The target language. Required when subject is script. For subject "datatable" it selects which SDK to return (e.g. "bun" for TypeScript, "python3" for Python) and defaults to TypeScript if omitted. Use the existing language when modifying, or the requested target language when creating. Other subjects ignore it.'
+			'The target language. Required when subject is script. For subjects "datatable" and "app" it selects which SDK reference to return (e.g. "bun" for TypeScript, "python3" for Python) and defaults to TypeScript if omitted. Use the existing language when modifying, or the requested target language when creating. Other subjects ignore it.'
 		)
 })
 
@@ -1029,6 +1031,21 @@ const deleteAppRunnableSchema = z.object({
 	key: z.string().describe('Key of the backend runnable to remove.')
 })
 
+const testRunAppRunnableSchema = z.object({
+	path: z.string().describe('Workspace path of the app.'),
+	key: z.string().describe('Key of the backend runnable to run.'),
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
+})
+
+const testRunAppRunnableToolDef = createToolDef(
+	testRunAppRunnableSchema,
+	'test_run_app_runnable',
+	"Run one of an app's backend runnables with test arguments, the same way the app's frontend runs it. An inline runnable executes the draft code; a path runnable executes the deployed script/flow it points at.",
+	{ strict: false }
+)
+
 const openPreviewSchema = z.object({
 	kind: z
 		.enum(['script', 'flow', 'raw_app', 'pipeline'])
@@ -1224,9 +1241,20 @@ const buildGlobalSystemPrompt = (
 		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the row the page is anchored at, whose drawer the user opened) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
 		: ''
 	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
+	// Edition and hosting change which features exist and how the product behaves.
+	// Read from the stores rather than guessed at mid-conversation; both are cheap
+	// enough to sit in the cached prefix. Deliberately no base URL: runnable code
+	// must never build one (the SDK is already configured), and offering one here
+	// is what invites a hardcoded URL into a script.
+	const instanceLine = `This is ${
+		isCloudHosted() ? 'Windmill Cloud (app.windmill.dev)' : 'a self-hosted Windmill instance'
+	}, running ${
+		get(enterpriseLicense) ? 'Enterprise Edition' : 'Community Edition'
+	}. Use that to judge whether a feature is available before promising it.`
+
 	return `You are Windmill's global workspace assistant.
 
-The current user's workspace username is "${username}".
+The current user's workspace username is "${username}". ${instanceLine}
 
 Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.
 
@@ -1252,6 +1280,7 @@ Rules:
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
+- Do the same for a raw app: run test_run_app_runnable on each backend runnable you wrote or changed before saying the app works. A bundle that compiles proves nothing about whether the runnables run. An inline runnable executes the app's draft code; a path runnable executes the DEPLOYED script/flow it names, so a path runnable aimed at something you have not deployed fails here — that failure is the point, report it and deploy the target rather than working around it.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
@@ -2097,7 +2126,7 @@ ${getFlowPrompt()}`
 
 type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
 
-function getAppInstructions(): string {
+function getAppInstructions(language?: ScriptLang): string {
 	return `# Global draft app instructions
 
 - Global mode edits raw app drafts only; it does not save or deploy unless the user explicitly asks to deploy.
@@ -2108,6 +2137,8 @@ function getAppInstructions(): string {
 - Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
 - Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
+- Inline runnables run the app's DRAFT code, so they work in the preview with nothing deployed. Path runnables — and \`wmill.runFlow*\` / \`runScriptByPath\` called from inside any runnable — run the DEPLOYED item at that path, and a draft is invisible to them. An app wired to a flow you just drafted does nothing until that flow is deployed: tell the user which items have to be deployed and get them deployed. Never dodge it by reimplementing the flow inside an inline runnable — that leaves two copies of the same logic and an app that ignores the flow they asked for.
+- The authoring reference below carries the TypeScript SDK. For a \`python3\` runnable, call \`get_instructions\` again with \`subject: "app"\` and \`language: "python3"\`.
 - Use \`deploy_workspace_item\` after explicit user deploy intent. The deploy tool bundles JS/CSS before saving the raw app.
 - Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file; large files are truncated to a head slice, so pass \`offset\`/\`limit\` to page through the rest rather than re-reading the whole file.
 - To find where a symbol or string lives across the app, call \`search_app\` (greps every frontend file and inline runnable, returns matching \`file:line\` rows) instead of reading files one by one — then \`read_app_file\` only the ranges you need. The loop is list (\`read_workspace_item\`) → locate (\`search_app\`) → inspect (\`read_app_file\` with \`offset\`/\`limit\`).
@@ -2115,7 +2146,7 @@ function getAppInstructions(): string {
 
 # Windmill raw app authoring reference
 
-${getRawAppPrompt()}`
+${getRawAppPrompt(language)}`
 }
 
 function getResourceInstructions(): string {
@@ -2162,7 +2193,7 @@ function getInstructions(subject: InstructionSubject, language?: ScriptLang): st
 		case 'resource':
 			return getResourceInstructions()
 		case 'app':
-			return getAppInstructions()
+			return getAppInstructions(language)
 		case 'datatable':
 			return getDatatableInstructions(language)
 		case 'pipeline':
@@ -3789,6 +3820,19 @@ export const globalTools: Tool<{}>[] = [
 			return deleteAppRunnable(parsed, ctx)
 		}
 	},
+	{
+		def: testRunAppRunnableToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunAppRunnableSchema.parse(ctx.args)
+			return testRunAppRunnable(parsed, ctx)
+		},
+		requiresConfirmation: true,
+		confirmationMessage: (args) =>
+			`Run the backend runnable "${args?.key ?? ''}" of ${pathLeaf(args?.path, 'the app')}`,
+		queuedLabel: (args) => `Test runnable "${args?.key ?? ''}" of ${args?.path ?? 'the app'}`,
+		showDetails: true,
+		autoCollapseDetails: false
+	},
 	...artifactTools,
 	{
 		def: createToolDef(
@@ -4549,15 +4593,15 @@ function maybeAttachPreviewCard(
 function finishAppDraftWrite(
 	result: DraftPersistResult,
 	ctx: WriteDraftCtx,
-	onSaved: () => { content: string; message: string }
+	onSaved: () => { content: string; message: string; warning?: string }
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
-	const { content, message } = onSaved()
+	const { content, message, warning } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
-	return JSON.stringify({ success: true, message }, null, 2)
+	return JSON.stringify({ success: true, message, warning }, null, 2)
 }
 
 function finishDraftWrite(
@@ -5662,11 +5706,86 @@ async function writeAppRunnable(
 	const persisted = buildPersistedRunnable(input, existing)
 	value.runnables = { ...value.runnables, [key]: persisted }
 	await recomputeAppPolicy(value)
+	const undeployed = await undeployedRunnableTargets(workspace, { [key]: persisted })
 	const result = await saveAppDraft(workspace, path, value)
 	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Updated runnable "${key}" in app "${path}"`,
-		message: `Updated draft app "${path}" with runnable "${key}".`
+		message: `Updated draft app "${path}" with runnable "${key}".`,
+		warning: undeployed.length
+			? `Runnable ${undeployed[0]} is not deployed, so this runnable fails at runtime — a path runnable ` +
+				`runs the deployed item, never a draft. Deploy that item (or inline its logic) and tell the user ` +
+				`it has to be deployed for the app to work.`
+			: undefined
 	}))
+}
+
+/**
+ * Run one backend runnable the way the app's own frontend runs it: through
+ * `execute_component` in preview mode, so an inline runnable executes the draft
+ * code (nothing has to be deployed) and a path runnable executes the deployed
+ * script/flow it names. Without this the chat can only wire an app up and hope —
+ * it has no way to find out that a runnable throws until a user clicks it.
+ */
+async function testRunAppRunnable(
+	args: z.infer<typeof testRunAppRunnableSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { path, key } = args
+
+	const { value } = await loadAppDraftValue(path, workspace)
+	const runnable = value.runnables?.[key] as PersistedRunnable | undefined
+	if (!runnable) {
+		const known = Object.keys(value.runnables ?? {})
+		throw new Error(
+			`App "${path}" has no backend runnable "${key}".` +
+				(known.length ? ` Available runnables: ${known.join(', ')}.` : '')
+		)
+	}
+
+	const testArgs = normalizeTestRunArgs(args.args)
+	// Setting force_viewer_static_fields is what puts execute_component in preview
+	// mode (apps.rs `is_preview`), which is what makes inline draft code run at all.
+	// It must be sent even when the runnable has no static fields.
+	const staticFields = Object.fromEntries(
+		Object.entries(runnable.fields ?? {})
+			.filter(([, field]) => field?.type === 'static')
+			.map(([name, field]) => [name, field?.value])
+	)
+
+	// Imported lazily: statically pulling the apps module graph into the chat's
+	// import chain drags the whole app-editor runtime in behind it.
+	const { executeRunnable } = await import(
+		'$lib/components/apps/components/helpers/executeRunnable'
+	)
+
+	return executeTestRun({
+		jobStarter: () =>
+			executeRunnable(
+				runnable as unknown as Runnable,
+				workspace,
+				undefined,
+				get(userStore)?.username,
+				path,
+				key,
+				{
+					component: key,
+					args: testArgs,
+					force_viewer_static_fields: staticFields
+				},
+				undefined
+			),
+		workspace,
+		toolCallbacks,
+		toolId,
+		startMessage: `Running backend runnable "${key}" of app "${path}"...`,
+		// A path runnable pointing at a flow really does queue a flow job, so the
+		// failure path can offer get_flow_run_details; everything else is a script job.
+		contextName: runnable.runType === 'flow' ? 'flow' : 'script',
+		background: args.background,
+		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+		label: `${path} / ${key}`
+	})
 }
 
 async function deleteAppRunnable(
@@ -7034,6 +7153,16 @@ async function deployDraft(
 					throw new Error(`Draft app "${path}" has no policy to deploy.`)
 				}
 
+				// An app deployed on its own while a path runnable still points at a draft
+				// is deployed and broken — the deploy has to say so, not just report success.
+				const undeployedTargets = await undeployedRunnableTargets(workspace, appValue.runnables)
+				if (undeployedTargets.length > 0) {
+					deployNote =
+						`These backend runnables point at items that are NOT deployed, so they fail at runtime: ` +
+						`${undeployedTargets.join(', ')}. Deploy those items too, and tell the user the app is ` +
+						`not working until they are.`
+				}
+
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Bundling app "${path}"...`
 				})
@@ -7217,6 +7346,42 @@ async function validateDeleteWorkspaceItemTarget(args: {
 		? `No deployed ${type} at "${path}" — it only exists as a draft, so there is nothing to delete ` +
 				`from the workspace. Call discard_local_draft with the same arguments to remove the draft.`
 		: `No ${type} at "${path}": neither a deployed item nor a draft. Nothing to delete.`
+}
+
+/**
+ * A path runnable executes the DEPLOYED item at its path (`executeRunnable` sends
+ * `path: flow/<path>` to `execute_component`), so an app wired to a script or flow
+ * that only exists as a draft fails at runtime with no diagnostic. Writing one is
+ * still allowed — building the flow and the app together, then deploying both, is
+ * the normal order — but the missing deployment has to be visible.
+ *
+ * Hub scripts live outside the workspace and have no deployed/draft distinction,
+ * so they are not probed.
+ */
+async function undeployedRunnableTargets(
+	workspace: string,
+	runnables: Record<string, { type?: string; runType?: string; path?: string } | undefined>
+): Promise<string[]> {
+	const targets: string[] = []
+	for (const [key, runnable] of Object.entries(runnables)) {
+		// Persisted runnables are `{ type: 'path' | 'runnableByPath', runType: 'script' |
+		// 'flow' | 'hubscript' }`; the write tool's input names the kind in `type` directly.
+		const type =
+			runnable?.type === 'path' || runnable?.type === 'runnableByPath'
+				? runnable?.runType
+				: runnable?.type
+		const path = runnable?.path
+		if ((type !== 'script' && type !== 'flow') || !path) continue
+		try {
+			if (await deployedItemExists(workspace, type, path, undefined)) continue
+		} catch {
+			// The probe is advisory: a lookup failure must never block the write or
+			// the deploy it annotates.
+			continue
+		}
+		targets.push(`"${key}" → ${type} "${path}"`)
+	}
+	return targets
 }
 
 async function deployedItemExists(

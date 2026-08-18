@@ -70,6 +70,7 @@ export function createGlobalModeRunner(
         toolsUsed: result.toolsUsed,
         toolCallDetails: result.toolCallDetails,
         skillsInvoked: [],
+        assistantText: result.assistantText,
         tokenUsage: result.tokenUsage,
         finalContextTokens: result.finalContextTokens,
       };

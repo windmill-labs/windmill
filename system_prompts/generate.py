@@ -726,10 +726,23 @@ viewer when the run was triggered from an app and empty otherwise (both variable
 defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username."""
 
 
+# The client is pre-configured from the job's environment. Agents that miss this go hunting for a
+# base URL and a token, guess an env var that is not set, fall back to localhost and get a refused
+# connection or a 403 from the job's scoped token.
+PRECONFIGURED_CLIENT = """The client is already authenticated against this instance and workspace — there is nothing to
+configure. Never read WM_TOKEN, BASE_INTERNAL_URL or WM_BASE_URL, and never build an API URL to
+call with an HTTP client: those variables are not guaranteed to be set, a missing one falls back to
+localhost and refuses the connection, and a job's token is scoped, so a hand-rolled REST call gets a
+403 where the equivalent SDK call succeeds. Use the SDK for everything Windmill, and raw HTTP only
+for third-party APIs. A function that is not listed below does not exist — pick one that is rather
+than inventing a name."""
+
+
 def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:
     """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
     md += "Import: import * as wmill from 'windmill-client'\n\n"
+    md += PRECONFIGURED_CLIENT + "\n\n"
     md += IDENTITY_OF_THE_RUN_TS + "\n\n"
 
     for i, func in enumerate(functions):
@@ -753,6 +766,7 @@ def generate_py_sdk_markdown(functions: list[dict], _classes: list[dict]) -> str
     """Generate compact documentation for Python SDK."""
     md = "# Python SDK (wmill)\n\n"
     md += "Import: import wmill\n\n"
+    md += PRECONFIGURED_CLIENT + "\n\n"
     md += IDENTITY_OF_THE_RUN_PY + "\n\n"
 
     for func in functions:
@@ -2644,9 +2658,19 @@ export function getResourcePrompt(): string {
   return prompts.RESOURCES_BASE;
 }
 
-// Helper for raw app authoring (chat consumers)
-export function getRawAppPrompt(): string {
-  return prompts.RAW_APP_BASE;
+// Helper for raw app authoring (chat consumers). Inline backend runnables are
+// ordinary Windmill jobs, so the reference has to carry the SDK the runnable
+// calls — without it an agent invents client functions and hand-rolls HTTP.
+// Only one SDK is returned: both would double an already large tool result.
+export function getRawAppPrompt(language?: string): string {
+  const sdkPrompt = PY_SDK_LANGUAGES.includes(language ?? '')
+    ? prompts.SDK_PYTHON
+    : prompts.SDK_TYPESCRIPT;
+
+  return [
+    prompts.RAW_APP_BASE,
+    sdkPrompt
+  ].filter(Boolean).join('\\n\\n');
 }
 
 // Helper for data pipeline authoring (chat consumers)
@@ -2705,7 +2729,7 @@ export function getWorkflowAsCodePrompt(language?: string): string {
 export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
-export declare function getRawAppPrompt(): string;
+export declare function getRawAppPrompt(language?: string): string;
 export declare function getPipelinePrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;

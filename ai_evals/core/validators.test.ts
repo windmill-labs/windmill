@@ -4,6 +4,7 @@ import {
   validateCliWorkspace,
   validateGlobalState,
   validateScriptState,
+  validateAssistantExpectations,
   validateToolExpectations,
 } from "./validators";
 
@@ -190,6 +191,28 @@ describe("validateToolExpectations", () => {
       passed: false,
       details: "tools used: write_script, deploy_workspace_item",
     });
+  });
+
+  it("checks assistant mentions across the whole run, not just the last turn", () => {
+    const run = {
+      success: true,
+      actual: {},
+      assistantMessageCount: 2,
+      toolCallCount: 0,
+      toolsUsed: [],
+      skillsInvoked: [],
+      assistantText: "Wired the app up.\nThe flow HAS TO BE DEPLOYED before the app works.",
+    };
+
+    const checks = validateAssistantExpectations({
+      run,
+      assistantExpect: {
+        requiredMentionsAnyOf: [["must be deployed", "has to be deployed"], ["never said"]],
+        forbiddenMentions: ["WM_TOKEN"],
+      },
+    });
+
+    expect(checks.map((c) => c.passed)).toEqual([true, false, true]);
   });
 
   it("accepts a stringIncludesAnyOf substring regardless of case or position", () => {

@@ -658,16 +658,50 @@ The frontend imports a generated module that mirrors the backend runnables. **Ne
 
 ### Calling backend runnables
 
-Import the generated bindings and call the runnable like a function:
+Import the generated bindings and call the runnable like a function. \`./wmill\` is the **only** way the frontend reaches anything server-side — datatables, workspace items, external services. Never \`fetch\` the Windmill API from frontend code: the bundle holds no token and builds no API URL.
 
-\`\`\`typescript
+| Export | Resolves to | Use it for |
+|---|---|---|
+| \`backend.<key>(args)\` | the runnable's result | the default — run and wait |
+| \`backendAsync.<key>(args)\` | the **job id** (a string) | long-running work you want to track |
+| \`waitJob(jobId)\` | the job's **result** (rejects if the job failed) | awaiting a \`backendAsync\` job |
+| \`getJob(jobId)\` | a \`Job\` (\`{ type, success, result, duration_ms, ... }\`) | polling status without blocking |
+| \`streamJob(jobId, onUpdate?)\` | the final result, calling \`onUpdate\` per chunk | showing output as it is produced |
+
+Run and wait — the common case:
+
+\`\`\`tsx
 import { backend } from './wmill';
 
-// Call a backend runnable
 const user = await backend.get_user({ user_id: '123' });
 \`\`\`
 
-The frontend cannot reach datatables, workspace items, or external services on its own — it goes through \`backend.<key>(args)\` for everything server-side.
+Start a long job, then await it:
+
+\`\`\`tsx
+import { backendAsync, waitJob } from './wmill';
+
+const jobId = await backendAsync.run_report({ month: '2026-08' }); // a string
+const report = await waitJob(jobId);                               // the result itself
+\`\`\`
+
+Or poll it without blocking, to render progress:
+
+\`\`\`tsx
+import { getJob } from './wmill';
+
+const job = await getJob(jobId);
+if (job.type === 'CompletedJob') setReport(job.result);
+\`\`\`
+
+\`backendAsync\` resolves a job id and nothing else — guard on it before storing or polling. A poll loop started on an \`undefined\` id never completes and shows as a row stuck "running" forever:
+
+\`\`\`tsx
+const jobId = await backendAsync.run_report(args);
+if (!jobId) throw new Error('run_report did not start a job');
+\`\`\`
+
+**Never hand-write a job-polling runnable.** A backend runnable that calls \`jobs/list\`, or that returns \`getResultMaybe(...)\` for the frontend to poll, reimplements \`backendAsync\` + \`waitJob\` / \`getJob\` / \`streamJob\` — and it is what leads to guessing at base URLs and tokens.
 
 ### Keeping data out of recorded demos
 
@@ -719,9 +753,28 @@ def main(user_id: str):
     return user
 \`\`\`
 
+#### The \`wmill\` client is already authenticated
+
+An inline runnable runs as an ordinary Windmill job. \`import * as wmill from 'windmill-client'\` (TypeScript) and \`import wmill\` (Python) are already pointed at this instance and this workspace — there is nothing to configure.
+
+**Never read \`WM_TOKEN\`, \`BASE_INTERNAL_URL\` or \`WM_BASE_URL\`, and never build an API URL to \`fetch\`.** Those variables are not guaranteed to be set; a missing one falls back to \`localhost:8000\`, which refuses the connection. A job's token is also scoped, so a hand-rolled REST call gets a 403 where the equivalent \`wmill.*\` call succeeds. Use \`wmill.*\` for everything Windmill, and \`fetch\` only for third-party APIs.
+
+Only call \`wmill\` functions that appear in the SDK reference. A plausible-looking name that is not listed there does not exist — \`getBaseUrl\`, \`getWorkspaceToken\` and friends are inventions, not API.
+
 ### Path runnables (script / flow / hubscript)
 
 When \`type\` is \`script\`, \`flow\`, or \`hubscript\`, the runnable just stores a \`path\` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface.
+
+### Draft code vs deployed code
+
+This decides whether an app works before anything is deployed:
+
+- **Inline runnables run the app's current code.** The editor sends the runnable's source with each request, so an inline runnable works in the preview with nothing deployed.
+- **Path runnables (\`script\` / \`flow\` / \`hubscript\`) run the DEPLOYED item at that path.** So do \`wmill.runFlow\`, \`wmill.runFlowAsync\` and \`wmill.runScriptByPath\` called from inside a runnable. A draft — including a draft you just created — does not exist for them.
+
+So an app wired to a flow you just wrote does nothing until **that flow is deployed**, even while the app itself is still a draft. Say plainly which items have to be deployed, and get them deployed — an app deployed on its own, still pointing at a draft flow, is broken. Do NOT quietly reimplement the flow inside an inline runnable to dodge the deployment: that leaves the user with two copies of the same logic and an app that ignores the flow they asked for. Inline the logic only when the user actually wants it inline.
+
+Prefer a **path runnable of type \`flow\`** over an inline runnable that calls \`wmill.runFlowAsync\`. The path runnable gives the frontend the flow's real input schema and works with \`backend\` / \`backendAsync\` / \`waitJob\` like any other runnable; a hand-written wrapper gives up all of that.
 
 ### Static inputs
 
@@ -784,6 +837,8 @@ def main(user_id: str):
 4. **Use descriptive keys** — \`get_user\`, not \`a\`.
 5. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in \`data.tables\` first.
 6. **Mark sensitive UI with \`data-wm-no-record\`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
+7. **Reach for \`backendAsync\` + \`waitJob\`** for long work — never a hand-written job-polling runnable.
+8. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
 `;
 
 export const PIPELINE_BASE = `# Data pipeline authoring
@@ -1120,6 +1175,14 @@ set_failure_module({
 export const SDK_TYPESCRIPT = `# TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'
+
+The client is already authenticated against this instance and workspace — there is nothing to
+configure. Never read WM_TOKEN, BASE_INTERNAL_URL or WM_BASE_URL, and never build an API URL to
+call with an HTTP client: those variables are not guaranteed to be set, a missing one falls back to
+localhost and refuses the connection, and a job's token is scoped, so a hand-rolled REST call gets a
+403 where the equivalent SDK call succeeds. Use the SDK for everything Windmill, and raw HTTP only
+for third-party APIs. A function that is not listed below does not exist — pick one that is rather
+than inventing a name.
 
 To know who is running the script, read the contextual variables rather than calling the API:
 \`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL\`. WM_END_USER_EMAIL is the app viewer when
@@ -1722,6 +1785,14 @@ appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,): SqlStatem
 export const SDK_PYTHON = `# Python SDK (wmill)
 
 Import: import wmill
+
+The client is already authenticated against this instance and workspace — there is nothing to
+configure. Never read WM_TOKEN, BASE_INTERNAL_URL or WM_BASE_URL, and never build an API URL to
+call with an HTTP client: those variables are not guaranteed to be set, a missing one falls back to
+localhost and refuses the connection, and a job's token is scoped, so a hand-rolled REST call gets a
+403 where the equivalent SDK call succeeds. Use the SDK for everything Windmill, and raw HTTP only
+for third-party APIs. A function that is not listed below does not exist — pick one that is rather
+than inventing a name.
 
 To know who is running the script, read the contextual variables rather than calling the API:
 \`os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")\`. WM_END_USER_EMAIL is the app

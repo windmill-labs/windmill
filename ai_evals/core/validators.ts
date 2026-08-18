@@ -2,6 +2,7 @@ import path from "node:path";
 import ts from "typescript";
 import type {
   AppValidationSpec,
+  AssistantValidationSpec,
   BenchmarkCheck,
   CliTrace,
   CliValidationSpec,
@@ -158,6 +159,40 @@ function valueIncludesAnyOf(value: unknown, lowercaseNeedles: string[]): boolean
   return haystacks.some((hay) =>
     lowercaseNeedles.some((needle) => hay.toLowerCase().includes(needle))
   );
+}
+
+export function validateAssistantExpectations(input: {
+  run: ModeRunOutput<unknown>;
+  assistantExpect?: AssistantValidationSpec;
+}): BenchmarkCheck[] {
+  const expect = input.assistantExpect;
+  if (!expect) {
+    return [];
+  }
+  const text = input.run.assistantText ?? "";
+  const checks: BenchmarkCheck[] = [];
+
+  for (const phrases of expect.requiredMentionsAnyOf ?? []) {
+    checks.push(
+      check(
+        `assistant mentions one of: ${phrases.join(" / ")}`,
+        phrases.some((phrase) => assistantMentions(text, phrase)),
+        truncateForDetails(text)
+      )
+    );
+  }
+
+  for (const phrase of expect.forbiddenMentions ?? []) {
+    checks.push(
+      check(
+        `assistant does not mention '${phrase}'`,
+        !assistantMentions(text, phrase),
+        truncateForDetails(text)
+      )
+    );
+  }
+
+  return checks;
 }
 
 export function validateToolExpectations(input: {

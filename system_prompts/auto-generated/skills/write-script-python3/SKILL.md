@@ -187,6 +187,14 @@ result: S3Object = wmill.write_s3_file(
 
 Import: import wmill
 
+The client is already authenticated against this instance and workspace — there is nothing to
+configure. Never read WM_TOKEN, BASE_INTERNAL_URL or WM_BASE_URL, and never build an API URL to
+call with an HTTP client: those variables are not guaranteed to be set, a missing one falls back to
+localhost and refuses the connection, and a job's token is scoped, so a hand-rolled REST call gets a
+403 where the equivalent SDK call succeeds. Use the SDK for everything Windmill, and raw HTTP only
+for third-party APIs. A function that is not listed below does not exist — pick one that is rather
+than inventing a name.
+
 To know who is running the script, read the contextual variables rather than calling the API:
 `os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
 viewer when the run was triggered from an app and empty otherwise (both variables are always

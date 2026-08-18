@@ -1803,6 +1803,41 @@ describe('global AI tools', () => {
 		expect(getBackendDraft('raw_app', 'u/admin/live_app', { workspace: WORKSPACE })).toBeUndefined()
 	})
 
+	// A path runnable executes the DEPLOYED item, so pointing one at a draft-only flow
+	// produces an app that silently does nothing. The write still succeeds — flow and app
+	// are normally built together — but the model has to be told what is missing.
+	it('warns when a path runnable points at an item that is not deployed', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/wired_app',
+			{ summary: 'Wired app', files: {}, runnables: {}, data: { tables: [] } },
+			{ workspace: WORKSPACE }
+		)
+
+		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(false)
+		const undeployed = JSON.parse(
+			await callGlobalTool('write_app_runnable', {
+				path: 'u/admin/wired_app',
+				key: 'run_flow',
+				runnable: { name: 'Run the flow', type: 'flow', path: 'u/admin/hello_flow' }
+			})
+		)
+		expect(undeployed.success).toBe(true)
+		expect(undeployed.warning).toContain('u/admin/hello_flow')
+		expect(undeployed.warning).toContain('not deployed')
+
+		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
+		const deployed = JSON.parse(
+			await callGlobalTool('write_app_runnable', {
+				path: 'u/admin/wired_app',
+				key: 'run_flow',
+				runnable: { name: 'Run the flow', type: 'flow', path: 'u/admin/hello_flow' }
+			})
+		)
+		expect(deployed.success).toBe(true)
+		expect(deployed.warning).toBeUndefined()
+	})
+
 	it('does not echo the app value back to the model on write', async () => {
 		const sentinel = 'SENTINEL_DO_NOT_ECHO_DEADBEEF'
 		seedBackendDraft(

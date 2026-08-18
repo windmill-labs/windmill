@@ -261,10 +261,10 @@ export type Job = {
 };
 
 /**
- * Execute a job and wait for it to complete and return the completed job
+ * Wait for a job to complete and return its result. Rejects if the job failed.
  * @param id
  */
-export declare function waitJob(id: string): Promise<Job>;
+export declare function waitJob(id: string): Promise<any>;
 
 /**
  * Get a job by id and return immediately with the current state of the job
