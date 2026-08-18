@@ -65,7 +65,7 @@
 			color="light"
 			spacingSize="xs2"
 			startIcon={{ icon: WandSparkles }}
-			on:click={() => sessionScopedManager.sendRequest({ instructions: seedPrompt })}
+			on:click={() => sessionScopedManager.sendOrQueue(seedPrompt)}
 			btnClasses={AIBtnClasses('default')}
 		>
 			AI Fix

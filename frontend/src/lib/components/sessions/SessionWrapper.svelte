@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import SessionsBetaBanner from './SessionsBetaBanner.svelte'
@@ -77,23 +77,30 @@
 	// record (script-init: AIChatInput reads it once at mount).
 	const restoredDraftPrompt = getSessionDraftPrompt(sessionId)
 
-	// A hand-off whose click already stated the intent asks for its prompt to be
-	// sent, not parked. Claimed only for the session the user actually landed on:
-	// wrappers also mount for background sessions, and consuming there would fire
-	// the turn off-screen. Claimed at script-init so the composer starts empty
-	// rather than briefly showing text that is already on its way.
-	const autoSendPrompt =
-		sessionState.currentSessionId === sessionId &&
-		restoredDraftPrompt &&
-		takeSessionAutoSend(sessionId)
-			? restoredDraftPrompt
-			: undefined
+	// Whether the prompt read above is already on its way, so the composer starts
+	// empty instead of briefly showing text the effect below is about to send.
+	const armedAtInit = !!initialSession?.autoSendDraftAt
 
-	onMount(() => {
-		if (!autoSendPrompt || !runtime) return
-		// The runtime's beforeSend awaits loadCopilot for the committed workspace,
-		// so this cannot race the model config even on a cold session.
-		void runtime.manager.sendRequest({ instructions: autoSendPrompt })
+	// A hand-off whose click already stated the intent asks for its prompt to be
+	// sent, not parked. Reactive rather than mount-time: `createSession` reuses an
+	// untouched blank session and the sessions page keys wrappers by id, so a
+	// hand-off fired from `/sessions` can arm the session already on screen —
+	// whose wrapper never re-initializes, leaving an init-time claim to never run
+	// and the prompt to never be sent. Claimed only for the session the user
+	// landed on; a background wrapper would fire the turn off-screen.
+	$effect(() => {
+		if (sessionState.currentSessionId !== sessionId) return
+		if (!session?.autoSendDraftAt || !runtime) return
+		untrack(() => {
+			const prompt = getSessionDraftPrompt(sessionId)
+			// takeSessionAutoSend clears the intent whether or not it is still
+			// fresh, so this cannot re-enter on the next dependency change.
+			if (!takeSessionAutoSend(sessionId) || !prompt) return
+			// sendOrQueue, not sendRequest: a reused session may already be mid-turn.
+			// The runtime's beforeSend awaits loadCopilot for the committed
+			// workspace, so this cannot race the model config on a cold session.
+			runtime.manager.sendOrQueue(prompt)
+		})
 	})
 
 	// The workspace the session acts on, shown in the header "Acting on" strip via the shared
@@ -442,7 +449,7 @@
 						hideHeader
 						hideModeSelector
 						wideLayout
-						initialInstructions={autoSendPrompt ? undefined : restoredDraftPrompt}
+						initialInstructions={armedAtInit ? undefined : restoredDraftPrompt}
 						onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
 						forceDisabled={isUnavailable || !!session.archived}
 						forceDisabledMessage={isUnavailable

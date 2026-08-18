@@ -130,11 +130,14 @@ export type Session = {
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
 	draftPrompt?: string
-	// Send `draftPrompt` on mount instead of parking it in the composer. Set by
-	// hand-offs whose click already stated the intent ("AI Fix", a typed step or
-	// app description), so they land mid-answer rather than waiting for a second
-	// Enter. Consumed exactly once, by takeSessionAutoSend.
-	autoSendDraft?: boolean
+	// When `draftPrompt` should be sent on arrival rather than parked in the
+	// composer. Set by hand-offs whose click already stated the intent ("AI Fix",
+	// a typed step or app description), so they land mid-answer rather than
+	// waiting for a second Enter. Holds the arming time, not a flag: `goto`
+	// resolves even when a `beforeNavigate` cancels it, so an abandoned hand-off
+	// would otherwise leave a session armed forever and fire on some later visit.
+	// Consumed exactly once, by takeSessionAutoSend.
+	autoSendDraftAt?: number
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
@@ -353,24 +356,30 @@ export function getSessionDraftPrompt(sessionId: string): string | undefined {
 	return s.draftPrompt
 }
 
-// Mark this session's draft prompt for sending on mount. Written straight to the
-// record (not via setSessionDraftPrompt's debounce) because the navigation that
-// follows must not outrun it.
+// A hand-off arrives within a navigation; anything older than this is the debris
+// of one that never landed, and must not fire at whatever the user does next.
+const AUTO_SEND_TTL_MS = 5 * 60_000
+
+// Mark this session's draft prompt for sending on arrival. Written straight to
+// the record (not via setSessionDraftPrompt's debounce) because the navigation
+// that follows must not outrun it.
 export function setSessionAutoSend(sessionId: string): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s) return
-	s.autoSendDraft = true
+	s.autoSendDraftAt = Date.now()
 	persistTouched(s)
 }
 
 // Claim the auto-send intent, clearing it so a remount (or a second wrapper for
-// the same session) cannot fire the same prompt twice.
+// the same session) cannot fire the same prompt twice. A stale claim is dropped
+// rather than honoured, but still cleared — it has no other consumer.
 export function takeSessionAutoSend(sessionId: string): boolean {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
-	if (!s?.autoSendDraft) return false
-	delete s.autoSendDraft
+	if (!s?.autoSendDraftAt) return false
+	const fresh = Date.now() - s.autoSendDraftAt < AUTO_SEND_TTL_MS
+	delete s.autoSendDraftAt
 	persistTouched(s)
-	return true
+	return fresh
 }
 
 // Persist a session on a genuine user edit, promoting an in-memory-only

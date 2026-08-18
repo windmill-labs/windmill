@@ -398,9 +398,9 @@
 							// changeMode is persistent, so it would strand the session outside
 							// GLOBAL. Global mode writes step code through set_flow_module_code.
 							if (sessionScopedManager) {
-								void sessionScopedManager.sendRequest({
-									instructions: stepInstructionsPrompt(detail.moduleId, detail.instructions)
-								})
+								sessionScopedManager.sendOrQueue(
+									stepInstructionsPrompt(detail.moduleId, detail.instructions)
+								)
 								return
 							}
 							if (!aiChatManager.open) {

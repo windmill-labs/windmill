@@ -1775,6 +1775,19 @@ export class AIChatManager {
 	}
 
 	/** Remove the queued message and put it back into the input, images included. */
+	/** Send `text` as a turn, or queue it when one is already streaming. Callers
+	 * that send programmatically (an editor button, an arriving hand-off) must go
+	 * through this rather than `sendRequest`: a second concurrent loop shares this
+	 * manager's abort controller and transcript, so the two interleave and Stop
+	 * halts only one. It is the rule the composer already follows. */
+	sendOrQueue(text: string) {
+		if (this.loading) {
+			this.queueMessage(text)
+			return
+		}
+		void this.sendRequest({ instructions: text })
+	}
+
 	dequeueMessage() {
 		if (!this.#hasQueuedMessage()) {
 			return

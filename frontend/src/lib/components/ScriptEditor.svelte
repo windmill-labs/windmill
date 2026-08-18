@@ -95,7 +95,7 @@
 	import OpenInSessionButton, {
 		type OpenInSessionSource
 	} from './sessions/OpenInSessionButton.svelte'
-	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
+	import { getOpenInSessionHandoff, setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -283,8 +283,14 @@
 	// (the preview panel's "AI Fix"), mirroring FlowBuilder and RawAppEditor.
 	// Withheld under `disableAi` (same gate as the toolbar's own button): an embed
 	// that turned AI off must not get an entry point that navigates the host out
-	// to /sessions.
-	setOpenInSessionHandoff({ source: () => (disableAi ? undefined : sessionOpen) })
+	// to /sessions. Falls through to whatever an ancestor published when this
+	// editor has no target of its own: the drawer hosts (ScriptEditorDrawer,
+	// InlineScriptEditorDrawer) mount it without `sessionOpen`, and shadowing the
+	// enclosing builder there would drop their "AI Fix" onto the legacy path.
+	const parentHandoff = getOpenInSessionHandoff()
+	setOpenInSessionHandoff({
+		source: (opts) => (disableAi ? undefined : (sessionOpen ?? parentHandoff?.source(opts)))
+	})
 
 	$effect(() => {
 		onTestStateChange?.(testIsLoading)

@@ -245,11 +245,11 @@
 	// so the preview just opens the app.
 	setOpenInSessionHandoff({ source: () => sessionOpen })
 
-	/** Hand this app off to a fresh AI session with `seedPrompt` pre-filled.
-	 * Exposed for the template picker's "Start with AI": the route owns the
-	 * prompt, but the draft persistence the preview depends on lives here.
-	 * False when there is no path to open yet, so the caller can fall back
-	 * rather than swallow the click. */
+	/** Hand this app off to a fresh AI session, seeding `seedPrompt` and sending
+	 * it on arrival. Exposed for the template picker's "Start in AI session": the
+	 * route owns the prompt, but the draft persistence the preview depends on
+	 * lives here. False when there is no path to open yet, so the caller can fall
+	 * back rather than swallow the click. */
 	export async function openInSession(seedPrompt: string): Promise<boolean> {
 		if (!sessionOpen) return false
 		await openSourceInSession(sessionOpen, { seedPrompt, autoSend: true })
