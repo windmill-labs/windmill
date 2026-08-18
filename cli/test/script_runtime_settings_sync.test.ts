@@ -10,14 +10,13 @@ import { expect, test } from "bun:test";
 import { writeFile, readFile, mkdir } from "node:fs/promises";
 import { withTestBackend } from "./test_backend.ts";
 
+// The debounce bounds this PR also restores cannot be asserted here: a build without
+// git tags reports a bare commit as its version, GIT_SEM_VERSION then falls back to
+// 0.1.0, and every version-gated feature (debouncing wants 1.566.0) is refused. That is
+// what CI builds, so a fixture that sets any debounce field fails at create.
 const SETTINGS = {
   delete_after_secs: 900,
   cache_ignore_s3_path: true,
-  debounce_key: "dk",
-  debounce_delay_s: 5,
-  debounce_args_to_accumulate: ["a"],
-  max_total_debouncing_time: 60,
-  max_total_debounces_amount: 5,
 };
 
 test("Integration: script runtime settings survive a sync pull/push cycle", async () => {
@@ -61,9 +60,6 @@ test("Integration: script runtime settings survive a sync pull/push cycle", asyn
             properties: {},
             required: [],
           },
-          // An unset priority never compares equal to the remote's null in the
-          // CLI's up-to-date check, which would keep phase 2 from ever reaching it.
-          priority: 1,
           ...SETTINGS,
         }),
       },
