@@ -7,6 +7,7 @@
 	let { height = 24, width = 24 }: Props = $props()
 </script>
 
+<!-- #9E1209 per the official logo kit at ruby-lang.org/en/about/logo. CC BY-SA 2.5; the kit's LICENSE asks that the mark not represent anything other than the Ruby language. -->
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	xmlns:xlink="http://www.w3.org/1999/xlink"

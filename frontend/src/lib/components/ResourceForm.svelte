@@ -15,7 +15,6 @@
 	import Toggle from './Toggle.svelte'
 	import TestConnection from './TestConnection.svelte'
 	import { Pen } from 'lucide-svelte'
-	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import TestTriggerConnection from './triggers/TestTriggerConnection.svelte'
@@ -24,6 +23,7 @@
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Label from './Label.svelte'
+	import ResourcePathHint from './ResourcePathHint.svelte'
 
 	interface Props {
 		path: string
@@ -142,6 +142,10 @@
 	})
 </script>
 
+{#if !emptyString(resourceTypeInfo?.description)}
+	<GfmMarkdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} prose="sm" noPadding />
+{/if}
+
 {#if !hidePath}
 	<div>
 		{#if !can_write}
@@ -152,6 +156,7 @@
 			</div>
 		{/if}
 		<Label label="Path">
+			<ResourcePathHint />
 			<Path
 				disabled={initialPath != '' && !isOwner(initialPath, $userStore, ws)}
 				bind:path
@@ -172,15 +177,6 @@
 	>
 		<Toggle bind:checked={wsSpecific} />
 	</Label>
-{/if}
-
-{#if !emptyString(resourceTypeInfo?.description)}
-	<div class="flex flex-col gap-1">
-		<h4 class="text-xs text-emphasis font-semibold">{resourceTypeInfo?.name} description</h4>
-		<div class="text-xs text-primary font-normal">
-			<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
-		</div>
-	</div>
 {/if}
 
 <div class="flex flex-col gap-1">
@@ -210,9 +206,7 @@
 	{:else if description == undefined || description == ''}
 		<div class="text-xs text-secondary font-normal">No description provided</div>
 	{:else}
-		<div class="text-xs text-primary font-normal">
-			<GfmMarkdown md={description} noPadding />
-		</div>
+		<GfmMarkdown md={description} prose="sm" noPadding />
 	{/if}
 </div>
 

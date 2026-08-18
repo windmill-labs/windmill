@@ -55,11 +55,11 @@
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
-	import KafkaIcon from '../icons/KafkaIcon.svelte'
-	import NatsIcon from '../icons/NatsIcon.svelte'
-	import MqttIcon from '../icons/MqttIcon.svelte'
-	import AmqpIcon from '../icons/AmqpIcon.svelte'
-	import AwsIcon from '../icons/AwsIcon.svelte'
+	import KafkaIcon from '../icons/triggers/KafkaIcon.svelte'
+	import NatsIcon from '../icons/triggers/NatsIcon.svelte'
+	import MqttIcon from '../icons/triggers/MqttIcon.svelte'
+	import AmqpIcon from '../icons/triggers/AmqpIcon.svelte'
+	import AwsIcon from '../icons/triggers/AwsIcon.svelte'
 	import {
 		getAvailableNativeTriggerServices,
 		getServiceConfig,
@@ -74,8 +74,8 @@
 		MeltButton
 	} from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
-	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
-	import AzureIcon from '../icons/AzureIcon.svelte'
+	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
+	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
 	import { leaveCurrentWorkspace } from './leaveWorkspace'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 
