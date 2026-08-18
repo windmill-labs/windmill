@@ -23847,6 +23847,55 @@ paths:
                 items:
                   $ref: "#/components/schemas/AssetProgress"
 
+  /w/{workspace}/jobs/run_assets/{id}:
+    get:
+      summary: List the assets a run touched at runtime
+      description: >
+        Assets detected while the run executed (SDK S3 calls, resources passed as
+        arguments), aggregated over the job and all of its child jobs so a flow or
+        workflow-as-code run reports what its steps and tasks touched. Authorized
+        through the job, the same gate as `run_progress`. Recording is asynchronous,
+        so an asset can take a few minutes after the run to appear, and only the most
+        recent runs that touched an asset keep that record. A run that fans out can
+        touch more assets than one response should carry, so the list is capped and
+        `truncated` says when it was cut.
+      operationId: listRunAssets
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          description: The job whose runtime assets to read
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: assets this run and its child jobs touched
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assets, truncated]
+                properties:
+                  truncated:
+                    type: boolean
+                    description: whether the run touched more assets than are listed
+                  assets:
+                    type: array
+                    items:
+                      type: object
+                      required: [path, kind]
+                      properties:
+                        path:
+                          type: string
+                        kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        access_type:
+                          $ref: "#/components/schemas/AssetUsageAccessType"
+
   /w/{workspace}/assets/partitions_in_range:
     get:
       summary: List expected partitions of a ducklake asset in a date range with their materialization status (enterprise)
@@ -26372,6 +26421,8 @@ components:
           type: integer
         cache_ttl:
           type: number
+        cache_ignore_s3_path:
+          type: boolean
         dedicated_worker:
           type: boolean
         ws_error_handler_muted:
