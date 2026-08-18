@@ -35,18 +35,19 @@
 
 	let { steps, class: className = '' }: Props = $props()
 
-	let openedDescriptions: Record<number, true> = $state({})
+	/**
+	 * Only the steps the user has actually toggled. A failed step opens itself, so recording
+	 * the open state instead would need something to force it open on every update -- and
+	 * every progress update would then reopen a description the user had just closed.
+	 */
+	let userToggled: Record<number, boolean> = $state({})
 
-	function toggleDescription(i: number) {
-		if (openedDescriptions[i]) delete openedDescriptions[i]
-		else openedDescriptions[i] = true
+	const descriptionOpen = (i: number, status: SetupStepStatus) =>
+		userToggled[i] ?? status === 'failed'
+
+	function toggleDescription(i: number, status: SetupStepStatus) {
+		userToggled[i] = !descriptionOpen(i, status)
 	}
-
-	$effect(() => {
-		for (let i = 0; i < steps.length; i++) {
-			if (steps[i].status === 'failed') openedDescriptions[i] = true
-		}
-	})
 
 	const titleRowClass = (status: SetupStepStatus) =>
 		twMerge('text-xs font-medium flex justify-between items-center', titleClass[status])
@@ -62,7 +63,7 @@
 
 <div class={twMerge('flex flex-col gap-0.5', className)}>
 	{#each steps as step, i}
-		{@const descriptionOpened = openedDescriptions[i] ?? false}
+		{@const descriptionOpened = descriptionOpen(i, step.status)}
 		<div class="flex flex-col bg-surface rounded-md py-1 pr-2">
 			<div class="flex gap-2">
 				<span class="inline-flex w-4 h-5 shrink-0 justify-center items-center">
@@ -83,7 +84,7 @@
 						<button
 							type="button"
 							class={twMerge(titleRowClass(step.status), 'w-full text-left cursor-pointer')}
-							onclick={() => toggleDescription(i)}
+							onclick={() => toggleDescription(i, step.status)}
 						>
 							{step.title}
 							<ChevronDown

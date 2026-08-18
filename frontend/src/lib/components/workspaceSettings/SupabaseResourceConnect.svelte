@@ -32,7 +32,14 @@
 			awaiting = false
 			sendUserToast('Allow pop-ups for this site to connect your Supabase account.', true)
 		},
-		onAbandoned: () => (awaiting = false)
+		onAbandoned: () => (awaiting = false),
+		// Guarded: an authorization started somewhere else on the page reaches this listener too,
+		// and it must not open a dialog nobody asked for.
+		onAuthed: () => {
+			if (!awaiting) return
+			awaiting = false
+			open = true
+		}
 	})
 
 	function connect() {
@@ -43,13 +50,6 @@
 		awaiting = true
 		oauth.connect()
 	}
-
-	$effect(() => {
-		if (awaiting && oauth.authed) {
-			awaiting = false
-			open = true
-		}
-	})
 
 	// The resource is being edited by the user rather than created for them, so the project's
 	// password goes straight into the form as a value. They can link it to a secret variable

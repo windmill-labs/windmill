@@ -5,6 +5,7 @@
 	import Select from '../select/Select.svelte'
 	import { Database, Loader2, Plus } from 'lucide-svelte'
 	import { tick } from 'svelte'
+	import { resource } from 'runed'
 	import { sendUserToast } from '$lib/toast'
 	import SupabaseConnectionMode from './SupabaseConnectionMode.svelte'
 	import type { WizardState } from './addDataTableModel'
@@ -36,46 +37,40 @@
 	let projects: SupabaseProject[] | undefined = $state(undefined)
 	let plans: Record<string, string> = $state({})
 
+	const listings = resource(
+		() => token,
+		async (t) => {
+			if (!t) return
+			try {
+				orgs = await listSupabaseOrgs(t)
+				if (orgs?.length && !intent.org) intent.org = orgs[0]
+				projects = await listSupabaseProjects(t)
+				// Someone who already has a Supabase database almost always means to connect it
+				// rather than make a second one, so the step opens on the first of them. Decided
+				// before anything renders, so no card visibly selects itself under the user.
+				// Only seeds a choice that has not been made: this step is unmounted whenever the
+				// wizard moves off it, so a user who picked "New project" and pressed Back would
+				// otherwise come back to the first existing project instead.
+				if (!intent.project && intent.mode !== 'create') {
+					if (projects?.length) intent.project = projects[0]
+					else if (!existingOnly) intent.mode = 'create'
+				}
+				// The plan decides who gets billed, and the list endpoint does not carry it.
+				for (const o of orgs ?? []) {
+					getSupabaseOrgPlan(t, orgSlug(o)).then((p) => {
+						if (p) plans[orgSlug(o)] = p
+					})
+				}
+			} catch (err) {
+				sendUserToast(String(err), true)
+				orgs = orgs ?? []
+			}
+		}
+	)
 	// Nothing but a spinner until *both* lists are in. Which mode to open on depends on the
 	// projects, so clearing this when only the orgs have landed is what makes the toggle flip
-	// under the user a moment later.
-	let loading = $state(false)
-	let loaded = $state(false)
-
-	$effect(() => {
-		if (token && !loaded) load(token)
-	})
-
-	async function load(t: string) {
-		loaded = true
-		loading = true
-		try {
-			orgs = await listSupabaseOrgs(t)
-			if (orgs?.length && !intent.org) intent.org = orgs[0]
-			projects = await listSupabaseProjects(t)
-			// Someone who already has a Supabase database almost always means to connect it
-			// rather than make a second one, so the step opens on the first of them. Decided
-			// before anything renders, so no card visibly selects itself under the user.
-			// Only seeds a choice that has not been made: this step is unmounted whenever the
-			// wizard moves off it, so a user who picked "New project" and pressed Back would
-			// otherwise come back to the first existing project instead.
-			if (!intent.project && intent.mode !== 'create') {
-				if (projects?.length) intent.project = projects[0]
-				else if (!existingOnly) intent.mode = 'create'
-			}
-			// The plan decides who gets billed, and the list endpoint does not carry it.
-			for (const o of orgs ?? []) {
-				getSupabaseOrgPlan(t, orgSlug(o)).then((p) => {
-					if (p) plans[orgSlug(o)] = p
-				})
-			}
-		} catch (err) {
-			sendUserToast(String(err), true)
-			orgs = orgs ?? []
-		} finally {
-			loading = false
-		}
-	}
+	// under the user a moment later -- so it tracks the whole fetch, not each call in it.
+	let loading = $derived(listings.loading)
 
 	/** Supabase statuses are SCREAMING_SNAKE; only surface one that is not the happy path. */
 	function projectStatus(p: SupabaseProject): string | undefined {

@@ -26,6 +26,13 @@ export function useSupabaseOauth(
 		onFallbackBlocked?: () => void
 		/** The window went away without authorizing; the caller can drop its own waiting state. */
 		onAbandoned?: () => void
+		/**
+		 * Authorization came back and the token is in the store. Reported like the failures
+		 * above so a caller does not have to watch `authed` to find out. Fires on any successful
+		 * authorization, this caller's or another's -- every instance listens on the same window
+		 * -- so a caller that acts on it has to know it was the one waiting.
+		 */
+		onAuthed?: () => void
 	} = {}
 ) {
 	const oauth = fromStore(oauthStore)
@@ -40,6 +47,7 @@ export function useSupabaseOauth(
 			pending = false
 			clearInterval(abandonWatch)
 			win?.close()
+			opts.onAuthed?.()
 		}
 		window.addEventListener('message', onMessage)
 		return () => {
