@@ -1946,7 +1946,7 @@ You should get the schema of the script or flow before creating the schedule to 
                                                         "description": "Number of retry attempts"
                                                 },
                                                 "multiplier": {
-                                                        "type": "integer",
+                                                        "type": "number",
                                                         "description": "Multiplier for exponential backoff"
                                                 },
                                                 "seconds": {
@@ -2152,7 +2152,7 @@ You should get the schema of the script or flow before updating the schedule to 
                                                         "description": "Number of retry attempts"
                                                 },
                                                 "multiplier": {
-                                                        "type": "integer",
+                                                        "type": "number",
                                                         "description": "Multiplier for exponential backoff"
                                                 },
                                                 "seconds": {

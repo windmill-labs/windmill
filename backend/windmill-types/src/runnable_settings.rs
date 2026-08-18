@@ -13,7 +13,7 @@ pub struct RunnableSettings {
 /// retry stores the policy here (via `runnable_settings_handle`) instead of
 /// wrapping the script in a one-step flow.
 #[derive(
-    Debug, Default, Clone, Serialize, Deserialize, Hash, PartialEq, sqlx::FromRow, sqlx::Decode,
+    Debug, Default, Clone, Serialize, Deserialize, PartialEq, sqlx::FromRow, sqlx::Decode,
 )]
 pub struct RetrySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -23,7 +23,7 @@ pub struct RetrySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exponential_attempts: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub exponential_multiplier: Option<i32>,
+    pub exponential_multiplier: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exponential_seconds: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -32,15 +32,38 @@ pub struct RetrySettings {
     pub retry_if_expr: Option<String>,
 }
 
+/// Hand-written because `f64` has no `Hash`. This hash is the content-addressed
+/// key a settings row is stored under, so hashing the multiplier's bit pattern is
+/// what that needs: identical policies land on identical keys within a version.
+///
+/// Changing this impl re-keys a policy, which is safe here but worth knowing:
+/// rows written before it keep their old key and stay resolvable, because a job
+/// looks its policy up by the handle stored on it rather than by re-hashing. The
+/// same policy written again just lands on a second row.
+impl std::hash::Hash for RetrySettings {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.constant_attempts.hash(state);
+        self.constant_seconds.hash(state);
+        self.exponential_attempts.hash(state);
+        self.exponential_multiplier.map(f64::to_bits).hash(state);
+        self.exponential_seconds.hash(state);
+        self.exponential_random_factor.hash(state);
+        self.retry_if_expr.hash(state);
+    }
+}
+
 impl From<&Retry> for RetrySettings {
     fn from(r: &Retry) -> Self {
         Self {
             // attempts are u32; saturate the narrowing to i32 (the seconds/
-            // multiplier/random_factor fields are u16/i8 and can't overflow i32).
+            // random_factor fields are u16/i8 and can't overflow i32). The
+            // multiplier is stored as a float, so it needs no narrowing at all —
+            // rounding it to an integer would turn a fractional multiplier into 0
+            // and make every retry delay 0 seconds.
             constant_attempts: Some(r.constant.attempts.min(i32::MAX as u32) as i32),
             constant_seconds: Some(r.constant.seconds as i32),
             exponential_attempts: Some(r.exponential.attempts.min(i32::MAX as u32) as i32),
-            exponential_multiplier: Some(r.exponential.multiplier as i32),
+            exponential_multiplier: Some(r.exponential.multiplier),
             exponential_seconds: Some(r.exponential.seconds as i32),
             exponential_random_factor: r.exponential.random_factor.map(|x| x as i32),
             retry_if_expr: r.retry_if.as_ref().map(|x| x.expr.clone()),
@@ -58,10 +81,10 @@ impl From<RetrySettings> for Retry {
             exponential: ExponentialDelay {
                 attempts: s.exponential_attempts.unwrap_or(0).max(0) as u32,
                 // Mirror ExponentialDelay::default().multiplier (1) when absent.
-                multiplier: s
-                    .exponential_multiplier
-                    .unwrap_or(1)
-                    .clamp(0, u16::MAX as i32) as u16,
+                // Only the lower bound is still worth enforcing: the field is a
+                // float, so there is no width to clamp to, but a negative stored
+                // multiplier would yield a 0-second delay on every attempt.
+                multiplier: s.exponential_multiplier.unwrap_or(1.0).max(0.0),
                 seconds: s.exponential_seconds.unwrap_or(0).clamp(0, u16::MAX as i32) as u16,
                 random_factor: s
                     .exponential_random_factor
@@ -292,7 +315,7 @@ mod tests {
                 constant: ConstantDelay::default(),
                 exponential: ExponentialDelay {
                     attempts: 4,
-                    multiplier: 2,
+                    multiplier: 2.0,
                     seconds: 3,
                     random_factor: Some(20),
                 },
@@ -303,11 +326,23 @@ mod tests {
                 constant: ConstantDelay { attempts: 1, seconds: u16::MAX },
                 exponential: ExponentialDelay {
                     attempts: 2,
-                    multiplier: u16::MAX,
+                    multiplier: u16::MAX as f64,
                     seconds: 7,
                     random_factor: Some(i8::MIN),
                 },
                 retry_if: Some(RetryIf { expr: "result.error.code != 'fatal'".to_string() }),
+            },
+            // fractional multiplier: the stored column has to keep it, since
+            // rounding it to 0 would make every retry delay 0 seconds.
+            Retry {
+                constant: ConstantDelay::default(),
+                exponential: ExponentialDelay {
+                    attempts: 2,
+                    multiplier: 0.5,
+                    seconds: 4,
+                    random_factor: None,
+                },
+                retry_if: None,
             },
         ];
         for r in cases {
@@ -322,7 +357,7 @@ mod tests {
         // so a row with no exponential values doesn't decode to a 0 multiplier.
         let r: Retry = RetrySettings::default().into();
         assert_eq!(r, Retry::default());
-        assert_eq!(r.exponential.multiplier, 1);
+        assert_eq!(r.exponential.multiplier, 1.0);
     }
 
     // The positive-only settings share one rule: `<= 0` means "unset". This is what keeps a

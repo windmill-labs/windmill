@@ -2337,7 +2337,7 @@ mod tests {
                 constant: Default::default(),
                 exponential: ExponentialDelay {
                     attempts: 0,
-                    multiplier: 1,
+                    multiplier: 1.0,
                     seconds: 123,
                     random_factor: None
                 },
@@ -2362,7 +2362,7 @@ mod tests {
             constant: ConstantDelay::default(),
             exponential: ExponentialDelay {
                 attempts: 3,
-                multiplier: 4,
+                multiplier: 4.0,
                 seconds: 3,
                 random_factor: None,
             },
@@ -2389,7 +2389,7 @@ mod tests {
             constant: ConstantDelay { attempts: 2, seconds: 4 },
             exponential: ExponentialDelay {
                 attempts: 2,
-                multiplier: 1,
+                multiplier: 1.0,
                 seconds: 3,
                 random_factor: None,
             },
@@ -2409,5 +2409,50 @@ mod tests {
         );
 
         assert_eq!(Some(81 * SECOND), retry.max_interval());
+    }
+
+    #[test]
+    fn retry_exponential_fractional_multiplier() {
+        // #5691: a fractional multiplier must be accepted and applied, not
+        // rejected at parse time with "expected u16".
+        let retry: Retry = serde_json::from_str(
+            r#"
+            {
+              "constant": {},
+              "exponential": { "attempts": 2, "multiplier": 0.5, "seconds": 4 }
+            }
+            "#,
+        )
+        .unwrap();
+        assert_eq!(retry.exponential.multiplier, 0.5);
+        // 0.5 * 4^1 = 2, 0.5 * 4^2 = 8
+        assert_eq!(
+            vec![Some(2 * SECOND), Some(8 * SECOND), None],
+            (0..3)
+                .map(|previous_attempts| retry.interval(previous_attempts, false))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn retry_exponential_integer_multiplier_back_compat() {
+        // Stored flows use integer multipliers; they must still deserialize into
+        // the now-float field unchanged.
+        let retry: Retry = serde_json::from_str(
+            r#"{ "constant": {}, "exponential": { "attempts": 1, "multiplier": 3, "seconds": 2 } }"#,
+        )
+        .unwrap();
+        assert_eq!(retry.exponential.multiplier, 3.0);
+        assert_eq!(Some(6 * SECOND), retry.interval(0, false));
+    }
+
+    #[test]
+    fn retry_exponential_rounds_inexact_float_product() {
+        // 0.29 * 100 is 28.999999999999996 in f64; truncating would schedule 28s.
+        let retry: Retry = serde_json::from_str(
+            r#"{ "constant": {}, "exponential": { "attempts": 1, "multiplier": 0.29, "seconds": 100 } }"#,
+        )
+        .unwrap();
+        assert_eq!(Some(29 * SECOND), retry.interval(0, false));
     }
 }
