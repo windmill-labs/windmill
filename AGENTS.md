@@ -147,10 +147,12 @@ $NAV --root backend callees "X"                           # what does X call?
 - **Scratch stays outside the checkout.** Temp scripts, data dumps, cache backups and
   screenshots go in the session scratch directory or `/tmp`, so nothing temporary can end up
   committed. Write the paths in `rm`/`mv`/`cp` out literally: a PreToolUse hook proves each
-  operand, and auto-allows deletes, moves, copies and mode changes under `/tmp` or inside this
-  checkout, as long as one operation stays within a single one of those two roots (`tar` and
-  `unzip` stay `/tmp`-only). Chain deletes freely, each proved on its own operands, but keep
-  writes to one per line and name the destination rather than a directory to drop it in. A
+  operand, and auto-allows deletes, moves, copies and mode changes under `/tmp` or inside a git
+  checkout under `$HOME`, as long as one operation stays within a single root — a sibling
+  checkout is a root of its own (`tar` and `unzip` stay `/tmp`-only). Chain deletes freely, each
+  proved on its own operands, but keep writes to one per line, name the destination rather than
+  a directory to drop it in, and put anything else on its own line: a command the hook does not
+  prove drops the whole line back to the normal permission flow. A
   quoted or `$VAR` operand, a `~`, a redirect, a `$(…)`, a relative `cd`, or a wrapper like
   `xargs rm` cannot be proved, and that deferral is what turns a cleanup into a prompt.
 - **Change files with Edit/Write, not the shell.** `sed -i`, `cat > file <<'EOF'` and inline

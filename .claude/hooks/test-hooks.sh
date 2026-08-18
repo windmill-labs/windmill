@@ -54,6 +54,7 @@ run $G none  "ls /tmp && rm -rf /tmp/x"   # proved delete, unexamined neighbour
 run $G ask   'echo $(rm -rf /etc)'
 run $G ask   'echo `rm -rf /etc`'
 run $G ask   "{ rm -rf /etc; }"
+run $G allow "{ rm -rf /tmp/scratch/x; }"         # the keyword drops, the delete still proves
 run $G ask   "find . -name x | xargs rm"
 run $G ask   "timeout 5 rm -rf /tmp/x"
 run $G ask   "stdbuf -o L rm -rf /etc"
@@ -197,6 +198,11 @@ run $A ask   "mv frontend/apps_ee.rs backend/windmill-api/src"
 run $A none  "cp frontend/apps_ee.rs backend/windmill-api/src"
 run $A none  "cp frontend/a.ts backend"
 run $A ask   "mv /tmp/a $CWD/backend"
+# ... and a `cd` that fails at runtime may not hide that form: the destination is a directory
+# in the directory the command actually ran in, whichever of the two that turns out to be.
+run $A none  "cd $CWD/AGENTS.md; cp frontend/apps_ee.rs backend/windmill-api/src"
+run $A ask   "cd $CWD/AGENTS.md; mv frontend/apps_ee.rs backend/windmill-api/src"
+run $A none  "cd /tmp/x && tar -xzf /tmp/a.tar.gz"   # no -C, and the cwd is now two candidates
 run $A allow "cp frontend/a.ts backend/a.ts"  # ... naming the destination proves fine
 
 echo

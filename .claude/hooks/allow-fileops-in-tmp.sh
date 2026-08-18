@@ -197,7 +197,7 @@ check_archive_segment() {
 # are in SEG_TOKS.
 check_fileops_segment() {
   local verb="$1" takes_mode ok_opts t cls resolved seen_class=""
-  local path_operand=0 seen_mode=0 end_opts=0 i=1
+  local path_operand=0 seen_mode=0 end_opts=0 i=1 rel_operand=0
   local -a ops=()
   # Options are an allowlist per command, so anything that changes how symlinks are followed
   # defers instead of needing enumeration. `cp -L` / `-H` matter most: they dereference while
@@ -244,6 +244,7 @@ check_fileops_segment() {
     [ -n "$seen_class" ] && [ "$cls" != "$seen_class" ] && defer "\`$t\` puts this $verb across two roots"
     seen_class="$cls"
     ops+=("${resolved#*$'\n'}")
+    case "$t" in /*) ;; *) rel_operand=1 ;; esac
     path_operand=1
   done
 
@@ -256,7 +257,15 @@ check_fileops_segment() {
   # keeps its own name) and how deep `-r` recurses. The form is left unproved instead.
   case "$verb" in
     cp | mv)
-      [ "${#ops[@]}" -ge 2 ] && [ -d "${ops[-1]}" ] \
+      [ "${#ops[@]}" -ge 2 ] || return 0
+      # Whether the destination is an existing directory is itself a question about which of
+      # the two candidate working directories the command ran in, and only one of them is in
+      # `ops`. A `cd` that fails at runtime would otherwise let the form through: the
+      # destination resolved against the directory the command never reached is some path that
+      # does not exist, while the one it actually ran in is a directory full of symlinks.
+      [ -n "$alt_cwd" ] && [ "$rel_operand" = 1 ] \
+        && defer "a relative operand after a \`cd\` lands in one of two directories"
+      [ -d "${ops[-1]}" ] \
         && defer "\`${ops[-1]}\` already exists as a directory, so this $verb writes a path it does not name"
       ;;
   esac
