@@ -47,7 +47,7 @@
 	import { onDestroy, onMount } from 'svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
-	import KafkaIcon from '$lib/components/icons/triggers/KafkaIcon.svelte'
+	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'

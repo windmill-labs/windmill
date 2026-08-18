@@ -56,7 +56,7 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import GcpTriggerEditor from '$lib/components/triggers/gcp/GcpTriggerEditor.svelte'
-	import GoogleCloudIcon from '$lib/components/icons/triggers/GoogleCloudIcon.svelte'
+	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'

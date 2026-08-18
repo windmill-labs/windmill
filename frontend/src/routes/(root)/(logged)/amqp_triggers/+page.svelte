@@ -43,7 +43,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import AmqpTriggerEditor from '$lib/components/triggers/amqp/AmqpTriggerEditor.svelte'
-	import AmqpIcon from '$lib/components/icons/triggers/AmqpIcon.svelte'
+	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'

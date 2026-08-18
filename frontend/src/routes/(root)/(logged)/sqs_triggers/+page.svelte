@@ -44,7 +44,7 @@
 	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import AwsIcon from '$lib/components/icons/triggers/AwsIcon.svelte'
+	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerD = SqsTrigger & { canWrite: boolean }

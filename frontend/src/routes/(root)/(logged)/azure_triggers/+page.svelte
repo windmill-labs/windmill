@@ -56,7 +56,7 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import AzureTriggerEditor from '$lib/components/triggers/azure/AzureTriggerEditor.svelte'
-	import AzureIcon from '$lib/components/icons/triggers/AzureIcon.svelte'
+	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'

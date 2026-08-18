@@ -319,19 +319,22 @@ import WeatherApiIcon from './WeatherApiIcon.svelte'
 import WebScrapingAiIcon from './WebScrapingAiIcon.svelte'
 import type { Component } from 'svelte'
 /**
- * Trigger icons live in ./triggers/ as monochrome variants of the marks in this folder.
+ * ./triggers/ holds desaturated variants of some marks in this folder, used in exactly
+ * two places: the sidebar trigger list and the capture dropdown.
  *
- * A trigger picker lists brand marks next to lucide glyphs (Webhook, Route, Database), so
- * a coloured mark reads as a different kind of thing rather than a peer. The variants are
- * the same artwork painted with currentColor, so they take the surrounding text colour.
+ * Both are dense lists where brand marks sit next to lucide glyphs (Webhook, Route,
+ * Database), and a coloured mark there reads as a different kind of thing rather than a
+ * peer. Everywhere else — trigger pages, flow-graph badges, tables, global search, the
+ * resource picker — uses the full-colour mark from this folder.
  *
- * They are separate files rather than a CSS override on the coloured ones: forcing fills
- * to currentColor breaks lucide's outline icons (fill="none" with a stroke), and marks
- * that set their own text-[#hex] class ignore it entirely.
+ * The variants are separate files rather than a CSS override, because coercion cannot
+ * work in general: forcing fills to currentColor breaks lucide's outline icons, which
+ * are fill="none" with a stroke, and marks that set their own text-[#hex] class ignore
+ * a fill rule entirely.
  *
- * Use ./triggers/<Name>.svelte from trigger surfaces -- the capture dropdown, flow-graph
- * badges, the sidebar trigger list. Use the full-colour mark in this folder everywhere
- * else: the resource picker, AppConnect, docs. If the artwork changes, change both.
+ * Most variants are the pre-audit artwork painted with currentColor. GoogleCloudIcon is
+ * greyscale instead — four grey tones rather than one flat colour — because Google's
+ * cloud loses its internal shape when flattened. If the artwork changes, change both.
  */
 
 export const APP_TO_ICON_COMPONENT = {
