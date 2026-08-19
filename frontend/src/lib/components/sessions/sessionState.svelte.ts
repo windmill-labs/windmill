@@ -110,6 +110,12 @@ export type Session = {
 	// untouched draft never persists, so idle `+` clicks vanish on reload
 	// instead of littering the sidebar.
 	transient?: boolean
+	// Epoch ms of the last write to this record — typing, renaming, opening the
+	// session, archiving, changing preview tabs. Stamped by the two write funnels
+	// (persistTouched, markSessionSeen), so it tracks use rather than creation.
+	// Absent on records last written before the field existed; readers fall back
+	// to createdAt via sessionLastActivityAt.
+	lastActivityAt?: number
 	// Per-session unread watermark: the displayMessages count the last time
 	// the user was on this session's page. Compared against the runtime's
 	// current message count to derive the unread badge (see sessionUnread).
@@ -354,7 +360,14 @@ export function getSessionDraftPrompt(sessionId: string): string | undefined {
 // directly, so an untouched draft stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
 	if (s.transient) delete s.transient
+	s.lastActivityAt = Date.now()
 	void putSession(s)
+}
+
+// When the session was last used. Pre-dates-the-field records report their
+// creation time, which is the earliest activity they could have had.
+export function sessionLastActivityAt(s: Session): number {
+	return s.lastActivityAt ?? s.createdAt
 }
 
 // Sessions whose record has been removed from IndexedDB. Ids come from createLongHash

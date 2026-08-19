@@ -1,18 +1,23 @@
 <script lang="ts">
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
+	import { Badge, Button } from '$lib/components/common'
 	import {
 		Archive,
 		ArchiveRestore,
 		Building,
 		ChevronDown,
 		ChevronRight,
+		Clock,
 		EllipsisVertical,
-		Filter,
 		GitFork,
+		ListChecks,
 		MessageSquare,
 		Pencil,
 		PencilLine,
 		Plus,
+		Rows3,
+		Settings,
 		Trash2
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -27,13 +32,14 @@
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
+		sessionLastActivityAt,
 		sessionState,
 		setSessionArchived,
+		setSessionPendingWorkspace,
 		syncWorkspaceTo,
 		type Session
 	} from './sessionState.svelte'
 	import { unreadCountFor } from './sessionUnread.svelte'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		getOrCreateRuntime,
@@ -43,7 +49,6 @@
 		resetSessionPreviewTabs
 	} from './sessionRuntime.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
-	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
 	import SessionFilterMenu from './SessionFilterMenu.svelte'
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
@@ -57,6 +62,8 @@
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 	import { page } from '$app/state'
 	import { base } from '$app/paths'
+	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
+	import { GROUP_BY_OPTIONS, LAST_ACTIVITY_OPTIONS, type GroupBy } from './sessionFilters'
 
 	// The row icon only distinguishes "the session's fork workspace no longer
 	// exists" (detached) — never the fork's ahead/behind sync state, which is
@@ -130,6 +137,13 @@
 		'boolean'
 	)
 	const showArchived = useLocalStorageValue('windmill_sessions_show_archived', false, 'boolean')
+	// Hide sessions untouched for longer than this many days. 0 = no cutoff.
+	const lastActivityDays = useLocalStorageValue('windmill_sessions_last_activity_days', 0, 'number')
+	// `hint` is the compact form shown on the collapsed submenu row.
+	// How the list is carved into groups. 'none' keeps the family grouping (headers
+	// only when a second family shows up); the others always draw headers.
+	const groupBy = useLocalStorageValue<GroupBy>('windmill_sessions_group_by', 'none', 'string')
+	const activeFilters = $derived(showArchived.val || lastActivityDays.val > 0)
 	let listRoot: HTMLDivElement | undefined = $state()
 
 	// A session's family root: the stored grouping id, else derived live.
@@ -147,9 +161,13 @@
 		sessionState.sessions.filter((s) => {
 			// Pending (unsent) sessions show like any other, so several drafts can be
 			// set up in parallel; they group by pending_workspace_id via sessionRootOf.
-			// The open session always stays in the list, ignoring both filters.
+			// The open session always stays in the list, ignoring every filter.
 			if (s.id === sessionState.currentSessionId) return true
 			if (s.archived && !showArchived.val) return false
+			if (lastActivityDays.val > 0) {
+				const cutoff = Date.now() - lastActivityDays.val * 24 * 60 * 60 * 1000
+				if (sessionLastActivityAt(s) < cutoff) return false
+			}
 			// Scope to the current workspace family only.
 			const currentRoot = $currentWorkspaceRootId
 			if (currentRoot && sessionRootOf(s) !== currentRoot) return false
@@ -242,6 +260,85 @@
 	// if the active-session override surfaces a second family.
 	const showGroupHeaders = $derived(sessionGroups.length > 1)
 
+	// Calendar-relative bucket for a timestamp, counted from local midnight so
+	// "Today" means today's date rather than the last 24 hours.
+	function dateBucket(ts: number, now: number): { key: string; label: string; rank: number } {
+		const midnight = new Date(now)
+		midnight.setHours(0, 0, 0, 0)
+		const startOfToday = midnight.getTime()
+		const day = 24 * 60 * 60 * 1000
+		if (ts >= startOfToday) return { key: 'today', label: 'Today', rank: 0 }
+		if (ts >= startOfToday - day) return { key: 'yesterday', label: 'Yesterday', rank: 1 }
+		if (ts >= startOfToday - 7 * day) return { key: 'week', label: 'Last 7 days', rank: 2 }
+		if (ts >= startOfToday - 30 * day) return { key: 'month', label: 'Last 30 days', rank: 3 }
+		return { key: 'older', label: 'Older', rank: 4 }
+	}
+
+	// The list as the user chose to see it. `workspaceId` is set on the groups that
+	// stand for a workspace — the ones whose header offers "new session here".
+	type DisplayGroup = {
+		key: string
+		label: string
+		workspaceId?: string
+		sessions: Session[]
+		showHeader: boolean
+	}
+
+	const displayGroups: DisplayGroup[] = $derived.by(() => {
+		if (groupBy.val === 'none') {
+			return sessionGroups.map((g) => ({
+				key: g.rootId,
+				label: g.name,
+				workspaceId: g.rootId || undefined,
+				sessions: g.sessions,
+				showHeader: showGroupHeaders
+			}))
+		}
+		const byActivity = (a: Session, b: Session) =>
+			sessionLastActivityAt(b) - sessionLastActivityAt(a)
+		if (groupBy.val === 'date') {
+			const now = Date.now()
+			const buckets = new Map<string, { label: string; rank: number; sessions: Session[] }>()
+			for (const s of visibleSessions) {
+				const b = dateBucket(sessionLastActivityAt(s), now)
+				const entry = buckets.get(b.key)
+				if (entry) entry.sessions.push(s)
+				else buckets.set(b.key, { label: b.label, rank: b.rank, sessions: [s] })
+			}
+			return [...buckets.entries()]
+				.sort((a, b) => a[1].rank - b[1].rank)
+				.map(([key, v]) => ({
+					key,
+					label: v.label,
+					sessions: v.sessions.sort(byActivity),
+					showHeader: true
+				}))
+		}
+		// Fork: one group per actual workspace — the root and each fork stand alone,
+		// unlike the family grouping that folds a whole fork tree into its root.
+		const byWorkspace = new Map<string, Session[]>()
+		for (const s of visibleSessions) {
+			const wsId = s.workspace_id ?? s.pending_workspace_id ?? ''
+			const arr = byWorkspace.get(wsId)
+			if (arr) arr.push(s)
+			else byWorkspace.set(wsId, [s])
+		}
+		// A lone workspace names itself — its header would label the whole list.
+		const headed = byWorkspace.size > 1
+		return [...byWorkspace.entries()]
+			.map(([wsId, sessions]) => {
+				sessions.sort(byActivity)
+				return {
+					key: wsId,
+					label: $userWorkspaces.find((w) => w.id === wsId)?.name || wsId || 'No workspace yet',
+					workspaceId: wsId || undefined,
+					sessions,
+					showHeader: headed
+				}
+			})
+			.sort((a, b) => sessionLastActivityAt(b.sessions[0]) - sessionLastActivityAt(a.sessions[0]))
+	})
+
 	const archivedCount = $derived(
 		sessionState.sessions.filter((s) => {
 			if (!s.archived || s.transient) return false
@@ -319,6 +416,14 @@
 		await activate(fresh)
 	}
 
+	// The `+` on a workspace group header: a new session parked on that group's
+	// workspace rather than the one currently open.
+	async function createAndOpenIn(workspaceId: string) {
+		const fresh = createSession()
+		setSessionPendingWorkspace(fresh.id, workspaceId)
+		await activate(fresh)
+	}
+
 	let editingId: string | undefined = $state(undefined)
 	let renameDraft = $state('')
 
@@ -342,9 +447,9 @@
 	// Default off: deleting a fork workspace is destructive and not what deleting a
 	// session implies. The user can tick it in the modal to also drop the fork.
 	let deleteAlsoFork = $state(false)
-	// Fork workspace tied to `pendingDelete`, if any, and still accessible.
-	const pendingDeleteForkId = $derived.by(() => {
-		const wsId = pendingDelete?.workspace_id
+	// Fork workspace tied to a session, if any, and still accessible.
+	function forkWorkspaceIdFor(session: Session | undefined): string | undefined {
+		const wsId = session?.workspace_id
 		if (!wsId) return undefined
 		const ws = $userWorkspaces.find((w) => w.id === wsId)
 		// Fork = prefix OR parent (so an orphaned wm-fork- fork still qualifies); exclude persistent
@@ -352,7 +457,118 @@
 		if (!ws || !workspaceIsFork(wsId, $userWorkspaces)) return undefined
 		if (ws.is_dev_workspace) return undefined
 		return wsId
+	}
+	const pendingDeleteForkId = $derived(forkWorkspaceIdFor(pendingDelete))
+
+	// Batch selection: "Edit sessions" in the header menu turns the rows into
+	// checkboxes so several sessions can be deleted in one pass.
+	let selectionMode = $state(false)
+	let selectedIds = $state<string[]>([])
+	let batchDeleteOpen = $state(false)
+
+	const selectableIds = $derived(visibleSessions.map((s) => s.id))
+	const allSelected = $derived(
+		selectableIds.length > 0 && selectedIds.length === selectableIds.length
+	)
+	const selectedForkCount = $derived(
+		selectedIds.filter((id) => forkWorkspaceIdFor(sessionState.sessions.find((s) => s.id === id)))
+			.length
+	)
+	// A mixed selection archives; only an all-archived selection reads as "undo
+	// that", so that's the single case the button flips to Unarchive.
+	const allSelectedArchived = $derived(
+		selectedIds.length > 0 &&
+			selectedIds.every((id) => sessionState.sessions.find((s) => s.id === id)?.archived)
+	)
+
+	// Drop selections that left the list (archive filter flipped, workspace family
+	// switched) so the count never claims more than the visible checkboxes.
+	$effect(() => {
+		if (!selectionMode) return
+		const visible = new Set(selectableIds)
+		const pruned = selectedIds.filter((id) => visible.has(id))
+		if (pruned.length !== selectedIds.length) selectedIds = pruned
 	})
+
+	function enterSelectionMode() {
+		selectionMode = true
+		selectedIds = []
+		// Checkboxes are unreachable while the section is folded away.
+		sectionCollapsed.val = false
+	}
+
+	function exitSelectionMode() {
+		selectionMode = false
+		selectedIds = []
+		rangeAnchorId = undefined
+	}
+
+	// A checkbox's `click` carries the modifier keys and its `change` carries the
+	// state, and only `change` may drive the value — preventing the click's default
+	// leaves the input's own checked flag out of step with the prop. So the click
+	// only records whether shift was down, for the change handler that follows it.
+	let shiftHeldOnClick = false
+
+	// Anchor for shift-click: the row whose checkbox was last set, as in a file list.
+	let rangeAnchorId: string | undefined = $state(undefined)
+
+	// Every visible row in display order, which is what a shift-range spans — it
+	// runs across group boundaries, matching what the user sees.
+	const orderedIds = $derived(displayGroups.flatMap((g) => g.sessions.map((s) => s.id)))
+
+	function toggleSelected(id: string, extendRange = false) {
+		const anchor = rangeAnchorId
+		rangeAnchorId = id
+		if (extendRange && anchor && anchor !== id) {
+			const from = orderedIds.indexOf(anchor)
+			const to = orderedIds.indexOf(id)
+			if (from !== -1 && to !== -1) {
+				const range = orderedIds.slice(Math.min(from, to), Math.max(from, to) + 1)
+				const merged = new Set([...selectedIds, ...range])
+				selectedIds = orderedIds.filter((x) => merged.has(x))
+				return
+			}
+		}
+		selectedIds = selectedIds.includes(id)
+			? selectedIds.filter((x) => x !== id)
+			: [...selectedIds, id]
+	}
+
+	function toggleSelectAll() {
+		selectedIds = allSelected ? [] : [...selectableIds]
+	}
+
+	function handleBatchArchive() {
+		const archive = !allSelectedArchived
+		for (const id of selectedIds) setSessionArchived(id, archive)
+		exitSelectionMode()
+	}
+
+	// After deleting the open session, land somewhere usable: the newest remaining
+	// session, else a fresh one. The page derives the visible session from the
+	// `session_name` query, so leaving the URL on a deleted session would render
+	// its not-found state instead of a ready-to-type composer.
+	async function openReplacementSession() {
+		const next = sessionState.sessions[0]
+		if (next) await activate(next)
+		else {
+			const fresh = createSession()
+			await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+		}
+	}
+
+	// Batch delete never touches fork workspaces — same default as the single
+	// delete, where the user has to tick the fork box explicitly.
+	async function handleConfirmedBatchDelete() {
+		const ids = selectedIds
+		batchDeleteOpen = false
+		if (ids.length === 0) return
+		const current = sessionState.currentSessionId
+		const wasActive = !!current && ids.includes(current)
+		for (const id of ids) removeSession(id)
+		exitSelectionMode()
+		if (wasActive) await openReplacementSession()
+	}
 
 	async function handleConfirmedDelete() {
 		const session = pendingDelete
@@ -383,18 +599,7 @@
 		if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
 			syncWorkspaceTo(forkParentId)
 		}
-		if (wasActive) {
-			const next = sessionState.sessions[0]
-			if (next) await activate(next)
-			else {
-				// No sessions left — create a fresh one and navigate to it. The page
-				// derives the visible session from the `session_name` query, so just
-				// clearing currentSessionId would strand the URL on the deleted session
-				// and render its not-found state instead of a ready-to-type composer.
-				const fresh = createSession()
-				await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
-			}
-		}
+		if (wasActive) await openReplacementSession()
 	}
 
 	function focusAt(index: number) {
@@ -436,6 +641,14 @@
 	     explanatory message, mirroring the sidebar AI chat. -->
 {:else if isCollapsed}
 	<div class={embedded ? '' : 'px-2 pt-3 pb-2 border-b border-light'}>
+		<MenuButton
+			stopPropagationOnClick={true}
+			on:click={createAndOpen}
+			{isCollapsed}
+			icon={Plus}
+			label="New session"
+			class="!text-xs"
+		/>
 		<Menubar>
 			{#snippet children({ createMenu })}
 				<Menu {createMenu} usePointerDownOutside submenuSafe>
@@ -470,18 +683,20 @@
 								<SessionFilterMenu
 									{builders}
 									bind:showArchived={showArchived.val}
+									bind:lastActivityDays={lastActivityDays.val}
+									bind:groupBy={groupBy.val}
 									{archivedCount}
 								/>
 							</div>
 							<div class="py-1" role="none">
-								{#each sessionGroups as group (group.rootId)}
-									{#if showGroupHeaders}
+								{#each displayGroups as group (group.key)}
+									{#if group.showHeader}
 										<div
-											class="px-3 pt-1.5 pb-0.5 text-[0.5rem] uppercase text-tertiary truncate"
+											class="px-3 pt-1.5 pb-0.5 text-3xs text-tertiary truncate"
 											role="none"
-											title={group.name}
+											title={group.label}
 										>
-											{group.name}
+											{group.label}
 										</div>
 									{/if}
 									{#each group.sessions as session (session.id)}
@@ -545,79 +760,144 @@
 			? 'border-b border-light'
 			: ''}"
 	>
-		<div class="flex flex-row items-center justify-between pl-1 pr-0.5">
-			{#if collapsible && visibleSessions.length > 0}
+		<!-- Selection mode reuses the New session row (same h-8 slot, same px-2) so
+		     the list below it never moves. -->
+		{#if selectionMode}
+			<div class="flex flex-row items-center gap-1.5 h-8 px-2">
+				<Checkbox
+					checked={allSelected}
+					indeterminate={selectedIds.length > 0 && !allSelected}
+					onChange={toggleSelectAll}
+					class="shrink-0 !w-4 !h-4 !p-0"
+					title="Select all sessions"
+				/>
+				<button
+					type="button"
+					onclick={toggleSelectAll}
+					class="text-xs text-secondary hover:text-primary whitespace-nowrap"
+				>
+					Select all
+				</button>
+				<span class="ml-auto text-2xs text-tertiary whitespace-nowrap">
+					{selectedIds.length} selected
+				</span>
+				<Button
+					unifiedSize="2xs"
+					variant="subtle"
+					btnClasses="!text-2xs !h-5 w-auto"
+					onClick={exitSelectionMode}
+				>
+					Done
+				</Button>
+			</div>
+		{:else}
+			<!-- The submenu collapses to one row, so the picked cutoff would otherwise
+			     only be visible after opening it. -->
+			{#snippet lastActivityHint()}
+				<span class="text-2xs text-tertiary whitespace-nowrap">
+					{LAST_ACTIVITY_OPTIONS.find((o) => o.days === lastActivityDays.val)?.hint ?? ''}
+				</span>
+			{/snippet}
+			{#snippet groupByHint()}
+				<span class="text-2xs text-tertiary whitespace-nowrap">
+					{GROUP_BY_OPTIONS.find((o) => o.value === groupBy.val)?.hint ?? ''}
+				</span>
+			{/snippet}
+			<div class="flex flex-row items-center gap-0.5 pr-0.5">
+				<div class="flex-1 min-w-0">
+					<MenuButton
+						stopPropagationOnClick={true}
+						on:click={createAndOpen}
+						isCollapsed={false}
+						icon={Plus}
+						label="New session"
+						class="!text-xs"
+					/>
+				</div>
+				<DropdownV2
+					fixedHeight={false}
+					placement="bottom-end"
+					enableFlyTransition
+					items={[
+						{
+							displayName: archivedCount > 0 ? `Show archived (${archivedCount})` : 'Show archived',
+							icon: Archive,
+							toggle: showArchived.val,
+							action: () => (showArchived.val = !showArchived.val)
+						},
+						{
+							displayName: 'Last activity',
+							icon: Clock,
+							extra: lastActivityHint,
+							submenuItems: LAST_ACTIVITY_OPTIONS.map((o) => ({
+								displayName: o.label,
+								selected: lastActivityDays.val === o.days,
+								action: () => (lastActivityDays.val = o.days)
+							}))
+						},
+						{
+							displayName: 'Group by',
+							icon: Rows3,
+							extra: groupByHint,
+							submenuItems: GROUP_BY_OPTIONS.map((o) => ({
+								displayName: o.label,
+								selected: groupBy.val === o.value,
+								action: () => (groupBy.val = o.value)
+							}))
+						},
+						{
+							displayName: 'Edit sessions',
+							icon: ListChecks,
+							action: enterSelectionMode,
+							separatorTop: true,
+							hide: visibleSessions.length === 0
+						}
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<span
+							title="Session list options"
+							aria-label="Session list options"
+							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary {activeFilters
+								? 'text-emphasis'
+								: ''}"
+						>
+							<Settings size={12} />
+						</span>
+					{/snippet}
+				</DropdownV2>
+			</div>
+		{/if}
+		{#if collapsible}
+			<!-- Only the collapsible sidebar section needs a title: it doubles as the
+			     fold toggle. In the rail the list owns the pane, so the label is noise. -->
+			<div class="flex flex-row items-center pl-1 pr-0.5">
 				<button
 					type="button"
 					onclick={() => (sectionCollapsed.val = !sectionCollapsed.val)}
 					class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 rounded px-1 -mx-1 py-0.5 hover:bg-surface-hover focus:outline-none"
 					aria-expanded={!sectionCollapsed.val}
+					disabled={visibleSessions.length === 0}
 				>
 					AI sessions
-					{#if sectionCollapsed.val}
-						<ChevronRight size={10} />
-					{:else}
-						<ChevronDown size={10} />
+					{#if visibleSessions.length > 0}
+						{#if sectionCollapsed.val}
+							<ChevronRight size={10} />
+						{:else}
+							<ChevronDown size={10} />
+						{/if}
 					{/if}
 				</button>
-			{:else}
-				<!-- No sessions yet: render the label as plain text (no collapse toggle). -->
-				<span
-					class="text-secondary text-[0.5rem] uppercase flex flex-row items-center gap-1 px-1 -mx-1 py-0.5"
-				>
-					AI sessions
-				</span>
-			{/if}
-			<div class="flex flex-row items-center gap-0.5">
-				<button
-					type="button"
-					title="New session"
-					aria-label="New session"
-					onclick={createAndOpen}
-					class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-				>
-					<Plus size={12} />
-				</button>
-				<Popover placement="bottom-end" usePointerDownOutside disableFocusTrap class="inline-flex">
-					{#snippet trigger()}
-						<button
-							type="button"
-							title="Filter sessions"
-							aria-label="Filter sessions"
-							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary {showArchived.val
-								? 'text-emphasis'
-								: ''}"
-						>
-							<Filter size={12} />
-						</button>
-					{/snippet}
-					{#snippet content()}
-						<div
-							class="w-56 p-2 bg-surface-tertiary dark:border rounded-md shadow-lg flex flex-col gap-2"
-						>
-							<div class="flex flex-col gap-0.5">
-								<Toggle
-									bind:checked={showArchived.val}
-									size="xs"
-									options={{ right: 'Show archived' }}
-								/>
-								{#if archivedCount > 0}
-									<span class="text-2xs text-tertiary pl-1">
-										{archivedCount} archived session{archivedCount === 1 ? '' : 's'}
-									</span>
-								{/if}
-							</div>
-						</div>
-					{/snippet}
-				</Popover>
 			</div>
-		</div>
+		{/if}
 		{#if !collapsible || !sectionCollapsed.val}
 			<div
 				bind:this={listRoot}
 				transition:slide={{ duration: 180 }}
 				class={twMerge(
 					'flex flex-col gap-0.5 overflow-y-auto',
+					// Shift-clicking rows would otherwise paint a text selection across them.
+					selectionMode ? 'select-none' : '',
 					// In the rail the picker is the whole list and the rail scrolls;
 					// only cap height when it's one section among others (normal sidebar).
 					collapsible ? 'max-h-[40vh]' : ''
@@ -638,18 +918,36 @@
 					{@const isEditing = editingId === session.id}
 					{@const unread = unreadFor(session)}
 					{@const draft = hasDraft(session)}
+					{@const isChecked = selectedIds.includes(session.id)}
 					<div
 						class={twMerge(
 							'flex flex-row group rounded',
 							treeDepth === undefined ? 'items-center' : 'items-stretch',
 							isSelected ? sidebarClasses.selectedBg : 'hover:bg-surface-hover',
 							session.archived ? 'opacity-60' : '',
-							// Family mode indents under the header; tree mode uses guide columns.
-							treeDepth === undefined && indented ? 'pl-5' : ''
+							// Grouped rows sit slightly in from their header; tree mode uses guide columns.
+							treeDepth === undefined && indented ? 'pl-1' : ''
 						)}
 					>
 						{#if treeDepth !== undefined}
 							{#each Array(treeDepth) as _}{@render vline()}{/each}
+						{/if}
+						{#if selectionMode}
+							<!-- Takes over the status-dot slot exactly (pl-2 + 16px, the row button's
+							     own px-2 supplying the trailing gap), so entering selection mode
+							     doesn't shift a single row label sideways. -->
+							<span class="flex items-center pl-2">
+								<Checkbox
+									checked={isChecked}
+									onChange={() => {
+										toggleSelected(session.id, shiftHeldOnClick)
+										shiftHeldOnClick = false
+									}}
+									onClick={(e) => (shiftHeldOnClick = e.shiftKey)}
+									class="shrink-0 !w-4 !h-4 !p-0"
+									title={session.summary ?? 'Untitled session'}
+								/>
+							</span>
 						{/if}
 						{#if isEditing}
 							<span class="flex flex-row items-center gap-2 flex-1 px-2 py-1 min-w-0">
@@ -683,14 +981,15 @@
 								type="button"
 								data-session-button
 								role="option"
-								aria-selected={isSelected}
-								onclick={() => activate(session)}
+								aria-selected={selectionMode ? isChecked : isSelected}
+								onclick={(e) =>
+									selectionMode ? toggleSelected(session.id, e.shiftKey) : activate(session)}
 								class={twMerge(
 									'flex flex-row items-center gap-2 text-left text-xs font-normal focus:outline-none flex-1 min-w-0 px-2 py-1',
 									isSelected ? sidebarClasses.selectedText : 'text-secondary'
 								)}
 							>
-								{#if treeDepth === undefined}
+								{#if treeDepth === undefined && !selectionMode}
 									<SessionStatusDot
 										{status}
 										isFork={isForkFor(session)}
@@ -714,8 +1013,15 @@
 									</span>
 								{/if}
 							</button>
+							<!-- Hidden rather than dropped while selecting: removing it would widen
+							     every label and re-truncate the list. -->
 							<div
-								class="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity pr-0.5"
+								class={twMerge(
+									'transition-opacity pr-0.5',
+									selectionMode
+										? 'invisible pointer-events-none'
+										: 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'
+								)}
 							>
 								<DropdownV2
 									fixedHeight={false}
@@ -830,27 +1136,72 @@
 						{/if}
 					{/each}
 				{:else}
-					{#each sessionGroups as group, groupIdx (group.rootId)}
-						{#if showGroupHeaders}
-							{@const groupWs = $userWorkspaces.find((w) => w.id === group.rootId)}
+					{#each displayGroups as group, groupIdx (group.key)}
+						{#if group.showHeader}
+							{@const groupWsId = group.workspaceId}
+							{@const groupWs = groupWsId
+								? $userWorkspaces.find((w) => w.id === groupWsId)
+								: undefined}
+							<!-- Same styling as the "AI sessions" title: a group header is the
+							     section title for the rows under it. -->
 							<div
 								class={twMerge(
-									'flex items-center gap-2 px-2 pt-2 pb-1 min-w-0',
-									// Space families apart so group boundaries read clearly.
+									'group flex flex-row items-center gap-1 pl-1 pr-0.5 pt-2 pb-1 min-w-0',
+									// Space groups apart so their boundaries read clearly.
 									groupIdx > 0 ? 'mt-4' : ''
 								)}
-								title={group.name}
+								title={group.label}
 							>
-								<WorkspaceIcon workspaceColor={groupWs?.color} size={12} />
-								<span class="text-xs font-medium text-secondary truncate">{group.name}</span>
+								<span class="text-secondary text-3xs truncate min-w-0">
+									{group.label}
+								</span>
+								{#if groupWs?.is_dev_workspace}
+									<Badge color="gray" small class="text-3xs px-1 py-0 shrink-0">
+										{devBadgeText(groupWs.dev_workspace_label)}
+									</Badge>
+								{/if}
+								{#if groupWsId}
+									<button
+										type="button"
+										onclick={() => createAndOpenIn(groupWsId)}
+										title="New session in {group.label}"
+										aria-label="New session in {group.label}"
+										class="ml-auto shrink-0 inline-flex items-center justify-center w-5 h-5 rounded text-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-surface-hover hover:text-primary"
+									>
+										<Plus size={14} />
+									</button>
+								{/if}
 							</div>
 						{/if}
 						{#each group.sessions as session (session.id)}
-							{@render sessionRow(session, showGroupHeaders, undefined)}
+							{@render sessionRow(session, group.showHeader, undefined)}
 						{/each}
 					{/each}
 				{/if}
 			</div>
+			{#if selectionMode}
+				<div class="flex flex-col gap-1 px-1 pt-1.5">
+					<Button
+						unifiedSize="xs"
+						variant="default"
+						disabled={selectedIds.length === 0}
+						startIcon={{ icon: allSelectedArchived ? ArchiveRestore : Archive }}
+						onClick={handleBatchArchive}
+					>
+						{allSelectedArchived ? 'Unarchive' : 'Archive'}
+					</Button>
+					<Button
+						unifiedSize="xs"
+						variant="default"
+						destructive
+						disabled={selectedIds.length === 0}
+						startIcon={{ icon: Trash2 }}
+						onClick={() => (batchDeleteOpen = true)}
+					>
+						Delete
+					</Button>
+				</div>
+			{/if}
 		{/if}
 	</div>
 {/if}
@@ -883,6 +1234,31 @@
 					>
 				</div>
 			</div>
+		{/if}
+	</div>
+</ConfirmationModal>
+
+<ConfirmationModal
+	open={batchDeleteOpen}
+	title="Delete sessions"
+	confirmationText="Delete"
+	onConfirmed={handleConfirmedBatchDelete}
+	onCanceled={() => (batchDeleteOpen = false)}
+>
+	<div class="flex flex-col gap-3">
+		<p>
+			Delete <span class="font-medium text-primary"
+				>{selectedIds.length} session{selectedIds.length === 1 ? '' : 's'}</span
+			>? This cannot be undone.
+		</p>
+		{#if selectedForkCount > 0}
+			<p class="text-xs text-tertiary">
+				{selectedForkCount} of them {selectedForkCount === 1 ? 'has a' : 'have'} forked workspace{selectedForkCount ===
+				1
+					? ''
+					: 's'}, which {selectedForkCount === 1 ? 'is' : 'are'} kept. Delete a session on its own to
+				drop its fork too.
+			</p>
 		{/if}
 	</div>
 </ConfirmationModal>
