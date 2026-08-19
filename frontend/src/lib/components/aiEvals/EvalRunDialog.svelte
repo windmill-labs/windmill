@@ -168,8 +168,11 @@
 						<!-- Keyed on the versions it was built from: the menu reads its items once, and
 						     they arrive after this dialog opens. -->
 						{#key olderItems.map((i) => i.value).join(',')}
+							<!-- Pulled in by its own padding: the trigger is not a pill, so the room it
+							     reserves reads as a gap after the button before it. -->
 							<ToggleButtonMore
 								small
+								class="-ml-2"
 								btnText={pickedOlder ? '' : 'More'}
 								togglableItems={olderItems}
 								bind:selected={choice}
@@ -194,6 +197,7 @@
 					items={datasetItems}
 					bind:value={dataset}
 					placeholder="Select a dataset"
+					clearable
 					class="text-xs w-full"
 				>
 					<!-- The way into a dataset from the row that names it, as a resource picker does: what
@@ -232,7 +236,7 @@
 					{/snippet}
 				</Select>
 				{#if dataset && hoveringDataset}
-					<div class="absolute right-8 z-20">
+					<div class="absolute right-10 z-20">
 						<Button
 							variant="subtle"
 							size="xs2"

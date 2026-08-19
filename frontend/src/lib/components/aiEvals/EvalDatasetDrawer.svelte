@@ -303,6 +303,13 @@
 						<span class="text-2xs text-tertiary">
 							Renaming moves the dataset: its cases and its runs follow it.
 						</span>
+					{:else}
+						<!-- Said rather than shown as controls that do nothing: a scorer and a case both
+						     belong to a dataset, so there is nothing to attach them to until this one is
+						     created. Creating it leaves this drawer open on them. -->
+						<span class="text-2xs text-tertiary">
+							Naming it is all this step is. Creating it opens its scorers and its cases here.
+						</span>
 					{/if}
 				</div>
 			{/key}
