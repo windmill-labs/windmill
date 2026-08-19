@@ -275,7 +275,7 @@ describe("getTypeStrFromPath", () => {
   test("a shared lockfile is its own type, not a workspace dependency", () => {
     // It lives under dependencies/ but has no object on the server: classified
     // as one, `sync push` would try to deploy it as a dependency file.
-    expect(getTypeStrFromPath("dependencies/locks/python3.lock")).toBe(
+    expect(getTypeStrFromPath("locks/python3.lock")).toBe(
       "shared_lock",
     );
     expect(getTypeStrFromPath("dependencies/requirements.in")).toBe(

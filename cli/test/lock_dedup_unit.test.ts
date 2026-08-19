@@ -5,7 +5,7 @@
  * every Python script, so the repo carries thousands of identical
  * `.script.lock` files: a dependency bump rewrites all of them and every open
  * branch conflicts on all of them. Dedup keeps one file per group under
- * `dependencies/locks/` and points the metadata at it.
+ * `locks/` and points the metadata at it.
  *
  * What these pin, per the invariants in `lock_dedup.ts`:
  *  - a group keeps the file it already reads, so a bump is a one-file diff
@@ -33,10 +33,10 @@ import { yamlOptions } from "../src/commands/sync/sync.ts";
 const PY_LOCK = "requests==2.32.0\nurllib3==2.2.1\n";
 const PY_LOCK_BUMPED = "requests==2.32.3\nurllib3==2.2.1\n";
 const OTHER_LOCK = "requests==2.32.0\nurllib3==2.2.1\npandas==2.2.0\n";
-const SHARED_PY = "dependencies/locks/python3.lock";
-const SHARED_PY_2 = "dependencies/locks/python3-2.lock";
-const SHARED_BUN = "dependencies/locks/bun.lock";
-const TRAVERSING_REF = "dependencies/locks/../../../../tmp/escaped.lock";
+const SHARED_PY = "locks/python3.lock";
+const SHARED_PY_2 = "locks/python3-2.lock";
+const SHARED_BUN = "locks/bun.lock";
+const TRAVERSING_REF = "locks/../../../../tmp/escaped.lock";
 
 function meta(lockRef: string, summary = ""): string {
   return yamlStringify({ summary, lock: lockRef }, yamlOptions);
@@ -75,7 +75,7 @@ function treeOf(
   for (const [key, value] of Object.entries(map)) {
     if (!key.endsWith(".script.yaml")) continue;
     scripts.add(key);
-    const match = /!inline (dependencies\/locks\/[^\s'"]+\.lock)/.exec(value);
+    const match = /!inline (locks\/[^\s'"]+\.lock)/.exec(value);
     if (match) refs.set(key, match[1]);
   }
   return { refs, scripts, contents: new Map(Object.entries(contents)) };
@@ -325,9 +325,9 @@ describe("computeSharedLockPlan", () => {
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
     expect(lockRefOf(map["f/a.b.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
-    expect(map["dependencies/locks/go.lock"]).toEqual("go-lock-contents");
+    expect(map["locks/go.lock"]).toEqual("go-lock-contents");
     expect(lockRefOf(map["f/a.script.yaml"])).toEqual(
-      "!inline dependencies/locks/go.lock",
+      "!inline locks/go.lock",
     );
   });
 
@@ -465,9 +465,7 @@ describe("sharedLockRefIn", () => {
   test("returns a reference only when it is one, and it exists", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "wmill-dedup-ref-"));
     try {
-      await mkdir(path.join(root, "dependencies", "locks"), {
-        recursive: true,
-      });
+      await mkdir(path.join(root, "locks"), { recursive: true });
       await writeFile(path.join(root, SHARED_PY), PY_LOCK, "utf-8");
 
       expect(sharedLockRefIn(meta(`!inline ${SHARED_PY}`), root)).toEqual(
@@ -476,7 +474,7 @@ describe("sharedLockRefIn", () => {
       // A regenerated script must fall back to its own lock rather than point
       // at a shared file that is not there.
       expect(
-        sharedLockRefIn(meta("!inline dependencies/locks/go.lock"), root),
+        sharedLockRefIn(meta("!inline locks/go.lock"), root),
       ).toBeUndefined();
       expect(
         sharedLockRefIn(meta(`!inline ${TRAVERSING_REF}`), root),

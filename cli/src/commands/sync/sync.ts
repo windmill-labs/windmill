@@ -176,6 +176,7 @@ import {
   DBT_DESCRIPTOR_NAME,
   isDbtDescriptorPath,
   isSharedLockPath,
+  SHARED_LOCK_DIR,
 } from "../../utils/resource_folders.ts";
 import {
   applySharedLockPlanToDisk,
@@ -2587,7 +2588,7 @@ async function compareDynFSElement(
       if (skipMetadata) {
         continue;
       }
-      if (k.startsWith("dependencies/") && !isSharedLockPath(k)) {
+      if (k.startsWith("dependencies/")) {
         if (!workspaceDependenciesPathToLanguageAndFilename(k)) {
           log.warn(`Skipping unrecognized workspace dependencies file: ${k}`);
           continue;
@@ -2799,6 +2800,7 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("users" + SEP) &&
       !p.startsWith("groups" + SEP) &&
       !p.startsWith("dependencies" + SEP) &&
+      !p.startsWith(SHARED_LOCK_DIR + SEP) &&
       !p.startsWith("migrations" + SEP)
     );
   }
@@ -2823,6 +2825,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       typ == "encryption_key"
     ) {
       return p.includes(SEP);
+    } else if (typ == "shared_lock") {
+      return false;
     } else {
       return (
         !p.startsWith("u" + SEP) &&
@@ -2849,6 +2853,7 @@ export const isWhitelisted = (p: string) => {
     p == "users" ||
     p == "groups" ||
     p == "dependencies" ||
+    p == SHARED_LOCK_DIR ||
     p == "migrations"
   );
 };

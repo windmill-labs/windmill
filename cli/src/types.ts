@@ -384,8 +384,7 @@ export function getTypeStrFromPath(
   if (isRawAppPath(p)) {
     return "raw_app";
   }
-  // Before the `dependencies/` catch-all: a shared lockfile lives in there but
-  // is not a workspace dependency file — it has no object on the server.
+  // A repo-side artifact of `dedupeLockfiles`: it has no object on the server.
   if (isSharedLockPath(p)) {
     return "shared_lock";
   }

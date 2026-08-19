@@ -550,10 +550,11 @@ export function getModuleFolderSuffix(language?: string): string {
   return language === "dbt" ? DBT_MODULE_SUFFIX : MODULE_SUFFIX;
 }
 
-/** Where the lockfiles shared by the scripts of a language live when
- *  `dedupeLockfiles` is on — see `utils/lock_dedup.ts`. Inside `dependencies/`
- *  because that is where the workspace dependency files they resolve live. */
-export const SHARED_LOCK_DIR = "dependencies/locks";
+/** Where the lockfiles shared by several scripts live when `dedupeLockfiles`
+ *  is on — see `utils/lock_dedup.ts`. A top-level directory of its own: what a
+ *  group shares is a resolved lock, which needs no workspace dependency file
+ *  behind it, and inline-script locks would belong here too. */
+export const SHARED_LOCK_DIR = "locks";
 
 export function sharedLockPath(language: string): string {
   return `${SHARED_LOCK_DIR}/${language}.lock`;

@@ -23,9 +23,9 @@ import {
  * thousands of byte-identical `.script.lock` files: one dependency bump rewrites
  * all of them, and every open branch conflicts on all of them.
  *
- * With dedup on, scripts that share a lock reference ONE file under
- * `dependencies/locks/`, through the `!inline` indirection their metadata
- * already uses — so the bump is a one-file diff.
+ * With dedup on, scripts that share a lock reference ONE file under `locks/`,
+ * through the `!inline` indirection their metadata already uses — so the bump is
+ * a one-file diff.
  *
  * Three rules make that hold, and each is load-bearing:
  *
@@ -566,7 +566,7 @@ export async function collectExistingSharedLocks(
       // script metadata file in the workspace, and the reference is a literal.
       const match = SHARED_LOCK_REF_RE.exec(await readFile(full, "utf-8"));
       // Validated, not just matched: a reference is repo content, it becomes a
-      // path this pass writes to, and `dependencies/locks/../../../x.lock`
+      // path this pass writes to, and `locks/../../../x.lock`
       // satisfies the pattern while resolving outside the workspace.
       if (match && isSharedLockPath(match[1])) existing.refs.set(rel, match[1]);
     }
