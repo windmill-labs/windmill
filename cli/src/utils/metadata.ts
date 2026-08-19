@@ -412,7 +412,14 @@ export async function generateScriptMetadataInternal(
       );
     }
   } else {
-    if (metadataInFolder) {
+    // `parseMetadataFile` resolved `lock` to the lockfile's CONTENT, so the
+    // reference has to be restored from the raw text — including a shared one
+    // (`dedupeLockfiles`), which `--schema-only` would otherwise replace with a
+    // per-script path whose file deduplication removed.
+    const sharedRef = sharedLockRefIn(metadataContent);
+    if (sharedRef) {
+      metadataParsedContent.lock = "!inline " + sharedRef;
+    } else if (metadataInFolder) {
       metadataParsedContent.lock =
         "!inline " + remotePath.replaceAll(SEP, "/") + getModuleFolderSuffix() + "/script.lock";
     } else {

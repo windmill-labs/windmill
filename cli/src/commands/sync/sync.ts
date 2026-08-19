@@ -184,6 +184,8 @@ import {
   computeSharedLockPlan,
   isEmptySharedLockPlan,
   scriptsReferencingSharedLock,
+  NO_EXISTING_SHARED_LOCKS,
+  type ExistingSharedLocks,
   type LockDedupOptions,
 } from "../../utils/lock_dedup.ts";
 
@@ -3910,6 +3912,20 @@ export async function pull(
 }
 
 /**
+ * The shared lockfiles a run starts from. Take it BEFORE regenerating anything:
+ * `updateScriptLock` moves a script off its shared file as soon as its lock
+ * resolves differently, and a snapshot taken after that no longer shows which
+ * file the group owns.
+ */
+export async function snapshotSharedLocks(
+  opts: SyncOptions,
+): Promise<ExistingSharedLocks> {
+  return opts.dedupeLockfiles
+    ? await collectExistingSharedLocks(process.cwd())
+    : NO_EXISTING_SHARED_LOCKS;
+}
+
+/**
  * Fold the lockfile that the scripts of a language share back into the one
  * shared file (`dedupeLockfiles`), and give the scripts that ended up with a
  * lock of their own theirs back.
@@ -3922,26 +3938,37 @@ export async function pull(
  * recorded, so every rewritten script is re-hashed from disk — the same
  * lock-untouching pass `sync pull` runs, no dependency job involved.
  */
-export async function dedupeLockfilesOnDisk(
-  opts: GlobalOptions & SyncOptions,
-  workspace: Workspace,
-  codebases: SyncCodebase[],
-  ignore: (p: string, isD: boolean) => boolean,
-  rawWorkspaceDependencies: Record<string, string>,
-  tree: DoubleLinkedDependencyTree,
-  dryRun?: boolean,
-): Promise<void> {
+export async function dedupeLockfilesOnDisk(args: {
+  opts: GlobalOptions & SyncOptions;
+  workspace: Workspace;
+  codebases: SyncCodebase[];
+  ignore: (p: string, isD: boolean) => boolean;
+  rawWorkspaceDependencies: Record<string, string>;
+  tree: DoubleLinkedDependencyTree;
+  /** The tree BEFORE this run regenerated anything — see `snapshotSharedLocks`.
+   *  Passed in rather than collected here: taken afterwards it would show the
+   *  scripts regeneration has already moved off their shared file, and the group
+   *  would be handed a new name instead of keeping its own. */
+  existing: ExistingSharedLocks;
+  dryRun?: boolean;
+}): Promise<void> {
+  const {
+    opts,
+    workspace,
+    codebases,
+    ignore,
+    rawWorkspaceDependencies,
+    tree,
+    existing,
+    dryRun,
+  } = args;
   const map = await elementsToMap(
     await FSFSElement(process.cwd(), codebases, false),
     ignore,
     opts.json ?? false,
     opts,
   );
-  const plan = computeSharedLockPlan(
-    map,
-    opts.defaultTs,
-    await collectExistingSharedLocks(process.cwd()),
-  );
+  const plan = computeSharedLockPlan(map, opts.defaultTs, existing);
   if (isEmptySharedLockPlan(plan)) return;
 
   const summary = `${Object.keys(plan.writes).length} file(s) written, ${plan.deletes.length} removed`;
@@ -4524,6 +4551,7 @@ export async function push(
   }
 
   const autoRegenerate = !!(opts as any).autoMetadata;
+  const sharedLocksBefore = await snapshotSharedLocks(opts);
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
   const staleApps: string[] = [];
@@ -4687,14 +4715,15 @@ export async function push(
       // would otherwise cost.
       await beginLockfileBatch();
       try {
-        await dedupeLockfilesOnDisk(
+        await dedupeLockfilesOnDisk({
           opts,
           workspace,
           codebases,
-          await ignoreF(opts),
+          ignore: await ignoreF(opts),
           rawWorkspaceDependencies,
           tree,
-        );
+          existing: sharedLocksBefore,
+        });
       } finally {
         await flushLockfileBatch();
       }

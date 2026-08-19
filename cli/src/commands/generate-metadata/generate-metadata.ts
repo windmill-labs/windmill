@@ -23,7 +23,9 @@ import {
   elementsToMap,
   FSFSElement,
   ignoreF,
+  snapshotSharedLocks,
 } from "../sync/sync.ts";
+import { type ExistingSharedLocks } from "../../utils/lock_dedup.ts";
 import { hasScriptExt } from "../script/script.ts";
 import { isFolderResourcePathAnyFormat, isScriptModulePath, isModuleEntryPoint, scriptPathToRemotePath } from "../../utils/resource_folders.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
@@ -425,6 +427,7 @@ async function maybeDedupeLockfiles(
   rawWorkspaceDependencies: Record<string, string>,
   tree: DoubleLinkedDependencyTree,
   folder: string | undefined,
+  existing: ExistingSharedLocks,
 ): Promise<void> {
   if (!opts.dedupeLockfiles) return;
   if (folder && opts.strictFolderBoundaries) {
@@ -435,28 +438,22 @@ async function maybeDedupeLockfiles(
     );
     return;
   }
+  const args = {
+    opts,
+    workspace,
+    codebases,
+    ignore,
+    rawWorkspaceDependencies,
+    tree,
+    existing,
+  };
   if (opts.dryRun) {
-    await dedupeLockfilesOnDisk(
-      opts,
-      workspace,
-      codebases,
-      ignore,
-      rawWorkspaceDependencies,
-      tree,
-      true,
-    );
+    await dedupeLockfilesOnDisk({ ...args, dryRun: true });
     return;
   }
   await beginLockfileBatch();
   try {
-    await dedupeLockfilesOnDisk(
-      opts,
-      workspace,
-      codebases,
-      ignore,
-      rawWorkspaceDependencies,
-      tree,
-    );
+    await dedupeLockfilesOnDisk(args);
   } finally {
     await flushLockfileBatch();
   }
@@ -507,6 +504,10 @@ export async function generateMetadata(
   // Build dependency tree for relative import tracking
   const tree = new DoubleLinkedDependencyTree();
   tree.setWorkspaceDeps(rawWorkspaceDependencies);
+
+  // Before anything regenerates: which shared lockfile each group owns is only
+  // visible while its scripts still reference it.
+  const sharedLocksBefore = await snapshotSharedLocks(opts);
 
   // === Collect stale scripts ===
   if (!skipScripts) {
@@ -664,7 +665,7 @@ export async function generateMetadata(
     // Turning `dedupeLockfiles` on in a repo whose metadata is already current
     // is exactly the case where nothing is stale, and the conversion still has
     // to happen — the sync compares against a deduplicated remote either way.
-    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder, sharedLocksBefore);
     return;
   }
 
@@ -835,7 +836,7 @@ export async function generateMetadata(
     await flushLockfileBatch();
   }
 
-  await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
+  await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder, sharedLocksBefore);
 
   const succeeded = total - errors.length;
   log.info("");
