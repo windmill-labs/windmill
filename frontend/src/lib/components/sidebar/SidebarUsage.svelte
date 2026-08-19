@@ -33,6 +33,9 @@
 	// as `workspaceUsageStore` but requires admin and only exists when Stripe is
 	// configured, so it would leave regular members with no block at all.
 	let seats = $state<number | undefined>(undefined)
+	// Membership invalidation can start a second request while the first is still in
+	// flight for the same workspace, so the workspace guard alone doesn't order them.
+	let seatsGeneration = 0
 
 	// A fork's usage and tier resolve to its billing root while its member list is a
 	// subset of the root's, so seats must come from the root or the cap is fork-sized
@@ -74,14 +77,15 @@
 	}
 
 	async function loadSeats(workspace: string, root: string) {
+		const mine = ++seatsGeneration
 		try {
 			// Throws for a fork member with no seat in the root, which is the same
 			// answer as an unresolvable root: leave the paid meter hidden.
 			const users = await UserService.listUsers({ workspace: root })
-			// Nothing cancels the request for the workspace we left, so a slow response
-			// for it must not overwrite the one we are on — it would leave the cap wrong
-			// until the next switch.
-			if ($workspaceStore !== workspace) return
+			// Nothing cancels a superseded request, and a slow response — for the workspace
+			// we left, or for an older read of this one — must not overwrite the current
+			// cap; it would stay wrong until the next switch.
+			if (mine !== seatsGeneration || $workspaceStore !== workspace) return
 			const developers = users.filter((u) => !u.operator).length
 			const operators = users.length - developers
 			// Billing-page seat math: 1 developer = 1 seat, 2 operators = 1 seat.

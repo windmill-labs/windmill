@@ -107,9 +107,9 @@ export const maybePremium: Readable<boolean> = derived(
 	[isPremiumStore, premiumFetchFailed],
 	([premium, failed]) => premium !== false && !failed
 )
-// Bumped whenever the active workspace's membership is re-read after a mutation, so
-// anything deriving a number from the member count (paid seats) can re-resolve it
-// without polling or owning its own invalidation.
+// Bumped when the active workspace's membership is seen to have changed, so anything
+// deriving a number from the member count (paid seats) can re-resolve it without
+// polling or owning its own invalidation.
 export const workspaceMembershipVersion = writable<number>(0)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
 export const superadmin = writable<string | false | undefined>(undefined)

@@ -5,6 +5,10 @@ import { usageStore, workspaceStore, workspaceUsageStore } from '$lib/stores'
 
 // Workspace the value in `workspaceUsageStore` describes.
 let usageFetchedFor: string | undefined = undefined
+// Nothing cancels an in-flight request, and the workspace id alone doesn't order two
+// of them: A→B→A, or a refresh landing on top of one already running for A, both leave
+// two live requests for the same workspace whose responses can arrive out of order.
+let generation = 0
 
 /**
  * Refreshes the cloud execution counters. Lives here rather than in the root layout
@@ -14,10 +18,10 @@ let usageFetchedFor: string | undefined = undefined
 export async function refreshUsage(): Promise<void> {
 	const workspace = get(workspaceStore)
 	if (!isCloudHosted() || !workspace) return
-	// Workspace usage belongs to a workspace: clear it for a new one, and drop a
-	// response that lost the race. User usage is account-wide, so it survives the
-	// switch. Each is assigned on its own so one endpoint failing leaves the other's
-	// number intact rather than unresolved.
+	const mine = ++generation
+	// Workspace usage belongs to a workspace: clear it for a new one. User usage is
+	// account-wide, so it survives the switch. Each is assigned on its own so one
+	// endpoint failing leaves the other's number intact rather than unresolved.
 	if (usageFetchedFor !== workspace) {
 		usageFetchedFor = workspace
 		workspaceUsageStore.set(undefined)
@@ -28,11 +32,13 @@ export async function refreshUsage(): Promise<void> {
 	// separator would silently go missing above 999.
 	await Promise.all([
 		UserService.getUsage()
-			.then((usage) => usageStore.set(Number(usage)))
+			.then((usage) => {
+				if (mine === generation) usageStore.set(Number(usage))
+			})
 			.catch((e) => console.error('Could not fetch user usage', e)),
 		WorkspaceService.getWorkspaceUsage({ workspace })
 			.then((usage) => {
-				if (get(workspaceStore) === workspace) {
+				if (mine === generation && get(workspaceStore) === workspace) {
 					workspaceUsageStore.set(Number(usage))
 				}
 			})

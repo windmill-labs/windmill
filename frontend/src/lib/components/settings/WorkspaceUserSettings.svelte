@@ -147,10 +147,24 @@
 	}
 
 	async function listUsers(): Promise<void> {
+		// Every membership mutation on this page refetches through here, but so does
+		// mounting it. Bump only on an observed change — never on the first read, which
+		// has nothing to compare against — or opening this tab would make every consumer
+		// re-fetch for a list identical to the one it already holds.
+		const previous = users === undefined ? undefined : membershipSignature(users)
 		users = await UserService.listUsers({ workspace: $workspaceStore! })
-		// Every membership mutation on this page refetches through here; the bump is what
-		// lets seat-derived numbers elsewhere re-resolve instead of showing a stale cap.
-		$workspaceMembershipVersion++
+		if (previous !== undefined && membershipSignature(users) !== previous) {
+			$workspaceMembershipVersion++
+		}
+	}
+
+	// What a seat count depends on: who is a member, and on which side of the
+	// developer/operator split.
+	function membershipSignature(list: User[] | undefined): string {
+		return (list ?? [])
+			.map((u) => `${u.email}:${u.operator}`)
+			.sort()
+			.join(',')
 	}
 
 	async function listInvites(): Promise<void> {
