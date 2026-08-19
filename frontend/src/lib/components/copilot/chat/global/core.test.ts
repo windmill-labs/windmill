@@ -1908,6 +1908,33 @@ describe('global AI tools', () => {
 		expect(body.path).toBeUndefined()
 	})
 
+	// The undeployed-flow 404 is the whole reason this tool exists, and the generated client
+	// leaves the server's message in `body` while `message` is the bare status text.
+	it("surfaces the server's message when a path runnable's target is not deployed", async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/broken_app',
+			{
+				summary: 'Broken app',
+				files: {},
+				runnables: {
+					go: { name: 'Go', type: 'path', runType: 'flow', path: 'u/admin/never_deployed' }
+				},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(AppService.executeComponent).mockRejectedValueOnce({
+			status: 404,
+			message: 'Not Found',
+			body: 'Not found: flow not found at name u/admin/never_deployed'
+		})
+
+		await expect(
+			callGlobalTool('test_run_app_runnable', { path: 'u/admin/broken_app', key: 'go' })
+		).rejects.toThrow(/flow not found at name u\/admin\/never_deployed/)
+	})
+
 	it('runs a path app runnable against the deployed item it names', async () => {
 		seedBackendDraft(
 			'raw_app',
@@ -1930,9 +1957,8 @@ describe('global AI tools', () => {
 		expect(body.raw_code).toBeUndefined()
 	})
 
-	// A hybrid runnable — inline code plus a leftover runType/path — resolves to the inline
-	// branch in isRunnableByName, so the app silently runs stale code instead of the flow it
-	// looks wired to. Converting between kinds must drop the other kind's fields.
+	// A hybrid runnable — inline code plus a leftover runType/path — contradicts its own
+	// kind, and convertPersistedToBackendRunnable is what reports it back to the model.
 	it('drops the other kind\'s fields when a runnable changes type', async () => {
 		seedBackendDraft(
 			'raw_app',

@@ -5810,6 +5810,7 @@ async function testRunAppRunnable(
 		// A path runnable pointing at a flow really does queue a flow job, so the
 		// failure path can offer get_flow_run_details; everything else is a script job.
 		contextName: runnable.runType === 'flow' ? 'flow' : 'script',
+		completionName: 'backend runnable',
 		background: args.background,
 		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 		label: `${path} / ${key}`
