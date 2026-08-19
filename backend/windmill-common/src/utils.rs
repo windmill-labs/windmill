@@ -909,6 +909,35 @@ pub enum ScheduleType {
     Cron(cron::Schedule),
 }
 
+/// Both cron parsers reject the standard 5-field crontab syntax without naming the missing
+/// leading seconds field, and croner even advertises five fields as valid while we parse
+/// with seconds required. Only that seconds-required parse is 6-field, so the hint stays
+/// off the seconds-optional path, where five fields really are accepted.
+fn six_fields_hint(schedule_str: &str, version: Option<&str>, seconds_required: bool) -> String {
+    let fields = schedule_str.split_whitespace().collect::<Vec<_>>();
+    if !seconds_required || fields.len() >= 6 {
+        return String::new();
+    }
+    let suggestion = if fields.len() == 5 {
+        // The suggestion has 6 fields, so parsing it can only recurse one level deep.
+        let with_seconds = format!("0 {}", fields.join(" "));
+        match ScheduleType::from_str(&with_seconds, version, seconds_required) {
+            Ok(_) => format!(
+                " The 5-field crontab syntax is not accepted, did you mean '{}'?",
+                with_seconds
+            ),
+            Err(_) => String::new(),
+        }
+    } else {
+        String::new()
+    };
+    format!(
+        "\nWindmill cron expressions have 6 fields and start with seconds: \
+         'sec min hour day-of-month month day-of-week'.{}",
+        suggestion
+    )
+}
+
 impl ScheduleType {
     pub fn find_next(
         &self,
@@ -947,7 +976,11 @@ impl ScheduleType {
                             schedule_str,
                             e
                         );
-                        Error::BadRequest(format!("cron: {}", e))
+                        Error::BadRequest(format!(
+                            "cron: {}{}",
+                            e,
+                            six_fields_hint(schedule_str, version, seconds_required)
+                        ))
                     })
             }
             Some("v2") | Some(_) => {
@@ -975,7 +1008,11 @@ impl ScheduleType {
                             schedule_str,
                             e
                         );
-                        Error::BadRequest(format!("cron: {}", e))
+                        Error::BadRequest(format!(
+                            "cron: {}{}",
+                            e,
+                            six_fields_hint(schedule_str, version, seconds_required)
+                        ))
                     })
                 });
 
@@ -1556,6 +1593,33 @@ pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 5-field crontab line is the most common way to get a schedule rejected, and both
+    /// parsers report it in terms a crontab user cannot act on, so the seconds field and the
+    /// equivalent expression must reach the caller for v1 and v2 alike.
+    #[test]
+    fn five_field_cron_error_names_the_seconds_field() {
+        for version in [None, Some("v1"), Some("v2")] {
+            let err = ScheduleType::from_str("0 2 * * *", version, true)
+                .err()
+                .expect("5-field cron must be rejected")
+                .to_string();
+            assert!(err.contains("6 fields"), "{version:?}: {err}");
+            assert!(
+                err.contains("did you mean '0 0 2 * * *'?"),
+                "{version:?}: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn cron_error_on_other_arities_is_left_alone() {
+        let err = ScheduleType::from_str("0 0 2 * * bogus", Some("v2"), true)
+            .err()
+            .expect("invalid cron must be rejected")
+            .to_string();
+        assert!(!err.contains("6 fields"), "{err}");
+    }
 
     /// A worker that restarts must land on the exact same name to reclaim its `worker_ping`
     /// row, while still never colliding with the other workers of its own process. The
