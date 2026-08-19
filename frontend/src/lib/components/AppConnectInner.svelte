@@ -1241,7 +1241,7 @@
 			</div>
 		</div>
 	{:else if step == 2 && manual}
-		<div class="flex flex-col gap-8">
+		<div class="flex flex-col gap-4">
 			{#if !emptyString(resourceTypeInfo?.description)}
 				<GfmMarkdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} prose="sm" noPadding />
 			{/if}
@@ -1332,18 +1332,22 @@
 					Acquire the token automatically via client credentials instead
 				</button>
 			{/if}
-			{#key resourceTypeInfo}
-				<ApiConnectForm
-					bind:linkedSecrets
-					bind:description
-					{linkedSecretCandidates}
-					{resourceType}
-					{resourceTypeInfo}
-					bind:args
-					bind:isValid
-					onSynced={getResourceTypeInfo}
-				/>
-			{/key}
+			<!-- The form is a section of its own, not just the next field: it needs more of a break
+			from the description than the uniform gap gives. -->
+			<div class="mt-2">
+				{#key resourceTypeInfo}
+					<ApiConnectForm
+						bind:linkedSecrets
+						bind:description
+						{linkedSecretCandidates}
+						{resourceType}
+						{resourceTypeInfo}
+						bind:args
+						bind:isValid
+						onSynced={getResourceTypeInfo}
+					/>
+				{/key}
+			</div>
 		</div>
 	{:else if step == 2 && !manual}
 		{#if manual == false && resourceType != ''}
