@@ -151,18 +151,28 @@
 		// mounting it. Bump only on an observed change — never on the first read, which
 		// has nothing to compare against — or opening this tab would make every consumer
 		// re-fetch for a list identical to the one it already holds.
-		const previous = users === undefined ? undefined : membershipSignature(users)
-		users = await UserService.listUsers({ workspace: $workspaceStore! })
-		if (previous !== undefined && membershipSignature(users) !== previous) {
+		// Keyed by workspace: this page survives a workspace switch (it only rewrites
+		// `?workspace=`), and comparing A's members against B's would report a change
+		// where only the workspace changed.
+		const workspace = $workspaceStore!
+		const previous = users === undefined ? undefined : signedFor
+		users = await UserService.listUsers({ workspace })
+		const current = membershipSignature(users)
+		signedFor = `${workspace}:${current}`
+		if (previous !== undefined && previous !== `${workspace}:${current}`) {
 			$workspaceMembershipVersion++
 		}
 	}
 
-	// What a seat count depends on: who is a member, and on which side of the
-	// developer/operator split.
+	// Workspace-qualified signature of the last list seen, so a switch reads as a
+	// different workspace rather than a membership change.
+	let signedFor: string | undefined = undefined
+
+	// Every field a paid seat count depends on — the developer/operator split, and the
+	// two categories billing excludes.
 	function membershipSignature(list: User[] | undefined): string {
 		return (list ?? [])
-			.map((u) => `${u.email}:${u.operator}`)
+			.map((u) => `${u.email}:${u.operator}:${u.disabled}:${u.is_service_account}`)
 			.sort()
 			.join(',')
 	}

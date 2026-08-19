@@ -111,6 +111,7 @@
 	OpenAPI.WITH_CREDENTIALS = true
 	// Workspace the `isPremiumStore` value currently describes.
 	let premiumFetchedFor: string | undefined = undefined
+	let premiumFetchGeneration = 0
 	let menuOpen = $state(false)
 	// Set by the workspace⇄session switch before it navigates, so the mobile menu
 	// drawer stays open across a mode toggle (unlike a normal link navigation,
@@ -301,6 +302,10 @@
 				isPremiumStore.set(undefined)
 				premiumFetchFailed.set(false)
 			}
+			// The workspace id alone doesn't order two requests for the same workspace, so
+			// A→B→A can land an older answer last — a late failure would raise the failure
+			// flag over a tier the newer request had already resolved.
+			const premiumGeneration = ++premiumFetchGeneration
 			// A preview iframe shares BOTH localStorage and sessionStorage with the
 			// top-level app (same-origin nested browsing contexts share the top-level
 			// session storage). Persisting its session-scoped workspace to either would
@@ -344,13 +349,13 @@
 			if (isCloudHosted()) {
 				try {
 					const premium = await WorkspaceService.getIsPremium({ workspace })
-					if ($workspaceStore === workspace) {
+					if (premiumGeneration === premiumFetchGeneration && $workspaceStore === workspace) {
 						isPremiumStore.set(premium)
 					}
 				} catch (e) {
 					// The tier stays unknown — asserting "free" here would meter a paid
 					// workspace against the free cap. `maybePremium` reads this to fail closed.
-					if ($workspaceStore === workspace) {
+					if (premiumGeneration === premiumFetchGeneration && $workspaceStore === workspace) {
 						premiumFetchFailed.set(true)
 					}
 					console.error('Could not fetch premium status', e)

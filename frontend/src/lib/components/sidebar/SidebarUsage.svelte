@@ -86,9 +86,12 @@
 			// we left, or for an older read of this one — must not overwrite the current
 			// cap; it would stay wrong until the next switch.
 			if (mine !== seatsGeneration || $workspaceStore !== workspace) return
-			const developers = users.filter((u) => !u.operator).length
-			const operators = users.length - developers
-			// Billing-page seat math: 1 developer = 1 seat, 2 operators = 1 seat.
+			// Same basis as the backend's `count_paid_seats`: disabled members and service
+			// accounts are not billed, so counting them inflates the cap and hides a real
+			// overage. 1 developer = 1 seat, 2 operators = 1 seat.
+			const billable = users.filter((u) => !u.disabled && !u.is_service_account)
+			const developers = billable.filter((u) => !u.operator).length
+			const operators = billable.length - developers
 			seats = Math.ceil(developers + operators / 2)
 		} catch (e) {
 			console.error('Could not compute billing-workspace seats', e)
