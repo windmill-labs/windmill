@@ -31,10 +31,12 @@
 		style?: string
 		cancelText?: string | undefined
 		kind?: 'button' | 'X'
-		/** Where you are inside the dialog, appended to the title as a breadcrumb. Levels below
-		 * the title, so a dialog showing its own root passes nothing. The header is the one part
-		 * of the surface that does not move, which is why the way back belongs in it rather than
-		 * in a control each body places for itself. */
+		/** Where you are inside the dialog, as a breadcrumb replacing the title. The whole path,
+		 * the dialog's own root included: the root is the title, so listing it again below the
+		 * title would make a level out of the place the title already names. A dialog showing its
+		 * root passes nothing and keeps its plain title. The header is the one part of the surface
+		 * that does not move, which is why the way back belongs in it rather than in a control each
+		 * body places for itself. */
 		trail?: ModalTrailSegment[]
 		/** Make the dialog fill the height it is anchored to and lay its body out as a flex
 		 * column, so content can size itself with `h-full` / `flex-1 min-h-0`. Off by default:
@@ -73,6 +75,9 @@
 	const hostEl = $derived(overlayHost?.el())
 	const posClass = $derived(hostEl ? 'absolute' : 'fixed')
 	const hostActive = overlayHostActive()
+
+	// The title is the root of the path, so a dialog at its root is a one-segment breadcrumb.
+	const segments = $derived(trail?.length ? trail : [{ label: title, onclick: undefined }])
 
 	const dispatch = createEventDispatcher()
 
@@ -195,14 +200,32 @@
 												? 'pr-8'
 												: ''}"
 										>
+											<!-- leading-7 throughout, the heading included: an h3 carries a line-height
+											     of its own, so without it the row is six pixels shorter at the root than
+											     it is one level in, and the whole header steps as you navigate. -->
 											<nav
 												aria-label="Breadcrumb"
-												class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold"
+												class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold leading-7"
 											>
-												<h3 class="text-emphasis shrink-0">{title}</h3>
-												{#each trail ?? [] as segment, i (i)}
-													<ChevronRight size={18} class="text-tertiary shrink-0" />
-													{#if segment.onclick}
+												{#each segments as segment, i (i)}
+													{#if i > 0}
+														<ChevronRight size={18} class="text-tertiary shrink-0" />
+													{/if}
+													{#if i === 0}
+														<h3 class="shrink-0 leading-7 {segment.onclick ? '' : 'text-emphasis'}">
+															{#if segment.onclick}
+																<button
+																	type="button"
+																	class="text-secondary hover:text-emphasis hover:underline"
+																	onclick={segment.onclick}
+																>
+																	{segment.label}
+																</button>
+															{:else}
+																{segment.label}
+															{/if}
+														</h3>
+													{:else if segment.onclick}
 														<button
 															type="button"
 															class="text-secondary hover:text-emphasis hover:underline truncate"

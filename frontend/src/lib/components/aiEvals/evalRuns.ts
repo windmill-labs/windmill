@@ -1,5 +1,9 @@
 import type { EvalExperiment } from '$lib/gen'
 
+/** A level the evals pane is on, and the way out of it. The pane knows where it is; the surface
+ *  around it decides where that is shown. */
+export type EvalsLocation = { label: string; back: () => void }
+
 /** An experiment is called by the run it is, which is short enough to say in a row or a menu. */
 export function experimentName(experiment: EvalExperiment): string {
 	return `Run ${experiment.run_number}`

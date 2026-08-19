@@ -42,8 +42,8 @@
 	import EvalRunResult from './EvalRunResult.svelte'
 	import EvalRunsList from './EvalRunsList.svelte'
 	import EvalRunDialog from './EvalRunDialog.svelte'
-	import type { ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
 	import { caseLabel, type CaseDraft } from './evalCaseUtils'
+	import type { EvalsLocation } from './evalRuns'
 	import { experimentName, subjectLabel } from './evalRuns'
 	import { formatDelta, formatScore, passedBy, scorerLabel } from './evalScorers'
 	import type { ScoreCaseResultResponse } from '$lib/gen'
@@ -52,7 +52,7 @@
 		agentPath,
 		opWorkspace = undefined,
 		capture = undefined,
-		trail = $bindable()
+		location = $bindable()
 	}: {
 		/** The agent under test. A dataset and its runs belong to an agent, so an agent that has
 		 * never been saved has nothing to hang them on. */
@@ -62,9 +62,10 @@
 		opWorkspace?: string
 		/** A case captured from an AI agent run, opened for review before saving. */
 		capture?: CaseDraft
-		/** Where the pane is, reported up so the surface holding it can put the way back in its
-		 * header. The pane navigates; where that shows belongs to whoever owns the frame. */
-		trail?: ModalTrailSegment[]
+		/** The level the pane is on and the way out of it, reported up so the surface holding it
+		 * can put both in its header. Undefined at the root, which that surface already names.
+		 * The pane navigates; where that shows belongs to whoever owns the frame. */
+		location?: EvalsLocation
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $workspaceStore)
@@ -611,11 +612,11 @@
 	 *  without the case count: a header says where you are, not everything the row said. */
 	$effect(() => {
 		const run = viewingRun ? experiments.find((e) => e.id === experimentId) : undefined
-		trail = run
-			? [
-					{ label: 'All runs', onclick: () => (viewingRun = false) },
-					{ label: `${experimentName(run)} · ${subjectLabelOf(run)}` }
-				]
+		location = run
+			? {
+					label: `${experimentName(run)} · ${subjectLabelOf(run)}`,
+					back: () => (viewingRun = false)
+				}
 			: undefined
 	})
 

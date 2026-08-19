@@ -1,5 +1,6 @@
 <script lang="ts">
-	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import type { EvalsLocation } from './evalRuns'
 	import type { EvalCaseDraft } from '$lib/gen'
 	import EvalsPane from './EvalsPane.svelte'
 	import { fromCaptureDraft } from './evalCaseUtils'
@@ -24,9 +25,13 @@
 	// A capture names the agent it ran against, which is the agent whose dataset it belongs in.
 	let path = $derived(agentPath ?? capture?.agent_path)
 
-	// Where the pane is, so the header carries it. The dialog owns the frame and the pane owns the
-	// navigating, which is why the trail comes up from it rather than being decided here.
-	let trail = $state<ModalTrailSegment[] | undefined>(undefined)
+	// The dialog is what the breadcrumb's first segment names, so the path is composed here from
+	// the dialog's own title and whatever level the pane reports being on.
+	const TITLE = 'Evals'
+	let location = $state<EvalsLocation | undefined>(undefined)
+	let trail = $derived(
+		location ? [{ label: TITLE, onclick: location.back }, { label: location.label }] : undefined
+	)
 </script>
 
 <!-- A dialog rather than a drawer: what it holds is a screen of its own — a history, then a run of
@@ -35,7 +40,7 @@
 <!-- `kind="X"` because there is nothing to cancel: what is inside is read and acted on, not filled
      in. The `sm:` widths are what actually win — the dialog's own are breakpoint-prefixed. -->
 <Modal
-	title="Evals"
+	title={TITLE}
 	{trail}
 	bind:open
 	kind="X"
@@ -48,7 +53,7 @@
 				agentPath={path}
 				{opWorkspace}
 				capture={capture ? fromCaptureDraft(capture) : undefined}
-				bind:trail
+				bind:location
 			/>
 		{:else}
 			<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
