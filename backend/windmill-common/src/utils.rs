@@ -915,6 +915,66 @@ pub enum ScheduleType {
     Cron(cron::Schedule),
 }
 
+/// croner reads the leading seconds field as optional or required depending on these flags,
+/// so anything asking whether an expression parses has to ask it the way the caller did.
+fn croner_parser(schedule_str: &str, seconds_required: bool) -> Cron {
+    let mut croner = Cron::new(schedule_str);
+    if seconds_required {
+        croner.with_seconds_required();
+    } else {
+        croner.with_seconds_optional();
+    }
+    croner
+}
+
+/// Probes an expression this module synthesized rather than one that was submitted, so it
+/// goes around `from_str`, whose failure path logs at ERROR level.
+fn parses_as_cron(schedule_str: &str, version: Option<&str>, seconds_required: bool) -> bool {
+    match version {
+        Some("v1") | None => cron::Schedule::from_str(schedule_str).is_ok(),
+        Some(_) => panic::catch_unwind(AssertUnwindSafe(|| {
+            croner_parser(schedule_str, seconds_required)
+                .parse()
+                .is_ok()
+        }))
+        .unwrap_or(false),
+    }
+}
+
+/// Both cron parsers reject the standard 5-field crontab syntax without naming the missing
+/// leading seconds field, and croner even advertises five fields as valid while we parse
+/// with seconds required. The hint belongs to that seconds-required parse alone: croner does
+/// accept five fields once seconds are optional, which is how the worker re-reads a schedule.
+fn six_fields_hint(schedule_str: &str, version: Option<&str>, seconds_required: bool) -> String {
+    let fields = schedule_str.split_whitespace().collect::<Vec<_>>();
+    if !seconds_required || fields.len() >= 6 {
+        return String::new();
+    }
+    // A restricted weekday is where v1 parts ways with crontab: it numbers weekdays from
+    // Sunday=1, and it intersects day-of-month with day-of-week where crontab unions them.
+    // Once the weekday is unrestricted the remaining fields carry their crontab meaning, so
+    // that is the only case on v1 where a concrete expression can be handed back.
+    let v1_weekday_restricted = matches!(version, Some("v1") | None)
+        && fields.get(4).is_some_and(|dow| *dow != "*" && *dow != "?");
+    let with_seconds = format!("0 {}", fields.join(" "));
+    let example = if fields.len() == 5
+        && !v1_weekday_restricted
+        && parses_as_cron(&with_seconds, version, seconds_required)
+    {
+        format!(
+            " The 5-field crontab syntax is not accepted; prepend a seconds field, e.g. '{}'.",
+            with_seconds
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "\nWindmill cron expressions have 6 fields and start with seconds: \
+         'sec min hour day-of-month month day-of-week'.{}",
+        example
+    )
+}
+
 impl ScheduleType {
     pub fn find_next(
         &self,
@@ -953,19 +1013,17 @@ impl ScheduleType {
                             schedule_str,
                             e
                         );
-                        Error::BadRequest(format!("cron: {}", e))
+                        Error::BadRequest(format!(
+                            "cron: {}{}",
+                            e,
+                            six_fields_hint(schedule_str, version, seconds_required)
+                        ))
                     })
             }
             Some("v2") | Some(_) => {
                 // Use Croner for v2
                 let schedule_type_result = panic::catch_unwind(AssertUnwindSafe(|| {
-                    let mut croner = Cron::new(schedule_str);
-                    if seconds_required {
-                        croner.with_seconds_required();
-                    } else {
-                        croner.with_seconds_optional();
-                    };
-                    croner.parse()
+                    croner_parser(schedule_str, seconds_required).parse()
                 }))
                 .map_err(|_| {
                     tracing::error!(
@@ -981,7 +1039,11 @@ impl ScheduleType {
                             schedule_str,
                             e
                         );
-                        Error::BadRequest(format!("cron: {}", e))
+                        Error::BadRequest(format!(
+                            "cron: {}{}",
+                            e,
+                            six_fields_hint(schedule_str, version, seconds_required)
+                        ))
                     })
                 });
 
@@ -1562,6 +1624,58 @@ pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 5-field crontab line is the most common way to get a schedule rejected, and both
+    /// parsers report it in terms a crontab user cannot act on, so the seconds field and the
+    /// equivalent expression must reach the caller for v1 and v2 alike.
+    #[test]
+    fn five_field_cron_error_names_the_seconds_field() {
+        for version in [None, Some("v1"), Some("v2")] {
+            let err = ScheduleType::from_str("0 2 * * *", version, true)
+                .err()
+                .expect("5-field cron must be rejected")
+                .to_string();
+            assert!(err.contains("6 fields"), "{version:?}: {err}");
+            assert!(
+                err.contains("prepend a seconds field, e.g. '0 0 2 * * *'."),
+                "{version:?}: {err}"
+            );
+        }
+    }
+
+    /// On v1 a restricted weekday means something else than it does in the crontab line being
+    /// rewritten: `1` is Sunday there, and a weekday alongside a day-of-month intersects
+    /// instead of unions. Neither can be handed back as an expression to use; croner reads
+    /// both the crontab way, so the same inputs keep their example.
+    #[test]
+    fn restricted_weekday_example_is_withheld_on_v1_only() {
+        for schedule in ["0 2 * * 1", "0 2 1 * MON"] {
+            let v1 = ScheduleType::from_str(schedule, None, true)
+                .err()
+                .expect("5-field cron must be rejected")
+                .to_string();
+            assert!(v1.contains("6 fields"), "{schedule}: {v1}");
+            assert!(!v1.contains("e.g."), "{schedule}: {v1}");
+
+            let v2 = ScheduleType::from_str(schedule, Some("v2"), true)
+                .err()
+                .expect("5-field cron must be rejected")
+                .to_string();
+            assert!(
+                v2.contains(&format!("prepend a seconds field, e.g. '0 {schedule}'.")),
+                "{schedule}: {v2}"
+            );
+        }
+    }
+
+    #[test]
+    fn cron_error_on_other_arities_is_left_alone() {
+        let err = ScheduleType::from_str("0 0 2 * * bogus", Some("v2"), true)
+            .err()
+            .expect("invalid cron must be rejected")
+            .to_string();
+        assert!(!err.contains("6 fields"), "{err}");
+    }
 
     /// A worker that restarts must land on the exact same name to reclaim its `worker_ping`
     /// row, while still never colliding with the other workers of its own process. The
