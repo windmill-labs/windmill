@@ -3189,22 +3189,13 @@ async fn get_git_commit_hash(
 
     // App-backed repos store a tokenless URL, so the `ls-remote` below can't
     // authenticate. Reuse the poller's REST head lookup, which mints an
-    // installation token server-side, rather than embedding one in a URL here.
-    #[cfg(feature = "enterprise")]
-    if git_repo_resource_value
-        .get("is_github_app")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
+    // installation token server-side rather than embedding one in a URL here.
+    // It returns `None` for a repo that isn't app-backed, which is exactly the
+    // ls-remote case below.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some((_, commit_hash)) =
+        windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path).await?
     {
-        let (_, commit_hash) =
-            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path)
-                .await?
-                .ok_or_else(|| {
-                    Error::internal_err(format!(
-                        "No head commit resolved for GitHub App repository {}",
-                        path
-                    ))
-                })?;
         return Ok(Json(GitCommitHashResponse { commit_hash }));
     }
 
