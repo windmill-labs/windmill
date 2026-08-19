@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import * as path from "node:path";
 import { yamlOptions } from "../commands/sync/sync.ts";
+import * as log from "../core/log.ts";
 import { yamlParseContent } from "./yaml.ts";
 import {
   inferContentTypeFromFilePath,
@@ -111,6 +112,7 @@ type ScriptEntry = {
   /** `metaKey` forward-slashed, i.e. how the working-tree scan names it. */
   metaRef: string;
   isJson: boolean;
+  compactJson: boolean;
   parsed: Record<string, any>;
   /** The lock file the metadata references today, as a map key. */
   lockKey: string;
@@ -241,6 +243,7 @@ function collectScripts(
       metaKey,
       metaRef: toRefPath(metaKey),
       isJson: meta.isJson,
+      compactJson: !metaContent.includes("\n"),
       parsed,
       lockKey: lockFile.key,
       ownLockKey: toMapKey(meta.ownLockKey),
@@ -252,9 +255,13 @@ function collectScripts(
 }
 
 function serializeMetadata(entry: ScriptEntry): string {
-  return entry.isJson
-    ? JSON.stringify(entry.parsed, null, 2)
-    : yamlStringify(entry.parsed, yamlOptions);
+  if (!entry.isJson) return yamlStringify(entry.parsed, yamlOptions);
+  // Indented or compact as it was found: `sync` writes JSON metadata indented
+  // and `generate-metadata` writes it compact, so imposing either one here
+  // reformats files this feature exists to keep quiet.
+  return entry.compactJson
+    ? JSON.stringify(entry.parsed)
+    : JSON.stringify(entry.parsed, null, 2);
 }
 
 /**
@@ -356,6 +363,7 @@ export function computeSharedLockPlan(
   map: Record<string, string>,
   defaultTs: "bun" | "deno" | undefined,
   existing: ExistingSharedLocks = NO_EXISTING_SHARED_LOCKS,
+  json = false,
 ): SharedLockPlan {
   const plan: SharedLockPlan = { writes: {}, deletes: [] };
   const byLanguage = new Map<string, Map<string, ScriptEntry[]>>();
@@ -373,10 +381,23 @@ export function computeSharedLockPlan(
     }
   }
 
-  // A sync that cannot see the whole tree conserves only (see the header).
-  const partialView = [...existing.scripts].some(
-    (script) => map[toMapKey(script)] === undefined && map[script] === undefined,
+  // A sync that cannot see the whole tree conserves only (see the header). Only
+  // the metadata twin this sync reads counts as missing: a leftover
+  // `.script.json` in a YAML repo is dropped by the map for reasons that have
+  // nothing to do with scope, and would otherwise put the tree in conserve-only
+  // mode for good.
+  const unseen = [...existing.scripts].filter(
+    (script) =>
+      script.endsWith(json ? ".json" : ".yaml") &&
+      map[toMapKey(script)] === undefined &&
+      map[script] === undefined,
   );
+  const partialView = unseen.length > 0;
+  if (partialView) {
+    log.debug(
+      `Lockfile dedup: ${unseen.length} script(s) outside this sync's scope (e.g. ${unseen[0]}); keeping existing groups but forming none.`,
+    );
+  }
 
   // Where every script ends up, so a shared file with nothing left reading it
   // can be dropped. Seeded with the whole tree, out-of-scope scripts included.
@@ -475,6 +496,21 @@ const SHARED_LOCK_REF_RE = new RegExp(
   `${INLINE_PREFIX}(${SHARED_LOCK_DIR}/[^\\s'"]+\\.lock)`,
 );
 
+/**
+ * The shared lockfile a metadata FILE reads, when it reads one that is there.
+ * `parseMetadataFile` resolves `lock` to the lockfile's content, so the
+ * reference itself survives only in the raw text.
+ */
+export function sharedLockRefIn(
+  metadataContent: string,
+  root: string = ".",
+): string | undefined {
+  const ref = SHARED_LOCK_REF_RE.exec(metadataContent)?.[1];
+  return ref && isSharedLockPath(ref) && existsSync(path.resolve(root, ref))
+    ? ref
+    : undefined;
+}
+
 // `.wmill` is the stateful-push mirror: its copies of a script's metadata would
 // be counted as extra readers of a shared lockfile and freeze its content.
 // `.git` and `node_modules` cannot be Windmill paths and are where the walk
@@ -482,6 +518,9 @@ const SHARED_LOCK_REF_RE = new RegExp(
 // like `dist` is a legal folder, and a script hidden from this scan is exactly
 // the script the scan exists to protect.
 const SCAN_SKIP_DIRS = new Set([".git", ".wmill", "node_modules"]);
+
+/** Workspace-shared raw-app components, which sync handles on its own. */
+const SCAN_SKIP_ROOTS = ["ui/"];
 
 /**
  * The shared lockfiles in the working tree, the scripts that read them, and
@@ -521,6 +560,7 @@ export async function collectExistingSharedLocks(
         continue;
       }
       if (scriptMetaBase(rel) === undefined) continue;
+      if (SCAN_SKIP_ROOTS.some((root) => rel.startsWith(root))) continue;
       existing.scripts.add(rel);
       // A substring match on the raw text rather than a parse: this reads every
       // script metadata file in the workspace, and the reference is a literal.

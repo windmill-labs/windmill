@@ -19,7 +19,7 @@ import {
   languageNeedsLock,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath, isSharedLockPath, sharedLockPath } from "./resource_folders.ts";
+import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath, sharedLockPath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
 import { DBT_DESCRIPTOR_NAME, isMissingDbtDescriptor } from "./resource_folders.ts";
@@ -31,6 +31,7 @@ import { getIsWin } from "./utils.ts";
 import { extractRelativeImports } from "./relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "./dependency_tree.ts";
 import { pollJobWithQueueLogging } from "./job_polling.ts";
+import { sharedLockRefIn } from "./lock_dedup.ts";
 
 const _require = createRequire(import.meta.url);
 const _parserCache = new Map<string, Promise<any>>();
@@ -785,19 +786,6 @@ async function fetchScriptLock(
     lockCache.set(cacheKey, lock);
   }
   return lock;
-}
-
-/**
- * The shared lockfile a metadata FILE reads, when it reads one that exists.
- * `parseMetadataFile` resolves `lock` to the lockfile's content, so the
- * reference itself survives only in the raw text.
- */
-function sharedLockRefIn(metadataContent: string): string | undefined {
-  const match = /!inline (dependencies\/locks\/[^\s'"]+\.lock)/.exec(
-    metadataContent,
-  );
-  const ref = match?.[1];
-  return ref && isSharedLockPath(ref) && existsSync(ref) ? ref : undefined;
 }
 
 async function updateScriptLock(

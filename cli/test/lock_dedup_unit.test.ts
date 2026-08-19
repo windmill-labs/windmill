@@ -25,6 +25,7 @@ import {
   computeSharedLockPlan,
   isEmptySharedLockPlan,
   scriptsReferencingSharedLock,
+  sharedLockRefIn,
   type ExistingSharedLocks,
 } from "../src/utils/lock_dedup.ts";
 import { yamlOptions } from "../src/commands/sync/sync.ts";
@@ -193,6 +194,40 @@ describe("computeSharedLockPlan", () => {
       );
     }
     expect(remote["f/lag.script.lock"]).toEqual(PY_LOCK);
+  });
+
+  test("two groups bumped at once each keep their own file", () => {
+    // The shape that exposed a snapshot taken after regeneration: read late, the
+    // groups' own references are gone and the two files trade contents while
+    // every script's metadata is rewritten.
+    const committed: Record<string, string> = {};
+    for (const base of ["f/a", "f/b", "f/c"]) {
+      sharedLock(committed, base, ".py", SHARED_PY);
+    }
+    for (const base of ["f/d", "f/e"]) {
+      sharedLock(committed, base, ".py", SHARED_PY_2);
+    }
+    const tree = treeOf(committed, {
+      [SHARED_PY]: PY_LOCK,
+      [SHARED_PY_2]: OTHER_LOCK,
+    });
+
+    const remote: Record<string, string> = {};
+    for (const base of ["f/a", "f/b", "f/c"]) {
+      ownLock(remote, base, ".py", PY_LOCK_BUMPED);
+    }
+    for (const base of ["f/d", "f/e"]) {
+      ownLock(remote, base, ".py", OTHER_LOCK + "click==8.1.7\n");
+    }
+    const plan = computeSharedLockPlan(remote, "bun", tree);
+    applySharedLockPlanToMap(remote, plan);
+
+    expect(remote[SHARED_PY]).toEqual(PY_LOCK_BUMPED);
+    expect(remote[SHARED_PY_2]).toEqual(OTHER_LOCK + "click==8.1.7\n");
+    expect(lockRefOf(remote["f/a.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
+    expect(lockRefOf(remote["f/d.script.yaml"])).toEqual(
+      `!inline ${SHARED_PY_2}`,
+    );
   });
 
   test("a lone script keeps its own lock", () => {
@@ -420,6 +455,35 @@ describe("collectExistingSharedLocks", () => {
       // one that escapes the workspace is not a reference at all.
       expect([...existing.refs.values()]).not.toContain(TRAVERSING_REF);
       expect(existing.refs.get("f/team/escape.script.yaml")).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("sharedLockRefIn", () => {
+  test("returns a reference only when it is one, and it exists", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wmill-dedup-ref-"));
+    try {
+      await mkdir(path.join(root, "dependencies", "locks"), {
+        recursive: true,
+      });
+      await writeFile(path.join(root, SHARED_PY), PY_LOCK, "utf-8");
+
+      expect(sharedLockRefIn(meta(`!inline ${SHARED_PY}`), root)).toEqual(
+        SHARED_PY,
+      );
+      // A regenerated script must fall back to its own lock rather than point
+      // at a shared file that is not there.
+      expect(
+        sharedLockRefIn(meta("!inline dependencies/locks/go.lock"), root),
+      ).toBeUndefined();
+      expect(
+        sharedLockRefIn(meta(`!inline ${TRAVERSING_REF}`), root),
+      ).toBeUndefined();
+      expect(
+        sharedLockRefIn(meta("!inline f/a.script.lock"), root),
+      ).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

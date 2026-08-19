@@ -2531,6 +2531,7 @@ async function compareDynFSElement(
         remoteMap,
         skips.defaultTs,
         await collectExistingSharedLocks(process.cwd()),
+        json,
       ),
     );
   }
@@ -3968,7 +3969,12 @@ export async function dedupeLockfilesOnDisk(args: {
     opts.json ?? false,
     opts,
   );
-  const plan = computeSharedLockPlan(map, opts.defaultTs, existing);
+  const plan = computeSharedLockPlan(
+    map,
+    opts.defaultTs,
+    existing,
+    opts.json ?? false,
+  );
   if (isEmptySharedLockPlan(plan)) return;
 
   const summary = `${Object.keys(plan.writes).length} file(s) written, ${plan.deletes.length} removed`;
@@ -4551,7 +4557,10 @@ export async function push(
   }
 
   const autoRegenerate = !!(opts as any).autoMetadata;
-  const sharedLocksBefore = await snapshotSharedLocks(opts);
+  // Only the regeneration below reads it, and it walks the whole tree.
+  const sharedLocksBefore = autoRegenerate
+    ? await snapshotSharedLocks(opts)
+    : NO_EXISTING_SHARED_LOCKS;
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
   const staleApps: string[] = [];
@@ -4723,6 +4732,7 @@ export async function push(
           rawWorkspaceDependencies,
           tree,
           existing: sharedLocksBefore,
+          dryRun: opts.dryRun,
         });
       } finally {
         await flushLockfileBatch();
