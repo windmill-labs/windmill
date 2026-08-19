@@ -18,16 +18,23 @@
 		workspace,
 		datasetPath,
 		dataset,
+		pending = $bindable(),
 		onChanged
 	}: {
 		workspace: string | undefined
+		/** What to name new runnables after, which a dataset has before it exists. */
 		datasetPath: string | undefined
+		/** The saved dataset, absent until there is one. Its absence is what says to collect rather
+		 * than to save. */
 		dataset: EvalDataset | undefined
+		/** The columns a dataset that does not exist yet is collecting. There is no row to write
+		 * them to, so they are held here and sent with the dataset that is about to be created. */
+		pending?: Scorer[]
 		/** The columns changed, so what every run of this dataset reports changed with them. */
 		onChanged: () => void | Promise<void>
 	} = $props()
 
-	let scorers = $derived(dataset?.scorers ?? [])
+	let scorers = $derived(dataset ? (dataset.scorers ?? []) : (pending ?? []))
 
 	let scorerDrawer: Drawer | undefined = $state()
 	let scriptEditorDrawer: ScriptEditorDrawer | undefined = $state()
@@ -48,7 +55,13 @@
 	let savingSettings = $state(false)
 
 	async function saveScorers(next: Scorer[]) {
-		if (!workspace || !datasetPath || !dataset) return
+		// Nothing to save them to yet: the dataset being named carries them in, and until then this
+		// list is the whole of what it knows about its columns.
+		if (!dataset) {
+			pending = next
+			return
+		}
+		if (!workspace || !datasetPath) return
 		await AiEvalsService.updateEvalDataset({
 			workspace,
 			path: datasetPath,
@@ -171,7 +184,7 @@
 					variant="default"
 					startIcon={{ icon: Plus }}
 					endIcon={{ icon: ChevronDown }}
-					disabled={!datasetPath}
+					disabled={!workspace}
 				>
 					Add scorer
 				</Button>

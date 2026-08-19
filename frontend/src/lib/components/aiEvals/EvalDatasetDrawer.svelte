@@ -6,7 +6,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { AiEvalsService, type EvalCase, type EvalDataset } from '$lib/gen'
+	import { AiEvalsService, type EvalCase, type EvalDataset, type Scorer } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { summaryToName } from '$lib/utils'
 	import { Plus, Trash2 } from 'lucide-svelte'
@@ -57,6 +57,8 @@
 	let formGeneration = $state(0)
 	let creating = $state(false)
 	let saving = $state(false)
+	/** The columns chosen while naming a dataset that does not exist yet, sent with the create. */
+	let pendingScorers = $state<Scorer[]>([])
 
 	let selectedCaseId = $state<string | undefined>(undefined)
 	let caseDraft = $state<CaseDraft | undefined>(undefined)
@@ -85,6 +87,9 @@
 	) {
 		mode = next
 		pathError = ''
+		// Cleared per open: the columns collected for a dataset that was never created belong to
+		// that attempt, not to the next one.
+		pendingScorers = []
 		if (next === 'edit') {
 			path = datasetPath ?? ''
 			summary = dataset?.summary ?? ''
@@ -141,7 +146,10 @@
 				requestBody: {
 					path: created,
 					summary: summary || undefined,
-					default_subject: { kind: 'agent', path: agentPath }
+					default_subject: { kind: 'agent', path: agentPath },
+					// The columns collected while naming it: the dataset arrives with them rather than
+					// being created empty and then edited to hold what was already chosen.
+					scorers: pendingScorers
 				}
 			})
 			// Stays open, on the dataset it just made: scorers and cases are what a dataset is, and
@@ -304,20 +312,28 @@
 							Renaming moves the dataset: its cases and its runs follow it.
 						</span>
 					{:else}
-						<!-- Said rather than shown as controls that do nothing: a scorer and a case both
-						     belong to a dataset, so there is nothing to attach them to until this one is
-						     created. Creating it leaves this drawer open on them. -->
+						<!-- A case is a row of the dataset, so unlike a scorer it has nothing to be a row
+						     of until this one is created. Said rather than shown as a control that would
+						     do nothing. -->
 						<span class="text-2xs text-tertiary">
-							Naming it is all this step is. Creating it opens its scorers and its cases here.
+							Its cases open once it is created. Its scorers can be chosen here first.
 						</span>
 					{/if}
 				</div>
 			{/key}
 
+			<!-- What the dataset measures with, before what it measures: a column applies to every
+			     case, and a case is read against every column. Offered while naming a new one too:
+			     a scorer is a runnable of its own, so it needs the dataset's name but not its row,
+			     and the list is carried into the dataset that creating this makes. -->
+			<EvalScorers
+				{workspace}
+				datasetPath={mode === 'edit' ? datasetPath : path}
+				dataset={mode === 'edit' ? dataset : undefined}
+				bind:pending={pendingScorers}
+				onChanged={onScorersChanged}
+			/>
 			{#if mode === 'edit'}
-				<!-- What the dataset measures with, before what it measures: a column applies to every
-				     case, and a case is read against every column. -->
-				<EvalScorers {workspace} {datasetPath} {dataset} onChanged={onScorersChanged} />
 				<!-- The list picks, the editor to its right fills in: a case is a handful of fields, and
 				     a list that expanded one of them in place would move every case under the reader. -->
 				<div class="flex flex-col gap-2 grow min-h-0">
