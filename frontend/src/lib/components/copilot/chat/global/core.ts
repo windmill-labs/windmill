@@ -5780,6 +5780,13 @@ async function testRunAppRunnable(
 	for (const [name, field] of Object.entries(runnable.fields ?? {})) {
 		if (field?.type === 'ctx' && field?.ctx) testArgs[name] = `$ctx:${field.ctx}`
 	}
+	// The server encrypts a queued argument only when its name is in this list
+	// (apps.rs wraps it as `$encrypted:` with a job-scoped key). Omitting it writes a
+	// `sensitive` field's real value into job args as plaintext, readable by anyone
+	// with run access. Same filter the editor preview applies.
+	const sensitiveInputs = Object.entries(runnable.fields ?? {})
+		.filter(([, field]) => field?.type === 'user' && field?.sensitive)
+		.map(([name]) => name)
 
 	// Imported lazily: statically pulling the apps module graph into the chat's
 	// import chain drags the whole app-editor runtime in behind it.
@@ -5799,7 +5806,8 @@ async function testRunAppRunnable(
 				{
 					component: key,
 					args: testArgs,
-					force_viewer_static_fields: staticFields
+					force_viewer_static_fields: staticFields,
+					force_viewer_sensitive_inputs: sensitiveInputs.length ? sensitiveInputs : undefined
 				},
 				undefined
 			),

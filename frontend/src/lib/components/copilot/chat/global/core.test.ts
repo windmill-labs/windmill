@@ -1884,7 +1884,9 @@ describe('global AI tools', () => {
 						inlineScript: { language: 'bun', content: 'export async function main() { return 1 }' },
 						fields: {
 							who: { type: 'ctx', ctx: 'email' },
-							fixed: { type: 'static', value: 7 }
+							fixed: { type: 'static', value: 7 },
+							api_key: { type: 'user', sensitive: true },
+							plain: { type: 'user' }
 						}
 					}
 				},
@@ -1906,6 +1908,9 @@ describe('global AI tools', () => {
 		expect(body.args).toEqual({ name: 'ada', who: '$ctx:email' })
 		expect(body.raw_code).toMatchObject({ language: 'bun' })
 		expect(body.path).toBeUndefined()
+		// Only names listed here get encrypted before the args are queued, so a sensitive
+		// field left out of it is stored in plaintext for anyone with run access to read.
+		expect(body.force_viewer_sensitive_inputs).toEqual(['api_key'])
 	})
 
 	// The undeployed-flow 404 is the whole reason this tool exists, and the generated client
@@ -1955,6 +1960,8 @@ describe('global AI tools', () => {
 		const body = vi.mocked(AppService.executeComponent).mock.calls.at(-1)?.[0].requestBody as any
 		expect(body.path).toBe('flow/u/admin/hello_flow')
 		expect(body.raw_code).toBeUndefined()
+		// Absent rather than [], matching what the editor preview sends.
+		expect(body.force_viewer_sensitive_inputs).toBeUndefined()
 	})
 
 	// A hybrid runnable — inline code plus a leftover runType/path — contradicts its own
