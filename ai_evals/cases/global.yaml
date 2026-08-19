@@ -2253,9 +2253,9 @@
     # forbiddenMentions entry: the correct answer routinely says "you don't need to deploy
     # the app", and the matcher is a plain substring test that can't see the negation. The
     # judge checklist covers it instead.
-    # Every alternative has to name the FLOW. Bare phrasings like "must be deployed" are
-    # satisfied by the exact wrong answer this case exists to catch ("the app must be
-    # deployed"), which would let the regression back in unnoticed.
+    # Every alternative names the FLOW and an outstanding obligation. A bare "must be
+    # deployed" is satisfied by the wrong answer this case exists to catch ("the app must
+    # be deployed"), and a bare "the flow is deployed" by a hallucinated deploy.
     requiredMentionsAnyOf:
       - - deploy the flow
         - deploy that flow
@@ -2269,7 +2269,10 @@
         - flow needs to be deployed
         - flow has to be deployed
         - flow needs deploying
-        - flow is deployed
+        - flow will need to be deployed
+        - flow will have to be deployed
+        - once the flow is deployed
+        - until the flow is deployed
         - workflow must be deployed
         - workflow needs to be deployed
         - workflow has to be deployed

@@ -726,20 +726,17 @@ viewer when the run was triggered from an app and empty otherwise (both variable
 defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username."""
 
 
-# The client configures itself from the job's contextual variables (`setClient` reads
-# BASE_INTERNAL_URL/BASE_URL and WM_TOKEN). Agents that miss this reconstruct that logic by hand
-# and get it wrong; they also invent plausible-sounding function names. Each language gets its own
-# escape hatch sentence, because the listing below is the helper surface, not the whole API — a
-# flat "if it is not listed it does not exist" would be false and would leave an uncovered
-# endpoint with no legal move.
+# `setClient` reads BASE_INTERNAL_URL/BASE_URL and WM_TOKEN itself; agents that miss this rebuild
+# that logic by hand and get it wrong.
 PRECONFIGURED_CLIENT = """The client configures itself from the job's environment — base URL, token and credentials mode
 are all set before your code runs, so there is nothing to initialize and no reason to read
 WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
 reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
 HTTP for third-party APIs."""
 
-# Listed below = the ergonomic helpers. Services (TS) and Windmill.get/post (Python) are the
-# supported way to reach an endpoint that has no helper.
+# The listing is the helper surface, not the whole API, so each language needs its own escape
+# hatch: a flat "not listed means it does not exist" is false and leaves an uncovered endpoint
+# with no legal move.
 UNLISTED_ENDPOINTS_TS = """The helpers below are the surface to prefer. For an endpoint none of them covers, import the
 generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
 listed here but they do exist. What does not exist is a helper name you guessed at: if it is

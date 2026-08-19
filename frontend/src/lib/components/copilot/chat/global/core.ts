@@ -1242,13 +1242,10 @@ const buildGlobalSystemPrompt = (
 		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the row the page is anchored at, whose drawer the user opened) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
 		: ''
 	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
-	// Edition and hosting change which features exist and how the product behaves.
-	// Both are only knowable in the browser: the hostname and a store the app populates
-	// at init. A non-browser caller — the eval runner — reads false for each and would
-	// otherwise be told "self-hosted Community Edition" whatever it points at, so say
-	// nothing there rather than assert the default. Deliberately no base URL either:
-	// runnable code must never build one (the SDK is already configured), and offering
-	// one here is what invites a hardcoded URL into a script.
+	// Hosting and edition come from the hostname and a store the app populates at init, so
+	// they are knowable only in the browser: a non-browser caller reads false for both and
+	// would be told "self-hosted Community Edition" whatever it targets. No base URL here
+	// either — offering one is what invites a hardcoded URL into a script.
 	const instanceLine = BROWSER
 		? ` This is ${
 				isCloudHosted() ? 'Windmill Cloud (app.windmill.dev)' : 'a self-hosted Windmill instance'
@@ -5746,11 +5743,9 @@ async function writeAppRunnable(
 }
 
 /**
- * Run one backend runnable the way the app's own frontend runs it: through
- * `execute_component` in preview mode, so an inline runnable executes the draft
- * code (nothing has to be deployed) and a path runnable executes the deployed
- * script/flow it names. Without this the chat can only wire an app up and hope —
- * it has no way to find out that a runnable throws until a user clicks it.
+ * Runs one backend runnable through `execute_component` in preview mode, the way the editor
+ * preview does: inline executes draft code, a path runnable the deployed item it names.
+ * Without it the chat can only wire an app up and hope.
  */
 async function testRunAppRunnable(
 	args: z.infer<typeof testRunAppRunnableSchema>,
@@ -7382,14 +7377,10 @@ async function validateDeleteWorkspaceItemTarget(args: {
 }
 
 /**
- * A path runnable executes the DEPLOYED item at its path (`executeRunnable` sends
- * `path: flow/<path>` to `execute_component`), so an app wired to a script or flow
- * that only exists as a draft fails at runtime with no diagnostic. Writing one is
- * still allowed — building the flow and the app together, then deploying both, is
- * the normal order — but the missing deployment has to be visible.
- *
- * Hub scripts live outside the workspace and have no deployed/draft distinction,
- * so they are not probed.
+ * A path runnable executes the DEPLOYED item at its path, so an app wired to a draft-only
+ * script or flow fails at runtime with no diagnostic. Writing one stays allowed — flow and
+ * app are normally built together — but the missing deployment has to be visible. Hub
+ * scripts have no deployed/draft distinction, so they are not probed.
  */
 async function undeployedRunnableTargets(
 	workspace: string,
@@ -7397,8 +7388,8 @@ async function undeployedRunnableTargets(
 ): Promise<string[]> {
 	const targets: string[] = []
 	for (const [key, runnable] of Object.entries(runnables)) {
-		// Persisted runnables are `{ type: 'path' | 'runnableByPath', runType: 'script' |
-		// 'flow' | 'hubscript' }`; the write tool's input names the kind in `type` directly.
+		// A persisted path runnable carries its kind in `runType`; any other shape names the
+		// kind in `type` itself.
 		const type =
 			runnable?.type === 'path' || runnable?.type === 'runnableByPath'
 				? runnable?.runType
