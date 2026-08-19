@@ -14,7 +14,7 @@
 		type UserWorkspace
 	} from '$lib/stores'
 	import { refreshExecutions } from '$lib/usage.svelte'
-	import { scopedValue } from '$lib/utils/scopedValue'
+	import { scopedValue, tagged } from '$lib/utils/scopedValue'
 	import { findWorkspaceAncestors } from '$lib/utils/workspaceHierarchy'
 	import { Button } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
@@ -45,38 +45,33 @@
 	// user list is needed: `premium_info` carries the same usage number as
 	// `workspaceUsageStore` but requires admin and only exists when Stripe is
 	// configured, so it would leave regular members with no block at all.
-	//
-	// The key carries everything the count depends on — the billing root, and the
-	// membership version that moves when someone is added, removed or reassigned — so
-	// a change re-resolves it and a superseded response is discarded rather than
-	// racing the current one.
+	const fetchSeats = tagged(async (root: string) => {
+		// Throws for a fork member with no seat in the root, which is the same answer as
+		// an unresolvable root: leave the paid meter hidden.
+		const users = await UserService.listUsers({ workspace: root })
+		// Same basis as the backend's `count_paid_seats`: disabled members and service
+		// accounts are not billed, so counting them inflates the cap and hides a real
+		// overage. 1 developer = 1 seat, 2 operators = 1 seat.
+		const billable = users.filter((u) => !u.disabled && !u.is_service_account)
+		const developers = billable.filter((u) => !u.operator).length
+		const operators = billable.length - developers
+		return Math.ceil(developers + operators / 2)
+	})
+
 	const billingRootId = $derived.by(() => {
 		const workspace = $workspaceStore
 		if (!isCloudHosted() || !$isPremiumStore || !workspace) return undefined
 		return billingRoot(workspace, $userWorkspaces ?? [])
 	})
 
+	// The membership version is in the key so a change re-resolves the cap, but not in
+	// the tag: tagging by it would blank the bar on every change.
 	const seatsResource = resource(
 		() =>
 			billingRootId ? { root: billingRootId, version: $workspaceMembershipVersion } : undefined,
-		async (key) => {
-			if (!key) return undefined
-			const { root } = key
-			// Throws for a fork member with no seat in the root, which is the same answer
-			// as an unresolvable root: leave the paid meter hidden.
-			const users = await UserService.listUsers({ workspace: root })
-			// Same basis as the backend's `count_paid_seats`: disabled members and service
-			// accounts are not billed, so counting them inflates the cap and hides a real
-			// overage. 1 developer = 1 seat, 2 operators = 1 seat.
-			const billable = users.filter((u) => !u.disabled && !u.is_service_account)
-			const developers = billable.filter((u) => !u.operator).length
-			const operators = billable.length - developers
-			return { key: root, value: Math.ceil(developers + operators / 2) }
-		}
+		async (key) => (key ? await fetchSeats(key.root) : undefined)
 	)
 
-	// Tagged with the root it counted, so a late answer for another workspace neither
-	// replaces this cap nor blanks it, and a re-read keeps the bar on screen meanwhile.
 	const scopedSeats = scopedValue<number>()
 	const seats = $derived(scopedSeats(billingRootId, seatsResource.current))
 

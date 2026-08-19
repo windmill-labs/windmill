@@ -1,7 +1,7 @@
 import { resource } from 'runed'
 import { UserService, WorkspaceService } from '$lib/gen'
 import { isCloudHosted } from '$lib/cloud'
-import { scopedValue } from '$lib/utils/scopedValue'
+import { scopedValue, tagged } from '$lib/utils/scopedValue'
 import {
 	isPremiumStore,
 	premiumFetchFailed,
@@ -33,20 +33,22 @@ export function createUsageResources(args: {
 	// string despite the generated `number` type. Interpolation and arithmetic coerce
 	// it, but `toLocaleString` on a string returns it unchanged — the thousands
 	// separator would silently go missing above 999.
+	const fetchWorkspaceExecutions = tagged(async (workspace: string) =>
+		Number(await WorkspaceService.getWorkspaceUsage({ workspace }))
+	)
+	const fetchUserExecutions = tagged(async (_email: string) => Number(await UserService.getUsage()))
+	const fetchPremium = tagged((workspace: string) => WorkspaceService.getIsPremium({ workspace }))
+
 	const workspaceExecutions = resource(readyWorkspace, async (workspace) =>
-		workspace
-			? { key: workspace, value: Number(await WorkspaceService.getWorkspaceUsage({ workspace })) }
-			: undefined
+		workspace ? await fetchWorkspaceExecutions(workspace) : undefined
 	)
 
 	const userExecutions = resource(readyUser, async (email) =>
-		email ? { key: email, value: Number(await UserService.getUsage()) } : undefined
+		email ? await fetchUserExecutions(email) : undefined
 	)
 
 	const premium = resource(readyWorkspace, async (workspace) =>
-		workspace
-			? { key: workspace, value: await WorkspaceService.getIsPremium({ workspace }) }
-			: undefined
+		workspace ? await fetchPremium(workspace) : undefined
 	)
 
 	const scopedWorkspaceExecutions = scopedValue<number>()
