@@ -3183,12 +3183,35 @@ async fn get_git_commit_hash(
     .await
     .map_err(|e| Error::NotFound(format!("Access to resource {} denied: ({e})", path)))?;
 
-    let mut git_resource: GitRepositoryResource = match git_repo_resource_value {
-        Some(value) => serde_json::from_value(value).map_err(|e| {
-            Error::BadRequest(format!("Invalid git repository resource format: {}", e))
-        })?,
-        None => return Err(Error::NotFound(format!("Resource {} not found", path)).into()),
+    let Some(git_repo_resource_value) = git_repo_resource_value else {
+        return Err(Error::NotFound(format!("Resource {} not found", path)).into());
     };
+
+    // App-backed repos store a tokenless URL, so the `ls-remote` below can't
+    // authenticate. Reuse the poller's REST head lookup, which mints an
+    // installation token server-side, rather than embedding one in a URL here.
+    #[cfg(feature = "enterprise")]
+    if git_repo_resource_value
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        let (_, commit_hash) =
+            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path)
+                .await?
+                .ok_or_else(|| {
+                    Error::internal_err(format!(
+                        "No head commit resolved for GitHub App repository {}",
+                        path
+                    ))
+                })?;
+        return Ok(Json(GitCommitHashResponse { commit_hash }));
+    }
+
+    let mut git_resource: GitRepositoryResource = serde_json::from_value(git_repo_resource_value)
+        .map_err(|e| {
+        Error::BadRequest(format!("Invalid git repository resource format: {}", e))
+    })?;
     git_resource.url =
         resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false).await?;
 
