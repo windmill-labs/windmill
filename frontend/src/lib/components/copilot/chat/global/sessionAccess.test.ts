@@ -57,11 +57,8 @@ describe('resolveSessionAccess', () => {
 		expect([...caps]).toEqual([])
 	})
 
-	// The two gates have OPPOSITE precedence in the backend, so a role ladder would
-	// get one of them wrong: drafts.rs returns Ok for `authed.is_admin` before the
-	// operator branch, while jobs.rs checks the operator flag first with no escape.
-	// `authed.is_admin` is `usr.is_admin || super_admin`, so both spellings must land
-	// on the same side of it.
+	// Pins the per-capability precedence documented in resolveSessionAccess, for both
+	// spellings of `authed.is_admin`.
 	it.each([{ is_admin: true }, { is_super_admin: true }])(
 		'lets an admin who is also an operator write drafts but not run previews (%o)',
 		async (role) => {
@@ -72,9 +69,7 @@ describe('resolveSessionAccess', () => {
 		}
 	)
 
-	// Deploy is operation-shaped: protection rulesets can block a plain developer, and
-	// wm_deployers can unblock a non-admin. The resolver must not second-guess the shared
-	// preflight, and must not let a deploy refusal take drafting down with it.
+	// A deploy refusal must not take drafting down with it.
 	it('takes deploy from the shared permission check, not from the role', async () => {
 		deployPermission.mockResolvedValue({
 			ok: false,
@@ -87,9 +82,7 @@ describe('resolveSessionAccess', () => {
 		expect(caps.has('write_draft')).toBe(true)
 	})
 
-	// A direct-deployment lock is the one refusal that does not cover every kind: the
-	// server still accepts schedule and trigger deploys, so the resolver must keep the
-	// weaker half rather than dropping deploy wholesale.
+	// The one refusal that does not cover every kind.
 	it('keeps the ungated half of deploy under a direct-deployment lock', async () => {
 		deployPermission.mockResolvedValue({
 			ok: false,
@@ -101,8 +94,6 @@ describe('resolveSessionAccess', () => {
 		expect(caps.has('deploy_gated_kinds')).toBe(false)
 	})
 
-	// Fail open, matching checkDeployPermission: a transient whoami failure must not
-	// strip a session's toolset — the server is still the enforcement point.
 	it('grants everything when the role cannot be resolved', async () => {
 		whoami.mockRejectedValueOnce(new Error('network'))
 		const access = await resolveSessionAccess('ws')

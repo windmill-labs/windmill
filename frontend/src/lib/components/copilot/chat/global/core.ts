@@ -1224,9 +1224,7 @@ const buildGlobalSystemPrompt = (
 	const canWriteDraft = !access || access.capabilities.has('write_draft')
 	const canDeploy = !access || access.capabilities.has('deploy')
 	const canRunPreview = !access || access.capabilities.has('run_preview')
-	// `create_folder` needs the stronger half: a folder is one of the kinds
-	// `check_deploy_rules` gates, so a direct-deployment lock refuses it while the
-	// deploy tools stay usable for schedules and triggers.
+	// `create_folder` needs the stronger half — see SESSION_TOOL_POLICIES.
 	const canCreateFolder = !access || access.capabilities.has('deploy_gated_kinds')
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
 	// line behind and a full-access prompt is byte-for-byte the ungated text.
@@ -1289,6 +1287,10 @@ Rules:${when(
 			canDeploy,
 			' Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.'
 		)}`
+	)}${when(
+		!canWriteDraft,
+		`
+- Discarding your OWN draft is the one change you can still make: if the user asks to drop or clean up a draft they left behind, use discard_local_draft. You cannot write or deploy one.`
 	)}
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.${when(
 		canWriteDraft,
@@ -2330,9 +2332,8 @@ export function getSessionContextPromptSection(
 			'- No operating workspace is set yet; the user picks one (or a new staged fork) before the first message is sent.'
 		)
 	}
-	// Without this the model reads "deploys" among its targets and has no way to know
-	// which kinds the workspace refuses, so it would keep proposing script and flow
-	// deploys that come back 403.
+	// Without this the model reads "deploys" among its targets with no way to know which
+	// kinds are refused, and keeps proposing script deploys that come back 403.
 	if (canDeploy && !canDeployGatedKinds) {
 		lines.push(
 			'- Direct deployment is disabled in this workspace: only schedules and triggers can be deployed with deploy_workspace_item. Scripts, flows, apps, resources, variables and folders must be promoted from the session\'s deploy panel (fork or pull request) — do not offer to deploy them.'

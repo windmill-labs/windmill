@@ -126,10 +126,8 @@ describe('session tool policies', () => {
 		expect(sessionToolAllowed('create_folder', accessWith(['deploy_gated_kinds']))).toBe(false)
 	})
 
-	// A direct-deployment lock stops the kinds check_deploy_rules gates and nothing else,
-	// so the kind-taking deploy tools survive it while create_folder — a gated kind — does
-	// not. Collapsing the two capabilities back into one silently blocks the schedule and
-	// trigger deploys the server accepts.
+	// Collapsing the two deploy capabilities back into one would silently block the
+	// schedule and trigger deploys the server accepts.
 	it('keeps the deploy tools but not create_folder under a direct-deployment lock', () => {
 		const locked = accessWith(['write_draft', 'run_preview', 'deploy'])
 		expect(sessionToolAllowed('deploy_workspace_item', locked)).toBe(true)
@@ -137,8 +135,7 @@ describe('session tool policies', () => {
 		expect(sessionToolAllowed('create_folder', locked)).toBe(false)
 	})
 
-	// The backend exempts discarding your OWN draft from require_can_write_path precisely
-	// so drafts stay cleanable after a role change; gating it here would strand them.
+	// Drafts must stay cleanable after a role change.
 	it('keeps discard_local_draft without write_draft, but not rebase_draft', () => {
 		const readOnly = accessWith([])
 		expect(sessionToolAllowed('discard_local_draft', readOnly)).toBe(true)

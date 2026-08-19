@@ -92,10 +92,8 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	get_trigger_schema: AUTHORING_AID,
 	get_schedule_schema: AUTHORING_AID,
 	get_db_schema: AUTHORING_AID,
-	// Folder creation runs through the backend's `check_deploy_rules` (folders.rs
-	// `create_folder`), and `folder` is one of the gated kinds — so a direct-deployment
-	// lock refuses it even though a folder is not a deployed item. It is also useless
-	// without something to put in it, hence the authoring relevance.
+	// `folder` is one of the gated kinds (folders.rs `create_folder` runs
+	// `check_deploy_rules`), and a folder is useless without something to put in it.
 	create_folder: { requires: ['deploy_gated_kinds'], relevance: 'authoring' },
 	// Ungated on purpose, for two reasons. Plan mode's deliverable is a plan artifact,
 	// which is worth producing for someone else to execute even when this user can
@@ -126,15 +124,14 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	write_app_runnable: WRITE_DRAFT,
 	delete_app_runnable: WRITE_DRAFT,
 	// Ungated on purpose: discarding your OWN draft skips `require_can_write_path`
-	// (drafts.rs), and the exemption exists precisely so a user who has LOST write
-	// access can still clean up drafts they left behind. Gating it here would strand
-	// that cleanup. Rebasing is not exempt — it writes a fresh draft.
+	// (drafts.rs) so that a user who has LOST write access can still clean up. Rebasing
+	// is not exempt — it writes a fresh draft.
 	discard_local_draft: NONE,
 	rebase_draft: WRITE_DRAFT,
 
 	// ── Deployed-object mutations ───────────────────────────────────────────
-	// Both take the kind as an argument, so they stay available under a direct-deployment
-	// lock: schedules and triggers are still deployable, and the prompt says which.
+	// The weaker capability on purpose: both take the kind as an argument, so a session
+	// that may deploy only the ungated kinds can still use them.
 	deploy_workspace_item: DEPLOY,
 	delete_workspace_item: DEPLOY,
 
