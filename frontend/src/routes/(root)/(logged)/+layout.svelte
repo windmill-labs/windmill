@@ -25,6 +25,7 @@
 	import {
 		enterpriseLicense,
 		isPremiumStore,
+		premiumFetchFailed,
 		superadmin,
 		usageStore,
 		workspaceUsageStore,
@@ -300,6 +301,7 @@
 			if (premiumFetchedFor !== workspace) {
 				premiumFetchedFor = workspace
 				isPremiumStore.set(undefined)
+				premiumFetchFailed.set(false)
 			}
 			// A preview iframe shares BOTH localStorage and sessionStorage with the
 			// top-level app (same-origin nested browsing contexts share the top-level
@@ -348,11 +350,10 @@
 						isPremiumStore.set(premium)
 					}
 				} catch (e) {
-					// Fall back to the free tier rather than leaving it unknown: consumers hold
-					// premium-only affordances through the pending window, and a failure here
-					// would otherwise keep them enabled for the session on a free workspace.
+					// The tier stays unknown — asserting "free" here would meter a paid
+					// workspace against the free cap. `maybePremium` reads this to fail closed.
 					if ($workspaceStore === workspace) {
-						isPremiumStore.set(false)
+						premiumFetchFailed.set(true)
 					}
 					console.error('Could not fetch premium status', e)
 				}

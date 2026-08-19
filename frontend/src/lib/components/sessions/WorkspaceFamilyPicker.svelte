@@ -2,7 +2,7 @@
 	import type { Snippet } from 'svelte'
 	import {
 		enterpriseLicense,
-		isPremiumStore,
+		maybePremium,
 		superadmin,
 		userStore,
 		userWorkspaces,
@@ -174,7 +174,7 @@
 	// (a locked prod) doesn't apply when there's a dev to fork from instead — the dev isn't locked, and
 	// devOfRoot only resolves when the user is a member of it.
 	const forksGateOpen = $derived(
-		(!isCloudHosted() || $isPremiumStore !== false) &&
+		(!isCloudHosted() || $maybePremium) &&
 			$workspaceStore !== 'admins' &&
 			(canCreateFork($userStore) || !!devOfRoot)
 	)

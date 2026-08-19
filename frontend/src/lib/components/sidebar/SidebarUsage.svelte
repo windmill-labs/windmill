@@ -47,14 +47,25 @@
 	$effect(() => {
 		const workspace = $workspaceStore
 		const premium = $isPremiumStore
-		const all = $userWorkspaces
+		// Read as a dependency: the billing root is unresolvable until the list arrives,
+		// so the effect must re-run when it does rather than latch the meter hidden.
+		const workspaces = $userWorkspaces
 		untrack(() => {
 			seats = undefined
-			if (!isCloudHosted() || !premium || !workspace) return
-			const root = billingRoot(workspace, all ?? [])
-			if (root) loadSeats(workspace, root)
+			if (!isCloudHosted() || !premium || !workspace || !workspaces) return
+			refreshSeats()
 		})
 	})
+
+	// Membership changes elsewhere don't notify this component, so the cap can lag an
+	// added member. Re-resolve when the modal opens, which is when the number is being
+	// read rather than glanced at; without clearing `seats`, so the bar doesn't blank.
+	function refreshSeats() {
+		const workspace = $workspaceStore
+		if (!isCloudHosted() || !$isPremiumStore || !workspace) return
+		const root = billingRoot(workspace, $userWorkspaces ?? [])
+		if (root) loadSeats(workspace, root)
+	}
 
 	async function loadSeats(workspace: string, root: string) {
 		try {
@@ -205,7 +216,10 @@
 				class="w-full rounded p-1.5 hover:bg-surface-hover flex {isCollapsed
 					? 'justify-center'
 					: 'flex-col gap-1'}"
-				onclick={() => (open = true)}
+				onclick={() => {
+					open = true
+					refreshSeats()
+				}}
 				aria-label="{tightest.label} this month: {fmt(tightest.used)} of {fmt(tightest.cap)}"
 			>
 				{#if isCollapsed}
