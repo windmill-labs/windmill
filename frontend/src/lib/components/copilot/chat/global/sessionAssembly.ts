@@ -15,8 +15,8 @@ import type { SessionAccess } from './sessionAccess'
  * Assembly of what a GLOBAL-mode chat ships: the system prompt's sections, and the
  * tool sources they document. Both live here so production and the capability tests
  * go through the same code — a section or a tool source added to one cannot be
- * missing from the other, which is how a prompt once kept naming tools the filter
- * had already withheld.
+ * missing from the other, which is what keeps the prompt from naming a tool the
+ * capability filter withheld.
  */
 
 export type GlobalAssemblyOptions = {

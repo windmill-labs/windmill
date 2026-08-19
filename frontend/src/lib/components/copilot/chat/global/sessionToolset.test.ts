@@ -108,7 +108,7 @@ describe('session tool policies', () => {
 	// Relevance is the second axis: these need no capability, so `requires` alone
 	// would keep advertising them to a session that can never author anything.
 	it('drops authoring aids when drafts cannot be written', () => {
-		const readOnly = accessWith(['deploy'])
+		const readOnly = accessWith(['deploy', 'deploy_gated_kinds'])
 		expect(sessionToolAllowed('get_instructions', readOnly)).toBe(false)
 		expect(sessionToolAllowed('search_npm_packages', readOnly)).toBe(false)
 		expect(sessionToolAllowed('search_docs', readOnly)).toBe(true)
@@ -120,8 +120,29 @@ describe('session tool policies', () => {
 		expect(sessionToolAllowed('create_folder', accessWith(['write_draft', 'run_preview']))).toBe(
 			false
 		)
-		expect(sessionToolAllowed('create_folder', accessWith(['write_draft', 'deploy']))).toBe(true)
-		expect(sessionToolAllowed('create_folder', accessWith(['deploy']))).toBe(false)
+		expect(
+			sessionToolAllowed('create_folder', accessWith(['write_draft', 'deploy_gated_kinds']))
+		).toBe(true)
+		expect(sessionToolAllowed('create_folder', accessWith(['deploy_gated_kinds']))).toBe(false)
+	})
+
+	// A direct-deployment lock stops the kinds check_deploy_rules gates and nothing else,
+	// so the kind-taking deploy tools survive it while create_folder — a gated kind — does
+	// not. Collapsing the two capabilities back into one silently blocks the schedule and
+	// trigger deploys the server accepts.
+	it('keeps the deploy tools but not create_folder under a direct-deployment lock', () => {
+		const locked = accessWith(['write_draft', 'run_preview', 'deploy'])
+		expect(sessionToolAllowed('deploy_workspace_item', locked)).toBe(true)
+		expect(sessionToolAllowed('delete_workspace_item', locked)).toBe(true)
+		expect(sessionToolAllowed('create_folder', locked)).toBe(false)
+	})
+
+	// The backend exempts discarding your OWN draft from require_can_write_path precisely
+	// so drafts stay cleanable after a role change; gating it here would strand them.
+	it('keeps discard_local_draft without write_draft, but not rebase_draft', () => {
+		const readOnly = accessWith([])
+		expect(sessionToolAllowed('discard_local_draft', readOnly)).toBe(true)
+		expect(sessionToolAllowed('rebase_draft', readOnly)).toBe(false)
 	})
 
 	// The prompt is documentation OF the toolset, so it must never name a tool the same
@@ -142,8 +163,9 @@ describe('session tool policies', () => {
 		['read-only', [], true],
 		['drafts, no deploy', ['write_draft', 'run_preview'], true],
 		['drafts only', ['write_draft'], true],
-		['drafts, no preview', ['write_draft', 'deploy'], false],
-		['deploy, no drafts', ['deploy'], false]
+		['direct-deployment lock', ['write_draft', 'run_preview', 'deploy'], true],
+		['drafts, no preview', ['write_draft', 'deploy', 'deploy_gated_kinds'], false],
+		['deploy, no drafts', ['deploy', 'deploy_gated_kinds'], false]
 	] as [string, SessionCapability[], boolean][])(
 		'never names a withheld tool in the assembled prompt (%s)',
 		(_label, capabilities, reachable) => {
@@ -198,7 +220,7 @@ describe('session tool policies', () => {
 		expect(sessionToolAllowed('write_script', draftsOnly)).toBe(true)
 		expect(sessionToolAllowed('deploy_workspace_item', draftsOnly)).toBe(false)
 
-		const deployOnly = accessWith(['deploy'])
+		const deployOnly = accessWith(['deploy', 'deploy_gated_kinds'])
 		expect(sessionToolAllowed('write_script', deployOnly)).toBe(false)
 		expect(sessionToolAllowed('deploy_workspace_item', deployOnly)).toBe(true)
 	})

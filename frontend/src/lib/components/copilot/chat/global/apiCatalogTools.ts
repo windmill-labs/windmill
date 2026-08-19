@@ -45,8 +45,9 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 	createScript: 'write_script',
 	createFlow: 'write_flow',
 	updateFlow: 'patch_flow_json or write_flow',
-	createApp: 'init_app and the app draft tools',
-	updateApp: 'write_app_file / write_app_runnable',
+	// The catalog exposes the raw-source app endpoints, not `createApp`/`updateApp`.
+	createAppRawSource: 'init_app and the app draft tools',
+	updateAppRawSource: 'write_app_file / write_app_runnable',
 	createVariable: 'write_variable',
 	updateVariable: 'write_variable',
 	createResource: 'write_resource',

@@ -576,7 +576,9 @@ export class AIChatManager {
 	isSessionChat = $state(false)
 	// What the user may do in this session's operating workspace. Undefined until the
 	// first send resolves it — see `resolveSessionAccessForSend`.
-	private sessionAccess: SessionAccess | undefined = undefined
+	// Reactive: `shippedTools` derives from it, so the UI's view of the toolset
+	// follows the resolution instead of a pre-resolution snapshot.
+	private sessionAccess = $state<SessionAccess | undefined>(undefined)
 	private sessionAccessGeneration = 0
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
@@ -600,6 +602,10 @@ export class AIChatManager {
 		content: ''
 	})
 	tools = $state<Tool<any>[]>([])
+	/** What the request actually carries: `tools` minus whatever this session's
+	 * capabilities withhold. Anything describing the toolset to the user or counting
+	 * its cost must read this, not `tools`. */
+	shippedTools = $derived(filterSessionTools(this.tools, this.sessionAccess))
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -1156,9 +1162,7 @@ export class AIChatManager {
 			typeof this.systemMessage.content === 'string'
 				? this.systemMessage.content.length / tokenPerCharacter
 				: 0
-		// The filtered set, matching what the request actually carries: a restricted
-		// session ships fewer definitions than `this.tools` holds.
-		const tools = filterSessionTools(this.tools, this.sessionAccess)
+		const tools = this.shippedTools
 		const toolTokens =
 			tools.length > 0 ? JSON.stringify(tools.map((t) => t.def)).length / tokenPerCharacter : 0
 		return systemTokens + toolTokens

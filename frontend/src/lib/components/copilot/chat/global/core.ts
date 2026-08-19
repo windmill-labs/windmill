@@ -1224,10 +1224,14 @@ const buildGlobalSystemPrompt = (
 	const canWriteDraft = !access || access.capabilities.has('write_draft')
 	const canDeploy = !access || access.capabilities.has('deploy')
 	const canRunPreview = !access || access.capabilities.has('run_preview')
+	// `create_folder` needs the stronger half: a folder is one of the kinds
+	// `check_deploy_rules` gates, so a direct-deployment lock refuses it while the
+	// deploy tools stay usable for schedules and triggers.
+	const canCreateFolder = !access || access.capabilities.has('deploy_gated_kinds')
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
 	// line behind and a full-access prompt is byte-for-byte the ungated text.
 	const when = (cond: boolean, block: string) => (cond ? block : '')
-	const folderGuidance = buildFolderGuidance(username, folderCtx, canDeploy)
+	const folderGuidance = buildFolderGuidance(username, folderCtx, canCreateFolder)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
 	// `previewTools` doubles as "this is a session chat" — sessions are the only
 	// chats that get the preview tool set. The alpha heads-up only makes sense
@@ -1263,7 +1267,7 @@ Path conventions:
   - \`f/<folder>/<name>\` — a shared folder scope; the <folder> must already exist (a bare \`f/<name>\` with no folder segment is INVALID and will fail).
 - If the user supplies a fully qualified \`f/<folder>/...\` path, use that exact path; they have already chosen the folder. Do not ask for folder confirmation or substitute a \`u/${username}/...\` path unless a tool rejects it.
 - Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/${username}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist${when(
-			canDeploy,
+			canCreateFolder,
 			'; create one with `create_folder` only when the user explicitly asks for a new folder'
 		)}.${folderGuidanceBlock}`
 	)}
@@ -1331,7 +1335,7 @@ ${pipelineBullet}`
 					canWriteDraft,
 					`
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
-- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty ${when(canDeploy, 'or not-yet-created ')}folder is fine${when(canDeploy, ' (create_folder first if needed, then open it)')}. Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
+- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty ${when(canCreateFolder, 'or not-yet-created ')}folder is fine${when(canCreateFolder, ' (create_folder first if needed, then open it)')}. Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
 				)}
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
@@ -2284,6 +2288,7 @@ export function getSessionContextPromptSection(
 	// profile rather than assume the gating happened upstream. Each branch keeps its
 	// "where work lands" fact either way.
 	const canDeploy = !access || access.capabilities.has('deploy')
+	const canDeployGatedKinds = !access || access.capabilities.has('deploy_gated_kinds')
 	const canWriteDraft = !access || access.capabilities.has('write_draft')
 	const canRunPreview = !access || access.capabilities.has('run_preview')
 	const targets = [
@@ -2323,6 +2328,14 @@ export function getSessionContextPromptSection(
 	} else {
 		lines.push(
 			'- No operating workspace is set yet; the user picks one (or a new staged fork) before the first message is sent.'
+		)
+	}
+	// Without this the model reads "deploys" among its targets and has no way to know
+	// which kinds the workspace refuses, so it would keep proposing script and flow
+	// deploys that come back 403.
+	if (canDeploy && !canDeployGatedKinds) {
+		lines.push(
+			'- Direct deployment is disabled in this workspace: only schedules and triggers can be deployed with deploy_workspace_item. Scripts, flows, apps, resources, variables and folders must be promoted from the session\'s deploy panel (fork or pull request) — do not offer to deploy them.'
 		)
 	}
 	return lines.join('\n')

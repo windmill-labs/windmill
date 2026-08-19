@@ -59,9 +59,11 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	exec_datatable_sql: RUN_PREVIEW,
 
 	// ── API catalog and MCP ─────────────────────────────────────────────────
-	// No capability needed: every endpoint these can reach is a read or a run-by-path.
-	// The authoring and delete endpoints are refused for everyone by COVERED_ENDPOINTS
-	// in apiCatalogTools, so there is no per-role cut left to make here.
+	// No capability needed: COVERED_ENDPOINTS in apiCatalogTools refuses the authoring
+	// and delete endpoints for everyone, leaving reads and run-by-path. That list is
+	// keyed by operationId and the server serves the catalog unfiltered, so it holds
+	// only as long as it tracks the catalog — the server, not this table, is what
+	// actually refuses a call that slips through.
 	search_api_endpoints: NONE,
 	call_api_get: NONE,
 	call_api_endpoint: NONE,
@@ -93,10 +95,10 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	get_schedule_schema: AUTHORING_AID,
 	get_db_schema: AUTHORING_AID,
 	// Folder creation runs through the backend's `check_deploy_rules` (folders.rs
-	// `create_folder`), so a workspace that blocks deploys refuses it too — hence
-	// `deploy`, even though a folder is not a deployed item. It is also useless
+	// `create_folder`), and `folder` is one of the gated kinds — so a direct-deployment
+	// lock refuses it even though a folder is not a deployed item. It is also useless
 	// without something to put in it, hence the authoring relevance.
-	create_folder: { requires: ['deploy'], relevance: 'authoring' },
+	create_folder: { requires: ['deploy_gated_kinds'], relevance: 'authoring' },
 	// Ungated on purpose, for two reasons. Plan mode's deliverable is a plan artifact,
 	// which is worth producing for someone else to execute even when this user can
 	// change nothing themselves. And it is a posture the USER selects, so withholding
@@ -125,13 +127,16 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	delete_app_file: WRITE_DRAFT,
 	write_app_runnable: WRITE_DRAFT,
 	delete_app_runnable: WRITE_DRAFT,
-	// Relevance, not authorization: discarding your OWN draft deliberately skips
-	// `require_can_write_path` (drafts.rs), so the backend would allow it — but a
-	// session that cannot write a draft has none to discard or rebase.
-	discard_local_draft: WRITE_DRAFT,
+	// Ungated on purpose: discarding your OWN draft skips `require_can_write_path`
+	// (drafts.rs), and the exemption exists precisely so a user who has LOST write
+	// access can still clean up drafts they left behind. Gating it here would strand
+	// that cleanup. Rebasing is not exempt — it writes a fresh draft.
+	discard_local_draft: NONE,
 	rebase_draft: WRITE_DRAFT,
 
 	// ── Deployed-object mutations ───────────────────────────────────────────
+	// Both take the kind as an argument, so they stay available under a direct-deployment
+	// lock: schedules and triggers are still deployable, and the prompt says which.
 	deploy_workspace_item: DEPLOY,
 	delete_workspace_item: DEPLOY,
 
