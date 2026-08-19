@@ -216,15 +216,8 @@ function collectScripts(
     const meta = scriptMetaBase(metaKey);
     if (!meta) continue;
 
-    let parsed: any;
-    try {
-      parsed = meta.isJson
-        ? JSON.parse(metaContent)
-        : yamlParseContent(metaKey, metaContent);
-    } catch {
-      continue;
-    }
-    if (typeof parsed !== "object" || parsed === null) continue;
+    const parsed = parseMetadata(metaKey, metaContent, meta.isJson);
+    if (parsed === undefined) continue;
 
     const lockRef = parsed["lock"];
     if (typeof lockRef !== "string" || !lockRef.startsWith(INLINE_PREFIX)) {
@@ -410,11 +403,7 @@ export function computeSharedLockPlan(
     (script) => script.endsWith(metaExt) && !inScope(script),
   );
   const partialView = unseen.length > 0;
-  if (partialView) {
-    log.debug(
-      `Lockfile dedup: ${unseen.length} script(s) outside this sync's scope (e.g. ${unseen[0]}); keeping existing groups but forming none.`,
-    );
-  }
+  let suppressedGroups = 0;
 
   // Where every script ends up, so a shared file with nothing left reading it
   // can be dropped. Seeded with the whole tree, out-of-scope scripts included.
@@ -433,12 +422,12 @@ export function computeSharedLockPlan(
 
     for (const [content, group] of groups) {
       let target = incumbentFor(group, content, activeExisting, inScope, claimed);
-      if (
-        target === undefined &&
-        !partialView &&
-        group.length >= MIN_SHARED_GROUP
-      ) {
-        target = allocateName(language, group, activeExisting, claimed);
+      if (target === undefined && group.length >= MIN_SHARED_GROUP) {
+        if (partialView) {
+          suppressedGroups++;
+        } else {
+          target = allocateName(language, group, activeExisting, claimed);
+        }
       }
       if (target !== undefined) {
         claimed.add(target);
@@ -475,6 +464,15 @@ export function computeSharedLockPlan(
       // delete the file those scripts read.
       plan.writes[key] = content;
     }
+  }
+
+  // Said out loud rather than left as silence: a tree that never converts
+  // because one script sits outside this sync's scope is otherwise impossible
+  // to tell from one with nothing to deduplicate.
+  if (suppressedGroups > 0) {
+    log.info(
+      `Lockfile dedup: ${suppressedGroups} group(s) left alone because ${unseen.length} script(s) are outside this sync's scope (e.g. ${unseen[0]}).`,
+    );
   }
 
   // Deletes are applied after writes, so a path some script still writes must
@@ -514,6 +512,29 @@ const SHARED_LOCK_REF_RE = new RegExp(
 );
 
 /**
+ * Both parsers, declared format first. YAML is a superset of JSON, and
+ * flow-style YAML (`{summary: x, lock: '!inline …'}`) starts with `{` while
+ * failing `JSON.parse` — deciding by the first character loses the reference.
+ */
+function parseMetadata(
+  metaPath: string,
+  metaContent: string,
+  isJson: boolean,
+): Record<string, any> | undefined {
+  for (const asJson of isJson ? [true, false] : [false, true]) {
+    try {
+      const parsed = asJson
+        ? JSON.parse(metaContent)
+        : yamlParseContent(metaPath, metaContent);
+      if (typeof parsed === "object" && parsed !== null) return parsed;
+    } catch {
+      // try the other one
+    }
+  }
+  return undefined;
+}
+
+/**
  * The shared lockfile a metadata file's `lock` field names, if any. The raw text
  * is only a prefilter: a summary or a comment can carry the same words, and
  * `!inline` decides where a lock is written, so it is read from the parsed
@@ -525,12 +546,7 @@ function sharedLockRefOf(
   isJson: boolean,
 ): string | undefined {
   if (!SHARED_LOCK_REF_RE.test(metaContent)) return undefined;
-  let parsed: any;
-  try {
-    parsed = isJson ? JSON.parse(metaContent) : yamlParseContent(metaPath, metaContent);
-  } catch {
-    return undefined;
-  }
+  const parsed = parseMetadata(metaPath, metaContent, isJson);
   const lock = parsed?.["lock"];
   if (typeof lock !== "string" || !lock.startsWith(INLINE_PREFIX)) return undefined;
   const ref = lock.slice(INLINE_PREFIX.length);
@@ -546,10 +562,10 @@ function sharedLockRefOf(
  */
 export function sharedLockRefIn(
   metadataContent: string,
+  isJson: boolean,
   root: string = ".",
 ): string | undefined {
-  const meta = { isJson: metadataContent.trimStart().startsWith("{") };
-  const ref = sharedLockRefOf("metadata", metadataContent, meta.isJson);
+  const ref = sharedLockRefOf("metadata", metadataContent, isJson);
   return ref && existsSync(path.resolve(root, ref)) ? ref : undefined;
 }
 
@@ -620,12 +636,10 @@ export async function collectExistingSharedLocks(
         if (meta === undefined || !isInWindmillNamespace(rel)) return;
         existing.scripts.add(rel);
         if (!anyShared) return;
-        let content: string;
-        try {
-          content = await readFile(full, "utf-8");
-        } catch {
-          return; // vanished or unreadable mid-walk; it reads nothing for us
-        }
+        // Deliberately unguarded: a metadata file this cannot read is a script
+        // whose lockfile is unknown, and treating it as a non-reader would let
+        // its shared lock be rewritten or swept underneath it.
+        const content = await readFile(full, "utf-8");
         const ref = sharedLockRefOf(rel, content, meta.isJson);
         if (ref) existing.refs.set(rel, ref);
     });

@@ -510,19 +510,35 @@ describe("sharedLockRefIn", () => {
       await mkdir(path.join(root, "locks"), { recursive: true });
       await writeFile(path.join(root, SHARED_PY), PY_LOCK, "utf-8");
 
-      expect(sharedLockRefIn(meta(`!inline ${SHARED_PY}`), root)).toEqual(
+      expect(sharedLockRefIn(meta(`!inline ${SHARED_PY}`), false, root)).toEqual(
         SHARED_PY,
       );
       // A regenerated script must fall back to its own lock rather than point
       // at a shared file that is not there.
       expect(
-        sharedLockRefIn(meta("!inline locks/go.lock"), root),
+        sharedLockRefIn(meta("!inline locks/go.lock"), false, root),
       ).toBeUndefined();
       expect(
-        sharedLockRefIn(meta(`!inline ${TRAVERSING_REF}`), root),
+        sharedLockRefIn(meta(`!inline ${TRAVERSING_REF}`), false, root),
       ).toBeUndefined();
       expect(
-        sharedLockRefIn(meta("!inline f/a.script.lock"), root),
+        sharedLockRefIn(meta("!inline f/a.script.lock"), false, root),
+      ).toBeUndefined();
+      // Flow-style YAML starts with `{` and is not JSON: deciding the format by
+      // the first character would drop the reference and repoint the script.
+      expect(
+        sharedLockRefIn(`{summary: x, lock: '!inline ${SHARED_PY}'}`, false, root),
+      ).toEqual(SHARED_PY);
+      // The `lock` field alone decides, whatever prose surrounds it.
+      expect(
+        sharedLockRefIn(
+          yamlStringify(
+            { summary: `see !inline ${SHARED_PY}`, lock: "!inline f/a.script.lock" },
+            yamlOptions,
+          ),
+          false,
+          root,
+        ),
       ).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });

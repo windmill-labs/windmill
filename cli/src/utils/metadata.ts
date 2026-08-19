@@ -381,7 +381,8 @@ export async function generateScriptMetadataInternal(
         // The group's file when the script already reads one, its language's
         // otherwise: a script joins the default group by resolving to its lock.
         opts.dedupeLockfiles
-          ? (sharedLockRefIn(metadataContent) ?? sharedLockPath(language))
+          ? (sharedLockRefIn(metadataContent, metadataWithType.isJson) ??
+            sharedLockPath(language))
           : undefined,
       );
     } else {
@@ -418,7 +419,7 @@ export async function generateScriptMetadataInternal(
     // reference has to be restored from the raw text — including a shared one
     // (`dedupeLockfiles`), which `--schema-only` would otherwise replace with a
     // per-script path whose file deduplication removed.
-    const sharedRef = sharedLockRefIn(metadataContent);
+    const sharedRef = sharedLockRefIn(metadataContent, metadataWithType.isJson);
     if (sharedRef) {
       metadataParsedContent.lock = "!inline " + sharedRef;
     } else if (metadataInFolder) {
