@@ -28,11 +28,20 @@
 		return true
 	}
 
+	/**
+	 * Where a failed leg lands when this is not a popup. A parked run has to be handed back its
+	 * own page: nothing else consumes the park, so sending it to `/resources` leaves the run in
+	 * `sessionStorage` to spring the wizard open on some unrelated later visit.
+	 */
+	function failureDestination(): string {
+		return hasParkedWizard() ? '/workspace_settings?tab=windmill_data_tables' : '/resources'
+	}
+
 	onMount(async () => {
 		if (error) {
 			if (closeIfPopup()) return
 			sendUserToast(`Error trying to fetch projects from windmill: ${error}`, true)
-			goto('/resources')
+			goto(failureDestination())
 		} else if (code && state) {
 			try {
 				const res = await OauthService.connectCallback({
@@ -58,12 +67,12 @@
 			} catch (e) {
 				if (closeIfPopup()) return
 				sendUserToast(`Error parsing the response token, ${e.body}`, true)
-				goto('/resources')
+				goto(failureDestination())
 			}
 		} else {
 			if (closeIfPopup()) return
 			sendUserToast('Missing code or state as query params', true)
-			goto('/resources')
+			goto(failureDestination())
 		}
 	})
 </script>
