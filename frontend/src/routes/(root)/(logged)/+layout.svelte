@@ -16,6 +16,7 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
+	import SidebarUsage from '$lib/components/sidebar/SidebarUsage.svelte'
 	import SidebarScrollArea from '$lib/components/sidebar/SidebarScrollArea.svelte'
 	import { SIDEBAR_BG, SIDEBAR_BG_DARK } from '$lib/components/sidebar/sidebarChrome'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
@@ -1090,7 +1091,11 @@
 										</SidebarScrollArea>
 									{/if}
 
-									<div class="px-4 pt-3 pb-3.5 w-52">
+									<div class="w-52 pt-2">
+										<SidebarUsage isCollapsed={false} />
+									</div>
+
+									<div class="px-4 pb-3.5 w-52">
 										{@render brandMark(false)}
 									</div>
 								</div>
@@ -1224,8 +1229,12 @@
 								</SidebarScrollArea>
 							{/if}
 
+							<div class="flex-shrink-0 pt-2">
+								<SidebarUsage {isCollapsed} />
+							</div>
+
 							<div
-								class="flex-shrink-0 flex pt-3 pb-3.5 {isCollapsed
+								class="flex-shrink-0 flex pb-3.5 {isCollapsed
 									? 'flex-col items-center gap-3'
 									: 'items-center justify-between px-4'}"
 							>
