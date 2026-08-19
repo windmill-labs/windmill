@@ -951,21 +951,28 @@
 		toggleDeploymentDirection(v)
 	}
 
-	// Fetch user permissions for both workspaces
+	// Fetch user permissions for both workspaces. The server's `can_preserve_on_behalf_of` reads
+	// the merged `is_admin || super_admin`, which `whoami` reports as two fields.
 	$effect(() => {
 		;[currentWorkspaceId, parentWorkspaceId]
 		async function fetchPermissions() {
 			try {
 				const parentUser = await UserService.whoami({ workspace: parentWorkspaceId })
 				canPreserveInParent =
-					parentUser.is_admin || parentUser.groups?.includes('wm_deployers') || false
+					parentUser.is_admin ||
+					parentUser.is_super_admin ||
+					parentUser.groups?.includes('wm_deployers') ||
+					false
 			} catch {
 				canPreserveInParent = false
 			}
 			try {
 				const currentUser = await UserService.whoami({ workspace: currentWorkspaceId })
 				canPreserveInCurrent =
-					currentUser.is_admin || currentUser.groups?.includes('wm_deployers') || false
+					currentUser.is_admin ||
+					currentUser.is_super_admin ||
+					currentUser.groups?.includes('wm_deployers') ||
+					false
 			} catch {
 				canPreserveInCurrent = false
 			}
