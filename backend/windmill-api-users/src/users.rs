@@ -26,6 +26,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use constant_time_eq::constant_time_eq;
 use hyper::{header::LOCATION, StatusCode};
 use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin, OptJobAuthed};
 use windmill_common::usernames::{
@@ -796,7 +797,9 @@ async fn global_whoami(
 
     if let Some(user) = user {
         Ok(Json(user))
-    } else if std::env::var("SUPERADMIN_SECRET").ok() == Some(token) {
+    } else if std::env::var("SUPERADMIN_SECRET")
+        .is_ok_and(|secret| constant_time_eq(secret.as_bytes(), token.as_bytes()))
+    {
         Ok(Json(GlobalUserInfo {
             email: email.clone(),
             login_type: Some("superadmin_secret".to_string()),
