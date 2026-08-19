@@ -272,6 +272,17 @@ describe("getTypeStrFromPath", () => {
     expect(getTypeStrFromPath("f/test/my_script.rs")).toBe("script");
   });
 
+  test("a shared lockfile is its own type, not a workspace dependency", () => {
+    // It lives under dependencies/ but has no object on the server: classified
+    // as one, `sync push` would try to deploy it as a dependency file.
+    expect(getTypeStrFromPath("dependencies/locks/python3.lock")).toBe(
+      "shared_lock",
+    );
+    expect(getTypeStrFromPath("dependencies/requirements.in")).toBe(
+      "workspace_dependencies",
+    );
+  });
+
   test("detects metadata types by name suffix", () => {
     expect(getTypeStrFromPath("f/test/my_var.variable.yaml")).toBe("variable");
     expect(getTypeStrFromPath("f/test/my_res.resource.yaml")).toBe("resource");
