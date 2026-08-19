@@ -281,6 +281,11 @@ export function computeSharedLockPlan(
     }
   }
 
+  // Deletes are applied after writes, so a path some script still writes must
+  // not also be dropped — two metadata files pointing at one lock file would
+  // otherwise cancel each other out and leave the survivor without a lock.
+  plan.deletes = plan.deletes.filter((key) => plan.writes[key] === undefined);
+
   return plan;
 }
 
