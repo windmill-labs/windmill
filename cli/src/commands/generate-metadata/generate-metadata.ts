@@ -428,6 +428,7 @@ async function maybeDedupeLockfiles(
   tree: DoubleLinkedDependencyTree,
   folder: string | undefined,
   existing: ExistingSharedLocks,
+  failed: string[] = [],
 ): Promise<void> {
   if (!opts.dedupeLockfiles) return;
   if (folder && opts.strictFolderBoundaries) {
@@ -446,6 +447,7 @@ async function maybeDedupeLockfiles(
     rawWorkspaceDependencies,
     tree,
     existing,
+    failed,
   };
   if (opts.dryRun) {
     await dedupeLockfilesOnDisk({ ...args, dryRun: true });
@@ -839,7 +841,12 @@ export async function generateMetadata(
     await flushLockfileBatch();
   }
 
-  await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder, sharedLocksBefore);
+  // The scripts whose generation failed keep whatever lock they had, and must
+  // not be re-hashed as though this run had refreshed them.
+  await maybeDedupeLockfiles(
+    opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder,
+    sharedLocksBefore, errors.map((e) => e.path),
+  );
 
   const succeeded = total - errors.length;
   log.info("");

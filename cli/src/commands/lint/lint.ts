@@ -515,6 +515,7 @@ export async function checkMissingLocks(
   }
 
   // Check standalone scripts
+  const syncRoot = await findSyncRoot(targetDirectory);
   for (const yamlPath of scriptYamls) {
     const basePath = yamlPath.replace(/\.script\.yaml$/, "");
 
@@ -540,7 +541,7 @@ export async function checkMissingLocks(
         const lockResolved = await isLockResolved(
           metadata?.lock,
           targetDirectory,
-          await findSyncRoot(targetDirectory),
+          syncRoot,
         );
         if (!lockResolved) {
           issues.push({

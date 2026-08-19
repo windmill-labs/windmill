@@ -3974,6 +3974,10 @@ export async function dedupeLockfilesOnDisk(args: {
    *  scripts regeneration has already moved off their shared file, and the group
    *  would be handed a new name instead of keeping its own. */
   existing: ExistingSharedLocks;
+  /** Content paths whose generation failed this run. Their metadata may be
+   *  rewritten, but never re-hashed: recording a hash for a script whose lock
+   *  never regenerated marks it up-to-date, and it is never retried. */
+  failed?: string[];
   dryRun?: boolean;
 }): Promise<void> {
   const {
@@ -3984,6 +3988,7 @@ export async function dedupeLockfilesOnDisk(args: {
     rawWorkspaceDependencies,
     tree,
     existing,
+    failed = [],
     dryRun,
   } = args;
   const map = await elementsToMap(
@@ -4017,7 +4022,7 @@ export async function dedupeLockfilesOnDisk(args: {
     } catch {
       continue;
     }
-    if (!contentPath) continue;
+    if (!contentPath || failed.includes(contentPath)) continue;
     await generateScriptMetadataInternal(
       contentPath,
       workspace,

@@ -577,6 +577,7 @@ export function sharedLockRefIn(
 // the script the scan exists to protect.
 const SCAN_SKIP_DIRS = new Set([".git", ".wmill", "node_modules"]);
 
+/** Runs `fn` over `items`, at most `size` at a time. */
 async function inBatches<T>(
   items: readonly T[],
   size: number,
@@ -612,6 +613,9 @@ export async function collectExistingSharedLocks(
   // is what decides if it may form groups at all.
   const anyShared = existsSync(path.join(root, ...SHARED_LOCK_DIR.split("/")));
 
+  // Traversal first, reads second: recursing inside a batch would multiply the
+  // fan-out at every level, and the reads below are deliberately unguarded.
+  const toRead: { rel: string; isJson: boolean; shared: boolean }[] = [];
   const walk = async (dir: string): Promise<void> => {
     let entries: Dirent[];
     try {
@@ -619,32 +623,36 @@ export async function collectExistingSharedLocks(
     } catch {
       return;
     }
-    // Bounded: a workspace is thousands of files deep and an unbounded fan-out
-    // would open as many descriptors at once.
-    await inBatches(entries, 32, async (entry) => {
-        const rel = dir === "" ? entry.name : `${dir}/${entry.name}`;
-        if (entry.isDirectory()) {
-          if (!SCAN_SKIP_DIRS.has(entry.name)) await walk(rel);
-          return;
-        }
-        const full = path.join(root, ...rel.split("/"));
-        if (isSharedLockPath(rel)) {
-          existing.contents.set(rel, await readFile(full, "utf-8"));
-          return;
-        }
-        const meta = scriptMetaBase(rel);
-        if (meta === undefined || !isInWindmillNamespace(rel)) return;
-        existing.scripts.add(rel);
-        if (!anyShared) return;
-        // Deliberately unguarded: a metadata file this cannot read is a script
-        // whose lockfile is unknown, and treating it as a non-reader would let
-        // its shared lock be rewritten or swept underneath it.
-        const content = await readFile(full, "utf-8");
-        const ref = sharedLockRefOf(rel, content, meta.isJson);
-        if (ref) existing.refs.set(rel, ref);
-    });
+    for (const entry of entries) {
+      const rel = dir === "" ? entry.name : `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (!SCAN_SKIP_DIRS.has(entry.name)) await walk(rel);
+        continue;
+      }
+      if (isSharedLockPath(rel)) {
+        toRead.push({ rel, isJson: false, shared: true });
+        continue;
+      }
+      const meta = scriptMetaBase(rel);
+      if (meta === undefined || !isInWindmillNamespace(rel)) continue;
+      existing.scripts.add(rel);
+      if (anyShared) toRead.push({ rel, isJson: meta.isJson, shared: false });
+    }
   };
   await walk("");
+
+  await inBatches(toRead, 32, async ({ rel, isJson, shared }) => {
+    // Deliberately unguarded: a metadata file this cannot read is a script whose
+    // lockfile is unknown, and treating it as a non-reader would let its shared
+    // lock be rewritten or swept underneath it.
+    const content = await readFile(path.join(root, ...rel.split("/")), "utf-8");
+    if (shared) {
+      existing.contents.set(rel, content);
+      return;
+    }
+    const ref = sharedLockRefOf(rel, content, isJson);
+    if (ref) existing.refs.set(rel, ref);
+  });
   return existing;
 }
 
