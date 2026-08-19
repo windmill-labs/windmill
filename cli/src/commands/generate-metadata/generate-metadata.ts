@@ -435,6 +435,18 @@ async function maybeDedupeLockfiles(
     );
     return;
   }
+  if (opts.dryRun) {
+    await dedupeLockfilesOnDisk(
+      opts,
+      workspace,
+      codebases,
+      ignore,
+      rawWorkspaceDependencies,
+      tree,
+      true,
+    );
+    return;
+  }
   await beginLockfileBatch();
   try {
     await dedupeLockfilesOnDisk(

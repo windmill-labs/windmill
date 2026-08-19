@@ -463,7 +463,13 @@ const SHARED_LOCK_REF_RE = new RegExp(
   `${INLINE_PREFIX}(${SHARED_LOCK_DIR}/[^\\s'"]+\\.lock)`,
 );
 
-const SCAN_SKIP_DIRS = new Set([".git", "node_modules", ".wmill", "dist"]);
+// `.wmill` is the stateful-push mirror: its copies of a script's metadata would
+// be counted as extra readers of a shared lockfile and freeze its content.
+// `.git` and `node_modules` cannot be Windmill paths and are where the walk
+// would otherwise spend its time. Nothing else is skipped — a build-output name
+// like `dist` is a legal folder, and a script hidden from this scan is exactly
+// the script the scan exists to protect.
+const SCAN_SKIP_DIRS = new Set([".git", ".wmill", "node_modules"]);
 
 /**
  * The shared lockfiles in the working tree, the scripts that read them, and

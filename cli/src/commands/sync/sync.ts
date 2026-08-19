@@ -3930,6 +3930,7 @@ export async function dedupeLockfilesOnDisk(
   ignore: (p: string, isD: boolean) => boolean,
   rawWorkspaceDependencies: Record<string, string>,
   tree: DoubleLinkedDependencyTree,
+  dryRun?: boolean,
 ): Promise<void> {
   const map = await elementsToMap(
     await FSFSElement(process.cwd(), codebases, false),
@@ -3944,10 +3945,14 @@ export async function dedupeLockfilesOnDisk(
   );
   if (isEmptySharedLockPlan(plan)) return;
 
+  const summary = `${Object.keys(plan.writes).length} file(s) written, ${plan.deletes.length} removed`;
+  if (dryRun) {
+    log.info(`Would deduplicate lockfiles: ${summary}`);
+    return;
+  }
+
   await applySharedLockPlanToDisk(plan);
-  log.info(
-    `Deduplicated lockfiles: ${Object.keys(plan.writes).length} file(s) written, ${plan.deletes.length} removed`,
-  );
+  log.info(`Deduplicated lockfiles: ${summary}`);
 
   for (const rewritten of Object.keys(plan.writes)) {
     // Metadata only — the lockfiles the plan also writes are not hashed.
