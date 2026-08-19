@@ -168,19 +168,19 @@ function collectFlowNodeIdsFromNode(node: FlowNodeLike): string[] {
 	return ids
 }
 
-/** Ids of AI agent modules that neither link to a saved agent nor set a provider — they pass schema
- * validation (a linked step legitimately has no provider of its own) but fail on every run. */
-export function collectProviderlessAgentIds(modules: unknown): string[] {
-	const ids: string[] = []
+/** Walks every AI agent module of a flow, including agents nested in loops, branches and in another
+ * agent's tools. */
+function visitAgentModules(
+	modules: unknown,
+	cb: (mod: FlowModule, value: Record<string, any>) => void
+) {
 	const visit = (mods: unknown) => {
 		if (!Array.isArray(mods)) return
 		for (const mod of mods) {
 			const v = (mod as FlowModule | undefined)?.value as Record<string, any> | undefined
 			if (!v) continue
 			if (v.type === 'aiagent') {
-				if (!v.agent && !v.input_transforms?.provider) {
-					ids.push((mod as FlowModule).id)
-				}
+				cb(mod as FlowModule, v)
 				visit(v.tools)
 			} else if (v.type === 'forloopflow' || v.type === 'whileloopflow') {
 				visit(v.modules)
@@ -193,6 +193,17 @@ export function collectProviderlessAgentIds(modules: unknown): string[] {
 		}
 	}
 	visit(modules)
+}
+
+/** Ids of AI agent modules that neither link to a saved agent nor set a provider — they pass schema
+ * validation (a linked step legitimately has no provider of its own) but fail on every run. */
+export function collectProviderlessAgentIds(modules: unknown): string[] {
+	const ids: string[] = []
+	visitAgentModules(modules, (mod, v) => {
+		if (!v.agent && !v.input_transforms?.provider) {
+			ids.push(mod.id)
+		}
+	})
 	return ids
 }
 
@@ -207,32 +218,16 @@ export type InvalidAgentToolName = {
  * of the agent step fails, so writers must catch this before the flow is stored. */
 export function collectInvalidAgentToolNames(modules: unknown): InvalidAgentToolName[] {
 	const invalid: InvalidAgentToolName[] = []
-	const visit = (mods: unknown) => {
-		if (!Array.isArray(mods)) return
-		for (const mod of mods) {
-			const v = (mod as FlowModule | undefined)?.value as Record<string, any> | undefined
-			if (!v) continue
-			if (v.type === 'aiagent') {
-				const tools: AgentTool[] = Array.isArray(v.tools) ? v.tools : []
-				const siblingNames = tools.map((tool) => tool.summary ?? '')
-				for (const tool of tools) {
-					const name = tool.summary ?? ''
-					const error = getToolNameError(name, tool.value?.tool_type, siblingNames)
-					if (error) {
-						invalid.push({ agentId: (mod as FlowModule).id, toolId: tool.id, name, error })
-					}
-				}
-				visit(tools)
-			} else if (v.type === 'forloopflow' || v.type === 'whileloopflow') {
-				visit(v.modules)
-			} else if (v.type === 'branchone') {
-				visit(v.default)
-				for (const b of v.branches ?? []) visit(b.modules)
-			} else if (v.type === 'branchall') {
-				for (const b of v.branches ?? []) visit(b.modules)
+	visitAgentModules(modules, (mod, v) => {
+		const tools: AgentTool[] = Array.isArray(v.tools) ? v.tools : []
+		const siblingNames = tools.map((tool) => tool.summary ?? '')
+		for (const tool of tools) {
+			const name = tool.summary ?? ''
+			const error = getToolNameError(name, tool.value?.tool_type, siblingNames)
+			if (error) {
+				invalid.push({ agentId: mod.id, toolId: tool.id, name, error })
 			}
 		}
-	}
-	visit(modules)
+	})
 	return invalid
 }

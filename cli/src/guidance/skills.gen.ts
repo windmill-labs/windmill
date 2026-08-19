@@ -5172,8 +5172,9 @@ tool, \`websearch\` for web search.
 - A tool's \`summary\` is the **name the agent calls it by**, not a human label
 - \`summary\` must match \`^[a-zA-Z0-9_]+$\`: letters, numbers and underscores only. No spaces, dashes,
   dots or accents — \`search_documentation\`, never \`Search documentation\`
-- \`summary\` is required on every tool, must be unique among that agent's tools, and must not be a
-  reserved module ID (\`failure\`, \`preprocessor\`, \`Input\`)
+- \`summary\` is required on every tool, must be unique among that agent's tools, and must not be one
+  of the reserved ids (\`do\`, \`bg\`, \`ctx\`, \`state\`, \`if\`, \`else\`, \`for\`, \`delete\`, \`while\`, \`new\`,
+  \`in\`, \`failure\`, \`preprocessor\`, \`as\`, \`Input\`, \`Result\`, \`Trigger\`)
 - A tool name outside that character set is rejected: flow write tools refuse it, and a flow that
   reaches the worker with one fails every run with \`Invalid tool name\`
 - Tool \`id\` follows the same rules as any module ID — unique across the flow, underscores not spaces

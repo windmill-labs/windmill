@@ -28,10 +28,6 @@ export function getToolNameError(
 	return undefined
 }
 
-export function validateToolName(name: string, type?: string) {
-	return getToolNameError(name, type) === undefined
-}
-
 export const SPECIAL_TOOL_KINDS = ['mcpTool', 'websearchTool', 'aiAgentTool'] as const
 export type SpecialToolKind = (typeof SPECIAL_TOOL_KINDS)[number]
 
