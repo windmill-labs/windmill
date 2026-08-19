@@ -134,7 +134,12 @@
 
 <Disposable bind:open bind:this={disposable} preventEscape {minZIndex}>
 	{#snippet children({ zIndex })}
-		<ConditionalPortal condition={!!hostEl} target={hostEl} class="contents">
+		<!-- Always portalled, as Drawer is: to the enclosing pane when one claims it, to `body`
+		     otherwise. Rendered in place it inherits whatever the caller happens to sit inside, and
+		     one `transform`, `filter` or `overflow` anywhere above it confines a dialog that is
+		     meant to cover the app — the nav rail then paints over it, and its own edges are clipped
+		     to a box it never asked for. -->
+		<ConditionalPortal condition target={hostEl} class={hostEl ? 'contents' : undefined}>
 			{#if open}
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
 				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
