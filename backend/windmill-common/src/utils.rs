@@ -909,35 +909,64 @@ pub enum ScheduleType {
     Cron(cron::Schedule),
 }
 
+/// croner reads the leading seconds field as optional or required depending on these flags,
+/// so anything asking whether an expression parses has to ask it the way the caller did.
+fn croner_parser(schedule_str: &str, seconds_required: bool) -> Cron {
+    let mut croner = Cron::new(schedule_str);
+    if seconds_required {
+        croner.with_seconds_required();
+    } else {
+        croner.with_seconds_optional();
+    }
+    croner
+}
+
+/// Probes an expression this module synthesized rather than one that was submitted, so it
+/// goes around `from_str`, whose failure path logs at ERROR level.
+fn parses_as_cron(schedule_str: &str, version: Option<&str>, seconds_required: bool) -> bool {
+    match version {
+        Some("v1") | None => cron::Schedule::from_str(schedule_str).is_ok(),
+        Some(_) => panic::catch_unwind(AssertUnwindSafe(|| {
+            croner_parser(schedule_str, seconds_required)
+                .parse()
+                .is_ok()
+        }))
+        .unwrap_or(false),
+    }
+}
+
 /// Both cron parsers reject the standard 5-field crontab syntax without naming the missing
 /// leading seconds field, and croner even advertises five fields as valid while we parse
-/// with seconds required. Only that seconds-required parse is 6-field, so the hint stays
-/// off the seconds-optional path, where five fields really are accepted.
+/// with seconds required. The hint belongs to that seconds-required parse alone: croner does
+/// accept five fields once seconds are optional, which is how the worker re-reads a schedule.
 fn six_fields_hint(schedule_str: &str, version: Option<&str>, seconds_required: bool) -> String {
     let fields = schedule_str.split_whitespace().collect::<Vec<_>>();
     if !seconds_required || fields.len() >= 6 {
         return String::new();
     }
-    let suggestion = if fields.len() == 5 {
-        // The suggestion has 6 fields, so parsing it can only recurse one level deep.
-        let with_seconds = format!("0 {}", fields.join(" "));
-        match ScheduleType::from_str(&with_seconds, version, seconds_required) {
-            // v1 numbers day-of-week from Sunday=1, so a crontab line is not always
-            // equivalent to the same line with a seconds field: offer the prepend as the
-            // mechanical edit it is rather than as the same schedule.
-            Ok(_) => format!(
-                " The 5-field crontab syntax is not accepted; prepend a seconds field, e.g. '{}'.",
-                with_seconds
-            ),
-            Err(_) => String::new(),
-        }
+    // v1 numbers day-of-week from Sunday=1, so prepending a seconds field to a crontab line
+    // that names a weekday by number yields a schedule that runs a day early. Nothing but
+    // the format sentence can be given then.
+    let weekday_shifts = matches!(version, Some("v1") | None)
+        && fields
+            .get(4)
+            .is_some_and(|dow| dow.chars().any(|c| c.is_ascii_digit()));
+    let with_seconds = format!("0 {}", fields.join(" "));
+    let example = if fields.len() == 5
+        && !weekday_shifts
+        && parses_as_cron(&with_seconds, version, seconds_required)
+    {
+        format!(
+            " The 5-field crontab syntax is not accepted; prepend a seconds field, e.g. '{}'.",
+            with_seconds
+        )
     } else {
         String::new()
     };
     format!(
         "\nWindmill cron expressions have 6 fields and start with seconds: \
          'sec min hour day-of-month month day-of-week'.{}",
-        suggestion
+        example
     )
 }
 
@@ -989,13 +1018,7 @@ impl ScheduleType {
             Some("v2") | Some(_) => {
                 // Use Croner for v2
                 let schedule_type_result = panic::catch_unwind(AssertUnwindSafe(|| {
-                    let mut croner = Cron::new(schedule_str);
-                    if seconds_required {
-                        croner.with_seconds_required();
-                    } else {
-                        croner.with_seconds_optional();
-                    };
-                    croner.parse()
+                    croner_parser(schedule_str, seconds_required).parse()
                 }))
                 .map_err(|_| {
                     tracing::error!(
@@ -1613,6 +1636,28 @@ mod tests {
                 "{version:?}: {err}"
             );
         }
+    }
+
+    /// v1 reads a numeric weekday one day off from crontab, so the expression it would hand
+    /// back there is not the schedule the user wrote and must not be offered; croner numbers
+    /// weekdays like crontab, so the same input keeps its example.
+    #[test]
+    fn numeric_weekday_example_is_withheld_on_v1_only() {
+        let v1 = ScheduleType::from_str("0 2 * * 1", None, true)
+            .err()
+            .expect("5-field cron must be rejected")
+            .to_string();
+        assert!(v1.contains("6 fields"), "{v1}");
+        assert!(!v1.contains("e.g."), "{v1}");
+
+        let v2 = ScheduleType::from_str("0 2 * * 1", Some("v2"), true)
+            .err()
+            .expect("5-field cron must be rejected")
+            .to_string();
+        assert!(
+            v2.contains("prepend a seconds field, e.g. '0 0 2 * * 1'."),
+            "{v2}"
+        );
     }
 
     #[test]
