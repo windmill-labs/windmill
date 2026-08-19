@@ -138,16 +138,13 @@ describe('unsupportedConnectionParam', () => {
 		expect(parsePostgresConnectionString(disguised)?.sslmode).toBeUndefined()
 	})
 
-	// libpq matches parameter names case-insensitively. Folding in one reader and not the other
-	// is what lets a name through the allowlist and past the parser, so the string is saved as
-	// whatever the default happens to be rather than what it asked for.
-	it('reads a parameter whatever its case', () => {
+	// libpq rejects `?SslMode=` as an invalid URI query parameter rather than folding it, so a
+	// string carrying one does not connect anywhere. Naming it is the honest answer; honouring
+	// it would save a resource from a URI Postgres itself refuses.
+	it('refuses a parameter whose name is not the one libpq accepts', () => {
 		const shouted = 'postgres://u:p@h/db?SslMode=verify-full'
-		expect(unsupportedConnectionParam(shouted)).toBeUndefined()
-		expect(parsePostgresConnectionString(shouted)?.sslmode).toBe('verify-full')
-		expect(unsupportedConnectionParam('postgres://u:p@h/db?Connect_Timeout=1')).toBe(
-			'connect_timeout'
-		)
+		expect(unsupportedConnectionParam(shouted)).toBe('SslMode')
+		expect(parsePostgresConnectionString(shouted)?.sslmode).toBeUndefined()
 	})
 
 	// libpq takes the last of a repeated parameter. Taking the first reads a weaker mode than

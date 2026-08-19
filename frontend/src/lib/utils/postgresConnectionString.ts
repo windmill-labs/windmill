@@ -25,16 +25,17 @@ const CONNECTION_STRING =
 	/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>\[[^\]]+\]|[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?/
 
 /**
- * The query parameters, read the way libpq reads them: names are case-insensitive, and a name
+ * The query parameters, read the way libpq reads them: names are case-sensitive — `SslMode` is
+ * rejected outright as an invalid URI query parameter, not folded to `sslmode` — and a name
  * repeated takes its last value. One reader for both the parser and the allowlist below, or
- * they disagree about what a string says — a name only one of them folds is refused by neither
- * and honoured by neither.
+ * they disagree about what a string says and a name is refused by neither and honoured by
+ * neither.
  */
 function paramsOf(connectionString: string): Map<string, string> {
 	const query = connectionString.split('?').slice(1).join('?')
 	const params = new Map<string, string>()
 	if (!query) return params
-	new URLSearchParams(query).forEach((value, name) => params.set(name.toLowerCase(), value))
+	new URLSearchParams(query).forEach((value, name) => params.set(name, value))
 	return params
 }
 
