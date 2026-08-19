@@ -348,6 +348,12 @@
 						isPremiumStore.set(premium)
 					}
 				} catch (e) {
+					// Fall back to the free tier rather than leaving it unknown: consumers hold
+					// premium-only affordances through the pending window, and a failure here
+					// would otherwise keep them enabled for the session on a free workspace.
+					if ($workspaceStore === workspace) {
+						isPremiumStore.set(false)
+					}
 					console.error('Could not fetch premium status', e)
 				}
 			}
@@ -493,16 +499,20 @@
 			usageFetchedFor = workspace
 			$workspaceUsageStore = undefined
 		}
+		// `Number(...)`: both usage endpoints serve text/plain, so the client hands back
+		// a string despite the generated `number` type. Interpolation and arithmetic
+		// coerce it, but `toLocaleString` on a string returns it unchanged — the
+		// thousands separator would silently go missing above 999.
 		await Promise.all([
 			UserService.getUsage()
 				.then((usage) => {
-					$usageStore = usage
+					$usageStore = Number(usage)
 				})
 				.catch((e) => console.error('Could not fetch user usage', e)),
 			WorkspaceService.getWorkspaceUsage({ workspace })
 				.then((usage) => {
 					if ($workspaceStore === workspace) {
-						$workspaceUsageStore = usage
+						$workspaceUsageStore = Number(usage)
 					}
 				})
 				.catch((e) => console.error('Could not fetch workspace usage', e))
