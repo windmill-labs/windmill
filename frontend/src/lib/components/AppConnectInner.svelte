@@ -976,6 +976,10 @@
 		...(rankedConnects ?? []).map((x) => ({ key: x.key, oauth: true })),
 		...otherKeys.map((key) => ({ key, oauth: false }))
 	])
+	let searching = $derived(filter.trim() !== '')
+	// Both lists start undefined and render skeletons; "nothing found" only means something
+	// once they have landed.
+	let listsLoaded = $derived(rankedConnectsManual !== undefined && rankedConnects !== undefined)
 	let highlightedIndex = $state(-1)
 	const rowDomId = (index: number) => `resource-type-row-${index}`
 
@@ -1076,15 +1080,14 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<!-- Arrow keys and Enter are caught here so they work whether the search field or a row
 		     holds focus. -->
-		<div onkeydown={onListKeydown} onpointermove={() => (pointerOwnsHighlight = true)}>
-			<!-- The list runs to a few hundred rows, so the search stays reachable while scrolling.
-			     `before` paints the scroll container's own top padding, which rows would otherwise
-			     scroll through above the bar; a negative top margin would drag the whole list up
-			     under it instead. -->
-			<div
-				class="sticky top-0 z-10 -mx-4 px-4 pb-4 bg-surface before:content-[''] before:absolute
-				before:inset-x-0 before:bottom-full before:h-4 before:bg-surface"
-			>
+		<!-- Full height so the rows scroll inside their own box: the search field and the sync
+		     button stay put, and the drawer itself never scrolls. -->
+		<div
+			class="flex flex-col h-full min-h-0"
+			onkeydown={onListKeydown}
+			onpointermove={() => (pointerOwnsHighlight = true)}
+		>
+			<div class="shrink-0 pb-4">
 				<div class="relative w-full">
 					<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
 					<TextInput
@@ -1118,6 +1121,12 @@
 				</div>
 			{/snippet}
 
+			{#snippet sectionHeading(title: string, count: number)}
+				<h2 class="mb-3 text-2xs font-normal uppercase text-secondary">
+					{title}{#if searching}<span class="ml-2 text-hint">{count}</span>{/if}
+				</h2>
+			{/snippet}
+
 			{#snippet resourceButton(key: string, index: number, oauth: boolean)}
 				<Button
 					id={rowDomId(index)}
@@ -1126,7 +1135,7 @@
 					unifiedSize="md"
 					variant="subtle"
 					btnClasses={twMerge(
-						'justify-start px-3 h-auto py-3 scroll-mt-14 scroll-mb-2',
+						'justify-start px-3 h-auto py-3 scroll-my-2',
 						// The pointer moves the same highlight the arrow keys move, so the variant's
 						// own hover is off: two lit rows at once would be ambiguous.
 						'hover:bg-transparent',
@@ -1141,58 +1150,85 @@
 				</Button>
 			{/snippet}
 
-			{#if customKeys.length > 0}
-				<h2 class="mb-3 text-2xs font-normal uppercase text-secondary">Custom resource types</h2>
-				<div class="flex flex-col gap-1 mb-10">
-					{#each customKeys as key, i}
-						{@render resourceButton(key, i, false)}
-					{/each}
-				</div>
-			{/if}
-
-			<h2 class="mb-4 text-2xs font-normal uppercase text-secondary">
-				Instance-configured OAuth APIs
-			</h2>
-			<div class="flex flex-col gap-1">
-				{#if rankedConnects}
-					{#each rankedConnects as { key }, i}
-						{@render resourceButton(key, oauthRowOffset + i, true)}
-					{/each}
+			<div class="flex-1 min-h-0 overflow-y-auto">
+				{#if searching && listsLoaded && navItems.length === 0}
+					<div class="flex flex-col items-center gap-1 py-16 text-center">
+						<span class="text-sm text-primary">No resource type matches “{filter.trim()}”</span>
+						<span class="text-xs text-secondary">
+							Search on the name, the product or what the resource holds — or sync resource types
+							with the hub for more.
+						</span>
+					</div>
 				{:else}
-					{#each new Array(3) as _}
-						<Skeleton layout={[[2]]} />
-					{/each}
+					<!-- One gap between sections, owned by the column: a section that a search empties
+					     out then takes its spacing with it. -->
+					<div class="flex flex-col gap-10">
+						{#if customKeys.length > 0}
+							<section>
+								{@render sectionHeading('Custom resource types', customKeys.length)}
+								<div class="flex flex-col gap-1">
+									{#each customKeys as key, i}
+										{@render resourceButton(key, i, false)}
+									{/each}
+								</div>
+							</section>
+						{/if}
+
+						{#if !searching || (rankedConnects?.length ?? 0) > 0}
+							<section>
+								{@render sectionHeading(
+									'Instance-configured OAuth APIs',
+									rankedConnects?.length ?? 0
+								)}
+								<div class="flex flex-col gap-1">
+									{#if rankedConnects}
+										{#each rankedConnects as { key }, i}
+											{@render resourceButton(key, oauthRowOffset + i, true)}
+										{/each}
+									{:else}
+										{#each new Array(3) as _}
+											<Skeleton layout={[[2]]} />
+										{/each}
+									{/if}
+								</div>
+								{#if !searching && connects && connects.filter(isSharedConnect).length == 0}
+									<div class="text-secondary text-xs w-full"
+										>No OAuth APIs have been set up on this instance. To add OAuth APIs, first sync
+										the resource types with the hub, then add OAuth configuration. See <a
+											href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
+										>
+									</div>
+								{/if}
+							</section>
+						{/if}
+
+						{#if !searching || otherKeys.length > 0}
+							<section>
+								{@render sectionHeading('Others', otherKeys.length)}
+
+								{#if !searching && connectsManual && connectsManual?.length < 10}
+									<div class="text-secondary text-xs p-2">
+										Resource types have not been synced with the hub
+									</div>
+								{/if}
+
+								<div class="flex flex-col gap-1">
+									{#if rankedConnectsManual}
+										{#each otherKeys as key, i}
+											{@render resourceButton(key, otherRowOffset + i, false)}
+										{/each}
+									{:else}
+										{#each new Array(9) as _}
+											<Skeleton layout={[[2]]} />
+										{/each}
+									{/if}
+								</div>
+							</section>
+						{/if}
+					</div>
 				{/if}
 			</div>
-			{#if connects && connects.filter(isSharedConnect).length == 0}
-				<div class="text-secondary text-xs w-full"
-					>No OAuth APIs have been set up on this instance. To add OAuth APIs, first sync the
-					resource types with the hub, then add OAuth configuration. See <a
-						href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
-					>
-				</div>
-			{/if}
-
-			<h2 class="mt-10 mb-3 text-2xs font-normal uppercase text-secondary">Others</h2>
-
-			{#if connectsManual && connectsManual?.length < 10}
-				<div class="text-secondary text-xs p-2">
-					Resource types have not been synced with the hub
-				</div>
-			{/if}
-
-			<div class="flex flex-col gap-1 mb-2">
-				{#if rankedConnectsManual}
-					{#each otherKeys as key, i}
-						{@render resourceButton(key, otherRowOffset + i, false)}
-					{/each}
-				{:else}
-					{#each new Array(9) as _}
-						<Skeleton layout={[[2]]} />
-					{/each}
-				{/if}
-			</div>
-			<div class="mt-6">
+			<div class="shrink-0 pt-4">
 				<SyncResourceTypes
 					onSynced={async () => {
 						connectsManual = undefined
