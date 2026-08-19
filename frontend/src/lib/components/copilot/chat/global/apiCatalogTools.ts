@@ -45,9 +45,12 @@ const COVERED_ENDPOINTS: Record<string, string> = {
 	createScript: 'write_script',
 	createFlow: 'write_flow',
 	updateFlow: 'patch_flow_json or write_flow',
-	// The catalog exposes the raw-source app endpoints, not `createApp`/`updateApp`.
-	createAppRawSource: 'init_app and the app draft tools',
-	updateAppRawSource: 'write_app_file / write_app_runnable',
+	// Keyed by the name the catalog exposes (`EndpointTool.name`), which is the
+	// `x-mcp-tool-name` override where openapi.yaml sets one — not the operationId.
+	// These two are the only overrides: operations `createAppRawSource` /
+	// `updateAppRawSource`, served as `createApp` / `updateApp`.
+	createApp: 'init_app and the app draft tools',
+	updateApp: 'write_app_file / write_app_runnable',
 	createVariable: 'write_variable',
 	updateVariable: 'write_variable',
 	createResource: 'write_resource',
