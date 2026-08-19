@@ -12,11 +12,15 @@ use serde_json::Value;
 use sha2::Sha256;
 use sqlx::types::Uuid;
 use std::collections::HashMap;
+use windmill_common::db::UserDB;
 use windmill_common::error::{to_anyhow, Error};
 use windmill_common::variables::{get_secret_value_as_admin, get_workspace_key};
 
 use crate::db::{ApiAuthed, DB};
-use crate::jobs::{QueryApprover, ResumeUrls};
+use crate::jobs::{
+    require_job_read_access_by_id, resume_target_flow_path, QueryApprover, ResumeUrls,
+};
+use crate::utils::check_scopes;
 use crate::{
     approvals::{
         extract_w_id_from_resume_url, handle_resume_action, ApprovalFormDetails, FieldType,
@@ -350,8 +354,9 @@ pub async fn slack_app_callback_handler(
 }
 
 pub async fn request_slack_approval(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path((w_id, job_id)): Path<(String, Uuid)>,
     Query(approver): Query<QueryApprover>,
     Query(message): Query<QueryMessage>,
@@ -366,7 +371,26 @@ pub async fn request_slack_approval(
     let channel_id = channel_id.channel_id;
     let flow_step_id = flow_step_id.flow_step_id;
 
-    let slack_token = get_slack_token(&db, slack_resource_path.as_str(), &w_id).await?;
+    // The caller must be able to read the job before this endpoint reads the
+    // slack resource variable (as admin, below) and posts the approval prompt:
+    // otherwise any workspace member could mint approvals for jobs they cannot
+    // see and exfiltrate arbitrary workspace variables to a chosen channel.
+    require_job_read_access_by_id(&db, &user_db, &authed, &w_id, &job_id, None).await?;
+
+    // The posted message embeds resume/cancel URLs (full resume capability), so a
+    // scoped token must hold run scope on the suspended job's flow — same rule as
+    // `get_resume_urls`. No-op for unscoped tokens (incl. the in-flow substep token).
+    let flow_path = resume_target_flow_path(&db, &w_id, job_id).await?;
+    check_scopes(&authed, || format!("jobs:run:flows:{}", flow_path))?;
+
+    // Generic error: the raw error echoes the probed variable path back, which
+    // would be a variable-path existence oracle. Log the detail server-side.
+    let slack_token = get_slack_token(&db, slack_resource_path.as_str(), &w_id)
+        .await
+        .map_err(|e| {
+            tracing::warn!("Failed to resolve slack token for {w_id}/{slack_resource_path}: {e:#}");
+            Error::BadRequest("Invalid Slack approval request".to_string())
+        })?;
     let client = Client::new();
 
     tracing::debug!("Approver: {:?}", approver.approver);
@@ -392,7 +416,13 @@ pub async fn request_slack_approval(
         button_text.cancel_button_text.as_deref(),
     )
     .await
-    .map_err(|e| Error::BadRequest(e.to_string()))?;
+    .map_err(|e| {
+        // Same generic error as the token-resolution failure above: a distinct
+        // send error (e.g. Slack rejecting a non-token variable) would otherwise
+        // still disclose whether the probed variable path exists.
+        tracing::warn!("Failed to send slack approval message for {w_id}/{job_id}: {e:#}");
+        Error::BadRequest("Invalid Slack approval request".to_string())
+    })?;
 
     Ok(StatusCode::OK)
 }

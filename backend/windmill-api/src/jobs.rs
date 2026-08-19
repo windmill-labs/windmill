@@ -448,7 +448,7 @@ async fn get_result_by_id(
     // Reading a node's result requires being able to read the flow itself (the node
     // belongs to it). Gate on the flow's visibility (created_by / RLS / root
     // inheritance) before resolving via the root DB.
-    require_job_update_read_access(
+    require_job_read_access_by_id(
         &db,
         &user_db,
         &authed,
@@ -481,7 +481,7 @@ async fn get_job_view_token(
     // link cannot be used to mint further links. `require_job_read_access` also
     // enforces the caller's `if_jobs:filter_tags` scope, so a tag-scoped token can't
     // mint a transferable link for a job outside its allowed tags.
-    require_job_update_read_access(&db, &user_db, &authed, &w_id, &id, None).await?;
+    require_job_read_access_by_id(&db, &user_db, &authed, &w_id, &id, None).await?;
     let hmac = generate_view_token(&w_id, id, &db).await?;
     Ok(format!("{id}.{hmac}"))
 }
@@ -1252,9 +1252,9 @@ fn job_read_access_cache_key(authed: &ApiAuthed, w_id: &str, job_id: &Uuid) -> [
     hasher.finalize().into()
 }
 
-/// [`require_job_read_access`] for callers (job-update poll / SSE) that haven't
-/// already loaded `created_by` — fetches it (root DB, by id+workspace) first.
-async fn require_job_update_read_access(
+/// [`require_job_read_access`] for callers that haven't already loaded
+/// `created_by` — fetches it (root DB, by id+workspace) first.
+pub(crate) async fn require_job_read_access_by_id(
     db: &DB,
     user_db: &UserDB,
     authed: &ApiAuthed,
@@ -4332,7 +4332,11 @@ pub async fn get_resume_urls_internal(
 /// unknown job); an empty path only matters for path-restricted tokens, which
 /// would not be running such a flow. Never hard-fails, so it can't break resume
 /// for unscoped tokens (the in-flow `get_resume_urls()` path).
-async fn resume_target_flow_path(db: &DB, w_id: &str, job_id: Uuid) -> error::Result<String> {
+pub(crate) async fn resume_target_flow_path(
+    db: &DB,
+    w_id: &str,
+    job_id: Uuid,
+) -> error::Result<String> {
     let job = sqlx::query!(
         r#"SELECT kind::text as "kind!", parent_job, runnable_path
            FROM v2_job WHERE id = $1 AND workspace_id = $2"#,
@@ -8093,7 +8097,7 @@ async fn get_job_update(
     }): Query<JobUpdateQuery>,
 ) -> JsonResult<JobUpdate> {
     if let Some(authed) = opt_authed.as_ref() {
-        require_job_update_read_access(
+        require_job_read_access_by_id(
             &db,
             &user_db,
             authed,
@@ -8151,7 +8155,7 @@ async fn get_job_update_sse(
     // Authorize once at connection time; `created_by` cannot change for a given job,
     // mirroring the per-stream `anonymous_verified` latch in the streaming loop.
     if let Some(authed) = opt_authed.as_ref() {
-        require_job_update_read_access(
+        require_job_read_access_by_id(
             &db,
             &user_db,
             authed,
