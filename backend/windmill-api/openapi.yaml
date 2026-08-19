@@ -11616,6 +11616,11 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/Scorer"
+                cases:
+                  type: array
+                  description: The cases to create the dataset holding, so one can be assembled in a single act rather than created empty and filled in afterwards.
+                  items:
+                    $ref: "#/components/schemas/NewEvalCase"
       responses:
         "200":
           description: eval dataset created

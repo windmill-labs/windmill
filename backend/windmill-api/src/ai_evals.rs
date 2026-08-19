@@ -266,6 +266,12 @@ pub struct CreateDataset {
     pub default_subject: Option<EvalSubject>,
     #[serde(default)]
     pub scorers: Vec<Scorer>,
+    /// The cases to create it holding. A case is a row of the dataset, so unlike a scorer it
+    /// cannot be written before there is a dataset for it to be a row of; sending them with the
+    /// dataset is what lets one be assembled in a single act rather than created empty and filled
+    /// in afterwards.
+    #[serde(default)]
+    pub cases: Vec<NewEvalCase>,
 }
 
 #[derive(Deserialize)]
@@ -545,6 +551,7 @@ pub async fn list_datasets(
 
 pub async fn create_dataset(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(payload): Json<CreateDataset>,
@@ -554,6 +561,19 @@ pub async fn create_dataset(
         return Err(Error::NotAuthorized(
             "Operators cannot create eval datasets".to_string(),
         ));
+    }
+    // Every case is checked before the dataset is written, so that the only step that can fail is
+    // the first one. `eval_case` grants users no write, so the cases cannot be inserted in the
+    // transaction that creates the dataset under the caller's own policies — validating first is
+    // what keeps "created holding these cases" from becoming "created, holding some of them".
+    if payload.cases.len() as i64 > MAX_CASES_PER_DATASET {
+        return Err(Error::BadRequest(format!(
+            "An eval dataset holds at most {} cases. Split them into several datasets.",
+            MAX_CASES_PER_DATASET
+        )));
+    }
+    for case in &payload.cases {
+        check_case_size(&case.input, case.expected.as_ref())?;
     }
     let default_subject = payload
         .default_subject
@@ -590,6 +610,35 @@ pub async fn create_dataset(
             payload.path
         )));
     }
+
+    // One transaction for all of them, on the unrestricted pool: the dataset the caller was just
+    // allowed to create is the permission these rows hang off, and either they all land or the
+    // dataset is left empty rather than holding an arbitrary prefix of what was asked for.
+    if !payload.cases.is_empty() {
+        let mut tx = db.begin().await?;
+        for case in payload.cases {
+            sqlx::query!(
+                "INSERT INTO eval_case
+                    (workspace_id, dataset_path, name, input, host_flow_path, tool_inputs, expected,
+                     tags, source, created_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                w_id,
+                payload.path,
+                case.name,
+                serde_json::to_value(&case.input)?,
+                case.host_flow_path,
+                opt_from_raw(case.tool_inputs.as_ref())?,
+                opt_from_raw(case.expected.as_ref())?,
+                &case.tags,
+                case.source.map(|s| serde_json::to_value(s)).transpose()?,
+                authed.username,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+    }
+
     Ok(format!("Created eval dataset {}", payload.path))
 }
 

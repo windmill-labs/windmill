@@ -14,6 +14,7 @@
 	import EvalCaseEditor from './EvalCaseEditor.svelte'
 	import EvalScorers from './EvalScorers.svelte'
 	import { caseLabel, emptyCase, fromStoredCase, type CaseDraft } from './evalCaseUtils'
+	import { randomUUID } from '$lib/utils/uuid'
 
 	let {
 		workspace,
@@ -59,6 +60,10 @@
 	let saving = $state(false)
 	/** The columns chosen while naming a dataset that does not exist yet, sent with the create. */
 	let pendingScorers = $state<Scorer[]>([])
+	/** The cases written for it before it exists. A case cannot be stored without a dataset to be
+	 *  a row of, so they are held here, given ids of their own to be edited by, and created with
+	 *  the dataset in one request. */
+	let pendingCases = $state<CaseDraft[]>([])
 
 	let selectedCaseId = $state<string | undefined>(undefined)
 	let caseDraft = $state<CaseDraft | undefined>(undefined)
@@ -66,7 +71,7 @@
 	// draft, so it is keyed on this and remounts rather than carrying one case's edits into the
 	// next.
 	let draftGeneration = $state(0)
-	let removingCase = $state<EvalCase | undefined>(undefined)
+	let removingCase = $state<CaseDraft | undefined>(undefined)
 
 	/** The next free `<agent>_datasetN`, which is what a dataset is called until it is named. */
 	function nextDatasetPath(): string {
@@ -87,9 +92,10 @@
 	) {
 		mode = next
 		pathError = ''
-		// Cleared per open: the columns collected for a dataset that was never created belong to
-		// that attempt, not to the next one.
+		// Cleared per open: what was collected for a dataset that was never created belongs to that
+		// attempt, not to the next one.
 		pendingScorers = []
+		pendingCases = []
 		if (next === 'edit') {
 			path = datasetPath ?? ''
 			summary = dataset?.summary ?? ''
@@ -113,10 +119,14 @@
 		if (opts?.addCase) addCase()
 	}
 
+	/** The cases on screen: the dataset's own once it exists, and the ones written for it before
+	 *  that when it does not. */
+	let shownCases = $derived<CaseDraft[]>(mode === 'edit' ? cases.map(fromStoredCase) : pendingCases)
+
 	function selectCase(id: string | undefined) {
-		const stored = id ? cases.find((c) => c.id === id) : undefined
-		selectedCaseId = stored?.id
-		caseDraft = stored ? (fromStoredCase(stored) as CaseDraft) : undefined
+		const found = id ? shownCases.find((c) => c.id === id) : undefined
+		selectedCaseId = found?.id
+		caseDraft = found ? (structuredClone($state.snapshot(found)) as CaseDraft) : undefined
 		draftGeneration += 1
 	}
 
@@ -147,9 +157,10 @@
 					path: created,
 					summary: summary || undefined,
 					default_subject: { kind: 'agent', path: agentPath },
-					// The columns collected while naming it: the dataset arrives with them rather than
-					// being created empty and then edited to hold what was already chosen.
-					scorers: pendingScorers
+					// What was written for it while it was being named: the dataset arrives holding it
+					// rather than being created empty and then edited to hold what was already chosen.
+					scorers: pendingScorers,
+					cases: pendingCases.map(({ id: _id, ...rest }) => rest)
 				}
 			})
 			// Stays open, on the dataset it just made: scorers and cases are what a dataset is, and
@@ -194,6 +205,14 @@
 	/** Adding a case writes the row: a case is a row of the dataset, so asking for one puts it
 	 *  there and the editor beside the list fills it in. */
 	async function addCase() {
+		if (mode === 'new') {
+			const draft = { ...emptyCase(), id: randomUUID() }
+			pendingCases = [...pendingCases, draft]
+			selectedCaseId = draft.id
+			caseDraft = { ...draft }
+			draftGeneration += 1
+			return
+		}
 		if (!workspace || !datasetPath) return
 		try {
 			const id = await AiEvalsService.addEvalCase({
@@ -211,7 +230,13 @@
 	}
 
 	async function saveCase() {
-		if (!workspace || !datasetPath || !caseDraft) return
+		if (!caseDraft) return
+		if (mode === 'new') {
+			const draft = caseDraft
+			pendingCases = pendingCases.map((c) => (c.id === draft.id ? { ...draft } : c))
+			return
+		}
+		if (!workspace || !datasetPath) return
 		try {
 			if (caseDraft.id) {
 				await AiEvalsService.updateEvalCase({
@@ -237,6 +262,11 @@
 	}
 
 	async function deleteCase(id: string) {
+		if (mode === 'new') {
+			pendingCases = pendingCases.filter((c) => c.id !== id)
+			if (selectedCaseId === id) selectCase(undefined)
+			return
+		}
 		if (!workspace || !datasetPath) return
 		try {
 			await AiEvalsService.deleteEvalCase({
@@ -267,7 +297,7 @@
 		on:confirmed={async () => {
 			const target = removingCase
 			removingCase = undefined
-			if (target) await deleteCase(target.id)
+			if (target?.id) await deleteCase(target.id)
 		}}
 	>
 		<span class="text-sm">
@@ -314,13 +344,6 @@
 						<span class="text-2xs text-tertiary">
 							Renaming moves the dataset: its cases and its runs follow it.
 						</span>
-					{:else}
-						<!-- A case is a row of the dataset, so unlike a scorer it has nothing to be a row
-						     of until this one is created. Said rather than shown as a control that would
-						     do nothing. -->
-						<span class="text-2xs text-tertiary">
-							Its cases open once it is created. Its scorers can be chosen here first.
-						</span>
 					{/if}
 				</div>
 			{/key}
@@ -336,94 +359,89 @@
 				bind:pending={pendingScorers}
 				onChanged={onScorersChanged}
 			/>
-			{#if mode === 'edit'}
-				<!-- The list picks, the editor to its right fills in: a case is a handful of fields, and
-				     a list that expanded one of them in place would move every case under the reader. -->
-				<div class="flex flex-col gap-2 grow min-h-0">
-					<div class="flex items-center gap-2">
-						<span class="text-xs font-semibold text-emphasis">Cases</span>
-						<span class="text-2xs text-tertiary">{cases.length}</span>
-						<div class="grow"></div>
-						<Button
-							size="xs2"
-							variant="default"
-							startIcon={{ icon: Plus }}
-							disabled={!datasetPath}
-							onclick={addCase}
-						>
-							Add a case
-						</Button>
-					</div>
-					<div class="flex gap-3 grow min-h-0">
-						<div class="w-60 shrink-0 overflow-auto border rounded-md">
-							{#if cases.length === 0}
-								<div class="p-3 text-2xs text-tertiary">
-									A case is a question this agent is asked, and what a good answer to it looks like.
-								</div>
-							{:else}
-								<div class="divide-y">
-									{#each cases as stored (stored.id)}
-										<div
-											class={`flex items-center gap-1 pr-1 ${stored.id === selectedCaseId ? 'bg-blue-50 dark:bg-blue-900/50' : 'hover:bg-surface-hover'}`}
+			<!-- The list picks, the editor to its right fills in: a case is a handful of fields, and
+			     a list that expanded one of them in place would move every case under the reader.
+			     Written while naming a new dataset too: a case cannot be stored without one, so these
+			     are held in the drawer and created with it. -->
+			<div class="flex flex-col gap-2 grow min-h-0">
+				<div class="flex items-center gap-2">
+					<span class="text-xs font-semibold text-emphasis">Cases</span>
+					<span class="text-2xs text-tertiary">{shownCases.length}</span>
+					<div class="grow"></div>
+					<Button
+						size="xs2"
+						variant="default"
+						startIcon={{ icon: Plus }}
+						disabled={mode === 'edit' && !datasetPath}
+						onclick={addCase}
+					>
+						Add a case
+					</Button>
+				</div>
+				<div class="flex gap-3 grow min-h-0">
+					<div class="w-60 shrink-0 overflow-auto border rounded-md">
+						{#if shownCases.length === 0}
+							<div class="p-3 text-2xs text-tertiary">
+								A case is a question this agent is asked, and what a good answer to it looks like.
+							</div>
+						{:else}
+							<div class="divide-y">
+								{#each shownCases as stored (stored.id)}
+									<div
+										class={`flex items-center gap-1 pr-1 ${stored.id === selectedCaseId ? 'bg-blue-50 dark:bg-blue-900/50' : 'hover:bg-surface-hover'}`}
+									>
+										<button
+											type="button"
+											class="grow min-w-0 text-left truncate px-2 py-1.5 text-xs text-emphasis"
+											onclick={() => selectCase(stored.id)}
 										>
-											<button
-												type="button"
-												class="grow min-w-0 text-left truncate px-2 py-1.5 text-xs text-emphasis"
-												onclick={() => selectCase(stored.id)}
-											>
-												{caseLabel(stored)}
-											</button>
-											<Button
-												size="xs2"
-												variant="subtle"
-												startIcon={{ icon: Trash2 }}
-												iconOnly
-												title="Delete this case"
-												on:click={() => (removingCase = stored)}
-											/>
-										</div>
-									{/each}
-								</div>
-							{/if}
-						</div>
-						<div class="grow min-w-0 overflow-auto">
-							{#if caseDraft}
-								{#if !caseDraft.id}
-									<!-- A captured case is in the dataset only once it is put there. Above the fields
+											{caseLabel(stored)}
+										</button>
+										<Button
+											size="xs2"
+											variant="subtle"
+											startIcon={{ icon: Trash2 }}
+											iconOnly
+											title="Delete this case"
+											on:click={() => (removingCase = stored)}
+										/>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+					<div class="grow min-w-0 overflow-auto">
+						{#if caseDraft}
+							{#if !caseDraft.id}
+								<!-- A captured case is in the dataset only once it is put there. Above the fields
 									     rather than under them: an expected answer runs to any length, and the way to
 									     keep the case must not sit at the bottom of it. -->
-									<div class="flex items-center gap-2 pb-3">
-										<span class="text-2xs text-tertiary grow">
-											Captured from a run, and not in the dataset yet.
-										</span>
-										<Button
-											size="xs"
-											variant="accent"
-											startIcon={{ icon: Plus }}
-											onclick={saveCase}
-										>
-											Add to dataset
-										</Button>
-									</div>
-								{/if}
-								{#key draftGeneration}
-									<EvalCaseEditor
-										bind:draft={caseDraft}
-										canSave={!!datasetPath}
-										onSave={saveCase}
-									/>
-								{/key}
-							{:else}
-								<span class="text-xs text-tertiary">
-									{cases.length === 0
-										? 'Add a case to fill it in here.'
-										: 'Pick a case to edit it.'}
-								</span>
+								<div class="flex items-center gap-2 pb-3">
+									<span class="text-2xs text-tertiary grow">
+										Captured from a run, and not in the dataset yet.
+									</span>
+									<Button size="xs" variant="accent" startIcon={{ icon: Plus }} onclick={saveCase}>
+										Add to dataset
+									</Button>
+								</div>
 							{/if}
-						</div>
+							{#key draftGeneration}
+								<EvalCaseEditor
+									bind:draft={caseDraft}
+									canSave={mode === 'new' || !!datasetPath}
+									onSave={saveCase}
+								/>
+							{/key}
+						{:else}
+							<span class="text-xs text-tertiary">
+								{shownCases.length === 0
+									? 'Add a case to fill it in here.'
+									: 'Pick a case to edit it.'}
+							</span>
+						{/if}
 					</div>
 				</div>
-			{/if}
+			</div>
 		</div>
 		{#snippet actions()}
 			{#if mode === 'edit'}
