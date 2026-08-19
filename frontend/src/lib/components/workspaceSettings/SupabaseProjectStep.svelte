@@ -43,7 +43,6 @@
 			if (!t) return
 			try {
 				orgs = await listSupabaseOrgs(t)
-				if (orgs?.length && !intent.org) intent.org = orgs[0]
 				projects = await listSupabaseProjects(t)
 				// Someone who already has a Supabase database almost always means to connect it
 				// rather than make a second one, so the step opens on the first of them. Decided
@@ -54,6 +53,15 @@
 				if (!intent.project && intent.mode !== 'create') {
 					if (projects?.length) intent.project = projects[0]
 					else if (!existingOnly) intent.mode = 'create'
+				}
+				// Seeded from the project, the way picking one does. Chosen independently, the
+				// review step names whichever organization happens to be first while the database
+				// under it belongs to another.
+				const seeded = intent.project
+				if (!intent.org) {
+					intent.org = seeded
+						? ((orgs ?? []).find((o) => orgSlug(o) === projectOrg(seeded)) ?? orgs?.[0])
+						: orgs?.[0]
 				}
 				// The plan decides who gets billed, and the list endpoint does not carry it.
 				for (const o of orgs ?? []) {
