@@ -171,6 +171,16 @@ describe('workspace-level deploy permission', () => {
 		expect(res.reason).toContain('prod')
 	})
 
+	// The reserved dev-workspace lock sets DisableWorkspaceForking alongside, so the advice would
+	// otherwise send the user at a second blocked action.
+	it('drops the fork advice when forking is blocked too', async () => {
+		const res = await permission(member, [
+			ruleset('lock', ['DisableDirectDeployment', 'DisableWorkspaceForking'])
+		])
+		expect(res.reason).not.toContain('fork')
+		expect(res.reason).toContain('locally')
+	})
+
 	// wm_deployers is an implicit pass on RestrictDeployToDeployers only. Letting it
 	// short-circuit the whole check — as an "is this user a deployer?" early return would —
 	// walks a deployer straight through a deploy-locked workspace.
@@ -257,6 +267,13 @@ describe('scoping a refusal to the kinds the server gates', () => {
 	it('leaves the deployers-only refusal applying to every kind', () => {
 		expect(deployPermissionForKind(deployersOnly, 'script').ok).toBe(false)
 		expect(deployPermissionForKind(deployersOnly, 'schedule').ok).toBe(false)
+	})
+
+	// `[].some()` is false, so an unguarded fold reports the empty selection as deployable and
+	// drops the only message saying why the action is unavailable.
+	it('keeps the refusal when nothing is selected', () => {
+		expect(deployPermissionForKinds(locked, []).ok).toBe(false)
+		expect(deployPermissionForKinds(deployersOnly, []).ok).toBe(false)
 	})
 
 	it('blocks a mixed selection but frees an all-ungated one', () => {

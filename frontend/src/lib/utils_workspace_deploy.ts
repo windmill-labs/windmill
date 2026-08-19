@@ -775,6 +775,9 @@ export function deployPermissionForKinds(
 	kinds: (Kind | UserDraftItemKind)[]
 ): DeployPermission {
 	if (perm.ok) return perm
+	// An empty selection keeps the workspace-level refusal, which is then the only thing left
+	// to say why the action is unavailable.
+	if (kinds.length === 0) return perm
 	return kinds.some((k) => !deployPermissionForKind(perm, k).ok) ? perm : { ok: true }
 }
 
@@ -817,9 +820,19 @@ export async function checkDeployPermission(
 		if (!userInfo.is_admin && !userInfo.is_super_admin) {
 			const rulesets = await fetchProtectionRulesForWorkspace(workspace)
 			if (!canUserBypassRuleKindInRulesets(rulesets, 'DisableDirectDeployment', userInfo)) {
+				// The reserved dev-workspace lock carries DisableWorkspaceForking alongside this rule,
+				// so suggesting a fork unconditionally would point at a second blocked action.
+				const canFork = canUserBypassRuleKindInRulesets(
+					rulesets,
+					'DisableWorkspaceForking',
+					userInfo
+				)
+				const advice = canFork
+					? 'fork the workspace or open a pull request'
+					: 'make your changes locally and open a pull request'
 				return {
 					ok: false,
-					reason: `Direct deployment to ${workspace} is disabled — fork the workspace or open a pull request`,
+					reason: `Direct deployment to ${workspace} is disabled — ${advice}`,
 					refusedBy: 'DisableDirectDeployment'
 				}
 			}

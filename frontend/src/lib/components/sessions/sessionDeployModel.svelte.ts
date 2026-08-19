@@ -352,10 +352,10 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		staleOf(key: string): boolean {
 			return staleKeys.has(key)
 		},
-		/** Whether the user may deploy into the session workspace. */
 		/**
-		 * Per-kind, because a direct-deployment lock never reaches schedules or triggers
-		 * server-side — a row of that kind stays deployable while a script row does not.
+		 * Whether the user may deploy into the session workspace. Per-kind, because a
+		 * direct-deployment lock never reaches schedules or triggers server-side — a row of
+		 * that kind stays deployable while a script row does not.
 		 */
 		deployPermissionForKind(kind: Kind): DeployPermission {
 			return deployPermissionForKind(deployPerm, kind)
