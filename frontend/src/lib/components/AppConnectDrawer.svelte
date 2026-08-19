@@ -57,7 +57,7 @@
 		step = 1
 		dispatch('close')
 	}}
-	size="800px"
+	size="700px"
 	{disableChatOffset}
 >
 	<DrawerContent

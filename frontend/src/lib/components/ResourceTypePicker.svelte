@@ -77,7 +77,7 @@
 					{@const isPicked = value === undefined}
 					<Button
 						size="sm"
-						variant="default"
+						variant="subtle"
 						selected={isPicked}
 						disabled={notPickable}
 						on:click={() => {
@@ -92,7 +92,8 @@
 					{@const isPicked = value === r.name}
 					<Button
 						size="sm"
-						variant="default"
+						variant="subtle"
+						btnClasses="justify-start"
 						selected={isPicked}
 						disabled={notPickable}
 						on:click={() => {

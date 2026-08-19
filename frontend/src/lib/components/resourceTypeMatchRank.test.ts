@@ -10,7 +10,9 @@ const TYPES = [
 	{ name: 'gcal', description: 'Google OAuth token authorizing the Google Calendar API.' },
 	{ name: 'googleai', description: 'API key for Google AI (Gemini), optionally on Vertex AI.' },
 	{ name: 'gmail', description: 'Google OAuth token authorizing the Gmail API.' },
-	{ name: 'mailchimp', description: 'Mailchimp API key.' }
+	{ name: 'mailchimp', description: 'Mailchimp API key.' },
+	{ name: 'ms_sql_server', description: 'Connection settings for a SQL Server database.' },
+	{ name: 'azure', description: 'Microsoft Azure tenant credentials.' }
 ]
 
 const sorted = (query: string) =>
@@ -34,6 +36,12 @@ describe('sortResourceTypesByMatch', () => {
 	it('ranks a name the query starts above one where it appears mid-word', () => {
 		const order = sorted('mail')
 		expect(order.indexOf('mailchimp')).toBeLessThan(order.indexOf('gmail'))
+	})
+
+	it('ranks a match on the display name above a description match', () => {
+		// `ms_sql_server` displays as "Microsoft SQL Server"; azure only mentions Microsoft.
+		const order = sorted('microsoft')
+		expect(order.indexOf('ms_sql_server')).toBeLessThan(order.indexOf('azure'))
 	})
 
 	it('keeps the incoming order for an empty query', () => {

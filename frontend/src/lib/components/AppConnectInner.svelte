@@ -4,7 +4,13 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
-	import { resourceTypeSearchText, sortResourceTypesByMatch } from './resourceTypeDisplay'
+	import {
+		isCustomResourceTypeName,
+		resourceTypeDisplayName,
+		resourceTypeMatchRank,
+		resourceTypeSearchText,
+		sortResourceTypesByMatch
+	} from './resourceTypeDisplay'
 	import {
 		OauthService,
 		ResourceService,
@@ -15,7 +21,7 @@
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
 	import oauthConnectRegistry from '$oauth_connect_registry'
-	import { createEventDispatcher, onDestroy } from 'svelte'
+	import { createEventDispatcher, onDestroy, tick, untrack } from 'svelte'
 	import Path from './Path.svelte'
 	import { Button, RadioCard, Skeleton } from './common'
 	import ApiConnectForm from './ApiConnectForm.svelte'
@@ -36,6 +42,7 @@
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		step?: number
@@ -71,6 +78,9 @@
 		'oracledb'
 	]
 
+	const SEARCH_INPUT_ID = 'search-resource-type'
+	let searchInput: { focus: () => void } | undefined = $state(undefined)
+
 	let filter = $state('')
 	let value: string = $state('')
 	let valueToken: TokenResponse | undefined = undefined
@@ -100,6 +110,19 @@
 	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
 		$state(undefined)
 	let resourceTypeDescriptions: Record<string, string> = $state({})
+	// The hub sync writes into the `admins` workspace, where every workspace reads them from;
+	// a type sitting in this workspace was defined here. `created_by` looks like the same
+	// signal but isn't: seeded hub types carry a username too.
+	let customResourceTypes: Set<string> = $state(new Set())
+
+	// Hub descriptions are markdown; a row shows one line of it, where fenced blocks and
+	// backticks read as noise.
+	const plainDescription = (d: string) =>
+		d
+			.replace(/```[\s\S]*?```/g, '')
+			.replace(/`/g, '')
+			.replace(/\s+/g, ' ')
+			.trim()
 	let args: any = $state({})
 	let renderDescription = $state(true)
 
@@ -276,6 +299,14 @@
 	 * credentials form with the user's own credentials — even when the instance
 	 * has shared ones (the "Instance-configured OAuth APIs" section is the entry
 	 * point for those). Every other type opens the raw manual form. */
+	function connectOauth(key: string) {
+		manual = false
+		connectClient = key
+		resourceType = stripSandboxSuffix(key)
+		resetClientCredentialsState()
+		next()
+	}
+
 	function selectFromOthers(key: string) {
 		connectClient = key
 		resourceType = key
@@ -300,6 +331,8 @@
 			loadResourceTypes()
 		}
 		step = 1 //express && !manual ? 3 : 1
+		// The list is keyboard-driven from the search field, so it takes focus on open.
+		tick().then(() => searchInput?.focus())
 		value = ''
 		description = ''
 		labels = undefined
@@ -358,9 +391,13 @@
 		}
 	}
 
+	// Google's terms require its own button on the control that starts the sign-in, which is
+	// the step-2 Connect: step 1 only picks a type, and a manual step 2 saves a resource
+	// without ever reaching Google.
 	run(() => {
 		isGoogleSignin =
-			step == 1 &&
+			step == 2 &&
+			!manual &&
 			(resourceType == 'google' ||
 				resourceType == 'gmail' ||
 				resourceType == 'gcal' ||
@@ -408,6 +445,14 @@
 			.then((types) => {
 				resourceTypeDescriptions = Object.fromEntries(
 					types.filter((t) => t.description).map((t) => [t.name, t.description!])
+				)
+				customResourceTypes = new Set(
+					types
+						.filter(
+							(t) =>
+								isCustomResourceTypeName(t.name) || (t.workspace_id && t.workspace_id !== 'admins')
+						)
+						.map((t) => t.name)
 				)
 			})
 			.catch(() => {})
@@ -902,6 +947,94 @@
 		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
 	)
 
+	// Browsing, the "Others" list leads with the native database types. Searching, that
+	// grouping would outrank the search itself — `ms_sql_server` sorting under `mysql` on
+	// "sql" — so the ranked order stands on its own.
+	let manualOrderedKeys = $derived(
+		filter === ''
+			? [
+					...(rankedConnectsManual ?? [])
+						.filter((x) => nativeLanguagesCategory.includes(x.key))
+						.map((x) => x.key),
+					...(rankedConnectsManual ?? [])
+						.filter((x) => !nativeLanguagesCategory.includes(x.key))
+						.map((x) => x.key)
+				]
+			: (rankedConnectsManual ?? []).map((x) => x.key)
+	)
+
+	let customKeys = $derived(manualOrderedKeys.filter((key) => customResourceTypes.has(key)))
+	let otherKeys = $derived(manualOrderedKeys.filter((key) => !customResourceTypes.has(key)))
+
+	// Every row in the order it is rendered, so arrow keys walk the sections as one list.
+	// A provider appears in more than one, so rows are addressed by index, not by name.
+	let navItems = $derived([
+		...customKeys.map((key) => ({ key, oauth: false })),
+		...(rankedConnects ?? []).map((x) => ({ key: x.key, oauth: true })),
+		...otherKeys.map((key) => ({ key, oauth: false }))
+	])
+	let highlightedIndex = $state(-1)
+	const rowDomId = (index: number) => `resource-type-row-${index}`
+
+	// Set at hover time rather than up front, so only the descriptions the row actually cut
+	// off carry a tooltip.
+	function titleIfTruncated(e: MouseEvent & { currentTarget: HTMLElement }) {
+		const el = e.currentTarget
+		el.title = el.scrollWidth > el.clientWidth ? (el.textContent?.trim() ?? '') : ''
+	}
+	const oauthRowOffset = $derived(customKeys.length)
+	const otherRowOffset = $derived(customKeys.length + (rankedConnects?.length ?? 0))
+
+	// Sections are rendered in a fixed order, so the best match is not necessarily the first
+	// row: rank the rows against the query to find it.
+	function bestMatchIndex(): number {
+		let best = navItems.length > 0 ? 0 : -1
+		let bestRank = Infinity
+		navItems.forEach((item, index) => {
+			const rank = resourceTypeMatchRank(item.key, resourceTypeDescriptions[item.key], filter)
+			if (rank < bestRank) {
+				bestRank = rank
+				best = index
+			}
+		})
+		return best
+	}
+
+	// Filtering reshuffles the rows under the highlight: point it at the best match so Enter
+	// takes the top hit, and drop it entirely once the filter is cleared.
+	$effect(() => {
+		navItems
+		filter
+		untrack(() => (highlightedIndex = filter === '' ? -1 : bestMatchIndex()))
+	})
+
+	function moveHighlight(delta: number) {
+		const count = navItems.length
+		if (count === 0) return
+		highlightedIndex =
+			highlightedIndex < 0
+				? delta > 0
+					? 0
+					: count - 1
+				: (highlightedIndex + delta + count) % count
+		document.getElementById(rowDomId(highlightedIndex))?.scrollIntoView({ block: 'nearest' })
+	}
+
+	function onListKeydown(e: KeyboardEvent) {
+		if (step !== 1) return
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+			e.preventDefault()
+			moveHighlight(e.key === 'ArrowDown' ? 1 : -1)
+		} else if (e.key === 'Enter' && (e.target as HTMLElement)?.id === SEARCH_INPUT_ID) {
+			// Rows are buttons, so Enter on a focused row already activates it; this only
+			// covers Enter typed in the search field.
+			const item = navItems[highlightedIndex]
+			if (!item) return
+			e.preventDefault()
+			item.oauth ? connectOauth(item.key) : selectFromOthers(item.key)
+		}
+	}
+
 	let editScopes = $state(false)
 </script>
 
@@ -923,105 +1056,135 @@
 		f={(x) => resourceTypeSearchText(x.key, resourceTypeDescriptions[x.key])}
 	/>
 	{#if step == 1}
-		<div class="pb-2 my-1">
-			<div class="relative w-full">
-				<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
-				<TextInput
-					inputProps={{ placeholder: 'Search resource type', id: 'search-resource-type' }}
-					bind:value={filter}
-					class="pl-7 text-xs w-full"
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<!-- Arrow keys and Enter are caught here so they work whether the search field or a row
+		     holds focus. -->
+		<div onkeydown={onListKeydown}>
+			<!-- The list runs to a few hundred rows, so the search stays reachable while scrolling.
+			     `before` paints the scroll container's own top padding, which rows would otherwise
+			     scroll through above the bar; a negative top margin would drag the whole list up
+			     under it instead. -->
+			<div
+				class="sticky top-0 z-10 -mx-4 px-4 pb-4 bg-surface before:content-[''] before:absolute
+				before:inset-x-0 before:bottom-full before:h-4 before:bg-surface"
+			>
+				<div class="relative w-full">
+					<Search class="absolute left-2 top-1/2 -translate-y-1/2 text-tertiary" size={14} />
+					<TextInput
+						bind:this={searchInput}
+						inputProps={{ placeholder: 'Search resource type', id: SEARCH_INPUT_ID }}
+						bind:value={filter}
+						class="pl-7 text-xs w-full"
+					/>
+				</div>
+			</div>
+
+			{#snippet resourceRow(key: string)}
+				<div class="flex flex-row items-center gap-4 w-full min-w-0 text-left">
+					<div class="shrink-0">
+						<IconedResourceType name={key} silent width="20px" height="20px" />
+					</div>
+					<div class="flex flex-col gap-1 min-w-0">
+						<div class="flex flex-row items-baseline gap-2 min-w-0">
+							<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
+							<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
+						</div>
+						{#if resourceTypeDescriptions[key]}
+							<span
+								class="truncate text-xs font-normal leading-4 text-secondary"
+								onmouseenter={titleIfTruncated}
+							>
+								{plainDescription(resourceTypeDescriptions[key])}
+							</span>
+						{/if}
+					</div>
+				</div>
+			{/snippet}
+
+			{#snippet resourceButton(key: string, index: number, oauth: boolean)}
+				<Button
+					id={rowDomId(index)}
+					aiId={`app-connect-inner-${key}`}
+					aiDescription={`Connect to ${key}`}
+					unifiedSize="md"
+					variant="subtle"
+					btnClasses={twMerge(
+						'justify-start px-3 h-auto py-3 scroll-mt-14 scroll-mb-2',
+						// The pointer moves the same highlight the arrow keys move, so the variant's
+						// own hover is off: two lit rows at once would be ambiguous.
+						'hover:bg-transparent',
+						// `!` so the highlight also wins on the row the pointer is over, whose own
+						// hover was turned off just above.
+						index === highlightedIndex ? '!bg-surface-hover' : ''
+					)}
+					on:mouseenter={() => (highlightedIndex = index)}
+					on:click={() => (oauth ? connectOauth(key) : selectFromOthers(key))}
+				>
+					{@render resourceRow(key)}
+				</Button>
+			{/snippet}
+
+			{#if customKeys.length > 0}
+				<h2 class="mb-3 text-2xs font-normal uppercase text-secondary">Custom resource types</h2>
+				<div class="flex flex-col gap-1 mb-10">
+					{#each customKeys as key, i}
+						{@render resourceButton(key, i, false)}
+					{/each}
+				</div>
+			{/if}
+
+			<h2 class="mb-4 text-2xs font-normal uppercase text-secondary">
+				Instance-configured OAuth APIs
+			</h2>
+			<div class="flex flex-col gap-1">
+				{#if rankedConnects}
+					{#each rankedConnects as { key }, i}
+						{@render resourceButton(key, oauthRowOffset + i, true)}
+					{/each}
+				{:else}
+					{#each new Array(3) as _}
+						<Skeleton layout={[[2]]} />
+					{/each}
+				{/if}
+			</div>
+			{#if connects && connects.filter(isSharedConnect).length == 0}
+				<div class="text-secondary text-xs w-full"
+					>No OAuth APIs have been set up on this instance. To add OAuth APIs, first sync the
+					resource types with the hub, then add OAuth configuration. See <a
+						href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
+					>
+				</div>
+			{/if}
+
+			<h2 class="mt-10 mb-3 text-2xs font-normal uppercase text-secondary">Others</h2>
+
+			{#if connectsManual && connectsManual?.length < 10}
+				<div class="text-secondary text-xs p-2">
+					Resource types have not been synced with the hub
+				</div>
+			{/if}
+
+			<div class="flex flex-col gap-1 mb-2">
+				{#if rankedConnectsManual}
+					{#each otherKeys as key, i}
+						{@render resourceButton(key, otherRowOffset + i, false)}
+					{/each}
+				{:else}
+					{#each new Array(9) as _}
+						<Skeleton layout={[[2]]} />
+					{/each}
+				{/if}
+			</div>
+			<div class="mt-6">
+				<SyncResourceTypes
+					onSynced={async () => {
+						connectsManual = undefined
+						await loadResourceTypes()
+						connects = undefined
+						await loadConnects()
+					}}
 				/>
 			</div>
-		</div>
-
-		<h2 class="mb-4 text-sm font-semibold text-emphasis">Instance-configured OAuth APIs</h2>
-		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center">
-			{#if rankedConnects}
-				{#each rankedConnects as { key }}
-					<Button
-						unifiedSize="md"
-						variant="default"
-						selected={key === connectClient}
-						on:click={() => {
-							manual = false
-							connectClient = key
-							resourceType = stripSandboxSuffix(key)
-							resetClientCredentialsState()
-							next()
-						}}
-					>
-						<IconedResourceType name={key} after={true} width="20px" height="20px" />
-					</Button>
-				{/each}
-			{:else}
-				{#each new Array(3) as _}
-					<Skeleton layout={[[2]]} />
-				{/each}
-			{/if}
-		</div>
-		{#if connects && connects.filter(isSharedConnect).length == 0}
-			<div class="text-secondary text-xs w-full"
-				>No OAuth APIs have been set up on this instance. To add OAuth APIs, first sync the resource
-				types with the hub, then add OAuth configuration. See <a
-					href="https://www.windmill.dev/docs/misc/setup_oauth">documentation</a
-				>
-			</div>
-		{/if}
-
-		<h2 class="mt-8 mb-2 text-sm font-semibold text-emphasis">Others</h2>
-
-		{#if connectsManual && connectsManual?.length < 10}
-			<div class="text-secondary text-xs p-2">
-				Resource types have not been synced with the hub
-			</div>
-		{/if}
-
-		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-			{#if rankedConnectsManual}
-				{#each rankedConnectsManual as { key }}
-					{#if nativeLanguagesCategory.includes(key)}
-						<Button
-							unifiedSize="md"
-							variant="default"
-							selected={key === resourceType}
-							on:click={() => selectFromOthers(key)}
-						>
-							<IconedResourceType name={key} after={true} width="20px" height="20px" />
-						</Button>
-					{/if}
-				{/each}
-			{/if}
-			{#if rankedConnectsManual}
-				{#each rankedConnectsManual as { key }}
-					{#if !nativeLanguagesCategory.includes(key)}
-						<!-- Exclude specific items -->
-						<Button
-							aiId={`app-connect-inner-${key}`}
-							aiDescription={`Connect to ${key}`}
-							unifiedSize="md"
-							variant="default"
-							selected={key === resourceType}
-							on:click={() => selectFromOthers(key)}
-						>
-							<IconedResourceType name={key} after={true} width="20px" height="20px" />
-						</Button>
-					{/if}
-				{/each}
-			{:else}
-				{#each new Array(9) as _}
-					<Skeleton layout={[[2]]} />
-				{/each}
-			{/if}
-		</div>
-		<div class="mt-6">
-			<SyncResourceTypes
-				onSynced={async () => {
-					connectsManual = undefined
-					await loadResourceTypes()
-					connects = undefined
-					await loadConnects()
-				}}
-			/>
 		</div>
 	{:else if step == 2 && manual}
 		<div class="flex flex-col gap-8">
