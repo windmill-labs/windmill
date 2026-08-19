@@ -67,8 +67,9 @@ pub struct ApiAuthed {
     /// `label-*` string. Only `username_override_from_label` sets it.
     pub username_override_is_token_label: bool,
     /// Whether the request authenticated with the session token minted at browser login.
-    /// Only `trigger_or_fallback` reads it — see `is_session_label` for why it attributes
-    /// rather than proves, and must not gate authority.
+    /// Read by `trigger_or_fallback` and by `TriggerSource::of_request` (which attributes a
+    /// trigger mutation to the UI) — see `is_session_label` for why it attributes rather than
+    /// proves, and must not gate authority.
     pub is_session_token: bool,
     pub token_prefix: Option<String>,
     pub read_only: bool,

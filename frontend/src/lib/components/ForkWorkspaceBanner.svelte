@@ -8,7 +8,7 @@
 	import { goto } from '$app/navigation'
 	import { onMount, untrack } from 'svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { devLabelWord } from '$lib/utils/devWorkspaceLabel'
+	import { childWorkspaceNoun, devLabelWord } from '$lib/utils/devWorkspaceLabel'
 	import { diffActionableInDirection } from '$lib/utils_workspace_deploy'
 
 	let loading = $state(false)
@@ -26,6 +26,7 @@
 	// prefix) also avoids a parentless "Fork of ()" banner when the linkage is dropped.
 	let isFork = $derived(parentWorkspaceId != null)
 	let isDevWorkspace = $derived(currentWorkspaceData?.is_dev_workspace ?? false)
+	let currentNoun = $derived(childWorkspaceNoun(currentWorkspaceData))
 	// Operators run scripts and flows, they never deploy a fork, so the banner and
 	// its CTA are noise for them. Gates the fetches too, not just the markup: the
 	// fork/parent comparison is an expensive tally no operator can act on.
@@ -233,7 +234,7 @@
 	function forkAheadBehindMessage(changesAhead: number, changesBehind: number) {
 		let msg: string[] = []
 		if (changesAhead > 0 || changesBehind > 0) {
-			msg.push('This fork is ')
+			msg.push(`This ${currentNoun} is `)
 			if (changesAhead > 0)
 				msg.push(`${changesAhead} change${changesAhead > 1 ? 's' : ''} ahead of `)
 			if (changesAhead > 0 && changesBehind > 0) msg.push('and ')
@@ -400,7 +401,7 @@
 								{/if}
 							{:else if comparison.skipped_comparison}
 								<span class="text-blue-600 dark:text-blue-200">
-									This fork was created before the addition of certain windmill features, and
+									This {currentNoun} was created before the addition of certain windmill features, and
 									therefore the changes with its parent workspace cannot be displayed.</span
 								>
 							{:else if showDraftsOnly}
@@ -425,7 +426,7 @@
 						{:else if !hasAnswer || changesAhead > 0}
 							Review & Deploy Changes
 						{:else}
-							Review & Update fork
+							Review & Update {currentNoun}
 						{/if}
 					</Button>
 				</div>

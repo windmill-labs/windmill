@@ -43,9 +43,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
+	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import { pageHref, RUNS_PATH } from '$lib/components/sessions/previewPaths'
 	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
+	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
 	import { pluralize, MAX_RESOLUTION_BATCH, MAX_RESOLUTION_NOTE_LEN } from '$lib/utils'
 	import BatchReRunOptionsPane, {
 		type BatchReRunOptions
@@ -845,6 +848,17 @@
 				placeholder="Filter runs..."
 				autofocus
 			/>
+			<!-- The filters are shallow-routed, so the search has to come off
+			     `window.location` at click time — `page.url` never sees them. Always the
+			     canonical `/runs`: only that is a recognized preview page, and the
+			     `/runs/<path>` route mirrors its path into `?path=` anyway. -->
+			<OpenInSessionButton
+				source={{
+					page: () => pageHref(RUNS_PATH) + window.location.search,
+					workspaceId: $workspaceStore ?? undefined
+				}}
+				btnProps={{ unifiedSize: 'md' }}
+			/>
 		</div>
 
 		<!-- Graph -->
@@ -921,35 +935,16 @@
 					<div class="h-full flex">
 						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
 							{#if batchProgress}
-								<div class="flex items-center gap-3 px-1 pb-2 text-xs text-secondary">
-									<span>Loading jobs: {batchProgress.loaded} of {batchProgress.total}...</span>
-									<div class="flex-1 bg-surface-hover rounded-full h-1.5">
-										<div
-											class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
-											style="width: {Math.round(
-												(batchProgress.loaded / batchProgress.total) * 100
-											)}%"
-										></div>
-									</div>
-									{#if currentBatchSize != null}
-										<span class="whitespace-nowrap shrink-0">Batch size:</span>
-										<input
-											type="number"
-											min="1"
-											max="1000"
-											value={currentBatchSize}
-											class="!w-14 shrink-0 text-xs px-1 py-0.5 border rounded text-center"
-											onchange={(e) => {
-												const v = parseInt(e.currentTarget.value)
-												if (v >= 1 && v <= 1000) {
-													jobsLoader.restreamWithBatchSize(v)
-												}
-											}}
-										/>
-									{/if}
-									<Button size="xs" destructive onClick={() => jobsLoader.stopBatchLoading()}>
-										Stop
-									</Button>
+								<div class="px-1 pb-2">
+									<BatchLoadProgress
+										loaded={batchProgress.loaded}
+										total={batchProgress.total}
+										itemsLabel="jobs"
+										batchSize={currentBatchSize}
+										batchSizeCap={1000}
+										onBatchSizeChange={(v) => jobsLoader.restreamWithBatchSize(v)}
+										onStop={() => jobsLoader.stopBatchLoading()}
+									/>
 								</div>
 							{/if}
 							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->

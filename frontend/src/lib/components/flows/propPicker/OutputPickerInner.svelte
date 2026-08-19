@@ -31,6 +31,7 @@
 	import { base } from '$lib/base'
 	import { fade } from 'svelte/transition'
 	import type { FlowEditorContext, OutputViewerJob } from '../types'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	interface Props {
 		prefix?: string
@@ -170,6 +171,12 @@
 	}
 
 	function togglePin() {
+		// The adoption read counts pins still enabled on a deployed flow; this counts
+		// the act, including the pins undone before deploying. Keyed per direction,
+		// so unpinning shows how often a pin was temporary.
+		logFeatureUsage('flow_step', 'pinned', {
+			key: mock?.enabled && !preview ? 'off' : 'on'
+		})
 		if (mock?.enabled && !preview) {
 			// Unpin
 			onUpdateMock?.({

@@ -1,3 +1,4 @@
+<!-- #274F82 / #FFFFFF per github.com/less/logo (MIT). -->
 <script lang="ts">
 	interface Props {
 		height?: string
@@ -12,7 +13,8 @@
 </script>
 
 <svg
-	fill="#000000"
+	class="text-[#274F82] dark:text-[#FFFFFF]"
+	fill="currentColor"
 	width={derivedWidth}
 	height={derivedHeight}
 	viewBox="0 0 24 24"

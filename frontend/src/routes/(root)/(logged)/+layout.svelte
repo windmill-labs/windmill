@@ -83,7 +83,7 @@
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { parsePreviewItemRoute } from '$lib/components/sessions/previewRouter'
+	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'

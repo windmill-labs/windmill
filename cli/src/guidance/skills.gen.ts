@@ -647,6 +647,14 @@ async getResult(jobId: string): Promise<any>
 async getResultMaybe(jobId: string): Promise<any>
 
 /**
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
+
+/**
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
@@ -1409,6 +1417,14 @@ async getResult(jobId: string): Promise<any>
  * @returns Object with started, completed, success, and result properties
  */
 async getResultMaybe(jobId: string): Promise<any>
+
+/**
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
 
 /**
  * Run a script asynchronously by its path
@@ -2267,6 +2283,14 @@ async getResult(jobId: string): Promise<any>
  * @returns Object with started, completed, success, and result properties
  */
 async getResultMaybe(jobId: string): Promise<any>
+
+/**
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
 
 /**
  * Run a script asynchronously by its path
@@ -8263,18 +8287,62 @@ properties:
   filters:
     type: array
     items:
-      type: object
-      properties:
-        key:
-          type: string
-        value: {}
+      oneOf:
+      - type: object
+        properties:
+          key:
+            type: string
+          value: {}
+        required:
+        - key
+        - value
+      - type: object
+        properties:
+          path:
+            type: string
+            description: Dotted path into nested objects, e.g. \`a.b.c\`. Does not traverse
+              arrays.
+          value: {}
+        required:
+        - path
+        - value
+      - type: object
+        properties:
+          any_of:
+            type: array
+            items:
+              type: object
+        required:
+        - any_of
+      - type: object
+        properties:
+          all_of:
+            type: array
+            items:
+              type: object
+        required:
+        - all_of
+      - type: object
+        properties:
+          none_of:
+            type: array
+            items:
+              type: object
+        required:
+        - none_of
+    description: 'Filters to match incoming messages (only matching messages trigger
+      the script). Each entry is either a leaf \`{key, value}\` (top-level field) or
+      \`{path, value}\` (dotted path into nested objects), or a group \`{any_of: [...]}\`
+      / \`{all_of: [...]}\` / \`{none_of: [...]}\` nesting more entries. Entries at the
+      top level are combined with \`filter_logic\`.'
   filter_logic:
     type: string
     enum:
     - and
     - or
-    description: Logic to apply when evaluating filters. 'and' requires all filters
-      to match, 'or' requires any filter to match.
+    description: Logic to apply when evaluating the top-level filters. 'and' requires
+      all of them to match, 'or' requires any of them to match. Nested \`any_of\`/\`all_of\`/\`none_of\`
+      groups carry their own logic.
   auto_offset_reset:
     type: string
     enum:
@@ -8375,6 +8443,18 @@ properties:
     type: array
     items:
       type: object
+      properties:
+        qos:
+          type: string
+          enum:
+          - qos0
+          - qos1
+          - qos2
+        topic:
+          type: string
+      required:
+      - qos
+      - topic
     description: Array of MQTT topics to subscribe to, each with topic name and QoS
       level
   v3_config:
@@ -8919,24 +8999,91 @@ properties:
   filters:
     type: array
     items:
-      type: object
-      properties:
-        key:
-          type: string
-        value: {}
-    description: Array of key-value filters to match incoming messages (only matching
-      messages trigger the script)
+      oneOf:
+      - type: object
+        properties:
+          key:
+            type: string
+          value: {}
+        required:
+        - key
+        - value
+      - type: object
+        properties:
+          path:
+            type: string
+            description: Dotted path into nested objects, e.g. \`a.b.c\`. Does not traverse
+              arrays.
+          value: {}
+        required:
+        - path
+        - value
+      - type: object
+        properties:
+          any_of:
+            type: array
+            items:
+              type: object
+        required:
+        - any_of
+      - type: object
+        properties:
+          all_of:
+            type: array
+            items:
+              type: object
+        required:
+        - all_of
+      - type: object
+        properties:
+          none_of:
+            type: array
+            items:
+              type: object
+        required:
+        - none_of
+    description: 'Filters to match incoming messages (only matching messages trigger
+      the script). Each entry is either a leaf \`{key, value}\` (top-level field) or
+      \`{path, value}\` (dotted path into nested objects), or a group \`{any_of: [...]}\`
+      / \`{all_of: [...]}\` / \`{none_of: [...]}\` nesting more entries. Entries at the
+      top level are combined with \`filter_logic\`.'
   filter_logic:
     type: string
     enum:
     - and
     - or
-    description: Logic to apply when evaluating filters. 'and' requires all filters
-      to match, 'or' requires any filter to match.
+    description: Logic to apply when evaluating the top-level filters. 'and' requires
+      all of them to match, 'or' requires any of them to match. Nested \`any_of\`/\`all_of\`/\`none_of\`
+      groups carry their own logic.
   initial_messages:
     type: array
     items:
-      type: object
+      oneOf:
+      - type: object
+        properties:
+          raw_message:
+            type: string
+        required:
+        - raw_message
+      - type: object
+        properties:
+          runnable_result:
+            type: object
+            properties:
+              path:
+                type: string
+              args:
+                type: object
+                description: The arguments to pass to the script or flow
+                additionalProperties: true
+              is_flow:
+                type: boolean
+            required:
+            - path
+            - args
+            - is_flow
+        required:
+        - runnable_result
     description: Messages to send immediately after connecting (can be raw strings
       or computed by runnables)
   url_runnable_args:

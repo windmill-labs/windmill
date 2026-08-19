@@ -51,7 +51,7 @@ use windmill_common::secret_backend::{
 };
 use windmill_common::{
     ee_oss::{get_license_plan, LicensePlan},
-    email_oss::send_email_plain_text,
+    email_oss::{send_email_plain_text, SMTP_ENABLED},
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
@@ -236,10 +236,19 @@ pub async fn test_email(
     Json(test_email): Json<TestEmail>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed).await?;
+    if !SMTP_ENABLED {
+        return Err(error::Error::Generic(
+            axum::http::StatusCode::NOT_IMPLEMENTED,
+            "This Windmill build was compiled without SMTP support, so no email can be sent."
+                .to_string(),
+        ));
+    }
     let smtp = test_email.smtp;
     let to = test_email.to;
 
-    let client_timeout = Duration::from_secs(3);
+    // A connection attempt covers TCP, the TLS handshake, EHLO and authentication against a remote
+    // provider; a tighter budget times out before the server ever states why it refused.
+    let client_timeout = Duration::from_secs(20);
     send_email_plain_text(
         "Test email from Windmill",
         "Test email content",
@@ -247,7 +256,15 @@ pub async fn test_email(
         smtp,
         Some(client_timeout),
     )
-    .await?;
+    .await
+    // The SMTP layer already phrases its failures for an instance admin; the anyhow wrapper it
+    // comes back in would bury that behind "Internal: ... @<source location>".
+    .map_err(|e| match e {
+        error::Error::Anyhow { error, .. } => {
+            error::Error::Generic(axum::http::StatusCode::BAD_REQUEST, format!("{error:#}"))
+        }
+        e => e,
+    })?;
 
     Ok("Sent test email".to_string())
 }

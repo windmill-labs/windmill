@@ -12,8 +12,19 @@ import {
   getGlobalDraft,
   listGlobalDrafts,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
+import { appendPlanModeInstructions } from "../../../../../frontend/src/lib/components/copilot/chat/planMode";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
+import { createEvalPlanTools } from "./planModeTools";
 import { UserDraft } from "../../../../../frontend/src/lib/userDraft.svelte";
+import {
+  createEvalArtifactHelpers,
+  type SeededArtifact,
+} from "./evalArtifactStore";
+import {
+  createEvalPreviewPanel,
+  type EvalPreviewPanel,
+  type EvalPreviewTabFixture,
+} from "./evalPreviewTabs";
 import type { ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
@@ -42,67 +53,6 @@ const LIVE_EDITOR_ITEM_KINDS = {
   flow: "flow",
   app: "raw_app",
 } as const;
-
-// SessionArtifactsStore can't run here (bun has no IndexedDB, nor the compiled $state runes),
-// so mirror only its tool-facing shape; its own logic (scoping, race guard) is unit-tested.
-const EVAL_SESSION_ID = "eval-session";
-function createEvalArtifactHelpers() {
-  const items = new Map<string, Record<string, unknown>>();
-  let seq = 0;
-  const store = {
-    create: async (sessionId: string, input: Record<string, any>) => {
-      const now = seq++;
-      const artifact = {
-        id: `eval-artifact-${now}`,
-        sessionId,
-        chatId: input.chatId,
-        kind: input.kind ?? "md",
-        name: input.name,
-        content: input.content,
-        createdAt: now,
-        updatedAt: now,
-      };
-      items.set(artifact.id, artifact);
-      return artifact;
-    },
-    get: async (id: string) => items.get(id),
-    update: async (
-      id: string,
-      input: Record<string, any>,
-      opts?: { sessionId?: string },
-    ) => {
-      const existing = items.get(id);
-      if (!existing) return undefined;
-      if (
-        opts?.sessionId !== undefined &&
-        existing.sessionId !== opts.sessionId
-      )
-        return undefined;
-      const updated = {
-        ...existing,
-        name: input.name ?? existing.name,
-        content: input.content ?? existing.content,
-        updatedAt: seq++,
-      };
-      items.set(id, updated);
-      return updated;
-    },
-    remove: async (id: string) => {
-      items.delete(id);
-    },
-    listForSession: async (sessionId: string) =>
-      [...items.values()].filter((a) => a.sessionId === sessionId),
-  };
-  return {
-    helpers: {
-      artifacts: store,
-      sessionId: EVAL_SESSION_ID,
-      getChatId: () => "eval-chat",
-      openArtifact: () => {},
-    },
-    snapshot: () => [...items.values()],
-  };
-}
 
 export interface GlobalLiveEditorDraftFixture {
   type: keyof typeof LIVE_EDITOR_ITEM_KINDS;
@@ -143,11 +93,18 @@ export interface GlobalEvalOptions {
   user?: GlobalUserFixture;
   // Emulate a session chat (preview tools + session prompt); default false = standalone baseline.
   sessionChat?: boolean;
+  // Start in plan mode: the gate refuses every tool without `planModeSafe`, and the two plan
+  // tools are offered. Needs sessionChat, which is what plan mode is gated on in production.
+  planMode?: boolean;
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
   backend: WindmillBackendSettings;
   workspaceRoot?: string;
+  // Artifacts the session already holds when the run starts.
+  artifacts?: SeededArtifact[];
+  /** Tabs already open in the side panel, including any artifact version the reader pinned. */
+  previewTabs?: EvalPreviewTabFixture[];
   runContext?: ModeRunContext;
 }
 
@@ -166,27 +123,67 @@ export async function runGlobalEval(
     options.workspaceFixtures ?? {},
   );
   seedLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
+  // Declared out here only so `finally` can reach it; a malformed fixture throws while
+  // building it, and everything seeded above still has to be torn down.
+  let panel: EvalPreviewPanel | undefined;
 
   try {
+    const evalArtifacts = createEvalArtifactHelpers(options.artifacts);
+    // Only a session chat has a side panel, so only it gets one here. Seeded tabs would
+    // otherwise vanish without a word, and the case would measure an empty panel.
+    if (!options.sessionChat && options.previewTabs?.length) {
+      throw new Error(
+        "This fixture seeds previewTabs, which only a session chat has — set runtime.sessionChat: true on the case.",
+      );
+    }
+    if (options.sessionChat) {
+      panel = createEvalPreviewPanel({
+        sessionId: evalArtifacts.sessionId,
+        tabs: options.previewTabs ?? [],
+        artifactIds: evalArtifacts.seededIds,
+      });
+    }
     const model = options.model ?? "claude-haiku-4-5-20251001";
     const injectActiveEditorContext =
       process.env[DISABLE_ACTIVE_EDITOR_CONTEXT_ENV] !== "1";
+    const planMode = options.planMode
+      ? createEvalPlanTools({
+          create: evalArtifacts.helpers.artifacts.create,
+          sessionId: evalArtifacts.helpers.sessionId,
+          chatId: evalArtifacts.helpers.getChatId(),
+        })
+      : undefined;
     // Pass the seeded identity straight to the prompt builder rather than mutating
     // the process-global `userStore`, so concurrent cases never race on it.
-    const evalArtifacts = createEvalArtifactHelpers();
+    const baseSystemMessage = prepareGlobalSystemMessage(undefined, {
+      user: options.user,
+      previewTools: options.sessionChat ?? false,
+    });
     const rawResult = await runEval({
       userPrompt,
-      systemMessage: prepareGlobalSystemMessage(undefined, {
-        user: options.user,
-        previewTools: options.sessionChat ?? false,
+      systemMessage: baseSystemMessage,
+      // Re-derived per request, as production's getter is: the instructions have to leave
+      // the prompt when the plan is approved, or the model is still told it may not build
+      // while the gate has already opened.
+      getSystemMessage: planMode
+        ? () =>
+            planMode.isPlanModeActive()
+              ? appendPlanModeInstructions(baseSystemMessage, 0)
+              : baseSystemMessage
+        : undefined,
+      isPlanModeActive: planMode?.isPlanModeActive,
+      isToolAvailable: planMode?.isToolAvailable,
+      userMessage: prepareGlobalUserMessage(userPrompt, [], {
+        ...(injectActiveEditorContext ? { workspace: workspaceRoot } : {}),
+        activePreview: panel?.activePreview(),
       }),
-      userMessage: prepareGlobalUserMessage(
-        userPrompt,
-        [],
-        injectActiveEditorContext ? { workspace: workspaceRoot } : {},
-      ),
-      tools: getGlobalEvalTools(options.sessionChat ?? false),
-      helpers: evalArtifacts.helpers,
+      tools: [
+        ...getGlobalEvalTools(options.sessionChat ?? false),
+        ...(planMode?.tools ?? []),
+      ],
+      helpers: panel
+        ? { ...evalArtifacts.helpers, openArtifact: panel.openArtifact }
+        : evalArtifacts.helpers,
       apiKey,
       getOutput: async () => ({
         ...(await collectGlobalDraftState(workspaceRoot)),
@@ -219,6 +216,7 @@ export async function runGlobalEval(
       finalContextTokens: rawResult.finalContextTokens,
     };
   } finally {
+    panel?.dispose();
     clearGlobalDrafts(workspaceRoot);
     clearLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
     unregisterBenchmarkWorkspaceRunnables(workspaceRoot);

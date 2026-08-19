@@ -12,6 +12,7 @@ use crate::ee_oss::LICENSE_KEY_ID;
 use crate::ee_oss::{send_critical_alert, CriticalAlertKind};
 use crate::error::{to_anyhow, Error, Result};
 use crate::global_settings::UNIQUE_ID_SETTING;
+use crate::worker::{EXIT_AFTER_N_JOBS, WORKER_SUFFIX};
 use crate::DB;
 use anyhow::Context;
 use gethostname::gethostname;
@@ -356,6 +357,9 @@ fn instance_name(hostname: &str) -> String {
 }
 
 const DEFAULT_WORKER_SUFFIX_LEN: usize = 5;
+const MAX_WORKER_SUFFIX_LABEL_LEN: usize = 64;
+/// `worker_ping.worker` is a `VARCHAR(255)`.
+const MAX_WORKER_NAME_LEN: usize = 255;
 pub const SSH_AGENT_WORKER_SUFFIX: &'static str = "/ssh";
 
 pub fn create_worker_suffix(hostname: &str, rd_string_len: usize) -> String {
@@ -367,12 +371,94 @@ pub fn create_default_worker_suffix(hostname: &str) -> String {
     create_worker_suffix(hostname, DEFAULT_WORKER_SUFFIX_LEN)
 }
 
+/// Same shape as [`create_default_worker_suffix`] but derived from the hostname and the
+/// worker index instead of randomness, so the process gets the same worker name every time
+/// it starts on that host. The index is folded into the digest rather than appended so that
+/// the name still has exactly one suffix segment, which is what
+/// [`retrieve_common_worker_prefix`] (the interactive shell tag) strips off.
+fn create_stable_worker_suffix(hostname: &str, index: usize) -> String {
+    let digest = calculate_hash(&format!("{hostname}#{index}"));
+    format!(
+        "{}-{}",
+        instance_name(hostname),
+        &digest[..DEFAULT_WORKER_SUFFIX_LEN]
+    )
+}
+
+/// Suffix of the name of the `index`-th (1-based) worker of this process.
+///
+/// A worker name is the primary key of its `worker_ping` row, so it decides whether a
+/// restarted process appears as a new worker or resumes the previous one. Random by default
+/// (two processes must never share a row); deterministic when the worker is expected to
+/// restart in place, which is the case for `EXIT_AFTER_N_JOBS`. `WORKER_SUFFIX` overrides
+/// both, for hosts running several worker processes of the same worker group: the hostname
+/// alone cannot tell those apart.
+pub fn resolve_worker_suffix(hostname: &str, index: usize) -> anyhow::Result<String> {
+    Ok(match &*WORKER_SUFFIX {
+        Some(label) => create_labelled_worker_suffix(hostname, label, index)?,
+        None if EXIT_AFTER_N_JOBS.is_some() => create_stable_worker_suffix(hostname, index),
+        None => create_default_worker_suffix(hostname),
+    })
+}
+
+/// The operator's label only has to tell the worker processes of one host apart, so it is
+/// appended to the stable suffix rather than replacing it: the digest is what keeps two hosts
+/// whose names end on the same segment (`worker-east-1`, `worker-west-1`) from sharing an
+/// identity, and it already folds in the worker index. A `-` in the label would add a segment
+/// to the worker name, which [`retrieve_common_worker_prefix`] reads as the part to strip;
+/// rejected rather than rewritten, since the point of the label is that two different ones
+/// give two different names.
+fn create_labelled_worker_suffix(
+    hostname: &str,
+    label: &str,
+    index: usize,
+) -> anyhow::Result<String> {
+    if !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+        return Err(anyhow::anyhow!(
+            "WORKER_SUFFIX must only contain ASCII letters, digits and underscores, got '{label}'"
+        ));
+    }
+    // The worker name is a `VARCHAR(255)` primary key and a component of the worker
+    // directory's path: a label long enough to blow either only surfaces at the initial ping,
+    // which the worker `expect`s.
+    if label.len() > MAX_WORKER_SUFFIX_LABEL_LEN {
+        return Err(anyhow::anyhow!(
+            "WORKER_SUFFIX must be at most {MAX_WORKER_SUFFIX_LABEL_LEN} characters, got {}",
+            label.len()
+        ));
+    }
+    Ok(format!(
+        "{}_{label}",
+        create_stable_worker_suffix(hostname, index)
+    ))
+}
+
 pub fn worker_name_with_suffix(is_agent: bool, worker_group: &str, suffix: &str) -> String {
     if is_agent {
         format!("{}-{}-{}", AGENT_WORKER_NAME_PREFIX, worker_group, suffix)
     } else {
         format!("{}-{}-{}", WORKER_NAME_PREFIX, worker_group, suffix)
     }
+}
+
+/// The name is the `VARCHAR(255)` primary key of `worker_ping` and a component of the worker
+/// directory's path, and every part of it comes from the environment (`WORKER_GROUP`,
+/// hostname, `WORKER_SUFFIX`). A name that does not fit has to stop the process here rather
+/// than at the directory it creates or the initial ping it `expect`s.
+pub fn checked_worker_name(
+    is_agent: bool,
+    worker_group: &str,
+    suffix: &str,
+) -> anyhow::Result<String> {
+    let name = worker_name_with_suffix(is_agent, worker_group, suffix);
+    if name.len() > MAX_WORKER_NAME_LEN {
+        return Err(anyhow::anyhow!(
+            "worker name '{name}' is {} characters, more than the {MAX_WORKER_NAME_LEN} a worker \
+            name may have: shorten WORKER_GROUP or WORKER_SUFFIX",
+            name.len()
+        ));
+    }
+    Ok(name)
 }
 
 pub fn retrieve_common_worker_prefix(worker_name: &str) -> String {
@@ -1476,6 +1562,84 @@ pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A worker that restarts must land on the exact same name to reclaim its `worker_ping`
+    /// row, while still never colliding with the other workers of its own process. The
+    /// suffix must also stay a single `-` segment, which is what the interactive shell tag
+    /// strips off.
+    #[test]
+    fn stable_worker_suffix_is_per_host_and_per_index() {
+        let first = create_stable_worker_suffix("wm-worker-7d8f9c-abcde", 1);
+        assert_eq!(
+            first,
+            create_stable_worker_suffix("wm-worker-7d8f9c-abcde", 1)
+        );
+        assert_ne!(
+            first,
+            create_stable_worker_suffix("wm-worker-7d8f9c-abcde", 2)
+        );
+        assert_ne!(
+            first,
+            create_stable_worker_suffix("wm-worker-7d8f9c-fghij", 1)
+        );
+        assert_eq!(
+            retrieve_common_worker_prefix(&worker_name_with_suffix(false, "default", &first)),
+            "wk-default-abcde"
+        );
+    }
+
+    /// The operator's label has to survive into the name for them to recognize the worker,
+    /// while staying one segment so it does not shift the interactive shell tag, and it must
+    /// still leave the workers of one process with distinct names. Two processes given
+    /// different labels must never end up with the same one, which is why a label that does
+    /// not fit a single segment is rejected instead of being rewritten into one that does.
+    #[test]
+    fn labelled_worker_suffix_stays_one_segment() {
+        let label =
+            |hostname, label, index| create_labelled_worker_suffix(hostname, label, index).unwrap();
+        let first = label("wm-worker-abcde", "slot_a", 1);
+        assert!(
+            first.starts_with("abcde-") && first.ends_with("_slot_a"),
+            "{first}"
+        );
+        assert_eq!(first, label("wm-worker-abcde", "slot_a", 1));
+        // Neither another worker of this process, nor another label, nor a host whose name
+        // happens to end on the same segment, may land on this identity.
+        for other in [
+            label("wm-worker-abcde", "slot_a", 2),
+            label("wm-worker-abcde", "slot_b", 1),
+            label("wm-worker-east-abcde", "slot_a", 1),
+        ] {
+            assert_ne!(first, other);
+            assert_eq!(
+                retrieve_common_worker_prefix(&worker_name_with_suffix(false, "default", &other)),
+                "wk-default-abcde"
+            );
+        }
+        for rejected in [
+            "slot-a",
+            "slot a",
+            "slot.a",
+            "slot/a",
+            &"s".repeat(MAX_WORKER_SUFFIX_LABEL_LEN + 1),
+        ] {
+            assert!(
+                create_labelled_worker_suffix("wm-worker-abcde", rejected, 1).is_err(),
+                "{rejected} should be rejected"
+            );
+        }
+    }
+
+    /// Every part of a worker name comes from the environment, so the name can only be kept
+    /// within what `worker_ping.worker` holds by checking the assembled thing.
+    #[test]
+    fn worker_name_longer_than_the_ping_key_is_refused() {
+        let suffix = "abcde-a1b2c_slot";
+        let room = MAX_WORKER_NAME_LEN - worker_name_with_suffix(false, "", suffix).len();
+        let fits = checked_worker_name(false, &"g".repeat(room), suffix).unwrap();
+        assert_eq!(fits.len(), MAX_WORKER_NAME_LEN);
+        assert!(checked_worker_name(false, &"g".repeat(room + 1), suffix).is_err());
+    }
 
     /// The guards are only safe because they are never stricter than the DB
     /// constraints they front. Narrowing `\w` to ASCII reads equivalent and

@@ -57,6 +57,7 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
+		getBenchmarkVariableByPath,
 		hasBenchmarkWorkspace,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
@@ -64,6 +65,7 @@ vi.mock('$lib/gen', async () => {
 		listBenchmarkFlows,
 		listBenchmarkJobs,
 		listBenchmarkScripts,
+		listBenchmarkVariables,
 		createBenchmarkFolder,
 		createBenchmarkHttpTrigger,
 		createBenchmarkSchedule,
@@ -358,12 +360,28 @@ vi.mock('$lib/gen', async () => {
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.VariableService.existsVariable(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? Boolean(getBenchmarkVariableByPath(data.workspace, data.path))
+					: actual.VariableService.existsVariable(data),
 			listVariable: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.VariableService.listVariable(data),
-			getVariable: async (data: { workspace: string; path: string }) => {
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkVariables(data.workspace) ?? [])
+					: actual.VariableService.listVariable(data),
+			getVariable: async (data: {
+				workspace: string
+				path: string
+				decryptSecret?: boolean
+			}) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`Variable "${data.path}" not found in benchmark workspace`)
+					const variable = getBenchmarkVariableByPath(
+						data.workspace,
+						data.path,
+						data.decryptSecret ?? true
+					)
+					if (!variable) {
+						throw new Error(`Variable "${data.path}" not found in benchmark workspace`)
+					}
+					return variable
 				}
 				return actual.VariableService.getVariable(data)
 			}

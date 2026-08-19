@@ -8,6 +8,8 @@
 	let { size = 16, color = undefined, class: clazz = '' }: Props = $props()
 </script>
 
+<!-- No brand colour: AMQP is an OASIS protocol, not a vendor, and amqp.org publishes no palette
+	(https://www.amqp.org/legal.html). Generic glyph, deliberately monochrome — keep it on currentColor. -->
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	width={`${size}px`}

@@ -49,6 +49,7 @@ use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{safe_token_prefix, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
+use windmill_common::per_minute_counter::PerMinuteCounter;
 use windmill_common::users::truncate_token;
 use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{
@@ -70,41 +71,24 @@ use windmill_git_sync::handle_deployment_metadata;
 
 pub const COOKIE_PATH: &str = "/";
 
-const TOKEN_CREATE_LIMIT_PER_MINUTE: i32 = 10;
+const TOKEN_CREATE_LIMIT_PER_MINUTE: u32 = 10;
 
-struct TokenRateLimitEntry {
-    count: i32,
-    minute_bucket: i64,
-}
-
-static TOKEN_CREATE_RATE_LIMIT: LazyLock<dashmap::DashMap<String, TokenRateLimitEntry>> =
-    LazyLock::new(dashmap::DashMap::new);
+static TOKEN_CREATE_RATE_LIMIT: LazyLock<PerMinuteCounter<String>> =
+    LazyLock::new(PerMinuteCounter::new);
 
 fn check_token_create_rate_limit(username: &str) -> Result<()> {
     if !*CLOUD_HOSTED {
         return Ok(());
     }
 
-    let current_minute = chrono::Utc::now().timestamp() / 60;
-
-    let mut entry = TOKEN_CREATE_RATE_LIMIT
-        .entry(username.to_string())
-        .or_insert(TokenRateLimitEntry { count: 0, minute_bucket: current_minute });
-
-    if entry.minute_bucket != current_minute {
-        entry.count = 0;
-        entry.minute_bucket = current_minute;
+    if TOKEN_CREATE_RATE_LIMIT.try_increment(username.to_string(), TOKEN_CREATE_LIMIT_PER_MINUTE) {
+        return Ok(());
     }
 
-    if entry.count >= TOKEN_CREATE_LIMIT_PER_MINUTE {
-        return Err(Error::Generic(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many token creation requests. Please try again later.".to_string(),
-        ));
-    }
-
-    entry.count += 1;
-    Ok(())
+    Err(Error::Generic(
+        StatusCode::TOO_MANY_REQUESTS,
+        "Too many token creation requests. Please try again later.".to_string(),
+    ))
 }
 
 pub fn workspaced_service() -> Router {
@@ -416,6 +400,7 @@ async fn list_users(
         SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account
           FROM usr
          WHERE workspace_id = $1
+         ORDER BY email
          ",
         w_id
     )
@@ -1389,7 +1374,7 @@ async fn convert_user_to_group(
         ));
     }
 
-    // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
+    // Determine the group with highest precedence (same logic as reconcile_workspace_instance_groups)
     let roles: std::collections::HashMap<String, String> =
         if let Some(roles_json) = &eligible_groups[0].instance_groups_roles {
             serde_json::from_value(roles_json.clone()).unwrap_or_default()

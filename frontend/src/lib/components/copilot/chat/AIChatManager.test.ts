@@ -6,6 +6,8 @@ import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { chatState } from './sharedChatState.svelte'
+import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
 
 // This suite forces esm-env BROWSER=true (below). That makes @sveltejs/kit's
@@ -73,8 +75,10 @@ vi.mock('$lib/stores', () => {
 		},
 		userStore: readable({ username: 'admin', email: 'admin@test', is_admin: true }),
 		// Read eagerly at module load by the open_page tool's allowedOpenPages /
-		// allowedTriggerKinds (global/core.ts) as the manager's tools are built.
+		// allowedTriggerKinds / allowsAllWorkspacesRuns (global/core.ts) as the manager's
+		// tools are built.
 		superadmin: readable(false),
+		devopsRole: readable(false),
 		userWorkspaces: readable([] as unknown[]),
 		enterpriseLicense: readable(undefined)
 	}
@@ -126,6 +130,9 @@ vi.mock('esm-env', async (importOriginal) => ({
 }))
 
 beforeEach(() => {
+	// These managers stand in for a mounted docked chat; without a layout to set
+	// it, sendRequest's "nowhere to render this turn" guard would refuse every send.
+	chatState.dockedChatAvailable = true
 	vi.clearAllMocks()
 	mocks.getCurrentModel.mockReturnValue(undefined)
 	mocks.tryGetCurrentModel.mockReturnValue(undefined)
@@ -168,6 +175,66 @@ function createFlowHelpers({
 		getLintErrors: vi.fn()
 	} as unknown as FlowAIChatHelpers
 }
+
+describe('AIChatManager unmounted-chat guard', () => {
+	// AI Sessions leave the docked pane unmounted, so an entry point that still
+	// drives this manager would otherwise stream and apply tool calls off-screen.
+	it('drops the turn when no chat UI is mounted, unless it is a session chat', async () => {
+		chatState.dockedChatAvailable = false
+		const docked = new AIChatManager()
+		docked.instructions = 'do a thing'
+		await docked.sendRequest()
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+
+		const session = new AIChatManager()
+		session.isSessionChat = true
+		session.instructions = 'do a thing'
+		await session.sendRequest()
+		expect(mocks.runChatLoop).toHaveBeenCalled()
+	})
+})
+
+describe('AIChatManager.sendOrQueue', () => {
+	// The programmatic senders (an editor's "AI Fix", an arriving hand-off) have no
+	// composer to enforce the composer's rule for them: a second loop on one manager
+	// shares its abort controller and transcript.
+	it('queues instead of starting a second turn while one is streaming', () => {
+		const manager = new AIChatManager()
+		manager.loading = true
+		manager.sendOrQueue('fix the failing run')
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.queuedMessage).toBe('fix the failing run')
+	})
+
+	it('sends straight away when idle', async () => {
+		const manager = new AIChatManager()
+		manager.sendOrQueue('fix the failing run')
+		await vi.waitFor(() => expect(mocks.runChatLoop).toHaveBeenCalled())
+		expect(manager.queuedMessage).toBe('')
+	})
+
+	// `loading` only rises after a send's attachment upkeep, so gating on it alone
+	// leaves a window where a second programmatic send slips through.
+	it('queues during a send that has not reached loading yet', async () => {
+		const manager = new AIChatManager()
+		let releaseUpkeep: (() => void) | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(
+			() => new Promise<void>((resolve) => (releaseUpkeep = resolve))
+		)
+		manager.instructions = 'first turn'
+		const sending = manager.sendRequest()
+		await vi.waitFor(() => expect(manager.sendInFlight).toBe(true))
+		expect(manager.loading).toBe(false)
+
+		manager.sendOrQueue('fix the failing run')
+		expect(manager.queuedMessage).toBe('fix the failing run')
+
+		// Drain before leaving: a send still in flight would run its epilogue
+		// (queue flush included) inside whichever test happens to be next.
+		releaseUpkeep?.()
+		await sending
+	})
+})
 
 describe('AIChatManager request errors', () => {
 	const openaiModel = { provider: 'openai', model: 'gpt-4o' }
@@ -403,6 +470,121 @@ describe('AIChatManager autonomy mode', () => {
 
 		expect(jobId).toBe('job-flow-preview')
 		expect(testFlow).toHaveBeenCalledWith({ name: 'Ada' })
+	})
+})
+
+// The posture's own behaviour lives in planModeController.test.ts. What is left here is the
+// wiring only the manager owns: which pending confirmation cards a change of autonomy mode
+// answers, and with what.
+describe('AIChatManager plan mode posture', () => {
+	beforeEach(() => {
+		localStorage.clear()
+		// Plan mode is never the persisted posture, so a case starts from the one it is
+		// entered from and hands back to.
+		localStorage.setItem(`ai-chat-autonomy-mode::${TEST_EMAIL}`, AIAutonomyMode.DEFAULT)
+		vi.clearAllMocks()
+	})
+
+	const sessionManager = (mode = AIAutonomyMode.DEFAULT) => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.setAutonomyMode(mode)
+		return manager
+	}
+
+	it('enters plan mode through the tool and remembers the posture to hand back to', async () => {
+		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
+
+		await manager.planMode.enterTool.fn({
+			args: { reason: 'research the change first' },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_enter'
+		})
+
+		expect(manager.planModeActive).toBe(true)
+		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+	})
+
+	it('refuses to move a session chat out of GLOBAL, so the gate cannot lift under it', () => {
+		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(manager.planModeActive).toBe(true)
+		// Without a configured model changeMode returns early on SCRIPT, and the case would pass
+		// against the very guard it is meant to pin.
+		mocks.getCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+		const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+		manager.changeMode(AIMode.SCRIPT)
+
+		expect(manager.mode).toBe(AIMode.GLOBAL)
+		expect(manager.planModeActive).toBe(true)
+		// A switch that silently does nothing gives its caller no way to learn why.
+		expect(logged).toHaveBeenCalled()
+		logged.mockRestore()
+	})
+
+	it('never auto-accepts an enter_plan_mode card, whichever side of the switch it lands on', async () => {
+		// Switching to YOLO answers every pending confirmation — except this one. "Run it
+		// without asking" must not be answered by forcing the user into a read-only posture.
+		const before = sessionManager()
+		const enterPending = before.requestConfirmation('call_enter', 'enter_plan_mode')
+		const writePending = before.requestConfirmation('call_write', 'write_script')
+		before.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(await enterPending).toBe(false)
+		expect(await writePending).toBe(true)
+	})
+
+	it('declines an enter_plan_mode that arrives after the switch to YOLO', async () => {
+		// The tool set is snapshotted per iteration, so a call can still arrive once the user
+		// has moved to YOLO. Driven through processToolCall rather than requestConfirmation
+		// directly: an auto-accepting posture skips the confirmation wait entirely, so asserting
+		// against the wait would pass on a build that never reaches it.
+		const { processToolCall } = await import('./shared')
+		const manager = sessionManager(AIAutonomyMode.YOLO)
+
+		const result = await processToolCall({
+			tools: [manager.planMode.enterTool] as any,
+			toolCall: {
+				id: 'call_enter',
+				type: 'function',
+				function: { name: 'enter_plan_mode', arguments: JSON.stringify({ reason: 'research' }) }
+			} as any,
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: manager.requestConfirmation,
+				shouldAutoAcceptToolConfirmations: manager.shouldAutoAcceptTool
+			} as any
+		})
+
+		expect(result.content).toBe(PLAN_MODE_MESSAGES.enterDeclined)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+		expect(manager.planModeActive).toBe(false)
+	})
+
+	it('answers a pending plan card the way the picker was moved', async () => {
+		const entering = sessionManager()
+		const enterPending = entering.requestConfirmation('call_enter', 'enter_plan_mode')
+		entering.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(await enterPending).toBe(true)
+
+		// Leaving plan mode any other way is not a sign-off on the plan on the card.
+		const leaving = sessionManager(AIAutonomyMode.PLAN)
+		const exitPending = leaving.requestConfirmation('call_exit', 'exit_plan_mode')
+		leaving.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		expect(await exitPending).toBe(false)
+
+		// Opting into YOLO does mean "run it".
+		const yolo = sessionManager(AIAutonomyMode.PLAN)
+		const yoloPending = yolo.requestConfirmation('call_exit', 'exit_plan_mode')
+		yolo.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(await yoloPending).toBe(true)
 	})
 })
 

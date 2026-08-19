@@ -464,6 +464,10 @@
 			lines.push('No output asset is expected.')
 		}
 		const instructions = lines.join('\n')
+		// Still the docked chat, which AI Sessions leaves unmounted — sendRequest
+		// refuses rather than running the turn off-screen. Handing this off to a
+		// session needs the just-staged draft flushed to its DB bundle first (the
+		// preview hydrates from there), and PipelineGraphEditor exposes no flush.
 		aiChatManager.openChat()
 		aiChatManager.sendRequest({ instructions })
 	}

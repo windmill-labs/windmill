@@ -33,6 +33,9 @@ export interface EvalCaseRuntimeSpec {
   appContext?: EvalCaseRuntimeAppContextSpec;
   // Global mode: run as a session chat (preview tools + session prompt) vs the standalone chat.
   sessionChat?: boolean;
+  // Global session chats: start the case in plan mode, so the workspace-changing tools are
+  // refused until the model hands over a plan with exit_plan_mode.
+  planMode?: boolean;
 }
 
 export interface FlowValidationSpec {
@@ -166,6 +169,29 @@ export interface ToolCallArgumentRule {
    * tool — e.g. SQL where a mutation is mixed with verification SELECTs.
    */
   stringIncludesAnyOf?: string[];
+  /**
+   * Universal over calls: every recorded call to `tool` must carry `field` as a
+   * non-blank string. Use for a required argument whose value is free text, where
+   * the point is that the model filled it in at all rather than what it said.
+   */
+  nonEmpty?: boolean;
+  /**
+   * Universal over calls: no recorded call to `tool` may pass `field` at all.
+   * For partial-update tools, where supplying a field the model could not have
+   * read is itself the failure — e.g. `write_variable.value` on a secret.
+   */
+  fieldMustBeAbsent?: boolean;
+}
+
+/**
+ * Several field constraints that must hold on the *same* call, where separate
+ * calls each satisfying one of them would not be the requested behavior — e.g.
+ * opening one Runs page filtered by both a label and a worker, rather than two
+ * pages each carrying one filter.
+ */
+export interface ToolCallSameCallRule {
+  tool: string;
+  args: { field: string; stringIncludesAnyOf: string[] }[];
 }
 
 export interface ToolValidationSpec {
@@ -179,6 +205,7 @@ export interface ToolValidationSpec {
   requiredToolsAnyOf?: string[][];
   forbiddenToolsUsed?: string[];
   toolCallArgs?: ToolCallArgumentRule[];
+  toolCallArgsSameCall?: ToolCallSameCallRule[];
 }
 
 export type EvalValidationSpec =

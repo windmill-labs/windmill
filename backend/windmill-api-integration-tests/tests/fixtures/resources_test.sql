@@ -69,6 +69,12 @@ VALUES ('test-workspace', 'u/test-user/fileset_resource',
         '{"config.yaml": "key: value", "data/input.json": "{\"items\": []}"}',
         'A fileset resource', 'test_fileset', '{}', 'test-user');
 
+-- === list_search value cap test data ===
+
+INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, created_by)
+VALUES ('test-workspace', 'u/test-user/oversized_resource', jsonb_build_object('big', repeat('x', 5000)),
+        'Larger than the list_search cap', 'object', '{}', 'test-user');
+
 -- === mcp_tools test data ===
 
 INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, created_by)

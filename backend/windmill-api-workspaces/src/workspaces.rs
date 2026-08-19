@@ -659,7 +659,8 @@ async fn list_pending_invites(
             workspace_invite.operator,
             workspace.parent_workspace_id
         FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id
-        WHERE workspace_id = $1",
+        WHERE workspace_id = $1
+        ORDER BY workspace_invite.email",
         w_id
     )
     .fetch_all(&mut *tx)
@@ -4676,6 +4677,28 @@ async fn set_environment_variable(
 
     match value {
         Some(value) => {
+            // The worker escapes the name when it splices it into the NativeTS/Bun
+            // prologue, so this is a friendly guard against new non-identifier
+            // names, not the injection defense. Skip it for names that already
+            // exist so a value edit of a grandfathered name (the edit UI resubmits
+            // the name) isn't rejected with no in-product way to fix it.
+            if !windmill_common::variables::is_valid_js_identifier(&name) {
+                let already_exists = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM workspace_env WHERE workspace_id = $1 AND name = $2)",
+                    &w_id,
+                    name
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false);
+
+                if !already_exists {
+                    return Err(Error::BadRequest(format!(
+                        "Invalid environment variable name '{name}': must start with a letter, underscore or '$' and contain only letters, digits, underscores or '$'"
+                    )));
+                }
+            }
+
             sqlx::query!(
                 "INSERT INTO workspace_env (workspace_id, name, value) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, name) DO UPDATE SET value = EXCLUDED.value",
                 &w_id,
@@ -5377,16 +5400,16 @@ async fn create_workspace(
     Ok(format!("Created workspace {}", &nw.id))
 }
 
-// `authed_email` is the forker's email — `clone_drafts` only carries this
-// user's per-user drafts (and the legacy NULL-email workspace draft, if any)
-// across, since other users aren't added to the fork's `usr` table and
-// their drafts would dangle as orphans.
+// `authed` is the forker — `clone_drafts` only carries this user's per-user
+// drafts (and the legacy NULL-email workspace draft, if any) across, since other
+// users aren't added to the fork's `usr` table and their drafts would dangle as
+// orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    authed_email: &str,
+    authed: &ApiAuthed,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
@@ -5440,7 +5463,7 @@ async fn clone_workspace_data(
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone apps with new IDs and app scripts
-    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id).await?;
+    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
@@ -5451,7 +5474,7 @@ async fn clone_workspace_data(
     // own a `usr` row in the fork (see `clone_workspace_full`) so their
     // drafts would dangle and the home-page `draft_users` aggregate would
     // surface them as duplicate legacy entries.
-    clone_drafts(tx, source_workspace_id, target_workspace_id, authed_email).await?;
+    clone_drafts(tx, source_workspace_id, target_workspace_id, &authed.email).await?;
 
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
@@ -6392,11 +6415,35 @@ async fn clone_flow_nodes(
     Ok(())
 }
 
+/// Re-point a cloned app policy at the fork's creator, the way `create_app` / `update_app`
+/// do for a caller who may not preserve someone else's identity: `on_behalf_of` is what
+/// anonymous and publisher executions queue jobs under, and the fork's endpoint outlives
+/// any revocation in the parent.
+fn repoint_cloned_app_identity(policy: &mut serde_json::Value, authed: &ApiAuthed) {
+    let Some(obj) = policy.as_object_mut() else {
+        return;
+    };
+    obj.insert(
+        "on_behalf_of".to_string(),
+        serde_json::Value::String(username_to_permissioned_as(&authed.username)),
+    );
+    obj.insert(
+        "on_behalf_of_email".to_string(),
+        serde_json::Value::String(authed.email.clone()),
+    );
+}
+
 async fn clone_apps(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed: &ApiAuthed,
 ) -> Result<HashMap<i64, i64>> {
+    // `execution_mode` is cloned as-is: protection rules are workspace-scoped and not cloned, so
+    // forcing `publisher` is only a speed bump (the creator can publish an anonymous app in the
+    // fork freely), and it is the one policy field a deploy back to the parent carries verbatim —
+    // `update_app` recomputes the identity but writes the policy wholesale.
+    let preserve_identity = windmill_common::can_preserve_on_behalf_of(authed);
     // Get all apps from source workspace
     let apps = sqlx::query!(
         "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, custom_path
@@ -6416,10 +6463,25 @@ async fn clone_apps(
     let mut latest_version_ids: HashSet<i64> = HashSet::new();
 
     // Clone apps with new IDs
-    for app in apps {
+    for mut app in apps {
         if let Some(&current_version) = app.versions.last() {
             latest_version_ids.insert(current_version);
         }
+        if !preserve_identity {
+            repoint_cloned_app_identity(&mut app.policy, authed);
+        }
+        // Both halves of what `create_app` demands to set a custom path: admin, and — unless
+        // paths are scoped per workspace — that nobody else holds it. Cloning one instance-wide
+        // would leave the parent's live public URL, resolved with no workspace filter and no
+        // ordering, answering from either row.
+        let scoped = *CLOUD_HOSTED
+            || windmill_common::apps::APP_WORKSPACED_ROUTE
+                .load(std::sync::atomic::Ordering::Relaxed);
+        let custom_path = if scoped && authed.is_admin {
+            app.custom_path
+        } else {
+            None
+        };
         let new_app_id = sqlx::query_scalar!(
             "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -6430,7 +6492,7 @@ async fn clone_apps(
             app.policy,
             &Vec::<i64>::new(), // Start with empty versions array
             app.extra_perms,
-            app.custom_path,
+            custom_path,
         )
         .fetch_one(&mut **tx)
         .await?;
@@ -7283,14 +7345,8 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    if let Err(e) = clone_workspace_data(
-        &mut tx,
-        &db,
-        &parent_workspace_id,
-        &forked_id,
-        &authed.email,
-    )
-    .await
+    if let Err(e) =
+        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed).await
     {
         // A genuine `\u0000` in a source `json` value (`app_version.value` /
         // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
@@ -10993,6 +11049,19 @@ async fn compare_two_flows(
     });
 }
 
+/// The policy minus the identity pair. Deploying cannot converge a difference there — the
+/// target recomputes the identity from the deployer's own choice, which offers its current
+/// value, the deployer, or a typed-in one, never the source's — so listing an app for it
+/// alone leaves an entry no deploy can clear. `script` and `flow` compare no identity either.
+fn policy_without_identity(policy: &serde_json::Value) -> serde_json::Value {
+    let mut policy = policy.clone();
+    if let Some(obj) = policy.as_object_mut() {
+        obj.remove("on_behalf_of");
+        obj.remove("on_behalf_of_email");
+    }
+    policy
+}
+
 async fn compare_two_apps(
     db: &DB,
     source_workspace_id: &str,
@@ -11033,7 +11102,7 @@ async fn compare_two_apps(
     // Check metadata and content differences
     if let (Some(source), Some(target)) = (&source_app, &target_app) {
         if source.summary != target.summary
-            || source.policy != target.policy
+            || policy_without_identity(&source.policy) != policy_without_identity(&target.policy)
             || source.value != target.value
             || source.raw_app != target.raw_app
         {
@@ -11426,40 +11495,6 @@ struct LogFeatureUsagePayload {
     events: Vec<FeatureUsageEvent>,
 }
 
-// Only registered (feature, kind) actions are accepted, so telemetry stays
-// limited to predefined feature actions. Keys are shape-checked (identifier-like,
-// no spaces) rather than pinned to value sets: they come from our own frontend
-// (modes, tab/draft kinds, tool names, provider:model) and pinning every value
-// server-side was not worth the maintenance.
-const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
-    ("ai_session", "created"),
-    ("ai_session", "message"),
-    ("ai_session", "autonomy"),
-    ("ai_session", "tab"),
-    ("ai_session", "tokens"),
-    ("ai_session", "deployed"),
-    ("ai_session", "archived"),
-    ("ai_session", "deleted"),
-    ("ai_session", "beta_optout"),
-    ("ai_session", "beta_optin"),
-    ("ai_chat", "message"),
-    ("ai_chat", "model"),
-    ("ai_chat", "tool"),
-];
-
-fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
-    !s.is_empty()
-        && s.len() <= max_len
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/'))
-}
-
-fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
-    FEATURE_USAGE_KINDS.contains(&(e.feature.as_str(), e.kind.as_str()))
-        && (e.key.is_empty() || is_identifier_shaped(&e.key, 100))
-        && (e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, 50))
-}
-
 async fn log_feature_usage(
     Extension(db): Extension<DB>,
     Json(payload): Json<LogFeatureUsagePayload>,
@@ -11468,7 +11503,15 @@ async fn log_feature_usage(
     // single INSERT error out ("cannot affect row a second time").
     let mut agg: HashMap<(String, String, String, String), i64> = HashMap::new();
     for e in payload.events.into_iter().take(MAX_FEATURE_USAGE_EVENTS) {
-        if !valid_feature_usage_event(&e) {
+        // Which actions may be recorded lives in
+        // `windmill_common::feature_usage`, shared with the in-process writer so
+        // both admit exactly the same events.
+        if !windmill_common::feature_usage::is_recordable_event(
+            &e.feature,
+            &e.kind,
+            &e.key,
+            &e.entity_id,
+        ) {
             continue;
         }
         let value = e.value.unwrap_or(1).clamp(1, 1_000_000);
@@ -11478,12 +11521,18 @@ async fn log_feature_usage(
     if agg.is_empty() {
         return Ok(StatusCode::NO_CONTENT);
     }
-    let mut features = Vec::with_capacity(agg.len());
-    let mut kinds = Vec::with_capacity(agg.len());
-    let mut keys = Vec::with_capacity(agg.len());
-    let mut entity_ids = Vec::with_capacity(agg.len());
-    let mut values = Vec::with_capacity(agg.len());
-    for ((feature, kind, key, entity_id), value) in agg {
+    // Sorted for the same reason as `flush_feature_usage`: this endpoint and the
+    // backend flusher upsert the same rows, and two batches touching them in
+    // opposite orders deadlock.
+    let mut rows: Vec<((String, String, String, String), i64)> = agg.into_iter().collect();
+    rows.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+    let mut features = Vec::with_capacity(rows.len());
+    let mut kinds = Vec::with_capacity(rows.len());
+    let mut keys = Vec::with_capacity(rows.len());
+    let mut entity_ids = Vec::with_capacity(rows.len());
+    let mut values = Vec::with_capacity(rows.len());
+    for ((feature, kind, key, entity_id), value) in rows {
         features.push(feature);
         kinds.push(kind);
         keys.push(key);
@@ -11588,6 +11637,16 @@ async fn get_cloud_quotas(
     .await?
     .unwrap_or(0);
 
+    // Every path keeps exactly one current version, so the prunable count is the total minus
+    // the number of distinct paths — one scan rather than a probe per row.
+    let resources_prunable = sqlx::query_scalar!(
+        "SELECT COUNT(*) - COUNT(DISTINCT path) FROM resource_version WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
     let variables_used = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
         &w_id
@@ -11628,7 +11687,7 @@ async fn get_cloud_quotas(
         flows: QuotaInfo { used: flows_used, limit: 1000, prunable: flows_prunable },
         apps: QuotaInfo { used: apps_used, limit: 1000, prunable: apps_prunable },
         variables: QuotaInfo { used: variables_used, limit: 10000, prunable: 0 },
-        resources: QuotaInfo { used: resources_used, limit: 10000, prunable: 0 },
+        resources: QuotaInfo { used: resources_used, limit: 10000, prunable: resources_prunable },
         forks,
     }))
 }
@@ -11715,9 +11774,25 @@ async fn prune_versions(
 
             deleted.rows_affected()
         }
+        "resources" => {
+            // No `versions` array to rewrite afterwards, unlike flows and apps: the latest
+            // version is whichever row has the highest id for the path.
+            let deleted = sqlx::query(
+                "DELETE FROM resource_version
+                WHERE workspace_id = $1
+                AND id NOT IN (
+                    SELECT max(id) FROM resource_version
+                    WHERE workspace_id = $1 GROUP BY path
+                )",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+            deleted.rows_affected()
+        }
         _ => {
             return Err(Error::BadRequest(format!(
-                "Invalid resource type '{}'. Must be 'scripts', 'flows', or 'apps'",
+                "Invalid resource type '{}'. Must be 'scripts', 'flows', 'apps', or 'resources'",
                 req.resource_type
             )));
         }
