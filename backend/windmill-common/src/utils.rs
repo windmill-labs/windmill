@@ -944,16 +944,15 @@ fn six_fields_hint(schedule_str: &str, version: Option<&str>, seconds_required: 
     if !seconds_required || fields.len() >= 6 {
         return String::new();
     }
-    // v1 numbers day-of-week from Sunday=1, so prepending a seconds field to a crontab line
-    // that names a weekday by number yields a schedule that runs a day early. Nothing but
-    // the format sentence can be given then.
-    let weekday_shifts = matches!(version, Some("v1") | None)
-        && fields
-            .get(4)
-            .is_some_and(|dow| dow.chars().any(|c| c.is_ascii_digit()));
+    // A restricted weekday is where v1 parts ways with crontab: it numbers weekdays from
+    // Sunday=1, and it intersects day-of-month with day-of-week where crontab unions them.
+    // Once the weekday is unrestricted the remaining fields carry their crontab meaning, so
+    // that is the only case on v1 where a concrete expression can be handed back.
+    let v1_weekday_restricted = matches!(version, Some("v1") | None)
+        && fields.get(4).is_some_and(|dow| *dow != "*" && *dow != "?");
     let with_seconds = format!("0 {}", fields.join(" "));
     let example = if fields.len() == 5
-        && !weekday_shifts
+        && !v1_weekday_restricted
         && parses_as_cron(&with_seconds, version, seconds_required)
     {
         format!(
@@ -1638,26 +1637,29 @@ mod tests {
         }
     }
 
-    /// v1 reads a numeric weekday one day off from crontab, so the expression it would hand
-    /// back there is not the schedule the user wrote and must not be offered; croner numbers
-    /// weekdays like crontab, so the same input keeps its example.
+    /// On v1 a restricted weekday means something else than it does in the crontab line being
+    /// rewritten: `1` is Sunday there, and a weekday alongside a day-of-month intersects
+    /// instead of unions. Neither can be handed back as an expression to use; croner reads
+    /// both the crontab way, so the same inputs keep their example.
     #[test]
-    fn numeric_weekday_example_is_withheld_on_v1_only() {
-        let v1 = ScheduleType::from_str("0 2 * * 1", None, true)
-            .err()
-            .expect("5-field cron must be rejected")
-            .to_string();
-        assert!(v1.contains("6 fields"), "{v1}");
-        assert!(!v1.contains("e.g."), "{v1}");
+    fn restricted_weekday_example_is_withheld_on_v1_only() {
+        for schedule in ["0 2 * * 1", "0 2 1 * MON"] {
+            let v1 = ScheduleType::from_str(schedule, None, true)
+                .err()
+                .expect("5-field cron must be rejected")
+                .to_string();
+            assert!(v1.contains("6 fields"), "{schedule}: {v1}");
+            assert!(!v1.contains("e.g."), "{schedule}: {v1}");
 
-        let v2 = ScheduleType::from_str("0 2 * * 1", Some("v2"), true)
-            .err()
-            .expect("5-field cron must be rejected")
-            .to_string();
-        assert!(
-            v2.contains("prepend a seconds field, e.g. '0 0 2 * * 1'."),
-            "{v2}"
-        );
+            let v2 = ScheduleType::from_str(schedule, Some("v2"), true)
+                .err()
+                .expect("5-field cron must be rejected")
+                .to_string();
+            assert!(
+                v2.contains(&format!("prepend a seconds field, e.g. '0 {schedule}'.")),
+                "{schedule}: {v2}"
+            );
+        }
     }
 
     #[test]
