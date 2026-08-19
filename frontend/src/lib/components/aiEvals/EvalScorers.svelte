@@ -10,7 +10,17 @@
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import { AiEvalsService, ScriptService, type EvalDataset, type Scorer } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Bot, ChevronDown, Code2, Pencil, Plus, Settings, Trash2 } from 'lucide-svelte'
+	import {
+		Bot,
+		ChevronDown,
+		Code2,
+		ExternalLink,
+		Pencil,
+		Plus,
+		Settings,
+		Trash2
+	} from 'lucide-svelte'
+	import { base } from '$lib/base'
 	import AddScorer from './AddScorer.svelte'
 	import { kindLabel, scorerLabel, type ScorerKind } from './evalScorers'
 
@@ -275,35 +285,48 @@
 	<DrawerContent title="Scorer settings" on:close={() => settingsDrawer?.closeDrawer()}>
 		{#if settingsScorer}
 			<div class="flex flex-col gap-6">
-				<div class="flex items-center gap-2 text-xs text-secondary">
-					<span class="text-tertiary">{kindLabel(settingsScorer.kind)}</span>
-					<span class="truncate" title={settingsScorer.path}>{settingsScorer.path}</span>
-				</div>
-				<Label
-					label="Name"
-					tooltip="What the column is called here. It is this dataset's own name for the scorer, so it does not rename the {settingsScorer.kind ===
-					'agent'
-						? 'agent'
-						: 'script'} it points at."
-				>
+				<!-- What the column points at, as a link to it: it is a runnable of its own, and the
+				     one thing about it these fields cannot change. -->
+				<Label label={kindLabel(settingsScorer.kind)}>
+					<a
+						class="flex items-center gap-1.5 text-xs min-w-0 hover:underline w-fit"
+						href={settingsScorer.kind === 'agent'
+							? `${base}/resources?path=${settingsScorer.path}&workspace=${workspace}`
+							: `${base}/scripts/get/${settingsScorer.path}?workspace=${workspace}`}
+						target="_blank"
+						rel="noreferrer"
+						title={`Open ${settingsScorer.path}`}
+					>
+						{#if settingsScorer.kind === 'agent'}
+							<Bot size={14} class="text-tertiary shrink-0" />
+						{:else}
+							<Code2 size={14} class="text-tertiary shrink-0" />
+						{/if}
+						<span class="truncate">{settingsScorer.path}</span>
+						<ExternalLink size={12} class="text-tertiary shrink-0" />
+					</a>
+				</Label>
+				<Label label="Name">
+					<!-- Between the label and the field, as a step's inputs put theirs. -->
+					<span class="text-xs text-secondary">
+						What the column is called here. This dataset's own name for the scorer, so it does not
+						rename the {settingsScorer.kind === 'agent' ? 'agent' : 'script'} it points at.
+					</span>
 					<TextInput
 						bind:value={settingsName}
-						size="sm"
 						inputProps={{ placeholder: settingsScorer.path.split('/').pop() }}
 					/>
 				</Label>
 				<Label label="Pass threshold">
+					<span class="text-xs text-secondary">
+						A score at or above this counts as a pass, and the column reports a pass rate. Leave it
+						empty to report the average score.
+					</span>
 					<TextInput
 						bind:value={settingsThreshold}
-						size="sm"
 						error={thresholdError}
 						inputProps={{ placeholder: 'No threshold' }}
 					/>
-					<span class="text-2xs text-tertiary">
-						A score at or above this counts as a pass, and the column reports a pass rate. Leave it
-						empty to report the average score. It reads the scores already recorded, so every run
-						gets one without being run again.
-					</span>
 				</Label>
 			</div>
 		{/if}

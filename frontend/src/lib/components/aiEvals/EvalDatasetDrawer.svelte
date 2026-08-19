@@ -74,11 +74,11 @@
 	let removingCase = $state<CaseDraft | undefined>(undefined)
 
 	/** The next free `<agent>_datasetN`, which is what a dataset is called until it is named. */
-	function nextDatasetPath(): string {
+	function nextDatasetIndex(): number {
 		const taken = new Set(datasets.map((d) => d.path))
 		let index = 1
-		while (taken.has(`${agentPath}_dataset${index}`)) index++
-		return `${agentPath}_dataset${index}`
+		while (taken.has(`${agentPath}_dataset_${index}`)) index++
+		return index
 	}
 
 	/**
@@ -102,10 +102,15 @@
 			// A dataset that has a path keeps it: the summary names one that does not have one yet.
 			pathDirty = true
 		} else {
-			// Seeded rather than left empty: an empty path makes the picker invent a random name, and
-			// a dataset named after the agent it tests sorts with the agent's own.
-			path = nextDatasetPath()
-			summary = ''
+			// Both seeded rather than left empty: an empty path makes the picker invent a random
+			// name, a dataset named after the agent it tests sorts with the agent's own, and a
+			// dataset with no summary is one the tables can only call by its path.
+			// Left underived so the summary keeps driving the path: renaming it to what the set is
+			// actually for renames the path with it, and the seeds are what that rule already
+			// produces for "Dataset N".
+			const index = nextDatasetIndex()
+			path = `${agentPath}_dataset_${index}`
+			summary = `Dataset ${index}`
 			pathDirty = false
 		}
 		formGeneration += 1
