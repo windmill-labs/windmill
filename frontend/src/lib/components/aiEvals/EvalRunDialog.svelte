@@ -135,7 +135,13 @@
 		return { kind: 'agent_version', path: agentPath, version: Number(choice) }
 	}
 
-	let selectedDataset = $derived(datasets.find((d) => d.path === dataset))
+	/** What the closed field reads. The list stacks the summary over the path, which a one-line
+	 *  field cannot do, so it says both the other way round: a summary names the one you meant and
+	 *  the path is how you tell two of them apart. */
+	function datasetFieldText(text: string, path: unknown): string {
+		const summary = datasets.find((d) => d.path === path)?.summary
+		return summary ? `${summary} (${path})` : text
+	}
 </script>
 
 <Modal title="Run evaluation" bind:open>
@@ -150,7 +156,6 @@
 				{#snippet children({ item })}
 					{#if hasDraft}
 						<ToggleButton
-							small
 							value="draft"
 							label={latest ? `v${latest} draft` : 'Draft'}
 							tooltip="The edits waiting on the agent, which is what a flow step would not run."
@@ -158,7 +163,6 @@
 						/>
 					{/if}
 					<ToggleButton
-						small
 						value="deployed"
 						label={latest ? `v${latest} (latest)` : 'Latest'}
 						tooltip="The saved agent, resolved when the run executes."
@@ -168,11 +172,7 @@
 						<!-- Keyed on the versions it was built from: the menu reads its items once, and
 						     they arrive after this dialog opens. -->
 						{#key olderItems.map((i) => i.value).join(',')}
-							<!-- Pulled in by its own padding: the trigger is not a pill, so the room it
-							     reserves reads as a gap after the button before it. -->
 							<ToggleButtonMore
-								small
-								class="-ml-2"
 								btnText={pickedOlder ? '' : 'More'}
 								togglableItems={olderItems}
 								bind:selected={choice}
@@ -199,6 +199,7 @@
 					placeholder="Select a dataset"
 					clearable
 					class="text-xs w-full"
+					transformInputSelectedText={datasetFieldText}
 				>
 					<!-- The way into a dataset from the row that names it, as a resource picker does: what
 				     you are about to measure is exactly when you notice a case is missing. -->
@@ -253,11 +254,6 @@
 					</div>
 				{/if}
 			</div>
-			<!-- The path under the field, as the list shows it: a summary says which one you meant and
-			     a path is how you tell two of them apart. -->
-			{#if selectedDataset?.summary}
-				<span class="text-2xs text-tertiary truncate">{selectedDataset.path}</span>
-			{/if}
 		</Label>
 	</div>
 	{#snippet actions()}
