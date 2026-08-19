@@ -67,7 +67,7 @@ pub fn validate_git_repo_url(url: &str) -> crate::error::Result<()> {
         return Err(reject("remote-helper transports (`::`) are not allowed"));
     }
 
-    if let Some((scheme, _rest)) = trimmed.split_once("://") {
+    if let Some((scheme, rest)) = trimmed.split_once("://") {
         // A real scheme is ASCII-alnum plus `+ - .` and holds no slash (a slash means the
         // `://` came from the path, so there is no scheme and this is not a valid URL).
         let is_scheme = !scheme.is_empty()
@@ -79,30 +79,53 @@ pub fn validate_git_repo_url(url: &str) -> crate::error::Result<()> {
             return Err(reject("malformed URL scheme"));
         }
         match scheme.to_ascii_lowercase().as_str() {
-            "http" | "https" | "ssh" | "git" => Ok(()),
-            other => Err(reject(&format!(
-                "scheme `{other}` is not allowed (use http(s), ssh, or git)"
-            ))),
+            "http" | "https" | "ssh" | "git" => {}
+            other => {
+                return Err(reject(&format!(
+                    "scheme `{other}` is not allowed (use http(s), ssh, or git)"
+                )))
+            }
         }
+        // The authority runs up to the first path/query/fragment delimiter.
+        let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+        validate_git_host(authority, reject)
     } else {
         // No scheme: accept only the scp-like `[user@]host:path` shorthand. The host (the
         // part before the first `:`) must be non-empty and slash-free; a slash there means a
         // local path (`./repo`, `/abs/repo`), and a single-letter host is a Windows drive.
-        let Some((host, _path)) = trimmed.split_once(':') else {
+        let Some((authority, _path)) = trimmed.split_once(':') else {
             return Err(reject(
                 "local paths are not allowed; use an http(s), ssh, or git URL",
             ));
         };
-        let bad_host = host.is_empty()
-            || host.contains('/')
-            || (host.len() == 1 && host.chars().all(|c| c.is_ascii_alphabetic()));
-        if bad_host {
+        if authority.contains('/')
+            || (authority.len() == 1 && authority.chars().all(|c| c.is_ascii_alphabetic()))
+        {
             return Err(reject(
                 "local paths are not allowed; use an http(s), ssh, or git URL",
             ));
         }
-        Ok(())
+        validate_git_host(authority, reject)
     }
+}
+
+/// Reject an authority whose host begins with `-`. git's ssh transport passes the host to the
+/// `ssh` binary as an argument, so `ssh://-oProxyCommand=<cmd>/path` would run a command; modern
+/// git blocks a dash-led host itself, but we do not want to depend on the worker's git version.
+fn validate_git_host(
+    authority: &str,
+    reject: impl Fn(&str) -> crate::error::Error,
+) -> crate::error::Result<()> {
+    // Strip `user[:password]@` userinfo (last `@`, since userinfo may itself contain `@`).
+    let host = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    // An IPv6 literal is bracketed (`[::1]`) and can never start with `-`.
+    if host.is_empty() {
+        return Err(reject("the URL has no host"));
+    }
+    if host.starts_with('-') {
+        return Err(reject("the host must not start with '-'"));
+    }
+    Ok(())
 }
 
 pub fn prepend_token_to_github_url(
@@ -184,6 +207,11 @@ mod tests {
             "--upload-pack=touch /tmp/pwned",
             "-oProxyCommand=touch /tmp/pwned",
             "--config=core.fsmonitor=touch /tmp/pwned",
+            // Dash-led host inside an allowed scheme (classic `ssh://-oProxyCommand=...`): the
+            // allowlist must reject it itself, not lean on git's own dash-host handling.
+            "ssh://-oProxyCommand=touch /tmp/pwned/x",
+            "ssh://git@-oProxyCommand=touch /tmp/pwned/x",
+            "https://-oProxyCommand=x/path",
         ] {
             assert!(validate_git_repo_url(url).is_err(), "should reject {url}");
         }

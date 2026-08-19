@@ -949,7 +949,14 @@ pub async fn get_git_repo_full_head_commit_hash(
     validate_git_repo(repo)?;
     let mut git_cmd = Command::new(GIT_PATH.as_str());
 
+    // Start from a scrubbed environment (like `clone_repo`): the worker process env holds
+    // secrets (e.g. `DATABASE_URL`), and git spawns transport helpers/ssh as children, so a
+    // full inherited env would expose those to anything that reaches a git subprocess.
     git_cmd
+        .env_clear()
+        .envs(PROXY_ENVS.clone())
+        .env("PATH", PATH_ENV.as_str())
+        .env("TZ", TZ_ENV.as_str())
         .env("GIT_SSH_COMMAND", git_ssh_cmd)
         .args(["ls-remote", &repo.url, "HEAD"]);
 
