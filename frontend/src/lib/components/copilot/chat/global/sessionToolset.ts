@@ -59,11 +59,9 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	exec_datatable_sql: RUN_PREVIEW,
 
 	// ── API catalog and MCP ─────────────────────────────────────────────────
-	// No capability needed: COVERED_ENDPOINTS in apiCatalogTools refuses the authoring
-	// and delete endpoints for everyone, leaving reads and run-by-path. That list is
-	// keyed by operationId and the server serves the catalog unfiltered, so it holds
-	// only as long as it tracks the catalog — the server, not this table, is what
-	// actually refuses a call that slips through.
+	// No capability needed: every endpoint these can reach is a read or a run-by-path.
+	// The authoring and delete endpoints are refused for everyone by COVERED_ENDPOINTS
+	// in apiCatalogTools, so there is no per-role cut left to make here.
 	search_api_endpoints: NONE,
 	call_api_get: NONE,
 	call_api_endpoint: NONE,
