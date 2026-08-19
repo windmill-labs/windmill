@@ -13,6 +13,7 @@ use windmill_api_auth::{
     ApiAuthed,
 };
 use windmill_common::{
+    db::auth_identity,
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
@@ -2992,8 +2993,8 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
     // Imported-script content, keyed by
-    // `{ws}:{path}:{importer_cache_key}[:unpinned]:{latest_hash}`. Including the
-    // imported script's own latest hash makes each entry immutable, so no
+    // `{auth_identity}:{ws}:{path}:{importer_cache_key}[:unpinned]:{latest_hash}`.
+    // Including the imported script's own latest hash makes each entry immutable, so no
     // per-entry TTL is needed; staleness is bounded by RAW_SCRIPT_LATEST_HASH_CACHE.
     pub static ref RAW_SCRIPT_CACHE: Cache<String, String> = Cache::new(1000);
     // `{ws}:{path}` (bare path) -> (latest non-archived hash, unix_ts cached).
@@ -3081,14 +3082,22 @@ async fn raw_script_by_path_internal(
     // importer's runnable hash (`query.cache_key`). The importer hash never moves
     // when only an imported script's content changes (relock is in-place — see
     // #6769), so keying solely on it served stale content indefinitely. The
-    // importer + unpin dimensions are kept to preserve per-runnable authorization
-    // scoping (a content-cache hit skips the authed RLS query, so an entry must
-    // stay scoped to the runnable that fetched it); the imported latest hash is
-    // appended for content correctness.
-    let cache_path_base = query
-        .cache_key
-        .as_ref()
-        .map(|x| format!("{w_id}:{path}:{x}{}", if unpin { ":unpinned" } else { "" }));
+    // importer + unpin dimensions are kept because they select which content is
+    // returned; the imported latest hash is appended for content correctness.
+    //
+    // `identity` leads the key because a content-cache hit returns before the authed
+    // RLS query below runs: `query.cache_key` is caller-supplied, so without it any
+    // workspace member could replay another caller's cache_key and read a
+    // folder-protected script they cannot see. Keying on the caller's full
+    // authorization context also makes a revoked group/folder produce a miss rather
+    // than serving the old entry for the rest of the TTL.
+    let identity = auth_identity(&authed);
+    let cache_path_base = query.cache_key.as_ref().map(|x| {
+        format!(
+            "{identity}:{w_id}:{path}:{x}{}",
+            if unpin { ":unpinned" } else { "" }
+        )
+    });
 
     // Resolve the imported script's latest hash from RAW_SCRIPT_LATEST_HASH_CACHE
     // (keyed by the bare path so the deploy event can evict it). A fresh entry
