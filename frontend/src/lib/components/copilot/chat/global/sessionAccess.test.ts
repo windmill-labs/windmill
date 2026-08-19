@@ -43,7 +43,12 @@ describe('resolveSessionAccess', () => {
 
 	it('gives a developer every capability', async () => {
 		const caps = await capabilitiesFor({})
-		expect([...caps].sort()).toEqual(['deploy', 'run_preview', 'write_draft'])
+		expect([...caps].sort()).toEqual([
+			'deploy',
+			'deploy_gated_kinds',
+			'run_preview',
+			'write_draft'
+		])
 	})
 
 	it('leaves an operator only what their token can still do', async () => {
@@ -71,10 +76,29 @@ describe('resolveSessionAccess', () => {
 	// wm_deployers can unblock a non-admin. The resolver must not second-guess the shared
 	// preflight, and must not let a deploy refusal take drafting down with it.
 	it('takes deploy from the shared permission check, not from the role', async () => {
-		deployPermission.mockResolvedValue({ ok: false, reason: 'restricted to deployers' })
+		deployPermission.mockResolvedValue({
+			ok: false,
+			reason: 'restricted to deployers',
+			refusedBy: 'RestrictDeployToDeployers'
+		})
 		const caps = await capabilitiesFor({})
 		expect(caps.has('deploy')).toBe(false)
+		expect(caps.has('deploy_gated_kinds')).toBe(false)
 		expect(caps.has('write_draft')).toBe(true)
+	})
+
+	// A direct-deployment lock is the one refusal that does not cover every kind: the
+	// server still accepts schedule and trigger deploys, so the resolver must keep the
+	// weaker half rather than dropping deploy wholesale.
+	it('keeps the ungated half of deploy under a direct-deployment lock', async () => {
+		deployPermission.mockResolvedValue({
+			ok: false,
+			reason: 'direct deployment disabled',
+			refusedBy: 'DisableDirectDeployment'
+		})
+		const caps = await capabilitiesFor({})
+		expect(caps.has('deploy')).toBe(true)
+		expect(caps.has('deploy_gated_kinds')).toBe(false)
 	})
 
 	// Fail open, matching checkDeployPermission: a transient whoami failure must not

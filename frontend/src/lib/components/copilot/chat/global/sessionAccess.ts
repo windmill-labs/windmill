@@ -14,7 +14,14 @@ import { checkDeployPermission } from '$lib/utils_workspace_deploy'
  * and "operator" differs per capability. Collapsing them into one ordering would get
  * `write_draft` wrong for a superadmin whose workspace role is operator.
  */
-export type SessionCapability = 'write_draft' | 'run_preview' | 'deploy'
+export type SessionCapability =
+	| 'write_draft'
+	| 'run_preview'
+	/** May deploy at least something: no operator or deployers-only refusal. */
+	| 'deploy'
+	/** May also deploy the kinds `check_deploy_rules` gates — everything except
+	 * schedules and triggers, which no rule covers (`kindGatedByDeployRules`). */
+	| 'deploy_gated_kinds'
 
 export type SessionAccess = {
 	/** The workspace these capabilities were resolved against — a session targets its
@@ -23,7 +30,12 @@ export type SessionAccess = {
 	capabilities: ReadonlySet<SessionCapability>
 }
 
-const ALL_CAPABILITIES: SessionCapability[] = ['write_draft', 'run_preview', 'deploy']
+const ALL_CAPABILITIES: SessionCapability[] = [
+	'write_draft',
+	'run_preview',
+	'deploy',
+	'deploy_gated_kinds'
+]
 
 /** Benefit of the doubt: an unresolvable role must not blank the toolset, since a
  * transient failure would otherwise tell a developer mid-session that they cannot
@@ -65,12 +77,17 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 		capabilities.add('run_preview')
 	}
 
-	// `checkDeployPermission` already carries every term of the backend's `check_deploy_rules`,
-	// superadmin included, so it is the whole answer here. Its per-kind narrowing
-	// (`deployPermissionForKind`) deliberately is not: this filter runs on tool NAMES, before
-	// the model has named a kind, so a direct-deployment lock also withholds the deploy tools
-	// for schedules and triggers — kinds the server would still accept.
-	if ((await checkDeployPermission(workspace, me)).ok) {
+	// `checkDeployPermission` carries every term of the backend's `check_deploy_rules`,
+	// superadmin included, so it is the whole answer. Splitting its verdict in two mirrors
+	// `deployPermissionForKind`: a direct-deployment lock stops the kinds that reach
+	// `check_deploy_rules` and nothing else, so schedules and triggers stay deployable —
+	// the same narrowing the Compare page applies. An operator or deployers-only refusal
+	// covers every kind, so it takes both.
+	const deploy = await checkDeployPermission(workspace, me)
+	if (deploy.ok) {
+		capabilities.add('deploy')
+		capabilities.add('deploy_gated_kinds')
+	} else if (deploy.refusedBy === 'DisableDirectDeployment') {
 		capabilities.add('deploy')
 	}
 
