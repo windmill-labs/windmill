@@ -922,8 +922,11 @@ fn six_fields_hint(schedule_str: &str, version: Option<&str>, seconds_required: 
         // The suggestion has 6 fields, so parsing it can only recurse one level deep.
         let with_seconds = format!("0 {}", fields.join(" "));
         match ScheduleType::from_str(&with_seconds, version, seconds_required) {
+            // v1 numbers day-of-week from Sunday=1, so a crontab line is not always
+            // equivalent to the same line with a seconds field: offer the prepend as the
+            // mechanical edit it is rather than as the same schedule.
             Ok(_) => format!(
-                " The 5-field crontab syntax is not accepted, did you mean '{}'?",
+                " The 5-field crontab syntax is not accepted; prepend a seconds field, e.g. '{}'.",
                 with_seconds
             ),
             Err(_) => String::new(),
@@ -1606,7 +1609,7 @@ mod tests {
                 .to_string();
             assert!(err.contains("6 fields"), "{version:?}: {err}");
             assert!(
-                err.contains("did you mean '0 0 2 * * *'?"),
+                err.contains("prepend a seconds field, e.g. '0 0 2 * * *'."),
                 "{version:?}: {err}"
             );
         }
