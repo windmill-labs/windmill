@@ -693,6 +693,9 @@ export async function generateMetadata(
   printItems("Apps", apps);
 
   if (opts.dryRun) {
+    // The preview belongs on this path too: the conversion is what a stale tree
+    // is about to get, and only the up-to-date path reported it.
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder, sharedLocksBefore);
     return;
   }
 

@@ -34,8 +34,8 @@ import {
   extractResourceName,
   buildFolderPath,
   isScriptModulePath,
-  isSharedLockPath,
 } from "./utils/resource_folders.ts";
+import { isSharedLockPath } from "./utils/script_common.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";

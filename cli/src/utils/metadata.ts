@@ -17,9 +17,10 @@ import {
   ScriptLanguage,
   workspaceDependenciesLanguages,
   languageNeedsLock,
+  sharedLockPath,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath, sharedLockPath } from "./resource_folders.ts";
+import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
 import { DBT_DESCRIPTOR_NAME, isMissingDbtDescriptor } from "./resource_folders.ts";

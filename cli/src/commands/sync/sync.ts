@@ -175,9 +175,8 @@ import {
   hasWrongFormatSuffix,
   DBT_DESCRIPTOR_NAME,
   isDbtDescriptorPath,
-  isSharedLockPath,
-  SHARED_LOCK_DIR,
 } from "../../utils/resource_folders.ts";
+import { isSharedLockPath, SHARED_LOCK_DIR } from "../../utils/script_common.ts";
 import {
   applySharedLockPlanToDisk,
   applySharedLockPlanToMap,
@@ -189,6 +188,9 @@ import {
   type ExistingSharedLocks,
   type LockDedupOptions,
 } from "../../utils/lock_dedup.ts";
+
+/** Sync maps are keyed with the platform separator; `!inline` refs are not. */
+const toMapKeySep = (refPath: string) => refPath.replaceAll("/", SEP);
 
 let branchDeprecationWarned = false;
 
@@ -2526,14 +2528,20 @@ async function compareDynFSElement(
   // keep.
   if (skips.dedupeLockfiles) {
     const remoteMap = isEls1Remote === true ? m1 : m2;
+    const localMapForScope = isEls1Remote === true ? m2 : m1;
     applySharedLockPlanToMap(
       remoteMap,
-      computeSharedLockPlan(
-        remoteMap,
-        skips.defaultTs,
-        await collectExistingSharedLocks(process.cwd()),
+      computeSharedLockPlan(remoteMap, {
+        defaultTs: skips.defaultTs,
+        existing: await collectExistingSharedLocks(process.cwd()),
         json,
-      ),
+        // Scope is what the LOCAL side holds: a script added locally and not yet
+        // pushed is absent from the remote map but is covered by this sync, and
+        // counting it as an unseen reader would explode its group.
+        inScope: (metaRef) =>
+          localMapForScope[toMapKeySep(metaRef)] !== undefined ||
+          localMapForScope[metaRef] !== undefined,
+      }),
     );
   }
 
@@ -2862,6 +2870,7 @@ export async function ignoreF(wmillconf: {
   includes?: string[];
   excludes?: string[];
   extraIncludes?: string[];
+  dedupeLockfiles?: boolean;
   skipResourceTypes?: boolean;
   skipWorkspaceDependencies?: boolean;
   skipDatatableMigrations?: boolean;
@@ -2902,6 +2911,15 @@ export async function ignoreF(wmillconf: {
   // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
 
   return (p: string, isDirectory: boolean) => {
+    // Without the option, `locks/` is not Windmill's: a repo that keeps its own
+    // lockfiles there would otherwise see them pulled into the diff and deleted
+    // as absent from a remote that never serializes shared locks.
+    if (
+      !wmillconf.dedupeLockfiles &&
+      (p === SHARED_LOCK_DIR || p.startsWith(SHARED_LOCK_DIR + SEP))
+    ) {
+      return true;
+    }
     const ext = wmillconf.json ? ".json" : ".yaml";
     if (!isDirectory && p.endsWith(".resource-type" + ext)) {
       return wmillconf.skipResourceTypes ?? false;
@@ -3974,12 +3992,11 @@ export async function dedupeLockfilesOnDisk(args: {
     opts.json ?? false,
     opts,
   );
-  const plan = computeSharedLockPlan(
-    map,
-    opts.defaultTs,
+  const plan = computeSharedLockPlan(map, {
+    defaultTs: opts.defaultTs,
     existing,
-    opts.json ?? false,
-  );
+    json: opts.json ?? false,
+  });
   if (isEmptySharedLockPlan(plan)) return;
 
   const summary = `${Object.keys(plan.writes).length} file(s) written, ${plan.deletes.length} removed`;
@@ -4526,18 +4543,17 @@ export async function push(
     if (change.name === "deleted") {
       // The remote view is deduplicated whether or not the tree is: a shared
       // lockfile missing from the tree reads as a deletion to push, and there is
-      // no such object to delete. Left in, it is reported on every push forever.
+      // no such object to delete.
       unconvertedTree = true;
       changes.splice(i, 1);
       continue;
     }
     const referrers = scriptsReferencingSharedLock(localMap, change.path);
-    if (referrers.length === 0) {
-      // A shared lockfile no script reads is not a change to the remote in any
-      // sense; left in, it would be reported as pushed on every push, forever.
-      changes.splice(i, 1);
-      continue;
-    }
+    // Out of `changes` either way: a shared lockfile has no object on the
+    // remote, so the apply loop skips it. Left in, the preview and the "N
+    // changes" count would report something no push ever applies as such.
+    changes.splice(i, 1);
+    if (referrers.length === 0) continue;
     log.info(
       colors.gray(
         `${change.path} changed: re-pushing the ${referrers.length} script(s) sharing it`,

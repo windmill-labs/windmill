@@ -550,23 +550,6 @@ export function getModuleFolderSuffix(language?: string): string {
   return language === "dbt" ? DBT_MODULE_SUFFIX : MODULE_SUFFIX;
 }
 
-/** Where the lockfiles shared by several scripts live when `dedupeLockfiles`
- *  is on — see `utils/lock_dedup.ts`. A top-level directory of its own: what a
- *  group shares is a resolved lock, which needs no workspace dependency file
- *  behind it, and inline-script locks would belong here too. */
-export const SHARED_LOCK_DIR = "locks";
-
-export function sharedLockPath(language: string): string {
-  return `${SHARED_LOCK_DIR}/${language}.lock`;
-}
-
-export function isSharedLockPath(p: string): boolean {
-  const normalized = normalizeSep(p);
-  if (!normalized.startsWith(SHARED_LOCK_DIR + "/")) return false;
-  const name = normalized.slice(SHARED_LOCK_DIR.length + 1);
-  return name.endsWith(".lock") && !name.includes("/");
-}
-
 /**
  * Check if a path is inside a script module folder.
  * Matches patterns like: .../my_script__mod/... or .../my_project__dbt/...

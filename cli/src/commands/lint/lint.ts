@@ -26,13 +26,13 @@ import {
   inferContentTypeFromFilePath,
   languageNeedsLock,
   ScriptLanguage,
+  isSharedLockPath,
 } from "../../utils/script_common.ts";
 import {
   isFlowInlineScriptPath,
   isAppInlineScriptPath,
   isRawAppPath,
   getFolderSuffix,
-  isSharedLockPath,
 } from "../../utils/resource_folders.ts";
 import { exts } from "../script/script.ts";
 

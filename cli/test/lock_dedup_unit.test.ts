@@ -114,7 +114,7 @@ describe("computeSharedLockPlan", () => {
     applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
 
     const tree = treeOf(map, { [SHARED_PY]: map[SHARED_PY] });
-    expect(isEmptySharedLockPlan(computeSharedLockPlan(map, "bun", tree))).toBe(
+    expect(isEmptySharedLockPlan(computeSharedLockPlan(map, { defaultTs: "bun", existing: tree }))).toBe(
       true,
     );
   });
@@ -132,7 +132,7 @@ describe("computeSharedLockPlan", () => {
     ownLock(remote, "f/b", ".py", PY_LOCK_BUMPED);
     applySharedLockPlanToMap(
       remote,
-      computeSharedLockPlan(remote, "bun", tree),
+      computeSharedLockPlan(remote, { defaultTs: "bun", existing: tree }),
     );
 
     const changed = Object.keys(remote).filter((k) => remote[k] !== committed[k]);
@@ -163,7 +163,7 @@ describe("computeSharedLockPlan", () => {
     ownLock(remote, "f/b", ".py", PY_LOCK);
     ownLock(remote, "f/c", ".py", OTHER_LOCK + "click==8.1.7\n");
     ownLock(remote, "f/d", ".py", OTHER_LOCK + "click==8.1.7\n");
-    applySharedLockPlanToMap(remote, computeSharedLockPlan(remote, "bun", tree));
+    applySharedLockPlanToMap(remote, computeSharedLockPlan(remote, { defaultTs: "bun", existing: tree }));
 
     expect(Object.keys(remote).filter((k) => remote[k] !== map[k])).toEqual([
       SHARED_PY_2,
@@ -184,7 +184,7 @@ describe("computeSharedLockPlan", () => {
       ownLock(remote, base, ".py", PY_LOCK_BUMPED);
     }
     ownLock(remote, "f/lag", ".py", PY_LOCK);
-    applySharedLockPlanToMap(remote, computeSharedLockPlan(remote, "bun", tree));
+    applySharedLockPlanToMap(remote, computeSharedLockPlan(remote, { defaultTs: "bun", existing: tree }));
 
     expect(remote[SHARED_PY]).toEqual(PY_LOCK_BUMPED);
     expect(remote[SHARED_PY_2]).toBeUndefined();
@@ -219,7 +219,7 @@ describe("computeSharedLockPlan", () => {
     for (const base of ["f/d", "f/e"]) {
       ownLock(remote, base, ".py", OTHER_LOCK + "click==8.1.7\n");
     }
-    const plan = computeSharedLockPlan(remote, "bun", tree);
+    const plan = computeSharedLockPlan(remote, { defaultTs: "bun", existing: tree });
     applySharedLockPlanToMap(remote, plan);
 
     expect(remote[SHARED_PY]).toEqual(PY_LOCK_BUMPED);
@@ -251,7 +251,7 @@ describe("computeSharedLockPlan", () => {
     ownLock(remote, "f/a", ".py", PY_LOCK);
     ownLock(remote, "f/b", ".py", PY_LOCK);
     ownLock(remote, "f/c", ".py", OTHER_LOCK);
-    applySharedLockPlanToMap(remote, computeSharedLockPlan(remote, "bun", tree));
+    applySharedLockPlanToMap(remote, computeSharedLockPlan(remote, { defaultTs: "bun", existing: tree }));
 
     expect(remote[SHARED_PY]).toEqual(PY_LOCK);
     expect(remote["f/c.script.lock"]).toEqual(OTHER_LOCK);
@@ -269,7 +269,7 @@ describe("computeSharedLockPlan", () => {
     ownLock(map, "f/a", ".py", OTHER_LOCK);
     ownLock(map, "f/b", ".py", PY_LOCK_BUMPED);
 
-    const plan = computeSharedLockPlan(map, "bun", tree);
+    const plan = computeSharedLockPlan(map, { defaultTs: "bun", existing: tree });
     expect(plan.deletes).toContain(SHARED_PY);
   });
 
@@ -306,7 +306,7 @@ describe("computeSharedLockPlan", () => {
       "f/b__mod/script.lock": PY_LOCK,
     };
 
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun"));
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, { defaultTs: "bun" }));
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
     expect(map["f/a__mod/script.lock"]).toBeUndefined();
@@ -365,7 +365,7 @@ describe("computeSharedLockPlan with a partial sync map", () => {
 
   test("keeps the shared file the scripts out of scope read", () => {
     const { map, tree } = partial(PY_LOCK);
-    const plan = computeSharedLockPlan(map, "bun", tree);
+    const plan = computeSharedLockPlan(map, { defaultTs: "bun", existing: tree });
     applySharedLockPlanToMap(map, plan);
 
     expect(plan.deletes).not.toContain(SHARED_PY);
@@ -376,7 +376,7 @@ describe("computeSharedLockPlan with a partial sync map", () => {
 
   test("never rewrites the shared file from the scripts it can see", () => {
     const { map, tree } = partial(OTHER_LOCK);
-    const plan = computeSharedLockPlan(map, "bun", tree);
+    const plan = computeSharedLockPlan(map, { defaultTs: "bun", existing: tree });
     applySharedLockPlanToMap(map, plan);
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
@@ -385,6 +385,33 @@ describe("computeSharedLockPlan with a partial sync map", () => {
     expect(lockRefOf(map["f/a.script.yaml"])).toEqual(
       "!inline f/a.script.lock",
     );
+  });
+
+  test("a script added locally but not yet pushed does not break the group", () => {
+    // On a pull the map is the REMOTE, so a script that exists only on disk is
+    // absent from it while being fully in scope. Counted as an unseen reader it
+    // would veto the bump and explode the group into per-script locks.
+    const committed: Record<string, string> = {};
+    for (const base of ["f/a", "f/b", "f/local"]) {
+      sharedLock(committed, base, ".py", SHARED_PY);
+    }
+    const tree = treeOf(committed, { [SHARED_PY]: PY_LOCK });
+
+    const remote: Record<string, string> = {};
+    ownLock(remote, "f/a", ".py", PY_LOCK_BUMPED);
+    ownLock(remote, "f/b", ".py", PY_LOCK_BUMPED);
+
+    applySharedLockPlanToMap(
+      remote,
+      computeSharedLockPlan(remote, {
+        defaultTs: "bun",
+        existing: tree,
+        inScope: (metaRef) => committed[metaRef] !== undefined,
+      }),
+    );
+
+    expect(remote[SHARED_PY]).toEqual(PY_LOCK_BUMPED);
+    expect(remote["f/a.script.lock"]).toBeUndefined();
   });
 
   test("forms no new group it cannot see the whole of", () => {
@@ -399,7 +426,7 @@ describe("computeSharedLockPlan with a partial sync map", () => {
     ownLock(map, "f/a", ".py", PY_LOCK);
     ownLock(map, "f/b", ".py", PY_LOCK);
 
-    const plan = computeSharedLockPlan(map, "bun", tree);
+    const plan = computeSharedLockPlan(map, { defaultTs: "bun", existing: tree });
     expect(plan.writes[SHARED_PY]).toBeUndefined();
   });
 });

@@ -44,6 +44,41 @@ export const workspaceDependenciesLanguages: WorkspaceDependenciesLanguage[] = [
   { language: "powershell", filename: "modules.json" },
 ] as const;
 
+/** Where the lockfiles shared by several scripts live when `dedupeLockfiles`
+ *  is on — see `utils/lock_dedup.ts`. A top-level directory of its own: what a
+ *  group shares is a resolved lock, which needs no workspace dependency file
+ *  behind it, and inline-script locks would belong here too. */
+export const SHARED_LOCK_DIR = "locks";
+
+export function sharedLockPath(language: string, n = 1): string {
+  return n === 1
+    ? `${SHARED_LOCK_DIR}/${language}.lock`
+    : `${SHARED_LOCK_DIR}/${language}-${n}.lock`;
+}
+
+/**
+ * Whether a path is a shared lockfile Windmill would have written.
+ *
+ * Narrow on purpose: `locks/` is an ordinary word, so a repo may already have
+ * one holding something else. Only the names `sharedLockPath` can produce are
+ * claimed — anything else under `locks/` stays invisible to sync, and cannot be
+ * swept as an unreferenced shared lock.
+ */
+export function isSharedLockPath(p: string): boolean {
+  const normalized = p.replaceAll("\\", "/");
+  if (!normalized.startsWith(SHARED_LOCK_DIR + "/")) return false;
+  const name = normalized.slice(SHARED_LOCK_DIR.length + 1);
+  if (name.includes("/")) return false;
+  const match = /^(.+?)(?:-(\d+))?\.lock$/.exec(name);
+  if (!match) return false;
+  const n = match[2] === undefined ? 1 : Number(match[2]);
+  return (
+    languageNeedsLock(match[1]) &&
+    n >= 1 &&
+    sharedLockPath(match[1], n) === normalized
+  );
+}
+
 /**
  * Returns true if a script in the given language requires a lock file.
  * Matches the condition in updateScriptLock (metadata.ts).
