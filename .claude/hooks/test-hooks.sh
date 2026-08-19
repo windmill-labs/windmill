@@ -4,6 +4,10 @@
 # What this pins is the `ask` column: a matcher change that turns one into a no-decision drops
 # that command's only prompt (see lib-guarded-verb.sh). The wrapper, nested-command and quoted
 # rows are the ones that catch it.
+#
+# The `allow` column carries its own weight, because a decision covers the whole command line:
+# `allow` may only appear where every segment was proved here, and a line that also runs
+# something unexamined has to come out `none` so the normal permission flow still sees it.
 set -uo pipefail
 H="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
 CWD="$(git -C "$H" rev-parse --show-toplevel)"
@@ -46,10 +50,11 @@ run $G ask   "rm -rf $CWD/*"
 run $G ask   "rm -rf /etc/passwd"
 run $G ask   'rm -rf "$HOME/x"'
 run $G ask   "rm -rf /tmp/../$OUT"
-run $G ask   "ls /tmp && rm -rf /tmp/x"
+run $G none  "ls /tmp && rm -rf /tmp/x"   # proved delete, unexamined neighbour
 run $G ask   'echo $(rm -rf /etc)'
 run $G ask   'echo `rm -rf /etc`'
 run $G ask   "{ rm -rf /etc; }"
+run $G allow "{ rm -rf /tmp/scratch/x; }"         # the keyword drops, the delete still proves
 run $G ask   "find . -name x | xargs rm"
 run $G ask   "timeout 5 rm -rf /tmp/x"
 run $G ask   "stdbuf -o L rm -rf /etc"
@@ -107,6 +112,33 @@ run $G none  'echo $(ls /tmp)'
 run $G none  'grep -rn "rm" backend/'
 run $G none  "cargo build --release"
 
+# Chaining and line breaks are not themselves a reason to prompt: each segment is proved on its
+# own operands, and a `cd` moves where a relative one points.
+run $G allow "rm -f /tmp/a; rm -rf /tmp/b"
+run $G allow "$(printf 'rm -f /tmp/a\nrm -rf %s/frontend/scratch' "$CWD")"
+run $G allow "cd /tmp/scratch && rm -rf sub"
+run $G none  "mkdir -p /tmp/x && rm -rf /tmp/x"
+run $G ask   "$(printf 'ls /tmp\nrm -rf /etc')"
+# A `cd` this guard can resolve is where the relative operand lands; one it cannot leaves the
+# working directory unknown, and an unknown one proves nothing.
+run $G ask   "cd /etc && rm -rf foo"
+run $G ask   'cd "$D" && rm -rf foo'
+run $G ask   "cd $CWD && rm -rf .git"
+run $G ask   "cd /etc && cd /tmp/scratch && rm -rf sub"   # a cd out is not walked back
+# A `cd` can fail at runtime, and `;` runs the delete from where the command started, so a
+# relative operand is proved from both directories.
+run $G ask   "cd /tmp/does-not-exist; rm -rf .git"
+run $G ask   "cd /tmp/does-not-exist; rm -rf backend/.env"
+run $G ask   "cd /tmp/a && cd /tmp/b && rm -rf sub"
+run $G ask   "rm -rf /tmp/clone/.git"                     # history is never in a class
+run $G ask   "rm -rf /tmp/scratch/id_rsa.key"
+run $G none  "cd /tmp >$OUT; rm -f /tmp/a"
+# A substitution is concatenated into its word, so splitting on it would prove only the literal
+# half; a relative `cd` is not $cwd/$t either, since the shell searches $CDPATH first.
+run $G ask   'rm -rf /tmp/a/`printf ../../etc`'
+run $G ask   'rm -rf /tmp/a/$(printf ../../etc)'
+run $G ask   "cd ssh && rm -rf moduli"
+
 echo
 echo "== allow-fileops-in-tmp.sh =="
 A=allow-fileops-in-tmp.sh
@@ -117,7 +149,7 @@ run $A allow "tar -xzf /tmp/a.tar.gz -C /tmp/out"
 run $A ask   "mv /tmp/a $OUT"
 run $A ask   "mv $CWD/AGENTS.md /tmp/a"
 run $A ask   "chmod -R 777 $CWD"
-run $A ask   "ls && mv /tmp/a /tmp/b"
+run $A none  "ls && mv /tmp/a /tmp/b"     # proved move, unexamined neighbour
 run $A ask   'echo $(mv /tmp/a /etc)'
 run $A ask   "timeout --signal KILL 5 mv /tmp/a /etc"
 run $A ask   "time -f FORMAT chmod 777 $OUT"
@@ -128,6 +160,50 @@ run $A ask   "env -i A=1 B=2 C=3 D=4 E=5 F=6 mv /tmp/a /etc"
 run $A none  "cp $CWD/AGENTS.md /tmp/a"
 run $A none  "tar -xzf /tmp/a.tar.gz -C $OUT"
 run $A none  "cargo build"
+
+run $A none  "mkdir -p /tmp/x; mv /tmp/a /tmp/x; chmod 755 /tmp/x"   # one write per line
+run $A none  "$(printf 'mv /tmp/a /tmp/b\nchmod 755 /tmp/b')"
+run $A ask   "ls && mv /tmp/a /etc"
+run $A ask   "$(printf 'mkdir -p /tmp/x\nchmod -R 777 %s' "$CWD")"
+run $A allow "cd /tmp/x && tar -xzf /tmp/a.tar.gz -C /tmp/out"
+# The checkout is a root of its own, so an in-repo move or chmod is as auto-allowable as the
+# in-repo delete already was — but one operation may not straddle it and /tmp.
+run $A allow "chmod +x scripts/worktree-env"
+run $A allow "mv backend/.sqlx backend/.sqlx.bad"
+run $A allow "mv $CWD/frontend/a.ts $CWD/frontend/b.ts"
+run $A ask   "mv /tmp/a $CWD/frontend/a.ts"
+run $A ask   "chmod -R 777 $CWD/.git"
+run $A ask   "mv $CWD/backend/.env $CWD/backend/.env.bak"
+run $A ask   "mv $CWD/AGENTS.md $OUT"
+run $A ask   "cd /etc && mv a b"
+# An auto-allowed rename may not carry a path out of the `Read` deny globs.
+run $A ask   "mv backend/server.pem backend/server.txt"
+run $A none  "cp backend/secrets/token frontend/token.txt"   # cp has no prompt of its own,
+                                                            # so what matters is it is not allowed
+run $A ask   "mv $CWD/backend/credentials.json /tmp/x"
+run $A ask   "cd /tmp/does-not-exist; mv .claude/settings.json settings.bak"
+# A segment this hook cannot read whole may carry a redirect, and an earlier write can change
+# what a later operand resolves to — neither may ride along on an allow.
+run $A none  "cd /tmp >$OUT; mv /tmp/a /tmp/b"
+run $A none  "cp -r /tmp/tree /tmp/live; cp /tmp/payload /tmp/live/link"
+run $A ask   'mv /tmp/a/`printf ../../etc/x` /tmp/b'
+# A sibling checkout is a different root: its files are outside what the Read tool is confined
+# to, and copying them in would hand back what that confinement withholds.
+EE="$(dirname "$CWD")/windmill-ee-private"   # a sibling checkout; absent elsewhere, still not a root
+run $A ask   "mv $EE/backend/x.rs $CWD/backend/x.rs"
+run $A none  "cp $EE/README.md $CWD/README.copy"
+# Directory form writes a path the command does not name — DEST/basename(SRC) — and `cp`
+# follows that child when it is a symlink, as every `*_ee.rs` in this checkout is.
+run $A ask   "mv frontend/apps_ee.rs backend/windmill-api/src"
+run $A none  "cp frontend/apps_ee.rs backend/windmill-api/src"
+run $A none  "cp frontend/a.ts backend"
+run $A ask   "mv /tmp/a $CWD/backend"
+# ... and a `cd` that fails at runtime may not hide that form: the destination is a directory
+# in the directory the command actually ran in, whichever of the two that turns out to be.
+run $A none  "cd $CWD/AGENTS.md; cp frontend/apps_ee.rs backend/windmill-api/src"
+run $A ask   "cd $CWD/AGENTS.md; mv frontend/apps_ee.rs backend/windmill-api/src"
+run $A none  "cd /tmp/x && tar -xzf /tmp/a.tar.gz"   # no -C, and the cwd is now two candidates
+run $A allow "cp frontend/a.ts backend/a.ts"  # ... naming the destination proves fine
 
 echo
 [ "$fails" = 0 ] && echo "ALL PASS" || { echo "$fails FAILURES"; exit 1; }

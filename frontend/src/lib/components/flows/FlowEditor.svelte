@@ -35,6 +35,9 @@
 	import { Button } from '../common'
 	import { MousePointerClick, X } from 'lucide-svelte'
 	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
+	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
+	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
+	import { userStore } from '$lib/stores'
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
 	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
@@ -273,6 +276,12 @@
 		aiChatManager.flowOptions = options
 	})
 
+	// The step exists but is empty, so name it: a GLOBAL-mode request carries no
+	// implicit "current step" the way the old SCRIPT-mode generateStep did.
+	function stepInstructionsPrompt(moduleId: string, instructions: string): string {
+		return `Write the code for step \`${moduleId}\` of the flow open in the editor:\n\n${instructions}`
+	}
+
 	onMount(() => {
 		if (modalPanel) {
 			selectionManager.setOnSelectIntent((id, opts) => {
@@ -368,6 +377,32 @@
 						{showJobStatus}
 						on:reload
 						on:generateStep={({ detail }) => {
+							// The step is already inserted; the prompt describes what it should
+							// contain. Hand it to a session opened on that step rather than the
+							// docked chat, which sessions leave unmounted. Sent on arrival: the
+							// user already said what they wanted in the description field.
+							if (
+								!sessionScopedManager &&
+								sessionOpen &&
+								prefersSessionHandoff($userStore?.operator)
+							) {
+								void openSourceInSession(sessionOpen, {
+									previewParams: { selected: detail.moduleId },
+									seedPrompt: stepInstructionsPrompt(detail.moduleId, detail.instructions),
+									autoSend: true
+								})
+								return
+							}
+							// Already in a session: its chat is on screen, so ask it directly.
+							// Not `generateStep` — that forces the request into SCRIPT mode, and
+							// changeMode is persistent, so it would strand the session outside
+							// GLOBAL. Global mode writes step code through set_flow_module_code.
+							if (sessionScopedManager) {
+								sessionScopedManager.sendOrQueue(
+									stepInstructionsPrompt(detail.moduleId, detail.instructions)
+								)
+								return
+							}
 							if (!aiChatManager.open) {
 								aiChatManager.openChat()
 							}

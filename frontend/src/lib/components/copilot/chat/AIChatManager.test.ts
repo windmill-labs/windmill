@@ -6,6 +6,7 @@ import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
 
@@ -129,6 +130,9 @@ vi.mock('esm-env', async (importOriginal) => ({
 }))
 
 beforeEach(() => {
+	// These managers stand in for a mounted docked chat; without a layout to set
+	// it, sendRequest's "nowhere to render this turn" guard would refuse every send.
+	chatState.dockedChatAvailable = true
 	vi.clearAllMocks()
 	mocks.getCurrentModel.mockReturnValue(undefined)
 	mocks.tryGetCurrentModel.mockReturnValue(undefined)
@@ -171,6 +175,66 @@ function createFlowHelpers({
 		getLintErrors: vi.fn()
 	} as unknown as FlowAIChatHelpers
 }
+
+describe('AIChatManager unmounted-chat guard', () => {
+	// AI Sessions leave the docked pane unmounted, so an entry point that still
+	// drives this manager would otherwise stream and apply tool calls off-screen.
+	it('drops the turn when no chat UI is mounted, unless it is a session chat', async () => {
+		chatState.dockedChatAvailable = false
+		const docked = new AIChatManager()
+		docked.instructions = 'do a thing'
+		await docked.sendRequest()
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+
+		const session = new AIChatManager()
+		session.isSessionChat = true
+		session.instructions = 'do a thing'
+		await session.sendRequest()
+		expect(mocks.runChatLoop).toHaveBeenCalled()
+	})
+})
+
+describe('AIChatManager.sendOrQueue', () => {
+	// The programmatic senders (an editor's "AI Fix", an arriving hand-off) have no
+	// composer to enforce the composer's rule for them: a second loop on one manager
+	// shares its abort controller and transcript.
+	it('queues instead of starting a second turn while one is streaming', () => {
+		const manager = new AIChatManager()
+		manager.loading = true
+		manager.sendOrQueue('fix the failing run')
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.queuedMessage).toBe('fix the failing run')
+	})
+
+	it('sends straight away when idle', async () => {
+		const manager = new AIChatManager()
+		manager.sendOrQueue('fix the failing run')
+		await vi.waitFor(() => expect(mocks.runChatLoop).toHaveBeenCalled())
+		expect(manager.queuedMessage).toBe('')
+	})
+
+	// `loading` only rises after a send's attachment upkeep, so gating on it alone
+	// leaves a window where a second programmatic send slips through.
+	it('queues during a send that has not reached loading yet', async () => {
+		const manager = new AIChatManager()
+		let releaseUpkeep: (() => void) | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(
+			() => new Promise<void>((resolve) => (releaseUpkeep = resolve))
+		)
+		manager.instructions = 'first turn'
+		const sending = manager.sendRequest()
+		await vi.waitFor(() => expect(manager.sendInFlight).toBe(true))
+		expect(manager.loading).toBe(false)
+
+		manager.sendOrQueue('fix the failing run')
+		expect(manager.queuedMessage).toBe('fix the failing run')
+
+		// Drain before leaving: a send still in flight would run its epilogue
+		// (queue flush included) inside whichever test happens to be next.
+		releaseUpkeep?.()
+		await sending
+	})
+})
 
 describe('AIChatManager request errors', () => {
 	const openaiModel = { provider: 'openai', model: 'gpt-4o' }

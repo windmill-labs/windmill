@@ -166,9 +166,21 @@
 			files: initialFiles ?? []
 		}))
 	)
+	// Report edits, never the mount-time value. The first run carries whatever the
+	// composer was constructed with, which is not something the user did: a
+	// composer deliberately mounted empty (its text is already in flight, or
+	// belongs to a session this view is only keeping warm) would otherwise report
+	// '' and overwrite the very prompt it was withholding.
+	let draftReported = false
 	$effect(() => {
 		const text = draft.text
-		untrack(() => onDraftChange?.(text))
+		untrack(() => {
+			if (!draftReported) {
+				draftReported = true
+				return
+			}
+			onDraftChange?.(text)
+		})
 	})
 	// Images being decoded right now. Holds off sending so a message can never go
 	// out without an attachment the user already dropped, and reserves cap slots

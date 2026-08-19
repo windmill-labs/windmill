@@ -85,8 +85,12 @@
 			bind:this={outputPickerInner}
 		>
 			{#snippet copilot_fix()}
-				{#if lang && editor && diffEditor && stepsInputArgs.getStepArgs(mod.id) && selectedJob?.type === 'CompletedJob' && !selectedJob.success && getStringError(selectedJob.result)}
-					<ScriptFix {lang} />
+				{@const stepError =
+					selectedJob?.type === 'CompletedJob' && !selectedJob.success
+						? getStringError(selectedJob.result)
+						: undefined}
+				{#if lang && editor && diffEditor && stepsInputArgs.getStepArgs(mod.id) && stepError}
+					<ScriptFix {lang} error={stepError} jobId={selectedJob?.id} moduleId={mod.id} />
 				{/if}
 			{/snippet}
 		</OutputPickerInner>

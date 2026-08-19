@@ -15,6 +15,7 @@
 	}: Props = $props()
 </script>
 
+<!-- #3ECF8E per supabase.com/brand-assets. Forbids modifying or recolouring the mark. -->
 <svg
 	{width}
 	{height}

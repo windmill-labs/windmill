@@ -7,7 +7,10 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #000000 / #FFFFFF per rust-lang/rust-artwork. rust-lang.org ships only rust-logo-blk.svg
+	(pure black). -->
 <svg
+	class="text-[#000000] dark:text-[#FFFFFF]"
 	{height}
 	{width}
 	id="svg3430"

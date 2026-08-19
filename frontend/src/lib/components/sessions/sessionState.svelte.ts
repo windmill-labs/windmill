@@ -130,6 +130,14 @@ export type Session = {
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
 	draftPrompt?: string
+	// When `draftPrompt` should be sent on arrival rather than parked in the
+	// composer. Set by hand-offs whose click already stated the intent ("AI Fix",
+	// a typed step or app description), so they land mid-answer rather than
+	// waiting for a second Enter. Holds the arming time, not a flag: `goto`
+	// resolves even when a `beforeNavigate` cancels it, so an abandoned hand-off
+	// would otherwise leave a session armed forever and fire on some later visit.
+	// Consumed exactly once, by takeSessionAutoSend.
+	autoSendDraftAt?: number
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
@@ -321,9 +329,9 @@ const draftPromptFlushHandles = new Map<string, ReturnType<typeof setTimeout>>()
 export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s || s.workspace_id) return
-	// No-op on an unchanged prompt. Crucially, this treats the composer's
-	// mount-time onDraftChange('') as a non-touch (draftPrompt is undefined),
-	// so merely opening an untouched draft never persists it.
+	// No-op on an unchanged prompt, so opening an untouched draft never persists
+	// it. Writes of '' are real edits (a draft typed then erased is still a
+	// session), which is why the composer reports edits only — see AIChatInput.
 	if ((s.draftPrompt ?? '') === text) return
 	// Keep `transient` (means "in-memory only") set until the flush persists the
 	// draft, so hydrateSessions preserves it across a reconcile inside this window;
@@ -346,6 +354,44 @@ export function getSessionDraftPrompt(sessionId: string): string | undefined {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s || s.workspace_id) return undefined
 	return s.draftPrompt
+}
+
+// A hand-off arrives within a navigation; anything older than this is the debris
+// of one that never landed, and must not fire at whatever the user does next.
+const AUTO_SEND_TTL_MS = 5 * 60_000
+
+// Mark this session's draft prompt for sending on arrival. Written straight to
+// the record (not via setSessionDraftPrompt's debounce) because the navigation
+// that follows must not outrun it.
+export function setSessionAutoSend(sessionId: string): void {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s) return
+	s.autoSendDraftAt = Date.now()
+	persistTouched(s)
+}
+
+function autoSendIsFresh(s: Session | undefined): boolean {
+	return !!s?.autoSendDraftAt && Date.now() - s.autoSendDraftAt < AUTO_SEND_TTL_MS
+}
+
+// Whether a claim would be honoured, without consuming it. The composer asks
+// before deciding to stay empty: suppressing the text for an intent that then
+// goes stale would leave the prompt neither sent nor shown, and the composer's
+// own empty-draft write would erase it from the record.
+export function peekSessionAutoSend(sessionId: string): boolean {
+	return autoSendIsFresh(sessionState.sessions.find((x) => x.id === sessionId))
+}
+
+// Claim the auto-send intent, clearing it so a remount (or a second wrapper for
+// the same session) cannot fire the same prompt twice. A stale claim is dropped
+// rather than honoured, but still cleared — it has no other consumer.
+export function takeSessionAutoSend(sessionId: string): boolean {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s?.autoSendDraftAt) return false
+	const fresh = autoSendIsFresh(s)
+	delete s.autoSendDraftAt
+	persistTouched(s)
+	return fresh
 }
 
 // Persist a session on a genuine user edit, promoting an in-memory-only
