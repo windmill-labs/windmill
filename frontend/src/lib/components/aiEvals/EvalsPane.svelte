@@ -170,9 +170,10 @@
 			// See above.
 		}
 		// Only if it is still there: a dataset that was deleted or is no longer readable must not
-		// leave the run dialog offering one that has gone.
+		// leave the run dialog offering one that has gone. Brought into context rather than merely
+		// selected, so that what is selected is always something the pane has actually read.
 		if (remembered && datasets.some((d) => d.path === remembered)) {
-			selectedDataset = remembered
+			await useDataset(remembered)
 		}
 	}
 
@@ -440,8 +441,11 @@
 	 * which run is selected, so the list, the picker and a fresh run all open one the same way.
 	 */
 	async function openRun(id: string) {
+		// Against the dataset that is loaded, not the one that is selected: the two are the same
+		// once a dataset has been brought into context, and skipping on the selection alone would
+		// leave a run open over a dataset whose cases and scorers were never read.
 		const target = experiments.find((e) => e.id === id)
-		if (target && target.dataset !== selectedDataset) {
+		if (target && target.dataset !== dataset?.path) {
 			await useDataset(target.dataset)
 		}
 		const index = experiments.findIndex((e) => e.id === id)
@@ -463,7 +467,7 @@
 				requestBody: { dataset: path, subject: runSubject }
 			})
 			// Running a dataset is also choosing it: what you started is what the pane is now about.
-			if (path !== selectedDataset) await useDataset(path)
+			if (path !== dataset?.path) await useDataset(path)
 			await loadRuns()
 			// Straight into the run that was just started: it is the one thing on screen that is
 			// still changing, and watching it is why you pressed Run.
@@ -1187,8 +1191,3 @@
 	onCasesChanged={casesChanged}
 	onScorersChanged={scorersChanged}
 />
-
-
-
-
-
