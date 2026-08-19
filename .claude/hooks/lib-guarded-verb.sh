@@ -10,6 +10,45 @@
 # expand a glob operand against the filesystem. Neither guard relies on pathname expansion.
 set -f
 
+# Canonical absolute path: `..` and existing symlinks resolved, missing trailing components
+# allowed. Resolving symlinks is the load-bearing half — a lexical normalizer would collapse
+# `/tmp/link/..` without seeing where `link` points, and let an operand out of its root.
+# GNU `realpath -m` is exactly this; BSD realpath on macOS has no `-m` and exits on it, which
+# would leave every operand unresolvable and every delete prompting, so fall back to python3's
+# os.path.realpath, which has the same semantics. Trying rather than probing keeps the cost off
+# the Bash calls that never reach a path check — most of them. With neither available this
+# prints nothing, and every caller treats that as "cannot prove".
+canon_path() {
+  local out
+  out=$(realpath -m -- "$1" 2>/dev/null) && [ -n "$out" ] && { printf '%s' "$out"; return; }
+  python3 -c 'import os,sys;sys.stdout.write(os.path.realpath(sys.argv[1]))' "$1" 2>/dev/null
+}
+
+# The roots every class is anchored to, in the form a canonicalized operand comes back in. On
+# macOS /tmp is a symlink to /private/tmp, so a resolved scratch path never starts with `/tmp`
+# and matching the literal would put every scratch path outside every class. Both exist, so
+# `cd -P` resolves them without the process canon_path would spawn on every sourcing.
+TMP_ROOT=$(cd -P -- /tmp 2>/dev/null && pwd)
+[ -n "$TMP_ROOT" ] || TMP_ROOT=/tmp
+HOME_ROOT=""
+[ -n "${HOME:-}" ] && HOME_ROOT=$(cd -P -- "$HOME" 2>/dev/null && pwd)
+
+# Prints <token> ($1) with a leading `~/`, `$HOME/` or `${HOME}/` — and those three words on
+# their own — replaced by the home directory, so the ordinary spelling of a path outside every
+# checkout can still be proved. Only that prefix and only those spellings: `~user/` names another
+# account, and any other `$` is an expansion nothing here can evaluate, so both stay in the token
+# and fail the caller's charset check. A quoted token keeps its quotes and fails there too.
+expand_home_prefix() {
+  [ -n "$HOME_ROOT" ] || { printf '%s' "$1"; return; }
+  case "$1" in
+    '~' | '$HOME' | '${HOME}') printf '%s' "$HOME_ROOT" ;;
+    '~/'*) printf '%s/%s' "$HOME_ROOT" "${1#'~/'}" ;;
+    '$HOME/'*) printf '%s/%s' "$HOME_ROOT" "${1#'$HOME/'}" ;;
+    '${HOME}/'*) printf '%s/%s' "$HOME_ROOT" "${1#'${HOME}/'}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 # 0 iff <text> ($1) starts with a command that only reads its input. An allowlist, because the
 # opposite — naming the shells to avoid — would have to be complete: an unlisted one (`ash`,
 # `rbash`, `busybox sh`) executes the body while the guard calls it data. Unrecognized here only
@@ -193,15 +232,16 @@ apply_cd() {
   local cwd="$1" t
   shift
   [ "$#" -eq 1 ] || return 1
-  t="$1"
+  t=$(expand_home_prefix "$1")
   [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/-')" ] && return 1
   # Absolute only. A relative destination is not `$cwd/$t`: the shell searches $CDPATH first,
   # so `cd ssh` may land in /etc/ssh, and this cannot see the caller's $CDPATH to rule it out.
   case "$t" in /*) ;; *) return 1 ;; esac
-  realpath -m -- "$t" 2>/dev/null
+  canon_path "$t"
 }
 
-# Prints the class of a canonical path and returns 0: `tmp` for one strictly under /tmp, or
+# Prints the class of a canonical path and returns 0: `tmp` for one strictly under /tmp,
+# `mcp-cache` for one in a browser-automation cache the MCP servers rebuild on demand, or
 # `repo:<root>` for one strictly inside the git working tree at <root>, itself under $HOME.
 # Fails, printing nothing, for anything else — those are the only roots the guards are willing
 # to touch unprompted. The root is part of the class so that a caller pairing two operands can
@@ -232,11 +272,25 @@ path_class() {
     *.pem | *.key | *"/credentials.json") return 1 ;;
     *"/.secret"* | *.secret | *.secrets) return 1 ;;
   esac
-  case "$canon" in /tmp/?*) printf 'tmp'; return 0 ;; esac
-  [ -n "${HOME:-}" ] || return 1
-  case "$canon" in "$HOME"/?*) ;; *) return 1 ;; esac
+  case "$canon" in "$TMP_ROOT"/?*) printf 'tmp'; return 0 ;; esac
+  [ -n "$HOME_ROOT" ] || return 1
+  # The Playwright MCP servers download browsers into `ms-playwright` and open a throwaway
+  # profile per session under `ms-playwright-mcp`; nothing prunes either, so they grow without
+  # bound (10G here) and clearing one costs a re-download and nothing else. They sit outside
+  # every checkout, where no other class reaches them. Matched including the root itself,
+  # unlike the repo class, because wiping the whole directory is the point.
+  case "$canon" in
+    "$HOME_ROOT"/Library/Caches/ms-playwright | "$HOME_ROOT"/Library/Caches/ms-playwright/* \
+      | "$HOME_ROOT"/Library/Caches/ms-playwright-mcp* \
+      | "$HOME_ROOT"/.cache/ms-playwright | "$HOME_ROOT"/.cache/ms-playwright/* \
+      | "$HOME_ROOT"/.cache/ms-playwright-mcp*)
+      printf 'mcp-cache'
+      return 0
+      ;;
+  esac
+  case "$canon" in "$HOME_ROOT"/?*) ;; *) return 1 ;; esac
   d="$canon"
-  while [ "$d" != "/" ] && [ "$d" != "$HOME" ]; do
+  while [ "$d" != "/" ] && [ "$d" != "$HOME_ROOT" ]; do
     [ -e "$d/.git" ] && { root="$d"; break; }
     d=$(dirname "$d")
   done

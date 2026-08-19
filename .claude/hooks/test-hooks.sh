@@ -58,6 +58,12 @@ run $G ask   "rm -rf $CWD/.env.local"
 run $G $ROOT_SOLO "rm -rf $CWD"
 run $G ask   "rm -rf $CWD/*"
 run $G ask   "rm -rf /etc/passwd"
+# The MCP caches are the one allowed root outside /tmp and the checkouts, and `~/` and `$HOME/`
+# the one expansion the charset check tolerates — so the row that matters is the one proving the
+# prefix does not carry anything else along with it.
+run $G allow "rm -rf ~/Library/Caches/ms-playwright-mcp"
+run $G allow 'rm -rf $HOME/Library/Caches/ms-playwright-mcp/mcp-chrome-*'
+run $G ask   "rm -rf ~/not-a-git-tree"
 run $G ask   'rm -rf "$HOME/x"'
 run $G ask   "rm -rf /tmp/../$OUT"
 run $G none  "ls /tmp && rm -rf /tmp/x"   # proved delete, unexamined neighbour
