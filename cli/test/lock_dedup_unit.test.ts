@@ -17,8 +17,12 @@
 
 import { expect, test, describe } from "bun:test";
 import { stringify as yamlStringify } from "yaml";
+import * as path from "node:path";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import {
   applySharedLockPlanToMap,
+  collectExistingSharedLocks,
   computeSharedLockPlan,
   isEmptySharedLockPlan,
   scriptsReferencingSharedLock,
@@ -348,5 +352,37 @@ describe("scriptsReferencingSharedLock", () => {
   test("reports none for a shared file nothing reads", () => {
     const map: Record<string, string> = { [SHARED_PY]: PY_LOCK };
     expect(scriptsReferencingSharedLock(map, SHARED_PY)).toEqual([]);
+  });
+});
+
+describe("collectExistingSharedLocks", () => {
+  test("counts every reader, and only the ones in the workspace", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "wmill-dedup-"));
+    try {
+      const write = async (rel: string, content: string) => {
+        const full = path.join(root, ...rel.split("/"));
+        await mkdir(path.dirname(full), { recursive: true });
+        await writeFile(full, content, "utf-8");
+      };
+      const readsShared = meta(`!inline ${SHARED_PY}`);
+      await write(SHARED_PY, PY_LOCK);
+      await write("f/team/a.script.yaml", readsShared);
+      // A folder named after a build directory is still a Windmill folder: a
+      // script hidden from this scan is the one the scan exists to protect.
+      await write("f/team/dist/b.script.yaml", readsShared);
+      // The stateful-push mirror holds copies, not scripts — counting them as
+      // readers would freeze the shared file's content.
+      await write(".wmill/f/team/a.script.yaml", readsShared);
+
+      const existing = await collectExistingSharedLocks(root);
+
+      expect([...existing.refs.keys()].sort()).toEqual([
+        "f/team/a.script.yaml",
+        "f/team/dist/b.script.yaml",
+      ]);
+      expect(existing.contents.get(SHARED_PY)).toEqual(PY_LOCK);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
