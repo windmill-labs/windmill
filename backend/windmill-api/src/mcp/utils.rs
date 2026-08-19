@@ -458,9 +458,8 @@ pub fn build_request_body(
 ) -> BackendResult<Option<Value>> {
     let body = assemble_request_body(tool, args_map);
 
-    // Such a call would come back as a bare 415, leaving the caller to work out what
-    // was wrong with arguments its input schema accepted. The fields it could have
-    // filled are not expressible in that schema, so name them here.
+    // The fields that would have satisfied it are not expressible in the tool's input
+    // schema, so name them here rather than dispatching a call that cannot succeed.
     if body.is_none() {
         if let Some(fields) = non_empty_body_fields(tool) {
             return Err(ErrorData::invalid_params(
