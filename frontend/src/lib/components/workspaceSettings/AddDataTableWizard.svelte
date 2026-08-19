@@ -46,7 +46,7 @@
 	import {
 		composePostgresConnectionString,
 		parsePostgresConnectionString,
-		unsupportedConnectionParam
+		connectionParamRefusal
 	} from '$lib/utils/postgresConnectionString'
 	import {
 		clearProbe,
@@ -203,10 +203,7 @@
 		const text = wiz.own.connectionString
 		if (!text) return undefined
 		if (!parsePostgresConnectionString(text)) return 'That is not a Postgres connection string.'
-		const unsupported = unsupportedConnectionParam(text)
-		return unsupported
-			? `Windmill cannot store ${unsupported} on a Postgres resource, and ignoring it would connect differently from what this string asks for. Remove it, or set the connection with the fields.`
-			: undefined
+		return connectionParamRefusal(text)
 	})
 	let resourcePath = $derived(resourcePathOf(wiz))
 
@@ -326,7 +323,7 @@
 			// reached yet: the review step is where the folder becomes theirs. A resumed run has
 			// already chosen one -- reseeding would move its secret out from under the path claim
 			// it came back to finish.
-			if (wiz.step < 3 && !resume?.resourcePath) wiz.review.folder = defaultFolder(usable)
+			if (wiz.step < 3 && !resumedPath) wiz.review.folder = defaultFolder(usable)
 			return usable
 		}
 	)
@@ -353,7 +350,14 @@
 			})
 	})
 
+	/**
+	 * The path a resumed run came back to finish, taken from whatever `reset` was given rather
+	 * than the `resume` prop, so the two cannot disagree about which run is being restored.
+	 */
+	let resumedPath = $state<string | undefined>(undefined)
+
 	function reset(from: WizardResume | undefined) {
+		resumedPath = from?.resourcePath
 		wiz = newWizardState({
 			name: from?.name || defaultTableName(),
 			projectName: from?.projectName || defaultProjectName(),

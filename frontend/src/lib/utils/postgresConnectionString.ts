@@ -108,6 +108,23 @@ export function unsupportedConnectionParam(connectionString: string): string | u
 }
 
 /**
+ * Why the string cannot be saved, in the terms the reader needs. Two refusals come out of the
+ * check above and they call for opposite fixes: a name Postgres does not accept at all, where
+ * the parameter itself is fine and only its spelling is wrong, and a parameter this resource
+ * has no field for, where respelling it changes nothing.
+ */
+export function connectionParamRefusal(connectionString: string): string | undefined {
+	const name = unsupportedConnectionParam(connectionString)
+	if (!name) return undefined
+	const lower = name.toLowerCase()
+	const storableWhenSpelledRight =
+		REPRESENTABLE_PARAMS.includes(lower) || COSMETIC_PARAMS.includes(lower)
+	return storableWhenSpelledRight
+		? `Postgres does not accept ${name}: connection parameter names are case-sensitive. Write it as ${lower}.`
+		: `Windmill cannot store ${name} on a Postgres resource, and ignoring it would connect differently from what this string asks for. Remove it, or set the connection with the fields.`
+}
+
+/**
  * Every part that was set is emitted, `sslmode` included. Leaving `prefer` out because it is
  * libpq's own default would be shorter, but it does not survive the trip: a caller that
  * reparses this string gets `undefined` back and substitutes its own default, which is how an
