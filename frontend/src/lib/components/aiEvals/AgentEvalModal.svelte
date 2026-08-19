@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
 	import type { EvalCaseDraft } from '$lib/gen'
 	import EvalsPane from './EvalsPane.svelte'
 	import { fromCaptureDraft } from './evalCaseUtils'
@@ -23,6 +23,10 @@
 
 	// A capture names the agent it ran against, which is the agent whose dataset it belongs in.
 	let path = $derived(agentPath ?? capture?.agent_path)
+
+	// Where the pane is, so the header carries it. The dialog owns the frame and the pane owns the
+	// navigating, which is why the trail comes up from it rather than being decided here.
+	let trail = $state<ModalTrailSegment[] | undefined>(undefined)
 </script>
 
 <!-- A dialog rather than a drawer: what it holds is a screen of its own — a history, then a run of
@@ -32,6 +36,7 @@
      in. The `sm:` widths are what actually win — the dialog's own are breakpoint-prefixed. -->
 <Modal
 	title="Evals"
+	{trail}
 	bind:open
 	kind="X"
 	class="w-[90vw] sm:w-[90vw] max-w-[1400px] sm:max-w-[1400px] h-[85vh]"
@@ -43,6 +48,7 @@
 				agentPath={path}
 				{opWorkspace}
 				capture={capture ? fromCaptureDraft(capture) : undefined}
+				bind:trail
 			/>
 		{:else}
 			<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">

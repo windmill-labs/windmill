@@ -1,5 +1,16 @@
+<script module lang="ts">
+	/** One level of where you are inside a dialog. The last is the level you are on; the ones
+	 *  before it carry the way back. */
+	export type ModalTrailSegment = {
+		label: string
+		/** Absent on the level you are on, and on any ancestor that cannot be returned to. */
+		onclick?: () => void
+	}
+</script>
+
 <script lang="ts">
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
+	import { ChevronRight } from 'lucide-svelte'
 	import { getOverlayHost, overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 
 	const bubble = createBubbler()
@@ -20,6 +31,11 @@
 		style?: string
 		cancelText?: string | undefined
 		kind?: 'button' | 'X'
+		/** Where you are inside the dialog, appended to the title as a breadcrumb. Levels below
+		 * the title, so a dialog showing its own root passes nothing. The header is the one part
+		 * of the surface that does not move, which is why the way back belongs in it rather than
+		 * in a control each body places for itself. */
+		trail?: ModalTrailSegment[]
 		/** Make the dialog fill the height it is anchored to and lay its body out as a flex
 		 * column, so content can size itself with `h-full` / `flex-1 min-h-0`. Off by default:
 		 * the dialog otherwise hugs its content, and percentage heights inside it do not
@@ -41,6 +57,7 @@
 		style = '',
 		cancelText = undefined,
 		kind = 'button',
+		trail = undefined,
 		fillHeight = false,
 		minZIndex: minZIndexProp = undefined,
 		settings,
@@ -79,6 +96,10 @@
 	function onKeyDown(event: KeyboardEvent) {
 		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
 		if (!hostActive()) return
+		// This dialog keeps Escape for itself (`preventEscape` below), so nothing else arbitrates
+		// between it and whatever is stacked over it: without this, a drawer opened from inside the
+		// dialog would take Escape and the dialog would act on it too.
+		if (!disposable?.isTopmost()) return
 		if (open) {
 			switch (event.key) {
 				case 'Enter':
@@ -86,12 +107,21 @@
 					event.preventDefault()
 					dispatch('confirmed')
 					break
-				case 'Escape':
+				case 'Escape': {
 					event.stopPropagation()
 					event.preventDefault()
-					open = false
-					dispatch('canceled')
+					// Inside a dialog that holds levels, Escape leaves the level rather than the
+					// dialog: closing outright would throw away the surface someone navigated into,
+					// which is the one thing they did not ask for. It still closes at the root.
+					const back = trail && trail.length > 1 ? trail[trail.length - 2] : undefined
+					if (back?.onclick) {
+						back.onclick()
+					} else {
+						open = false
+						dispatch('canceled')
+					}
 					break
+				}
 			}
 		}
 	}
@@ -152,8 +182,36 @@
 									<!-- min-w-0: without it this flex item takes its content's min-content width and
 									     stretches the modal past its max-width instead of letting content shrink. -->
 									<div class="text-left flex-1 min-w-0 {fillHeight ? 'flex flex-col min-h-0' : ''}">
-										<div class="flex flex-row items-center justify-between">
-											<h3 class="text-emphasis text-lg font-semibold">{title}</h3>
+										<!-- pr-8 under `kind="X"`: the close button is positioned against the
+										     dialog rather than laid out in this row, so a long trail would
+										     otherwise run under it. -->
+										<div
+											class="flex flex-row items-center justify-between gap-2 min-w-0 {kind === 'X'
+												? 'pr-8'
+												: ''}"
+										>
+											<nav
+												aria-label="Breadcrumb"
+												class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold"
+											>
+												<h3 class="text-emphasis shrink-0">{title}</h3>
+												{#each trail ?? [] as segment, i (i)}
+													<ChevronRight size={18} class="text-tertiary shrink-0" />
+													{#if segment.onclick}
+														<button
+															type="button"
+															class="text-secondary hover:text-emphasis hover:underline truncate"
+															onclick={segment.onclick}
+														>
+															{segment.label}
+														</button>
+													{:else}
+														<span class="text-emphasis truncate" aria-current="page">
+															{segment.label}
+														</span>
+													{/if}
+												{/each}
+											</nav>
 											{@render settings?.()}
 										</div>
 

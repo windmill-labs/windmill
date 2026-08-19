@@ -35,7 +35,6 @@
 		Minus,
 		Bot,
 		Code2,
-		ChevronLeft,
 		Pencil,
 		ExternalLink
 	} from 'lucide-svelte'
@@ -43,6 +42,7 @@
 	import EvalRunResult from './EvalRunResult.svelte'
 	import EvalRunsList from './EvalRunsList.svelte'
 	import EvalRunDialog from './EvalRunDialog.svelte'
+	import type { ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
 	import { caseLabel, type CaseDraft } from './evalCaseUtils'
 	import { experimentName, subjectLabel } from './evalRuns'
 	import { formatDelta, formatScore, passedBy, scorerLabel } from './evalScorers'
@@ -51,7 +51,8 @@
 	let {
 		agentPath,
 		opWorkspace = undefined,
-		capture = undefined
+		capture = undefined,
+		trail = $bindable()
 	}: {
 		/** The agent under test. A dataset and its runs belong to an agent, so an agent that has
 		 * never been saved has nothing to hang them on. */
@@ -61,6 +62,9 @@
 		opWorkspace?: string
 		/** A case captured from an AI agent run, opened for review before saving. */
 		capture?: CaseDraft
+		/** Where the pane is, reported up so the surface holding it can put the way back in its
+		 * header. The pane navigates; where that shows belongs to whoever owns the frame. */
+		trail?: ModalTrailSegment[]
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $workspaceStore)
@@ -603,6 +607,18 @@
 		subjectLabel(e, deployedHash, currentVersion)
 	)
 
+	/** Where the pane is, reported to whatever frames it. Named as the run picker names a run,
+	 *  without the case count: a header says where you are, not everything the row said. */
+	$effect(() => {
+		const run = viewingRun ? experiments.find((e) => e.id === experimentId) : undefined
+		trail = run
+			? [
+					{ label: 'All runs', onclick: () => (viewingRun = false) },
+					{ label: `${experimentName(run)} · ${subjectLabelOf(run)}` }
+				]
+			: undefined
+	})
+
 	// The pickers inside a run offer that dataset's runs only: they select by id without bringing a
 	// dataset with them, and a run of another set of cases is not a comparison for this one.
 	let experimentItems = $derived(
@@ -737,19 +753,9 @@
 		{/if}
 	</div>
 	<div class="flex items-center gap-2 px-3 pb-2 border-b">
-		{#if viewingRun && experiment}
-			<!-- The way back to the runs, beside the run it takes you back from: a drawer has no
-			     browser back, and the picker beside it only changes which run, never that you are in
-			     one. -->
-			<Button
-				size="xs"
-				variant="subtle"
-				startIcon={{ icon: ChevronLeft }}
-				onclick={() => (viewingRun = false)}
-			>
-				All runs
-			</Button>
-		{/if}
+		<!-- The way back lives in the dialog's header, beside the name of the run it takes you back
+		     from, rather than in this row: the header is the one part of the surface that does not
+		     move, and a control here would move with everything else this row holds. -->
 		<div class="grow"></div>
 		<!-- Only inside a run: it acts on the dataset that run was of, and on the list there is no one
 		     dataset to act on. Its cases and its columns are both in there: what a run measures with
