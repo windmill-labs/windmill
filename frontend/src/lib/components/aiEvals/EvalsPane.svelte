@@ -733,17 +733,18 @@
 		<div class="grow"></div>
 		{#if !viewingRun}
 			<!-- Only on the list, and only this: a run is a record, so there is nothing on it to
-			     start. Run asks what to run — which state of the agent, against which dataset — and
-			     neither is implied by where you happen to be standing. -->
+			     start. Named for what it opens rather than for what that then does: it asks which
+			     state of the agent and which dataset, and both cost a provider bill, so a button
+			     that reads as spending one on the way past would be lying about the click. -->
 			<Button
 				size="xs"
 				variant="accent"
-				startIcon={{ icon: Play }}
+				startIcon={{ icon: Plus }}
 				loading={running}
 				disabled={running || !agentPath}
 				onclick={() => (runDialogOpen = true)}
 			>
-				Run
+				New evaluation
 			</Button>
 		{/if}
 	</div>

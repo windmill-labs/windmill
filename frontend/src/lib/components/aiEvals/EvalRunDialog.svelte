@@ -144,7 +144,7 @@
 	<div class="flex flex-col gap-6 min-w-96">
 		<Label
 			label="Agent version"
-			tooltip="The saved agent is resolved when the run executes, the way a flow step does. Its draft and any earlier version are inlined as they are, which is the only way to run either."
+			tooltip="The saved agent is resolved when the run executes, as it is in production. Its draft and any earlier version are inlined as they are, which is the only way to run either."
 		>
 			<!-- The two worth naming are the two you are choosing between while editing; every
 			     earlier version is one click further, since running one is a deliberate act. -->
@@ -154,14 +154,14 @@
 						<ToggleButton
 							value="draft"
 							label={latest ? `v${latest} draft` : 'Draft'}
-							tooltip="The edits waiting on the agent, which is what a flow step would not run."
+							tooltip="The edits waiting on the agent, as they are before saving."
 							{item}
 						/>
 					{/if}
 					<ToggleButton
 						value="deployed"
 						label={latest ? `v${latest} (latest)` : 'Latest'}
-						tooltip="The saved agent, resolved when the run executes."
+						tooltip="The agent as saved, resolved when the run executes."
 						{item}
 					/>
 					{#if olderItems.length > 0}
