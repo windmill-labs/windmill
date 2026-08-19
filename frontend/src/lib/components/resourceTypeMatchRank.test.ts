@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sortResourceTypesByMatch } from './resourceTypeDisplay'
+import { resourceTypeDisplayName, sortResourceTypesByMatch } from './resourceTypeDisplay'
 
 // Descriptions abridged from the hub.
 const TYPES = [
@@ -46,5 +46,19 @@ describe('sortResourceTypesByMatch', () => {
 
 	it('keeps the incoming order for an empty query', () => {
 		expect(sorted('  ')).toEqual(TYPES.map((t) => t.name))
+	})
+})
+
+describe('resourceTypeDisplayName', () => {
+	it('takes the whole-name override when there is one', () => {
+		expect(resourceTypeDisplayName('ms_sql_server')).toBe('Microsoft SQL Server')
+	})
+
+	it('drops the custom-type prefix and re-cases the rest', () => {
+		expect(resourceTypeDisplayName('c_acme_api')).toBe('Acme API')
+	})
+
+	it('capitalizes anything the tables do not cover', () => {
+		expect(resourceTypeDisplayName('stripe')).toBe('Stripe')
 	})
 })

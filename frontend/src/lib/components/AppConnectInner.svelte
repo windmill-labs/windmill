@@ -110,9 +110,10 @@
 	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
 		$state(undefined)
 	let resourceTypeDescriptions: Record<string, string> = $state({})
-	// The hub sync writes into the `admins` workspace, where every workspace reads them from;
-	// a type sitting in this workspace was defined here. `created_by` looks like the same
-	// signal but isn't: seeded hub types carry a username too.
+	// Types made in this workspace, by the `c_` prefix the resources page adds or by the
+	// workspace they live in — the hub sync writes its own into `admins`, which every
+	// workspace reads from. `created_by` looks like the same signal but isn't: seeded hub
+	// types carry a username too.
 	let customResourceTypes: Set<string> = $state(new Set())
 
 	// Hub descriptions are markdown; a row shows one line of it, where fenced blocks and
@@ -434,6 +435,9 @@
 		const availableRts = await ResourceService.listResourceTypeNames({
 			workspace: effectiveWorkspace
 		})
+		// The prefix alone identifies a workspace-made type, and it rides on the names call the
+		// list already needs — so the custom section survives the full list below 403ing.
+		customResourceTypes = new Set(availableRts.filter(isCustomResourceTypeName))
 
 		// Descriptions only feed search, so they are fetched off the critical path and
 		// allowed to fail: `resources/type/list` is not on the public app domain's route
@@ -446,14 +450,13 @@
 				resourceTypeDescriptions = Object.fromEntries(
 					types.filter((t) => t.description).map((t) => [t.name, t.description!])
 				)
-				customResourceTypes = new Set(
-					types
-						.filter(
-							(t) =>
-								isCustomResourceTypeName(t.name) || (t.workspace_id && t.workspace_id !== 'admins')
-						)
-						.map((t) => t.name)
-				)
+				// A type sitting in this workspace was made here too, but only the full list carries
+				// `workspace_id`. Inside `admins` the two are indistinguishable — every type lives
+				// there — so the prefix is all there is to go on.
+				customResourceTypes = new Set([
+					...customResourceTypes,
+					...types.filter((t) => t.workspace_id && t.workspace_id !== 'admins').map((t) => t.name)
+				])
 			})
 			.catch(() => {})
 
@@ -1008,16 +1011,31 @@
 		untrack(() => (highlightedIndex = filter === '' ? -1 : bestMatchIndex()))
 	})
 
+	// Scrolling rows under a resting pointer makes the browser fire `mouseenter` on each one,
+	// which would drag the highlight back under the cursor as the arrow keys move it. Only a
+	// real pointer move hands the highlight back to the mouse.
+	let pointerOwnsHighlight = $state(true)
+
+	function highlightHovered(index: number) {
+		if (pointerOwnsHighlight) highlightedIndex = index
+	}
+
 	function moveHighlight(delta: number) {
 		const count = navItems.length
 		if (count === 0) return
+		pointerOwnsHighlight = false
+		// Rows are tabbable buttons, so focus can sit on one. Enter then activates whatever is
+		// focused, which has to stay the highlighted row.
+		const rowWasFocused = document.activeElement?.id?.startsWith('resource-type-row-') ?? false
 		highlightedIndex =
 			highlightedIndex < 0
 				? delta > 0
 					? 0
 					: count - 1
 				: (highlightedIndex + delta + count) % count
-		document.getElementById(rowDomId(highlightedIndex))?.scrollIntoView({ block: 'nearest' })
+		const row = document.getElementById(rowDomId(highlightedIndex))
+		row?.scrollIntoView({ block: 'nearest' })
+		if (rowWasFocused) row?.focus()
 	}
 
 	function onListKeydown(e: KeyboardEvent) {
@@ -1026,8 +1044,7 @@
 			e.preventDefault()
 			moveHighlight(e.key === 'ArrowDown' ? 1 : -1)
 		} else if (e.key === 'Enter' && (e.target as HTMLElement)?.id === SEARCH_INPUT_ID) {
-			// Rows are buttons, so Enter on a focused row already activates it; this only
-			// covers Enter typed in the search field.
+			// A focused row activates itself on Enter; this covers Enter typed in the search field.
 			const item = navItems[highlightedIndex]
 			if (!item) return
 			e.preventDefault()
@@ -1059,7 +1076,7 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<!-- Arrow keys and Enter are caught here so they work whether the search field or a row
 		     holds focus. -->
-		<div onkeydown={onListKeydown}>
+		<div onkeydown={onListKeydown} onpointermove={() => (pointerOwnsHighlight = true)}>
 			<!-- The list runs to a few hundred rows, so the search stays reachable while scrolling.
 			     `before` paints the scroll container's own top padding, which rows would otherwise
 			     scroll through above the bar; a negative top margin would drag the whole list up
@@ -1104,8 +1121,8 @@
 			{#snippet resourceButton(key: string, index: number, oauth: boolean)}
 				<Button
 					id={rowDomId(index)}
-					aiId={`app-connect-inner-${key}`}
-					aiDescription={`Connect to ${key}`}
+					aiId={`app-connect-inner-${oauth ? 'oauth-' : ''}${key}`}
+					aiDescription={`Connect to ${key}${oauth ? ' with the instance OAuth client' : ''}`}
 					unifiedSize="md"
 					variant="subtle"
 					btnClasses={twMerge(
@@ -1117,7 +1134,7 @@
 						// hover was turned off just above.
 						index === highlightedIndex ? '!bg-surface-hover' : ''
 					)}
-					on:mouseenter={() => (highlightedIndex = index)}
+					on:mouseenter={() => highlightHovered(index)}
 					on:click={() => (oauth ? connectOauth(key) : selectFromOthers(key))}
 				>
 					{@render resourceRow(key)}

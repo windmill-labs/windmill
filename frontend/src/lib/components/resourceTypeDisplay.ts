@@ -74,12 +74,6 @@ export function sortResourceTypesByMatch<T>(
 		.map((entry) => entry.item)
 }
 
-/** Human-facing label for a resource type: `git_repository` -> `Git repository`. */
-export function resourceTypeLabel(name: string): string {
-	const spaced = name.replace(/_/g, ' ')
-	return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
-
 /**
  * Casing for name parts that capitalizing the first letter gets wrong — acronyms, and brands
  * that carry a capital inside the word. Anything absent is capitalized, which is right for
@@ -225,9 +219,13 @@ export function resourceTypeDisplayName(name: string): string {
 		.join(' ')
 }
 
-/** "Add **a** Supabase resource" / "Add **an** Airtable resource". */
-export function resourceTypeArticle(name: string): string {
-	return /^[aeiou]/i.test(name) ? 'an' : 'a'
+/**
+ * "Add **a** Supabase resource" / "Add **an** Airtable resource". Takes the display label, so
+ * a leading acronym is read out letter by letter: "an S3 resource", "an MCP resource".
+ */
+export function resourceTypeArticle(label: string): string {
+	const spokenAsVowel = /^[AEFHILMNORSX]([A-Z0-9]|$)/.test(label)
+	return spokenAsVowel || /^[aeiou]/i.test(label) ? 'an' : 'a'
 }
 
 /** Drawer title for creating a resource, named after its type once one is picked. */
