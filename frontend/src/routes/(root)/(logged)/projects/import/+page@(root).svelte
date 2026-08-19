@@ -47,8 +47,15 @@
 	const slug = $derived(plan.slug)
 	const logoutReturnTo = $derived($page.url.pathname + $page.url.search)
 
-	function go(next: Partial<ImportPlan>, step: WizardStep) {
-		goto(`/projects/import${planToSearch({ ...plan, ...next }, step)}`)
+	// `replace` for anything the page decides on its own — a correction, or mirroring
+	// a field into the plan. Those must not become history entries: the user did not
+	// ask for them, and a pushed entry is one the Back button has to walk through
+	// before it reaches the step they actually came from. `goto` forwards its options
+	// to SvelteKit, which defaults `replaceState` to false.
+	function go(next: Partial<ImportPlan>, step: WizardStep, opts?: { replace?: boolean }) {
+		goto(`/projects/import${planToSearch({ ...plan, ...next }, step)}`, {
+			replaceState: opts?.replace ?? false
+		})
 	}
 
 	// ---------------------------------------------------------------- permissions
@@ -160,7 +167,7 @@
 	// Steps 2 and 3 both refine an answer step 1 gives, so a URL that reaches them
 	// without a destination is missing that answer rather than holding a default.
 	$effect(() => {
-		if (step > 1 && !plan.destination) go({}, 1)
+		if (step > 1 && !plan.destination) go({}, 1, { replace: true })
 	})
 
 	// Suffixing happens here rather than reactively on step 2: it is a consequence of
@@ -277,7 +284,7 @@
 									<Plus size={14} class="text-secondary" />
 								{/snippet}
 								{#snippet description()}
-									Creates <span class="font-medium text-primary">{name}</span> and imports
+									Creates <span class="font-medium text-primary">{name || slug}</span> and imports
 									{itemsLabel} into it.
 								{/snippet}
 							</RadioCard>
@@ -417,7 +424,7 @@
 			<ImportProjectStep
 				{plan}
 				{project}
-				onFolderChange={(folder) => go({ folder }, 3)}
+				onFolderChange={(folder) => go({ folder }, 3, { replace: true })}
 				onFinish={finish}
 				onBack={() => go({}, 2)}
 			/>

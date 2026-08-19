@@ -106,9 +106,7 @@
 				} else {
 					goto(rd ?? '/')
 				}
-				// The import wizard picks the destination workspace itself, so sending it to
-				// the workspace picker first asks the same question twice — and the wizard
-				// may end in a workspace that does not exist yet.
+				// See (root)/+layout.svelte for why /projects/import skips the picker.
 			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith('/projects/import')) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {

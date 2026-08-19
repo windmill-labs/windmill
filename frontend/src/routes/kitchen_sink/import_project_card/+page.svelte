@@ -20,7 +20,7 @@
 
 	// Design bench for the hub import card. No auth, no API — everything on this
 	// page is local state, so the card can be tweaked and re-rendered instantly.
-	// The card ships inside CenteredModal on /user/workspaces, whose content box is
+	// The card ships inside CenteredModal on /projects/import, whose content box is
 	// `max-w-[640px]` with `sm:px-10`: 560px of usable width, which is the frame the
 	// card is previewed in below.
 	const MODAL_CONTENT_WIDTH = 560

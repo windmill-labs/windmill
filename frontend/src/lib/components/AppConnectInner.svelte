@@ -1146,7 +1146,13 @@
 								{/if}
 							</div>
 						{:else}
-							<div class="flex flex-col gap-2 mb-2">
+							<!-- role=radiogroup: the cards below carry `role="radio"`, which a screen
+							     reader can only place ("2 of 2") inside a named group. -->
+							<div
+								class="flex flex-col gap-2 mb-2"
+								role="radiogroup"
+								aria-label="How to authenticate"
+							>
 								<RadioCard
 									label={`Sign in through ${resourceType}`}
 									description="Opens a browser window to log in and authorize. Connects as you."

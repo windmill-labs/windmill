@@ -79,6 +79,12 @@ export async function fetchHubProject(slug: string): Promise<ImportProjectSummar
  * instance setting, and the import wizard can be pointed at any hub by URL. A
  * hostile or compromised one answering with `<svg onload=…>` would otherwise run
  * script here. SVG profile only — no HTML, and `svg` plus `svgFilters` namespaces.
+ *
+ * `style` and `image` are forbidden on top of that profile, because the profile
+ * allows both and neither is something an icon needs. An inline `<svg><style>` is
+ * document-scoped, not shadowed — it would let the answering hub restyle this page,
+ * including moving or hiding the wizard's own Import and Delete controls — and
+ * `<image href="https://…">` is a page-view beacon pointed at whoever it likes.
  */
 export async function fetchAppIcon(hub: string, app: string): Promise<string | undefined> {
 	try {
@@ -86,7 +92,10 @@ export async function fetchAppIcon(hub: string, app: string): Promise<string | u
 		if (!res.ok) return undefined
 		const raw = (await res.text()).trim()
 		if (!raw.startsWith('<svg')) return undefined
-		const clean = DOMPurify.sanitize(raw, { USE_PROFILES: { svg: true, svgFilters: true } }).trim()
+		const clean = DOMPurify.sanitize(raw, {
+			USE_PROFILES: { svg: true, svgFilters: true },
+			FORBID_TAGS: ['style', 'image']
+		}).trim()
 		return clean.startsWith('<svg') ? clean : undefined
 	} catch {
 		return undefined

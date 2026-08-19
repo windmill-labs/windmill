@@ -39,8 +39,10 @@
 	)
 
 	// The picker binds `folder`, so there is no blur event to report on. Mirror every
-	// settled change into the plan — `go` replaces the URL, and a value equal to what
-	// the plan already holds is skipped so this cannot loop.
+	// settled change into the plan. The page replaces rather than pushes for this
+	// (`go(..., { replace: true })`), because a mirrored field is not a step the Back
+	// button should have to walk through; a value equal to what the plan already holds
+	// is skipped so this cannot loop.
 	$effect(() => {
 		const next = folder.trim()
 		if (next && next !== (plan.folder ?? '')) onFolderChange(next)
@@ -196,7 +198,9 @@
 	</div>
 
 	{#if project}
-		<ProjectContentBadges counts={project.counts} />
+		<!-- Triggers and migrations only become known once the export is fetched, so the
+		     row grows mid-run rather than starting complete. -->
+		<ProjectContentBadges counts={{ ...project.counts, ...(execution?.extraCounts ?? {}) }} />
 	{/if}
 
 	<!-- Only when the destination already exists. A workspace created by this run is

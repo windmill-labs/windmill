@@ -58,8 +58,10 @@ export function readPlan(url: URL): { plan: ImportPlan; step: WizardStep } {
 				? { kind: 'existing', workspaceId: existing || undefined }
 				: undefined
 
+	// Rounded as well as clamped: the steps are compared with `>` and `===`, so a
+	// fractional `?step=2.5` would clamp to 2.5 and match neither.
 	const raw = Number(params.get('step') ?? 1)
-	const step = (Number.isFinite(raw) ? Math.min(3, Math.max(1, raw)) : 1) as WizardStep
+	const step = (Number.isFinite(raw) ? Math.min(3, Math.max(1, Math.round(raw))) : 1) as WizardStep
 
 	return { plan: { slug, destination, folder: params.get('folder') || undefined }, step }
 }
@@ -93,6 +95,12 @@ export function planProblem(plan: ImportPlan): string | undefined {
 		if (idProblem) return idProblem
 	} else if (!d.workspaceId) {
 		return 'Pick the workspace to import into'
+	} else if (validateWorkspaceId(d.workspaceId)) {
+		// The id arrives from the URL exactly as the new-workspace one does, so it gets
+		// the same check. Downstream it is interpolated into a credentialed same-origin
+		// API path and pushed into `workspaceStore`; an id that cannot name a workspace
+		// has no business reaching either.
+		return 'That is not a valid workspace id'
 	}
 	if (plan.folder && !FOLDER_NAME_RE.test(plan.folder)) {
 		return 'Folder: letters, digits, dashes and underscores'

@@ -1,5 +1,7 @@
 import { WorkspaceService } from '$lib/gen'
 import { switchWorkspace } from '$lib/storeUtils'
+import { workspaceStore } from '$lib/stores'
+import { get } from 'svelte/store'
 import { enterNewWorkspace, refreshWorkspaceList } from '$lib/workspaceCreation'
 import {
 	installProject,
@@ -58,7 +60,21 @@ export class ImportExecution {
 	#deps: ExecutionDeps
 
 	/** Carried between attempts so a retry does not redo finished work. */
-	#export: ProjectExport | undefined = undefined
+	// The hub's summary endpoint counts scripts/flows/apps/resources; only the export
+	// carries triggers and data table migrations. Surfaced so the last step can say
+	// what it is about to create — the warning below it talks about triggers, and the
+	// page this replaced did show both.
+	#export = $state<ProjectExport | undefined>(undefined)
+
+	get extraCounts(): { triggers: number; migrations: number } | undefined {
+		const e = this.#export
+		if (!e) return undefined
+		return {
+			triggers: e.triggers?.length ?? 0,
+			migrations: (e.migrations ?? []).filter((m) => m.enabled && (m.sql ?? '').trim() !== '')
+				.length
+		}
+	}
 	// $state, not a plain field: the UI offers to delete the workspace this run
 	// created, and a plain field would never re-render that button.
 	#workspaceCreated = $state(false)
@@ -69,6 +85,11 @@ export class ImportExecution {
 	/** Set when a run stopped early; cleared when a retry starts. */
 	error = $state<string | undefined>(undefined)
 	done = $state(false)
+
+	// Where the app pointed before this run switched away from it, so undoing the run
+	// can put it back. Captured at construction rather than at switch time: by then
+	// `$workspaceStore` already holds the workspace being entered.
+	#priorWorkspace = get(workspaceStore)
 
 	constructor(plan: ImportPlan, deps: ExecutionDeps) {
 		this.#plan = plan
@@ -107,7 +128,9 @@ export class ImportExecution {
 	/**
 	 * Runs every task that has not already succeeded. Safe to call again after a
 	 * failure: a created workspace and a fetched export are reused rather than
-	 * repeated, so a retry only redoes what actually failed.
+	 * repeated. The granularity is the task, not the item — a retry re-runs
+	 * `installProject` over the whole bundle, which is idempotent per item but does
+	 * not skip the ones that already landed.
 	 */
 	async run(): Promise<void> {
 		if (this.running) return
@@ -188,7 +211,7 @@ export class ImportExecution {
 			// Workspace-scoped on purpose: this is the same proxy the rest of the app
 			// uses, so a private hub reachable only from the server still works.
 			const res = await fetch(
-				`/api/w/${workspace}/hub/projects/${encodeURIComponent(this.#plan.slug)}/export`,
+				`/api/w/${encodeURIComponent(workspace)}/hub/projects/${encodeURIComponent(this.#plan.slug)}/export`,
 				{ credentials: 'include', headers: { accept: 'application/json' } }
 			)
 			const text = await res.text()
@@ -258,6 +281,11 @@ export class ImportExecution {
 		const d = this.#plan.destination
 		if (!this.#workspaceCreated || d?.kind !== 'new') return
 		await WorkspaceService.deleteWorkspace({ workspace: d.id })
+		// Leave the app pointing somewhere that exists. The run switched into the
+		// workspace it created; without this the store keeps the deleted id, the
+		// layout persists it to local/sessionStorage, and the next full page load
+		// fails `getUserExt` and logs the user out.
+		switchWorkspace(this.#priorWorkspace)
 		await refreshWorkspaceList()
 		this.#workspaceCreated = false
 		this.#set('create', 'pending')

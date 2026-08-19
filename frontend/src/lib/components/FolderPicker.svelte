@@ -58,9 +58,8 @@
 	// without write access renders disabled, a stale answer makes the real folders
 	// unpickable. Resolve the membership for the workspace actually being listed.
 	let targetUser: User | undefined = $state(undefined)
-	const membership = $derived(
-		workspace && workspace !== $workspaceStore ? targetUser : ($userStore ?? undefined)
-	)
+	const aimedElsewhere = $derived(!!workspace && workspace !== $workspaceStore)
+	const membership = $derived(aimedElsewhere ? targetUser : ($userStore ?? undefined))
 
 	const restricted = $derived(
 		isDemoWorkspaceRestricted(targetWorkspace, membership?.is_admin, membership?.is_super_admin)
@@ -117,16 +116,23 @@
 				requestBody: { name: newFolderName }
 			})
 			folderCreated = newFolderName
-			await loadFolders()
-			folderName = newFolderName
 
-			// Writing $userStore.folders = [...] would call userStore.set(),
-			// which re-triggers Path.svelte's $effect.pre and calls initPath()/reset(),
-			// switching the owner toggle from "Folder" back to "User".
-			if ($userStore) {
+			// The creator owns what they just created. Recorded on whichever membership
+			// this picker is reading, and *before* reloading, so the new folder comes
+			// back selectable rather than `(read-only)` — `loadFolders` derives `write`
+			// from exactly this.
+			if (aimedElsewhere) {
+				if (targetUser) targetUser.folders = [...(targetUser.folders ?? []), newFolderName]
+			} else if ($userStore) {
+				// Writing $userStore.folders = [...] would call userStore.set(),
+				// which re-triggers Path.svelte's $effect.pre and calls initPath()/reset(),
+				// switching the owner toggle from "Folder" back to "User".
 				if (!$userStore.folders) $userStore.folders = []
 				$userStore.folders.push(newFolderName)
 			}
+
+			await loadFolders()
+			folderName = newFolderName
 		} catch (e) {
 			sendUserToast(`Could not create folder: ${e}`, true)
 		} finally {
