@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
 	import { isCloudHosted } from '$lib/cloud'
 	import { UserService } from '$lib/gen'
@@ -13,7 +13,7 @@
 		workspaceUsageStore,
 		type UserWorkspace
 	} from '$lib/stores'
-	import { refreshUsage } from '$lib/usage'
+	import { refreshExecutions } from '$lib/usage.svelte'
 	import { findWorkspaceAncestors } from '$lib/utils/workspaceHierarchy'
 	import { Button } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
@@ -28,15 +28,6 @@
 
 	let open = $state(false)
 
-	// Seat count for a paid workspace, the basis of its included executions. Only
-	// the user list is needed for it: `premium_info` carries the same usage number
-	// as `workspaceUsageStore` but requires admin and only exists when Stripe is
-	// configured, so it would leave regular members with no block at all.
-	let seats = $state<number | undefined>(undefined)
-	// Membership invalidation can start a second request while the first is still in
-	// flight for the same workspace, so the workspace guard alone doesn't order them.
-	let seatsGeneration = 0
-
 	// A fork's usage and tier resolve to its billing root while its member list is a
 	// subset of the root's, so seats must come from the root or the cap is fork-sized
 	// against root usage. `undefined` when the root isn't visible from here: the cap
@@ -49,54 +40,40 @@
 		return top && !top.parent_workspace_id ? top.id : undefined
 	}
 
-	$effect(() => {
-		const workspace = $workspaceStore
-		const premium = $isPremiumStore
-		// Read as a dependency: the billing root is unresolvable until the list arrives,
-		// so the effect must re-run when it does rather than latch the meter hidden.
-		const workspaces = $userWorkspaces
-		untrack(() => {
-			seats = undefined
-			if (!isCloudHosted() || !premium || !workspace || !workspaces) return
-			refreshSeats()
-		})
-	})
-
-	// Seats move when membership does, and `workspaceMembershipVersion` is the signal
-	// for that. Re-resolves without clearing `seats`, so the bar doesn't blank.
-	$effect(() => {
-		$workspaceMembershipVersion
-		untrack(() => refreshSeats())
-	})
-
-	function refreshSeats() {
-		const workspace = $workspaceStore
-		if (!isCloudHosted() || !$isPremiumStore || !workspace) return
-		const root = billingRoot(workspace, $userWorkspaces ?? [])
-		if (root) loadSeats(workspace, root)
-	}
-
-	async function loadSeats(workspace: string, root: string) {
-		const mine = ++seatsGeneration
-		try {
-			// Throws for a fork member with no seat in the root, which is the same
-			// answer as an unresolvable root: leave the paid meter hidden.
+	// Seat count for a paid workspace, the basis of its included executions. Only the
+	// user list is needed: `premium_info` carries the same usage number as
+	// `workspaceUsageStore` but requires admin and only exists when Stripe is
+	// configured, so it would leave regular members with no block at all.
+	//
+	// The key carries everything the count depends on — the billing root, and the
+	// membership version that moves when someone is added, removed or reassigned — so
+	// a change re-resolves it and a superseded response is discarded rather than
+	// racing the current one.
+	const seatsResource = resource(
+		() => {
+			const workspace = $workspaceStore
+			if (!isCloudHosted() || !$isPremiumStore || !workspace) return undefined
+			const root = billingRoot(workspace, $userWorkspaces ?? [])
+			return root ? { root, version: $workspaceMembershipVersion } : undefined
+		},
+		async (key) => {
+			if (!key) return undefined
+			const { root } = key
+			// Throws for a fork member with no seat in the root, which is the same answer
+			// as an unresolvable root: leave the paid meter hidden.
 			const users = await UserService.listUsers({ workspace: root })
-			// Nothing cancels a superseded request, and a slow response — for the workspace
-			// we left, or for an older read of this one — must not overwrite the current
-			// cap; it would stay wrong until the next switch.
-			if (mine !== seatsGeneration || $workspaceStore !== workspace) return
 			// Same basis as the backend's `count_paid_seats`: disabled members and service
 			// accounts are not billed, so counting them inflates the cap and hides a real
 			// overage. 1 developer = 1 seat, 2 operators = 1 seat.
 			const billable = users.filter((u) => !u.disabled && !u.is_service_account)
 			const developers = billable.filter((u) => !u.operator).length
 			const operators = billable.length - developers
-			seats = Math.ceil(developers + operators / 2)
-		} catch (e) {
-			console.error('Could not compute billing-workspace seats', e)
+			return Math.ceil(developers + operators / 2)
 		}
-	}
+	)
+
+	// Never a stale count from the workspace we left: `loading` is the reset.
+	const seats = $derived(seatsResource.loading ? undefined : seatsResource.current)
 
 	type Quota = {
 		key: string
@@ -231,10 +208,10 @@
 					: 'flex-col gap-1'}"
 				onclick={() => {
 					open = true
-					// Executions accrue continuously, and the layout only reads them on a
-					// workspace change: refresh the numerator too, not just the cap.
-					refreshUsage()
-					refreshSeats()
+					// Executions accrue continuously and seats move with membership; both
+					// are read here rather than glanced at, so re-read both.
+					refreshExecutions()
+					void seatsResource.refetch()
 				}}
 				aria-label="{tightest.label} this month: {fmt(tightest.used)} of {fmt(tightest.cap)}"
 			>

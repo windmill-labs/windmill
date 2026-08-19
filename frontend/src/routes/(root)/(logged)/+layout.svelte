@@ -24,8 +24,6 @@
 	import UpdateDevWorkspaceModal from '$lib/components/UpdateDevWorkspaceModal.svelte'
 	import {
 		enterpriseLicense,
-		isPremiumStore,
-		premiumFetchFailed,
 		superadmin,
 		userStore,
 		workspaceStore,
@@ -72,7 +70,7 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
-	import { refreshUsage } from '$lib/usage'
+	import { createUsageResources, registerUsageResources } from '$lib/usage.svelte'
 	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
@@ -109,9 +107,15 @@
 
 	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
-	// Workspace the `isPremiumStore` value currently describes.
-	let premiumFetchedFor: string | undefined = undefined
-	let premiumFetchGeneration = 0
+	// Owned here because the logged-in layout is the app's lifetime: it outlives every
+	// in-app navigation, so the counters and tier resolve once per workspace rather than
+	// per mounting component, and no detached `$effect.root` is needed to hold them.
+	registerUsageResources(
+		createUsageResources({
+			workspace: () => $workspaceStore,
+			user: () => $userStore
+		})
+	)
 	let menuOpen = $state(false)
 	// Set by the workspace⇄session switch before it navigates, so the mobile menu
 	// drawer stays open across a mode toggle (unlike a normal link navigation,
@@ -294,18 +298,6 @@
 
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
-			// Before the first await: the tier describes a workspace, and SidebarUsage
-			// reacts to $workspaceStore the moment it changes. Leaving the old value in
-			// place for the length of the round-trip below renders the workspace we left.
-			if (premiumFetchedFor !== workspace) {
-				premiumFetchedFor = workspace
-				isPremiumStore.set(undefined)
-				premiumFetchFailed.set(false)
-			}
-			// The workspace id alone doesn't order two requests for the same workspace, so
-			// A→B→A can land an older answer last — a late failure would raise the failure
-			// flag over a tier the newer request had already resolved.
-			const premiumGeneration = ++premiumFetchGeneration
 			// A preview iframe shares BOTH localStorage and sessionStorage with the
 			// top-level app (same-origin nested browsing contexts share the top-level
 			// session storage). Persisting its session-scoped workspace to either would
@@ -342,24 +334,6 @@
 				if (user?.username) localStorage.setItem('username', user.username)
 			} catch (e) {
 				console.error('Could not persist username to local storage', e)
-			}
-			// Populate for all members (not just admins) so non-admin developers also get premium-gated
-			// affordances like the fork entry points on cloud. The `is_premium` endpoint is a boolean
-			// and no longer admin-gated. Best-effort: a failure here must not block user-store init.
-			if (isCloudHosted()) {
-				try {
-					const premium = await WorkspaceService.getIsPremium({ workspace })
-					if (premiumGeneration === premiumFetchGeneration && $workspaceStore === workspace) {
-						isPremiumStore.set(premium)
-					}
-				} catch (e) {
-					// The tier stays unknown — asserting "free" here would meter a paid
-					// workspace against the free cap. `maybePremium` reads this to fail closed.
-					if (premiumGeneration === premiumFetchGeneration && $workspaceStore === workspace) {
-						premiumFetchFailed.set(true)
-					}
-					console.error('Could not fetch premium status', e)
-				}
 			}
 		} else {
 			userStore.set(undefined)
@@ -484,7 +458,6 @@
 
 	function onLoad() {
 		loadFavorites()
-		refreshUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
 		loadWsBaseUrl()
