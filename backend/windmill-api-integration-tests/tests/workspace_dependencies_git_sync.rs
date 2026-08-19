@@ -787,16 +787,15 @@ async fn test_two_promotion_repos_both_enqueue_callback(db: Pool<Postgres>) -> a
     Ok(())
 }
 
-/// Workspace-wide mode (no promotion) with two repositories: each repo's sync
-/// must get its own concurrency lane. Sharing `{workspace}:git_sync` serialises
-/// unrelated remotes, and a concurrency-limited job is re-queued to an estimate
-/// derived from the key's average duration with no wake-up when the slot frees,
-/// so one slow repo delays every other repo by multiples of its own runtime.
+/// Two repositories, first in workspace-wide mode and then in promotion mode:
+/// each repo's sync must get its own concurrency lane in both. Sharing
+/// `{workspace}:git_sync` serialises unrelated remotes, and a concurrency-limited
+/// job is re-queued to an estimate derived from the key's average duration with no
+/// wake-up when the slot frees, so one slow repo delays every other repo by
+/// multiples of its own runtime.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_two_workspace_wide_repos_get_distinct_concurrency_keys(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
+async fn test_two_repos_get_distinct_concurrency_lanes(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     create_folder(&db, "28103").await?;
@@ -898,6 +897,54 @@ async fn test_two_workspace_wide_repos_get_distinct_concurrency_keys(
             format!("test-workspace:git_sync:{repo_b}:script:f/target/beta"),
         ],
         "each repo must push its branch on its own concurrency lane"
+    );
+
+    Ok(())
+}
+
+/// Pulls must NOT follow pushes into a per-repo lane. A pull writes workspace
+/// objects, so the workspace-wide lane is what stops two repos applying creates,
+/// updates and deletes to the same scripts and flows at once — the safety argument
+/// for per-repo push lanes rests on this staying put.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_pull_stays_on_the_workspace_lane(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    create_git_repo_resource_at(&db, "u/test-user/pull_repo").await?;
+
+    let repo: windmill_common::workspaces::GitRepositorySettings = serde_json::from_value(json!({
+        "git_repo_resource_path": "$res:u/test-user/pull_repo",
+        "use_individual_branch": false,
+        "group_by_folder": false
+    }))?;
+
+    windmill_git_sync::enqueue_git_pull_job(
+        &db,
+        "test-workspace",
+        &repo,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await?;
+
+    let keys: Vec<(String,)> = sqlx::query_as(
+        r#"
+        SELECT ck.key
+        FROM v2_job j
+        JOIN concurrency_key ck ON ck.job_id = j.id
+        WHERE j.workspace_id = 'test-workspace' AND j.kind = 'deploymentcallback'
+        "#,
+    )
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        keys.iter().map(|(k,)| k.as_str()).collect::<Vec<_>>(),
+        vec!["test-workspace:git_sync"],
+        "a pull must share the workspace-wide lane with every other repo's pull"
     );
 
     Ok(())

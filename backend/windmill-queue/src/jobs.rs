@@ -4489,6 +4489,35 @@ pub async fn custom_debounce_key(
     .await
 }
 
+/// Concurrency lane for a git-sync callback: the workspace's lane, narrowed by
+/// `suffix` (the repo, plus its branch where one is knowable).
+///
+/// Both destination columns are VARCHAR(255) and `concurrency_key.key` is written
+/// inside `push`, so an over-long key aborts the push and the sync job is never
+/// created — the suffix is hashed rather than allowed to overflow.
+/// `reserved_prefix_len` is what a caller-side prefix will consume afterwards.
+fn git_sync_concurrency_key(
+    workspace_id: &str,
+    suffix: Option<String>,
+    reserved_prefix_len: usize,
+) -> String {
+    const MAX_CONCURRENCY_KEY_LEN: usize = 255;
+    let max_key_len = MAX_CONCURRENCY_KEY_LEN.saturating_sub(reserved_prefix_len);
+    match suffix {
+        Some(suffix) => {
+            let full = format!("{workspace_id}:git_sync:{suffix}");
+            if full.len() <= max_key_len {
+                full
+            } else {
+                // SHA-256 hex (64) over the whole suffix, so distinct repos stay
+                // distinct and the result fits any workspace id (VARCHAR(50)).
+                format!("{workspace_id}:git_sync:{}", calculate_hash(&suffix))
+            }
+        }
+        None => format!("{workspace_id}:git_sync"),
+    }
+}
+
 pub fn resolve_debounce_key<'b>(
     unresolved_debounce_key: Option<String>,
     runnable_path: &Option<String>,
@@ -6399,28 +6428,15 @@ async fn push_inner<'c, 'd>(
             }
         }
         JobPayload::DeploymentCallback { path, debouncing_settings, concurrency_key_append } => {
-            // `concurrency_key.key` is VARCHAR(255) and the row is inserted inside
-            // `push`, so an over-long key fails the whole push and the sync job is
-            // never created. The budget is what survives `resolve_concurrency_key`
-            // prepending `{workspace_id}/` on cloud builds (compiled into every EE
-            // build): measuring the bare key here would let a long repo path through
-            // and fail the INSERT. `resolve_debounce_key` reserves its prefix likewise.
-            const MAX_CONCURRENCY_KEY_LEN: usize = 255;
+            // `resolve_concurrency_key` prepends `{workspace_id}/` on cloud builds
+            // (compiled into every EE build), so that is what the key must leave room
+            // for here.
             #[cfg(feature = "cloud")]
-            let max_key_len = MAX_CONCURRENCY_KEY_LEN.saturating_sub(workspace_id.len() + 1);
+            let reserved_prefix_len = workspace_id.len() + 1;
             #[cfg(not(feature = "cloud"))]
-            let max_key_len = MAX_CONCURRENCY_KEY_LEN;
-            let concurrency_key = match concurrency_key_append {
-                Some(suffix) => {
-                    let full = format!("{workspace_id}:git_sync:{suffix}");
-                    if full.len() <= max_key_len {
-                        full
-                    } else {
-                        format!("{workspace_id}:git_sync:{}", calculate_hash(&suffix))
-                    }
-                }
-                None => format!("{workspace_id}:git_sync"),
-            };
+            let reserved_prefix_len = 0;
+            let concurrency_key =
+                git_sync_concurrency_key(workspace_id, concurrency_key_append, reserved_prefix_len);
             JobPayloadUntagged {
                 runnable_path: Some(path.clone()),
                 job_kind: JobKind::DeploymentCallback,
@@ -7849,4 +7865,37 @@ pub async fn get_same_worker_job(
             same_worker_job.job_id, e
         ))
     })
+}
+
+#[cfg(test)]
+mod git_sync_concurrency_key_tests {
+    use super::git_sync_concurrency_key;
+
+    /// The reservation is what keeps `{workspace_id}/` + the key inside the
+    /// VARCHAR(255) column on cloud builds. Without it, a suffix that fits the
+    /// bare budget is emitted verbatim and the prefixed insert fails.
+    #[test]
+    fn hashes_a_suffix_that_only_fits_before_the_prefix() {
+        let ws = "some-workspace";
+        let suffix: String = format!("u/user/{}", "x".repeat(220));
+        let bare = git_sync_concurrency_key(ws, Some(suffix.clone()), 0);
+        assert!(bare.len() <= 255 && bare.ends_with(&suffix));
+
+        let reserved = git_sync_concurrency_key(ws, Some(suffix), ws.len() + 1);
+        assert!(
+            ws.len() + 1 + reserved.len() <= 255,
+            "prefixed key must fit the column, got {}",
+            ws.len() + 1 + reserved.len()
+        );
+    }
+
+    #[test]
+    fn keeps_distinct_repos_distinct_when_hashed() {
+        let ws = "w";
+        let long = "x".repeat(300);
+        let a = git_sync_concurrency_key(ws, Some(format!("u/user/a{long}")), 0);
+        let b = git_sync_concurrency_key(ws, Some(format!("u/user/b{long}")), 0);
+        assert_ne!(a, b);
+        assert!(a.len() <= 255 && b.len() <= 255);
+    }
 }
