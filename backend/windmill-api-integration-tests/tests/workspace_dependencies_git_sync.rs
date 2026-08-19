@@ -850,8 +850,8 @@ async fn test_two_workspace_wide_repos_get_distinct_concurrency_keys(
     assert_eq!(
         conc_keys,
         vec![
-            format!("test-workspace:git_sync:$res:{repo_a}"),
-            format!("test-workspace:git_sync:$res:{repo_b}"),
+            format!("test-workspace:git_sync:{repo_a}"),
+            format!("test-workspace:git_sync:{repo_b}"),
         ],
         "each repo must push on its own concurrency lane"
     );
@@ -894,10 +894,80 @@ async fn test_two_workspace_wide_repos_get_distinct_concurrency_keys(
     assert_eq!(
         promo_keys,
         vec![
-            format!("test-workspace:git_sync:$res:{repo_a}:script:f/target/beta"),
-            format!("test-workspace:git_sync:$res:{repo_b}:script:f/target/beta"),
+            format!("test-workspace:git_sync:{repo_a}:script:f/target/beta"),
+            format!("test-workspace:git_sync:{repo_b}:script:f/target/beta"),
         ],
         "each repo must push its branch on its own concurrency lane"
+    );
+
+    Ok(())
+}
+
+/// Putting the repo in the lane made the key long enough to matter:
+/// `concurrency_key.key` is VARCHAR(255) and its INSERT runs inside `push`, so an
+/// overflowing key fails the push and the sync job is never created at all. A repo
+/// path that does not fit must be hashed down instead.
+///
+/// A cloud build narrows the budget further — `resolve_concurrency_key` prepends
+/// `{workspace_id}/` there — but `cloud` is a separate cargo feature this test
+/// binary does not enable, so this covers the un-prefixed budget only.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_long_repo_path_still_enqueues_callback(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    create_folder(&db, "28103").await?;
+    create_folder(&db, "target").await?;
+    // Long enough that `{workspace}:git_sync:{repo}` alone exceeds 255.
+    let long_repo = format!("u/test-user/{}", "x".repeat(228));
+    create_git_repo_resource_at(&db, &long_repo).await?;
+    let sync_script_path = "f/28103/test_sync_long_repo_path";
+    create_sync_script(&db, sync_script_path).await?;
+
+    let git_sync_config = json!({
+        "include_type": ["script"],
+        "include_path": ["**"],
+        "repositories": [{
+            "script_path": sync_script_path,
+            "git_repo_resource_path": format!("$res:{long_repo}"),
+            "use_individual_branch": false,
+            "group_by_folder": false
+        }]
+    });
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        git_sync_config,
+        "test-workspace"
+    )
+    .execute(&db)
+    .await?;
+
+    let (client, _port, _server) = init_client(db.clone()).await;
+
+    create_test_script(&client, "f/target/alpha").await?;
+    wait_for_callback_jobs(&db, sync_script_path, 1, Duration::from_secs(5)).await?;
+
+    // The row exists only if the INSERT inside `push` accepted the key.
+    let keys: Vec<(String,)> = sqlx::query_as(
+        r#"
+        SELECT ck.key
+        FROM v2_job j
+        JOIN concurrency_key ck ON ck.job_id = j.id
+        WHERE j.runnable_path = $1 AND j.kind = 'deploymentcallback'
+        "#,
+    )
+    .bind(sync_script_path)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        keys.len(),
+        1,
+        "expected a stored concurrency key, got {keys:?}"
+    );
+    assert!(
+        keys[0].0.len() <= 255,
+        "concurrency key must fit the column: {} chars",
+        keys[0].0.len()
     );
 
     Ok(())

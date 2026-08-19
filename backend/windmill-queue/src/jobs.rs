@@ -6399,11 +6399,21 @@ async fn push_inner<'c, 'd>(
             }
         }
         JobPayload::DeploymentCallback { path, debouncing_settings, concurrency_key_append } => {
+            // `concurrency_key.key` is VARCHAR(255) and the row is inserted inside
+            // `push`, so an over-long key fails the whole push and the sync job is
+            // never created. The budget is what survives `resolve_concurrency_key`
+            // prepending `{workspace_id}/` on cloud builds (compiled into every EE
+            // build): measuring the bare key here would let a long repo path through
+            // and fail the INSERT. `resolve_debounce_key` reserves its prefix likewise.
             const MAX_CONCURRENCY_KEY_LEN: usize = 255;
+            #[cfg(feature = "cloud")]
+            let max_key_len = MAX_CONCURRENCY_KEY_LEN.saturating_sub(workspace_id.len() + 1);
+            #[cfg(not(feature = "cloud"))]
+            let max_key_len = MAX_CONCURRENCY_KEY_LEN;
             let concurrency_key = match concurrency_key_append {
                 Some(suffix) => {
                     let full = format!("{workspace_id}:git_sync:{suffix}");
-                    if full.len() <= MAX_CONCURRENCY_KEY_LEN {
+                    if full.len() <= max_key_len {
                         full
                     } else {
                         format!("{workspace_id}:git_sync:{}", calculate_hash(&suffix))
