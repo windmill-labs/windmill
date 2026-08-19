@@ -855,11 +855,13 @@ export async function checkDeployPermission(
 export async function checkPathWritePermission(
 	workspace: string,
 	path: string,
-	me: Pick<User, 'is_admin' | 'username' | 'folders'>,
+	me: Pick<User, 'is_admin' | 'is_super_admin' | 'username' | 'folders'>,
 	folderExists: (folderPath: string) => Promise<boolean> = (folderPath) =>
 		checkItemExists('folder', folderPath, workspace)
 ): Promise<DeployPermission> {
-	if (me.is_admin) return { ok: true }
+	// The server's `is_owner` reads `ApiAuthed.is_admin`, the merged `is_admin || super_admin`,
+	// so a superadmin owns every path here whether or not they own the folder.
+	if (me.is_admin || me.is_super_admin) return { ok: true }
 	const owner = path.match(/^u\/([^/]+)\//)?.[1]
 	if (owner) {
 		return owner === me.username
@@ -910,7 +912,8 @@ export async function checkItemDeployAccess(
 		permission: workspaceLevel.ok
 			? await checkPathWritePermission(workspace, path, me)
 			: workspaceLevel,
-		canPreserveOnBehalfOf: me.is_admin || (me.groups ?? []).includes('wm_deployers'),
+		canPreserveOnBehalfOf:
+			me.is_admin || me.is_super_admin || (me.groups ?? []).includes('wm_deployers'),
 		me: { email: me.email, permissionedAs: `u/${me.username}` }
 	}
 }

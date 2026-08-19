@@ -268,9 +268,9 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		// Snapshot before the await: the user may switch sessions while the
 		// deploy runs, and the event belongs to the initiating session.
 		const initiatingSessionId = sessionState.currentSessionId
-		// Don't attempt a deploy we know the user can't make (no write permission
-		// on the path, or blocked by the operator / deployer rule) — the UI
-		// disables it too; this is the guard behind that.
+		// Don't attempt a deploy we know the user can't make (no write permission on
+		// the path, or refused by the preflight for this kind) — the UI disables it
+		// too; this is the guard behind that.
 		if (!discard && (!item.canWrite || !deployPermissionForKind(deployPerm, item.deployKind).ok))
 			return false
 		setStatus(item.key, { status: 'loading' })

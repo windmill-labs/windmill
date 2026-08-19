@@ -85,13 +85,13 @@ describe('deploy direction of a one-sided diff row', () => {
 })
 
 describe('per-item write permission in the deploy target', () => {
-	const member = { is_admin: false, username: 'alice', folders: ['shared'] }
+	const member = { is_admin: false, is_super_admin: false, username: 'alice', folders: ['shared'] }
 	const never = async () => {
 		throw new Error('folder probe should not run')
 	}
 
 	it('lets a workspace admin write anywhere', async () => {
-		const admin = { is_admin: true, username: 'root', folders: [] }
+		const admin = { is_admin: true, is_super_admin: false, username: 'root', folders: [] }
 		expect(await checkPathWritePermission('dev', 'u/someone/x', admin, never)).toEqual({ ok: true })
 		expect(await checkPathWritePermission('dev', 'f/locked/x', admin, never)).toEqual({ ok: true })
 	})
@@ -101,6 +101,14 @@ describe('per-item write permission in the deploy target', () => {
 		const refused = await checkPathWritePermission('dev', 'u/bob/x', member, never)
 		expect(refused.ok).toBe(false)
 		expect(refused.reason).toContain('u/bob')
+	})
+
+	// The server's `is_owner` reads the merged `is_admin || super_admin`, so a superadmin who is a
+	// plain member owns every path — refusing them here would block a write the server accepts.
+	it('lets a superadmin who is a plain member write anywhere', async () => {
+		const su = { is_admin: false, is_super_admin: true, username: 'root', folders: [] }
+		expect(await checkPathWritePermission('dev', 'f/locked/x', su, never)).toEqual({ ok: true })
+		expect(await checkPathWritePermission('dev', 'u/someone/x', su, never)).toEqual({ ok: true })
 	})
 
 	it('allows a folder in the write set without probing for it', async () => {
