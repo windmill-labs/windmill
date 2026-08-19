@@ -222,6 +222,12 @@ export type EvalValidationSpec =
 export interface AssistantValidationSpec {
   /** Each entry: at least one of its phrases appears somewhere in the assistant's text. */
   requiredMentionsAnyOf?: string[][];
+  /**
+   * Plain case-insensitive substring test, so it cannot see negation: a phrase the correct
+   * answer might use in the negative ("you don't need to deploy the app") is not a valid
+   * entry. Use it for tokens that never legitimately appear, and leave nuanced "did the
+   * assistant say the right thing" expectations to the judge checklist.
+   */
   forbiddenMentions?: string[];
 }
 

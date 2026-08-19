@@ -726,16 +726,15 @@ viewer when the run was triggered from an app and empty otherwise (both variable
 defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username."""
 
 
-# The client is pre-configured from the job's environment. Agents that miss this go hunting for a
-# base URL and a token, guess an env var that is not set, fall back to localhost and get a refused
-# connection or a 403 from the job's scoped token.
-PRECONFIGURED_CLIENT = """The client is already authenticated against this instance and workspace — there is nothing to
-configure. Never read WM_TOKEN, BASE_INTERNAL_URL or WM_BASE_URL, and never build an API URL to
-call with an HTTP client: those variables are not guaranteed to be set, a missing one falls back to
-localhost and refuses the connection, and a job's token is scoped, so a hand-rolled REST call gets a
-403 where the equivalent SDK call succeeds. Use the SDK for everything Windmill, and raw HTTP only
-for third-party APIs. A function that is not listed below does not exist — pick one that is rather
-than inventing a name."""
+# The client configures itself from the job's contextual variables (`setClient` reads
+# BASE_INTERNAL_URL/BASE_URL and WM_TOKEN). Agents that miss this reconstruct that logic by hand
+# and get it wrong; they also invent plausible-sounding function names.
+PRECONFIGURED_CLIENT = """The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs. A function that is not listed below does not exist — pick one that is
+rather than inventing a name."""
 
 
 def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:

@@ -2,13 +2,12 @@
 
 Import: import * as wmill from 'windmill-client'
 
-The client is already authenticated against this instance and workspace — there is nothing to
-configure. Never read WM_TOKEN, BASE_INTERNAL_URL or WM_BASE_URL, and never build an API URL to
-call with an HTTP client: those variables are not guaranteed to be set, a missing one falls back to
-localhost and refuses the connection, and a job's token is scoped, so a hand-rolled REST call gets a
-403 where the equivalent SDK call succeeds. Use the SDK for everything Windmill, and raw HTTP only
-for third-party APIs. A function that is not listed below does not exist — pick one that is rather
-than inventing a name.
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs. A function that is not listed below does not exist — pick one that is
+rather than inventing a name.
 
 To know who is running the script, read the contextual variables rather than calling the API:
 `process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when

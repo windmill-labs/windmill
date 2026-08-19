@@ -187,6 +187,7 @@ vi.mock('$lib/gen', async () => {
 			listAzureTriggers: vi.fn(async () => [])
 		}),
 		AppService: wrapService(actual.AppService, {
+			executeComponent: vi.fn(async () => 'job-app-component'),
 			existsApp: vi.fn(async () => false),
 			createAppRaw: vi.fn(async () => 'created'),
 			updateAppRaw: vi.fn(async () => 'updated'),
@@ -1824,7 +1825,9 @@ describe('global AI tools', () => {
 		)
 		expect(undeployed.success).toBe(true)
 		expect(undeployed.warning).toContain('u/admin/hello_flow')
-		expect(undeployed.warning).toContain('not deployed')
+		expect(undeployed.warning).toContain('NOT deployed')
+		// The remedy is one item, not a release: the app runs its draft in the preview.
+		expect(undeployed.warning).toContain('deploy_workspace_item')
 
 		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
 		const deployed = JSON.parse(
@@ -1836,6 +1839,142 @@ describe('global AI tools', () => {
 		)
 		expect(deployed.success).toBe(true)
 		expect(deployed.warning).toBeUndefined()
+
+		// A script target resolves through existsScriptByPath, then the archived-inclusive
+		// getScriptByPath fallback — a 404 there is the only thing that means "not deployed".
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(false)
+		vi.mocked(ScriptService.getScriptByPath).mockRejectedValueOnce(
+			Object.assign(new Error('not found'), { status: 404 })
+		)
+		const scriptTarget = JSON.parse(
+			await callGlobalTool('write_app_runnable', {
+				path: 'u/admin/wired_app',
+				key: 'run_script',
+				runnable: { name: 'Run the script', type: 'script', path: 'u/admin/hello_script' }
+			})
+		)
+		expect(scriptTarget.warning).toContain('u/admin/hello_script')
+
+		// A hub script lives outside the workspace and has no deployed/draft distinction,
+		// so it must never be probed or warned about.
+		const hub = JSON.parse(
+			await callGlobalTool('write_app_runnable', {
+				path: 'u/admin/wired_app',
+				key: 'run_hub',
+				runnable: { name: 'Hub', type: 'hubscript', path: 'hub/123/slack/send' }
+			})
+		)
+		expect(hub.warning).toBeUndefined()
+	})
+
+	// The execute_component payload is what makes this tool faithful to how the app
+	// really runs: force_viewer_static_fields is what selects preview mode server-side
+	// (apps.rs `is_preview`), and it must be sent even when there are no static fields.
+	it('runs an inline app runnable as a preview job with its draft code', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/tested_app',
+			{
+				summary: 'Tested app',
+				files: {},
+				runnables: {
+					greet: {
+						name: 'Greet',
+						type: 'inline',
+						inlineScript: { language: 'bun', content: 'export async function main() { return 1 }' },
+						fields: {
+							who: { type: 'ctx', ctx: 'email' },
+							fixed: { type: 'static', value: 7 }
+						}
+					}
+				},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('test_run_app_runnable', {
+			path: 'u/admin/tested_app',
+			key: 'greet',
+			args: { name: 'ada' }
+		})
+
+		const body = vi.mocked(AppService.executeComponent).mock.calls.at(-1)?.[0].requestBody as any
+		expect(body.force_viewer_static_fields).toEqual({ fixed: 7 })
+		// A ctx-bound input is resolved server-side; sending it absent would fail the run
+		// for a reason unrelated to the runnable's code.
+		expect(body.args).toEqual({ name: 'ada', who: '$ctx:email' })
+		expect(body.raw_code).toMatchObject({ language: 'bun' })
+		expect(body.path).toBeUndefined()
+	})
+
+	it('runs a path app runnable against the deployed item it names', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/wired_app2',
+			{
+				summary: 'Wired app',
+				files: {},
+				runnables: {
+					run_flow: { name: 'Run', type: 'path', runType: 'flow', path: 'u/admin/hello_flow' }
+				},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('test_run_app_runnable', { path: 'u/admin/wired_app2', key: 'run_flow' })
+
+		const body = vi.mocked(AppService.executeComponent).mock.calls.at(-1)?.[0].requestBody as any
+		expect(body.path).toBe('flow/u/admin/hello_flow')
+		expect(body.raw_code).toBeUndefined()
+	})
+
+	// A hybrid runnable — inline code plus a leftover runType/path — resolves to the inline
+	// branch in isRunnableByName, so the app silently runs stale code instead of the flow it
+	// looks wired to. Converting between kinds must drop the other kind's fields.
+	it('drops the other kind\'s fields when a runnable changes type', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/converted_app',
+			{ summary: 'Converted', files: {}, runnables: {}, data: { tables: [] } },
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/converted_app',
+			key: 'go',
+			runnable: { name: 'Run the flow', type: 'flow', path: 'u/admin/hello_flow' }
+		})
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/converted_app',
+			key: 'go',
+			runnable: {
+				name: 'Now inline',
+				type: 'inline',
+				inlineScript: { language: 'bun', content: 'export async function main() { return 1 }' }
+			}
+		})
+
+		const asInline = getBackendDraft<any>('raw_app', 'u/admin/converted_app', {
+			workspace: WORKSPACE
+		}).runnables.go
+		expect(asInline.type).toBe('inline')
+		expect(asInline.runType).toBeUndefined()
+		expect(asInline.path).toBeUndefined()
+
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/converted_app',
+			key: 'go',
+			runnable: { name: 'Back to flow', type: 'flow', path: 'u/admin/hello_flow' }
+		})
+
+		const asPath = getBackendDraft<any>('raw_app', 'u/admin/converted_app', {
+			workspace: WORKSPACE
+		}).runnables.go
+		expect(asPath.type).toBe('path')
+		expect(asPath.runType).toBe('flow')
+		expect(asPath.inlineScript).toBeUndefined()
 	})
 
 	it('does not echo the app value back to the model on write', async () => {

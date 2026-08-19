@@ -1115,9 +1115,9 @@ When you are using the windmill-client, do not forget that as id for variables o
 
 Besides \`backend\`, the generated \`./wmill\` module exports \`backendAsync.<key>(args)\` (resolves the job id as a string), \`waitJob(jobId)\` (resolves that job's result, rejects if it failed), \`getJob(jobId)\` (the current job state, for rendering progress) and \`streamJob(jobId, onUpdate)\`. Use \`backendAsync\` + \`waitJob\`/\`getJob\` for long-running work — never hand-write a runnable that polls job status, and never \`fetch\` the Windmill API from frontend code, which holds no token.
 
-A \`script\`/\`flow\` runnable runs the DEPLOYED item at that path, and so do \`wmill.runFlowAsync\`/\`wmill.runScriptByPath\` called inside a runnable — a draft is invisible to them, so an app pointed at an undeployed flow fails at runtime; say so instead of working around it, and never reimplement the flow inline to dodge the deployment. An \`inline\` runnable runs the app's own code and needs nothing deployed.
+A \`script\`/\`flow\` runnable runs the DEPLOYED item at that path, and so do \`wmill.runFlowAsync\`/\`wmill.runScriptByPath\` called inside a runnable — a draft is invisible to them, so an app pointed at an undeployed flow fails at runtime. The app itself does not need deploying — the preview runs its draft — so the fix is to deploy that one referenced item, not the whole change set. Say so instead of working around it, and never reimplement the flow inline to dodge the deployment. An \`inline\` runnable runs the app's own code and needs nothing deployed.
 
-Inside an inline runnable the \`wmill\` client is already authenticated: never read \`WM_TOKEN\`, \`BASE_INTERNAL_URL\` or \`WM_BASE_URL\` and never build an API URL — an unset variable falls back to localhost and the job's token is scoped, so hand-rolled REST calls fail where the SDK call succeeds.
+Inside an inline runnable the \`wmill\` client configures itself from the job environment: don't read \`WM_TOKEN\` or \`BASE_INTERNAL_URL\` and build an API URL by hand — the client already does that, plus the credentials mode a raw app needs. Only call \`wmill\` functions that actually exist; \`getBaseUrl\` and \`getWorkspaceToken\` are inventions.
 
 ## Instructions
 

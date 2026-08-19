@@ -372,7 +372,7 @@ def main(user_id: str):
 
 An inline runnable runs as an ordinary Windmill job. `import * as wmill from 'windmill-client'` (TypeScript) and `import wmill` (Python) are already pointed at this instance and this workspace — there is nothing to configure.
 
-**Never read `WM_TOKEN`, `BASE_INTERNAL_URL` or `WM_BASE_URL`, and never build an API URL to `fetch`.** Those variables are not guaranteed to be set; a missing one falls back to `localhost:8000`, which refuses the connection. A job's token is also scoped, so a hand-rolled REST call gets a 403 where the equivalent `wmill.*` call succeeds. Use `wmill.*` for everything Windmill, and `fetch` only for third-party APIs.
+**Don't read `WM_TOKEN` or `BASE_INTERNAL_URL` and build an API URL to `fetch`.** The client's own `setClient` already reads exactly those, and it also sets the credentials mode a raw app needs (`WM_RAW_APP` suppresses credentials, because a sandboxed bundle calls the API from an opaque origin that can never pair with `Access-Control-Allow-Origin: *`). Rebuilding that by hand drops the parts you can't see. Use `wmill.*` for everything Windmill, and `fetch` only for third-party APIs.
 
 Only call `wmill` functions that appear in the SDK reference. A plausible-looking name that is not listed there does not exist — `getBaseUrl`, `getWorkspaceToken` and friends are inventions, not API.
 
@@ -387,7 +387,11 @@ This decides whether an app works before anything is deployed:
 - **Inline runnables run the app's current code.** The editor sends the runnable's source with each request, so an inline runnable works in the preview with nothing deployed.
 - **Path runnables (`script` / `flow` / `hubscript`) run the DEPLOYED item at that path.** So do `wmill.runFlow`, `wmill.runFlowAsync` and `wmill.runScriptByPath` called from inside a runnable. A draft — including a draft you just created — does not exist for them.
 
-So an app wired to a flow you just wrote does nothing until **that flow is deployed**, even while the app itself is still a draft. Say plainly which items have to be deployed, and get them deployed — an app deployed on its own, still pointing at a draft flow, is broken. Do NOT quietly reimplement the flow inside an inline runnable to dodge the deployment: that leaves the user with two copies of the same logic and an app that ignores the flow they asked for. Inline the logic only when the user actually wants it inline.
+So an app wired to a flow you just wrote does nothing until **that flow is deployed**. The app itself does NOT have to be deployed for this: the preview runs the app's draft, so the referenced flow is the only thing that has to exist deployed.
+
+That makes the fix a one-item deploy, not a release. Offer to deploy exactly the referenced flow or script and leave the app a draft the user keeps testing in the preview — do not push the whole change set through the review-and-deploy page, and do not ask the user to deploy the app, unless they said they want to ship it.
+
+Do NOT quietly reimplement the flow inside an inline runnable to dodge the deployment: that leaves the user with two copies of the same logic and an app that ignores the flow they asked for. Inline the logic only when the user actually wants it inline.
 
 Prefer a **path runnable of type `flow`** over an inline runnable that calls `wmill.runFlowAsync`. The path runnable gives the frontend the flow's real input schema and works with `backend` / `backendAsync` / `waitJob` like any other runnable; a hand-written wrapper gives up all of that.
 

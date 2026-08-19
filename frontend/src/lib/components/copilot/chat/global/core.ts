@@ -1042,7 +1042,7 @@ const testRunAppRunnableSchema = z.object({
 const testRunAppRunnableToolDef = createToolDef(
 	testRunAppRunnableSchema,
 	'test_run_app_runnable',
-	"Run one of an app's backend runnables with test arguments, the same way the app's frontend runs it. An inline runnable executes the draft code; a path runnable executes the deployed script/flow it points at.",
+	"Run one of an app's backend runnables with test arguments, the way the editor preview runs it. An inline runnable executes the draft code; a path runnable executes the deployed script/flow it points at. A deployed app runs under its stored policy instead, so this does not prove the runnable is reachable once deployed.",
 	{ strict: false }
 )
 
@@ -1280,7 +1280,7 @@ Rules:
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
-- Do the same for a raw app: run test_run_app_runnable on each backend runnable you wrote or changed before saying the app works. A bundle that compiles proves nothing about whether the runnables run. An inline runnable executes the app's draft code; a path runnable executes the DEPLOYED script/flow it names, so a path runnable aimed at something you have not deployed fails here — that failure is the point, report it and deploy the target rather than working around it.
+- Do the same for a raw app: run test_run_app_runnable on each backend runnable you wrote or changed before saying the app works. A bundle that compiles proves nothing about whether the runnables run. An inline runnable executes the app's draft code; a path runnable executes the DEPLOYED script/flow it names, so a path runnable aimed at something you have not deployed fails here — that failure is the point: report it and offer to deploy that one target. The app itself does not need deploying to be tested.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
@@ -1579,12 +1579,18 @@ function buildPersistedRunnable(
 			)
 		: (existing?.fields ?? {})
 
+	// Converting between kinds must drop the other kind's fields. Spreading `existing`
+	// alone leaves an inline runnable still carrying `runType`/`path` (or a path runnable
+	// still carrying `inlineScript`), and `isRunnableByName` resolves that hybrid to the
+	// inline branch — so an app "wired to a flow" silently runs stale inline code instead.
+	const { runType: _runType, path: _path, inlineScript: _inlineScript, ...carried } = existing ?? {}
+
 	if (input.type === 'inline') {
 		if (!input.inlineScript) {
 			throw new Error('inlineScript is required when runnable type is "inline".')
 		}
 		return {
-			...(existing ?? {}),
+			...carried,
 			name: input.name,
 			type: 'inline',
 			inlineScript: {
@@ -1599,7 +1605,7 @@ function buildPersistedRunnable(
 		throw new Error('path is required when runnable type is "script", "flow", or "hubscript".')
 	}
 	return {
-		...(existing ?? {}),
+		...carried,
 		name: input.name,
 		type: 'path',
 		runType: input.type,
@@ -2137,7 +2143,7 @@ function getAppInstructions(language?: ScriptLang): string {
 - Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
 - Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
-- Inline runnables run the app's DRAFT code, so they work in the preview with nothing deployed. Path runnables — and \`wmill.runFlow*\` / \`runScriptByPath\` called from inside any runnable — run the DEPLOYED item at that path, and a draft is invisible to them. An app wired to a flow you just drafted does nothing until that flow is deployed: tell the user which items have to be deployed and get them deployed. Never dodge it by reimplementing the flow inside an inline runnable — that leaves two copies of the same logic and an app that ignores the flow they asked for.
+- Inline runnables run the app's DRAFT code, so they work in the preview with nothing deployed. Path runnables — and \`wmill.runFlow*\` / \`runScriptByPath\` called from inside any runnable — run the DEPLOYED item at that path, and a draft is invisible to them. An app wired to a flow you just drafted does nothing until that flow is deployed — but the APP does not have to be deployed for that: the preview runs its draft. So offer to deploy just the referenced flow/script with deploy_workspace_item and leave the app a draft the user keeps testing in the preview; don't route a one-item dependency deploy through the compare page, and don't ask them to deploy the app unless they want to ship it. Never dodge it by reimplementing the flow inside an inline runnable — that leaves two copies of the same logic and an app that ignores the flow they asked for.
 - The authoring reference below carries the TypeScript SDK. For a \`python3\` runnable, call \`get_instructions\` again with \`subject: "app"\` and \`language: "python3"\`.
 - Use \`deploy_workspace_item\` after explicit user deploy intent. The deploy tool bundles JS/CSS before saving the raw app.
 - Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file; large files are truncated to a head slice, so pass \`offset\`/\`limit\` to page through the rest rather than re-reading the whole file.
@@ -5712,9 +5718,9 @@ async function writeAppRunnable(
 		content: `Updated runnable "${key}" in app "${path}"`,
 		message: `Updated draft app "${path}" with runnable "${key}".`,
 		warning: undeployed.length
-			? `Runnable ${undeployed[0]} is not deployed, so this runnable fails at runtime — a path runnable ` +
-				`runs the deployed item, never a draft. Deploy that item (or inline its logic) and tell the user ` +
-				`it has to be deployed for the app to work.`
+			? `This runnable points at an item that is NOT deployed (${undeployed[0]}), so it fails at runtime — ` +
+				`a path runnable runs the deployed item, never a draft. Offer to deploy just that item with ` +
+				`deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.`
 			: undefined
 	}))
 }
@@ -5743,7 +5749,8 @@ async function testRunAppRunnable(
 		)
 	}
 
-	const testArgs = normalizeTestRunArgs(args.args)
+	// Copied, not aliased: the ctx pass below writes into it.
+	const testArgs = { ...normalizeTestRunArgs(args.args) }
 	// Setting force_viewer_static_fields is what puts execute_component in preview
 	// mode (apps.rs `is_preview`), which is what makes inline draft code run at all.
 	// It must be sent even when the runnable has no static fields.
@@ -5752,6 +5759,12 @@ async function testRunAppRunnable(
 			.filter(([, field]) => field?.type === 'static')
 			.map(([name, field]) => [name, field?.value])
 	)
+	// A ctx-bound input is filled by the server from `$ctx:<prop>`, exactly as
+	// RawAppBackgroundRunner does before executing. Without this the argument arrives
+	// missing and the runnable fails for a reason that has nothing to do with its code.
+	for (const [name, field] of Object.entries(runnable.fields ?? {})) {
+		if (field?.type === 'ctx' && field?.ctx) testArgs[name] = `$ctx:${field.ctx}`
+	}
 
 	// Imported lazily: statically pulling the apps module graph into the chat's
 	// import chain drags the whole app-editor runtime in behind it.
