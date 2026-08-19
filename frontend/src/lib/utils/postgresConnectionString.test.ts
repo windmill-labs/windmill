@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	composePostgresConnectionString,
+	connectionParamRefusal,
 	parsePostgresConnectionString,
 	unsupportedConnectionParam
 } from './postgresConnectionString'
@@ -159,5 +160,27 @@ describe('unsupportedConnectionParam', () => {
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?sslmode=require')).toBeUndefined()
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?application_name=wm')).toBeUndefined()
 		expect(unsupportedConnectionParam('postgres://u:p@h/db')).toBeUndefined()
+	})
+})
+
+// One refusal reached the user through two very different causes, and the wrong explanation
+// sends them to fix the wrong thing: respelling a parameter this resource cannot store changes
+// nothing, and removing one it can store loses what the string asked for.
+describe('connectionParamRefusal', () => {
+	it('blames the spelling only when the parameter is one the resource keeps', () => {
+		expect(connectionParamRefusal('postgres://u:p@h/db?SslMode=verify-full')).toContain(
+			'case-sensitive'
+		)
+		expect(connectionParamRefusal('postgres://u:p@h/db?SslMode=verify-full')).toContain('sslmode')
+	})
+
+	it('blames the resource when respelling would not help', () => {
+		const refusal = connectionParamRefusal('postgres://u:p@h/db?Connect_Timeout=1')
+		expect(refusal).toContain('cannot store')
+		expect(refusal).not.toContain('case-sensitive')
+	})
+
+	it('says nothing about a string it can save', () => {
+		expect(connectionParamRefusal('postgres://u:p@h/db?sslmode=require')).toBeUndefined()
 	})
 })
