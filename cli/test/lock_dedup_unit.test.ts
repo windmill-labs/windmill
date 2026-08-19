@@ -4,14 +4,15 @@
  * A workspace with one `dependencies/requirements.in` resolves the same lock for
  * every Python script, so the repo carries thousands of identical
  * `.script.lock` files: a dependency bump rewrites all of them and every open
- * branch conflicts on all of them. Dedup keeps ONE
- * `dependencies/locks/<language>.lock` and points the metadata at it.
+ * branch conflicts on all of them. Dedup keeps one file per group under
+ * `dependencies/locks/` and points the metadata at it.
  *
  * What these pin:
- *  - the shared file is named after the language, so a bump is a one-file diff
- *  - a script whose lock genuinely differs keeps its own, and can get it back
- *  - the pass is idempotent: a deduped tree produces no further changes, which
- *    is what keeps `sync pull`/`push` from seeing a diff on every run
+ *  - a group keeps the file it already reads, so a bump is a one-file diff
+ *  - a shared file is never rewritten or deleted under scripts the sync map does
+ *    not cover (the git-sync deploy callback narrows it to a single item)
+ *  - the pass is idempotent: a deduplicated tree produces no further changes,
+ *    which is what keeps `sync pull`/`push` from seeing a diff on every run
  */
 
 import { expect, test, describe } from "bun:test";
@@ -21,6 +22,7 @@ import {
   computeSharedLockPlan,
   isEmptySharedLockPlan,
   scriptsReferencingSharedLock,
+  type ExistingSharedLocks,
 } from "../src/utils/lock_dedup.ts";
 import { yamlOptions } from "../src/commands/sync/sync.ts";
 
@@ -28,6 +30,7 @@ const PY_LOCK = "requests==2.32.0\nurllib3==2.2.1\n";
 const PY_LOCK_BUMPED = "requests==2.32.3\nurllib3==2.2.1\n";
 const OTHER_LOCK = "requests==2.32.0\nurllib3==2.2.1\npandas==2.2.0\n";
 const SHARED_PY = "dependencies/locks/python3.lock";
+const SHARED_PY_2 = "dependencies/locks/python3-2.lock";
 const SHARED_BUN = "dependencies/locks/bun.lock";
 
 function meta(lockRef: string, summary = ""): string {
@@ -46,7 +49,7 @@ function ownLock(
   map[`${base}.script.lock`] = lock;
 }
 
-/** A script already pointing at a shared lock. */
+/** A script already reading a shared lock. */
 function sharedLock(
   map: Record<string, string>,
   base: string,
@@ -55,6 +58,22 @@ function sharedLock(
 ) {
   map[`${base}${ext}`] = "def main(): ...";
   map[`${base}.script.yaml`] = meta(`!inline ${shared}`);
+}
+
+/** The working tree the map was taken from, as the unfiltered scan reports it. */
+function treeOf(
+  map: Record<string, string>,
+  contents: Record<string, string> = {},
+): ExistingSharedLocks {
+  const refs = new Map<string, string>();
+  const scripts = new Set<string>();
+  for (const [key, value] of Object.entries(map)) {
+    if (!key.endsWith(".script.yaml")) continue;
+    scripts.add(key);
+    const match = /!inline (dependencies\/locks\/[^\s'"]+\.lock)/.exec(value);
+    if (match) refs.set(key, match[1]);
+  }
+  return { refs, scripts, contents: new Map(Object.entries(contents)) };
 }
 
 function lockRefOf(metaContent: string): string {
@@ -70,8 +89,7 @@ describe("computeSharedLockPlan", () => {
     ownLock(map, "f/ts", ".ts", "bun-lock-contents");
     ownLock(map, "f/ts2", ".ts", "bun-lock-contents");
 
-    const plan = computeSharedLockPlan(map, "bun");
-    applySharedLockPlanToMap(map, plan);
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
     expect(map[SHARED_BUN]).toEqual("bun-lock-contents");
@@ -81,87 +99,113 @@ describe("computeSharedLockPlan", () => {
         `!inline ${SHARED_PY}`,
       );
     }
-    expect(map["f/ts.script.lock"]).toBeUndefined();
     expect(lockRefOf(map["f/ts.script.yaml"])).toEqual(`!inline ${SHARED_BUN}`);
   });
 
-  test("is idempotent — a deduped tree yields no further changes", () => {
+  test("is idempotent — a deduplicated tree yields no further changes", () => {
     const map: Record<string, string> = {};
     ownLock(map, "f/a", ".py", PY_LOCK);
     ownLock(map, "f/b", ".py", PY_LOCK);
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun"));
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
 
-    expect(isEmptySharedLockPlan(computeSharedLockPlan(map, "bun"))).toBe(true);
+    const tree = treeOf(map, { [SHARED_PY]: map[SHARED_PY] });
+    expect(isEmptySharedLockPlan(computeSharedLockPlan(map, "bun", tree))).toBe(
+      true,
+    );
   });
 
   test("a dependency bump moves only the shared file", () => {
-    const map: Record<string, string> = {};
-    sharedLock(map, "f/a", ".py", SHARED_PY);
-    sharedLock(map, "f/b", ".py", SHARED_PY);
-    map[SHARED_PY] = PY_LOCK;
+    const committed: Record<string, string> = {};
+    sharedLock(committed, "f/a", ".py", SHARED_PY);
+    sharedLock(committed, "f/b", ".py", SHARED_PY);
+    committed[SHARED_PY] = PY_LOCK;
+    const tree = treeOf(committed, { [SHARED_PY]: PY_LOCK });
 
     // What the remote sends after the bump: one lock per script, all bumped.
     const remote: Record<string, string> = {};
     ownLock(remote, "f/a", ".py", PY_LOCK_BUMPED);
     ownLock(remote, "f/b", ".py", PY_LOCK_BUMPED);
-    applySharedLockPlanToMap(remote, computeSharedLockPlan(remote, "bun"));
+    applySharedLockPlanToMap(
+      remote,
+      computeSharedLockPlan(remote, "bun", tree),
+    );
 
-    const changed = Object.keys(remote).filter((k) => remote[k] !== map[k]);
+    const changed = Object.keys(remote).filter((k) => remote[k] !== committed[k]);
     expect(changed).toEqual([SHARED_PY]);
     expect(remote[SHARED_PY]).toEqual(PY_LOCK_BUMPED);
   });
 
-  test("the minority keeps its own lock; the majority shares", () => {
+  test("a second group gets a name of its own, and keeps it", () => {
     const map: Record<string, string> = {};
     ownLock(map, "f/a", ".py", PY_LOCK);
     ownLock(map, "f/b", ".py", PY_LOCK);
-    ownLock(map, "f/odd", ".py", OTHER_LOCK);
+    ownLock(map, "f/c", ".py", OTHER_LOCK);
+    ownLock(map, "f/d", ".py", OTHER_LOCK);
 
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun"));
-
-    expect(map[SHARED_PY]).toEqual(PY_LOCK);
-    expect(map["f/odd.script.lock"]).toEqual(OTHER_LOCK);
-    expect(lockRefOf(map["f/odd.script.yaml"])).toEqual(
-      "!inline f/odd.script.lock",
-    );
-  });
-
-  test("a script that diverges from the shared lock gets its own back", () => {
-    const map: Record<string, string> = {};
-    sharedLock(map, "f/a", ".py", SHARED_PY);
-    sharedLock(map, "f/b", ".py", SHARED_PY);
-    sharedLock(map, "f/c", ".py", SHARED_PY);
-    map[SHARED_PY] = PY_LOCK;
-    // f/c grew an import: the remote now sends it a lock of its own.
-    map["f/c.script.yaml"] = meta("!inline f/c.script.lock");
-    map["f/c.script.lock"] = OTHER_LOCK;
-
-    const plan = computeSharedLockPlan(map, "bun");
-    applySharedLockPlanToMap(map, plan);
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
-    expect(map["f/c.script.lock"]).toEqual(OTHER_LOCK);
-    expect(map["f/a.script.lock"]).toBeUndefined();
+    expect(map[SHARED_PY_2]).toEqual(OTHER_LOCK);
+    expect(lockRefOf(map["f/c.script.yaml"])).toEqual(`!inline ${SHARED_PY_2}`);
+
+    // Bumping the second group moves its file, not its name.
+    const tree = treeOf(map, {
+      [SHARED_PY]: map[SHARED_PY],
+      [SHARED_PY_2]: map[SHARED_PY_2],
+    });
+    const remote: Record<string, string> = {};
+    ownLock(remote, "f/a", ".py", PY_LOCK);
+    ownLock(remote, "f/b", ".py", PY_LOCK);
+    ownLock(remote, "f/c", ".py", OTHER_LOCK + "click==8.1.7\n");
+    ownLock(remote, "f/d", ".py", OTHER_LOCK + "click==8.1.7\n");
+    applySharedLockPlanToMap(remote, computeSharedLockPlan(remote, "bun", tree));
+
+    expect(Object.keys(remote).filter((k) => remote[k] !== map[k])).toEqual([
+      SHARED_PY_2,
+    ]);
   });
 
-  test("a lone script is left with its own lock", () => {
+  test("a lone script keeps its own lock", () => {
     const map: Record<string, string> = {};
     ownLock(map, "f/a", ".py", PY_LOCK);
 
-    expect(isEmptySharedLockPlan(computeSharedLockPlan(map, "bun"))).toBe(true);
+    expect(
+      isEmptySharedLockPlan(computeSharedLockPlan(map, "bun", treeOf(map))),
+    ).toBe(true);
   });
 
-  test("a shared file nothing references any more is removed", () => {
+  test("a script that diverges gets its own lock back, the rest keep the file", () => {
+    const committed: Record<string, string> = {};
+    sharedLock(committed, "f/a", ".py", SHARED_PY);
+    sharedLock(committed, "f/b", ".py", SHARED_PY);
+    sharedLock(committed, "f/c", ".py", SHARED_PY);
+    committed[SHARED_PY] = PY_LOCK;
+    const tree = treeOf(committed, { [SHARED_PY]: PY_LOCK });
+
+    const remote: Record<string, string> = {};
+    ownLock(remote, "f/a", ".py", PY_LOCK);
+    ownLock(remote, "f/b", ".py", PY_LOCK);
+    ownLock(remote, "f/c", ".py", OTHER_LOCK);
+    applySharedLockPlanToMap(remote, computeSharedLockPlan(remote, "bun", tree));
+
+    expect(remote[SHARED_PY]).toEqual(PY_LOCK);
+    expect(remote["f/c.script.lock"]).toEqual(OTHER_LOCK);
+    expect(remote["f/a.script.lock"]).toBeUndefined();
+  });
+
+  test("a shared file nothing reads any more is removed", () => {
+    const committed: Record<string, string> = {};
+    sharedLock(committed, "f/a", ".py", SHARED_PY);
+    sharedLock(committed, "f/b", ".py", SHARED_PY);
+    const tree = treeOf(committed, { [SHARED_PY]: PY_LOCK });
+
+    // Both scripts diverge, and to different locks: the file has no reader left.
     const map: Record<string, string> = {};
-    sharedLock(map, "f/a", ".py", SHARED_PY);
-    map[SHARED_PY] = PY_LOCK;
-    // The one remaining script diverged, so nothing shares that lock.
-    map["f/a.script.yaml"] = meta("!inline f/a.script.lock");
-    map["f/a.script.lock"] = OTHER_LOCK;
+    ownLock(map, "f/a", ".py", OTHER_LOCK);
+    ownLock(map, "f/b", ".py", PY_LOCK_BUMPED);
 
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun"));
-
-    expect(map[SHARED_PY]).toBeUndefined();
+    const plan = computeSharedLockPlan(map, "bun", tree);
+    expect(plan.deletes).toContain(SHARED_PY);
   });
 
   test("scripts without a lock file are untouched", () => {
@@ -172,15 +216,19 @@ describe("computeSharedLockPlan", () => {
       "f/b.script.yaml": meta(""),
     };
 
-    expect(isEmptySharedLockPlan(computeSharedLockPlan(map, "bun"))).toBe(true);
+    expect(
+      isEmptySharedLockPlan(computeSharedLockPlan(map, "bun", treeOf(map))),
+    ).toBe(true);
   });
 
-  test("a language that needs no lock is never deduped", () => {
+  test("a language that needs no lock is never deduplicated", () => {
     const map: Record<string, string> = {};
     ownLock(map, "f/a", ".sh", "some-lock");
     ownLock(map, "f/b", ".sh", "some-lock");
 
-    expect(isEmptySharedLockPlan(computeSharedLockPlan(map, "bun"))).toBe(true);
+    expect(
+      isEmptySharedLockPlan(computeSharedLockPlan(map, "bun", treeOf(map))),
+    ).toBe(true);
   });
 
   test("module-layout scripts share too, from their folder", () => {
@@ -197,9 +245,17 @@ describe("computeSharedLockPlan", () => {
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
     expect(map["f/a__mod/script.lock"]).toBeUndefined();
-    expect(lockRefOf(map["f/a__mod/script.yaml"])).toEqual(
-      `!inline ${SHARED_PY}`,
-    );
+  });
+
+  test("a script path containing dots is deduplicated like any other", () => {
+    const map: Record<string, string> = {};
+    ownLock(map, "f/a.b", ".py", PY_LOCK);
+    ownLock(map, "f/c.d", ".py", PY_LOCK);
+
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
+
+    expect(map[SHARED_PY]).toEqual(PY_LOCK);
+    expect(lockRefOf(map["f/a.b.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
   });
 
   test("only the lock line of the metadata changes", () => {
@@ -209,11 +265,69 @@ describe("computeSharedLockPlan", () => {
     map["f/a.script.yaml"] = meta("!inline f/a.script.lock", "does a thing");
     const before = map["f/a.script.yaml"];
 
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun"));
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
 
     expect(map["f/a.script.yaml"]).toEqual(
       before.replace("f/a.script.lock", SHARED_PY),
     );
+  });
+});
+
+// The git-sync deploy callback pulls with `extraIncludes` scoped to the item it
+// deploys, so a map holding one script out of a thousand is the normal case,
+// not an edge one. Anything the plan does to a shared file there lands on
+// scripts it cannot see.
+describe("computeSharedLockPlan with a partial sync map", () => {
+  /** The tree: three scripts on the shared lock. The map: only one of them. */
+  function partial(inScopeLock: string) {
+    const committed: Record<string, string> = {};
+    for (const base of ["f/a", "f/b", "f/c"]) {
+      sharedLock(committed, base, ".py", SHARED_PY);
+    }
+    const tree = treeOf(committed, { [SHARED_PY]: PY_LOCK });
+    const map: Record<string, string> = {};
+    ownLock(map, "f/a", ".py", inScopeLock);
+    return { map, tree };
+  }
+
+  test("keeps the shared file the scripts out of scope read", () => {
+    const { map, tree } = partial(PY_LOCK);
+    const plan = computeSharedLockPlan(map, "bun", tree);
+    applySharedLockPlanToMap(map, plan);
+
+    expect(plan.deletes).not.toContain(SHARED_PY);
+    // Carried into the map, or the diff would delete the committed file.
+    expect(map[SHARED_PY]).toEqual(PY_LOCK);
+    expect(lockRefOf(map["f/a.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
+  });
+
+  test("never rewrites the shared file from the scripts it can see", () => {
+    const { map, tree } = partial(OTHER_LOCK);
+    const plan = computeSharedLockPlan(map, "bun", tree);
+    applySharedLockPlanToMap(map, plan);
+
+    expect(map[SHARED_PY]).toEqual(PY_LOCK);
+    // The one script in scope takes a lock of its own instead.
+    expect(map["f/a.script.lock"]).toEqual(OTHER_LOCK);
+    expect(lockRefOf(map["f/a.script.yaml"])).toEqual(
+      "!inline f/a.script.lock",
+    );
+  });
+
+  test("forms no new group it cannot see the whole of", () => {
+    const committed: Record<string, string> = {};
+    for (const base of ["f/a", "f/b", "f/c"]) {
+      ownLock(committed, base, ".py", PY_LOCK);
+    }
+    committed[SHARED_BUN] = "bun-lock-contents";
+    const tree = treeOf(committed, { [SHARED_BUN]: "bun-lock-contents" });
+
+    const map: Record<string, string> = {};
+    ownLock(map, "f/a", ".py", PY_LOCK);
+    ownLock(map, "f/b", ".py", PY_LOCK);
+
+    const plan = computeSharedLockPlan(map, "bun", tree);
+    expect(plan.writes[SHARED_PY]).toBeUndefined();
   });
 });
 
@@ -223,11 +337,16 @@ describe("scriptsReferencingSharedLock", () => {
     ownLock(map, "f/a", ".py", PY_LOCK);
     ownLock(map, "f/b", ".py", PY_LOCK);
     ownLock(map, "f/odd", ".py", OTHER_LOCK);
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun"));
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
 
     expect(scriptsReferencingSharedLock(map, SHARED_PY).sort()).toEqual([
       "f/a.script.yaml",
       "f/b.script.yaml",
     ]);
+  });
+
+  test("reports none for a shared file nothing reads", () => {
+    const map: Record<string, string> = { [SHARED_PY]: PY_LOCK };
+    expect(scriptsReferencingSharedLock(map, SHARED_PY)).toEqual([]);
   });
 });

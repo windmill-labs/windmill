@@ -1,5 +1,6 @@
 import { stringify as yamlStringify } from "yaml";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import * as path from "node:path";
 import { yamlOptions } from "../commands/sync/sync.ts";
 import { yamlParseContent } from "./yaml.ts";
@@ -7,7 +8,11 @@ import {
   inferContentTypeFromFilePath,
   languageNeedsLock,
 } from "./script_common.ts";
-import { isSharedLockPath, sharedLockPath } from "./resource_folders.ts";
+import {
+  SHARED_LOCK_DIR,
+  isSharedLockPath,
+  sharedLockPath,
+} from "./resource_folders.ts";
 
 /**
  * Lockfile deduplication (`dedupeLockfiles` in wmill.yaml).
@@ -17,19 +22,33 @@ import { isSharedLockPath, sharedLockPath } from "./resource_folders.ts";
  * thousands of byte-identical `.script.lock` files: one dependency bump rewrites
  * all of them, and every open branch conflicts on all of them.
  *
- * With dedup on, the scripts of a language that share a lock reference ONE file,
- * `dependencies/locks/<language>.lock`, through the `!inline` indirection their
- * metadata already uses — so the bump is a one-file diff. Scripts whose lock
- * differs (extra imports, a named dependency set) keep their own `.script.lock`.
+ * With dedup on, scripts that share a lock reference ONE file under
+ * `dependencies/locks/`, through the `!inline` indirection their metadata
+ * already uses — so the bump is a one-file diff.
  *
- * The shared file is named after the LANGUAGE, never after the content it holds:
- * a content-addressed name would move on every bump and put the churn back in
- * the metadata of every script.
+ * Three rules make that hold, and each is load-bearing:
+ *
+ * - **A shared file's name never encodes its content.** A content-addressed name
+ *   would move on every bump and put the churn straight back into the metadata
+ *   of every script. A group of scripts KEEPS the file it already references
+ *   (its incumbent) and the file's CONTENT is what changes. Only a group with no
+ *   incumbent is given a name: `<language>.lock`, then `<language>-2.lock`, …
+ * - **A shared file's content only moves when every script that reads it agrees.**
+ *   Referrers are counted from the whole working tree, never from the sync map,
+ *   which wmill.yaml's includes/excludes narrow — and which the git-sync deploy
+ *   callback narrows to a single item. A script the current sync does not cover
+ *   still reads the file, and rewriting or deleting it underneath would change
+ *   that script's lock silently.
+ * - **A sync that cannot see the whole tree only conserves.** It keeps existing
+ *   groups together but never forms new ones, so a per-item deploy does not
+ *   invent shared files that a later full sync has to undo.
  */
 
 const INLINE_PREFIX = "!inline ";
 
-/** Below this, a shared file would trade one lock file for two. */
+/** Below this a shared file would trade one lock file for two. It gates only
+ *  NEW shared files: a script already on one stays there however few are left,
+ *  or a narrowed sync scope would tear the group apart. */
 const MIN_SHARED_GROUP = 2;
 
 /** Sync maps are keyed with the platform separator (`path.join`), while an
@@ -42,6 +61,26 @@ const toRefPath = (mapKey: string) => mapKey.replaceAll("\\", "/");
 export type LockDedupOptions = {
   dedupeLockfiles?: boolean | undefined;
   defaultTs?: "bun" | "deno" | undefined;
+};
+
+/**
+ * The working tree as it stands: which shared lockfiles it holds, who reads
+ * them, and every script in it. Collected unfiltered, so a plan can tell what a
+ * narrowed sync map is leaving out. Paths are forward-slashed.
+ */
+export type ExistingSharedLocks = {
+  /** script metadata file -> the shared lockfile it references */
+  refs: Map<string, string>;
+  /** shared lockfile -> its content */
+  contents: Map<string, string>;
+  /** every script metadata file in the tree, referencing a shared lock or not */
+  scripts: Set<string>;
+};
+
+export const NO_EXISTING_SHARED_LOCKS: ExistingSharedLocks = {
+  refs: new Map(),
+  contents: new Map(),
+  scripts: new Set(),
 };
 
 /** The files a dedup pass writes and removes, as paths relative to the sync
@@ -57,6 +96,8 @@ export function isEmptySharedLockPlan(plan: SharedLockPlan): boolean {
 
 type ScriptEntry = {
   metaKey: string;
+  /** `metaKey` forward-slashed, i.e. how the working-tree scan names it. */
+  metaRef: string;
   isJson: boolean;
   parsed: Record<string, any>;
   /** The lock file the metadata references today, as a map key. */
@@ -69,7 +110,7 @@ type ScriptEntry = {
 
 /** `f/foo.script.yaml` -> base `f/foo`, lock `f/foo.script.lock`;
  *  `f/foo__mod/script.yaml` -> base `f/foo__mod/script`, lock `…/script.lock`.
- *  The base is what the script's content file is named after. Both are returned
+ *  The base is what the script's content file is named after. All returned
  *  forward-slashed, whatever the map's separator. */
 function scriptMetaBase(
   key: string,
@@ -98,22 +139,19 @@ function scriptMetaBase(
   return undefined;
 }
 
-/** Everything sharing a metadata file's base name, i.e. its content file and
- *  its lock — indexed once, because resolving it per script by scanning the map
- *  is quadratic in the number of files. */
-function indexByBase(map: Record<string, string>): Map<string, string[]> {
+/** Map keys grouped by directory. A script's content file is looked up among
+ *  its own directory's entries: splitting a name at its first dot would put
+ *  `f/a.b.py` under `f/a` and leave every dotted script path undeduplicated. */
+function indexByDirectory(map: Record<string, string>): Map<string, string[]> {
   const index = new Map<string, string[]>();
   for (const key of Object.keys(map)) {
     const ref = toRefPath(key);
-    const slash = ref.lastIndexOf("/");
-    const dot = ref.indexOf(".", slash + 1);
-    if (dot === -1) continue;
-    const base = ref.slice(0, dot);
-    const bucket = index.get(base);
+    const dir = ref.slice(0, ref.lastIndexOf("/") + 1);
+    const bucket = index.get(dir);
     if (bucket) {
       bucket.push(ref);
     } else {
-      index.set(base, [ref]);
+      index.set(dir, [ref]);
     }
   }
   return index;
@@ -121,14 +159,19 @@ function indexByBase(map: Record<string, string>): Map<string, string[]> {
 
 function languageOfScript(
   base: string,
-  byBase: Map<string, string[]>,
+  byDirectory: Map<string, string[]>,
   defaultTs: "bun" | "deno" | undefined,
 ): string | undefined {
-  // A script's content file is never `.yaml`/`.json`/`.lock` — those are its
-  // metadata and its lock (`.playbook.yml` is `.yml`, and a dbt descriptor
-  // belongs to a base of its own, so dbt is left out of dedup entirely).
-  const candidates = (byBase.get(base) ?? []).filter(
-    (c) => !c.endsWith(".yaml") && !c.endsWith(".json") && !c.endsWith(".lock"),
+  const dir = base.slice(0, base.lastIndexOf("/") + 1);
+  // A script's content file is `<base>.<ext>`, and never `.yaml`/`.json`/`.lock`
+  // — those are its metadata and its lock (`.playbook.yml` is `.yml`, and a dbt
+  // descriptor belongs to a base of its own, so dbt stays out of dedup).
+  const candidates = (byDirectory.get(dir) ?? []).filter(
+    (c) =>
+      c.startsWith(base + ".") &&
+      !c.endsWith(".yaml") &&
+      !c.endsWith(".json") &&
+      !c.endsWith(".lock"),
   );
   // Sorted so a base that somehow carries two content files resolves the same
   // way on every run, rather than following map insertion order.
@@ -159,7 +202,7 @@ function collectScripts(
   map: Record<string, string>,
   defaultTs: "bun" | "deno" | undefined,
 ): ScriptEntry[] {
-  const byBase = indexByBase(map);
+  const byDirectory = indexByDirectory(map);
   const entries: ScriptEntry[] = [];
   for (const [metaKey, metaContent] of Object.entries(map)) {
     const meta = scriptMetaBase(metaKey);
@@ -184,11 +227,12 @@ function collectScripts(
     // dependencies carries `lock: ''` and no file at all.
     if (lockFile === undefined || lockFile.content === "") continue;
 
-    const language = languageOfScript(meta.base, byBase, defaultTs);
+    const language = languageOfScript(meta.base, byDirectory, defaultTs);
     if (language === undefined || !languageNeedsLock(language)) continue;
 
     entries.push({
       metaKey,
+      metaRef: toRefPath(metaKey),
       isJson: meta.isJson,
       parsed,
       lockKey: lockFile.key,
@@ -206,13 +250,96 @@ function serializeMetadata(entry: ScriptEntry): string {
     : yamlStringify(entry.parsed, yamlOptions);
 }
 
+/** How many scripts in the whole tree read a given shared lockfile. */
+function referrerCount(
+  existing: ExistingSharedLocks,
+  sharedRef: string,
+): number {
+  let count = 0;
+  for (const ref of existing.refs.values()) {
+    if (ref === sharedRef) count++;
+  }
+  return count;
+}
+
 /**
- * What a sync map (path -> content) has to change for every duplicated script
- * lock to become one shared file per language. Pure: the map is not touched.
+ * The shared file a group of scripts is entitled to keep: the one most of them
+ * already reference. Undefined when the group has no incumbent, or when keeping
+ * it would move its content underneath scripts outside the group.
+ */
+function incumbentFor(
+  group: ScriptEntry[],
+  content: string,
+  existing: ExistingSharedLocks,
+  claimed: Set<string>,
+): string | undefined {
+  const votes = new Map<string, number>();
+  for (const entry of group) {
+    const ref = existing.refs.get(entry.metaRef);
+    if (ref === undefined || claimed.has(ref)) continue;
+    votes.set(ref, (votes.get(ref) ?? 0) + 1);
+  }
+  let best: string | undefined;
+  let bestVotes = 0;
+  for (const [ref, count] of votes) {
+    if (
+      count > bestVotes ||
+      (count === bestVotes && best !== undefined && ref < best)
+    ) {
+      best = ref;
+      bestVotes = count;
+    }
+  }
+  if (best === undefined) return undefined;
+  // Keeping the name costs nothing while the content is unchanged. Moving the
+  // content is only this group's call when no one else reads the file.
+  if (
+    existing.contents.get(best) !== content &&
+    bestVotes < referrerCount(existing, best)
+  ) {
+    return undefined;
+  }
+  return best;
+}
+
+/** The first `<language>[-N].lock` no other group in this run holds and no
+ *  script outside the group still reads. */
+function allocateName(
+  language: string,
+  group: ScriptEntry[],
+  existing: ExistingSharedLocks,
+  claimed: Set<string>,
+): string {
+  const inGroup = new Set(group.map((e) => e.metaRef));
+  for (let n = 1; ; n++) {
+    const candidate =
+      n === 1
+        ? sharedLockPath(language)
+        : `${SHARED_LOCK_DIR}/${language}-${n}.lock`;
+    if (claimed.has(candidate)) continue;
+    let readByOthers = false;
+    for (const [metaRef, ref] of existing.refs) {
+      if (ref === candidate && !inGroup.has(metaRef)) {
+        readByOthers = true;
+        break;
+      }
+    }
+    if (!readByOthers) return candidate;
+  }
+}
+
+/**
+ * What a sync map (path -> content) has to change for duplicated script locks to
+ * become one shared file per group. Pure: neither argument is touched.
+ *
+ * `existing` is the working tree as it stands, unfiltered — it is what keeps
+ * names stable across a dependency bump and what protects the scripts a
+ * narrowed sync map leaves out.
  */
 export function computeSharedLockPlan(
   map: Record<string, string>,
   defaultTs: "bun" | "deno" | undefined,
+  existing: ExistingSharedLocks = NO_EXISTING_SHARED_LOCKS,
 ): SharedLockPlan {
   const plan: SharedLockPlan = { writes: {}, deletes: [] };
   const byLanguage = new Map<string, Map<string, ScriptEntry[]>>();
@@ -230,54 +357,73 @@ export function computeSharedLockPlan(
     }
   }
 
-  for (const [language, byLock] of byLanguage) {
-    // The most widely shared lock wins the language's shared file, so the odd
-    // script out is the one that keeps a lock of its own. Ties break on the
-    // content itself: any ordering derived from the map would make the winner
-    // depend on how the workspace was walked.
-    let winner: string | undefined;
-    let winnerCount = 0;
-    for (const [lock, group] of byLock) {
+  // Whether this sync covers the whole tree. A partial one — narrowed includes,
+  // or the per-item `extraIncludes` the git-sync deploy callback passes — may
+  // hold groups together but must not form new ones, since what it cannot see
+  // may belong to them.
+  const partialView = [...existing.scripts].some(
+    (script) => map[toMapKey(script)] === undefined && map[script] === undefined,
+  );
+
+  // Where every script ends up, so a shared file with nothing left reading it
+  // can be dropped. Seeded with the tree's own scripts, the ones out of scope
+  // included.
+  const finalRefs = new Map(existing.refs);
+  const claimed = new Set<string>();
+
+  for (const [language, byLock] of [...byLanguage].sort(([a], [b]) =>
+    a.localeCompare(b),
+  )) {
+    // Biggest group first: it has the strongest claim to a name, and ties break
+    // on the content itself so the outcome never depends on map ordering.
+    const groups = [...byLock].sort(
+      ([contentA, a], [contentB, b]) =>
+        b.length - a.length || contentA.localeCompare(contentB),
+    );
+
+    for (const [content, group] of groups) {
+      let target = incumbentFor(group, content, existing, claimed);
       if (
-        group.length > winnerCount ||
-        (group.length === winnerCount && winner !== undefined && lock < winner)
+        target === undefined &&
+        !partialView &&
+        group.length >= MIN_SHARED_GROUP
       ) {
-        winner = lock;
-        winnerCount = group.length;
+        target = allocateName(language, group, existing, claimed);
       }
-    }
-    if (winnerCount < MIN_SHARED_GROUP) winner = undefined;
+      if (target !== undefined) {
+        claimed.add(target);
+        const sharedKey = toMapKey(target);
+        if (map[sharedKey] !== content) plan.writes[sharedKey] = content;
+      }
 
-    const sharedKey = toMapKey(sharedLockPath(language));
-    if (winner !== undefined && map[sharedKey] !== winner) {
-      plan.writes[sharedKey] = winner;
-    }
-
-    for (const [lock, group] of byLock) {
-      const shared = winner !== undefined && lock === winner;
       for (const entry of group) {
-        const target = shared ? sharedKey : entry.ownLockKey;
-        if (entry.lockKey === target) continue;
-        if (!shared && map[target] !== entry.lock) {
-          plan.writes[target] = entry.lock;
+        const targetKey =
+          target !== undefined ? toMapKey(target) : entry.ownLockKey;
+        finalRefs.set(entry.metaRef, toRefPath(targetKey));
+        if (entry.lockKey === targetKey) continue;
+        if (target === undefined && map[targetKey] !== entry.lock) {
+          plan.writes[targetKey] = entry.lock;
         }
-        // Never drop the shared file itself: the scripts still on it need it.
-        if (!isSharedLockPath(entry.lockKey)) {
-          plan.deletes.push(entry.lockKey);
-        }
-        entry.parsed["lock"] = INLINE_PREFIX + toRefPath(target);
+        // A shared file is only ever dropped by the sweep below, which knows
+        // who else reads it.
+        if (!isSharedLockPath(entry.lockKey)) plan.deletes.push(entry.lockKey);
+        entry.parsed["lock"] = INLINE_PREFIX + toRefPath(targetKey);
         plan.writes[entry.metaKey] = serializeMetadata(entry);
       }
     }
+  }
 
-    // A shared file nothing references any more (the language lost its scripts,
-    // or they all diverged) is left behind by the loop above.
-    if (
-      winner === undefined &&
-      map[sharedKey] !== undefined &&
-      !plan.deletes.includes(sharedKey)
-    ) {
-      plan.deletes.push(sharedKey);
+  const stillRead = new Set(finalRefs.values());
+  for (const [sharedRef, content] of existing.contents) {
+    const key = toMapKey(sharedRef);
+    if (!stillRead.has(sharedRef)) {
+      // Nothing reads it any more: its scripts diverged, or the sync deleted them.
+      if (plan.writes[key] === undefined) plan.deletes.push(key);
+    } else if (plan.writes[key] === undefined && map[key] === undefined) {
+      // Read by a script this sync does not cover, and absent from the map (the
+      // remote never serializes shared files). Carried over, or the diff would
+      // delete the file those scripts read.
+      plan.writes[key] = content;
     }
   }
 
@@ -311,6 +457,64 @@ export async function applySharedLockPlanToDisk(
   for (const key of plan.deletes) {
     await rm(key, { force: true });
   }
+}
+
+const SHARED_LOCK_REF_RE = new RegExp(
+  `${INLINE_PREFIX}(${SHARED_LOCK_DIR}/[^\\s'"]+\\.lock)`,
+);
+
+const SCAN_SKIP_DIRS = new Set([".git", "node_modules", ".wmill", "dist"]);
+
+/**
+ * The shared lockfiles in the working tree, the scripts that read them, and
+ * every script metadata file there is.
+ *
+ * Deliberately NOT filtered by the sync's includes/excludes: a script this sync
+ * does not cover still reads its lockfile, and a plan blind to it would rewrite
+ * or delete that file underneath it.
+ */
+export async function collectExistingSharedLocks(
+  root: string,
+): Promise<ExistingSharedLocks> {
+  const existing: ExistingSharedLocks = {
+    refs: new Map(),
+    contents: new Map(),
+    scripts: new Set(),
+  };
+  // With no shared lockfiles there is no name to keep stable and nothing to
+  // protect — and no reason to read every metadata file in the workspace.
+  if (!existsSync(path.join(root, ...SHARED_LOCK_DIR.split("/")))) {
+    return existing;
+  }
+
+  const walk = async (dir: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await readdir(path.join(root, dir), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const rel = dir === "" ? entry.name : `${dir}/${entry.name}`;
+      if (entry.isDirectory()) {
+        if (!SCAN_SKIP_DIRS.has(entry.name)) await walk(rel);
+        continue;
+      }
+      const full = path.join(root, ...rel.split("/"));
+      if (isSharedLockPath(rel)) {
+        existing.contents.set(rel, await readFile(full, "utf-8"));
+        continue;
+      }
+      if (scriptMetaBase(rel) === undefined) continue;
+      existing.scripts.add(rel);
+      // A substring match on the raw text rather than a parse: this reads every
+      // script metadata file in the workspace, and the reference is a literal.
+      const match = SHARED_LOCK_REF_RE.exec(await readFile(full, "utf-8"));
+      if (match) existing.refs.set(rel, match[1]);
+    }
+  };
+  await walk("");
+  return existing;
 }
 
 /**

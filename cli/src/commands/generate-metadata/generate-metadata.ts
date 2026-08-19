@@ -412,6 +412,44 @@ export async function rehashOnly(
   return counts;
 }
 
+/**
+ * Normalize the tree's shared lockfiles, unless the run asked to stay inside one
+ * folder: shared lockfiles are workspace-wide, so the pass reads and rewrites
+ * metadata outside it, which `--strict-folder-boundaries` promises not to do.
+ */
+async function maybeDedupeLockfiles(
+  opts: GlobalOptions & SyncOptions & { strictFolderBoundaries?: boolean },
+  workspace: Workspace,
+  codebases: SyncCodebase[],
+  ignore: (p: string, isD: boolean) => boolean,
+  rawWorkspaceDependencies: Record<string, string>,
+  tree: DoubleLinkedDependencyTree,
+  folder: string | undefined,
+): Promise<void> {
+  if (!opts.dedupeLockfiles) return;
+  if (folder && opts.strictFolderBoundaries) {
+    log.info(
+      colors.yellow(
+        `Skipping lockfile deduplication: it spans the whole workspace, and --strict-folder-boundaries keeps this run inside "${folder}".`,
+      ),
+    );
+    return;
+  }
+  await beginLockfileBatch();
+  try {
+    await dedupeLockfilesOnDisk(
+      opts,
+      workspace,
+      codebases,
+      ignore,
+      rawWorkspaceDependencies,
+      tree,
+    );
+  } finally {
+    await flushLockfileBatch();
+  }
+}
+
 export async function generateMetadata(
   opts: GlobalOptions & {
     yes?: boolean;
@@ -611,6 +649,10 @@ export async function generateMetadata(
   // === Show stale items and confirm ===
   if (filteredItems.length === 0) {
     log.info(colors.green("All metadata up-to-date"));
+    // Turning `dedupeLockfiles` on in a repo whose metadata is already current
+    // is exactly the case where nothing is stale, and the conversion still has
+    // to happen — the sync compares against a deduplicated remote either way.
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
     return;
   }
 
@@ -777,19 +819,11 @@ export async function generateMetadata(
     const allStaleDeps = staleItems.filter((i) => i.type === "dependencies");
     await tree.persistDepsHashes(allStaleDeps.map((d) => d.path));
 
-    if (opts.dedupeLockfiles) {
-      await dedupeLockfilesOnDisk(
-        opts,
-        workspace,
-        codebases,
-        ignore,
-        rawWorkspaceDependencies,
-        tree,
-      );
-    }
   } finally {
     await flushLockfileBatch();
   }
+
+  await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
 
   const succeeded = total - errors.length;
   log.info("");

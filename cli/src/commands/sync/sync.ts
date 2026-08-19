@@ -113,6 +113,8 @@ import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
 import {
+  beginLockfileBatch,
+  flushLockfileBatch,
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   readLockfile,
@@ -178,6 +180,7 @@ import {
 import {
   applySharedLockPlanToDisk,
   applySharedLockPlanToMap,
+  collectExistingSharedLocks,
   computeSharedLockPlan,
   isEmptySharedLockPlan,
   scriptsReferencingSharedLock,
@@ -2517,12 +2520,17 @@ async function compareDynFSElement(
   // represents them. Collapsing the remote side (in both directions) is what
   // makes the two sides comparable: a pull then writes the shared file instead
   // of thousands of copies, and a push sees no diff for the copies it does not
-  // keep.
+  // keep. The working tree is read unfiltered, because the shared files it holds
+  // are read by scripts these maps may not cover.
   if (skips.dedupeLockfiles) {
     const remoteMap = isEls1Remote === true ? m1 : m2;
     applySharedLockPlanToMap(
       remoteMap,
-      computeSharedLockPlan(remoteMap, skips.defaultTs),
+      computeSharedLockPlan(
+        remoteMap,
+        skips.defaultTs,
+        await collectExistingSharedLocks(process.cwd()),
+      ),
     );
   }
 
@@ -3929,7 +3937,11 @@ export async function dedupeLockfilesOnDisk(
     opts.json ?? false,
     opts,
   );
-  const plan = computeSharedLockPlan(map, opts.defaultTs);
+  const plan = computeSharedLockPlan(
+    map,
+    opts.defaultTs,
+    await collectExistingSharedLocks(process.cwd()),
+  );
   if (isEmptySharedLockPlan(plan)) return;
 
   await applySharedLockPlanToDisk(plan);
@@ -4452,10 +4464,18 @@ export async function push(
     });
   }
 
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
+
+  const tracker: ChangeTracker = await buildTracker(changes);
+
   // A shared lockfile (`dedupeLockfiles`) has no object of its own on the
   // remote: it IS the lock of every script that references it, and those
   // scripts are what carries its new content over. Nothing else queues them —
   // their own metadata is byte-identical on both sides.
+  //
+  // After the tracker on purpose: these scripts need no metadata regeneration
+  // (their lock is on disk already, in the shared file), and `--auto-metadata`
+  // would otherwise run one dependency job per script sharing the lock.
   const changedPaths = new Set(changes.map((c) => c.path));
   for (let i = changes.length - 1; i >= 0; i--) {
     const change = changes[i];
@@ -4482,10 +4502,6 @@ export async function push(
       });
     }
   }
-
-  const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
-
-  const tracker: ChangeTracker = await buildTracker(changes);
 
   const autoRegenerate = !!(opts as any).autoMetadata;
   const staleScripts: string[] = [];
@@ -4646,14 +4662,22 @@ export async function push(
     }
 
     if (opts.dedupeLockfiles) {
-      await dedupeLockfilesOnDisk(
-        opts,
-        workspace,
-        codebases,
-        await ignoreF(opts),
-        rawWorkspaceDependencies,
-        tree,
-      );
+      // Batched: the pass re-hashes every metadata file it rewrites, and one
+      // wmill-lock.yaml write per script is what a workspace-wide conversion
+      // would otherwise cost.
+      await beginLockfileBatch();
+      try {
+        await dedupeLockfilesOnDisk(
+          opts,
+          workspace,
+          codebases,
+          await ignoreF(opts),
+          rawWorkspaceDependencies,
+          tree,
+        );
+      } finally {
+        await flushLockfileBatch();
+      }
     }
   }
 
