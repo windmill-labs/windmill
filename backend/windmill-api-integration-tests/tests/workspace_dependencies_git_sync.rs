@@ -591,6 +591,69 @@ async fn test_promotion_individual_branch_debounces_per_path(
     Ok(())
 }
 
+/// Create a git repository resource at an arbitrary path.
+#[allow(dead_code)]
+async fn create_git_repo_resource_at(db: &Pool<Postgres>, path: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by)
+        VALUES ('test-workspace', $2, $1::jsonb, 'git_repository', '{}'::jsonb, 'test-user')
+        ON CONFLICT (workspace_id, path) DO NOTHING
+        "#,
+    )
+    .bind(json!({
+        "url": "https://github.com/test/test.git",
+        "branch": "main",
+        "token": "test-token"
+    }))
+    .bind(path)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// Poll until `expected` callbacks for `script_path` are queued, or time out.
+#[allow(dead_code)]
+async fn wait_for_callback_jobs(
+    db: &Pool<Postgres>,
+    script_path: &str,
+    expected: usize,
+    timeout: Duration,
+) -> anyhow::Result<()> {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let jobs =
+            get_deployment_callback_jobs(db, script_path, Duration::from_millis(200)).await?;
+        if jobs.len() >= expected || tokio::time::Instant::now() >= deadline {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// The concurrency key each queued deployment callback was pushed with, read
+/// back through the runnable-settings handle the push stored it under.
+#[allow(dead_code)]
+async fn get_concurrency_keys(
+    db: &Pool<Postgres>,
+    script_path: &str,
+) -> anyhow::Result<Vec<String>> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        r#"
+        SELECT COALESCE(cs.concurrency_key, '<no concurrency settings row>')
+        FROM v2_job j
+        JOIN v2_job_queue q ON q.id = j.id
+        LEFT JOIN runnable_settings rs ON rs.hash = q.runnable_settings_handle
+        LEFT JOIN concurrency_settings cs ON cs.hash = rs.concurrency_settings
+        WHERE j.runnable_path = $1 AND j.kind = 'deploymentcallback'
+        "#,
+    )
+    .bind(script_path)
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(|(k,)| k).collect())
+}
+
 /// Create a second git repository resource for multi-repo tests.
 #[allow(dead_code)]
 async fn create_second_git_repo_resource(db: &Pool<Postgres>) -> anyhow::Result<()> {
@@ -742,6 +805,122 @@ async fn test_two_promotion_repos_both_enqueue_callback(db: Pool<Postgres>) -> a
         skipped.iter().all(|(_, s)| s != "skipped"),
         "no deployment callback should be marked skipped, got: {:?}",
         skipped,
+    );
+
+    Ok(())
+}
+
+/// Workspace-wide mode (no promotion) with two repositories: each repo's sync
+/// must get its own concurrency lane. Sharing `{workspace}:git_sync` serialises
+/// unrelated remotes, and a concurrency-limited job is re-queued to an estimate
+/// derived from the key's average duration with no wake-up when the slot frees,
+/// so one slow repo delays every other repo by multiples of its own runtime.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_two_workspace_wide_repos_get_distinct_concurrency_keys(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    create_folder(&db, "28103").await?;
+    create_folder(&db, "target").await?;
+    // Concurrency settings are written through a filesystem-backed cache keyed by
+    // their own hash: a hash the cache has seen is assumed to be in the database
+    // already, so a key any earlier run inserted never lands in this test's fresh
+    // database and `get_concurrency_keys` cannot read it back. Repo paths unique to
+    // the run keep every key new.
+    let run_id: u32 = rand::random();
+    let repo_a = format!("u/test-user/lane_repo_a_{run_id}");
+    let repo_b = format!("u/test-user/lane_repo_b_{run_id}");
+    create_git_repo_resource_at(&db, &repo_a).await?;
+    create_git_repo_resource_at(&db, &repo_b).await?;
+    let sync_script_path = "f/28103/test_sync_two_workspace_wide_repos";
+    create_sync_script(&db, sync_script_path).await?;
+
+    let git_sync_config = json!({
+        "include_type": ["script"],
+        "include_path": ["**"],
+        "repositories": [
+            {
+                "script_path": sync_script_path,
+                "git_repo_resource_path": format!("$res:{repo_a}"),
+                "use_individual_branch": false,
+                "group_by_folder": false
+            },
+            {
+                "script_path": sync_script_path,
+                "git_repo_resource_path": format!("$res:{repo_b}"),
+                "use_individual_branch": false,
+                "group_by_folder": false
+            }
+        ]
+    });
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        git_sync_config,
+        "test-workspace"
+    )
+    .execute(&db)
+    .await?;
+
+    let (client, _port, _server) = init_client(db.clone()).await;
+
+    create_test_script(&client, "f/target/alpha").await?;
+    wait_for_callback_jobs(&db, sync_script_path, 2, Duration::from_secs(5)).await?;
+
+    let mut conc_keys = get_concurrency_keys(&db, sync_script_path).await?;
+    conc_keys.sort();
+    assert_eq!(
+        conc_keys,
+        vec![
+            format!("test-workspace:git_sync:$res:{repo_a}"),
+            format!("test-workspace:git_sync:$res:{repo_b}"),
+        ],
+        "each repo must push on its own concurrency lane"
+    );
+
+    // Promotion mode keys per branch, but two repos deploying the same object name
+    // the same branch, so the repo has to be in the key there too.
+    let promo_script_path = "f/28103/test_sync_two_promotion_lanes";
+    create_sync_script(&db, promo_script_path).await?;
+    let promo_config = json!({
+        "include_type": ["script"],
+        "include_path": ["**"],
+        "repositories": [
+            {
+                "script_path": promo_script_path,
+                "git_repo_resource_path": format!("$res:{repo_a}"),
+                "use_individual_branch": true,
+                "group_by_folder": false
+            },
+            {
+                "script_path": promo_script_path,
+                "git_repo_resource_path": format!("$res:{repo_b}"),
+                "use_individual_branch": true,
+                "group_by_folder": false
+            }
+        ]
+    });
+    sqlx::query!(
+        "UPDATE workspace_settings SET git_sync = $1 WHERE workspace_id = $2",
+        promo_config,
+        "test-workspace"
+    )
+    .execute(&db)
+    .await?;
+
+    create_test_script(&client, "f/target/beta").await?;
+    wait_for_callback_jobs(&db, promo_script_path, 2, Duration::from_secs(5)).await?;
+
+    let mut promo_keys = get_concurrency_keys(&db, promo_script_path).await?;
+    promo_keys.sort();
+    assert_eq!(
+        promo_keys,
+        vec![
+            format!("test-workspace:git_sync:$res:{repo_a}:script:f/target/beta"),
+            format!("test-workspace:git_sync:$res:{repo_b}:script:f/target/beta"),
+        ],
+        "each repo must push its branch on its own concurrency lane"
     );
 
     Ok(())
