@@ -1,6 +1,6 @@
 import { stringify as yamlStringify } from "yaml";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, type Dirent } from "node:fs";
 import * as path from "node:path";
 import { yamlOptions } from "../commands/sync/sync.ts";
 import * as log from "../core/log.ts";
@@ -393,13 +393,21 @@ export function computeSharedLockPlan(
     }
   }
 
+  // The metadata twin this sync does not read is not a reader: it is never
+  // pushed, and letting it vote would veto changes on behalf of a dead file.
+  const metaExt = json ? ".json" : ".yaml";
+  const activeRefs = new Map(
+    [...existing.refs].filter(([metaRef]) => metaRef.endsWith(metaExt)),
+  );
+  const activeExisting: ExistingSharedLocks = { ...existing, refs: activeRefs };
+
   // A sync that cannot see the whole tree conserves only (see the header). Only
   // the metadata twin this sync reads counts as missing: a leftover
   // `.script.json` in a YAML repo is dropped by the map for reasons that have
   // nothing to do with scope, and would otherwise put the tree in conserve-only
   // mode for good.
   const unseen = [...existing.scripts].filter(
-    (script) => script.endsWith(json ? ".json" : ".yaml") && !inScope(script),
+    (script) => script.endsWith(metaExt) && !inScope(script),
   );
   const partialView = unseen.length > 0;
   if (partialView) {
@@ -410,7 +418,7 @@ export function computeSharedLockPlan(
 
   // Where every script ends up, so a shared file with nothing left reading it
   // can be dropped. Seeded with the whole tree, out-of-scope scripts included.
-  const finalRefs = new Map(existing.refs);
+  const finalRefs = new Map(activeRefs);
   const claimed = new Set<string>();
 
   for (const [language, byLock] of [...byLanguage].sort(([a], [b]) =>
@@ -424,13 +432,13 @@ export function computeSharedLockPlan(
     );
 
     for (const [content, group] of groups) {
-      let target = incumbentFor(group, content, existing, inScope, claimed);
+      let target = incumbentFor(group, content, activeExisting, inScope, claimed);
       if (
         target === undefined &&
         !partialView &&
         group.length >= MIN_SHARED_GROUP
       ) {
-        target = allocateName(language, group, existing, claimed);
+        target = allocateName(language, group, activeExisting, claimed);
       }
       if (target !== undefined) {
         claimed.add(target);
@@ -506,6 +514,32 @@ const SHARED_LOCK_REF_RE = new RegExp(
 );
 
 /**
+ * The shared lockfile a metadata file's `lock` field names, if any. The raw text
+ * is only a prefilter: a summary or a comment can carry the same words, and
+ * `!inline` decides where a lock is written, so it is read from the parsed
+ * field and nowhere else.
+ */
+function sharedLockRefOf(
+  metaPath: string,
+  metaContent: string,
+  isJson: boolean,
+): string | undefined {
+  if (!SHARED_LOCK_REF_RE.test(metaContent)) return undefined;
+  let parsed: any;
+  try {
+    parsed = isJson ? JSON.parse(metaContent) : yamlParseContent(metaPath, metaContent);
+  } catch {
+    return undefined;
+  }
+  const lock = parsed?.["lock"];
+  if (typeof lock !== "string" || !lock.startsWith(INLINE_PREFIX)) return undefined;
+  const ref = lock.slice(INLINE_PREFIX.length);
+  // Validated, not just matched: a reference is repo content and becomes a path
+  // this pass writes to.
+  return isSharedLockPath(ref) ? ref : undefined;
+}
+
+/**
  * The shared lockfile a metadata FILE reads, when it reads one that is there.
  * `parseMetadataFile` resolves `lock` to the lockfile's content, so the
  * reference itself survives only in the raw text.
@@ -514,10 +548,9 @@ export function sharedLockRefIn(
   metadataContent: string,
   root: string = ".",
 ): string | undefined {
-  const ref = SHARED_LOCK_REF_RE.exec(metadataContent)?.[1];
-  return ref && isSharedLockPath(ref) && existsSync(path.resolve(root, ref))
-    ? ref
-    : undefined;
+  const meta = { isJson: metadataContent.trimStart().startsWith("{") };
+  const ref = sharedLockRefOf("metadata", metadataContent, meta.isJson);
+  return ref && existsSync(path.resolve(root, ref)) ? ref : undefined;
 }
 
 // `.wmill` is the stateful-push mirror: its copies of a script's metadata would
@@ -528,8 +561,22 @@ export function sharedLockRefIn(
 // the script the scan exists to protect.
 const SCAN_SKIP_DIRS = new Set([".git", ".wmill", "node_modules"]);
 
-/** Workspace-shared raw-app components, which sync handles on its own. */
-const SCAN_SKIP_ROOTS = ["ui/"];
+async function inBatches<T>(
+  items: readonly T[],
+  size: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  for (let i = 0; i < items.length; i += size) {
+    await Promise.all(items.slice(i, i + size).map((item) => fn(item)));
+  }
+}
+
+/** Script metadata only counts where sync looks for it: `docs/notes.script.yaml`
+ *  is a file that happens to be named like one, and counting it would leave the
+ *  planner in conserve-only mode for good. */
+function isInWindmillNamespace(rel: string): boolean {
+  return ["f/", "u/", "g/"].some((ns) => rel.startsWith(ns));
+}
 
 /**
  * The shared lockfiles in the working tree, the scripts that read them, and
@@ -550,14 +597,15 @@ export async function collectExistingSharedLocks(
   const anyShared = existsSync(path.join(root, ...SHARED_LOCK_DIR.split("/")));
 
   const walk = async (dir: string): Promise<void> => {
-    let entries;
+    let entries: Dirent[];
     try {
       entries = await readdir(path.join(root, dir), { withFileTypes: true });
     } catch {
       return;
     }
-    await Promise.all(
-      entries.map(async (entry) => {
+    // Bounded: a workspace is thousands of files deep and an unbounded fan-out
+    // would open as many descriptors at once.
+    await inBatches(entries, 32, async (entry) => {
         const rel = dir === "" ? entry.name : `${dir}/${entry.name}`;
         if (entry.isDirectory()) {
           if (!SCAN_SKIP_DIRS.has(entry.name)) await walk(rel);
@@ -568,18 +616,19 @@ export async function collectExistingSharedLocks(
           existing.contents.set(rel, await readFile(full, "utf-8"));
           return;
         }
-        if (scriptMetaBase(rel) === undefined) return;
-        if (SCAN_SKIP_ROOTS.some((skipped) => rel.startsWith(skipped))) return;
+        const meta = scriptMetaBase(rel);
+        if (meta === undefined || !isInWindmillNamespace(rel)) return;
         existing.scripts.add(rel);
         if (!anyShared) return;
-        // A substring match on the raw text rather than a parse: this reads every
-        // script metadata file in the workspace, and the reference is a literal.
-        const match = SHARED_LOCK_REF_RE.exec(await readFile(full, "utf-8"));
-        // Validated, not just matched: a reference is repo content and becomes a
-        // path this pass writes to.
-        if (match && isSharedLockPath(match[1])) existing.refs.set(rel, match[1]);
-      }),
-    );
+        let content: string;
+        try {
+          content = await readFile(full, "utf-8");
+        } catch {
+          return; // vanished or unreadable mid-walk; it reads nothing for us
+        }
+        const ref = sharedLockRefOf(rel, content, meta.isJson);
+        if (ref) existing.refs.set(rel, ref);
+    });
   };
   await walk("");
   return existing;

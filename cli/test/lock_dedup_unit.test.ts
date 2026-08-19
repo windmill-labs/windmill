@@ -94,7 +94,7 @@ describe("computeSharedLockPlan", () => {
     ownLock(map, "f/ts", ".ts", "bun-lock-contents");
     ownLock(map, "f/ts2", ".ts", "bun-lock-contents");
 
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, { defaultTs: "bun", existing: treeOf(map) }));
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
     expect(map[SHARED_BUN]).toEqual("bun-lock-contents");
@@ -111,7 +111,7 @@ describe("computeSharedLockPlan", () => {
     const map: Record<string, string> = {};
     ownLock(map, "f/a", ".py", PY_LOCK);
     ownLock(map, "f/b", ".py", PY_LOCK);
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, { defaultTs: "bun", existing: treeOf(map) }));
 
     const tree = treeOf(map, { [SHARED_PY]: map[SHARED_PY] });
     expect(isEmptySharedLockPlan(computeSharedLockPlan(map, { defaultTs: "bun", existing: tree }))).toBe(
@@ -147,7 +147,7 @@ describe("computeSharedLockPlan", () => {
     ownLock(map, "f/c", ".py", OTHER_LOCK);
     ownLock(map, "f/d", ".py", OTHER_LOCK);
 
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, { defaultTs: "bun", existing: treeOf(map) }));
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
     expect(map[SHARED_PY_2]).toEqual(OTHER_LOCK);
@@ -235,7 +235,7 @@ describe("computeSharedLockPlan", () => {
     ownLock(map, "f/a", ".py", PY_LOCK);
 
     expect(
-      isEmptySharedLockPlan(computeSharedLockPlan(map, "bun", treeOf(map))),
+      isEmptySharedLockPlan(computeSharedLockPlan(map, { defaultTs: "bun", existing: treeOf(map) })),
     ).toBe(true);
   });
 
@@ -282,7 +282,7 @@ describe("computeSharedLockPlan", () => {
     };
 
     expect(
-      isEmptySharedLockPlan(computeSharedLockPlan(map, "bun", treeOf(map))),
+      isEmptySharedLockPlan(computeSharedLockPlan(map, { defaultTs: "bun", existing: treeOf(map) })),
     ).toBe(true);
   });
 
@@ -292,7 +292,7 @@ describe("computeSharedLockPlan", () => {
     ownLock(map, "f/b", ".sh", "some-lock");
 
     expect(
-      isEmptySharedLockPlan(computeSharedLockPlan(map, "bun", treeOf(map))),
+      isEmptySharedLockPlan(computeSharedLockPlan(map, { defaultTs: "bun", existing: treeOf(map) })),
     ).toBe(true);
   });
 
@@ -321,7 +321,7 @@ describe("computeSharedLockPlan", () => {
     ownLock(map, "f/a", ".go", "go-lock-contents");
     ownLock(map, "f/e", ".go", "go-lock-contents");
 
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, { defaultTs: "bun", existing: treeOf(map) }));
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
     expect(lockRefOf(map["f/a.b.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
@@ -338,7 +338,7 @@ describe("computeSharedLockPlan", () => {
     map["f/a.script.yaml"] = meta("!inline f/a.script.lock", "does a thing");
     const before = map["f/a.script.yaml"];
 
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, { defaultTs: "bun", existing: treeOf(map) }));
 
     expect(map["f/a.script.yaml"]).toEqual(
       before.replace("f/a.script.lock", SHARED_PY),
@@ -437,7 +437,7 @@ describe("scriptsReferencingSharedLock", () => {
     ownLock(map, "f/a", ".py", PY_LOCK);
     ownLock(map, "f/b", ".py", PY_LOCK);
     ownLock(map, "f/odd", ".py", OTHER_LOCK);
-    applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
+    applySharedLockPlanToMap(map, computeSharedLockPlan(map, { defaultTs: "bun", existing: treeOf(map) }));
 
     expect(scriptsReferencingSharedLock(map, SHARED_PY).sort()).toEqual([
       "f/a.script.yaml",
@@ -470,6 +470,14 @@ describe("collectExistingSharedLocks", () => {
       // readers would freeze the shared file's content.
       await write(".wmill/f/team/a.script.yaml", readsShared);
       await write("f/team/escape.script.yaml", meta(`!inline ${TRAVERSING_REF}`));
+      await write(
+        "f/team/prose.script.yaml",
+        yamlStringify(
+          { summary: `see !inline ${SHARED_PY}`, lock: "!inline f/team/prose.script.lock" },
+          yamlOptions,
+        ),
+      );
+      await write("docs/example.script.yaml", readsShared);
 
       const existing = await collectExistingSharedLocks(root);
 
@@ -482,6 +490,13 @@ describe("collectExistingSharedLocks", () => {
       // one that escapes the workspace is not a reference at all.
       expect([...existing.refs.values()]).not.toContain(TRAVERSING_REF);
       expect(existing.refs.get("f/team/escape.script.yaml")).toBeUndefined();
+      // `!inline` in a summary is prose, not a reference: only the `lock` field
+      // decides which lockfile a script reads.
+      expect(existing.refs.get("f/team/prose.script.yaml")).toBeUndefined();
+      // And a file merely named like script metadata, outside the namespaces
+      // sync reads, is not a script — counted, it would leave the planner in
+      // conserve-only mode for good.
+      expect(existing.scripts.has("docs/example.script.yaml")).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
