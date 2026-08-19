@@ -173,7 +173,16 @@ import {
   hasWrongFormatSuffix,
   DBT_DESCRIPTOR_NAME,
   isDbtDescriptorPath,
+  isSharedLockPath,
 } from "../../utils/resource_folders.ts";
+import {
+  applySharedLockPlanToDisk,
+  applySharedLockPlanToMap,
+  computeSharedLockPlan,
+  isEmptySharedLockPlan,
+  scriptsReferencingSharedLock,
+  type LockDedupOptions,
+} from "../../utils/lock_dedup.ts";
 
 let branchDeprecationWarned = false;
 
@@ -1941,7 +1950,13 @@ export async function elementsToMap(
     try {
       const fileType = getTypeStrFromPath(path);
       if (skips.skipVariables && fileType === "variable") continue;
-      if (skips.skipScripts && fileType === "script") continue;
+      // A shared lockfile is part of the scripts that reference it.
+      if (
+        skips.skipScripts &&
+        (fileType === "script" || fileType === "shared_lock")
+      ) {
+        continue;
+      }
       if (skips.skipFlows && fileType === "flow") continue;
       if (skips.skipApps && fileType === "app") continue;
       if (skips.skipFolders && fileType === "folder") continue;
@@ -2409,7 +2424,7 @@ async function compareDynFSElement(
   els2: DynFSElement | undefined,
   ignore: (path: string, isDirectory: boolean) => boolean,
   json: boolean,
-  skips: Skips,
+  skips: Skips & LockDedupOptions,
   ignoreMetadataDeletion: boolean,
   codebases: SyncCodebase[],
   ignoreCodebaseChanges: boolean,
@@ -2498,6 +2513,19 @@ async function compareDynFSElement(
     preservePendingScriptLocks(m1, m2);
   }
 
+  // The remote serializes one lock per script; `dedupeLockfiles` is how the repo
+  // represents them. Collapsing the remote side (in both directions) is what
+  // makes the two sides comparable: a pull then writes the shared file instead
+  // of thousands of copies, and a push sees no diff for the copies it does not
+  // keep.
+  if (skips.dedupeLockfiles) {
+    const remoteMap = isEls1Remote === true ? m1 : m2;
+    applySharedLockPlanToMap(
+      remoteMap,
+      computeSharedLockPlan(remoteMap, skips.defaultTs),
+    );
+  }
+
   const changes: Change[] = [];
 
   function parseYaml(k: string, v: string) {
@@ -2549,7 +2577,7 @@ async function compareDynFSElement(
       if (skipMetadata) {
         continue;
       }
-      if (k.startsWith("dependencies/")) {
+      if (k.startsWith("dependencies/") && !isSharedLockPath(k)) {
         if (!workspaceDependenciesPathToLanguageAndFilename(k)) {
           log.warn(`Skipping unrecognized workspace dependencies file: ${k}`);
           continue;
@@ -2885,6 +2913,12 @@ export async function ignoreF(wmillconf: {
           fileType === "workspace_dependencies"
         ) {
           return false; // Don't ignore workspace dependencies (they are always included unless explicitly skipped)
+        }
+        // A shared lockfile lives outside the u/f/g namespaces the include
+        // patterns are written against, and dropping it from the diff would
+        // leave every script that references it pointing at nothing.
+        if (fileType === "shared_lock") {
+          return false;
         }
         // `migrations/datatable/**` is outside the u/f/g namespaces the path
         // filters are written against, so the skip flag is its only control.
@@ -3868,6 +3902,68 @@ export async function pull(
   // stays exported for callers that want the same commit/push behavior.
 }
 
+/**
+ * Fold the lockfile that the scripts of a language share back into the one
+ * shared file (`dedupeLockfiles`), and give the scripts that ended up with a
+ * lock of their own theirs back.
+ *
+ * A lock is regenerated one script at a time, so only a pass over the whole
+ * tree can tell a dependency bump every script took (the shared file moves)
+ * from one script drifting away from the rest (it gets a lock of its own).
+ *
+ * Rewriting a script's metadata invalidates the hash the generation above just
+ * recorded, so every rewritten script is re-hashed from disk — the same
+ * lock-untouching pass `sync pull` runs, no dependency job involved.
+ */
+export async function dedupeLockfilesOnDisk(
+  opts: GlobalOptions & SyncOptions,
+  workspace: Workspace,
+  codebases: SyncCodebase[],
+  ignore: (p: string, isD: boolean) => boolean,
+  rawWorkspaceDependencies: Record<string, string>,
+  tree: DoubleLinkedDependencyTree,
+): Promise<void> {
+  const map = await elementsToMap(
+    await FSFSElement(process.cwd(), codebases, false),
+    ignore,
+    opts.json ?? false,
+    opts,
+  );
+  const plan = computeSharedLockPlan(map, opts.defaultTs);
+  if (isEmptySharedLockPlan(plan)) return;
+
+  await applySharedLockPlanToDisk(plan);
+  log.info(
+    `Deduplicated lockfiles: ${Object.keys(plan.writes).length} file(s) written, ${plan.deletes.length} removed`,
+  );
+
+  for (const rewritten of Object.keys(plan.writes)) {
+    // Metadata only — the lockfiles the plan also writes are not hashed.
+    if (!rewritten.endsWith(".yaml") && !rewritten.endsWith(".json")) continue;
+    let contentPath: string | undefined;
+    try {
+      contentPath = await findContentFile(rewritten);
+    } catch {
+      continue;
+    }
+    if (!contentPath) continue;
+    await generateScriptMetadataInternal(
+      contentPath,
+      workspace,
+      opts,
+      false, // dryRun
+      true, // noStaleMessage
+      rawWorkspaceDependencies,
+      codebases,
+      true, // justUpdateMetadataLock: re-hash from disk, no lock generation
+      // The same tree the generation above ran with: it is what decides whether
+      // the workspace dependencies are part of the hash, and a hash written the
+      // other way would read as stale on every later run.
+      tree,
+    );
+  }
+}
+
 // Internal git-sync deployment-callback entrypoint. Invoked only by the
 // git-sync hub script (not user-facing — see the hidden `git-deploy`
 // subcommand). Runs inside an existing clone of the repo: switches to the
@@ -4356,6 +4452,37 @@ export async function push(
     });
   }
 
+  // A shared lockfile (`dedupeLockfiles`) has no object of its own on the
+  // remote: it IS the lock of every script that references it, and those
+  // scripts are what carries its new content over. Nothing else queues them —
+  // their own metadata is byte-identical on both sides.
+  const changedPaths = new Set(changes.map((c) => c.path));
+  for (let i = changes.length - 1; i >= 0; i--) {
+    const change = changes[i];
+    if (change.name === "deleted" || !isSharedLockPath(change.path)) continue;
+    const referrers = scriptsReferencingSharedLock(localMap, change.path);
+    if (referrers.length === 0) {
+      // A shared lockfile no script reads is not a change to the remote in any
+      // sense; left in, it would be reported as pushed on every push, forever.
+      changes.splice(i, 1);
+      continue;
+    }
+    log.info(
+      colors.gray(
+        `${change.path} changed: re-pushing the ${referrers.length} script(s) sharing it`,
+      ),
+    );
+    for (const metaPath of referrers) {
+      if (changedPaths.has(metaPath)) continue;
+      changes.push({
+        name: "edited",
+        path: metaPath,
+        before: localMap[metaPath],
+        after: localMap[metaPath],
+      });
+    }
+  }
+
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies(true);
 
   const tracker: ChangeTracker = await buildTracker(changes);
@@ -4516,6 +4643,17 @@ export async function push(
       if (generated) {
         staleApps.push(generated as string);
       }
+    }
+
+    if (opts.dedupeLockfiles) {
+      await dedupeLockfilesOnDisk(
+        opts,
+        workspace,
+        codebases,
+        await ignoreF(opts),
+        rawWorkspaceDependencies,
+        tree,
+      );
     }
   }
 
@@ -5085,6 +5223,11 @@ export async function push(
           }
 
           for await (const change of changes) {
+            // A shared lockfile is a repo-side artifact: the scripts queued
+            // above are what deploys its content.
+            if (isSharedLockPath(change.path)) {
+              continue;
+            }
             // A datatable migration is one record across two files; upsert/delete
             // it from disk once (deduped), regardless of which file changed.
             if (isDatatableMigrationPath(change.path)) {

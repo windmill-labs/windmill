@@ -19,7 +19,7 @@ import {
   languageNeedsLock,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
+import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath, sharedLockPath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
 import { DBT_DESCRIPTOR_NAME, isMissingDbtDescriptor } from "./resource_folders.ts";
@@ -203,6 +203,7 @@ export async function generateScriptMetadataInternal(
     schemaOnly?: boolean | undefined;
     defaultTs?: "bun" | "deno";
     rehashOnly?: boolean | undefined;
+    dedupeLockfiles?: boolean | undefined;
   },
   dryRun: boolean,
   noStaleMessage: boolean,
@@ -375,6 +376,7 @@ export async function generateScriptMetadataInternal(
         filteredRawWorkspaceDependencies,
         tempScriptRefs,
         lockPathOverride,
+        opts.dedupeLockfiles,
       );
     } else {
       metadataParsedContent.lock = "";
@@ -783,6 +785,7 @@ async function updateScriptLock(
   rawWorkspaceDependencies: Record<string, string>,
   tempScriptRefs?: Record<string, string>,
   lockPathOverride?: string,
+  dedupeLockfiles?: boolean,
 ): Promise<void> {
   if (!languageNeedsLock(language)) {
     // A dbt lock is written by the dependency job on a worker, from a real
@@ -816,6 +819,17 @@ async function updateScriptLock(
 
   const lockPath = lockPathOverride ?? remotePath + ".script.lock";
   if (lock != "") {
+    // Under `dedupeLockfiles`, a lock that still resolves to what the language's
+    // scripts share stays in the one shared file. Writing a copy here is what
+    // would put the 1900-file diff back, one regenerated script at a time.
+    const shared = sharedLockPath(language);
+    if (dedupeLockfiles && existsSync(shared) && readTextFileSync(shared) === lock) {
+      if (existsSync(lockPath)) {
+        await rm(lockPath);
+      }
+      metadataContent.lock = "!inline " + shared;
+      return;
+    }
     await writeFile(lockPath, lock, "utf-8");
     metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
   } else {

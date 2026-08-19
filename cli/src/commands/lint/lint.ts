@@ -32,6 +32,7 @@ import {
   isAppInlineScriptPath,
   isRawAppPath,
   getFolderSuffix,
+  isSharedLockPath,
 } from "../../utils/resource_folders.ts";
 import { exts } from "../script/script.ts";
 
@@ -161,7 +162,13 @@ async function checkInlineFile(
   relativePath: string,
   baseDir: string,
 ): Promise<boolean> {
-  const fullPath = path.join(baseDir, relativePath.trim());
+  const trimmed = relativePath.trim();
+  // A shared lockfile (`dedupeLockfiles`) is referenced from the sync root —
+  // which is the working directory, since every command runs from where
+  // wmill.yaml is — and not from the directory being linted.
+  const fullPath = isSharedLockPath(trimmed)
+    ? path.resolve(process.cwd(), trimmed)
+    : path.join(baseDir, trimmed);
   try {
     const s = await stat(fullPath);
     return s.size > 0;

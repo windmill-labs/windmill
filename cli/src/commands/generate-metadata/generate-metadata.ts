@@ -19,6 +19,7 @@ import {
 import { generateFlowLockInternal, FlowLocksResult } from "../flow/flow_metadata.ts";
 import { generateAppLocksInternal, AppLocksResult } from "../app/app_metadata.ts";
 import {
+  dedupeLockfilesOnDisk,
   elementsToMap,
   FSFSElement,
   ignoreF,
@@ -775,6 +776,17 @@ export async function generateMetadata(
     // Persist all stale workspace dep hashes (not just filtered — deps are global, not folder-scoped)
     const allStaleDeps = staleItems.filter((i) => i.type === "dependencies");
     await tree.persistDepsHashes(allStaleDeps.map((d) => d.path));
+
+    if (opts.dedupeLockfiles) {
+      await dedupeLockfilesOnDisk(
+        opts,
+        workspace,
+        codebases,
+        ignore,
+        rawWorkspaceDependencies,
+        tree,
+      );
+    }
   } finally {
     await flushLockfileBatch();
   }
