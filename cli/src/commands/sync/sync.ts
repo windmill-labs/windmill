@@ -189,6 +189,35 @@ import {
   type LockDedupOptions,
 } from "../../utils/lock_dedup.ts";
 
+/** A lockfile belonging to one script, as opposed to a shared one. */
+function isScriptLockPath(p: string): boolean {
+  const n = p.replaceAll(SEP, "/");
+  return n.endsWith(".script.lock") || n.endsWith("__mod/script.lock");
+}
+
+/**
+ * Whether the metadata beside a script lockfile still points at it. Read from
+ * disk, after the pull has applied (or refused) every metadata change, because
+ * that is the only moment the answer is settled.
+ */
+async function isLockStillRead(lockPath: string): Promise<boolean> {
+  const n = lockPath.replaceAll(SEP, "/");
+  const base = n.endsWith("__mod/script.lock")
+    ? n.slice(0, -".lock".length)
+    : n.slice(0, -".script.lock".length);
+  const reference = "!inline " + n;
+  for (const meta of [base + ".script.yaml", base + ".script.json", base + ".yaml", base + ".json"]) {
+    try {
+      if ((await readTextFile(meta.replaceAll("/", SEP))).includes(reference)) {
+        return true;
+      }
+    } catch {
+      // no such metadata twin
+    }
+  }
+  return false;
+}
+
 /** Sync maps are keyed with the platform separator; `!inline` refs are not. */
 const toMapKeySep = (refPath: string) => refPath.replaceAll("/", SEP);
 
@@ -3599,6 +3628,13 @@ export async function pull(
       return;
     }
 
+    // Script lockfile deletions, held back until every metadata edit has been
+    // applied or refused — see the deletion branch below.
+    const deferredLockDeletions: {
+      path: string;
+      target: string;
+      stateTarget: string;
+    }[] = [];
     const conflicts = [];
 
     log.info(colors.gray(`Applying changes to files ...`));
@@ -3738,6 +3774,15 @@ export async function pull(
           await copyFile(target, stateTarget);
         }
       } else if (change.name === "deleted") {
+        // A script's lockfile goes last, once the metadata around it has
+        // settled: `dedupeLockfiles` deletes the per-script locks it collapses,
+        // and a conflict resolved as "preserve local" keeps metadata that still
+        // reads one. Deleted here, that reference would dangle and the script
+        // would deploy with an empty lock.
+        if (isScriptLockPath(change.path)) {
+          deferredLockDeletions.push({ path: change.path, target, stateTarget });
+          continue;
+        }
         log.info(`Deleting ${changeTypeLabel(change.path)}${change.path}`);
         // `force` on both: the goal is that neither copy exists, and a file
         // already absent — a dbt project's optional descriptor is never written
@@ -3748,6 +3793,22 @@ export async function pull(
         if (opts.stateful) {
           await rm(stateTarget, { force: true });
         }
+      }
+    }
+
+    for (const deferred of deferredLockDeletions) {
+      if (await isLockStillRead(deferred.path)) {
+        log.info(
+          colors.yellow(
+            `Keeping ${deferred.path}: metadata on disk still references it.`,
+          ),
+        );
+        continue;
+      }
+      log.info(`Deleting ${changeTypeLabel(deferred.path)}${deferred.path}`);
+      await rm(deferred.target, { force: true });
+      if (opts.stateful) {
+        await rm(deferred.stateTarget, { force: true });
       }
     }
     if (opts.failConflicts) {

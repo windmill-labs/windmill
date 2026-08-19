@@ -569,12 +569,6 @@ export function sharedLockRefIn(
   return ref && existsSync(path.resolve(root, ref)) ? ref : undefined;
 }
 
-// `.wmill` is the stateful-push mirror: its copies of a script's metadata would
-// be counted as extra readers of a shared lockfile and freeze its content.
-// `.git` and `node_modules` cannot be Windmill paths and are where the walk
-// would otherwise spend its time. Nothing else is skipped — a build-output name
-// like `dist` is a legal folder, and a script hidden from this scan is exactly
-// the script the scan exists to protect.
 /** Runs `fn` over `items`, at most `size` at a time. */
 async function inBatches<T>(
   items: readonly T[],
@@ -584,13 +578,6 @@ async function inBatches<T>(
   for (let i = 0; i < items.length; i += size) {
     await Promise.all(items.slice(i, i + size).map((item) => fn(item)));
   }
-}
-
-/** Script metadata only counts where sync looks for it: `docs/notes.script.yaml`
- *  is a file that happens to be named like one, and counting it would leave the
- *  planner in conserve-only mode for good. */
-function isInWindmillNamespace(rel: string): boolean {
-  return ["f/", "u/", "g/"].some((ns) => rel.startsWith(ns));
 }
 
 /**
@@ -611,6 +598,11 @@ export async function collectExistingSharedLocks(
   // is what decides if it may form groups at all.
   const anyShared = existsSync(path.join(root, ...SHARED_LOCK_DIR.split("/")));
 
+  // Only where scripts and shared lockfiles can live. Scoping the walk is what
+  // keeps `docs/notes.script.yaml` out of the picture, and keeps the fail-closed
+  // read below from covering directories that cannot affect the plan.
+  const roots = ["f", "u", "g", SHARED_LOCK_DIR];
+
   // Traversal first, reads second: recursing inside a batch would multiply the
   // fan-out at every level, and the reads below are deliberately unguarded.
   const toRead: { rel: string; isJson: boolean; shared: boolean }[] = [];
@@ -628,6 +620,10 @@ export async function collectExistingSharedLocks(
     for (const entry of entries) {
       const rel = dir === "" ? entry.name : `${dir}/${entry.name}`;
       if (entry.isDirectory()) {
+        // The same exclusions sync's own walk applies: a directory it never
+        // descends holds no script this pass may draw conclusions from — and
+        // `.wmill`, the stateful mirror, holds copies that would be counted as
+        // extra readers and freeze a shared lockfile's content.
         if (!isNeverWalkedDir(entry.name)) await walk(rel);
         continue;
       }
@@ -636,12 +632,12 @@ export async function collectExistingSharedLocks(
         continue;
       }
       const meta = scriptMetaBase(rel);
-      if (meta === undefined || !isInWindmillNamespace(rel)) continue;
+      if (meta === undefined) continue;
       existing.scripts.add(rel);
       if (anyShared) toRead.push({ rel, isJson: meta.isJson, shared: false });
     }
   };
-  await walk("");
+  for (const root_ of roots) await walk(root_);
 
   await inBatches(toRead, 32, async ({ rel, isJson, shared }) => {
     // Deliberately unguarded: a metadata file this cannot read is a script whose
