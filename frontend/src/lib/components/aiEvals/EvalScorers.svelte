@@ -10,7 +10,7 @@
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import { AiEvalsService, ScriptService, type EvalDataset, type Scorer } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Bot, ChevronDown, Code2, Pencil, Plus, Trash2 } from 'lucide-svelte'
+	import { Bot, ChevronDown, Code2, Pencil, Plus, Settings, Trash2 } from 'lucide-svelte'
 	import AddScorer from './AddScorer.svelte'
 	import { kindLabel, scorerLabel, type ScorerKind } from './evalScorers'
 
@@ -218,11 +218,11 @@
 						<Button
 							size="xs2"
 							variant="subtle"
+							startIcon={{ icon: Settings }}
+							iconOnly
 							title="Name and pass threshold"
 							on:click={() => openSettings(scorer)}
-						>
-							Settings
-						</Button>
+						/>
 						<Button
 							size="xs2"
 							variant="subtle"

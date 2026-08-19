@@ -114,7 +114,6 @@
 	let undeployedChanges = $state(false)
 	let loading = $state(false)
 	let running = $state(false)
-	let scoringAgain = $state(false)
 	let scorers = $derived(dataset?.scorers ?? [])
 	// Which columns have scoring in flight. Rescoring a deterministic scorer lands on the same
 	// numbers, so without this the only sign it ran is a toast that has already gone.
@@ -493,25 +492,6 @@
 	 * being looked at. It calls the agent for nothing: the answers are the expensive artifact and they
 	 * are already stored, which is the whole reason scoring is a separate act from running.
 	 */
-	async function scoreAgain() {
-		if (!ws || !selectedDataset || !experimentId) return
-		scoringAgain = true
-		try {
-			const id = await AiEvalsService.scoreAgain({
-				workspace: ws,
-				requestBody: { dataset: selectedDataset, experiment_id: experimentId }
-			})
-			const scored = experimentId
-			await loadRuns()
-			await openRun(id)
-			// Against the run it measured, which is the comparison it exists to make.
-			baselineId = scored
-		} catch (e) {
-			sendUserToast(`Failed to score the run again: ${e}`, true)
-		} finally {
-			scoringAgain = false
-		}
-	}
 
 	async function runCase(caseId: string) {
 		if (!ws || !selectedDataset) return
@@ -751,25 +731,10 @@
 			</Label>
 		{/if}
 		<div class="grow"></div>
-		{#if viewingRun}
-			<!-- The only thing to start from inside a run, and it starts from this one: it measures
-			     the answers already stored, so it belongs to the run on screen rather than to the
-			     dataset. Starting a fresh run is a decision about which agent and which dataset,
-			     neither of which this screen is about. -->
-			<Button
-				size="xs"
-				variant="default"
-				startIcon={{ icon: Play }}
-				loading={scoringAgain}
-				disabled={scoringAgain || !experimentId || scorers.length === 0 || rows.length === 0}
-				title="Measures the answers this run already stored, with the scorers as they are now. Opens a run of its own and calls the agent for nothing."
-				onclick={scoreAgain}
-			>
-				Run scorers
-			</Button>
-		{:else}
-			<!-- Run asks what to run: which state of the agent, against which dataset. Both are
-			     decisions with a cost, and neither is implied by where you happen to be standing. -->
+		{#if !viewingRun}
+			<!-- Only on the list, and only this: a run is a record, so there is nothing on it to
+			     start. Run asks what to run — which state of the agent, against which dataset — and
+			     neither is implied by where you happen to be standing. -->
 			<Button
 				size="xs"
 				variant="accent"
@@ -783,17 +748,16 @@
 		{/if}
 	</div>
 
-	{#if staleRun}
-		<!-- No button: Run all is one row up, and a second way to start the same run is a second thing
-		     to explain. -->
-		<div class="px-3 py-2 border-b">
-			<Alert
-				type="warning"
-				size="xs"
-				title={`This run executed an earlier state of the draft on v${currentVersion}`}
-				collapsible={false}
-			/>
-		</div>
+	<!-- About the run on screen, so it goes when the run does: on the list there is no one run for
+	     it to be about. No button and no frame of its own — it is a line the table carries, not a
+	     panel above it. -->
+	{#if viewingRun && staleRun}
+		<Alert
+			type="warning"
+			size="xs"
+			title={`This run executed an earlier state of the draft on v${currentVersion}`}
+			collapsible={false}
+		/>
 	{/if}
 
 	<div class="grow min-h-0">

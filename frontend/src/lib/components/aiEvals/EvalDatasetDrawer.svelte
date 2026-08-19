@@ -144,8 +144,11 @@
 					default_subject: { kind: 'agent', path: agentPath }
 				}
 			})
-			drawer?.closeDrawer()
+			// Stays open, on the dataset it just made: scorers and cases are what a dataset is, and
+			// they can only be added to one that exists, so closing here would send you to find it
+			// again to do the part you opened this for.
 			await onCreated(created)
+			mode = 'edit'
 		} catch (e) {
 			sendUserToast(`Failed to create the dataset: ${e}`, true)
 		} finally {

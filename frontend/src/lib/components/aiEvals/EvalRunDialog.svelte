@@ -5,6 +5,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonMore from '$lib/components/common/toggleButton-v2/ToggleButtonMore.svelte'
 	import { AiEvalsService, ResourceService, type EvalDataset, type EvalSubject } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { Pencil, Play, Plus } from 'lucide-svelte'
@@ -36,10 +37,9 @@
 		onNewDataset: () => void
 	} = $props()
 
-	/** Which state of the agent to run. `more` is not a subject of its own: it reveals the picker
-	 *  that names one, so the toggle and that picker cannot disagree about what was chosen. */
-	let choice = $state<'draft' | 'deployed' | 'more'>('deployed')
-	let pickedVersion = $state<number | undefined>(undefined)
+	/** What to run: `draft`, `deployed`, or an earlier version's number. One value for the whole
+	 *  choice, so the toggle and the overflow menu cannot disagree about what was chosen. */
+	let choice = $state<string>('deployed')
 	/** Whether anyone has chosen since this opened, so a late answer about the draft can preselect
 	 *  it without overruling a choice already made. */
 	let touched = $state(false)
@@ -53,11 +53,9 @@
 	/** The agent's versions, for pinning one. Loaded when the dialog opens rather than held: a
 	 *  version list goes stale the moment the agent is saved again. */
 	let versions = $state<{ version: number; created_at?: string }[]>([])
-	let loadingVersions = $state(false)
 
 	async function loadVersions() {
 		if (!workspace) return
-		loadingVersions = true
 		try {
 			const history = await ResourceService.getResourceHistory({ workspace, path: agentPath })
 			versions = (history.versions ?? []).map((v) => ({
@@ -68,8 +66,6 @@
 			// The history is an offer, not the dialog: a run of what is deployed needs none of it.
 			versions = []
 			sendUserToast(`Could not read ${agentPath}'s versions: ${e}`, true)
-		} finally {
-			loadingVersions = false
 		}
 	}
 
@@ -95,7 +91,6 @@
 			dataset = defaultDataset ?? datasets[0]?.path
 			hasDraft = hasUndeployedChanges
 			choice = hasUndeployedChanges ? 'draft' : 'deployed'
-			pickedVersion = undefined
 			touched = false
 			loadVersions()
 			loadDraftState()
@@ -107,8 +102,15 @@
 	// would be offering a run that is live-resolved and one that is pinned under the same name.
 	let olderVersions = $derived(versions.slice(1))
 	let olderItems = $derived(
-		olderVersions.map((v) => ({ label: `v${v.version}`, value: v.version, subtitle: 'as it was' }))
+		olderVersions.map((v) => ({
+			label: `v${v.version}`,
+			value: String(v.version),
+			tooltip: 'Inlined as it was.'
+		}))
 	)
+	/** Whether the choice came out of the overflow menu, which then shows it and drops its own
+	 *  label: the version you picked is worth more room in the group than the word "More". */
+	let pickedOlder = $derived(olderItems.some((i) => i.value === choice))
 
 	let datasetItems = $derived(
 		[...datasets]
@@ -130,11 +132,9 @@
 	function subjectOf(): EvalSubject {
 		if (choice === 'draft') return { kind: 'agent_draft', path: agentPath }
 		if (choice === 'deployed') return { kind: 'agent', path: agentPath }
-		return { kind: 'agent_version', path: agentPath, version: pickedVersion }
+		return { kind: 'agent_version', path: agentPath, version: Number(choice) }
 	}
 
-	// A version to run is the whole of what `More` asks for, so it is not a run until one is named.
-	let ready = $derived(!!dataset && (choice !== 'more' || pickedVersion != undefined))
 	let selectedDataset = $derived(datasets.find((d) => d.path === dataset))
 </script>
 
@@ -160,30 +160,25 @@
 					<ToggleButton
 						small
 						value="deployed"
-						label={latest ? `v${latest}` : 'Latest'}
+						label={latest ? `v${latest} (latest)` : 'Latest'}
 						tooltip="The saved agent, resolved when the run executes."
 						{item}
 					/>
-					{#if olderVersions.length > 0}
-						<ToggleButton
-							small
-							value="more"
-							label="More"
-							tooltip="An earlier version, inlined as it was."
-							{item}
-						/>
+					{#if olderItems.length > 0}
+						<!-- Keyed on the versions it was built from: the menu reads its items once, and
+						     they arrive after this dialog opens. -->
+						{#key olderItems.map((i) => i.value).join(',')}
+							<ToggleButtonMore
+								small
+								btnText={pickedOlder ? '' : 'More'}
+								togglableItems={olderItems}
+								bind:selected={choice}
+								{item}
+							/>
+						{/key}
 					{/if}
 				{/snippet}
 			</ToggleButtonGroup>
-			{#if choice === 'more'}
-				<Select
-					items={olderItems}
-					bind:value={pickedVersion}
-					placeholder="Pick a version"
-					loading={loadingVersions}
-					class="text-xs mt-2"
-				/>
-			{/if}
 		</Label>
 
 		<!-- The pencil rides the field itself, as a resource picker's does: the dataset you are about
@@ -237,7 +232,7 @@
 					{/snippet}
 				</Select>
 				{#if dataset && hoveringDataset}
-					<div class="absolute right-10 z-20">
+					<div class="absolute right-8 z-20">
 						<Button
 							variant="subtle"
 							size="xs2"
@@ -267,7 +262,7 @@
 			variant="accent"
 			startIcon={{ icon: Play }}
 			loading={running}
-			disabled={running || !ready}
+			disabled={running || !dataset}
 			onclick={async () => {
 				if (!dataset) return
 				await onRun(subjectOf(), dataset)
