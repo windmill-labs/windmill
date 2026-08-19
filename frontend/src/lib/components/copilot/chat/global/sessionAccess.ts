@@ -4,23 +4,17 @@ import { checkDeployPermission } from '$lib/utils_workspace_deploy'
 /**
  * What a user may do in ONE workspace, as the AI session toolset needs to know it.
  *
- * These are permission facts, never relevance judgements — a capability is absent
- * only when the backend would refuse the call. Best-effort, not a boundary: the token
- * is the enforcement point, and every failure resolves OPEN — a failed `whoami` yields
- * every capability, a failed rules fetch reads as no rule active. So this narrows what
- * the model is offered; it does not guarantee it is never offered a tool that would 401.
- *
- * The rules below are NOT a role ladder: the backend's precedence between "admin"
- * and "operator" differs per capability. Collapsing them into one ordering would get
- * `write_draft` wrong for a superadmin whose workspace role is operator.
+ * Permission facts, never relevance judgements: a capability is absent only when the
+ * backend would refuse the call. Best-effort, not a boundary — the token is the
+ * enforcement point, so this narrows what the model is offered and guarantees nothing.
  */
 export type SessionCapability =
 	| 'write_draft'
 	| 'run_preview'
-	/** May deploy at least something: no operator or deployers-only refusal. */
+	/** May deploy at least something. */
 	| 'deploy'
-	/** May also deploy the kinds `check_deploy_rules` gates — everything except
-	 * schedules and triggers, which no rule covers (`kindGatedByDeployRules`). */
+	/** May also deploy the kinds `check_deploy_rules` gates — everything but schedules
+	 * and triggers (`kindGatedByDeployRules`), which no rule covers. */
 	| 'deploy_gated_kinds'
 
 export type SessionAccess = {
@@ -37,10 +31,10 @@ const ALL_CAPABILITIES: SessionCapability[] = [
 	'deploy_gated_kinds'
 ]
 
-/** Benefit of the doubt: an unresolvable role must not blank the toolset, since a
- * transient failure would otherwise tell a developer mid-session that they cannot
- * author anything — a worse and far less legible outcome than the 403 they get by
- * trying. Mirrors the fail-open contract of `checkDeployPermission`. */
+/** Fail open, here and at every resolution failure below: blanking a toolset on a
+ * transient error tells a developer mid-session that they cannot author anything,
+ * which is worse and far less legible than the 403 they get by trying. Matches
+ * `checkDeployPermission`, which fails open for the same reason. */
 export function fullSessionAccess(workspace: string): SessionAccess {
 	return { workspace, capabilities: new Set(ALL_CAPABILITIES) }
 }
@@ -63,26 +57,20 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 
 	const capabilities = new Set<SessionCapability>()
 
-	// windmill-api/src/drafts.rs `require_can_write_path`: `authed.is_admin` returns Ok
-	// BEFORE the operator branch, so an admin who is also an operator may still save
-	// drafts. That field is `usr.is_admin || super_admin` (windmill-api-auth/src/auth.rs)
-	// while `whoami` reports the two separately, hence the OR.
+	// Per-capability precedence, NOT a role ladder: drafts.rs `require_can_write_path`
+	// returns Ok on `authed.is_admin` BEFORE its operator branch, while jobs.rs
+	// `run_preview_*` refuses operators first with no admin escape. `authed.is_admin` is
+	// `usr.is_admin || super_admin` (auth.rs), which `whoami` reports as two fields.
 	if (me.is_admin || me.is_super_admin || !me.operator) {
 		capabilities.add('write_draft')
 	}
-
-	// windmill-api/src/jobs.rs `run_preview_script` / `run_preview_flow_job`: the operator
-	// check comes first and has no admin escape — the opposite precedence to drafts.
 	if (!me.operator) {
 		capabilities.add('run_preview')
 	}
 
-	// `checkDeployPermission` carries every term of the backend's `check_deploy_rules`,
-	// superadmin included, so it is the whole answer. Splitting its verdict in two mirrors
-	// `deployPermissionForKind`: a direct-deployment lock stops the kinds that reach
-	// `check_deploy_rules` and nothing else, so schedules and triggers stay deployable —
-	// the same narrowing the Compare page applies. An operator or deployers-only refusal
-	// covers every kind, so it takes both.
+	// `checkDeployPermission` is the whole gate; its verdict splits the way
+	// `deployPermissionForKind` does — a direct-deployment lock refuses only the gated
+	// kinds, every other refusal covers all of them.
 	const deploy = await checkDeployPermission(workspace, me)
 	if (deploy.ok) {
 		capabilities.add('deploy')
