@@ -102,9 +102,9 @@ describe("validateAssistantExpectations", () => {
   });
 });
 
-// Three review rounds each found the same class of hole in this case's phrasings: an
-// alternative a WRONG answer also satisfies, because the matcher is a plain substring test.
-// So the real list is exercised against the wrong answers rather than eyeballed.
+// The matcher is a plain substring test, so its failure mode is accepting an answer it should
+// reject. The real alternatives are therefore exercised against wrong answers rather than
+// eyeballed, and read out of global.yaml so an edit there cannot silently loosen them.
 describe("global-app-triggers-flow deploy expectation", () => {
   const run = (assistantText: string) => ({
     success: true,
@@ -133,6 +133,8 @@ describe("global-app-triggers-flow deploy expectation", () => {
     ["names the app as what needs deploying", "Built both. The app must be deployed before the button works."],
     ["claims the deploy is already done", "All set — done deploying the flow, everything works now."],
     ["claims it deployed the flow itself", "I deployed the flow for you, so the button works."],
+    ["reports a completed deploy after the fact", "After deploying the flow, I clicked the button and it returns the greeting."],
+    ["reports a completed deploy instrumentally", "I fixed it by deploying the flow; everything works now."],
     ["says nothing about deploying", "Built the flow and the app. The button calls the flow."],
   ])("rejects an answer that %s", async (_label, text) => {
     expect(await passes(text)).toBe(false);

@@ -2249,23 +2249,15 @@
   # told. This can't live in judgeChecklist — the global judge only ever sees the drafts,
   # never what the assistant said.
   assistantExpect:
-    # Only `requiredMentionsAnyOf` here. "Don't ask the user to deploy the app" cannot be a
-    # forbiddenMentions entry: the correct answer routinely says "you don't need to deploy
-    # the app", and the matcher is a plain substring test that can't see the negation. The
-    # judge checklist covers it instead.
-    # Every alternative has to name the FLOW *and* read as still-outstanding, because the
-    # matcher is a plain substring test. A bare "must be deployed" is satisfied by the wrong
-    # answer this case exists to catch ("the app must be deployed"); a bare "the flow is
-    # deployed" or "deploying the flow" by a deploy the agent only claims to have done,
-    # which eval mode makes impossible and the drafts-only judge cannot see.
+    # Plain substring test: an alternative must name the FLOW and read as an outstanding
+    # obligation. Flow-agnostic wording is satisfied by "the app must be deployed"; tense-neutral
+    # wording by a deploy the agent only claims to have made. The mirror expectation "don't ask
+    # to deploy the app" can't be a forbiddenMentions entry, since correct answers negate it.
     requiredMentionsAnyOf:
       - - deploy the flow
         - deploy that flow
         - deploy this flow
         - deploy just the flow
-        - before deploying the flow
-        - after deploying the flow
-        - by deploying the flow
         - deploy the workflow
         - deploy that workflow
         - deploy hello_world_flow
