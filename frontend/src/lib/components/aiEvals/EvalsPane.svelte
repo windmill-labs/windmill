@@ -109,12 +109,6 @@
 	let undeployedChanges = $state(false)
 	let running = $state(false)
 	let scorers = $derived(dataset?.scorers ?? [])
-	// Which columns have scoring in flight. Rescoring a deterministic scorer lands on the same
-	// numbers, so without this the only sign it ran is a toast that has already gone.
-	let scoringColumns = $derived(
-		new Set(rows.flatMap((row) => row.scores.filter((s) => s.pending).map((s) => s.scorer_id)))
-	)
-
 	let selectedCaseId = $state<string | undefined>(undefined)
 
 	// The dataset is edited on top of the runs rather than in among them: what a run measured and
@@ -600,7 +594,7 @@
 
 	     Nothing on the list: which run, and which dataset it was of, is what the rows say. The
 	     pickers belong to a run being read, so they arrive with one. -->
-	<div class="flex flex-wrap items-end gap-2 py-2 border-b">
+	<div class="flex flex-wrap items-end gap-2 py-2">
 		{#if viewingRun}
 			<!-- Which run, and what it is read against, side by side: they are one question asked
 			     twice, and a comparison you cannot see the control for is one nobody knows they can
@@ -618,6 +612,18 @@
 					class="text-xs"
 				/>
 			</Label>
+			{#if experiment?.run_job_id}
+				<!-- The run is one flow, so it has a job: what it is doing, what it cost and what it
+				     logged are all there rather than reconstructed here. -->
+				<a
+					class="text-xs text-secondary hover:underline inline-flex items-center gap-1 shrink-0 pb-2"
+					href={`${base}/run/${experiment.run_job_id}?workspace=${ws}`}
+					target="_blank"
+				>
+					Open the job
+					<ExternalLink size={12} />
+				</a>
+			{/if}
 		{/if}
 		<div class="grow"></div>
 		{#if !viewingRun}
@@ -722,9 +728,6 @@
 														<Code2 size={13} class="text-tertiary shrink-0" />
 													{/if}
 													<span class="truncate min-w-0">{scorerLabel(scorer)}</span>
-													{#if scoringColumns.has(scorer.id ?? '')}
-														<Loader2 size={12} class="animate-spin text-blue-500 shrink-0" />
-													{/if}
 												</span>
 												<span class="h-4 flex items-baseline gap-1.5 font-normal">
 													{#if headline}

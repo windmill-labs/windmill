@@ -51,7 +51,7 @@
 	{#snippet titleBadge()}
 		<!-- Beside the title rather than on the button that opens it: every way in lands here, so
 		     this is the one place that says it once. -->
-		<Badge color="blue" small verySmall class="shrink-0">Beta</Badge>
+		<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
 	{/snippet}
 	<div class="h-full min-h-0">
 		{#if path}
