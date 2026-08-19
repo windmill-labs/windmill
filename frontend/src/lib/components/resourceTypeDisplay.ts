@@ -219,22 +219,13 @@ export function resourceTypeDisplayName(name: string): string {
 		.join(' ')
 }
 
-/** All-caps names said as a word rather than letter by letter ("a NATS resource"). */
-const SPOKEN_AS_WORD = new Set(['NATS'])
-
 /**
- * "Add **a** Supabase resource" / "Add **an** Airtable resource". Takes the display label, so
- * a leading acronym is read out letter by letter: "an S3 resource", "an MCP resource".
+ * Drawer title for creating a resource, named after its type once one is picked.
+ *
+ * Article-free on purpose: whether a label takes "a" or "an" follows how it is said, which
+ * the spelling does not carry — "an S3" but "a NATS", "an MCP" but "a REST" — so every rule
+ * over the type name gets a class of them wrong.
  */
-export function resourceTypeArticle(label: string): string {
-	const firstWord = label.split(' ')[0] ?? ''
-	const spokenAsVowel = !SPOKEN_AS_WORD.has(firstWord) && /^[AEFHILMNORSX]([A-Z0-9]|$)/.test(label)
-	return spokenAsVowel || /^[aeiou]/i.test(label) ? 'an' : 'a'
-}
-
-/** Drawer title for creating a resource, named after its type once one is picked. */
 export function addResourceTitle(resourceType: string | undefined): string {
-	if (!resourceType) return 'Add a resource'
-	const label = resourceTypeDisplayName(resourceType)
-	return `Add ${resourceTypeArticle(label)} ${label} resource`
+	return resourceType ? `Add ${resourceTypeDisplayName(resourceType)} resource` : 'Add a resource'
 }

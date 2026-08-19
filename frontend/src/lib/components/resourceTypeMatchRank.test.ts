@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { resourceTypeDisplayName, sortResourceTypesByMatch } from './resourceTypeDisplay'
+import {
+	addResourceTitle,
+	resourceTypeDisplayName,
+	sortResourceTypesByMatch
+} from './resourceTypeDisplay'
 
 // Descriptions abridged from the hub.
 const TYPES = [
@@ -60,5 +64,16 @@ describe('resourceTypeDisplayName', () => {
 
 	it('capitalizes anything the tables do not cover', () => {
 		expect(resourceTypeDisplayName('stripe')).toBe('Stripe')
+	})
+})
+
+describe('addResourceTitle', () => {
+	it('names the picked type without an article', () => {
+		expect(addResourceTitle('rest')).toBe('Add REST resource')
+		expect(addResourceTitle('stripe')).toBe('Add Stripe resource')
+	})
+
+	it('falls back to the generic title before a type is picked', () => {
+		expect(addResourceTitle(undefined)).toBe('Add a resource')
 	})
 })
