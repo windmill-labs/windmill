@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { loadCases } from "./cases";
 import {
   validateAppState,
   validateCliWorkspace,
@@ -98,6 +99,52 @@ describe("validateAssistantExpectations", () => {
     });
 
     expect(checks.map((c) => c.passed)).toEqual([false]);
+  });
+});
+
+// Three review rounds each found the same class of hole in this case's phrasings: an
+// alternative a WRONG answer also satisfies, because the matcher is a plain substring test.
+// So the real list is exercised against the wrong answers rather than eyeballed.
+describe("global-app-triggers-flow deploy expectation", () => {
+  const run = (assistantText: string) => ({
+    success: true,
+    actual: {},
+    assistantMessageCount: 1,
+    toolCallCount: 0,
+    toolsUsed: [],
+    skillsInvoked: [],
+    assistantText,
+  });
+
+  const passes = async (assistantText: string) => {
+    const cases = await loadCases("global");
+    const target = cases.find((c) => c.id === "global-app-triggers-flow");
+    if (!target?.assistantExpect) throw new Error("case or its assistantExpect is missing");
+    const checks = validateAssistantExpectations({
+      run: run(assistantText),
+      assistantExpect: target.assistantExpect,
+    });
+    return checks.every((c) => c.passed);
+  };
+
+  // Deploying is impossible in eval mode and the judge only sees drafts, so a claim of
+  // having deployed is a hallucination this case has to reject, not evidence of success.
+  it.each([
+    ["names the app as what needs deploying", "Built both. The app must be deployed before the button works."],
+    ["claims the deploy is already done", "All set — done deploying the flow, everything works now."],
+    ["claims it deployed the flow itself", "I deployed the flow for you, so the button works."],
+    ["says nothing about deploying", "Built the flow and the app. The button calls the flow."],
+  ])("rejects an answer that %s", async (_label, text) => {
+    expect(await passes(text)).toBe(false);
+  });
+
+  it.each([
+    ["you'll need to deploy the flow before the app's button will work"],
+    ["the flow has to be deployed first; the app can stay a draft"],
+    ["once the flow is deployed, the button will work in the preview"],
+    ["want me to deploy just the flow? the app stays a draft"],
+  ])("accepts a correct answer: %s", async (text) => {
+    expect(await passes(text)).toBe(true);
   });
 });
 
