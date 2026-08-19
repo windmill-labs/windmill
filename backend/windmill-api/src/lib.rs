@@ -374,6 +374,7 @@ async fn inject_agent_authed(
                 is_session_token: false,
                 token_prefix: None,
                 read_only: false,
+                job_id: None,
             },
             job_id: None,
         });
