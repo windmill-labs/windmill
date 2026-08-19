@@ -58,6 +58,20 @@ run $G ask   "rm -rf $CWD/.env.local"
 run $G $ROOT_SOLO "rm -rf $CWD"
 run $G ask   "rm -rf $CWD/*"
 run $G ask   "rm -rf /etc/passwd"
+# The MCP caches are the one allowed root outside /tmp and the checkouts, and `~/` and `$HOME/`
+# the one expansion the charset check tolerates — so the row that matters is the one proving the
+# prefix does not carry anything else along with it.
+run $G allow "rm -rf ~/Library/Caches/ms-playwright-mcp"
+run $G allow "rm -rf ~/.cache/ms-playwright-mcp"          # the Linux spelling of the same root
+run $G allow 'rm -rf $HOME/Library/Caches/ms-playwright-mcp/mcp-chrome-*'
+run $G ask   "rm -rf ~/.cache/ms-playwright-mcp-backup"   # a sibling, not the cache
+run $G ask   "rm -rf ~/not-a-git-tree"
+# The exclusion list is the whole protection for these paths — the `repo:` class allows deletes
+# everywhere else in a checkout — and macOS resolves `.GIT` to `.git`, so the fold is what keeps
+# the list from failing open there. Pattern-matched, so the row holds on either platform.
+run $G ask   "rm -rf $CWD/.GIT"
+run $G ask   "rm $CWD/.CLAUDE/settings.json"
+run $G ask   "rm -rf $CWD/backend/.ENV"
 run $G ask   'rm -rf "$HOME/x"'
 run $G ask   "rm -rf /tmp/../$OUT"
 run $G none  "ls /tmp && rm -rf /tmp/x"   # proved delete, unexamined neighbour
@@ -170,6 +184,13 @@ run $A ask   "env -i A=1 B=2 C=3 D=4 E=5 F=6 mv /tmp/a /etc"
 run $A none  "cp $CWD/AGENTS.md /tmp/a"
 run $A none  "tar -xzf /tmp/a.tar.gz -C $OUT"
 run $A none  "cargo build"
+run $A ask   "chmod -R 777 $CWD/.GIT"
+run $A allow "chmod -R 755 ~/Library/Caches/ms-playwright-mcp"
+run $A ask   "chmod -R 777 ~/Library/Caches/ms-playwright-mcp-backup"
+# The home prefix reaches this guard through `operand_class`, not the rm guard's own resolver.
+case "$CWD" in
+  "$HOME"/*) run $A allow "mv ~${CWD#"$HOME"}/frontend/a.ts ~${CWD#"$HOME"}/frontend/b.ts" ;;
+esac
 
 run $A none  "mkdir -p /tmp/x; mv /tmp/a /tmp/x; chmod 755 /tmp/x"   # one write per line
 run $A none  "$(printf 'mv /tmp/a /tmp/b\nchmod 755 /tmp/b')"

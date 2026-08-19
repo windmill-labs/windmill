@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse guard for `rm`: auto-allow deletes whose every operand is a whitelisted target —
-# under /tmp, or inside a git working tree located in $HOME (a version-controlled project dir).
+# under /tmp, inside a git working tree located in $HOME (a version-controlled project dir), or
+# in one of the browser-automation caches the MCP servers rebuild on demand.
 # Any other command that runs `rm` gets an explicit `ask`, which is the ordinary permission
 # prompt and the only one `rm` gets (see lib-guarded-verb.sh); a command that runs no `rm` at
 # all makes no decision (exit 0).
@@ -14,20 +15,22 @@
 # it would turn a trailing `rm -f /tmp/x` into a way to auto-approve anything.
 #
 # Deny-by-default: every token must consist only of a safe character set (alphanumerics,
-# `. _ / -` and glob chars `* ? [ ]`). That set contains none of the characters bash uses for
+# `. _ / -` and glob chars `* ? [ ]`), the one exception being the leading `~/` or `$HOME/` that
+# `expand_home_prefix` rewrites first. That set contains none of the characters bash uses for
 # quoting, expansion, or command separation ($ ` ~ { } ( ) ' " \ ; & | < >), so those forms
-# fail by construction rather than needing to be enumerated. `realpath -m` then resolves `..`
+# fail by construction rather than needing to be enumerated. `canon_path` then resolves `..`
 # and existing symlinks (so a symlink out of the allowed roots is caught), and a wildcard in a
 # non-final path segment is refused because it can expand through a symlink realpath can't see.
 #
-# Which targets those two roots cover, and the tradeoff they rest on, is `path_class` in
-# lib-guarded-verb.sh. Globs auto-allow only under /tmp — elsewhere their expansion
-# could reach `.git` or a dotfile the literal checks never see. Relative operands resolve
+# Which targets those roots cover, and the tradeoff they rest on, is `path_class` in
+# lib-guarded-verb.sh. Globs auto-allow only under /tmp and the MCP caches — elsewhere their
+# expansion could reach `.git` or a dotfile the literal checks never see. Relative operands resolve
 # against the working directory the command runs from, which a `cd` in an earlier segment
 # moves; once a `cd` is one this guard cannot resolve, that directory is unknown and a
 # relative operand can no longer be proved.
 #
-# Assumes GNU `realpath` (-m) and `jq`, both present in this repo's Linux dev env.
+# Assumes `jq`. Path canonicalization goes through `canon_path`, which covers both the Linux dev
+# env and macOS; with neither backend available it proves nothing and every delete prompts.
 set -uo pipefail
 . "${BASH_SOURCE[0]%/*}/lib-guarded-verb.sh"
 
@@ -51,13 +54,15 @@ has_substitution "$cmd" && defer "command substitution in the command line"
 # operands against $seg_cwd. Returns only once every operand is an auto-allowable target;
 # anything it cannot prove defers instead.
 check_rm_segment() {
-  local i=1 t canon candidates had_operand=0 end_opts=0
+  local i=1 t p canon candidates had_operand=0 end_opts=0
   while [ "$i" -lt "${#SEG_TOKS[@]}" ]; do
     t="${SEG_TOKS[$i]}"
     i=$((i + 1))
+    # Messages keep the token as written; everything downstream reasons about the expansion.
+    p=$(expand_home_prefix "$t")
     # Whitelist every token (flags included, so an operator hidden in a flag like `-rf;rm`
     # can't slip past): any character outside the safe set makes it unsafe to reason about.
-    [ -n "$(printf '%s' "$t" | tr -d 'A-Za-z0-9._/*?[]-')" ] && defer "unsafe characters in \`$t\`"
+    [ -n "$(printf '%s' "$p" | tr -d 'A-Za-z0-9._/*?[]-')" ] && defer "unsafe characters in \`$t\`"
     # A glob in an option-looking token (`-[-]`) can expand to `--` and turn a later `-name`
     # into an operand — never a real option, so defer.
     case "$t" in -*[*?[]*) defer "glob inside the option \`$t\`" ;; esac
@@ -73,25 +78,34 @@ check_rm_segment() {
     had_operand=1
     # No wildcard in a non-final path segment (`a/*/b`): it can expand through a symlink
     # realpath can't see. A slashless glob (`*.rs`) is a final-segment match — fine.
-    case "$t" in */*) case "${t%/*}" in *[*?[]*) defer "glob in a non-final segment of \`$t\`" ;; esac ;; esac
+    case "$p" in */*) case "${p%/*}" in *[*?[]*) defer "glob in a non-final segment of \`$t\`" ;; esac ;; esac
     # A relative operand has as many candidate paths as the command has candidate working
     # directories, and every one of them has to be auto-allowable: a `cd` that fails at runtime
     # leaves the delete running in the directory it started in.
-    case "$t" in
-      /*) candidates=$(realpath -m -- "$t" 2>/dev/null) ;;
+    case "$p" in
+      /*) candidates=$(canon_path "$p") ;;
       *)  [ -n "$seg_cwd" ] || defer "\`$t\` is relative to a working directory this guard cannot pin down"
-          candidates=$(realpath -m -- "$seg_cwd/$t" 2>/dev/null)
+          candidates=$(canon_path "$seg_cwd/$p")
           [ -n "$alt_cwd" ] && candidates="$candidates
-$(realpath -m -- "$alt_cwd/$t" 2>/dev/null)"
+$(canon_path "$alt_cwd/$p")"
           ;;
     esac
     while IFS= read -r canon; do
       [ -n "$canon" ] || defer "cannot resolve \`$t\`"
-      # A glob may auto-allow only under /tmp, where everything is deletable. Elsewhere its
-      # expansion could match `.git`, a dotfile like `.*`, or a nested checkout root that the
-      # literal-path checks never see — so require literal operands in git repos.
-      case "$t" in *[*?[]*) case "$canon" in /tmp/?*) ;; *) defer "glob \`$t\` is outside /tmp" ;; esac ;; esac
-      path_class "$canon" >/dev/null || defer "\`$canon\` is outside /tmp and not inside a git checkout in \$HOME"
+      # A glob may auto-allow only in a root where everything is deletable — /tmp and the MCP
+      # caches, both of which `rm -rf <root>` already clears wholesale, so matching inside one
+      # grants nothing more. In a checkout the expansion could reach `.git`, a dotfile like
+      # `.*`, or a nested checkout root that the literal-path checks never see, so require
+      # literal operands there.
+      case "$p" in
+        *[*?[]*)
+          case "$(path_class "$canon")" in
+            tmp | mcp-cache) ;;
+            *) defer "glob \`$t\` is outside /tmp and the MCP caches" ;;
+          esac
+          ;;
+      esac
+      path_class "$canon" >/dev/null || defer "\`$canon\` is outside /tmp and the MCP caches, and not inside a git checkout in \$HOME"
     done <<< "$candidates"
   done
   [ "$had_operand" = 1 ] || defer "no operand"
@@ -136,5 +150,5 @@ for seg in "${SEGMENTS[@]}"; do
 done
 
 [ "$proved" = 1 ] || exit 0
-[ "$only_ours" = 1 ] && decide allow 'rm operands are under /tmp or inside a git checkout in $HOME'
+[ "$only_ours" = 1 ] && decide allow 'rm operands are under /tmp, in an MCP cache, or inside a git checkout in $HOME'
 exit 0
