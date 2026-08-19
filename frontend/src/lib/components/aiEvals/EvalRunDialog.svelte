@@ -49,6 +49,18 @@
 	let hasDraft = $state(false)
 	let dataset = $state<string | undefined>(undefined)
 	let hoveringDataset = $state(false)
+	/** Set while the dialog is standing aside for the dataset drawer, which it is brought back
+	 *  from: naming a dataset is a detour on the way to a run, and what was already chosen for that
+	 *  run survives it. Holds the pane's dataset as it was on the way out, so coming back onto a
+	 *  different one is read as the detour's answer and adopted. */
+	let steppedAside = $state<{ dataset: string | undefined } | undefined>(undefined)
+
+	/** Hands the screen to the dataset drawer, to be given back when it closes. */
+	function stepAside(go: () => void) {
+		steppedAside = { dataset: defaultDataset }
+		open = false
+		go()
+	}
 
 	/** The agent's versions, for pinning one. Loaded when the dialog opens rather than held: a
 	 *  version list goes stale the moment the agent is saved again. */
@@ -86,6 +98,18 @@
 	$effect(() => {
 		if (!open) return
 		untrack(() => {
+			// Asked again either way: a version saved or a draft written during the detour is one of
+			// the things you might have left to do.
+			loadVersions()
+			loadDraftState()
+			const aside = steppedAside
+			steppedAside = undefined
+			if (aside) {
+				// Back from the drawer, on what it was opened for: a dataset created or edited there
+				// moves the pane onto it, and anything else leaves the field as it was left.
+				if (defaultDataset !== aside.dataset) dataset = defaultDataset
+				return
+			}
 			// Seeded on every open: the dataset you were last in, and whichever state of the agent
 			// there is most reason to measure — edits waiting are why you came.
 			// Only a dataset this agent has actually been worked in. Falling back to whichever came
@@ -94,8 +118,6 @@
 			hasDraft = hasUndeployedChanges
 			choice = hasUndeployedChanges ? 'draft' : 'deployed'
 			touched = false
-			loadVersions()
-			loadDraftState()
 		})
 	})
 
@@ -196,10 +218,7 @@
 						size="xs"
 						variant="default"
 						startIcon={{ icon: Plus }}
-						onclick={() => {
-							open = false
-							onNewDataset()
-						}}
+						onclick={() => stepAside(onNewDataset)}
 					>
 						New dataset
 					</Button>
@@ -232,8 +251,7 @@
 								title="Edit this dataset"
 								on:click={() => {
 									close()
-									open = false
-									onEditDataset(item.value ?? '')
+									stepAside(() => onEditDataset(item.value ?? ''))
 								}}
 							/>
 						{/snippet}
@@ -244,8 +262,7 @@
 									class="flex items-center gap-2 px-3 py-2 text-xs text-secondary hover:bg-surface-hover"
 									onclick={() => {
 										close()
-										open = false
-										onNewDataset()
+										stepAside(onNewDataset)
 									}}
 								>
 									<Plus size={13} />
@@ -264,10 +281,7 @@
 								startIcon={{ icon: Pencil }}
 								iconOnly
 								title="Edit this dataset"
-								on:click={() => {
-									open = false
-									onEditDataset(dataset ?? '')
-								}}
+								on:click={() => stepAside(() => onEditDataset(dataset ?? ''))}
 							/>
 						</div>
 					{/if}

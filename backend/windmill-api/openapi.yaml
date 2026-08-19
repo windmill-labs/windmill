@@ -26755,7 +26755,7 @@ components:
       type: object
       description: >-
         One scorer's headline for one run: the two numbers a column reports, over that run's cells.
-      required: [scorer_id, name, kind, scored]
+      required: [scorer_id, name, kind, scored, failed]
       properties:
         scorer_id:
           type: string
@@ -26776,6 +26776,11 @@ components:
             one. Absent where the column has no threshold and the mean is the whole headline.
         scored:
           type: integer
+        failed:
+          type: integer
+          description: >
+            How many of the run's cells the column failed on. A column that failed on all of them
+            has no number to report and is still one of the columns that ran.
 
     CellScore:
       type: object

@@ -26,7 +26,8 @@
 		onCreated,
 		onRenamed,
 		onCasesChanged,
-		onScorersChanged
+		onScorersChanged,
+		onClosed
 	}: {
 		workspace: string | undefined
 		/** The agent the dataset is named after and belongs to. */
@@ -43,6 +44,9 @@
 		onCasesChanged: () => void | Promise<void>
 		/** The columns changed, which changes what every run of this dataset reports. */
 		onScorersChanged: () => void | Promise<void>
+		/** The drawer is done, whether it saved anything or not: what opened it decides whether
+		 *  there is somewhere to go back to. */
+		onClosed?: () => void
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -178,11 +182,10 @@
 					cases: workingCases.map(({ id: _id, ...rest }) => rest)
 				}
 			})
-			// Stays open, on the dataset it just made: scorers and cases are what a dataset is, and
-			// they can only be added to one that exists, so closing here would send you to find it
-			// again to do the part you opened this for.
+			// Everything the drawer holds is written with it, so creating is the whole of what this
+			// was opened for: it closes on the dataset it just made, which the pane is now on.
 			await onCreated(created)
-			mode = 'edit'
+			drawer?.closeDrawer()
 		} catch (e) {
 			sendUserToast(`Failed to create the dataset: ${e}`, true)
 		} finally {
@@ -292,7 +295,7 @@
 	let nothingToSave = $derived(metadataUnchanged && !casesChanged)
 </script>
 
-<Drawer bind:this={drawer} size="900px">
+<Drawer bind:this={drawer} size="900px" on:close={() => onClosed?.()}>
 	<!-- Inside the drawer, not beside it. The drawer is portalled to the body and stacked above the
 	     pane that opened it, so a modal rendered from here is otherwise trapped under it. -->
 	<ConfirmationModal
@@ -333,24 +336,24 @@
 							inputProps={{ placeholder: 'What this set of cases is for' }}
 						/>
 					</Label>
-					<Path
-						bind:this={pathInput}
-						bind:path
-						bind:error={pathError}
-						bind:dirty={pathDirty}
-						initialPath={mode === 'edit' ? (datasetPath ?? '') : ''}
-						checkInitialPathExistence={false}
-						namePlaceholder="cases"
-						kind="resource"
-						workspaceOverride={workspace}
-						autofocus={false}
-						size="sm"
-					/>
-					{#if mode === 'edit'}
-						<span class="text-2xs text-tertiary">
-							Renaming moves the dataset: its cases and its runs follow it.
-						</span>
-					{/if}
+					<Label
+						label="Path"
+						tooltip="Where the dataset lives. Renaming it moves it: its cases and its runs follow."
+					>
+						<Path
+							bind:this={pathInput}
+							bind:path
+							bind:error={pathError}
+							bind:dirty={pathDirty}
+							initialPath={mode === 'edit' ? (datasetPath ?? '') : ''}
+							checkInitialPathExistence={false}
+							namePlaceholder="cases"
+							kind="resource"
+							workspaceOverride={workspace}
+							autofocus={false}
+							size="sm"
+						/>
+					</Label>
 				</div>
 			{/key}
 
@@ -362,6 +365,7 @@
 				{workspace}
 				datasetPath={mode === 'edit' ? datasetPath : path}
 				dataset={mode === 'edit' ? dataset : undefined}
+				{datasets}
 				bind:pending={pendingScorers}
 				onChanged={onScorersChanged}
 			/>
@@ -373,22 +377,28 @@
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-semibold text-emphasis">Cases</span>
 					<span class="text-2xs text-tertiary">{workingCases.length}</span>
-					<div class="grow"></div>
-					<Button
-						size="xs2"
-						variant="default"
-						startIcon={{ icon: Plus }}
-						disabled={mode === 'edit' && !datasetPath}
-						onclick={addCase}
-					>
-						Add a case
-					</Button>
 				</div>
 				<div class="flex gap-3 grow min-h-0">
-					<div class="w-60 shrink-0 overflow-auto border rounded-md">
+					<!-- Adding a case belongs to the list it lands in, so it is the last row of it: an
+					     empty list has nothing to append to and one thing to do, which goes where the
+					     rows would be. -->
+					<div class="w-60 shrink-0 overflow-auto border rounded-md flex flex-col">
 						{#if workingCases.length === 0}
-							<div class="p-3 text-2xs text-tertiary">
-								A case is a question this agent is asked, and what a good answer to it looks like.
+							<div
+								class="grow flex flex-col items-center justify-center gap-3 p-3 text-center text-2xs text-tertiary"
+							>
+								<span>
+									A case is a question this agent is asked, and what a good answer to it looks like.
+								</span>
+								<Button
+									size="xs"
+									variant="default"
+									startIcon={{ icon: Plus }}
+									disabled={mode === 'edit' && !datasetPath}
+									onclick={addCase}
+								>
+									Add a case
+								</Button>
 							</div>
 						{:else}
 							<div class="divide-y">
@@ -414,6 +424,15 @@
 									</div>
 								{/each}
 							</div>
+							<button
+								type="button"
+								class="flex items-center gap-1.5 border-t px-2 py-1.5 text-xs text-secondary hover:bg-surface-hover disabled:opacity-50"
+								disabled={mode === 'edit' && !datasetPath}
+								onclick={addCase}
+							>
+								<Plus size={13} />
+								Add a case
+							</button>
 						{/if}
 					</div>
 					<div class="grow min-w-0 overflow-auto">

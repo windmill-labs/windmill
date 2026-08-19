@@ -4,6 +4,7 @@
 	import Cell from '$lib/components/table/Cell.svelte'
 	import Row from '$lib/components/table/Row.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { Button } from '$lib/components/common'
 	import { Bot, Code2, Loader2, Plus } from 'lucide-svelte'
@@ -14,12 +15,16 @@
 	let {
 		experiments,
 		datasets,
+		loaded,
 		onOpen,
 		onEditDataset,
 		onNew
 	}: {
 		/** Every run of this agent, newest first, whichever dataset each is of. */
 		experiments: EvalExperiment[]
+		/** Whether the list has been read. An empty table says the agent has never been run, which
+		 *  is only true once someone has looked. */
+		loaded: boolean
 		/** The workspace's datasets, for naming the one a run is of by what it is for. */
 		datasets: EvalDataset[]
 		onOpen: (experiment: EvalExperiment) => void
@@ -70,7 +75,9 @@
 	<tbody class="divide-y">
 		{#each experiments as experiment (experiment.id)}
 			{@const scored = scoredFrom(experiment)}
-			<Row on:click={() => onOpen(experiment)}>
+			<!-- Hoverable because it is: the row opens the run, and a row that reacts to the pointer
+			     is the only thing that says so. -->
+			<Row hoverable on:click={() => onOpen(experiment)}>
 				<Cell first>
 					<!-- What ran beside which run it was: two runs are only comparable because each says
 					     what it executed. -->
@@ -126,6 +133,13 @@
 									<span class="truncate">{score.name}</span>
 									{#if value != undefined}
 										<span class="tabular-nums font-semibold text-emphasis">{value}</span>
+									{:else if score.failed > 0}
+										<!-- A column that ran and produced nothing. Said here rather than left as a
+										     dash: a run whose judge failed throughout is a run to look at, and a
+										     column that is missing from the row reads as one that was never asked. -->
+										<span class="text-red-500">failed</span>
+									{:else if experiment.running}
+										<Loader2 size={11} class="animate-spin text-blue-500 self-center" />
 									{:else}
 										<span class="text-tertiary">—</span>
 									{/if}
@@ -153,7 +167,13 @@
 				</Cell>
 			</Row>
 		{/each}
-		{#if experiments.length === 0}
+		{#if experiments.length === 0 && !loaded}
+			<tr>
+				<td colspan="5" class="p-3">
+					<Skeleton layout={[[2], 0.5, [2], 0.5, [2]]} />
+				</td>
+			</tr>
+		{:else if experiments.length === 0}
 			<tr>
 				<td colspan="5" class="p-6">
 					<div class="flex flex-col items-center justify-center gap-3 text-center">

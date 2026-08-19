@@ -28,12 +28,15 @@
 		workspace,
 		datasetPath,
 		dataset,
+		datasets,
 		pending = $bindable(),
 		onChanged
 	}: {
 		workspace: string | undefined
 		/** What to name new runnables after, which a dataset has before it exists. */
 		datasetPath: string | undefined
+		/** The workspace's datasets, for naming the one a reusable scorer already measures. */
+		datasets: EvalDataset[]
 		/** The saved dataset, absent until there is one. Its absence is what says to collect rather
 		 * than to save. */
 		dataset: EvalDataset | undefined
@@ -47,6 +50,7 @@
 	let scorers = $derived(dataset ? (dataset.scorers ?? []) : (pending ?? []))
 
 	let scorerDrawer: Drawer | undefined = $state()
+	let addScorerForm: AddScorer | undefined = $state()
 	let scriptEditorDrawer: ScriptEditorDrawer | undefined = $state()
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
 	// The kind and whether it is being written or picked are chosen before the drawer opens: one
@@ -269,8 +273,10 @@
 		{#if workspace && datasetPath}
 			{#key scorerFormGeneration}
 				<AddScorer
+					bind:this={addScorerForm}
 					{workspace}
 					{datasetPath}
+					{datasets}
 					kind={scorerKind}
 					mode={scorerMode}
 					onAdd={addScorer}
@@ -278,6 +284,21 @@
 				/>
 			{/key}
 		{/if}
+		{#snippet actions()}
+			<!-- The one action of the drawer, where every other drawer keeps it: the form below is
+			     what to write or which one to pick, and pressing this is what makes it a column. -->
+			{@const state = addScorerForm?.submitState()}
+			<Button
+				size="xs"
+				variant="accent"
+				loading={state?.busy}
+				disabled={!state || state.disabled}
+				title={state?.title}
+				onclick={() => addScorerForm?.submit()}
+			>
+				{state?.label ?? 'Add scorer'}
+			</Button>
+		{/snippet}
 	</DrawerContent>
 </Drawer>
 

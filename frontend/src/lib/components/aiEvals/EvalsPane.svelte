@@ -117,6 +117,9 @@
 	// What to run is asked rather than assumed: which state of the agent, and against which
 	// dataset. Both cost a provider bill, and neither follows from where you were standing.
 	let runDialogOpen = $state(false)
+	// The dataset drawer was reached from the dialog, which had to give up the screen to it. Naming
+	// a dataset there is a detour on the way to a run, so the way back is taken for you.
+	let resumeRunDialog = $state(false)
 
 	let experiment = $derived(experiments.find((e) => e.id === experimentId))
 
@@ -128,9 +131,20 @@
 		return await AiEvalsService.listAllExperiments({ workspace: ws, subjectPath: agentPath })
 	}
 
+	/** Whether the two lists the pane opens on have been read. Every empty state here is a
+	 *  statement — this agent has never been run, this workspace has no dataset — and neither is
+	 *  something to say while the answer is still on its way. */
+	let runsLoaded = $state(false)
+	let datasetsLoaded = $state(false)
+	let loaded = $derived(!ws || (runsLoaded && datasetsLoaded))
+
 	/** The agent's whole history, which is the screen the pane opens on. */
 	async function loadRuns() {
-		experiments = await listSubjectExperiments()
+		try {
+			experiments = await listSubjectExperiments()
+		} finally {
+			runsLoaded = true
+		}
 	}
 
 	// Which dataset this subject was last worked in. Opening on someone else's dataset would read
@@ -150,7 +164,11 @@
 
 	async function loadDatasets() {
 		if (!ws) return
-		datasets = await AiEvalsService.listEvalDatasets({ workspace: ws })
+		try {
+			datasets = await AiEvalsService.listEvalDatasets({ workspace: ws })
+		} finally {
+			datasetsLoaded = true
+		}
 		if (selectedDataset) return
 		let remembered: string | null = null
 		try {
@@ -626,7 +644,7 @@
 				<ExternalLink size={12} />
 			</a>
 		{/if}
-		{#if !viewingRun && experiments.length > 0}
+		{#if !viewingRun && loaded && experiments.length > 0}
 			<!-- Only on the list, and only once there is a list: with no runs the table offers this
 			     itself, where the first row would be. Named for what it opens rather than for what
 			     that then does: it asks which state of the agent and which dataset, and both cost a
@@ -663,7 +681,7 @@
 		<Splitpanes class="h-full">
 			<Pane size={selectedRow ? 60 : 100} minSize={35}>
 				<div class="h-full overflow-auto">
-					{#if datasets.length === 0}
+					{#if loaded && datasets.length === 0}
 						<!-- Nothing to run and nothing to have run: the first dataset is the only move. -->
 						<div class="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
 							<span class="text-sm text-emphasis">No dataset yet</span>
@@ -680,13 +698,15 @@
 								New dataset
 							</Button>
 						</div>
-					{:else if !viewingRun}
+					{:else if !viewingRun || !loaded}
 						<!-- What this agent has already been measured at, across every dataset it has been
 						     measured on: a run is worth reading against the ones before it, and that is a
-						     list before it is a table. -->
+						     list before it is a table. It is also what the pane shows while it reads: the
+						     table is the screen, and the states around it are answers it does not have yet. -->
 						<EvalRunsList
 							{experiments}
 							{datasets}
+							{loaded}
 							onOpen={(e) => openRun(e.id)}
 							onEditDataset={async (path) => {
 								await useDataset(path)
@@ -753,7 +773,11 @@
 							<tbody class="divide-y">
 								{#each displayRows as row (row.case_id)}
 									{@const status = statusOf(row.status)}
-									<Row selected={row.case_id === selectedCaseId} on:click={() => openCase(row)}>
+									<Row
+										hoverable
+										selected={row.case_id === selectedCaseId}
+										on:click={() => openCase(row)}
+									>
 										<Cell first>
 											<span class="truncate block text-emphasis">{caseLabel(row)}</span>
 										</Cell>
@@ -860,6 +884,19 @@
 								{openRow.input?.user_message ?? caseLabel(openRow)}
 							</span>
 							<div class="grow"></div>
+							{#if openRow.job_id}
+								<!-- Over the panel rather than over the answer: the job is this case as this run
+								     executed it, the agent and the scorers that read it, which is everything the
+								     panel is showing and not the answer alone. -->
+								<a
+									class="text-2xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 mt-0.5"
+									href={`${base}/run/${openRow.job_id}?workspace=${ws}`}
+									target="_blank"
+								>
+									Open the case job
+									<ExternalLink size={12} />
+								</a>
+							{/if}
 							<Button
 								size="xs2"
 								variant="subtle"
@@ -881,8 +918,8 @@
 							{/if}
 							{#if scorers.length > 0 && openRow.scores.length > 0}
 								<!-- What each column made of this case, and why. A scorer is a step inside the
-								     case's own job, so the link under the answer opens all of them; what is
-								     worth having here is the number with the reasoning beside it. -->
+								     case's own job, which the panel's header opens; what is worth having here is
+								     the number with the reasoning beside it. -->
 								<Label label="Scores">
 									<div class="flex flex-col divide-y border rounded-md">
 										{#each scorers as scorer (scorer.id)}
@@ -926,9 +963,8 @@
 								</Label>
 							{/if}
 							{#if experiment && (openRow.job_id || openRow.output != undefined)}
-								<!-- The answer as the run recorded it. The job behind the row is the whole
-								     iteration — the agent and then the scorers that measured it — so the answer
-								     is read from the row, and the iteration is what the link opens. -->
+								<!-- The answer as the run recorded it, which is what the agent returned and not
+								     what the job as a whole did. -->
 								<div class="rounded-md border border-light overflow-hidden">
 									<div
 										class="flex items-center gap-2 px-2 py-1 border-b border-light bg-surface-secondary"
@@ -936,17 +972,6 @@
 										<span class="text-2xs font-semibold text-secondary truncate">
 											Case result
 										</span>
-										<div class="grow"></div>
-										{#if openRow.job_id}
-											<a
-												class="text-2xs text-secondary hover:underline inline-flex items-center gap-1 shrink-0"
-												href={`${base}/run/${openRow.job_id}?workspace=${ws}`}
-												target="_blank"
-											>
-												Open the run
-												<ExternalLink size={12} />
-											</a>
-										{/if}
 									</div>
 									<div class="p-2">
 										{#if openRow.output != undefined}
@@ -986,10 +1011,14 @@
 	{running}
 	onRun={runAll}
 	onEditDataset={async (path) => {
+		resumeRunDialog = true
 		await useDataset(path)
 		datasetDrawer?.openDrawer('edit')
 	}}
-	onNewDataset={() => datasetDrawer?.openDrawer('new')}
+	onNewDataset={() => {
+		resumeRunDialog = true
+		datasetDrawer?.openDrawer('new')
+	}}
 />
 
 <EvalDatasetDrawer
@@ -1004,4 +1033,11 @@
 	onRenamed={selectSavedDataset}
 	onCasesChanged={casesChanged}
 	onScorersChanged={scorersChanged}
+	onClosed={() => {
+		if (!resumeRunDialog) return
+		resumeRunDialog = false
+		// On the dataset the drawer was just in: the dialog opens on the pane's own, which
+		// creating or editing one has already moved to it.
+		runDialogOpen = true
+	}}
 />

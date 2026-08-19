@@ -1863,6 +1863,10 @@ pub struct ExperimentScore {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pass_rate: Option<f64>,
     pub scored: i64,
+    /// How many of this run's cells the column failed on. A column that failed on all of them has
+    /// no number to report and is still one of the columns that ran, which is the difference
+    /// between a headline of nothing and no headline at all.
+    pub failed: i64,
 }
 
 #[derive(Deserialize)]
@@ -2603,6 +2607,7 @@ async fn experiment_scores(
         "SELECT s.experiment_id AS \"experiment_id!\", s.scorer_id AS \"scorer_id!\",
                 avg(s.score) AS mean,
                 count(s.score) AS \"scored!\",
+                count(*) FILTER (WHERE s.error IS NOT NULL) AS \"failed!\",
                 count(*) FILTER (WHERE t.pass_if IS NOT NULL AND s.score >= t.pass_if)
                     AS \"passed!\",
                 bool_or(t.pass_if IS NOT NULL) AS \"has_threshold!\"
@@ -2610,7 +2615,6 @@ async fn experiment_scores(
          JOIN unnest($1::uuid[], $2::text[], $3::float8[])
                 AS t(experiment_id, scorer_id, pass_if)
               ON t.experiment_id = s.experiment_id AND t.scorer_id = s.scorer_id
-         WHERE s.score IS NOT NULL
          GROUP BY s.experiment_id, s.scorer_id",
         &ids,
         &scorer_ids,
@@ -2618,12 +2622,20 @@ async fn experiment_scores(
     )
     .fetch_all(db)
     .await?;
-    let mut headline: std::collections::HashMap<(Uuid, String), (Option<f64>, i64, i64, bool)> =
-        Default::default();
+    let mut headline: std::collections::HashMap<
+        (Uuid, String),
+        (Option<f64>, i64, i64, i64, bool),
+    > = Default::default();
     for row in rows {
         headline.insert(
             (row.experiment_id, row.scorer_id),
-            (row.mean, row.scored, row.passed, row.has_threshold),
+            (
+                row.mean,
+                row.scored,
+                row.failed,
+                row.passed,
+                row.has_threshold,
+            ),
         );
     }
     // Emitted in the dataset's column order rather than the query's, so the badges on a row read
@@ -2634,7 +2646,10 @@ async fn experiment_scores(
             .map(|s| s.as_slice())
             .unwrap_or(&[])
         {
-            let Some((mean, scored, passed, has_threshold)) =
+            // A column with no cells at all on this run is a column added after it: it has nothing
+            // to say about a run it never saw. One that has cells is reported even where none of
+            // them produced a number, which is what a column that failed throughout looks like.
+            let Some((mean, scored, failed, passed, has_threshold)) =
                 headline.get(&(experiment.id, scorer.id.clone()))
             else {
                 continue;
@@ -2650,6 +2665,7 @@ async fn experiment_scores(
                     pass_rate: (*has_threshold && *scored > 0)
                         .then(|| *passed as f64 / *scored as f64),
                     scored: *scored,
+                    failed: *failed,
                 });
         }
     }

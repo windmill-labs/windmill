@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -12,6 +11,7 @@
 		AiEvalsService,
 		ResourceService,
 		ScriptService,
+		type EvalDataset,
 		type ProviderConfig,
 		type Scorer
 	} from '$lib/gen'
@@ -19,13 +19,14 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onMount, untrack } from 'svelte'
 	import { summaryToName } from '$lib/utils'
-	import { Plus } from 'lucide-svelte'
+	import { Bot, Code2, Table2 } from 'lucide-svelte'
 	import type { RecentScorersResponse } from '$lib/gen'
 	import type { ScorerKind } from './evalScorers'
 
 	let {
 		workspace,
 		datasetPath,
+		datasets,
 		kind,
 		mode,
 		onAdd,
@@ -33,6 +34,8 @@
 	}: {
 		workspace: string
 		datasetPath: string
+		/** The workspace's datasets, for naming the one a reusable scorer already measures. */
+		datasets: EvalDataset[]
 		kind: ScorerKind
 		/** Writing a scorer and picking one that exists are different jobs with different fields,
 		 *  so they are different forms rather than one with half of it below a divider. */
@@ -69,6 +72,10 @@
 	})
 	/** The dataset's own name, which every scorer of it is named under. */
 	let datasetName = $derived(datasetPath.split('/').pop() ?? datasetPath)
+	/** What a dataset is for, where it says so: the path names it either way. */
+	function datasetSummary(path: string): string | undefined {
+		return datasets.find((d) => d.path === path)?.summary || undefined
+	}
 	let prompt = $state('')
 	let provider = $state<ProviderConfig | undefined>(loadStoredConfig())
 	let template = $state('')
@@ -86,6 +93,10 @@
 	/** Which list to pick from. Starts on the scorers already measuring something, which is what
 	 *  "reuse" usually means; it falls back to the workspace when there are none. */
 	let source = $state<'recent' | 'any'>('recent')
+	/** The row picked out of that list. Picking is not adding: what the drawer holds is only added
+	 *  when its own button says so, as everything else in this drawer is. */
+	let picked = $state<RecentScorersResponse[number] | undefined>(undefined)
+	let usingRecent = $derived(source === 'recent' && recent.length > 0)
 
 	/** The run as the judge reads it, mirroring what the API renders into the user message. */
 	const RUN_SHAPE = `Request: the case's user message
@@ -188,15 +199,66 @@ Expected: the case's expected value`
 	}
 
 	async function create() {
+		if (kind === 'agent') {
+			await createJudge()
+		} else {
+			await createScript()
+		}
+	}
+
+	/** Adds the scorer picked out of one of the two lists, as this dataset's column. */
+	async function addExisting() {
+		if (usingRecent) {
+			if (!picked) return
+			await onAdd({
+				kind: picked.kind,
+				path: picked.path,
+				name: picked.name,
+				pass_if: threshold ?? picked.pass_if
+			})
+			return
+		}
+		if (!existing) return
+		await onAdd({ kind, path: existing, name: summary || undefined, pass_if: threshold })
+	}
+
+	/** The drawer's own button drives the form, so what it says and whether it can be pressed are
+	 *  read from here: one action at the top of the drawer, as every other drawer has. */
+	export function submitState(): {
+		label: string
+		disabled: boolean
+		busy: boolean
+		title?: string
+	} {
+		// What is still missing, since the button sits at the top of a form that runs past it.
+		if (mode === 'new') {
+			const missing = !modelReady ? 'Pick a model first' : !prompt ? 'Write a prompt first' : ''
+			return {
+				label: kind === 'agent' ? 'Create judge' : 'Create and open',
+				disabled: !canCreate,
+				busy,
+				title: canCreate || kind === 'script' ? undefined : missing || undefined
+			}
+		}
+		const chosen = usingRecent ? picked : existing
+		return {
+			label: 'Add scorer',
+			disabled: busy || !chosen,
+			busy,
+			title: chosen ? undefined : usingRecent ? 'Pick a scorer from the list' : 'Pick one first'
+		}
+	}
+
+	export async function submit() {
 		busy = true
 		try {
-			if (kind === 'agent') {
-				await createJudge()
+			if (mode === 'new') {
+				await create()
 			} else {
-				await createScript()
+				await addExisting()
 			}
 		} catch (e) {
-			sendUserToast(`Failed to create the scorer: ${e}`, true)
+			sendUserToast(`Failed to add the scorer: ${e}`, true)
 		} finally {
 			busy = false
 		}
@@ -257,8 +319,13 @@ Expected: the case's expected value`
 
 			<Label
 				label="Grading prompt"
-				tooltip="The judge's system prompt. It is stored on the agent, so it can be rewritten later without touching the dataset."
+				tooltip="Stored on the agent, so it can be rewritten later without touching the dataset."
 			>
+				<!-- Between the label and the field, as a step's inputs put theirs: which half of the
+				     conversation this is is the thing to know before writing it. -->
+				<span class="text-xs text-secondary">
+					The judge's system prompt: how to score, written once for every case.
+				</span>
 				<TextInput
 					underlyingInputEl="textarea"
 					size="sm"
@@ -271,30 +338,17 @@ Expected: the case's expected value`
 
 			<Label
 				label="What the judge is sent"
-				tooltip="The run is passed as the agent's user message, through the same input transform an AI agent step uses."
+				tooltip="Passed through the same input transform an AI agent step uses."
 			>
+				<span class="text-xs text-secondary">
+					One run per message, in this shape. The prompt above is what reads it.
+				</span>
 				<pre
 					class="text-2xs text-secondary bg-surface-secondary rounded-md p-3 overflow-x-auto whitespace-pre"
 					>{RUN_SHAPE}</pre
 				>
 			</Label>
 		{/if}
-
-		<div class="flex justify-end">
-			<Button
-				size="xs"
-				variant="accent"
-				startIcon={{ icon: Plus }}
-				disabled={!canCreate}
-				onclick={create}
-			>
-				{#if kind === 'agent'}
-					{modelReady ? 'Create judge agent' : 'Pick a model'}
-				{:else}
-					Create script and open it
-				{/if}
-			</Button>
-		</div>
 	{:else}
 		<!-- One source at a time: the ones already measuring something and everything else in the
 	     workspace answer the same question, and side by side the shorter list reads as a preamble
@@ -304,8 +358,8 @@ Expected: the case's expected value`
 				{#snippet children({ item })}
 					<ToggleButton
 						value="recent"
-						label="Already a scorer"
-						tooltip="Measuring another dataset of this workspace."
+						label="Scorer"
+						tooltip="Already measuring another dataset of this workspace."
 						{item}
 					/>
 					<ToggleButton
@@ -318,24 +372,27 @@ Expected: the case's expected value`
 			</ToggleButtonGroup>
 		{/if}
 
-		{#if source === 'recent' && recent.length > 0}
+		{#if usingRecent}
 			<div class="flex flex-col divide-y border rounded-md">
 				{#each recent as scorer (scorer.path)}
-					<!-- Named the way it is named everywhere else: what it is called, the path under it,
-				     and what it already measures on the right. A scorer with no name of its own is its
-				     path, so saying that twice was saying nothing twice. -->
+					<!-- Named the way it is named everywhere else: what kind of thing it is, what it is
+				     called, the path under it, and the dataset it already measures on the right. A
+				     scorer with no name of its own is its path, so saying that twice was saying
+				     nothing twice. -->
 					<button
 						type="button"
-						class="flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-50"
+						class="flex items-center gap-3 px-3 py-2 text-left disabled:opacity-50 {picked?.path ===
+						scorer.path
+							? 'bg-blue-50 dark:bg-blue-900/50'
+							: 'hover:bg-surface-hover'}"
 						disabled={busy}
-						onclick={() =>
-							onAdd({
-								kind: scorer.kind,
-								path: scorer.path,
-								name: scorer.name,
-								pass_if: threshold ?? scorer.pass_if
-							})}
+						onclick={() => (picked = scorer)}
 					>
+						{#if scorer.kind === 'agent'}
+							<Bot size={14} class="text-tertiary shrink-0" />
+						{:else}
+							<Code2 size={14} class="text-tertiary shrink-0" />
+						{/if}
 						<div class="flex flex-col min-w-0 grow">
 							<span class="text-xs text-emphasis truncate leading-tight">
 								{scorer.name || scorer.path}
@@ -344,32 +401,27 @@ Expected: the case's expected value`
 								<span class="text-2xs text-tertiary truncate leading-tight">{scorer.path}</span>
 							{/if}
 						</div>
-						<span class="text-2xs text-tertiary truncate shrink-0" title={scorer.dataset}>
-							{scorer.dataset}
+						<span
+							class="flex items-center gap-1.5 text-2xs text-tertiary min-w-0 shrink"
+							title={scorer.dataset}
+						>
+							<Table2 size={12} class="shrink-0" />
+							<!-- What the dataset is for over what it is called, as the list on the left reads
+							     and as a dataset is named everywhere else it is listed. -->
+							<span class="flex flex-col min-w-0 text-right">
+								{#if datasetSummary(scorer.dataset)}
+									<span class="truncate leading-tight">{datasetSummary(scorer.dataset)}</span>
+								{/if}
+								<span class="truncate leading-tight">{scorer.dataset}</span>
+							</span>
 						</span>
 					</button>
 				{/each}
 			</div>
+		{:else if kind === 'agent'}
+			<ResourcePicker bind:value={existing} resourceType="ai_agent" />
 		{:else}
-			<div class="flex items-center gap-2">
-				<div class="grow min-w-0">
-					{#if kind === 'agent'}
-						<ResourcePicker bind:value={existing} resourceType="ai_agent" />
-					{:else}
-						<ScriptPicker bind:scriptPath={existing} kinds={['script']} clearable {workspace} />
-					{/if}
-				</div>
-				<Button
-					size="xs"
-					variant="default"
-					disabled={busy || !existing}
-					onclick={() =>
-						existing &&
-						onAdd({ kind, path: existing, name: summary || undefined, pass_if: threshold })}
-				>
-					Add
-				</Button>
-			</div>
+			<ScriptPicker bind:scriptPath={existing} kinds={['script']} clearable {workspace} />
 		{/if}
 	{/if}
 </div>
