@@ -264,8 +264,14 @@ apply_cd() {
 # `credentials.json`, `.secret*` — because a `cp` or `mv` that is auto-allowed on both ends
 # would rename one out of those globs and hand back through `Read` exactly what they deny.
 path_class() {
-  local canon="$1" d root=""
-  case "$canon" in
+  local canon="$1" d root="" folded
+  # Matched against a lowercased copy: APFS is case-insensitive by default, so `.GIT` and `.git`
+  # are one directory, and a case-sensitive list would leave the history — and these guards' own
+  # settings — one keystroke from an auto-allowed delete. On a case-sensitive volume a genuinely
+  # distinct `.GIT/` over-matches, which costs a prompt and nothing else. `tr` and not `${x,,}`:
+  # macOS ships bash 3.2, which has no case-folding expansion.
+  folded=$(printf '%s' "$canon" | tr 'A-Z' 'a-z')
+  case "$folded" in
     *"/.git" | *"/.git/"* | *"/.claude" | *"/.claude/"*) return 1 ;;
     *"/.env" | *"/.env."*) return 1 ;;
     *"/secrets" | *"/secrets/"*) return 1 ;;
