@@ -1736,6 +1736,18 @@ function ZipFSElement(
   return _internal_folder("." + SEP, zip);
 }
 
+/**
+ * Directories no walk over a workspace ever descends, whatever the sync scope:
+ * dependency trees and tool state, never Windmill content. Exported because a
+ * second walk that disagrees with this one reads files sync will never see, and
+ * draws conclusions from them.
+ */
+export function isNeverWalkedDir(dirName: string | undefined): boolean {
+  return (
+    dirName === "node_modules" || (dirName !== undefined && dirName.startsWith("."))
+  );
+}
+
 export async function* readDirRecursiveWithIgnore(
   ignore: (path: string, isDirectory: boolean) => boolean,
   root: DynFSElement,
@@ -1772,15 +1784,8 @@ export async function* readDirRecursiveWithIgnore(
     const e = stack.pop()!;
     yield e;
     for await (const e2 of e.c()) {
-      if (e2.isDirectory) {
-        const dirName = e2.path.split(SEP).pop();
-        if (
-          dirName == "node_modules" ||
-          dirName == ".claude" ||
-          dirName?.startsWith(".")
-        ) {
-          continue;
-        }
+      if (e2.isDirectory && isNeverWalkedDir(e2.path.split(SEP).pop())) {
+        continue;
       }
       stack.push({
         path: e2.path,

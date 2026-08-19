@@ -2,7 +2,7 @@ import { stringify as yamlStringify } from "yaml";
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync, type Dirent } from "node:fs";
 import * as path from "node:path";
-import { yamlOptions } from "../commands/sync/sync.ts";
+import { isNeverWalkedDir, yamlOptions } from "../commands/sync/sync.ts";
 import * as log from "../core/log.ts";
 import { yamlParseContent } from "./yaml.ts";
 import {
@@ -575,8 +575,6 @@ export function sharedLockRefIn(
 // would otherwise spend its time. Nothing else is skipped — a build-output name
 // like `dist` is a legal folder, and a script hidden from this scan is exactly
 // the script the scan exists to protect.
-const SCAN_SKIP_DIRS = new Set([".git", ".wmill", "node_modules"]);
-
 /** Runs `fn` over `items`, at most `size` at a time. */
 async function inBatches<T>(
   items: readonly T[],
@@ -620,13 +618,17 @@ export async function collectExistingSharedLocks(
     let entries: Dirent[];
     try {
       entries = await readdir(path.join(root, dir), { withFileTypes: true });
-    } catch {
-      return;
+    } catch (e) {
+      // Only a directory that is not there is nothing to read. Anything else —
+      // a permission error, a broken mount — hides scripts whose lockfiles this
+      // pass would then rewrite or sweep as unread.
+      if ((e as { code?: string })?.code === "ENOENT") return;
+      throw e;
     }
     for (const entry of entries) {
       const rel = dir === "" ? entry.name : `${dir}/${entry.name}`;
       if (entry.isDirectory()) {
-        if (!SCAN_SKIP_DIRS.has(entry.name)) await walk(rel);
+        if (!isNeverWalkedDir(entry.name)) await walk(rel);
         continue;
       }
       if (isSharedLockPath(rel)) {

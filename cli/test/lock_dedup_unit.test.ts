@@ -478,6 +478,9 @@ describe("collectExistingSharedLocks", () => {
         ),
       );
       await write("docs/example.script.yaml", readsShared);
+      // Sync never descends a dot-directory, so a fixture there is a file it can
+      // never see: counted as a script it would suppress every new group.
+      await write("f/team/.fixtures/example.script.yaml", readsShared);
 
       const existing = await collectExistingSharedLocks(root);
 
@@ -497,6 +500,9 @@ describe("collectExistingSharedLocks", () => {
       // sync reads, is not a script — counted, it would leave the planner in
       // conserve-only mode for good.
       expect(existing.scripts.has("docs/example.script.yaml")).toBe(false);
+      expect(existing.scripts.has("f/team/.fixtures/example.script.yaml")).toBe(
+        false,
+      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
