@@ -6,14 +6,19 @@ import { forbiddenIds } from './idUtils'
 /**
  * A tool's `summary` is the name the LLM sees, and the worker rejects any name that does not match
  * `^[a-zA-Z0-9_]+$` (`ai_executor.rs`), so an unvalidated name fails on every run of the flow.
+ *
+ * `kind` only has to tell the three tool kinds apart, so callers may pass either the raw
+ * `value.tool_type` or the module type they resolved it to: anything other than `'mcp'` and
+ * `'websearch'` — including `undefined` on a legacy tool — is checked as a flow module tool, which
+ * is what the worker does too.
  */
 export function getToolNameError(
 	name: string,
-	type?: string,
+	kind?: 'mcp' | 'websearch' | (string & {}),
 	siblingNames?: string[]
 ): string | undefined {
-	if (type === 'websearch') return undefined
-	if (type === 'mcp') {
+	if (kind === 'websearch') return undefined
+	if (kind === 'mcp') {
 		return name.length > 0 ? undefined : 'Tool name must not be empty'
 	}
 	if (!/^[a-zA-Z0-9_]+$/.test(name)) {
