@@ -570,13 +570,14 @@
 						size="xs2"
 						variant="default"
 						startIcon={{ icon: FlaskConical }}
-						iconOnly
-						title="Evals: run this agent against a dataset of cases"
+						title="Run this agent against a dataset of cases"
 						on:click={(e) => {
 							e.stopPropagation()
 							evalsOpen = true
 						}}
-					/>
+					>
+						Evals
+					</Button>
 					<Button
 						size="xs2"
 						variant="default"
@@ -661,31 +662,31 @@
 						</Tooltip>
 					</div>
 				</div>
-				<div class="flex items-center gap-1 shrink-0">
-					<Button size="xs2" variant="default" onclick={cancelEdit}>Cancel</Button>
-					<Button
-						size="xs2"
-						variant="accent"
-						startIcon={{ icon: Save }}
-						disabled={saving || !!providerSaveError}
-						onclick={saveChanges}
-					>
-						Save changes
-					</Button>
-				</div>
-			</div>
-			<!-- On a line of its own: keeping or discarding the edits is what the row above is for,
-			     and evals is not part of that decision. Offered while editing because evals of an
-			     agent being edited run the edits, which is the question worth asking of them. -->
-			<div class="flex">
+				<!-- Beside what it is about: evals of an agent being edited run the edits, so it
+				     belongs to the line naming them rather than to the row that keeps or discards
+				     them. -->
 				<Button
 					size="xs2"
-					variant="subtle"
+					variant="default"
 					startIcon={{ icon: FlaskConical }}
 					title="Run these edits against a dataset of cases"
 					onclick={() => (evalsOpen = true)}
 				>
 					Evals
+				</Button>
+			</div>
+			<!-- Deciding the edits' fate gets a row of its own: at this width it was wrapping into
+			     the line that names them, and the two are not the same question. -->
+			<div class="flex items-center justify-end gap-1">
+				<Button size="xs2" variant="default" onclick={cancelEdit}>Cancel</Button>
+				<Button
+					size="xs2"
+					variant="accent"
+					startIcon={{ icon: Save }}
+					disabled={saving || !!providerSaveError}
+					onclick={saveChanges}
+				>
+					Save changes
 				</Button>
 			</div>
 		</div>

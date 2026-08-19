@@ -47,6 +47,9 @@
 		 * side panel when it is open. Pass an explicit value to stack above other
 		 * surfaces (e.g. a modal opened over the /sessions preview-pane editor). */
 		minZIndex?: number
+		/** Rendered against the dialog's own name, before any level below it: what it marks is the
+		 * dialog rather than wherever in it you have navigated to. */
+		titleBadge?: import('svelte').Snippet
 		settings?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 		actions?: import('svelte').Snippet
@@ -62,6 +65,7 @@
 		trail = undefined,
 		fillHeight = false,
 		minZIndex: minZIndexProp = undefined,
+		titleBadge,
 		settings,
 		children: children_render,
 		actions
@@ -208,6 +212,9 @@
 												class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold leading-7"
 											>
 												{#each segments as segment, i (i)}
+													{#if i === 1}
+														{@render titleBadge?.()}
+													{/if}
 													{#if i > 0}
 														<ChevronRight size={18} class="text-tertiary shrink-0" />
 													{/if}
@@ -239,6 +246,9 @@
 														</span>
 													{/if}
 												{/each}
+												{#if segments.length === 1}
+													{@render titleBadge?.()}
+												{/if}
 											</nav>
 											{@render settings?.()}
 										</div>

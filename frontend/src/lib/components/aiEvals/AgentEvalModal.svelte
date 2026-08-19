@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { EvalsLocation } from './evalRuns'
 	import type { EvalCaseDraft } from '$lib/gen'
 	import EvalsPane from './EvalsPane.svelte'
@@ -47,6 +48,11 @@
 	class="w-[90vw] sm:w-[90vw] max-w-[1400px] sm:max-w-[1400px] h-[85vh]"
 	fillHeight
 >
+	{#snippet titleBadge()}
+		<!-- Beside the title rather than on the button that opens it: every way in lands here, so
+		     this is the one place that says it once. -->
+		<Badge color="blue" class="shrink-0">Beta</Badge>
+	{/snippet}
 	<div class="h-full min-h-0">
 		{#if path}
 			<EvalsPane
