@@ -1,9 +1,5 @@
 import { UserService, type User } from '$lib/gen'
 import { checkDeployPermission } from '$lib/utils_workspace_deploy'
-import {
-	canUserBypassRuleKindInRulesets,
-	fetchProtectionRulesForWorkspace
-} from '$lib/workspaceProtectionRules.svelte'
 
 /**
  * What a user may do in ONE workspace, as the AI session toolset needs to know it.
@@ -45,15 +41,6 @@ export function hasCapabilities(
 	return requires.every((c) => access.capabilities.has(c))
 }
 
-/**
- * `ApiAuthed.is_admin` is `usr.is_admin || super_admin` (windmill-api-auth/src/auth.rs),
- * while `whoami` reports the two separately — so every rule below that mirrors an
- * `authed.is_admin` check must OR them back together.
- */
-function isAuthedAdmin(me: User): boolean {
-	return !!me.is_admin || !!me.is_super_admin
-}
-
 export async function resolveSessionAccess(workspace: string): Promise<SessionAccess> {
 	let me: User
 	try {
@@ -66,8 +53,9 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 
 	// windmill-api/src/drafts.rs `require_can_write_path`: `authed.is_admin` returns Ok
 	// BEFORE the operator branch, so an admin who is also an operator may still save
-	// drafts.
-	if (isAuthedAdmin(me) || !me.operator) {
+	// drafts. That field is `usr.is_admin || super_admin` (windmill-api-auth/src/auth.rs)
+	// while `whoami` reports the two separately, hence the OR.
+	if (me.is_admin || me.is_super_admin || !me.operator) {
 		capabilities.add('write_draft')
 	}
 
@@ -77,21 +65,12 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 		capabilities.add('run_preview')
 	}
 
-	// Mirrors the backend's `check_deploy_rules`, which gates on BOTH protection rules.
-	// `checkDeployPermission` carries only the operator and `RestrictDeployToDeployers`
-	// halves, so `DisableDirectDeployment` is checked on top. An admin bypasses every
-	// rule, which is why the rulesets are fetched for everyone else only.
-	const authedAdmin = isAuthedAdmin(me)
-	const rulesets = authedAdmin ? undefined : await fetchProtectionRulesForWorkspace(workspace)
-	const deployAllowed =
-		(await checkDeployPermission(workspace, { ...me, is_admin: authedAdmin })).ok &&
-		(authedAdmin ||
-			canUserBypassRuleKindInRulesets(rulesets ?? [], 'DisableDirectDeployment', {
-				is_admin: false,
-				username: me.username,
-				groups: me.groups ?? []
-			}))
-	if (deployAllowed) {
+	// `checkDeployPermission` already carries every term of the backend's `check_deploy_rules`,
+	// superadmin included, so it is the whole answer here. Its per-kind narrowing
+	// (`deployPermissionForKind`) deliberately is not: this filter runs on tool NAMES, before
+	// the model has named a kind, so a direct-deployment lock also withholds the deploy tools
+	// for schedules and triggers — kinds the server would still accept.
+	if ((await checkDeployPermission(workspace, me)).ok) {
 		capabilities.add('deploy')
 	}
 
