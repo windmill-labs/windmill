@@ -3555,12 +3555,17 @@ async fn backfill_case_jobs(
 /// scoring job of its own, which is what tells the two shapes apart.
 async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result<()> {
     let pending = sqlx::query!(
+        // Left-joined, so an iteration still running is read too: a scorer runs after the agent
+        // within that iteration, so its verdict is there to be read as soon as its own step is
+        // done, and waiting for the iteration to end would hold every column of a case back until
+        // the last of them finished.
         "SELECT s.ordinal, s.scorer_id, c.job_id AS \"job_id!\", j.status::text AS status
          FROM eval_score s
          JOIN eval_experiment_case c
               ON c.experiment_id = s.experiment_id AND c.ordinal = s.ordinal
-         JOIN v2_job_completed j ON j.id = c.job_id AND j.workspace_id = $2
-         WHERE s.experiment_id = $1 AND s.job_id IS NULL AND s.score IS NULL AND s.error IS NULL",
+         LEFT JOIN v2_job_completed j ON j.id = c.job_id AND j.workspace_id = $2
+         WHERE s.experiment_id = $1 AND s.job_id IS NULL AND s.score IS NULL AND s.error IS NULL
+               AND c.job_id IS NOT NULL",
         experiment_id,
         w_id
     )
@@ -3638,9 +3643,9 @@ async fn harvest_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result<()> 
     Ok(())
 }
 
-/// One scorer's verdict, read out of the scoring job that produced it. `None` while the job has
-/// finished but this module's result is not readable yet, which is a state to wait through rather
-/// than to record as a failure.
+/// One scorer's verdict, read out of the job that produced it, which may still be running: a
+/// scorer's own step can be done while the iteration around it is not. `None` while the result is
+/// not readable yet, which is a state to wait through rather than to record as a failure.
 async fn read_verdict(
     db: &DB,
     w_id: &str,
@@ -3672,6 +3677,9 @@ async fn read_verdict(
             let (score, reason, checks) = extract_verdict(&value);
             match score {
                 Some(_) => (score, reason, checks, None),
+                // The job around this scorer is still going, so a module with no number in it is
+                // one that has not run yet. Recording a failure here would make it permanent.
+                None if job_status.is_none() => return None,
                 None if job_status == Some("success") => (
                     None,
                     reason,
@@ -3682,6 +3690,9 @@ async fn read_verdict(
             }
         }
         None if job_status == Some("success") => return None,
+        // The job holding this scorer has not finished, so a module with nothing in it yet is a
+        // step that has not run rather than one that produced nothing.
+        None if job_status.is_none() => return None,
         None => (None, None, None, Some(missing_error.to_string())),
     })
 }

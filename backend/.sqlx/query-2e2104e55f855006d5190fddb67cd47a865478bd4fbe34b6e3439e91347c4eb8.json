@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.ordinal, s.scorer_id, c.job_id AS \"job_id!\", j.status::text AS status\n         FROM eval_score s\n         JOIN eval_experiment_case c\n              ON c.experiment_id = s.experiment_id AND c.ordinal = s.ordinal\n         JOIN v2_job_completed j ON j.id = c.job_id AND j.workspace_id = $2\n         WHERE s.experiment_id = $1 AND s.job_id IS NULL AND s.score IS NULL AND s.error IS NULL",
+  "query": "SELECT s.ordinal, s.scorer_id, c.job_id AS \"job_id!\", j.status::text AS status\n         FROM eval_score s\n         JOIN eval_experiment_case c\n              ON c.experiment_id = s.experiment_id AND c.ordinal = s.ordinal\n         LEFT JOIN v2_job_completed j ON j.id = c.job_id AND j.workspace_id = $2\n         WHERE s.experiment_id = $1 AND s.job_id IS NULL AND s.score IS NULL AND s.error IS NULL\n               AND c.job_id IS NOT NULL",
   "describe": {
     "columns": [
       {
@@ -37,5 +37,5 @@
       null
     ]
   },
-  "hash": "feb39c8b5167f45fbecfd9be703eda1fc11cf08fb55a56bf07bc0e015a47dd0b"
+  "hash": "2e2104e55f855006d5190fddb67cd47a865478bd4fbe34b6e3439e91347c4eb8"
 }

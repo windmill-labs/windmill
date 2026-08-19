@@ -612,20 +612,20 @@
 					class="text-xs"
 				/>
 			</Label>
-			{#if experiment?.run_job_id}
-				<!-- The run is one flow, so it has a job: what it is doing, what it cost and what it
-				     logged are all there rather than reconstructed here. -->
-				<a
-					class="text-xs text-secondary hover:underline inline-flex items-center gap-1 shrink-0 pb-2"
-					href={`${base}/run/${experiment.run_job_id}?workspace=${ws}`}
-					target="_blank"
-				>
-					Open the job
-					<ExternalLink size={12} />
-				</a>
-			{/if}
 		{/if}
 		<div class="grow"></div>
+		{#if viewingRun && experiment?.run_job_id}
+			<!-- The run is one flow, so it has a job: what it is doing, what it cost and what it
+			     logged are all there rather than reconstructed here. -->
+			<a
+				class="text-xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 pb-2"
+				href={`${base}/run/${experiment.run_job_id}?workspace=${ws}`}
+				target="_blank"
+			>
+				Open the job
+				<ExternalLink size={12} />
+			</a>
+		{/if}
 		{#if !viewingRun}
 			<!-- Only on the list, and only this: a run is a record, so there is nothing on it to
 			     start. Named for what it opens rather than for what that then does: it asks which
@@ -851,9 +851,11 @@
 				{@const openRow = selectedRow}
 				<Pane size={40} minSize={25}>
 					<div class="h-full overflow-auto flex flex-col">
-						<div class="flex items-center gap-2 px-3 py-2 border-b">
-							<span class="text-xs font-semibold text-emphasis truncate">
-								{caseLabel(openRow)}
+						<div class="flex items-start gap-2 px-3 py-2 border-b">
+							<!-- The case itself, in full: it is the question this panel is about, and the
+							     table beside it is where it is abbreviated. -->
+							<span class="text-xs font-semibold text-emphasis break-words">
+								{openRow.input?.user_message ?? caseLabel(openRow)}
 							</span>
 							<div class="grow"></div>
 							<Button
@@ -866,13 +868,6 @@
 							/>
 						</div>
 						<div class="p-3 flex flex-col gap-4">
-							<!-- The case as this run executed it, not as the dataset holds it now: it is what
-							     produced the answer below, and editing it is a drawer away. -->
-							<Label label="User message">
-								<span class="text-xs text-secondary whitespace-pre-wrap break-words">
-									{openRow.input?.user_message ?? ''}
-								</span>
-							</Label>
 							{#if openRow.expected != undefined && openRow.expected !== ''}
 								<Label label="Expected">
 									<span class="text-xs text-secondary whitespace-pre-wrap break-words">
@@ -880,6 +875,52 @@
 											? openRow.expected
 											: JSON.stringify(openRow.expected, null, 2)}
 									</span>
+								</Label>
+							{/if}
+							{#if scorers.length > 0 && openRow.scores.length > 0}
+								<!-- What each column made of this case, and why. A scorer is a step inside the
+								     case's own job, so the link under the answer opens all of them; what is
+								     worth having here is the number with the reasoning beside it. -->
+								<Label label="Scores">
+									<div class="flex flex-col divide-y border rounded-md">
+										{#each scorers as scorer (scorer.id)}
+											{@const cell = openRow.scores.find((s) => s.scorer_id === scorer.id)}
+											<div class="flex flex-col gap-1 px-2 py-1.5">
+												<div class="flex items-center gap-2 min-w-0">
+													{#if scorer.kind === 'agent'}
+														<Bot size={13} class="text-tertiary shrink-0" />
+													{:else}
+														<Code2 size={13} class="text-tertiary shrink-0" />
+													{/if}
+													<span class="text-xs text-emphasis truncate min-w-0">
+														{scorerLabel(scorer)}
+													</span>
+													<div class="grow"></div>
+													{#if cell?.pending || (!cell && openRow.status === 'running')}
+														<Loader2 size={12} class="animate-spin text-blue-500 shrink-0" />
+													{:else if cell?.score != undefined}
+														<span
+															class="text-xs tabular-nums font-semibold shrink-0 {cell.passed ===
+															true
+																? 'text-green-600'
+																: cell.passed === false
+																	? 'text-red-600'
+																	: 'text-emphasis'}"
+														>
+															{formatScore(cell.score)}
+														</span>
+													{:else}
+														<span class="text-2xs text-tertiary shrink-0">no score</span>
+													{/if}
+												</div>
+												{#if cell?.error}
+													<span class="text-2xs text-red-500 break-words">{cell.error}</span>
+												{:else if cell?.reason}
+													<span class="text-2xs text-tertiary break-words">{cell.reason}</span>
+												{/if}
+											</div>
+										{/each}
+									</div>
 								</Label>
 							{/if}
 							{#if experiment && (openRow.job_id || openRow.output != undefined)}

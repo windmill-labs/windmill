@@ -47,17 +47,19 @@
 <DataTable size="sm" tableFixed>
 	<colgroup>
 		<col style="width: 20%" />
+		<col style="width: 22%" />
 		<col style="width: 5rem" />
 		<col />
-		<col style="width: 22%" />
 		<col style="width: 7rem" />
 	</colgroup>
 	<Head>
 		<tr>
+			<!-- What ran, then what it ran against, then what came of it: a run is only a number
+			     beside a dataset, so the two belong together and the scores follow from them. -->
 			<Cell head first>Run</Cell>
+			<Cell head>Dataset</Cell>
 			<Cell head numeric>Cases</Cell>
 			<Cell head>Scores</Cell>
-			<Cell head>Dataset</Cell>
 			<Cell head last numeric>When</Cell>
 		</tr>
 	</Head>
@@ -77,6 +79,28 @@
 							{#if scored}{scored}{:else}{experiment.created_by}{/if}
 						</span>
 					</div>
+				</Cell>
+				<Cell>
+					<!-- The dataset a run is of, and the way into it: what a run measured and what the
+					     next one will are the same question asked a day apart. -->
+					<button
+						type="button"
+						class="flex flex-col min-w-0 max-w-full text-left hover:underline"
+						title={`Edit ${experiment.dataset}`}
+						onclick={(e) => {
+							e.stopPropagation()
+							onEditDataset(experiment.dataset)
+						}}
+					>
+						<span class="text-xs text-secondary truncate leading-tight">
+							{datasetSummary(experiment.dataset) || experiment.dataset}
+						</span>
+						{#if datasetSummary(experiment.dataset)}
+							<span class="text-2xs text-tertiary truncate leading-tight">
+								{experiment.dataset}
+							</span>
+						{/if}
+					</button>
 				</Cell>
 				<Cell numeric>
 					<span class="tabular-nums text-secondary">{experiment.case_count}</span>
@@ -117,28 +141,6 @@
 							{/if}
 						{/if}
 					</div>
-				</Cell>
-				<Cell>
-					<!-- The dataset a run is of, and the way into it: what a run measured and what the
-					     next one will are the same question asked a day apart. -->
-					<button
-						type="button"
-						class="flex flex-col min-w-0 max-w-full text-left hover:underline"
-						title={`Edit ${experiment.dataset}`}
-						onclick={(e) => {
-							e.stopPropagation()
-							onEditDataset(experiment.dataset)
-						}}
-					>
-						<span class="text-xs text-secondary truncate leading-tight">
-							{datasetSummary(experiment.dataset) || experiment.dataset}
-						</span>
-						{#if datasetSummary(experiment.dataset)}
-							<span class="text-2xs text-tertiary truncate leading-tight">
-								{experiment.dataset}
-							</span>
-						{/if}
-					</button>
 				</Cell>
 				<Cell last numeric>
 					<span class="text-2xs text-tertiary whitespace-nowrap">

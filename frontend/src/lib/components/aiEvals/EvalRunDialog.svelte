@@ -153,7 +153,7 @@
 					{#if hasDraft}
 						<ToggleButton
 							value="draft"
-							label={latest ? `v${latest} draft (current)` : 'Draft (current)'}
+							label={latest ? `v${latest} + draft (current)` : 'Draft (current)'}
 							tooltip="The edits waiting on the agent, as they are before saving."
 							{item}
 						/>
