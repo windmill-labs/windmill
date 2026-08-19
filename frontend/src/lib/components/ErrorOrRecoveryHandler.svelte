@@ -85,6 +85,9 @@
 		 * nav `$workspaceStore`; a trigger editor in a forked session passes its
 		 * acting workspace so the handler is resolved and saved there. */
 		workspace?: string
+		/** Offer the instance critical alert channels as a destination. Workspace-level
+		 * error handling only: schedules and triggers have no such setting. */
+		showInstanceAlerts?: boolean
 	}
 
 	let {
@@ -99,7 +102,8 @@
 		customHandlerKind = $bindable('script'),
 		customTabTooltip,
 		noMargin = false,
-		workspace = undefined
+		workspace = undefined,
+		showInstanceAlerts = false
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
@@ -363,6 +367,14 @@
 			handlerPath = hubPaths.emailErrorHandler
 		}
 	})
+
+	// The instance channels are reached by having no workspace handler at all, so the tab
+	// owns an empty path rather than a handler script.
+	$effect(() => {
+		if (handlerSelected === 'instance_alerts') {
+			handlerPath = undefined
+		}
+	})
 </script>
 
 <div class={classNames('space-y-2', noMargin ? '' : 'mt-2')}>
@@ -378,6 +390,15 @@
 				disabled={!isEditable}
 				tooltip={customTabTooltip ? 'Custom error handler with script or flow' : undefined}
 			/>
+			{#if showInstanceAlerts}
+				<ToggleButton
+					label="Instance alerts"
+					value="instance_alerts"
+					{item}
+					disabled={!isEditable}
+					tooltip="Report failures to the instance critical alert channels"
+				/>
+			{/if}
 		{/snippet}
 	</ToggleButtonGroup>
 
@@ -652,6 +673,18 @@
 					{/if}
 				</div>
 			{/if}
+		{:else if handlerSelected === 'instance_alerts'}
+			<div class="flex flex-col gap-2">
+				<span class="text-xs text-secondary">
+					Failed jobs are reported to the Slack, Teams and email channels configured at the instance
+					level. Those channels are managed in instance settings by a superadmin, not here, and the
+					report is sent without adding an entry to the instance critical alert feed. Canceled jobs
+					are not reported.
+				</span>
+				<a class="text-xs w-fit" href="{base}/?workspace=admins#superadmin-settings">
+					Configure the instance critical alert channels
+				</a>
+			</div>
 		{/if}
 	</div>
 </div>

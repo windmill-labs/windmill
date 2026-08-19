@@ -97,11 +97,20 @@ export const websocketTriggerRequestSchema = z.object({
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"url": z.string().describe("The WebSocket URL to connect to (can be a static URL or computed by a runnable)"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"filters": z.array(z.object({
+	"filters": z.array(z.union([z.object({
 		"key": z.string(),
 		"value": z.any()
-	})).describe("Array of key-value filters to match incoming messages (only matching messages trigger the script)"),
-	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match.").default("and").optional(),
+	}), z.object({
+		"path": z.string().describe("Dotted path into nested objects, e.g. `a.b.c`. Does not traverse arrays."),
+		"value": z.any()
+	}), z.object({
+		"any_of": z.array(z.record(z.string(), z.any()))
+	}), z.object({
+		"all_of": z.array(z.record(z.string(), z.any()))
+	}), z.object({
+		"none_of": z.array(z.record(z.string(), z.any()))
+	})]).describe("Either a leaf filter, matching a field of the message (parsed as JSON) against a value by equality (or superset, when the value is an object or array) \u2014 addressed by `key` for a top-level field or `path` for a dotted path into nested objects \u2014 or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).\n")).describe("Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."),
+	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic.").default("and").optional(),
 	"initial_messages": z.array(z.union([z.object({
 		"raw_message": z.string()
 	}), z.object({
@@ -148,11 +157,20 @@ export const kafkaTriggerRequestSchema = z.object({
 	"kafka_resource_path": z.string().describe("Path to the Kafka resource containing connection configuration"),
 	"group_id": z.string().describe("Kafka consumer group ID for this trigger"),
 	"topics": z.array(z.string()).describe("Array of Kafka topic names to subscribe to"),
-	"filters": z.array(z.object({
+	"filters": z.array(z.union([z.object({
 		"key": z.string(),
 		"value": z.any()
-	})),
-	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating filters. 'and' requires all filters to match, 'or' requires any filter to match.").default("and").optional(),
+	}), z.object({
+		"path": z.string().describe("Dotted path into nested objects, e.g. `a.b.c`. Does not traverse arrays."),
+		"value": z.any()
+	}), z.object({
+		"any_of": z.array(z.record(z.string(), z.any()))
+	}), z.object({
+		"all_of": z.array(z.record(z.string(), z.any()))
+	}), z.object({
+		"none_of": z.array(z.record(z.string(), z.any()))
+	})]).describe("Either a leaf filter, matching a field of the message (parsed as JSON) against a value by equality (or superset, when the value is an object or array) \u2014 addressed by `key` for a top-level field or `path` for a dotted path into nested objects \u2014 or a group nesting sub-filters under a boolean operator (`none_of` matches when none of its sub-filters do).\n")).describe("Filters to match incoming messages (only matching messages trigger the script). Each entry is either a leaf `{key, value}` (top-level field) or `{path, value}` (dotted path into nested objects), or a group `{any_of: [...]}` / `{all_of: [...]}` / `{none_of: [...]}` nesting more entries. Entries at the top level are combined with `filter_logic`."),
+	"filter_logic": z.enum(["and", "or"]).describe("Logic to apply when evaluating the top-level filters. 'and' requires all of them to match, 'or' requires any of them to match. Nested `any_of`/`all_of`/`none_of` groups carry their own logic.").default("and").optional(),
 	"auto_offset_reset": z.enum(["latest", "earliest"]).describe("Initial offset behavior when consumer group has no committed offset.").default("latest").optional(),
 	"auto_commit": z.boolean().describe("When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint.").default(true).optional(),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
@@ -293,6 +311,43 @@ export const mqttTriggerRequestSchema = z.object({
 	"labels": z.array(z.string()).optional()
 })
 
+export const amqpTriggerRequestSchema = z.object({
+	"amqp_resource_path": z.string().describe("Path to the AMQP resource containing broker connection configuration"),
+	"queue_name": z.string().describe("Name of the queue to consume messages from"),
+	"exchange": z.object({
+		"exchange_name": z.string().describe("Name of the exchange to bind the consumed queue to"),
+		"routing_keys": z.array(z.string()).describe("Routing keys used to bind the queue to the exchange").optional()
+	}).describe("Optional exchange binding for the consumed queue").nullable().optional(),
+	"options": z.object({
+		"declare_queue": z.boolean().describe("Declare the queue (durable) before consuming; when false the queue is declared passively and must already exist").optional(),
+		"prefetch_count": z.number().int().gte(1).lte(65535).describe("Maximum number of unacknowledged messages the broker delivers at once (1-65535)").optional()
+	}).describe("Optional consumer options (queue declaration, prefetch)").nullable().optional(),
+	"path": z.string().describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`."),
+	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
+	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
+	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
+	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
+	"retry": z.object({
+		"constant": z.object({
+			"attempts": z.number().int().describe("Number of retry attempts").optional(),
+			"seconds": z.number().int().describe("Seconds to wait between retries").optional()
+		}).describe("Retry with constant delay between attempts").optional(),
+		"exponential": z.object({
+			"attempts": z.number().int().describe("Number of retry attempts").optional(),
+			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
+			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
+		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		"retry_if": z.object({
+			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
+		}).describe("Conditional retry based on error or result").optional()
+	}).describe("Retry configuration for failed executions").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"labels": z.array(z.string()).optional()
+})
+
 export const sqsTriggerRequestSchema = z.object({
 	"queue_url": z.string().describe("The full URL of the AWS SQS queue to poll for messages"),
 	"aws_auth_resource_type": z.enum(["oidc", "credentials"]).describe("Authentication type - 'credentials' for access key/secret, 'oidc' for OpenID Connect"),
@@ -397,6 +452,35 @@ export const azureTriggerRequestSchema = z.object({
 	"labels": z.array(z.string()).optional()
 }).describe("Data for creating or updating an Azure Event Grid trigger.")
 
+export const emailTriggerRequestSchema = z.object({
+	"path": z.string(),
+	"script_path": z.string(),
+	"local_part": z.string(),
+	"workspaced_local_part": z.boolean().optional(),
+	"is_flow": z.boolean(),
+	"error_handler_path": z.string().optional(),
+	"error_handler_args": z.record(z.string(), z.any()).describe("The arguments to pass to the script or flow").optional(),
+	"retry": z.object({
+		"constant": z.object({
+			"attempts": z.number().int().describe("Number of retry attempts").optional(),
+			"seconds": z.number().int().describe("Seconds to wait between retries").optional()
+		}).describe("Retry with constant delay between attempts").optional(),
+		"exponential": z.object({
+			"attempts": z.number().int().describe("Number of retry attempts").optional(),
+			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
+			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
+		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		"retry_if": z.object({
+			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
+		}).describe("Conditional retry based on error or result").optional()
+	}).describe("Retry configuration for failed module executions").optional(),
+	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"labels": z.array(z.string()).optional()
+})
+
 export const variableRequestSchema = z.object({
 	"path": z.string().describe("The path to the variable"),
 	"value": z.string().describe("The value of the variable"),
@@ -425,12 +509,32 @@ export const triggerRequestSchemas = {
 	nats: natsTriggerRequestSchema,
 	postgres: postgresTriggerRequestSchema,
 	mqtt: mqttTriggerRequestSchema,
+	amqp: amqpTriggerRequestSchema,
 	sqs: sqsTriggerRequestSchema,
 	gcp: gcpTriggerRequestSchema,
 	azure: azureTriggerRequestSchema,
+	email: emailTriggerRequestSchema,
 } as const
 
 const triggerPathSchema = z.string().min(1).describe("The unique Windmill path for this trigger. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`. This is the trigger object path, not the HTTP route path.")
+
+// The kind-specific fields of a trigger config, with the three the tool supplies
+// itself removed. Fetched one at a time through get_trigger_schema rather than
+// inlined into create_trigger: as a union of all eleven this serialized to ~39k
+// characters of JSON Schema, resent on every request of every chat.
+export const triggerConfigSchemas = {
+	http: httpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	websocket: websocketTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	kafka: kafkaTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	nats: natsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	postgres: postgresTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	mqtt: mqttTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	amqp: amqpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	sqs: sqsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	gcp: gcpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	azure: azureTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+	email: emailTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
+} as const
 
 export const createTriggerToolSchema = z.object({
 	kind: z.enum([
@@ -440,20 +544,16 @@ export const createTriggerToolSchema = z.object({
 		"nats",
 		"postgres",
 		"mqtt",
+		"amqp",
 		"sqs",
 		"gcp",
 		"azure",
+		"email",
 	]),
 	path: triggerPathSchema,
-	config: z.union([
-		httpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		websocketTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		kafkaTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		natsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		postgresTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		mqttTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		sqsTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		gcpTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-		azureTriggerRequestSchema.omit({ path: true, script_path: true, is_flow: true }),
-	])
+	config: z
+		.record(z.string(), z.any())
+		.describe(
+			'The kind-specific trigger configuration. Call get_trigger_schema with the same kind first to get its exact fields.'
+		)
 })

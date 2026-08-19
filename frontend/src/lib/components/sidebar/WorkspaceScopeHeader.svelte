@@ -12,7 +12,11 @@
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import WorkspaceFamilyPicker from '$lib/components/sessions/WorkspaceFamilyPicker.svelte'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
-	import { findWorkspaceRoot, findWorkspaceDescendants } from '$lib/utils/workspaceHierarchy'
+	import {
+		findWorkspaceRoot,
+		findWorkspaceDescendants,
+		isForkOwner
+	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 
 	let { isCollapsed = false }: { isCollapsed?: boolean } = $props()
@@ -38,9 +42,11 @@
 	})
 	const rootLabel = $derived(`${forkCount} fork${forkCount === 1 ? '' : 's'}`)
 
-	// Settings link at the bottom of the picker — admin/superadmin only, scoped
-	// to the active workspace (fork or root).
-	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
+	// Settings link at the bottom of the picker — admins, superadmins, and fork
+	// creators, scoped to the active workspace (fork or root).
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
+	)
 	const settingsHref = $derived(canManageWorkspace ? `${base}/workspace_settings` : undefined)
 	const settingsLabel = $derived(`${currentWs?.name ?? effectiveId ?? 'Workspace'} settings`)
 

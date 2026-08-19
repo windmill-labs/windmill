@@ -77,7 +77,7 @@
 </script>
 
 {#if trialRender}
-	<AiChatLayout noPadding={true} {disableAi}>
+	<AiChatLayout noPadding={true} {disableAi} loadAiConfig={!disableAi}>
 		{#if light}<div class="bg-red-500 absolute z-10">Trial version</div>{/if}
 		<!-- Gate on a resolved workspace: the draft handle is detached (local-only)
 		     until one exists, so editing before then would be lost on the re-key. -->
@@ -87,6 +87,7 @@
 				{flowStateStore}
 				{disableAi}
 				{...props}
+				customUi={{ modalPanel: false, ...props.customUi }}
 				liveEditorDraftStoragePath={draftStoragePath || undefined}
 			/>
 		{/if}

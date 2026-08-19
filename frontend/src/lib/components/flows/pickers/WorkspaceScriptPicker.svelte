@@ -131,7 +131,7 @@
 					<button
 						class="p-4 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all text-primary"
 						onclick={() => {
-							dispatch('pick', { path, hash: lockHash ? hash : undefined })
+							dispatch('pick', { path, hash: lockHash ? hash : undefined, summary })
 						}}
 					>
 						<div class="flex flex-col">

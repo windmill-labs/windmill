@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onDestroy, tick } from 'svelte'
 	import type { Component } from 'svelte'
+	import { nextAnimationFrame } from '$lib/utils/paint'
 	import { Drawer } from '$lib/components/common'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { Loader2 } from 'lucide-svelte'
@@ -70,6 +71,10 @@
 			label: 'MQTT trigger',
 			load: () => import('$lib/components/triggers/mqtt/MqttTriggerEditorInner.svelte')
 		},
+		amqp: {
+			label: 'AMQP trigger',
+			load: () => import('$lib/components/triggers/amqp/AmqpTriggerEditorInner.svelte')
+		},
 		sqs: {
 			label: 'SQS trigger',
 			load: () => import('$lib/components/triggers/sqs/SqsTriggerEditorInner.svelte')
@@ -93,20 +98,10 @@
 		return current ? `Edit ${drawerConfigs[current.key].label} ${current.path}` : 'Edit trigger'
 	})
 
-	function waitForAnimationFrame(): Promise<void> {
-		return new Promise((resolve) => {
-			if (typeof requestAnimationFrame === 'function') {
-				requestAnimationFrame(() => resolve())
-			} else {
-				resolve()
-			}
-		})
-	}
-
 	async function getEditor(request: ActiveDrawerState): Promise<EditorHandle | undefined> {
 		await request.promise
 		await tick()
-		await waitForAnimationFrame()
+		await nextAnimationFrame()
 
 		if (activeDrawer?.id !== request.id) {
 			return undefined
@@ -114,7 +109,7 @@
 
 		if (!editor) {
 			await tick()
-			await waitForAnimationFrame()
+			await nextAnimationFrame()
 		}
 
 		if (!editor) {

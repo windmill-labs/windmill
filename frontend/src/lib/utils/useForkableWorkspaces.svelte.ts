@@ -42,6 +42,10 @@ export function useForkableWorkspaces(args: {
 					username: '',
 					color: w.color ?? undefined,
 					parent_workspace_id: w.parent_workspace_id,
+					// Dev-ness travels with the entry: the fork-base default and the "dev" badge both read
+					// it off the list, and a synthesized entry missing it reads as an ordinary fork.
+					is_dev_workspace: w.is_dev_workspace,
+					dev_workspace_label: w.dev_workspace_label,
 					disabled: false
 				}
 			]

@@ -284,6 +284,18 @@ const user = await backend.get_user({ user_id: '123' });
 
 The frontend cannot reach datatables, workspace items, or external services on its own — it goes through `backend.<key>(args)` for everything server-side.
 
+### Keeping data out of recorded demos
+
+An app can be demoed by recording a session: every interaction becomes a step carrying a snapshot of the page, replayed publicly or on the Hub. Password inputs are masked automatically. Mark anything else that must not appear with `data-wm-no-record` — the whole marked subtree is dropped from every snapshot, along with its values and the step's own metadata:
+
+```tsx
+<label data-wm-no-record>
+  Customer SSN <input value={ssn} onChange={onSsn} />
+</label>
+```
+
+Apply it to customer data, internal notes and anything else a viewer of the demo should not see. It costs nothing when the app is never recorded.
+
 ## Backend runnables
 
 Each runnable has a unique key (used to call it from the frontend) and one of four types:
@@ -386,3 +398,4 @@ def main(user_id: str):
 3. **Keep runnables focused** — one function per runnable; small surface area.
 4. **Use descriptive keys** — `get_user`, not `a`.
 5. **Always whitelist tables** — adding a runnable that queries a new table requires the table to be in `data.tables` first.
+6. **Mark sensitive UI with `data-wm-no-record`** — it is what keeps that data out of a recorded demo; passwords are handled for you.

@@ -6,16 +6,17 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::types::{StandardTriggerQuery, TriggerData, TriggerMode};
+use crate::types::{HasPath, StandardTriggerQuery, TriggerData, TriggerMode};
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{FromRow, PgConnection};
 use std::fmt::Debug;
-use windmill_api_auth::{check_scopes, ApiAuthed};
+use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    trigger_history::{self, TriggerHistoryEvent, TriggerOperation, TriggerSource},
     user_drafts::{
         delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only_list_rows,
         overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
@@ -65,6 +66,8 @@ pub trait TriggerCrud: Send + Sync + 'static {
         + Send
         + Sync
         + Unpin
+        // Path accessor so `list_triggers` can apply scoped-token filtering.
+        + HasPath
         // `'static` so the deployed trigger can be boxed into
         // `WithDraftOverlay`'s erased-serde inner (it's an owned row).
         + 'static;
@@ -359,7 +362,17 @@ pub trait TriggerCrud: Send + Sync + 'static {
         .bind(script_path)
         .fetch_one(&mut *tx)
         .await
-        .unwrap_or(0);
+        // Falling back to 0 keeps one unreadable table from failing the whole count
+        // endpoint, but the cause must still reach the logs: a silent 0 is
+        // indistinguishable from "no triggers" in the UI.
+        .unwrap_or_else(|err| {
+            tracing::error!(
+                "failed to count {} triggers of {} {script_path} in {workspace_id}: {err:#}",
+                Self::TABLE_NAME,
+                if is_flow { "flow" } else { "script" }
+            );
+            0
+        });
 
         count
     }
@@ -444,6 +457,45 @@ pub trait TriggerCrud: Send + Sync + 'static {
 
         Ok(triggers)
     }
+}
+
+/// Append this mutation to `trigger_history`, diffing the row at `path` against
+/// `before`.
+///
+/// Call it on the transaction that made the change, after the change: the
+/// snapshot it takes is the "after" side of the diff, and the two commit or roll
+/// back together.
+///
+/// Records nothing when the snapshots say no row was written. `TriggerCrud::update_trigger`
+/// returns `Result<()>` and several impls do not check `rows_affected`, so an
+/// update aimed at a path that does not exist — or that RLS hides from the
+/// caller — reaches here having changed nothing; without this the caller could
+/// forge history rows at any path, since the insert policy is `WITH CHECK (true)`.
+async fn record_trigger_history<T: TriggerCrud>(
+    tx: &mut PgConnection,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    path: &str,
+    operation: TriggerOperation,
+    before: Option<serde_json::Value>,
+) -> Result<()> {
+    let after = trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, workspace_id, path).await?;
+    if after.is_none() || (operation == TriggerOperation::Update && before.is_none()) {
+        return Ok(());
+    }
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id,
+            trigger_kind: T::TRIGGER_TYPE,
+            path,
+            operation,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: trigger_history::summarize_changes(before.as_ref(), after.as_ref()),
+        },
+    )
+    .await
 }
 
 pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
@@ -543,6 +595,16 @@ async fn create_trigger<T: TriggerCrud>(
         .execute(&mut *tx)
         .await?;
     }
+
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        &new_path,
+        TriggerOperation::Create,
+        None,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -662,6 +724,9 @@ async fn list_triggers<T: TriggerCrud>(
         }
     }
 
+    let allowed = build_scope_path_predicate(&authed, T::scope_domain_name(), "read");
+    triggers.retain(|t| allowed(t.trigger_path()));
+
     Ok(Json(triggers))
 }
 
@@ -715,6 +780,12 @@ async fn update_trigger<T: TriggerCrud>(
     Json(mut edit_trigger): Json<TriggerData<T::TriggerConfigRequest>>,
 ) -> Result<String> {
     let path = path.to_path();
+    // A scoped token must be allowed on both the existing path (URL) and the
+    // new path (body); checking only the latter would let it move a trigger it
+    // can't touch into its scope.
+    check_scopes(&authed, || {
+        format!("{}:write:{}", T::scope_domain_name(), &path)
+    })?;
     check_scopes(&authed, || {
         format!(
             "{}:write:{}",
@@ -761,6 +832,9 @@ async fn update_trigger<T: TriggerCrud>(
         &authed.username,
     );
 
+    let before =
+        trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
+
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
         .await?;
@@ -777,6 +851,18 @@ async fn update_trigger<T: TriggerCrud>(
         .execute(&mut *tx)
         .await?;
     }
+
+    // Recorded at the new path, so a rename reads as one event there with
+    // `path` among the changed fields rather than a delete plus a create.
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        &new_path,
+        TriggerOperation::Update,
+        before,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -891,6 +977,22 @@ async fn delete_trigger<T: TriggerCrud>(
         )
         .await?;
     }
+
+    // No diff: the row is gone, and the trashbin above already keeps its full
+    // contents for a restore.
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id: &workspace_id,
+            trigger_kind: T::TRIGGER_TYPE,
+            path,
+            operation: TriggerOperation::Delete,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: None,
+        },
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -1031,6 +1133,9 @@ async fn set_trigger_mode<T: TriggerCrud>(
         }
     }
 
+    let before =
+        trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
+
     let updated = handler
         .set_trigger_mode(&authed, &mut *tx, &workspace_id, path, &payload.mode)
         .await?;
@@ -1041,6 +1146,20 @@ async fn set_trigger_mode<T: TriggerCrud>(
             path
         )));
     }
+
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        path,
+        match payload.mode {
+            TriggerMode::Enabled => TriggerOperation::Enable,
+            TriggerMode::Disabled => TriggerOperation::Disable,
+            TriggerMode::Suspended => TriggerOperation::Suspend,
+        },
+        before,
+    )
+    .await?;
 
     tx.commit().await?;
 

@@ -662,6 +662,7 @@
 
 	const previewArgsStore = $state({ val: {} })
 	const scriptEditorDrawer = writable(undefined)
+	const workspaceScriptSettingsDrawer = writable(undefined)
 	const history = initHistory(flowStore.val)
 	const stepsInputArgs = new StepsInputArgs()
 	const selectionManager = new SelectionManager()
@@ -687,6 +688,7 @@
 		selectionManager,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		workspaceScriptSettingsDrawer,
 		flowEditorDrawer: writable(undefined),
 		history,
 		pathStore: pathStore,
@@ -710,6 +712,7 @@
 		outputPickerOpenFns,
 		preserveOnBehalfOf: writable(false),
 		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
+		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined),
 		devTempScriptRefs: () => flowTempScriptRefs
 	})
 	setContext<PropPickerContext>('PropPickerContext', {

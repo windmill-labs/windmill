@@ -11,6 +11,8 @@
 	const derivedHeight = $derived(size ? size : height)
 </script>
 
+<!-- #FF3E00 per sveltejs/branding (svelte-logo.svg, white cutout #fff).
+	 Its guidelines count the official colour scheme as part of the mark — do not recolour. -->
 <svg
 	width={derivedWidth}
 	height={derivedHeight}

@@ -86,8 +86,8 @@
 		return !!rt && rt.manager.instructions.trim().length > 0
 	}
 
-	// Sessions piggyback on the same dev gate as the global AI chat — when
-	// the feature flag is off, the sidebar section is hidden entirely.
+	// Sessions share the beta opt-out gate with the global AI chat — when the
+	// user opted out, the sidebar section is hidden entirely.
 	const globalEnabled = isGlobalAiEnabled()
 
 	// Only highlight the active session while the sessions page is open — elsewhere

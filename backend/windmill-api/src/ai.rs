@@ -104,18 +104,7 @@ lazy_static::lazy_static! {
         }
     };
 
-    pub(crate) static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
-        .timeout(std::time::Duration::from_secs(*AI_TIMEOUT_SECS))
-        .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
-        .pool_idle_timeout(Some(std::time::Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS)))
-        // The SSRF check in `get_base_url` only validates the configured `base_url`.
-        // reqwest follows up to 10 redirects by default and does not revalidate the
-        // hops, so a public base_url could 3xx the server into a private/internal
-        // address. Disable redirect following so the validated host is the only one
-        // we ever connect to. AI APIs respond directly and do not rely on redirects,
-        // so this holds even for ALLOW_PRIVATE_AI_BASE_URLS deployments.
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent("windmill/beta"))
+    pub(crate) static ref HTTP_CLIENT: Client = ai_http_client_builder()
         .build()
         .expect("Failed to build AI HTTP client - check system TLS configuration");
 
@@ -127,6 +116,65 @@ lazy_static::lazy_static! {
 
 pub(crate) fn invalidate_ai_request_cache_for_workspace(workspace_id: &str) {
     AI_REQUEST_CACHE.retain(|(cached_workspace_id, _), _| cached_workspace_id != workspace_id);
+}
+
+/// Shared configuration for every outbound AI HTTP client (the pooled
+/// [`HTTP_CLIENT`] and the per-request DNS-pinned clients).
+///
+/// Redirects are disabled: the SSRF check only validates the configured host, so
+/// a public host that 3xx-es could otherwise bounce us to a private/internal
+/// address. AI APIs respond directly and do not rely on redirects, so this holds
+/// even for ALLOW_PRIVATE_AI_BASE_URLS deployments. DNS pinning likewise only
+/// covers the original host, so following a redirect would reopen the hole.
+fn ai_http_client_builder() -> reqwest::ClientBuilder {
+    configure_client(
+        reqwest::ClientBuilder::new()
+            .timeout(std::time::Duration::from_secs(*AI_TIMEOUT_SECS))
+            .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
+            .pool_idle_timeout(Some(std::time::Duration::from_secs(
+                HTTP_POOL_IDLE_TIMEOUT_SECS,
+            )))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent("windmill/beta"),
+    )
+}
+
+/// Build the client for a single outbound AI request to `url`, pinning DNS to
+/// the SSRF-validated address so the connect cannot rebind to an internal IP
+/// after the check (DNS-rebinding TOCTOU).
+///
+/// Returns the shared pooled [`HTTP_CLIENT`] unchanged when there is nothing to
+/// pin — an IP-literal host, or a deployment that opted into private AI
+/// endpoints via `ALLOW_PRIVATE_AI_BASE_URLS`. The same opt-out and error hint
+/// as `get_base_url` apply, so the guard here is consistent with save-time
+/// validation while additionally closing the connect-time window.
+async fn pinned_ai_client_for(url: &str) -> Result<std::borrow::Cow<'static, Client>> {
+    use std::borrow::Cow;
+    use windmill_common::ssrf::SsrfValidationError;
+
+    if *windmill_ai::ai_providers::ALLOW_PRIVATE_AI_BASE_URLS {
+        return Ok(Cow::Borrowed(&HTTP_CLIENT));
+    }
+
+    let target = windmill_common::ssrf::validate_url_for_ssrf(url)
+        .await
+        .map_err(|e| match e {
+            e @ SsrfValidationError::Private { .. } => Error::BadRequest(format!(
+                "{e}. If you need to use private/internal AI endpoints, \
+                 set the ALLOW_PRIVATE_AI_BASE_URLS=true environment variable"
+            )),
+            e => Error::from(e),
+        })?;
+
+    if target.pinned_addrs().is_empty() {
+        return Ok(Cow::Borrowed(&HTTP_CLIENT));
+    }
+
+    let client = target
+        .apply_dns_pinning(ai_http_client_builder())
+        .build()
+        .map_err(to_anyhow)?;
+    Ok(Cow::Owned(client))
 }
 
 #[derive(Deserialize, Debug)]
@@ -303,23 +351,13 @@ async fn get_token_using_oauth(
     // Validate the resolved token_url against SSRF rules before issuing the request,
     // mirroring the protection applied to base_url in `get_base_url` (same
     // ALLOW_PRIVATE_AI_BASE_URLS opt-in). Without this a workspace member could
-    // point token_url at an internal/metadata address.
-    if !*windmill_ai::ai_providers::ALLOW_PRIVATE_AI_BASE_URLS {
-        use windmill_common::ssrf::SsrfValidationError;
-        windmill_common::ssrf::validate_url_for_ssrf(&resource.token_url)
-            .await
-            .map_err(|e| match e {
-                e @ SsrfValidationError::Private { .. } => Error::BadRequest(format!(
-                    "{e}. If you need to use private/internal AI endpoints, \
-                     set the ALLOW_PRIVATE_AI_BASE_URLS=true environment variable"
-                )),
-                e => Error::from(e),
-            })?;
-    }
+    // point token_url at an internal/metadata address. The returned client pins
+    // DNS to the validated address so the connect cannot rebind after the check.
+    let client = pinned_ai_client_for(&resource.token_url).await?;
     let mut params = HashMap::new();
     params.insert("grant_type", "client_credentials");
     params.insert("scope", "https://cognitiveservices.azure.com/.default");
-    let response = HTTP_CLIENT
+    let response = client
         .post(resource.token_url)
         .form(&params)
         .basic_auth(resource.client_id, Some(resource.client_secret))
@@ -420,8 +458,11 @@ fn is_sse_response(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
-fn proxy_request_to_request_builder(proxy_request: ProxyRequest) -> RequestBuilder {
-    let mut request = HTTP_CLIENT.request(proxy_request.method.clone(), &proxy_request.url);
+fn proxy_request_to_request_builder(
+    client: &Client,
+    proxy_request: ProxyRequest,
+) -> RequestBuilder {
+    let mut request = client.request(proxy_request.method.clone(), &proxy_request.url);
     for (header_name, header_value) in &proxy_request.headers {
         request = request.header(header_name.as_str(), header_value.as_str());
     }
@@ -546,6 +587,8 @@ async fn global_proxy(
         custom_headers: HashMap::new(),
     };
 
+    let client = pinned_ai_client_for(&credentials.base_url).await?;
+
     if matches!(proxy_mode, ProxyExecutionMode::NativeGoogleAi) {
         let proxy_args = ProxyBuildArgs {
             method: &method,
@@ -558,8 +601,8 @@ async fn global_proxy(
         audit_global_ai_request(&db, &authed).await?;
 
         let response = match ai_path.as_str() {
-            "chat/completions" => handle_google_ai_chat_proxy(&HTTP_CLIENT, &proxy_args).await,
-            "models" => handle_google_ai_models_proxy(&HTTP_CLIENT, &proxy_args).await,
+            "chat/completions" => handle_google_ai_chat_proxy(&client, &proxy_args).await,
+            "models" => handle_google_ai_models_proxy(&client, &proxy_args).await,
             _ => Err(Error::BadRequest(format!(
                 "Unsupported Google AI path: {}",
                 ai_path
@@ -582,7 +625,7 @@ async fn global_proxy(
                 body: &body,
                 credentials: &credentials,
             })?;
-            proxy_request_to_request_builder(proxy_request)
+            proxy_request_to_request_builder(&client, proxy_request)
         }
         ProxyExecutionMode::NativeGoogleAi | ProxyExecutionMode::NativeAwsBedrock => {
             return Err(Error::BadRequest(format!(
@@ -826,9 +869,11 @@ async fn proxy(
             credentials: &credentials,
         };
 
+        let client = pinned_ai_client_for(&credentials.base_url).await?;
+
         let response = match ai_path.as_str() {
-            "chat/completions" => handle_google_ai_chat_proxy(&HTTP_CLIENT, &proxy_args).await,
-            "models" => handle_google_ai_models_proxy(&HTTP_CLIENT, &proxy_args).await,
+            "chat/completions" => handle_google_ai_chat_proxy(&client, &proxy_args).await,
+            "models" => handle_google_ai_models_proxy(&client, &proxy_args).await,
             _ => Err(Error::BadRequest(format!(
                 "Unsupported Google AI path: {}",
                 ai_path
@@ -887,7 +932,8 @@ async fn proxy(
                 body: &body,
                 credentials: &credentials,
             })?;
-            proxy_request_to_request_builder(proxy_request)
+            let client = pinned_ai_client_for(&credentials.base_url).await?;
+            proxy_request_to_request_builder(&client, proxy_request)
         }
         ProxyExecutionMode::NativeGoogleAi => {
             return Err(Error::internal_err(

@@ -6,10 +6,14 @@
 	import { ScriptService, type Preview, type Script } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
-	import { Loader2, Save, DiffIcon } from 'lucide-svelte'
+	import { Loader2, Save, DiffIcon, Settings } from 'lucide-svelte'
+	import ScriptAdvancedSettings from '$lib/components/ScriptAdvancedSettings.svelte'
+	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import {
 		cleanValueProperties,
 		emptySchema,
+		emptyString,
 		orderedJsonStringify,
 		sendUserToast
 	} from '$lib/utils'
@@ -56,6 +60,20 @@
 				on_behalf_of_email?: string
 				auto_kind?: string
 				has_preprocessor?: boolean
+				concurrent_limit?: number
+				concurrency_time_window_s?: number
+				concurrency_key?: string
+				cache_ttl?: number
+				cache_ignore_s3_path?: boolean
+				timeout?: number
+				debounce_delay_s?: number
+				debounce_key?: string
+				debounce_args_to_accumulate?: string[]
+				max_total_debouncing_time?: number
+				max_total_debounces_amount?: number
+				restart_unless_cancelled?: boolean
+				priority?: number
+				delete_after_secs?: number
 		  }
 		| undefined = $state(undefined)
 
@@ -77,6 +95,20 @@
 				on_behalf_of_email?: string
 				auto_kind?: string
 				has_preprocessor?: boolean
+				concurrent_limit?: number
+				concurrency_time_window_s?: number
+				concurrency_key?: string
+				cache_ttl?: number
+				cache_ignore_s3_path?: boolean
+				timeout?: number
+				debounce_delay_s?: number
+				debounce_key?: string
+				debounce_args_to_accumulate?: string[]
+				max_total_debouncing_time?: number
+				max_total_debounces_amount?: number
+				restart_unless_cancelled?: boolean
+				priority?: number
+				delete_after_secs?: number
 		  }
 		| undefined = $state(undefined)
 
@@ -102,6 +134,11 @@
 						is_template: false,
 						tag: script.tag,
 						kind: script.kind as Script['kind'] | undefined,
+						// Empty keys are shared global keys server-side; treat cleared inputs as unset.
+						concurrency_key: emptyString(script.concurrency_key)
+							? undefined
+							: script.concurrency_key,
+						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 						lock: undefined
 					}
 				})
@@ -135,6 +172,7 @@
 	let args = $state({})
 
 	let displayEditor = $state(true)
+	let settingsDrawer: Drawer | undefined = $state()
 </script>
 
 <ConfirmationModal
@@ -239,6 +277,20 @@
 			</div>
 		{/if}
 		{#snippet actions()}
+			{#if script}
+				<ScriptSettingsBadges settings={script} onclick={() => settingsDrawer?.openDrawer()} />
+			{/if}
+			<Popover notClickable placement="bottom">
+				<Button
+					disabled={!script}
+					variant="default"
+					iconOnly
+					startIcon={{ icon: Settings }}
+					aria-label="Runtime settings"
+					on:click={() => settingsDrawer?.openDrawer()}
+				/>
+				{#snippet text()}Runtime settings (concurrency, cache, timeout, ...){/snippet}
+			</Popover>
 			<Button
 				disabled={!savedScript || !script}
 				variant="default"
@@ -290,3 +342,19 @@
 		displayEditor = true
 	}}
 />
+
+<Drawer bind:this={settingsDrawer} size="600px">
+	<DrawerContent title="Script settings" on:close={() => settingsDrawer?.closeDrawer()}>
+		{#if script}
+			<div class="flex flex-col gap-4">
+				<p class="text-xs text-secondary">
+					These runtime settings are saved together with the script when you press Save.
+				</p>
+				<ScriptAdvancedSettings {script} workspaceId={opWs} />
+			</div>
+		{/if}
+		{#snippet actions()}
+			<Button variant="border" on:click={() => settingsDrawer?.closeDrawer()}>Done</Button>
+		{/snippet}
+	</DrawerContent>
+</Drawer>

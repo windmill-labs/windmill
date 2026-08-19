@@ -2,3 +2,7 @@ npm/
 gen/
 node_modules/
 windmill-utils-internal/.npmrc
+
+# bun.lock is the CLI's lockfile: every install path here (CI, build.sh, install_dev.sh)
+# runs `bun install`. A committed npm lockfile is read by nothing and goes stale unnoticed.
+package-lock.json

@@ -1,15 +1,15 @@
+use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_google::parse_data_url,
     ai_providers::{AIPlatform, AIProvider},
     image_handler::prepare_messages_for_api,
-    proxy::{add_user_to_body, ProxyBuildArgs, ProxyRequest},
+    proxy::{
+        add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
+    },
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
     sse::{AnthropicSSEParser, SSEParser},
     types::*,
-    utils::{
-        collect_system_prompt, extract_text_content, should_use_structured_output_tool,
-        AI_HTTP_HEADERS,
-    },
+    utils::{collect_system_prompt, extract_text_content, should_use_structured_output_tool},
 };
 use async_trait::async_trait;
 use http::Method;
@@ -138,17 +138,23 @@ pub struct AnthropicMessage {
     pub content: Vec<AnthropicRequestContent>,
 }
 
-/// Adaptive thinking config for Anthropic native API. `summarized` display
-/// matches the chat proxy path (renders a summarized thinking stream).
+/// Thinking config for the Anthropic native API. `summarized` display matches
+/// the chat proxy path (renders a summarized thinking stream); the disable
+/// carries no display.
 #[derive(Serialize, Debug)]
 pub struct AnthropicThinking {
     pub r#type: &'static str,
-    pub display: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display: Option<&'static str>,
 }
 
 impl AnthropicThinking {
     fn adaptive() -> Self {
-        Self { r#type: "adaptive", display: "summarized" }
+        Self { r#type: "adaptive", display: Some("summarized") }
+    }
+
+    fn disabled() -> Self {
+        Self { r#type: "disabled", display: None }
     }
 }
 
@@ -156,6 +162,37 @@ impl AnthropicThinking {
 #[derive(Serialize, Debug)]
 pub struct AnthropicOutputConfig {
     pub effort: String,
+}
+
+/// Resolve the thinking config, effort and sampling params for a reasoning
+/// selection. Temperature is dropped both under adaptive thinking, which
+/// rejects it, and on the models that removed the sampling params outright.
+fn anthropic_thinking_config(
+    model: &str,
+    reasoning_effort: Option<&str>,
+    temperature: Option<f32>,
+) -> (
+    Option<AnthropicThinking>,
+    Option<AnthropicOutputConfig>,
+    Option<f32>,
+) {
+    let temperature = (!anthropic_model_rejects_sampling_params(model))
+        .then_some(temperature)
+        .flatten();
+    match reasoning_effort {
+        // The disable sentinel is not an effort token — Anthropic's vocabulary
+        // is low..max and rejects it. The disable carries no effort either:
+        // pairing it with xhigh or max is itself a 400 on Opus 5.
+        Some(effort) if effort == REASONING_OFF_SENTINEL => {
+            (Some(AnthropicThinking::disabled()), None, temperature)
+        }
+        Some(effort) => (
+            Some(AnthropicThinking::adaptive()),
+            Some(AnthropicOutputConfig { effort: effort.to_string() }),
+            None,
+        ),
+        None => (None, None, temperature),
+    }
 }
 
 /// Anthropic-specific request structure for standard API
@@ -498,7 +535,6 @@ impl AnthropicQueryBuilder {
 
         let base_url = credentials.base_url.trim_end_matches('/');
         let is_vertex = self.is_vertex();
-        let is_anthropic_sdk = args.headers.get("X-Anthropic-SDK").is_some();
 
         let (url, body) = if is_vertex && *args.method != Method::GET {
             let (model, transformed_body) = Self::transform_proxy_body_for_vertex(&body)?;
@@ -515,11 +551,11 @@ impl AnthropicQueryBuilder {
                 AIProvider::build_azure_foundry_anthropic_url(base_url, path),
                 body,
             )
-        } else if is_anthropic_sdk {
-            let truncated_base_url = base_url.trim_end_matches("/v1");
-            (format!("{}/{}", truncated_base_url, args.path), body)
         } else {
-            (format!("{}/{}", base_url, args.path), body)
+            (
+                AIProvider::build_anthropic_api_url(base_url, args.path),
+                body,
+            )
         };
 
         let mut headers = vec![("content-type".to_string(), "application/json".to_string())];
@@ -544,31 +580,23 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        if let Some(api_key) = credentials.api_key.as_ref() {
-            headers.push(("authorization".to_string(), format!("Bearer {}", api_key)));
-            if !is_vertex {
-                headers.push(("X-API-Key".to_string(), api_key.clone()));
-            }
-        }
-
-        if let Some(access_token) = credentials.access_token.as_ref() {
-            headers.push((
-                "authorization".to_string(),
-                format!("Bearer {}", access_token),
-            ));
-        }
+        // One credential header, matching `get_auth_headers`: Vertex takes an OAuth
+        // bearer token, every other Messages endpoint takes x-api-key. Endpoints in
+        // front of Anthropic reject requests carrying both.
+        headers.extend(credential_header(
+            credentials,
+            if is_vertex {
+                "authorization"
+            } else {
+                "x-api-key"
+            },
+        ));
 
         if let Some(org_id) = credentials.organization_id.as_ref() {
             headers.push(("OpenAI-Organization".to_string(), org_id.clone()));
         }
 
-        for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-            headers.push((header_name.clone(), header_value.clone()));
-        }
-
-        for (header_name, header_value) in &credentials.custom_headers {
-            headers.push((header_name.clone(), header_value.clone()));
-        }
+        headers.extend(common_outbound_headers(credentials));
 
         Ok(ProxyRequest { method: args.method.clone(), url, headers, body })
     }
@@ -662,16 +690,8 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        // Adaptive thinking rejects sampling params, so drop temperature when
-        // reasoning is on (Anthropic returns a hard 400 otherwise).
-        let (thinking, output_config, temperature) = match args.reasoning_effort {
-            Some(effort) => (
-                Some(AnthropicThinking::adaptive()),
-                Some(AnthropicOutputConfig { effort: effort.to_string() }),
-                None,
-            ),
-            None => (None, None, args.temperature),
-        };
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config(args.model, args.reasoning_effort, args.temperature);
 
         // Build request based on platform
         if self.is_vertex() {
@@ -793,7 +813,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
         } else if self.is_azure_foundry() {
             AIProvider::build_azure_foundry_anthropic_url(base_url, "messages")
         } else {
-            format!("{}/messages", base_url)
+            AIProvider::build_anthropic_api_url(base_url, "messages")
         }
     }
 
@@ -876,6 +896,7 @@ mod tests {
             user_message: "hello",
             attachments: None,
             has_websearch: false,
+            prompt_cache_key: None,
         };
 
         AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard)
@@ -953,12 +974,11 @@ mod tests {
         assert_eq!(request.method, Method::POST);
         assert_eq!(request.url, "https://api.anthropic.com/v1/messages");
         assert_eq!(request.body, body.to_vec());
-        assert!(has_header(
-            &request.headers,
-            "authorization",
-            "Bearer api-key"
-        ));
-        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
+        assert!(has_header(&request.headers, "x-api-key", "api-key"));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name.eq_ignore_ascii_case("authorization")));
         assert!(has_header(
             &request.headers,
             "anthropic-version",
@@ -1106,6 +1126,83 @@ mod tests {
         assert!(body.get("temperature").is_none());
     }
 
+    /// An agent step stores the chat's off sentinel verbatim as its
+    /// `reasoning_effort`, so the disable has to be translated here rather than
+    /// forwarded as an effort token Anthropic would reject.
+    #[test]
+    fn anthropic_thinking_config_translates_the_off_sentinel() {
+        let (thinking, output_config, _) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(thinking.as_ref().map(|t| t.r#type), Some("disabled"));
+        assert!(output_config.is_none());
+
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("xhigh"), Some(0.5));
+        assert_eq!(thinking.as_ref().map(|t| t.r#type), Some("adaptive"));
+        assert_eq!(output_config.map(|c| c.effort), Some("xhigh".to_string()));
+        // Adaptive thinking rejects sampling params on every model.
+        assert!(temperature.is_none());
+
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", None, Some(0.5));
+        assert!(thinking.is_none());
+        assert!(output_config.is_none());
+        assert_eq!(temperature, Some(0.5));
+    }
+
+    /// Live-verified: Opus 4.8 and the 5 family 400 with `temperature is
+    /// deprecated for this model` whatever the thinking mode, so the disable and
+    /// no-reasoning paths have to drop it too.
+    #[test]
+    fn anthropic_thinking_config_drops_sampling_params_on_models_that_reject_them() {
+        for model in [
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-opus-4-8",
+            "anthropic/claude-opus-4.7",
+            "claude-fable-5",
+        ] {
+            for effort in [Some("none"), None] {
+                let (_, _, temperature) = anthropic_thinking_config(model, effort, Some(0.5));
+                assert!(
+                    temperature.is_none(),
+                    "{model} must not carry temperature (effort {effort:?})"
+                );
+            }
+        }
+        // Sonnet 4.6 still accepts them, so an off selection keeps temperature.
+        let (_, _, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(temperature, Some(0.5));
+    }
+
+    #[test]
+    fn anthropic_request_serializes_the_off_sentinel_as_a_thinking_disable() {
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-opus-5", Some("none"), Some(0.5));
+        let request = AnthropicRequest {
+            model: "claude-opus-5",
+            system: None,
+            messages: vec![],
+            tools: None,
+            tool_choice: None,
+            temperature,
+            thinking,
+            output_config,
+            max_tokens: Some(64000),
+            stream: true,
+        };
+
+        let body: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
+        assert_eq!(body["thinking"]["type"], "disabled");
+        // A disable paired with an effort is a 400 on Opus 5, and `display`
+        // only applies to a thinking mode that actually runs.
+        assert!(body["thinking"].get("display").is_none());
+        assert!(body.get("output_config").is_none());
+        assert!(body.get("temperature").is_none());
+    }
+
     #[test]
     fn anthropic_request_omits_thinking_when_reasoning_off() {
         let request = AnthropicRequest {
@@ -1148,6 +1245,40 @@ mod tests {
         assert!(matches!(err, Error::BadRequest(message) if message.contains("Missing 'model'")));
     }
 
+    /// Endpoints that authenticate with a bearer token configure it as a resource
+    /// header; the built-in x-api-key must then step aside, since outgoing headers
+    /// are appended and both credentials would travel.
+    #[test]
+    fn resource_header_replaces_the_built_in_credential() {
+        let mut credentials = credentials(AIPlatform::Standard);
+        credentials.custom_headers = HashMap::from([(
+            "Authorization".to_string(),
+            "Bearer gateway-token".to_string(),
+        )]);
+        let builder = AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard);
+        let method = Method::POST;
+
+        let request = builder
+            .build_proxy_request(&ProxyBuildArgs {
+                method: &method,
+                path: "messages",
+                headers: &HeaderMap::new(),
+                body: br#"{"model":"claude-sonnet-4","messages":[]}"#,
+                credentials: &credentials,
+            })
+            .unwrap();
+
+        assert!(has_header(
+            &request.headers,
+            "Authorization",
+            "Bearer gateway-token"
+        ));
+        assert!(!request
+            .headers
+            .iter()
+            .any(|(header_name, _)| header_name.eq_ignore_ascii_case("x-api-key")));
+    }
+
     #[test]
     fn builds_azure_foundry_anthropic_proxy_request() {
         // Foundry resource stored with a legacy /openai/v1 suffix; the Anthropic SDK
@@ -1160,7 +1291,6 @@ mod tests {
         let method = Method::POST;
         let mut headers = HeaderMap::new();
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
-        headers.insert("X-Anthropic-SDK", HeaderValue::from_static("true"));
 
         let request = builder
             .build_proxy_request(&ProxyBuildArgs {
@@ -1176,6 +1306,6 @@ mod tests {
             request.url,
             "https://wm-test-ai.services.ai.azure.com/anthropic/v1/messages"
         );
-        assert!(has_header(&request.headers, "X-API-Key", "api-key"));
+        assert!(has_header(&request.headers, "x-api-key", "api-key"));
     }
 }

@@ -10,12 +10,13 @@
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
+		ClipboardList,
 		FileText,
 		Folder,
 		Hand,
 		HistoryIcon,
-		Hourglass,
 		MousePointer2,
+		Plug,
 		Plus,
 		TextSelect,
 		X,
@@ -25,11 +26,14 @@
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { isActiveUserQuestion, type DisplayMessage } from './shared'
+	import { pendingUserAction, type DisplayMessage } from './shared'
+	import { PLAN_MODE_TEXT_COLOR, PLAN_MODE_TRIGGER_CLASS } from './planMode'
+	import { PLAN_MODE_MESSAGES } from './planModeMessages'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
+	import McpConnections from './McpConnections.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -39,11 +43,11 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import AIChatInput from './AIChatInput.svelte'
+	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import JobsSegment from './JobsSegment.svelte'
 	import { getModifierKey } from '$lib/utils'
 	import type { SelectedContext } from './app/core'
-	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import { type FileToAttach } from './files/attachedFiles.svelte'
 	import { isImageFile } from './imageUtils'
 	import {
@@ -58,46 +62,79 @@
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
-	// `label` is shown in the dropdown; `shortLabel` (when set) is shown in the
-	// compact trigger pill to save horizontal space.
-	type AutonomyModeOption = { label: string; shortLabel?: string; mode: AIAutonomyMode }
+	// One row per autonomy posture, in picker order, so adding one touches only this
+	// table. `isAvailable` hides the postures that would do nothing in the current AI
+	// mode, which is why the picker can be shorter than this list.
+	type AutonomyAvailability = {
+		autoAcceptEditsAvailable: boolean
+		autoAcceptToolConfirmationsAvailable: boolean
+		planModeAvailable: boolean
+	}
+	type AutonomyModeOption = {
+		mode: AIAutonomyMode
+		label: string
+		shortLabel?: string
+		icon: typeof Hand
+		iconColor: string
+		/** Tints the whole trigger, not just its icon. Only plan mode needs it. */
+		triggerClass?: string
+		tooltip: (a: AutonomyAvailability) => string
+		isAvailable: (a: AutonomyAvailability) => boolean
+	}
+	// The one posture available everywhere, so also the fallback for a mode the
+	// current AI mode does not offer.
+	const askPermissionOption: AutonomyModeOption = {
+		mode: AIAutonomyMode.DEFAULT,
+		label: 'Ask permission',
+		icon: Hand,
+		iconColor: 'text-secondary',
+		tooltip: (a) =>
+			a.autoAcceptEditsAvailable
+				? 'Requires confirmation for edits and tool calls.'
+				: 'Requires confirmation for tool calls.',
+		isAvailable: () => true
+	}
 	const autonomyModeOptions: AutonomyModeOption[] = [
-		{ label: 'Ask permission', mode: AIAutonomyMode.DEFAULT },
-		{ label: 'Auto-accept edits', mode: AIAutonomyMode.ACCEPT_EDIT },
-		{ label: 'Yolo (bypass permissions)', shortLabel: 'Yolo', mode: AIAutonomyMode.YOLO }
+		{
+			mode: AIAutonomyMode.PLAN,
+			label: 'Plan (read-only)',
+			shortLabel: 'Plan',
+			icon: ClipboardList,
+			iconColor: PLAN_MODE_TEXT_COLOR,
+			triggerClass: PLAN_MODE_TRIGGER_CLASS,
+			tooltip: () =>
+				'Read-only: the assistant researches and drafts a plan for your approval before it can change anything.',
+			isAvailable: (a) => a.planModeAvailable
+		},
+		askPermissionOption,
+		{
+			mode: AIAutonomyMode.ACCEPT_EDIT,
+			label: 'Auto-accept edits',
+			icon: ChevronsRight,
+			iconColor: 'text-accent',
+			tooltip: () =>
+				'Automatically accepts script and flow edits. Tool calls still ask for confirmation.',
+			isAvailable: (a) => a.autoAcceptEditsAvailable
+		},
+		{
+			mode: AIAutonomyMode.YOLO,
+			label: 'Yolo (bypass permissions)',
+			shortLabel: 'Yolo',
+			icon: ChevronsRight,
+			iconColor: 'text-red-500',
+			tooltip: (a) =>
+				a.autoAcceptEditsAvailable
+					? 'Automatically accepts script and flow edits plus tool confirmations.'
+					: 'Automatically accepts tool confirmations.',
+			isAvailable: (a) => a.autoAcceptToolConfirmationsAvailable
+		}
 	]
+	const autonomyModeOption = (mode: AIAutonomyMode) =>
+		autonomyModeOptions.find((o) => o.mode === mode) ?? askPermissionOption
 	const autonomyModeLabel = (mode: AIAutonomyMode) => {
-		const option = autonomyModeOptions.find((o) => o.mode === mode) ?? autonomyModeOptions[0]
+		const option = autonomyModeOption(mode)
 		return option.shortLabel ?? option.label
 	}
-	// "Auto-accept edits" only applies where script/flow edits can be accepted,
-	// "Bypass permissions" only where tool confirmations exist; filter the picker
-	// to the levels that actually do something in the current mode.
-	const isAutonomyModeAvailable = (
-		mode: AIAutonomyMode,
-		autoAcceptEditsAvailable: boolean,
-		autoAcceptToolConfirmationsAvailable: boolean
-	) => {
-		switch (mode) {
-			case AIAutonomyMode.DEFAULT:
-				return true
-			case AIAutonomyMode.ACCEPT_EDIT:
-				return autoAcceptEditsAvailable
-			case AIAutonomyMode.YOLO:
-				return autoAcceptToolConfirmationsAvailable
-		}
-		return false
-	}
-	// Ask-permission holds (raised hand); auto-accept/bypass fast-forward. Color
-	// ramps from muted (ask) to accent (auto-accept) to red (bypass).
-	const autonomyModeIcon = (mode: AIAutonomyMode) =>
-		mode === AIAutonomyMode.DEFAULT ? Hand : ChevronsRight
-	const autonomyModeIconColor = (mode: AIAutonomyMode) =>
-		mode === AIAutonomyMode.YOLO
-			? 'text-red-500'
-			: mode === AIAutonomyMode.DEFAULT
-				? 'text-secondary'
-				: 'text-accent'
 
 	let {
 		messages,
@@ -154,6 +191,8 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
+	let mcpConnections: McpConnections | undefined = $state()
+	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 
 	// Escape stops the generation when focus is on the chat (or parked on
@@ -273,8 +312,8 @@
 
 	// File attachment is GLOBAL-mode only.
 	const canAttachFiles = $derived(aiChatManager.mode === AIMode.GLOBAL && !disabled)
-	// Steers the OS file picker toward text + image formats (soft hint; images attach to
-	// the message, other files link as text context after a content sniff).
+	// Steers the OS file picker toward text + image formats (soft hint; both attach
+	// to the message — text files after a content sniff).
 	const TEXT_FILE_ACCEPT =
 		'image/*,text/*,.txt,.csv,.tsv,.json,.jsonl,.ndjson,.md,.markdown,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.env,.xml,.html,.htm,.css,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rb,.rs,.go,.java,.kt,.c,.h,.cpp,.cc,.cs,.php,.sh,.bash,.zsh,.sql,.svelte,.vue,.dockerfile'
 	let fileInputEl = $state<HTMLInputElement | null>(null)
@@ -362,16 +401,30 @@
 		e.preventDefault()
 		const dt = e.dataTransfer
 		if (!dt) return
-		// Images attach to the message; other files link as text context. Images are
-		// reserved from dt.files BEFORE any await (a send mid-ingestion would land
-		// them on the next message), and dt.files is the only place a disk-less drag
-		// exists — a cross-tab image resolves every getAsFileSystemHandle() to null.
+		// Images and loose text files attach to the message; folders link as session
+		// assets. Images are reserved from dt.files BEFORE any await (a send
+		// mid-ingestion would land them on the next message), and dt.files is the
+		// only place a disk-less drag exists — a cross-tab image resolves every
+		// getAsFileSystemHandle() to null.
 		const flatFiles = Array.from(dt.files ?? [])
 		const topLevelImages = flatFiles.filter(isImageFile)
 		const imageWork: Promise<unknown>[] = []
 		if (topLevelImages.length > 0) {
 			imageWork.push(aiChatInput?.addImages(topLevelImages) ?? Promise.resolve())
 		}
+		// Text-file routing must await handle/entry resolution before it can call
+		// addTextFiles — hold sending across that window (taken BEFORE the first
+		// await) or a send mid-resolution would land the drop on the next message.
+		const releaseSendHold = aiChatInput?.holdSendForIngestion()
+		try {
+			await routeDroppedTextAndFolders(dt, flatFiles)
+		} finally {
+			releaseSendHold?.()
+		}
+		await Promise.all(imageWork)
+	}
+
+	async function routeDroppedTextAndFolders(dt: DataTransfer, flatFiles: File[]) {
 		if (canUseFsAccess) {
 			// getAsFileSystemHandle calls are kicked off synchronously inside this call.
 			const handles = await handlesFromDataTransfer(dt)
@@ -382,9 +435,9 @@
 				handles.length === 0
 					? flatFiles
 					: await Promise.all(handles.filter(isFileHandle).map((h) => h.getFile()))
-			// Files are always snapshotted (handle discarded).
+			// Loose text files attach to the message, like images.
 			const textFiles = looseFiles.filter((f) => !isImageFile(f))
-			if (textFiles.length > 0) await handleAddFiles(textFiles)
+			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
 			// Folders link as a live handle.
 			for (const h of handles.filter(isDirectoryHandle)) {
 				await addDirHandle(h)
@@ -396,19 +449,25 @@
 			// (no entry API), fall back to the flat dt.files.
 			const entries = await readDroppedEntries(Array.from(dt.items ?? []))
 			const source: FileToAttach[] = entries.length > 0 ? entries : flatFiles
-			// Only top-level images attach to the message, and those were already
-			// reserved from dt.files before the walk — drop them here so they aren't
-			// re-reported as skipped non-text. Folder-nested images are deliberately
-			// NOT attached (the FSA path never extracts folder contents either); they
-			// ride the text ingestion and are summarized as skipped.
-			const textEntries = source.filter((entry) => {
+			// Top-level files attach to the message (images were already reserved
+			// from dt.files before the walk). Folder children keep riding the
+			// session store as a snapshot — including nested images, which are
+			// deliberately NOT attached (the FSA path never extracts folder
+			// contents either); they are summarized as skipped there.
+			const topLevelText: File[] = []
+			const folderEntries: FileToAttach[] = []
+			for (const entry of source) {
 				const file = entry instanceof File ? entry : entry.file
-				const nested = !(entry instanceof File) && entry.path?.includes('/')
-				return !isImageFile(file) || !!nested
-			})
-			if (textEntries.length > 0) await handleAddFiles(textEntries)
+				const nested = !(entry instanceof File) && !!entry.path?.includes('/')
+				if (nested) {
+					folderEntries.push(entry)
+				} else if (!isImageFile(file)) {
+					topLevelText.push(file)
+				}
+			}
+			if (folderEntries.length > 0) await handleAddFiles(folderEntries)
+			if (topLevelText.length > 0) await aiChatInput?.addTextFiles(topLevelText)
 		}
-		await Promise.all(imageWork)
 	}
 
 	async function onFileInputChange(e: Event) {
@@ -419,7 +478,7 @@
 			const textFiles = picked.filter((f) => !isImageFile(f))
 			// Reserved before the text work is awaited — see onPanelDrop.
 			const imageWork = imageFiles.length > 0 ? aiChatInput?.addImages(imageFiles) : undefined
-			if (textFiles.length > 0) await handleAddFiles(textFiles)
+			if (textFiles.length > 0) await aiChatInput?.addTextFiles(textFiles)
 			await imageWork
 		}
 		input.value = '' // allow re-selecting the same file
@@ -432,14 +491,13 @@
 		if (input.files && input.files.length > 0) void handleAddFiles(input.files)
 		input.value = ''
 	}
-	const availableAutonomyModeOptions = $derived.by(() =>
-		autonomyModeOptions.filter((option) =>
-			isAutonomyModeAvailable(
-				option.mode,
-				aiChatManager.autoAcceptEditsAvailable,
-				aiChatManager.autoAcceptToolConfirmationsAvailable
-			)
-		)
+	const autonomyAvailability = $derived({
+		autoAcceptEditsAvailable: aiChatManager.autoAcceptEditsAvailable,
+		autoAcceptToolConfirmationsAvailable: aiChatManager.autoAcceptToolConfirmationsAvailable,
+		planModeAvailable: aiChatManager.planModeAvailable
+	})
+	const availableAutonomyModeOptions = $derived(
+		autonomyModeOptions.filter((option) => option.isAvailable(autonomyAvailability))
 	)
 	// Fall back to ask-permission when the persisted mode isn't applicable in the
 	// current AI mode (e.g. auto-accept edits while in a mode without edits).
@@ -449,41 +507,17 @@
 			: AIAutonomyMode.DEFAULT
 	)
 	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
-	const autonomyModeTooltip = $derived.by(() => {
-		switch (effectiveAutonomyMode) {
-			case AIAutonomyMode.ACCEPT_EDIT:
-				return 'Automatically accepts script and flow edits. Tool calls still ask for confirmation.'
-			case AIAutonomyMode.YOLO:
-				if (!aiChatManager.autoAcceptEditsAvailable) {
-					return 'Automatically accepts tool confirmations.'
-				}
-				return 'Automatically accepts script and flow edits plus tool confirmations.'
-			default:
-				if (!aiChatManager.autoAcceptEditsAvailable) {
-					return 'Requires confirmation for tool calls.'
-				}
-				return 'Requires confirmation for edits and tool calls.'
-		}
-	})
+	const effectiveAutonomyModeOption = $derived(autonomyModeOption(effectiveAutonomyMode))
 
-	// "Waiting for user" detection — when the latest tool message is staged
-	// for confirmation or has an unanswered askUserQuestion, the AI loop is
-	// paused on the user, not on its own work. The typing-dots indicator
-	// implies the AI is busy, which is misleading; surface a text pill
-	// instead so users know to act on the tool above.
-	const waitingForUserAction = $derived.by(() => {
-		if (!aiChatManager.loading) return false
-		const last = messages[messages.length - 1]
-		if (!last || last.role !== 'tool') return false
-		if (last.needsConfirmation && last.isLoading) return true
-		if (isActiveUserQuestion(last)) return true
-		return false
-	})
+	// The typing-dots indicator implies the AI is busy, which is misleading while
+	// the loop is parked on the user; surface a text pill instead so users know to
+	// act on the tool above.
+	const waitingForUserAction = $derived(aiChatManager.loading && !!pendingUserAction(messages))
 
 	// While the AI is waiting on an answer to an askUserQuestion, the only valid
 	// input is one of the choices (or the custom answer) in the question card —
 	// so disable the main chat input until the question is answered or canceled.
-	const hasActiveUserQuestion = $derived(isActiveUserQuestion(messages[messages.length - 1]))
+	const hasActiveUserQuestion = $derived(pendingUserAction(messages) === 'question')
 
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
@@ -651,7 +685,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							{message}
 							{messageIndex}
 							{availableContext}
-							bind:selectedContext
 							bind:editingMessageIndex
 							isLast={messageIndex === messages.length - 1}
 						/>
@@ -663,28 +696,19 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								showFlowPendingActionControls ? 'bottom-14' : 'bottom-2'
 							)}
 						>
-							{#if waitingForUserAction}
-								<span
-									class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-surface/80 backdrop-blur text-2xs text-accent"
-									aria-label="Waiting for your input"
-								>
-									<Hourglass class="w-3 h-3 hourglass-flip" />
-									Waiting for your input
-								</span>
-							{:else}
-								<ChatTypingIndicator
-									loading={aiChatManager.loading}
-									label={aiChatManager.loadingLabel
-										? aiChatManager.loadingLabel
-										: aiChatManager.compacting
-											? 'Compacting conversation'
-											: aiChatManager.currentReasoningActive &&
-												  !aiChatManager.currentReply &&
-												  !aiChatManager.currentReasoning
-												? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
-												: undefined}
-								/>
-							{/if}
+							<ChatTypingIndicator
+								loading={aiChatManager.loading}
+								paused={waitingForUserAction}
+								label={aiChatManager.loadingLabel
+									? aiChatManager.loadingLabel
+									: aiChatManager.compacting
+										? 'Compacting conversation'
+										: aiChatManager.currentReasoningActive &&
+											  !aiChatManager.currentReply &&
+											  !aiChatManager.currentReasoning
+											? (aiChatManager.reasoningHiddenIndicatorLabel ?? 'Thinking')
+											: undefined}
+							/>
 						</div>
 					{/if}
 				</div>
@@ -756,12 +780,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					<JobsSegment standalone />
 				</div>
 			{/if}
-			{#if aiChatManager.mode === AIMode.GLOBAL}
-				<!-- In sessions, file chips sit above the fork/draft bar (inputPreface). Selected
-				     context gets no badge row here — items already appear as highlighted @mentions
-				     in the input (deleting the mention deselects), so showContext={false} below. -->
-				<AttachedFilesBar />
-			{/if}
+			<!-- Message-scoped chips (selected-context / DOM-selector / images) render
+			     inside the input box via AIChatInput → ContextTextarea's `leading` snippet;
+			     selected context also appears as @mentions in the input (deleting the
+			     mention deselects). Hence showContext={false} below. Session-scoped
+			     assets (attached files/folders) render in the footer row instead. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
@@ -834,11 +857,14 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						{#if canAttachFiles}
 							<DropdownV2
-								items={() => [
+								items={async () => [
 									{
 										displayName: 'Attach file or image',
 										icon: FileText,
-										action: () => linkFiles()
+										action: () => {
+											plusMenuOpen = false
+											linkFiles()
+										}
 									},
 									{
 										// A real (live) link needs the File System Access API; without it the
@@ -848,11 +874,26 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										tooltip: canUseFsAccess
 											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
 											: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
-										action: () => linkFolder()
-									}
+										action: () => {
+											plusMenuOpen = false
+											linkFolder()
+										}
+									},
+									...(aiChatManager.mode === AIMode.GLOBAL && mcpConnections
+										? [
+												{
+													displayName: 'MCP connections',
+													icon: Plug,
+													separatorTop: true,
+													submenuItems: await mcpConnections.menuItems(() => (plusMenuOpen = false))
+												}
+											]
+										: [])
 								]}
 								placement="bottom-start"
 								fixedHeight={false}
+								closeOnItemClick={false}
+								bind:open={plusMenuOpen}
 							>
 								{#snippet buttonReplacement()}
 									<Tooltip small placement="top">
@@ -867,12 +908,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											<div class="max-w-64 text-xs">
 												<p class="font-semibold">Attach files or link a folder</p>
 												<p class="mt-1">
-													Text files stay in your browser, and a folder is linked live from disk.
-													The assistant lists, searches, and reads them on demand, so their contents
-													are sent only when it reads one.
+													Files and images attach to your next message. Images are seen directly;
+													file contents stay in your browser and are read on demand.
 												</p>
 												<p class="mt-1">
-													Images are sent with your next message, so the assistant can see them.
+													A linked folder is a session-wide resource: the assistant lists, searches,
+													and reads its files whenever it needs them.
 												</p>
 											</div>
 										{/snippet}
@@ -880,7 +921,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								{/snippet}
 							</DropdownV2>
 							<!-- Fallback file picker (used when the File System Access API is unavailable).
-							     `accept` only steers toward text; the content sniff in addFiles() is authoritative. -->
+							     `accept` only steers the picker; the content sniff at attach is authoritative. -->
 							<input
 								bind:this={fileInputEl}
 								type="file"
@@ -917,10 +958,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										nonCaptureEvent
 										unifiedSize="2xs"
 										variant="default"
-										title={autonomyModeTooltip}
+										title={effectiveAutonomyModeOption.tooltip(autonomyAvailability)}
+										btnClasses={effectiveAutonomyModeOption.triggerClass ?? ''}
 										startIcon={{
-											icon: autonomyModeIcon(effectiveAutonomyMode),
-											classes: autonomyModeIconColor(effectiveAutonomyMode)
+											icon: effectiveAutonomyModeOption.icon,
+											classes: effectiveAutonomyModeOption.iconColor
 										}}
 										endIcon={{ icon: ChevronDown }}
 									>
@@ -928,6 +970,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									</Button>
 								{/snippet}
 							</DropdownV2>
+						{/if}
+						{#if effectiveAutonomyMode === AIAutonomyMode.PLAN}
+							<span class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.modeNote}</span>
 						{/if}
 						{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
 							<Tooltip small placement="top">
@@ -972,6 +1017,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					</div>
 				{:else}
 					<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
+						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<AttachedFilesBar />
+						{/if}
 						{#if !hideModeSelector}
 							<ChatMode />
 						{/if}
@@ -980,6 +1028,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						<ContextUsageIndicator />
 						<AIChatModelSettings />
+						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<McpConnections bind:this={mcpConnections} />
+						{/if}
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}
@@ -1046,26 +1097,3 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		{/if}
 	</div>
 </div>
-
-<style>
-	/* Hourglass flips every 4s with long rests at each upright position.
-	   `:global` because the class is applied to a child component's root
-	   (Lucide SVG) and Svelte scoped CSS otherwise wouldn't match it. */
-	:global(.hourglass-flip) {
-		animation: hourglass-flip 4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-		transform-origin: center;
-	}
-	@keyframes hourglass-flip {
-		0%,
-		35% {
-			transform: rotate(0deg);
-		}
-		50%,
-		85% {
-			transform: rotate(180deg);
-		}
-		100% {
-			transform: rotate(360deg);
-		}
-	}
-</style>

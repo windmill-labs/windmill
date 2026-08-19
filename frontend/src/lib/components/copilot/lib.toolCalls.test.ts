@@ -134,6 +134,95 @@ describe('parseOpenAICompletion tool call arguments', () => {
 		expect(addedMessages).toEqual(messages)
 	})
 
+	it('marks only the executing tool call as loading when one message has several', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const statuses: Record<string, any> = {}
+		const callbacks = createCallbacks()
+		callbacks.setToolStatus.mockImplementation((id: string, patch: any) => {
+			statuses[id] = { ...statuses[id], ...patch }
+		})
+		// Snapshot both cards' statuses at each execution start: tools run
+		// sequentially, so the not-yet-started call must read as queued, not loading.
+		const seen: any[] = []
+		const fn = vi.fn().mockImplementation(async () => {
+			seen.push({ call_1: { ...statuses['call_1'] }, call_2: { ...statuses['call_2'] } })
+			return 'tool ok'
+		})
+
+		await parseOpenAICompletion(
+			streamOf([
+				toolCallChunk({
+					index: 0,
+					id: 'call_1',
+					function: { name: 'patch_app_file', arguments: '{}' }
+				}),
+				toolCallChunk({
+					index: 1,
+					id: 'call_2',
+					function: { name: 'patch_app_file', arguments: '{}' }
+				})
+			]),
+			callbacks,
+			[],
+			[],
+			[createTool(fn)] as any,
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		expect(seen).toHaveLength(2)
+		expect(seen[0].call_1).toMatchObject({ isLoading: true, isQueued: false })
+		// Queued header is the humanized tool name, not the "-ing" streaming label.
+		expect(seen[0].call_2).toMatchObject({
+			isLoading: false,
+			isQueued: true,
+			content: 'Patch app file'
+		})
+		expect(seen[1].call_1).toMatchObject({ isLoading: false })
+		expect(seen[1].call_2).toMatchObject({ isLoading: true, isQueued: false })
+	})
+
+	it('never leaves a call both queued and loading when deltas interleave', async () => {
+		const { parseOpenAICompletion } = await import('./lib')
+		const statuses: Record<string, any> = {}
+		// Merged state after every patch: a call demoted to queued then re-promoted
+		// by an interleaved delta must never keep both flags set at once.
+		const timeline: Array<{ id: string; isLoading: any; isQueued: any }> = []
+		const callbacks = createCallbacks()
+		callbacks.setToolStatus.mockImplementation((id: string, patch: any) => {
+			statuses[id] = { ...statuses[id], ...patch }
+			timeline.push({ id, isLoading: statuses[id].isLoading, isQueued: statuses[id].isQueued })
+		})
+
+		await parseOpenAICompletion(
+			streamOf([
+				toolCallChunk({
+					index: 0,
+					id: 'call_1',
+					function: { name: 'patch_app_file', arguments: '{"path": ' }
+				}),
+				toolCallChunk({
+					index: 1,
+					id: 'call_2',
+					function: { name: 'patch_app_file', arguments: '{}' }
+				}),
+				// call_1 resumes streaming after call_2 started: re-promotion must clear isQueued
+				toolCallChunk({ index: 0, function: { arguments: '"u/admin/app"}' } })
+			]),
+			callbacks,
+			[],
+			[],
+			[createTool()] as any,
+			{},
+			undefined,
+			{ workspace: 'test' }
+		)
+
+		const bothFlags = timeline.filter((s) => s.isLoading === true && s.isQueued === true)
+		expect(bothFlags).toEqual([])
+	})
+
 	it('executes a tool call with valid streamed arguments and keeps them verbatim', async () => {
 		const { parseOpenAICompletion } = await import('./lib')
 		const fn = vi.fn().mockResolvedValue('tool ok')

@@ -30,6 +30,23 @@
 			/>
 		{/if}
 	</Badge>
+{:else if job && 'success' in job && job.resolved}
+	<Badge {large} color="orange" title={job.resolution_note}>
+		<!-- `resolved_by` is absent both for an automatic resolution and for a manual one
+		     outside EE, so the automatic wording comes from `resolved_automatically`. -->
+		Failed after {msToReadableTime(job.duration_ms)}, resolved{job.resolved_automatically
+			? ' automatically'
+			: job.resolved_by
+				? ` by ${job.resolved_by}`
+				: ''}
+		{#if job.self_wait_time_ms || job.aggregate_wait_time_ms}
+			<WaitTimeWarning
+				self_wait_time_ms={job.self_wait_time_ms}
+				aggregate_wait_time_ms={job.aggregate_wait_time_ms}
+				variant="alert"
+			/>
+		{/if}
+	</Badge>
 {:else if job && 'success' in job}
 	<Badge {large} color="red">
 		Failed after {msToReadableTime(job.duration_ms)}

@@ -29,7 +29,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import DeleteForkedWorkspaceModal from './DeleteForkedWorkspaceModal.svelte'
-	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
+	import { workspaceIsFork, isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import MenuLink from './MenuLink.svelte'
@@ -69,14 +69,32 @@
 	} = $props()
 
 	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
-	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
-	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
-	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
 
 	const settingsTargetWs = $derived(
 		workspaceSettingsTarget
 			? $userWorkspaces?.find((w) => w.id === workspaceSettingsTarget)
 			: undefined
+	)
+
+	// The fork-owner grant must be checked against the workspace the settings entry
+	// actually points at — the session target when in session mode, else the active
+	// workspace — otherwise ownership of the wrong workspace could hide the entry or
+	// expose a dead link to a fork the user doesn't own.
+	const settingsWs = $derived(workspaceSettingsTarget ? settingsTargetWs : currentWs)
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(settingsWs, $userStore?.email)
+	)
+	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix. A dev
+	// workspace is excluded: it is a standing environment its whole team works in, torn down by
+	// detaching it in the dev-workspace settings, so offering a one-click delete beside the account
+	// menu puts a destructive action on the wrong surface. Requires the entry to be loaded, not just
+	// absent from the list: `workspaceIsFork` answers from the id prefix alone, so between a cold
+	// load restoring the workspace id and the list arriving, a `wm-fork-` dev workspace would read
+	// as a throwaway and offer its own deletion.
+	const currentWsIsThrowawayFork = $derived(
+		!!currentWs &&
+			workspaceIsFork($workspaceStore, $userWorkspaces ?? []) &&
+			!currentWs.is_dev_workspace
 	)
 
 	let leaveWorkspaceModal = $state(false)
@@ -152,7 +170,7 @@
 			: []),
 		// Fork deletion is a global-sidebar action on the active workspace, so keep it
 		// out of the session rail's per-target settings entry (`workspaceSettingsTarget`).
-		...(currentWsIsFork && !workspaceSettingsTarget
+		...(currentWsIsThrowawayFork && !workspaceSettingsTarget
 			? [
 					{
 						displayName: 'Delete forked workspace',

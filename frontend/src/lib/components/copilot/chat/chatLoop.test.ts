@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
 	providerSupportsWebSearch: vi.fn(),
 	getOpenAIResponsesCompletion: vi.fn(),
 	parseOpenAIResponsesCompletion: vi.fn(),
+	buildPromptCacheKey: vi.fn(),
 	getAnthropicCompletion: vi.fn(),
 	parseAnthropicCompletion: vi.fn(),
 	resolveRequestReasoning: vi.fn(),
@@ -29,7 +30,8 @@ vi.mock('../reasoningRegistry', () => ({
 
 vi.mock('./openai-responses', () => ({
 	getOpenAIResponsesCompletion: mocks.getOpenAIResponsesCompletion,
-	parseOpenAIResponsesCompletion: mocks.parseOpenAIResponsesCompletion
+	parseOpenAIResponsesCompletion: mocks.parseOpenAIResponsesCompletion,
+	buildPromptCacheKey: mocks.buildPromptCacheKey
 }))
 
 vi.mock('./anthropic', () => ({
@@ -420,6 +422,76 @@ describe('runChatLoop reasoning summary fallback', () => {
 		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
 			expect.objectContaining({ reasoningEffort: 'none', reasoningSummary: false })
 		)
+	})
+})
+
+describe('runChatLoop prompt cache key fallback', () => {
+	beforeEach(() => {
+		vi.resetAllMocks()
+		mocks.providerSupportsWebSearch.mockReturnValue(false)
+		mocks.resolveRequestReasoning.mockReturnValue(undefined)
+		mocks.resolveEffectiveReasoning.mockReturnValue(undefined)
+		mocks.parseOpenAIResponsesCompletion.mockResolvedValue({
+			shouldContinue: false,
+			tokenUsage
+		})
+		mocks.parseOpenAICompletion.mockResolvedValue({
+			shouldContinue: false,
+			tokenUsage
+		})
+	})
+
+	it('retries once without the key when the endpoint rejects it, and caches that', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const modelProvider: ReasoningProviderModel = { provider: 'openai', model: 'gpt-5.6' }
+		const promptCacheKey = `${workspace}:openai:gpt-5.6:chat`
+		mocks.buildPromptCacheKey.mockReturnValue(promptCacheKey)
+
+		mocks.getOpenAIResponsesCompletion
+			.mockRejectedValueOnce(
+				Object.assign(new Error('Unrecognized request argument supplied: prompt_cache_key'), {
+					status: 400,
+					param: 'prompt_cache_key'
+				})
+			)
+			.mockResolvedValue({})
+
+		await runChatLoop(createConfig({ workspace, modelProvider }))
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(2)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[0][3]).toEqual(
+			expect.objectContaining({ promptCacheKey })
+		)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[1][3]).toEqual(
+			expect.objectContaining({ promptCacheKey: undefined })
+		)
+		// The rejection belongs to the endpoint, so a later run skips the key outright
+		// rather than paying the failed round-trip again.
+		expect(mocks.getCompletion).not.toHaveBeenCalled()
+
+		await runChatLoop(createConfig({ workspace, modelProvider }))
+
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(3)
+		expect(mocks.getOpenAIResponsesCompletion.mock.calls[2][3]).toEqual(
+			expect.objectContaining({ promptCacheKey: undefined })
+		)
+	})
+
+	it('does not treat an unrelated 400 as a prompt cache key rejection', async () => {
+		const workspace = `workspace-${randomUUID()}`
+		const modelProvider: ReasoningProviderModel = { provider: 'openai', model: 'gpt-5.6' }
+		mocks.buildPromptCacheKey.mockReturnValue(`${workspace}:openai:gpt-5.6:chat`)
+
+		mocks.getOpenAIResponsesCompletion.mockRejectedValue(
+			Object.assign(new Error('context_length_exceeded'), { status: 400 })
+		)
+		mocks.getCompletion.mockResolvedValue({})
+
+		await runChatLoop(createConfig({ workspace, modelProvider }))
+
+		// Falls through to the Completions API instead of burning a retry on the key.
+		expect(mocks.getOpenAIResponsesCompletion).toHaveBeenCalledTimes(1)
+		expect(mocks.getCompletion).toHaveBeenCalledTimes(1)
 	})
 })
 

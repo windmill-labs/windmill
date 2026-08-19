@@ -720,8 +720,6 @@ pub async fn do_snowflake(
         )
     };
 
-    tracing::debug!("Snowflake token: {}", token);
-
     let mut body = serde_json::Map::new();
     if database.schema.is_some() {
         body.insert(

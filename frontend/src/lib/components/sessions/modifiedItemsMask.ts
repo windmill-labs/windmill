@@ -48,5 +48,42 @@ export function forkDiffKindToUserDraftKind(kind: ForkDiffKind): UserDraftItemKi
 // True when a fork-comparison diff names an item present in the chat-modified mask.
 export function diffInMask(diff: WorkspaceItemDiff, mask: Set<string>): boolean {
 	const kind = forkDiffKindToUserDraftKind(diff.kind)
-	return kind !== undefined && mask.has(maskKey(kind, diff.path))
+	if (kind !== undefined && mask.has(maskKey(kind, diff.path))) return true
+	// Legacy drag-and-drop apps tally fork diffs under `app`, and an explicit
+	// `?items=` mask names them `app:<path>` (the same kind the drafts list uses).
+	// The bridged lookup above reads them as `raw_app` (kept for chat masks, which
+	// only ever record raw apps), so accept the identity key too.
+	return diff.kind === 'app' && mask.has(maskKey('app', diff.path))
+}
+
+// `?items=` on the compare page: an explicit preselection mask passed in the URL
+// (the chat's open_page tool builds it; the page parses it). Comma-separated
+// `kind:path` keys — safe because Windmill paths cannot contain commas. An empty
+// value parses to an empty set, i.e. "preselect nothing", distinct from the param
+// being absent (no mask → the page's select-all default).
+export const COMPARE_ITEMS_PARAM = 'items'
+
+export function serializeItemsMaskParam(keys: readonly string[]): string {
+	return keys.join(',')
+}
+
+export function parseItemsMaskParam(value: string): Set<string> {
+	return new Set(
+		value
+			.split(',')
+			.map((k) => k.trim())
+			.filter(Boolean)
+	)
+}
+
+// Whether a mask names a draft row. Mask entries key items by storage path
+// (`maskKey`), but a never-deployed live-editor draft parks at an opaque
+// `draft_<uuid>` storage path while callers building an explicit `?items=` mask
+// know it by its visible `draft_path` — so a row matches under either name.
+export function maskHasDraftRow(
+	mask: Set<string>,
+	row: { kind: UserDraftItemKind; path: string; draft_path?: string }
+): boolean {
+	if (mask.has(maskKey(row.kind, row.path))) return true
+	return !!row.draft_path && mask.has(maskKey(row.kind, row.draft_path))
 }

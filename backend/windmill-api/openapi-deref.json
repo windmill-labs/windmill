@@ -5273,9 +5273,6 @@
                     "webhook": {
                       "type": "string"
                     },
-                    "deploy_to": {
-                      "type": "string"
-                    },
                     "ai_config": {
                       "$ref": "#/components/schemas/AIConfig"
                     },
@@ -6202,47 +6199,6 @@
                       "type": "string"
                     }
                   }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/w/{workspace}/workspaces/edit_deploy_to": {
-      "post": {
-        "summary": "edit deploy to",
-        "operationId": "editDeployTo",
-        "tags": [
-          "workspace"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/WorkspaceId"
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "deploy_to": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "status",
-            "content": {
-              "text/plain": {
-                "schema": {
-                  "type": "string"
                 }
               }
             }
@@ -31430,8 +31386,24 @@
             }
           },
           {
+            "name": "search",
+            "in": "query",
+            "description": "Match keys by path prefix, case-sensitively, on the raw key rather than per path segment (so \"a/file1\" matches \"a/file1000\"). Pushed down to the storage provider as a seek; resume with the returned next_marker.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "storage",
             "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "s3_resource_path",
+            "in": "query",
+            "description": "When set, list the files of this object storage resource instead of the workspace storage",
             "schema": {
               "type": "string"
             }
@@ -31460,6 +31432,100 @@
                   },
                   "required": [
                     "windmill_large_files"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/job_helpers/list_stored_files_paged": {
+      "get": {
+        "summary": "List one page of a single folder level in a workspace object storage",
+        "operationId": "listStoredFilesPaged",
+        "tags": [
+          "helpers"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "description": "Folder to list; empty for the bucket root, otherwise must end with '/'",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "max_keys",
+            "in": "query",
+            "description": "Maximum number of folders and files combined",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "description": "Opaque token from a previous response, to continue listing the same folder",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "s3_resource_path",
+            "in": "query",
+            "description": "When set, list the files of this object storage resource instead of the workspace storage",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of folders and files at this level",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "folders": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/StorageFolder"
+                      }
+                    },
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/StorageFile"
+                      }
+                    },
+                    "next_page_token": {
+                      "type": "string",
+                      "description": "When set, more entries remain at this level"
+                    },
+                    "restricted_access": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "folders",
+                    "files",
+                    "restricted_access"
                   ]
                 }
               }
@@ -37102,7 +37168,8 @@
           "trigger",
           "settings",
           "key",
-          "workspacedependencies"
+          "workspacedependencies",
+          "datatablemigration"
         ]
       },
       "AIProviderModel": {
@@ -48492,6 +48559,44 @@
         },
         "required": [
           "type"
+        ]
+      },
+      "StorageFolder": {
+        "type": "object",
+        "properties": {
+          "prefix": {
+            "type": "string",
+            "description": "Full key prefix of the folder, ending with '/'"
+          },
+          "name": {
+            "type": "string",
+            "description": "Last path segment, without the trailing '/'"
+          }
+        },
+        "required": [
+          "prefix",
+          "name"
+        ]
+      },
+      "StorageFile": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "last_modified": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name"
         ]
       }
     }

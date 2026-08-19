@@ -16,6 +16,50 @@ export interface AssetGraphAssetNode {
 	// the `_current` node; lets the canvas mark it as a derived "current view"
 	// rather than an unrelated table. Lockstep with Rust `GraphAssetNode`.
 	derived_from?: string
+	// Set on a `dbt://` asset a dbt project produces (or, for a source,
+	// consumes). A dbt script is ONE runnable node with many model assets, so
+	// per-model metadata hangs off the asset, not off the script. Lockstep with
+	// Rust `GraphAssetNode.dbt`.
+	dbt?: DbtAssetProvenance
+}
+
+// Describes the RELATION, not a producer: several dbt scripts (different
+// selections of one project) can materialize the same model, and the producer
+// edges already name them.
+export interface DbtAssetProvenance {
+	unique_id: string
+	resource_type: 'model' | 'snapshot' | 'seed' | 'source' | (string & {})
+	// dbt's own word (`table`, `view`, `incremental`, `snapshot`). Kept because
+	// `view` and `ephemeral` have no Windmill write-strategy analogue.
+	materialized?: string
+	materialize_strategy?: 'replace' | 'append' | 'merge' | 'scd2'
+	tags?: string[]
+	description?: string
+	data_tests?: DbtDataTest[]
+	/** Declared column metadata (name -> description). NOT column lineage:
+	 *  `manifest.json` carries none (docs/dbt-runtime.md, decision 14). */
+	columns?: Record<string, string>
+	/** A source's declared freshness policy. */
+	freshness?: unknown
+	/** The model's SQL as written — the transform behind the node. Read-only:
+	 *  this is the copy captured when the graph on screen was parsed, whether
+	 *  that was a deploy or a refresh from the editor's buffer, and the file
+	 *  itself lives in the producing script's `__dbt/` bundle. Absent for tests
+	 *  and for nodes with no body. */
+	raw_code?: string
+	/** Its path inside the dbt project, e.g. `models/staging/stg_orders.sql`. */
+	original_file_path?: string
+}
+
+export interface DbtDataTest {
+	// The four dbt generic tests map one-for-one onto the `// data_test` kinds;
+	// a package test keeps its namespaced name (`dbt_utils.accepted_range`).
+	kind: string
+	column?: string
+	args?: unknown
+	// Lowercased. dbt's own severity decides whether a failure fails the run,
+	// so the badge shows it rather than assuming every test is blocking.
+	severity?: string
 }
 
 export interface AssetGraphRunnableNode {
@@ -73,6 +117,10 @@ export interface AssetGraphRunnableNode {
 	// drives the "defines N macros" badge and the details-pane signature
 	// list. `params` is the verbatim parameter list.
 	macros?: { name: string; params: string; is_table: boolean }[]
+	// Set on a `ScriptLang::Dbt` script: it owns a whole dbt project, so the node
+	// says how many models it materializes rather than reading as a single-output
+	// script. Lockstep with Rust `GraphRunnableNode.dbt`.
+	dbt?: { model_count: number }
 	// Synthesized by the page from a local draft; the script doesn't exist
 	// in the DB yet. Drives a dashed/lower-opacity rendering to mirror how
 	// unsaved triggers are styled — visually distinct from persisted nodes.
@@ -110,6 +158,7 @@ export type NativeTriggerKind =
 	| 'email'
 	| 'kafka'
 	| 'mqtt'
+	| 'amqp'
 	| 'nats'
 	| 'postgres'
 	| 'sqs'
@@ -175,6 +224,23 @@ export interface AssetGraphResponse {
 	triggers: AssetGraphTrigger[]
 	macro_edges?: AssetGraphMacroEdge[]
 	test_edges?: AssetGraphTestEdge[]
+	dbt_edges?: AssetGraphDbtEdge[]
+	/** The job whose snapshot the dbt half was resolved from, when one was
+	 *  asked for and found. A run page polls the graph until this is its own
+	 *  job, which is how it knows a dynamic descriptor's ingest has landed. */
+	dbt_snapshot_job?: string
+	/** When the dbt half on screen was parsed, for a graph pinned to a job.
+	 *  What the dbt editor labels its provenance with — a buffer refresh and the
+	 *  deployed version's graph are drawn identically. */
+	dbt_graph_ingested_at?: string
+}
+
+// `ref()` lineage BETWEEN two dbt models, in the terms the canvas draws
+// (relations, not dbt node ids). Without these every model hangs off the one
+// dbt runnable, which reads as a flat fan-out rather than the project's shape.
+export interface AssetGraphDbtEdge {
+	from_asset_path: string
+	to_asset_path: string
 }
 
 export type AssetGraphNodeData =
@@ -195,3 +261,11 @@ export type AssetGraphSelection = AssetGraphNodeData
  * (default) or full editor. View can additionally overlay unsaved drafts
  * ("show drafts" chip) — a view variant, not a separate mode. */
 export type PipelineMode = 'view' | 'edit'
+
+/** What a run in view is doing to one relation, and what it produced. The row
+ *  count is the cheapest answer to "did this model actually output anything" —
+ *  the worker already records it per relation, so nothing extra is fetched. */
+export type AssetRunState = {
+	status: 'running' | 'materialized' | 'failed'
+	rowCount?: number | null
+}

@@ -8,6 +8,7 @@
  * (.flow, .app, .raw_app) or dunder-prefixed names (__flow, __app, __raw_app).
  */
 
+import { existsSync } from "node:fs";
 import * as log from "../core/log.ts";
 import { sep as SEP } from "node:path";
 import { yamlParseFile } from "./yaml.ts";
@@ -503,28 +504,323 @@ export function isFlowFolderMetadataFile(p: string): boolean {
  * to avoid confusion with file extensions.
  */
 const MODULE_SUFFIX = "__mod";
+/** dbt scripts carry a whole dbt project, not helper code. The folder says so,
+ *  and it is what a dbt developer points `--project-dir` at. */
+export const DBT_MODULE_SUFFIX = "__dbt";
+const MODULE_SUFFIXES = [MODULE_SUFFIX, DBT_MODULE_SUFFIX];
+
+/** A dbt project's descriptor, inside the project it configures and OPTIONAL:
+ *  an unmodified dbt project is already a complete Windmill script, and this
+ *  file only appears when one needs something Windmill-specific (run arguments,
+ *  a named warehouse, an engine pin). Its absence is an empty descriptor, never
+ *  a missing script. */
+export const DBT_DESCRIPTOR_NAME = "wm_dbt.yaml";
+
+/** Where a dbt script's descriptor lives, given its base path. */
+export function dbtDescriptorPath(scriptBasePath: string): string {
+  return scriptBasePath + DBT_MODULE_SUFFIX + "/" + DBT_DESCRIPTOR_NAME;
+}
+
+/** Whether an error is a dbt descriptor that simply is not there. */
+export function isMissingDbtDescriptor(filePath: string, e: unknown): boolean {
+  if ((e as { code?: string })?.code !== "ENOENT") return false;
+  const norm = filePath.replaceAll("\\", "/");
+  if (!isDbtDescriptorPath(norm)) return false;
+  // And the PROJECT is there. Absent both, this is not a descriptor-less
+  // project but a path that does not exist — a typo, or a project someone
+  // deleted — and treating it as an empty descriptor pushes `modules:
+  // undefined` over a deployed bundle, dropping it while reporting success.
+  return existsSync(
+    norm.slice(0, -DBT_DESCRIPTOR_NAME.length) + "dbt_project.yml"
+  );
+}
+
+/** Whether a path is a dbt descriptor, i.e. a dbt script's content file. */
+export function isDbtDescriptorPath(p: string): boolean {
+  const norm = normalizeSep(p);
+  const base = getScriptBasePathFromModulePath(norm);
+  return base !== undefined && norm === dbtDescriptorPath(base);
+}
 
 /**
- * Get the module folder suffix (always "__mod")
+ * Module folder suffix for a script: `__dbt` for a dbt project, `__mod`
+ * otherwise.
  */
-export function getModuleFolderSuffix(): string {
-  return MODULE_SUFFIX;
+export function getModuleFolderSuffix(language?: string): string {
+  return language === "dbt" ? DBT_MODULE_SUFFIX : MODULE_SUFFIX;
 }
 
 /**
  * Check if a path is inside a script module folder.
- * Matches patterns like: .../my_script__mod/...
+ * Matches patterns like: .../my_script__mod/... or .../my_project__dbt/...
  */
 export function isScriptModulePath(p: string): boolean {
-  return normalizeSep(p).includes(MODULE_SUFFIX + "/");
+  const n = normalizeSep(p);
+  return MODULE_SUFFIXES.some((suffix) => n.includes(suffix + "/"));
+}
+
+/** Per-file ceiling for a dbt project's bundle. Real dbt code is small (about
+ *  500 bytes median, 1.9 KB at p90 measured across dbt_utils), so this only
+ *  ever catches a committed dataset, which belongs in the warehouse rather than
+ *  in every version of the script. */
+export const MAX_MODULE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * Whether a dbt project file is one the bundle carries.
+ *
+ * A dbt project's authored files are text. A binary one -- an image under
+ * `docs/`, a `.DS_Store`, a parquet seed -- would be read as mojibake and, if
+ * it carries a NUL, rejected by Postgres with an opaque `unsupported Unicode
+ * escape sequence`. Binary is detected the way `git` does it, by a NUL in the
+ * first 8000 bytes, rather than by extension, which `docs/` and stray dotfiles
+ * do not follow.
+ *
+ * The push, the staleness hash and the sync diff all ask this same question: a
+ * file one drops and another keeps is a change no push can ever resolve.
+ */
+export function isBundledModuleFile(fullPath: string): boolean {
+  return moduleFileExclusion(fullPath) === undefined;
+}
+
+/**
+ * WHY the bundle does not carry a file, when it does not.
+ *
+ * The two reasons are not interchangeable. `binary` is dbt's own leftovers and
+ * stray archives: nothing to say, so sync hides them. `oversized` is a file the
+ * project authored and dbt WOULD read — a large seed CSV — so it has to stay
+ * visible in the diff, or the push that reports the actionable size error never
+ * runs and the remote project is silently left incomplete.
+ */
+export function moduleFileExclusion(
+  fullPath: string,
+): "binary" | "oversized" | undefined {
+  // Size from `stat` and only the first 8 KB read: a project may sit next to a
+  // multi-gigabyte parquet seed or a stray archive, and reading one whole just
+  // to classify it would stall the sync or exhaust the CLI.
+  let size: number;
+  let fd: number;
+  try {
+    size = fs.statSync(fullPath).size;
+    fd = fs.openSync(fullPath, "r");
+  } catch {
+    // Unreadable is not the same as excluded. A pull asks this about files that
+    // do not exist locally yet, and answering "not carried" there would make
+    // sync ignore the whole incoming project and write nothing.
+    return undefined;
+  }
+  let binary: boolean;
+  try {
+    const head = Buffer.alloc(8000);
+    const read = fs.readSync(fd, head, 0, 8000, 0);
+    binary = head.subarray(0, read).includes(0);
+  } catch {
+    return undefined;
+  } finally {
+    fs.closeSync(fd);
+  }
+  if (binary) return "binary";
+  return size > MAX_MODULE_BYTES ? "oversized" : undefined;
+}
+
+/**
+ * The refusal an oversized dbt project file earns, raised WITHOUT reading it.
+ *
+ * dbt would have read the file, so deploying the project without it ships
+ * something that compiles here and fails at run time with a missing relation —
+ * hence an error rather than a skip. Every path that would otherwise load the
+ * body (the sync map, the push) asks first: a multi-gigabyte seed must not be
+ * buffered just to be refused.
+ */
+export function oversizedModuleFileError(relPath: string, size: number): Error {
+  return new Error(
+    `${relPath} is ${Math.ceil(size / 1024 / 1024)} MB, over the ` +
+      `${MAX_MODULE_BYTES / 1024 / 1024} MB per-file limit for a dbt project file. ` +
+      `Deploying without it would leave the project incomplete — shrink the file, or ` +
+      `keep it out of the project folder.`,
+  );
+}
+
+/**
+ * Refuse an oversized dbt project file before its content is read. `undefined`
+ * for everything else, including binary files the bundle merely drops.
+ */
+export function oversizedDbtFileError(
+  fullPath: string,
+  relPath: string,
+): Error | undefined {
+  if (!isDbtModulePath(relPath)) return undefined;
+  if (moduleFileExclusion(fullPath) !== "oversized") return undefined;
+  let size = 0;
+  try {
+    size = fs.statSync(fullPath).size;
+  } catch {
+    return undefined;
+  }
+  return oversizedModuleFileError(relPath, size);
+}
+
+/** Whether a path is inside a dbt project's module folder specifically: those
+ *  files are taken verbatim, with no language inference. */
+export function isDbtModulePath(p: string): boolean {
+  // The OUTERMOST boundary decides, like `getScriptBasePathFromModulePath`.
+  // Scanning anywhere in the path would call `foo__mod/vendor/x__dbt/a.ts` a dbt
+  // project file, and the push would then look for `foo.script.yaml` instead of
+  // the ordinary module entry point and skip the edit.
+  const norm = normalizeSep(p);
+  const base = getScriptBasePathFromModulePath(norm);
+  return base !== undefined && norm.startsWith(base + DBT_MODULE_SUFFIX + "/");
+}
+
+/** dbt writes these; a project authors them nowhere. Importing a stale
+ *  `target/` would ship a manifest this runtime then reads as the graph, and
+ *  `dbt_packages/` is a vendored copy the worker restores from its own cache. */
+const DBT_GENERATED_DIRS = ["target", "dbt_packages", "logs", ".git", ".venv", "__pycache__"];
+
+const dbtGeneratedDirsCache = new Map<
+  string,
+  { stamp: string; dirs: Set<string> }
+>();
+
+/** `{{ env_var('NAME') }}` / `{{ env_var("NAME", "default") }}`. */
+const DBT_ENV_VAR_CALL =
+  /\{\{\s*env_var\(\s*['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]*)['"]\s*)?\)\s*\}\}/g;
+
+/**
+ * Render `dbt_project.yml`'s own `env_var()` calls, which dbt allows there too.
+ * A directory setting left as its template names no directory on disk, so the
+ * generated tree it points at would be bundled as project source.
+ *
+ * Against `process.env`, because the CLI runs where the project was built: that
+ * is the environment dbt used to produce the tree being read.
+ */
+export function renderDbtEnvVars(value: string): string {
+  return value.replace(
+    DBT_ENV_VAR_CALL,
+    (whole, name: string, fallback: string | undefined) =>
+      process.env[name] ?? fallback ?? whole,
+  );
+}
+
+/**
+ * Files that keep a project's secrets next to it rather than in it: dbt reads
+ * none of them (`env_var()` takes the process environment), and the documented
+ * way into a bundle is `cp -r my-project/.`, which copies whatever the checkout
+ * holds — including the `.env` a `.gitignore` was keeping out of the repo.
+ */
+export function isLocalSecretFile(name: string): boolean {
+  return name === ".env" || name.startsWith(".env.") || name === ".envrc";
+}
+
+/**
+ * Directories to leave out of a dbt project's module bundle, as project-relative
+ * paths — `target-path` and friends may be nested (`build/target`).
+ *
+ * `target-path`, `packages-install-path` and `clean-targets` are configurable,
+ * so they are read from the project rather than assumed. Cached per project
+ * folder: this is called once per file of a sync.
+ */
+export function dbtGeneratedDirs(moduleFolderPath: string): Set<string> {
+  const projectFile = path.join(moduleFolderPath, "dbt_project.yml");
+  // Cached against the project file's identity, not merely its folder: `wmill
+  // dev` is a long-running process, so a `target-path` edited mid-session would
+  // otherwise keep excluding the old directory and start bundling the new one
+  // as project source. One entry per folder, replaced when the file changes.
+  let stamp = "";
+  try {
+    const st = fs.statSync(projectFile);
+    stamp = `${st.mtimeMs}:${st.size}`;
+  } catch {
+    // No project file yet: the defaults apply, and "absent" is its own stamp.
+  }
+  const cached = dbtGeneratedDirsCache.get(moduleFolderPath);
+  if (cached && cached.stamp === stamp) return cached.dirs;
+  const dirs = new Set<string>(DBT_GENERATED_DIRS);
+  const add = (raw: string) => {
+    const v = normalizeSep(renderDbtEnvVars(raw).trim().replace(/^["']|["']$/g, ""))
+      .replace(/^\.\//, "")
+      .replace(/\/+$/, "");
+    // A configured path that escapes the project is dbt's problem, not ours;
+    // ignoring it here just means those files stay in the bundle.
+    if (v && !v.startsWith("/") && !v.split("/").includes("..")) dirs.add(v);
+  };
+  try {
+    const projectYml = fs.readFileSync(projectFile, "utf-8");
+    for (const m of projectYml.matchAll(
+      /^\s*(?:target-path|packages-install-path)\s*:\s*([^\n#]+)/gm,
+    )) {
+      add(m[1]);
+    }
+    // `clean-targets` in either of dbt's two spellings: inline `[a, b]`, and the
+    // block form, whose entries are on the lines that follow.
+    const lines = projectYml.split(/\r?\n/);
+    for (let i = 0; i < lines.length; i++) {
+      const head = lines[i].match(/^\s*clean-targets\s*:\s*(.*)$/);
+      if (!head) continue;
+      const inline = head[1].match(/^\[([^\]]*)\]/);
+      if (inline) {
+        inline[1].split(",").forEach(add);
+        continue;
+      }
+      for (let j = i + 1; j < lines.length; j++) {
+        const item = lines[j].match(/^\s+-\s*([^\n#]+)$/);
+        if (!item) break;
+        add(item[1]);
+      }
+    }
+  } catch {
+    // No dbt_project.yml yet (a descriptor pushed before its project): the
+    // defaults still apply.
+  }
+  dbtGeneratedDirsCache.set(moduleFolderPath, { stamp, dirs });
+  return dirs;
+}
+
+/**
+ * Whether a project-relative path sits inside one of `dirs`. Compared segment
+ * by segment: `targetx/a` must not match a configured `target`.
+ */
+export function isUnderGeneratedDir(rel: string, dirs: Set<string>): boolean {
+  const n = normalizeSep(rel);
+  for (const d of dirs) {
+    if (n === d || n.startsWith(d + "/")) return true;
+  }
+  return false;
+}
+
+/**
+ * Whether a path under a `__dbt/` folder is one dbt generated rather than one
+ * the project authors. Those never belong to the bundle, so sync must not offer
+ * them as items of their own either.
+ */
+export function isDbtGeneratedPath(p: string): boolean {
+  const n = normalizeSep(p);
+  // Anchored on the outermost boundary, like every other helper here. Matching
+  // `__dbt/` anywhere would call `foo__mod/vendor/x__dbt/target/a.ts` generated
+  // dbt output, and `ignoreF` would then exclude an ordinary module file so a
+  // module-only edit never deploys its parent script.
+  if (!isDbtModulePath(n)) return false;
+  const base = getScriptBasePathFromModulePath(n)!;
+  const projectRoot = base + DBT_MODULE_SUFFIX;
+  const rel = n.slice(projectRoot.length + 1);
+  if (isUnderGeneratedDir(rel, dbtGeneratedDirs(projectRoot))) {
+    return true;
+  }
+  // Not generated, but not carried either: the bundle drops it, so the diff
+  // must not keep offering it as a pending change. An OVERSIZED one is the
+  // exception — see `moduleFileExclusion`: hiding it here is what would make an
+  // edit to a large seed report no change at all.
+  return (
+    isLocalSecretFile(n.slice(n.lastIndexOf("/") + 1)) ||
+    moduleFileExclusion(p) === "binary"
+  );
 }
 
 /**
  * Build the module folder path from a script's base path (without extension).
- * e.g., "f/my_script" -> "f/my_script__mod"
+ * e.g., "f/my_script" -> "f/my_script__mod", or "__dbt" for a dbt project.
  */
-export function buildModuleFolderPath(scriptBasePath: string): string {
-  return scriptBasePath + MODULE_SUFFIX;
+export function buildModuleFolderPath(scriptBasePath: string, language?: string): string {
+  return scriptBasePath + getModuleFolderSuffix(language);
 }
 
 /**
@@ -533,10 +829,21 @@ export function buildModuleFolderPath(scriptBasePath: string): string {
  */
 export function isModuleEntryPoint(p: string): boolean {
   const norm = normalizeSep(p);
+  // Anchored on the OUTERMOST module boundary, like
+  // `getScriptBasePathFromModulePath`. Scanning for `__mod/` alone would match a
+  // `legacy__mod/` directory nested inside a dbt project — dbt owns those names
+  // verbatim — and call its `script.ts` this script's entry point.
+  const base = getScriptBasePathFromModulePath(norm);
+  if (base === undefined) return false;
+  // A dbt project's entry point is its descriptor, which sits INSIDE the
+  // project so that an author writes nothing outside the directory dbt itself
+  // reads.
+  if (norm.startsWith(base + DBT_MODULE_SUFFIX + "/")) {
+    return norm === dbtDescriptorPath(base);
+  }
   const suffix = MODULE_SUFFIX + "/";
-  const idx = norm.indexOf(suffix);
-  if (idx === -1) return false;
-  const rest = norm.slice(idx + suffix.length);
+  if (!norm.startsWith(base + suffix)) return false;
+  const rest = norm.slice(base.length + suffix.length);
   return rest.startsWith("script.") && !rest.includes("/");
 }
 
@@ -544,13 +851,21 @@ export function isModuleEntryPoint(p: string): boolean {
  * Extract the script base path from a module folder entry.
  * e.g., "u/admin/my_script__mod/script.ts" -> "u/admin/my_script"
  * e.g., "u/admin/my_script__mod/helper.ts" -> "u/admin/my_script"
+ * e.g., "f/x/proj__dbt/models/a.sql" -> "f/x/proj"
  */
 export function getScriptBasePathFromModulePath(p: string): string | undefined {
   const norm = normalizeSep(p);
-  const suffix = MODULE_SUFFIX + "/";
-  const idx = norm.indexOf(suffix);
-  if (idx === -1) return undefined;
-  return norm.slice(0, idx);
+  // The OUTERMOST boundary, not the first suffix that happens to match. A dbt
+  // project's directories are the author's verbatim, so `foo__dbt/models/
+  // legacy__mod/a.sql` is legal — taking `__mod` first would call
+  // `foo__dbt/models/legacy` the script and look for a descriptor that is not
+  // there, silently skipping the deploy.
+  let best: number | undefined;
+  for (const suffix of MODULE_SUFFIXES) {
+    const idx = norm.indexOf(suffix + "/");
+    if (idx !== -1 && (best === undefined || idx < best)) best = idx;
+  }
+  return best === undefined ? undefined : norm.slice(0, best);
 }
 
 /**

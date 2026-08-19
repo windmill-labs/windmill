@@ -32,8 +32,21 @@
 	const queuedCount = $derived(
 		jobs.filter((j) => j.status === 'queued' || j.status === 'scheduled').length
 	)
-	const failureCount = $derived(jobs.filter((j) => j.status === 'failure').length)
-	const successCount = $derived(jobs.filter((j) => j.status === 'success').length)
+	// A finished job counts as reviewed once its terminal status has been shown in
+	// the open popover; a job that finishes while the popover is closed starts
+	// unreviewed. The flag lives on the job (persisted with it), so review state
+	// survives a reload.
+	$effect(() => {
+		if (!open) return
+		aiChatManager.markJobsReviewed(jobs.filter((j) => isTerminal(j.status)).map((j) => j.jobId))
+	})
+	// Only unreviewed jobs feed the terminal readout: an outcome the user already
+	// saw must not resurface on the chip when a later job finishes.
+	const unreviewed = $derived(jobs.filter((j) => !j.reviewed))
+	const allReviewed = $derived(jobs.length > 0 && unreviewed.length === 0)
+
+	const failureCount = $derived(unreviewed.filter((j) => j.status === 'failure').length)
+	const successCount = $derived(unreviewed.filter((j) => j.status === 'success').length)
 	const liveCount = $derived(jobs.filter((j) => !isTerminal(j.status)).length)
 	const hasLive = $derived(liveCount > 0)
 
@@ -70,9 +83,18 @@
 
 	// Aggregate chip readout, priority-ordered so the most action-worthy state
 	// wins the dot: approval > running > queued > failed > succeeded. A live run
-	// takes the dot even if an earlier job failed (failure resurfaces once idle).
+	// takes the dot even if an earlier job failed (an unreviewed failure
+	// resurfaces once idle). Once every finished job has been reviewed in the
+	// popover, the chip relaxes to a neutral executed-count.
 	const segment = $derived.by(
 		(): { dot: string; pulse: boolean; text: string; danger: boolean } => {
+			if (allReviewed)
+				return {
+					dot: 'bg-gray-400',
+					pulse: false,
+					text: `${jobs.length} job${jobs.length === 1 ? '' : 's'} executed`,
+					danger: false
+				}
 			if (approvalCount > 0)
 				return {
 					dot: dotClass('suspended'),
@@ -111,8 +133,8 @@
 					text: `${failureCount} failed`,
 					danger: true
 				}
-			// All terminal, none failed: green if anything actually succeeded, else gray
-			// (only canceled jobs left — a cancel isn't a success, so don't show green).
+			// All terminal, nothing unreviewed failed: green if anything unreviewed
+			// succeeded, else gray (only canceled left — a cancel isn't a success).
 			if (successCount > 0)
 				return {
 					dot: dotClass('success'),
@@ -123,7 +145,7 @@
 			return {
 				dot: dotClass('canceled'),
 				pulse: false,
-				text: `${jobs.length} canceled`,
+				text: `${unreviewed.length} canceled`,
 				danger: false
 			}
 		}

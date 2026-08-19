@@ -8,14 +8,26 @@ import {
 	Terminal,
 	Timer,
 	Zap,
-	LayoutDashboard
+	LayoutDashboard,
+	MousePointerClick
 } from 'lucide-svelte'
 import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
+import KafkaMonoIcon from '$lib/components/icons/triggers/KafkaIcon.svelte'
+import NatsMonoIcon from '$lib/components/icons/triggers/NatsIcon.svelte'
+import MqttMonoIcon from '$lib/components/icons/triggers/MqttIcon.svelte'
+import AmqpMonoIcon from '$lib/components/icons/triggers/AmqpIcon.svelte'
+import AwsMonoIcon from '$lib/components/icons/triggers/AwsIcon.svelte'
+import GoogleCloudMonoIcon from '$lib/components/icons/triggers/GoogleCloudIcon.svelte'
+import AzureMonoIcon from '$lib/components/icons/triggers/AzureIcon.svelte'
+import NextcloudMonoIcon from '$lib/components/icons/triggers/NextcloudIcon.svelte'
+import GoogleMonoIcon from '$lib/components/icons/triggers/GoogleIcon.svelte'
+import GithubMonoIcon from '$lib/components/icons/triggers/GithubIcon.svelte'
 import type {
 	CaptureTriggerKind,
 	ErrorHandler,
@@ -35,6 +47,7 @@ import { saveKafkaTriggerFromCfg } from './kafka/utils'
 import { saveSqsTriggerFromCfg } from './sqs/utils'
 import { saveNatsTriggerFromCfg } from './nats/utils'
 import { saveMqttTriggerFromCfg } from './mqtt/utils'
+import { saveAmqpTriggerFromCfg } from './amqp/utils'
 import { saveGcpTriggerFromCfg } from './gcp/utils'
 import { saveAzureTriggerFromCfg } from './azure/utils'
 import type { Triggers } from './triggers.svelte'
@@ -50,6 +63,7 @@ export const CLOUD_DISABLED_TRIGGER_TYPES = [
 	'kafka',
 	'sqs',
 	'mqtt',
+	'amqp',
 	'gcp',
 	'azure',
 	'websocket',
@@ -67,6 +81,7 @@ export type TriggerType =
 	| 'kafka'
 	| 'nats'
 	| 'mqtt'
+	| 'amqp'
 	| 'sqs'
 	| 'gcp'
 	| 'azure'
@@ -86,6 +101,7 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'email',
 	'nats',
 	'mqtt',
+	'amqp',
 	'sqs',
 	'postgres',
 	'schedule',
@@ -96,6 +112,8 @@ export const jobTriggerKinds: JobTriggerKind[] = [
 	'asset',
 	'freshness',
 	'app'
+	// `ui` is deliberately absent: the backend does not stamp it yet, so offering it here
+	// would be a filter that can only ever return nothing.
 ]
 
 export type Trigger = {
@@ -123,6 +141,7 @@ export const triggerIconMap = {
 	kafka: KafkaIcon,
 	nats: NatsIcon,
 	mqtt: MqttIcon,
+	amqp: AmqpIcon,
 	sqs: AwsIcon,
 	gcp: GoogleCloudIcon,
 	azure: AzureIcon,
@@ -132,13 +151,34 @@ export const triggerIconMap = {
 	nextcloud: NextcloudIcon,
 	google: GoogleIcon,
 	github: GithubIcon,
-	// Job-attribution-only kinds (no trigger CRUD page): the pipeline asset
-	// cascade, the freshness watchdog, and app-component runs. Needed so the Runs
-	// filter and job detail render these trigger kinds instead of a blank label /
-	// no icon.
+	// Job-attribution-only kinds (no trigger CRUD page): the pipeline asset cascade,
+	// the freshness watchdog and app-component runs. Needed so the Runs filter and job
+	// detail render these trigger kinds instead of a blank label / no icon. `ui` is
+	// mapped ahead of the backend stamping it, so the day it does nothing renders blank.
 	asset: Zap,
 	freshness: Timer,
-	app: LayoutDashboard
+	app: LayoutDashboard,
+	ui: MousePointerClick
+}
+
+/**
+ * Same map with the desaturated variants swapped in, for dropdowns and the sidebar --
+ * dense lists where a brand mark sits next to lucide glyphs and a coloured one reads as
+ * a different kind of thing. Everything else (tables, panels, job detail, the flow-graph
+ * badge itself) uses triggerIconMap. See icons/index.ts for the rule.
+ */
+export const triggerIconMapMono = {
+	...triggerIconMap,
+	kafka: KafkaMonoIcon,
+	nats: NatsMonoIcon,
+	mqtt: MqttMonoIcon,
+	amqp: AmqpMonoIcon,
+	sqs: AwsMonoIcon,
+	gcp: GoogleCloudMonoIcon,
+	azure: AzureMonoIcon,
+	nextcloud: NextcloudMonoIcon,
+	google: GoogleMonoIcon,
+	github: GithubMonoIcon
 }
 
 export const triggerDisplayNamesMap = {
@@ -149,6 +189,7 @@ export const triggerDisplayNamesMap = {
 	kafka: 'Kafka',
 	nats: 'NATS',
 	mqtt: 'MQTT',
+	amqp: 'AMQP',
 	sqs: 'SQS',
 	gcp: 'GCP Pub/Sub',
 	azure: 'Azure Event Grid',
@@ -162,10 +203,11 @@ export const triggerDisplayNamesMap = {
 	github: 'GitHub',
 	asset: 'Asset cascade',
 	freshness: 'Freshness',
-	app: 'App'
-	// `asset` / `freshness` / `app` are job-attribution-only (JobTriggerKind, not
-	// TriggerType) — hence the union in the satisfies below.
-} as const satisfies Record<TriggerType | 'asset' | 'freshness' | 'app', string>
+	app: 'App',
+	ui: 'UI'
+	// `asset` / `freshness` / `app` / `ui` are job-attribution-only (JobTriggerKind,
+	// not TriggerType) — hence the union in the satisfies below.
+} as const satisfies Record<TriggerType | 'asset' | 'freshness' | 'app' | 'ui', string>
 
 /**
  * Converts a TriggerType to a CaptureTriggerKind when a mapping exists
@@ -184,6 +226,7 @@ export function triggerTypeToCaptureKind(triggerType: TriggerType): CaptureTrigg
 		'kafka',
 		'nats',
 		'mqtt',
+		'amqp',
 		'sqs',
 		'gcp',
 		'azure',
@@ -215,6 +258,7 @@ export function updateTriggersCount(
 		kafka: 'kafka_count',
 		nats: 'nats_count',
 		mqtt: 'mqtt_count',
+		amqp: 'amqp_count',
 		sqs: 'sqs_count',
 		gcp: 'gcp_count',
 		azure: 'azure_count',
@@ -286,6 +330,8 @@ export function triggerKindToTriggerType(kind: TriggerKind): TriggerType | undef
 			return 'nats'
 		case 'mqtt':
 			return 'mqtt'
+		case 'amqp':
+			return 'amqp'
 		case 'sqs':
 			return 'sqs'
 		case 'gcp':
@@ -375,6 +421,14 @@ export async function deployTriggers(
 			),
 		mqtt: (trigger: Trigger) =>
 			saveMqttTriggerFromCfg(
+				trigger.path ?? trigger.draftConfig?.path ?? '',
+				trigger.draftConfig ?? {},
+				!trigger.isDraft,
+				workspaceId,
+				usedTriggerKinds
+			),
+		amqp: (trigger: Trigger) =>
+			saveAmqpTriggerFromCfg(
 				trigger.path ?? trigger.draftConfig?.path ?? '',
 				trigger.draftConfig ?? {},
 				!trigger.isDraft,

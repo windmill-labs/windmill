@@ -730,6 +730,122 @@ impl Visitor for ColumnIdentCollector {
     }
 }
 
+/// Extract the column names a bare SQL expression reads, for validating a
+/// metric measure/dimension body against a captured schema. Parses `expr_sql` as
+/// a standalone expression (so its identifiers sit at query depth 0, unlike a
+/// wrapped `SELECT`) and returns the final segment of each identifier ref:
+/// `sum(amount)` → `["amount"]`, `date_trunc('month', ordered_at)` →
+/// `["ordered_at"]`, `t.amount` → `["amount"]`, `count(*)` → `[]`. A parse
+/// failure yields an empty vec (fail-safe: nothing to check, not a spurious
+/// error), matching the fail-soft stance of the rest of the contract machinery.
+pub fn extract_expr_column_idents(expr_sql: &str) -> Vec<String> {
+    let Ok(mut parser) = Parser::new(&DuckDbDialect).try_with_sql(expr_sql) else {
+        return Vec::new();
+    };
+    let Ok(expr) = parser.parse_expr() else {
+        return Vec::new();
+    };
+    let mut collector = ColumnIdentCollector { refs: Vec::new(), query_depth: 0 };
+    let _ = expr.visit(&mut collector);
+    collector
+        .refs
+        .into_iter()
+        .filter_map(|parts| parts.last().cloned())
+        .collect()
+}
+
+/// Whether `expr_sql` is exactly one SQL expression, consuming all of its input.
+///
+/// Metric declarations are author text interpolated verbatim into executable SQL
+/// that a *reader* then runs. Without this, `count(*) FROM t; DELETE FROM x; SELECT 1`
+/// would be stored as a "measure" and execute as whoever opened the drawer, so a
+/// declaration that does not parse as a single trailing-token-free expression is
+/// rejected at deploy rather than filtered at render time.
+pub fn is_single_sql_expression(expr_sql: &str) -> bool {
+    use sqlparser::tokenizer::{Token, Tokenizer};
+    // Reject comment tokens outright: the parser skips them, so `sum(x) --rest`
+    // would pass the EOF check below, and a comment interpolated into the composed
+    // SQL can blank the rest of its line (defense in depth — it cannot inject a
+    // second statement, but a declaration has no business carrying a comment).
+    match Tokenizer::new(&DuckDbDialect, expr_sql).tokenize() {
+        Ok(tokens) => {
+            if tokens.iter().any(|t| {
+                matches!(t, Token::Whitespace(w)
+                if matches!(w, sqlparser::tokenizer::Whitespace::SingleLineComment { .. }
+                    | sqlparser::tokenizer::Whitespace::MultiLineComment(_)))
+            }) {
+                return false;
+            }
+        }
+        Err(_) => return false,
+    }
+    let Ok(mut parser) = Parser::new(&DuckDbDialect).try_with_sql(expr_sql) else {
+        return false;
+    };
+    if parser.parse_expr().is_err() {
+        return false;
+    }
+    // Anything left over means the expression ended early and the rest would ride
+    // along into the generated statement.
+    matches!(parser.peek_token().token, Token::EOF)
+}
+
+struct FunctionCallFinder {
+    found: bool,
+}
+
+impl Visitor for FunctionCallFinder {
+    type Break = ();
+    fn pre_visit_expr(&mut self, expr: &Expr) -> std::ops::ControlFlow<()> {
+        if matches!(expr, Expr::Function(_)) {
+            self.found = true;
+            return std::ops::ControlFlow::Break(());
+        }
+        std::ops::ControlFlow::Continue(())
+    }
+}
+
+/// Whether `expr_sql` could be an aggregation. Every SQL aggregate is a function
+/// call (`sum(x)`, `count(*)`, a scalar subquery wrapping one, a user-defined
+/// aggregate), so an expression with *no* function call anywhere provably cannot
+/// aggregate: `revenue = amount` or `amount * 2` is a row-level value, not a
+/// measure. Deliberately lenient — any function call earns the benefit of the
+/// doubt — to avoid maintaining a reserved aggregate-name list, which drifts with
+/// DuckDB versions. A parse failure returns `true` (not our error to raise here;
+/// `is_single_sql_expression` already rejects unparseable declarations).
+pub fn measure_expr_may_aggregate(expr_sql: &str) -> bool {
+    let Ok(mut parser) = Parser::new(&DuckDbDialect).try_with_sql(expr_sql) else {
+        return true;
+    };
+    let Ok(expr) = parser.parse_expr() else {
+        return true;
+    };
+    let mut finder = FunctionCallFinder { found: false };
+    let _ = expr.visit(&mut finder);
+    finder.found
+}
+
+/// Whether `expr_sql` is exactly one top-level function call, e.g. `sum(amount)`
+/// or `count(*)` — but not `sum(a) / count(b)` or `sum(a) + 1`.
+///
+/// A `// measure … where <pred>` compiles to `<expr> FILTER (WHERE <pred>)`, and
+/// SQL binds `FILTER` to the single immediately-preceding aggregate call. If the
+/// expression is a composite of several aggregates, the filter silently applies to
+/// only the last one and the canonical number is wrong. Requiring one call makes
+/// the target of `FILTER` unambiguous. (A single *non-aggregate* call still errors
+/// loudly at run time, which is acceptable — the danger is the silent case.)
+pub fn is_single_function_call(expr_sql: &str) -> bool {
+    let Ok(mut parser) = Parser::new(&DuckDbDialect).try_with_sql(expr_sql) else {
+        return false;
+    };
+    match parser.parse_expr() {
+        Ok(Expr::Function(_)) => {
+            matches!(parser.peek_token().token, sqlparser::tokenizer::Token::EOF)
+        }
+        _ => false,
+    }
+}
+
 impl Visitor for AssetCollector {
     type Break = ();
 
@@ -1145,13 +1261,13 @@ mod tests {
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "a.parquet".to_string(),
+                    path: "/a.parquet".to_string(),
                     access_type: Some(R),
                     columns: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "c.parquet".to_string(),
+                    path: "/c.parquet".to_string(),
                     access_type: Some(W),
                     columns: None
                 },
@@ -1168,25 +1284,35 @@ mod tests {
     #[test]
     fn test_duckdb_read_key_matches_sdk_write_key() {
         // Cross-language lineage: a TS `writeS3File({ s3: "exports/x" })` or
-        // Python `write_s3_file(S3Object(s3="exports/x"))` records the asset path
-        // `exports/x` (default storage). A DuckDB reader of the same object must
-        // resolve to the identical path so the graph connects the producer and
-        // consumer — both the bare `s3://exports/x` and the triple-slash
-        // `s3:///exports/x` default-storage form must yield `exports/x`.
-        for uri in ["s3://exports/x", "s3:///exports/x"] {
-            let input = format!("SELECT * FROM read_csv('{uri}');");
-            let assets = parse_assets(&input).expect("parse").assets;
-            assert_eq!(
-                assets,
-                vec![ParseAssetsResult {
-                    kind: AssetKind::S3Object,
-                    path: "exports/x".to_string(),
-                    access_type: Some(R),
-                    columns: None
-                }],
-                "DuckDB read of {uri} must resolve to the SDK write key"
-            );
-        }
+        // Python `write_s3_file(S3Object(s3="exports/x"))` records the asset
+        // path `/exports/x` (default storage, leading slash). A DuckDB reader
+        // of the same object uses the triple-slash default-storage URI and
+        // must resolve to the identical path so the graph connects producer
+        // and consumer. The bare `s3://exports/x` form names storage
+        // `exports` instead — a different object, a different path.
+        let input = "SELECT * FROM read_csv('s3:///exports/x');";
+        let assets = parse_assets(input).expect("parse").assets;
+        assert_eq!(
+            assets,
+            vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "/exports/x".to_string(),
+                access_type: Some(R),
+                columns: None
+            }],
+        );
+
+        let input = "SELECT * FROM read_csv('s3://exports/x');";
+        let assets = parse_assets(input).expect("parse").assets;
+        assert_eq!(
+            assets,
+            vec![ParseAssetsResult {
+                kind: AssetKind::S3Object,
+                path: "exports/x".to_string(),
+                access_type: Some(R),
+                columns: None
+            }],
+        );
     }
 
     #[test]
@@ -1202,7 +1328,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "out.csv".to_string(),
+                path: "/out.csv".to_string(),
                 access_type: Some(W),
                 columns: None
             }])
@@ -1219,7 +1345,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "referenced.csv".to_string(),
+                path: "/referenced.csv".to_string(),
                 access_type: Some(R),
                 columns: None
             }])
@@ -1239,7 +1365,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "data.csv".to_string(),
+                path: "/data.csv".to_string(),
                 access_type: Some(RW),
                 columns: None
             }])
@@ -1259,7 +1385,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "data.parquet".to_string(),
+                path: "/data.parquet".to_string(),
                 access_type: Some(RW),
                 columns: None
             }])
@@ -1277,13 +1403,13 @@ mod tests {
             Ok(vec![
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "a.parquet".to_string(),
+                    path: "/a.parquet".to_string(),
                     access_type: Some(R),
                     columns: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
-                    path: "b.parquet".to_string(),
+                    path: "/b.parquet".to_string(),
                     access_type: Some(R),
                     columns: None
                 }
@@ -1303,7 +1429,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
-                path: "data.parquet".to_string(),
+                path: "/data.parquet".to_string(),
                 access_type: Some(RW),
                 columns: None
             }])
@@ -1985,7 +2111,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "example_file.parquet");
+        assert_eq!(result[0].path, "/example_file.parquet");
         assert_eq!(result[0].access_type, Some(R));
 
         let columns = result[0].columns.as_ref().expect("Should have columns");
@@ -2016,7 +2142,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "example_file.parquet");
+        assert_eq!(result[0].path, "/example_file.parquet");
         assert!(result[0].columns.is_none());
     }
 
@@ -2029,7 +2155,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "example_file.parquet");
+        assert_eq!(result[0].path, "/example_file.parquet");
 
         let columns = result[0].columns.as_ref().expect("Should have columns");
         assert_eq!(columns.get("col1"), Some(&R));
@@ -2048,7 +2174,7 @@ mod tests {
         assert_eq!(result.len(), 2);
 
         assert!(result.iter().any(|a| {
-            a.path == "file1.parquet"
+            a.path == "/file1.parquet"
                 && a.columns.as_ref().map_or(false, |c| c.contains_key("col1"))
         }));
         assert!(result.iter().any(|a| {
@@ -2081,7 +2207,7 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].kind, AssetKind::S3Object);
-        assert_eq!(result[0].path, "test.parquet");
+        assert_eq!(result[0].path, "/test.parquet");
         assert_eq!(result[0].access_type, Some(R));
 
         let columns = result[0].columns.as_ref().expect("Should have columns");

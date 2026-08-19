@@ -31,8 +31,9 @@ use crate::{
     bash_executor::BIN_BASH,
     common::{
         build_command_with_isolation, check_executor_binary_exists, get_reserved_variables,
-        read_and_check_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, start_child_process, transform_json, OccupancyMetrics,
+        interpolate_template, read_and_check_result, render_nsjail_rlimit_as,
+        resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        transform_json, validate_relative_path, OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled,
@@ -54,6 +55,12 @@ const NSJAIL_CONFIG_RUN_ANSIBLE_CONTENT: &str = include_str!("../nsjail/run.ansi
 const WINDMILL_ANSIBLE_PASSWORD_FILENAME: &str = ".windmill.ansible_vault_password_file";
 
 const DELEGATE_GIT_REPO_TARGET: &str = "delegate_git_repository";
+
+/// Ansible's `Display` writes to `sys.stdout` and never flushes, relying on a terminal being
+/// line-buffered. Windmill hands it a pipe, where python block-buffers instead, so without this
+/// the job log arrives in bursts rather than as tasks run. No ansible.cfg knob covers it.
+/// The nsjail path sets the same var in `nsjail/run.ansible.config.proto`.
+const PYTHONUNBUFFERED_ENV: &str = "PYTHONUNBUFFERED";
 
 /// Usable bytes in `sockaddr_un.sun_path` (108 minus the NUL). An ABI constant, not a
 /// filesystem limit — which is why only the socket breaks while every regular file in the
@@ -238,97 +245,6 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
             let _ = tokio::fs::remove_dir_all(entry.path()).await;
         }
     }
-}
-
-lazy_static::lazy_static! {
-    static ref TEMPLATE_RE: regex::Regex = regex::Regex::new(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}").unwrap();
-}
-
-/// Substitute `{{ arg_name }}` placeholders with values from `args`.
-/// Strings are used raw; numbers/bools are stringified. Other types are rejected.
-fn interpolate_template(
-    template: &str,
-    args: Option<&HashMap<String, Box<RawValue>>>,
-    field_name: &str,
-) -> error::Result<String> {
-    let mut last_err: Option<error::Error> = None;
-    let result = TEMPLATE_RE.replace_all(template, |caps: &regex::Captures| {
-        let name = &caps[1];
-        let raw = args.and_then(|a| a.get(name));
-        let Some(raw) = raw else {
-            last_err = Some(error::Error::BadRequest(format!(
-                "`{}` references `{{{{ {} }}}}` but no such argument was provided",
-                field_name, name
-            )));
-            return String::new();
-        };
-        let json: serde_json::Value = match serde_json::from_str(raw.get()) {
-            Ok(v) => v,
-            Err(e) => {
-                last_err = Some(error::Error::BadRequest(format!(
-                    "`{}` could not parse argument `{}` as JSON: {e}",
-                    field_name, name
-                )));
-                return String::new();
-            }
-        };
-        match json {
-            serde_json::Value::String(s) => s,
-            serde_json::Value::Number(n) => n.to_string(),
-            serde_json::Value::Bool(b) => b.to_string(),
-            serde_json::Value::Null => {
-                last_err = Some(error::Error::BadRequest(format!(
-                    "`{}` references `{{{{ {} }}}}` but the argument is null",
-                    field_name, name
-                )));
-                String::new()
-            }
-            _ => {
-                last_err = Some(error::Error::BadRequest(format!(
-                    "`{}` references `{{{{ {} }}}}` but the argument is not a primitive (string/number/bool)",
-                    field_name, name
-                )));
-                String::new()
-            }
-        }
-    });
-    if let Some(e) = last_err {
-        return Err(e);
-    }
-    Ok(result.into_owned())
-}
-
-/// Reject absolute paths and `..` segments to prevent escaping the cloned repo directory.
-fn validate_relative_path(path: &str, field_name: &str) -> error::Result<()> {
-    let trimmed = path.trim();
-    if trimmed.is_empty() {
-        return Err(error::Error::BadRequest(format!(
-            "`{}` resolved to an empty path",
-            field_name
-        )));
-    }
-    let p = std::path::Path::new(trimmed);
-    for component in p.components() {
-        match component {
-            // RootDir catches leading `/` or `\`; Prefix catches Windows drive
-            // letters and UNC paths. `Path::is_absolute()` alone misses
-            // RootDir-only paths on Windows (e.g. `/etc/passwd`).
-            std::path::Component::RootDir | std::path::Component::Prefix(_) => {
-                return Err(error::Error::BadRequest(format!(
-                    "`{}` must be a relative path inside the cloned repo, got: {}",
-                    field_name, trimmed
-                )));
-            }
-            std::path::Component::ParentDir => {
-                return Err(error::Error::BadRequest(format!(
-                    "`{}` must not contain `..` segments, got: {}",
-                    field_name, trimmed
-                )));
-            }
-            _ => {}
-        }
-    }
-    Ok(())
 }
 
 async fn clone_repo(
@@ -752,6 +668,7 @@ async fn run_galaxy_install_from_requirements(
     galaxy_roles_cmd
         .current_dir(job_dir)
         .env_clear()
+        .env(PYTHONUNBUFFERED_ENV, "1")
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
@@ -790,6 +707,7 @@ async fn run_galaxy_install_from_requirements(
     galaxy_collections_cmd
         .current_dir(job_dir)
         .env_clear()
+        .env(PYTHONUNBUFFERED_ENV, "1")
         .envs(PROXY_ENVS.clone())
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
@@ -1978,6 +1896,7 @@ fi
         ansible_cmd
             .current_dir(job_dir)
             .env_clear()
+            .env(PYTHONUNBUFFERED_ENV, "1")
             .envs(envs)
             .envs(reserved_variables)
             .env("PATH", PATH_ENV.as_str())

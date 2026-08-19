@@ -14,12 +14,17 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { requiresMaxCompletionTokens, usesAnthropicMessagesApi } from './modelConfig'
+import {
+	requiresMaxCompletionTokens,
+	usesAnthropicMessagesApi,
+	usesOpenRouterPromptCaching
+} from './modelConfig'
 import { applyReasoningToConfig } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks
 } from './chat/shared'
@@ -52,15 +57,20 @@ interface AIProviderDetails {
 	defaultModels: string[]
 }
 
+// The first entry is what a new workspace is created with (see
+// CreateWorkspaceInner), so each list leads with the balanced tier rather than
+// the frontier model. The gpt-5 family is deprecated (retires 2026-12-11) but
+// still served, so it stays in the list below the 5.6 models.
 const OPENAI_MODELS = [
+	'gpt-5.6-terra',
+	'gpt-5.6-sol',
+	'gpt-5.6-luna',
 	'gpt-5',
 	'gpt-5-mini',
-	'gpt-5-nano',
 	'gpt-4o',
 	'gpt-4o-mini',
 	'o4-mini',
-	'o3',
-	'o3-mini'
+	'o3'
 ]
 
 export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
@@ -70,17 +80,18 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	anthropic: {
 		label: 'Anthropic',
-		defaultModels: ['claude-sonnet-4-6', 'claude-3-5-haiku-latest']
+		defaultModels: ['claude-sonnet-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-haiku-4-5']
 	},
 	googleai: {
 		label: 'Google AI',
 		defaultModels: [
-			'gemini-2.5-flash',
+			'gemini-3.6-flash',
+			'gemini-3.5-flash',
+			'gemini-3.1-pro-preview',
+			'gemini-3.5-flash-lite',
+			'gemini-3.1-flash-lite',
 			'gemini-2.5-pro',
-			'gemini-2.5-flash-lite',
-			'gemini-3-flash',
-			'gemini-3.1-pro',
-			'gemini-3.1-flash-lite'
+			'gemini-2.5-flash'
 		]
 	},
 	azure_openai: {
@@ -90,25 +101,26 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	azure_foundry: {
 		label: 'Azure AI Foundry',
 		defaultModels: [
-			'gpt-4o',
-			'gpt-4o-mini',
-			'DeepSeek-R1',
+			'gpt-5.6-terra',
+			'gpt-5.6-sol',
+			'claude-sonnet-5',
+			'claude-opus-5',
+			'DeepSeek-V4-Pro',
 			'Llama-3.3-70B-Instruct',
-			'Phi-4',
-			'Mistral-Large-2411'
+			'Phi-4'
 		]
 	},
 	mistral: {
 		label: 'Mistral',
-		defaultModels: ['codestral-latest']
+		defaultModels: ['mistral-medium-latest', 'codestral-latest']
 	},
 	deepseek: {
 		label: 'DeepSeek',
-		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
+		defaultModels: ['deepseek-v4-pro', 'deepseek-v4-flash']
 	},
 	groq: {
 		label: 'Groq',
-		defaultModels: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
+		defaultModels: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']
 	},
 	openrouter: {
 		label: 'OpenRouter',
@@ -120,7 +132,11 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	aws_bedrock: {
 		label: 'AWS Bedrock',
-		defaultModels: ['global.anthropic.claude-haiku-4-5-20251001-v1:0']
+		defaultModels: [
+			'global.anthropic.claude-sonnet-5',
+			'global.anthropic.claude-opus-5',
+			'global.anthropic.claude-haiku-4-5-20251001-v1:0'
+		]
 	},
 	customai: {
 		label: 'Custom AI',
@@ -290,9 +306,19 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	) {
 		return 100000
 	} else if (
+		// Raising this further would also raise the worst case of the
+		// non-streaming completion path, which the Anthropic SDK refuses once
+		// the request could run past ~10 minutes.
 		model.includes('claude-sonnet') ||
+		model.includes('claude-haiku') ||
+		model.includes('claude-fable') ||
+		model.includes('claude-mythos') ||
+		// Opus only from 4.5 on. Opus 4.1 and older cap at 32K and fall through
+		// to the row below. Dots are normalized because OpenRouter writes
+		// `anthropic/claude-opus-4.5` where Anthropic writes `claude-opus-4-5`.
+		/claude-opus-(4-(5|6|7|8)|5)(?!\d)/.test(model.replace(/\./g, '-')) ||
 		model.includes('gemini-2.5') ||
-		model.includes('claude-haiku')
+		model.includes('gemini-3')
 	) {
 		return 64000
 	} else if (model.includes('gpt-4.1')) {
@@ -358,7 +384,68 @@ function getModelSpecificConfig(
 	}
 }
 
-function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessageParam[]) {
+const EPHEMERAL_CACHE_CONTROL = { type: 'ephemeral' } as const
+
+// Returns a copy carrying a cache breakpoint on its last text part. The message objects
+// are the live chat history and are also replayed through the Anthropic path, so they
+// must not be mutated. Parts other than text (images) are left alone: only text blocks
+// are documented to carry the field over the OpenAI-compatible surface.
+function withCacheBreakpoint(message: ChatCompletionMessageParam): ChatCompletionMessageParam {
+	const content = message.content
+	if (typeof content === 'string') {
+		if (!content) return message
+		return {
+			...message,
+			// `cache_control` is an OpenRouter passthrough field, absent from the OpenAI types.
+			content: [{ type: 'text', text: content, cache_control: EPHEMERAL_CACHE_CONTROL } as any]
+		} as ChatCompletionMessageParam
+	}
+	if (!Array.isArray(content)) return message
+	let last = -1
+	for (let i = content.length - 1; i >= 0; i--) {
+		if ((content[i] as { type?: string }).type === 'text') {
+			last = i
+			break
+		}
+	}
+	if (last < 0) return message
+	return {
+		...message,
+		content: content.map((part, i) =>
+			i === last ? { ...part, cache_control: EPHEMERAL_CACHE_CONTROL } : part
+		)
+	} as ChatCompletionMessageParam
+}
+
+// Anthropic caches the whole prefix up to a breakpoint, ordered tools -> system ->
+// messages, so the one on the system message also covers the tool definitions, by far
+// the largest static block of a chat request. The second covers the settled conversation
+// up to the newest user turn. Tool results appended after it inside an agent loop stay
+// outside the cached prefix: reaching those needs a breakpoint on a `tool` message, and
+// OpenRouter documents the field on text content blocks only. Two of a budget of four.
+function withOpenRouterCacheBreakpoints(
+	messages: ChatCompletionMessageParam[]
+): ChatCompletionMessageParam[] {
+	const prepared = [...messages]
+	const system = prepared.findIndex((m) => m.role === 'system')
+	if (system >= 0) prepared[system] = withCacheBreakpoint(prepared[system])
+	for (let i = prepared.length - 1; i > system; i--) {
+		if (prepared[i].role === 'user') {
+			prepared[i] = withCacheBreakpoint(prepared[i])
+			break
+		}
+	}
+	return prepared
+}
+
+function prepareMessages(
+	aiProvider: AIProvider,
+	messages: ChatCompletionMessageParam[],
+	{ model, promptCaching }: { model: string; promptCaching?: boolean }
+) {
+	if (promptCaching && usesOpenRouterPromptCaching(aiProvider, model)) {
+		return withOpenRouterCacheBreakpoints(messages)
+	}
 	switch (aiProvider) {
 		case 'googleai':
 			// system messages are not supported by gemini
@@ -534,12 +621,10 @@ function buildAnthropicProxyRequest({
 	const { system, messages: anthropicMessages } = convertOpenAIToAnthropicMessages(messages)
 
 	// X-Provider must be the real provider (e.g. azure_foundry) so the backend
-	// resolves the right credentials and Anthropic URL; the SDK headers tell it to
-	// route through the Anthropic Messages API.
+	// resolves the right credentials and Anthropic URL.
 	const headers: Record<string, string> = {
 		'X-Provider': modelProvider.provider,
-		'anthropic-version': '2023-06-01',
-		'X-Anthropic-SDK': 'true'
+		'anthropic-version': '2023-06-01'
 	}
 
 	if (resourcePath) {
@@ -799,13 +884,17 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 	stream,
 	tools,
 	forceModelProvider,
-	maxTokensCap
+	maxTokensCap,
+	promptCaching
 }: {
 	messages: ChatCompletionMessageParam[]
 	stream: K
 	tools?: OpenAI.Chat.Completions.ChatCompletionTool[]
 	forceModelProvider?: AIProviderModel
 	maxTokensCap?: number
+	// Opt-in: a cache write costs more than an uncached read, so it only pays off where
+	// the same prefix is sent again. True for the chat loop, false for one-shot calls.
+	promptCaching?: boolean
 }): {
 	provider: AIProvider
 	config: K extends true
@@ -814,7 +903,10 @@ export function getProviderAndCompletionConfig<K extends boolean>({
 } {
 	const modelProvider = forceModelProvider ?? getCurrentModel()
 	const providerConfig = PROVIDER_COMPLETION_CONFIG_MAP[modelProvider.provider]
-	const processedMessages = prepareMessages(modelProvider.provider, messages)
+	const processedMessages = prepareMessages(modelProvider.provider, messages, {
+		model: modelProvider.model,
+		promptCaching
+	})
 	return {
 		provider: modelProvider.provider,
 		config: {
@@ -994,6 +1086,7 @@ export async function getCompletion(
 		forceModelProvider?: AIProviderModel
 		openaiClient?: OpenAI
 		reasoningEffort?: string
+		promptCaching?: boolean
 	}
 ): Promise<Stream<ChatCompletionChunk>> {
 	const modelProvider = options?.forceModelProvider ?? getCurrentModel()
@@ -1006,7 +1099,8 @@ export async function getCompletion(
 		messages,
 		stream: true,
 		tools,
-		forceModelProvider: options?.forceModelProvider
+		forceModelProvider: options?.forceModelProvider,
+		promptCaching: options?.promptCaching
 	})
 
 	// Use Responses API for OpenAI and Azure OpenAI
@@ -1075,6 +1169,9 @@ export async function parseOpenAICompletion(
 	options?: { workspace?: string; provider?: string }
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
+	// The tool call currently receiving argument deltas; when the stream moves on
+	// to the next call, the previous one is demoted to queued.
+	let streamingToolCallId: string | undefined = undefined
 	let malformedFunctionCallError = false
 	let tokenUsage = emptyChatTokenUsage()
 
@@ -1165,10 +1262,17 @@ export async function parseOpenAICompletion(
 					id: toolCallId
 				} = finalToolCall
 				if (funcName && toolCallId) {
-					const tool = tools.find((t) => t.def.function.name === funcName)
-					if (tool && tool.preAction) {
-						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
+					if (streamingToolCallId !== undefined && streamingToolCallId !== toolCallId) {
+						const previous = Object.values(finalToolCalls).find(
+							(tc) => tc.id === streamingToolCallId
+						)
+						callbacks.setToolStatus(
+							streamingToolCallId,
+							queuedToolStatus(tools, previous?.function?.name ?? '', previous?.function?.arguments)
+						)
 					}
+					streamingToolCallId = toolCallId
+					const tool = tools.find((t) => t.def.function.name === funcName)
 
 					const shouldStream = tool?.streamArguments ?? false
 					const accumulatedArgs = finalToolCall.function.arguments
@@ -1181,10 +1285,13 @@ export async function parseOpenAICompletion(
 						}
 					}
 
-					// Display tool call with streaming parameters if enabled
+					// Display tool call with streaming parameters if enabled. isQueued is
+					// cleared explicitly: a provider may interleave deltas of parallel
+					// calls, re-promoting a call that was already demoted to queued.
 					callbacks.setToolStatus(toolCallId, {
 						isLoading: true,
-						content: tool?.streamingLabel ?? `Calling ${funcName}...`,
+						isQueued: false,
+						content: tool?.streamingLabel ?? `Preparing ${funcName}...`,
 						toolName: funcName,
 						isStreamingArguments: shouldStream,
 						showFade: tool?.showFade,
@@ -1209,10 +1316,13 @@ export async function parseOpenAICompletion(
 
 	callbacks.onMessageEnd()
 
-	// Clear streaming state for all tool calls
+	// Stream over: every parsed call is queued until its turn in processToolCall.
 	for (const toolCall of Object.values(finalToolCalls)) {
 		if (toolCall.id) {
-			callbacks.setToolStatus(toolCall.id, { isStreamingArguments: false })
+			callbacks.setToolStatus(
+				toolCall.id,
+				queuedToolStatus(tools, toolCall.function?.name ?? '', toolCall.function?.arguments)
+			)
 		}
 	}
 
@@ -1242,6 +1352,7 @@ export async function parseOpenAICompletion(
 			if (invalidToolCallIds.has(toolCall.id)) {
 				callbacks.setToolStatus(toolCall.id, {
 					isLoading: false,
+					isQueued: false,
 					isStreamingArguments: false,
 					error: 'Tool call arguments were invalid or truncated'
 				})

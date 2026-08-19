@@ -25,8 +25,9 @@ type SavedScript = Omit<Script & UserDraftOverlay, 'draft'> & { draft?: NewScrip
 type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-import { workspaceStore } from '$lib/stores'
-import { loadCopilot, copilotWorkspace } from '$lib/aiStore'
+import { userWorkspaces, workspaceStore } from '$lib/stores'
+import { copilotWorkspace } from '$lib/aiStore'
+import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
 	commitSessionWorkspace,
@@ -47,9 +48,18 @@ import {
 	describePreview,
 	hydratePreviewTabs,
 	previewTargetForSessionTarget,
-	selectPreviewTabsToClose
+	selectPreviewTabsToClose,
+	whereIs
 } from './sessionPreviewTabs.svelte'
-import { matchPreviewPage, parsePreviewItemRoute, previewLocationLabel } from './previewRouter'
+import {
+	parsePreviewItemRoute,
+	previewLocationContext,
+	previewLocationLabel,
+	promptSafe,
+	resolvePreviewTab
+} from './previewRouter'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { armRestartOnFirstInteraction } from '$lib/userDraftToast'
@@ -59,6 +69,7 @@ import {
 	setClosePreviewTabsHandler,
 	setGetPreviewStatusHandler,
 	setGetRuntimeLogsHandler,
+	setGetDomHandler,
 	setListAppRunsHandler,
 	setScreenshotHandler,
 	setOpenPagePreviewHandler,
@@ -73,8 +84,13 @@ import {
 	type RawAppRunsProvider,
 	type RawAppScreenshotRequester
 } from '$lib/components/raw_apps/utils'
+import type {
+	RawAppDomQuery,
+	RawAppDomRequester,
+	RawAppDomResult
+} from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
-import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
+import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 
 // Per-kind load state for a session's editor target. Pure state container the
@@ -174,6 +190,15 @@ export interface SessionRuntime {
 	): Promise<void>
 	setRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined): void
 	requestRuntimeLogs(limit: number): Promise<RawAppRuntimeLogEntry[] | undefined>
+	/** Register a mounted raw-app preview's DOM requester, keyed by app path.
+	 * ALL mounted preview tabs register (hidden ones stay mounted), so a
+	 * DOM-scoped turn can read its own app even when another tab is visible. */
+	registerDomRequester(appPath: string, requester: RawAppDomRequester): void
+	unregisterDomRequester(appPath: string, requester: RawAppDomRequester): void
+	/** The visible preview — the default target for a query with no app path. */
+	setActiveDomApp(appPath: string, owner: unknown): void
+	releaseActiveDomApp(owner: unknown): void
+	requestDom(query: RawAppDomQuery): Promise<RawAppDomResult | undefined>
 	setAppRunsProvider(provider: RawAppRunsProvider | undefined): void
 	getAppRuns(): RawAppRunSummary[] | undefined
 	setScreenshotRequester(requester: RawAppScreenshotRequester | undefined): void
@@ -320,6 +345,38 @@ function createRuntime(session: Session): SessionRuntime {
 		const s = sessionState.sessions.find((x) => x.id === session.id)
 		return s ? getEffectiveWorkspaceId(s) : undefined
 	}
+	// Session facts (fork vs live workspace) for the system prompt. A resolver so
+	// each rebuild reads the current record — the fork commits at first send, and
+	// the user can re-point the session's workspace between sends.
+	manager.sessionContextResolver = () => {
+		const s = sessionState.sessions.find((x) => x.id === session.id)
+		if (!s) return undefined
+		const wsId = getEffectiveWorkspaceId(s)
+		const ws = get(userWorkspaces).find((w) => w.id === wsId)
+		return {
+			workspaceId: wsId,
+			parentWorkspaceId: ws?.parent_workspace_id ?? undefined,
+			isDevWorkspace: ws?.is_dev_workspace,
+			// Committed workspace missing from the list: still a fork (mirrors
+			// isForkSession) — the prompt must not call it the live workspace.
+			forkParentUnknown: !ws && !!s.workspace_id,
+			pendingForkOf: s.pending_fork?.parent_workspace_id
+		}
+	}
+	// What the side panel is showing, stamped on each user message so the chat
+	// knows the page (and the row whose drawer is open) without spending a
+	// get_preview_status round-trip. Live editors are skipped: they register
+	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry.
+	manager.activePreviewResolver = () => {
+		const owner = getRuntime(session.id)?.previewTabs
+		// What is on screen, not merely which tab is selected: the rule tells the model
+		// to resolve "this page" and "it" against this block, and a collapsed panel would
+		// point those at a page the user cannot see.
+		const tab = owner?.displayedTab
+		if (!tab) return undefined
+		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
+		return previewLocationContext(whereIs(tab))
+	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
@@ -417,7 +474,16 @@ function createRuntime(session: Session): SessionRuntime {
 			// Only persist a real width; undefined means "never resized" (defaults to 50).
 			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
-		onTabsChanged: pruneEditorCells
+		onTabsChanged: pruneEditorCells,
+		onTabOpened: (url) => {
+			const slot = resolvePreviewTab(url)
+			logFeatureUsage('ai_session', 'tab', {
+				key:
+					slot.kind === 'editor' ? slot.editorKind : slot.kind === 'artifact' ? 'artifact' : 'page',
+				entityId: session.id,
+				workspace: getEffectiveWorkspaceId(session)
+			})
+		}
 	})
 
 	// Let the jobs tray open a run in this session's preview panel (as an iframe
@@ -431,15 +497,8 @@ function createRuntime(session: Session): SessionRuntime {
 		})
 	}
 
-	manager.openArtifact = (id, name) => {
-		// Capture before open() un-collapses / re-activates: flash only when the tab
-		// was already the displayed one (nothing else visibly changes).
-		const wasDisplayed = !previewTabs.collapsed
-		const prevActive = previewTabs.activeId
-		const { status } = previewTabs.open({ type: 'artifact', id, name })
-		if (status === 'focused' && wasDisplayed && previewTabs.activeId === prevActive) {
-			previewTabs.pulseFocus(previewTabs.activeId)
-		}
+	manager.openArtifact = (id, name, version) => {
+		previewTabs.open({ type: 'artifact', id, name, version })
 	}
 	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
 	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
@@ -451,6 +510,10 @@ function createRuntime(session: Session): SessionRuntime {
 	const pipelineEditorState = new PipelineEditorState()
 
 	let runtimeLogRequester: RawAppRuntimeLogRequester | undefined = undefined
+	// appPath → requester, one entry per mounted raw-app preview tab.
+	const domRequesters = new Map<string, RawAppDomRequester>()
+	let activeDomAppPath: string | undefined = undefined
+	let activeDomOwner: unknown = undefined
 	let appRunsProvider: RawAppRunsProvider | undefined = undefined
 	let screenshotRequester: RawAppScreenshotRequester | undefined = undefined
 
@@ -777,6 +840,43 @@ function createRuntime(session: Session): SessionRuntime {
 		async requestRuntimeLogs(limit) {
 			return runtimeLogRequester ? runtimeLogRequester(limit) : undefined
 		},
+		registerDomRequester(appPath, requester) {
+			domRequesters.set(appPath, requester)
+		},
+		unregisterDomRequester(appPath, requester) {
+			// Identity-guarded: a remount may already have replaced this entry.
+			if (domRequesters.get(appPath) === requester) domRequesters.delete(appPath)
+		},
+		setActiveDomApp(appPath, owner) {
+			activeDomAppPath = appPath
+			activeDomOwner = owner
+		},
+		releaseActiveDomApp(owner) {
+			// Owner-guarded so a set/release race between two tabs can't blank the
+			// new active app regardless of effect order.
+			if (activeDomOwner === owner) {
+				activeDomAppPath = undefined
+				activeDomOwner = undefined
+			}
+		},
+		async requestDom(query) {
+			if (domRequesters.size === 0) return undefined
+			// Route to the query's own app when specified (a DOM-scoped turn reads
+			// its element's app even when another tab is now visible), else the
+			// active preview, else the only one open.
+			const path =
+				query.appPath ??
+				activeDomAppPath ??
+				(domRequesters.size === 1 ? [...domRequesters.keys()][0] : undefined)
+			if (path === undefined) return undefined
+			const requester = domRequesters.get(path)
+			if (!requester) {
+				return {
+					text: `The preview for "${path}" is no longer open, so its DOM can't be read. Re-open that raw app in the session to inspect it.`
+				}
+			}
+			return requester(query)
+		},
 		setAppRunsProvider(provider) {
 			appRunsProvider = provider
 		},
@@ -878,7 +978,10 @@ export function resetSessionPreviewTabs(sessionId: string, url: string): void {
 export type SessionChatStatus =
 	| 'idle'
 	| 'streaming'
+	// The assistant's turn ended and the user has yet to reply — passive, unlike
+	// 'awaiting-answer'/'needs-confirmation', where a running loop is blocked.
 	| 'awaiting-user'
+	| 'awaiting-answer'
 	| 'needs-confirmation'
 	| 'draft'
 	| 'error'
@@ -897,7 +1000,7 @@ export function removeSession(sessionId: string): void {
 // backgrounded session's tool call opens its OWN preview, not the one the user
 // happens to be viewing. Outside a session there is no calling/active id and
 // the tool returns a polite error.
-setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
+setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 	const sessionId = callerSessionId ?? sessionState.currentSessionId
 	if (!sessionId) {
 		return 'Error: no active session to open the preview in.'
@@ -910,7 +1013,27 @@ setOpenPreviewHandler(({ sessionId: callerSessionId, kind, path }) => {
 	if (!target) {
 		return `Error: ${kind} targets cannot be shown in the preview panel.`
 	}
-	const result = getOrCreateRuntime(session).previewTabs.open(target)
+	const runtime = getOrCreateRuntime(session)
+	const result = runtime.previewTabs.open(target)
+	// The pipeline editor registers its build_pipeline_node / edit_pipeline_node
+	// tools asynchronously once the canvas mounts. Block the tool result until
+	// they are live so the model's next turn doesn't race ahead and hit an
+	// "Unknown tool call" error on the first node it tries to build.
+	if (kind === 'pipeline') {
+		const folder = normalizePipelineFolder(path)
+		const ready = await runtime.manager.waitForPipelineHelpers()
+		// A backgrounded session's preview tab does not mount, so its editor never
+		// registers — don't claim success, or the model calls build_pipeline_node
+		// into the void. Tell it the tools aren't available and how to recover.
+		if (!ready) {
+			return `Opened the pipeline preview for folder "${folder}", but its editor tools (build_pipeline_node / edit_pipeline_node) have not registered — this usually means this session is not the one currently displayed. Do NOT call build_pipeline_node yet: ask the user to open/focus this session's pipeline preview, then retry open_preview.`
+		}
+		// Spell out the node-path prefix: a node built off the folder name alone (or
+		// off the owner path twice over) is rejected by build_pipeline_node.
+		return `${
+			result.status === 'focused' ? 'Focused the' : 'Opened the'
+		} pipeline editor for folder "${folder}" in the side panel. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
+	}
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`
 		: `Opened ${kind} preview for ${path} in a new tab in the side panel.`
@@ -925,26 +1048,20 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return undefined
 	const owner = getOrCreateRuntime(session).previewTabs
-	// Re-point the tab already showing this page (matched ignoring query/hash) so a
-	// filter change updates it in place instead of spawning a duplicate — unless the
-	// user asked for a separate tab. open() dedupes on the exact URL, so differing
-	// filters would otherwise always open a new tab.
-	const targetPage = matchPreviewPage(href)
-	if (!newTab && targetPage) {
-		const existing = owner.tabs.find(
-			(t) => matchPreviewPage(t.loc || t.url)?.path === targetPage.path
-		)
-		if (existing) {
-			owner.select(existing.id)
-			owner.navigate({ type: 'page', href, label })
-			owner.setCollapsed(false)
-			return `Updated the ${label} preview tab with the new filters.`
-		}
+	// open() owns the whole decision — which tab already shows this page, whether the
+	// requested view differs from what it shows, and whether a forced load is needed to
+	// re-fire a drawer. Deciding any of that again here means two predicates for one
+	// question, and the report going out of step with what actually happened.
+	const result = owner.open({ type: 'page', href, label }, { forceNewTab: newTab })
+	if (result.status === 'focused') {
+		return `A preview tab is already showing ${label} — focused it.`
 	}
-	const result = owner.open({ type: 'page', href, label })
-	return result.status === 'focused'
-		? `A preview tab is already showing ${label} — focused it and applied the filters.`
-		: `Opened ${label} in a new preview tab in the side panel.`
+	// The tab count did not change: saying "opened a new tab" would leave the model
+	// believing in a tab that does not exist, and offering to close it.
+	if (result.status === 'retargeted') {
+		return `Updated the ${label} preview tab with the requested view.`
+	}
+	return `Opened ${label} in a new preview tab in the side panel.`
 })
 
 // Companion to the open_preview handler: report the calling session's open
@@ -956,7 +1073,9 @@ setGetPreviewStatusHandler((callerSessionId) => {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return 'No active session; the preview panel is unavailable.'
 	const owner = getOrCreateRuntime(session).previewTabs
-	return describePreview(owner.tabs, owner.activeId)
+	// `displayedTab` is the one place that decides what the user can see; the ACTIVE
+	// PREVIEW block reads it too, so the two descriptions cannot contradict each other.
+	return describePreview(owner.tabs, owner.activeId, !!owner.displayedTab)
 })
 
 // close_page dispatches here to close preview tabs in the calling session's
@@ -970,7 +1089,7 @@ setClosePreviewTabsHandler(({ sessionId: callerSessionId, all, match }) => {
 	const owner = getOrCreateRuntime(session).previewTabs
 	if (owner.tabs.length === 0) return 'The preview panel has no open tabs.'
 
-	const labelFor = (t: (typeof owner.tabs)[number]) => previewLocationLabel(t.loc || t.url)
+	const labelFor = (t: (typeof owner.tabs)[number]) => promptSafe(previewLocationLabel(whereIs(t)))
 	// Resolve the doomed tabs to ids up front — close() re-indexes on each call.
 	const doomed = selectPreviewTabsToClose(owner.tabs, { all, match })
 	if (doomed.length === 0) {
@@ -1029,6 +1148,33 @@ setGetRuntimeLogsHandler(async ({ sessionId: callerSessionId, limit }) => {
 		aiResult: formatRuntimeLogsForChat(limited),
 		uiMessage: `Read runtime logs`,
 		toolResult: formatRuntimeLogsForChat(limited)
+	}
+})
+
+setGetDomHandler(async ({ sessionId: callerSessionId, query }) => {
+	const sessionId = callerSessionId ?? sessionState.currentSessionId
+	const runtime = sessionId ? runtimes.get(sessionId) : undefined
+	if (!runtime) {
+		return {
+			aiResult:
+				'Error: search_dom and read_dom are only available inside an AI session. Tell the user the rendered DOM can only be read from a session preview, or switch to a session and open the raw app preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		}
+	}
+	const result = await runtime.requestDom(query)
+	if (result === undefined) {
+		return {
+			aiResult:
+				'No raw app preview is running for this session, so the DOM cannot be read. Next step: call open_preview with kind="raw_app" and the app path, wait for it to load, then call search_dom or read_dom again. The DOM is read live from the running preview.',
+			uiMessage: 'DOM unavailable',
+			toolResult: 'DOM unavailable'
+		}
+	}
+	return {
+		aiResult: result.text,
+		uiMessage: query.mode === 'search' ? 'Searched app DOM' : 'Read app DOM',
+		toolResult: result.text
 	}
 })
 
@@ -1097,10 +1243,15 @@ setScreenshotHandler(async ({ sessionId: callerSessionId }) => {
 
 export function getSessionChatStatus(runtime: SessionRuntime): SessionChatStatus {
 	const m = runtime.manager
+	const last = m.displayMessages[m.displayMessages.length - 1]
+	// A loop parked on the user still reports `loading`, so these must be tested
+	// before `streaming` — otherwise "answer me" renders as "the AI is typing"
+	// and a session that needs the user looks like one that doesn't.
+	const pending = pendingUserAction(m.displayMessages)
+	if (pending === 'question') return 'awaiting-answer'
+	if (pending === 'confirmation') return 'needs-confirmation'
 	if (m.loading) return 'streaming'
 	if (m.instructions.trim().length > 0) return 'draft'
-	const last = m.displayMessages[m.displayMessages.length - 1]
-	if (last?.role === 'tool' && last.needsConfirmation) return 'needs-confirmation'
 	if (last?.role === 'user' && last.error) return 'error'
 	if (last && (last.role === 'assistant' || last.role === 'tool')) return 'awaiting-user'
 	return 'idle'

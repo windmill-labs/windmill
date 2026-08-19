@@ -4,6 +4,7 @@
 		superadmin,
 		usedTriggerKinds,
 		userStore,
+		userWorkspaces,
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
@@ -11,6 +12,7 @@
 		tutorialsToDo,
 		skippedAll
 	} from '$lib/stores'
+	import { isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
@@ -53,10 +55,11 @@
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
-	import KafkaIcon from '../icons/KafkaIcon.svelte'
-	import NatsIcon from '../icons/NatsIcon.svelte'
-	import MqttIcon from '../icons/MqttIcon.svelte'
-	import AwsIcon from '../icons/AwsIcon.svelte'
+	import KafkaIcon from '../icons/triggers/KafkaIcon.svelte'
+	import NatsIcon from '../icons/triggers/NatsIcon.svelte'
+	import MqttIcon from '../icons/triggers/MqttIcon.svelte'
+	import AmqpIcon from '../icons/triggers/AmqpIcon.svelte'
+	import AwsIcon from '../icons/triggers/AwsIcon.svelte'
 	import {
 		getAvailableNativeTriggerServices,
 		getServiceConfig,
@@ -71,8 +74,8 @@
 		MeltButton
 	} from '$lib/components/meltComponents'
 	import MenuButton from './MenuButton.svelte'
-	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
-	import AzureIcon from '../icons/AzureIcon.svelte'
+	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
+	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
 	import { leaveCurrentWorkspace } from './leaveWorkspace'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 
@@ -99,7 +102,13 @@
 		}
 	}
 
-	loadAvailableNativeTriggers()
+	// Native triggers are EE-only; on CE the `/exists` checks just 404. Gate the
+	// load by license (reactive, since the license loads asynchronously).
+	$effect(() => {
+		if ($enterpriseLicense && $workspaceStore) {
+			loadAvailableNativeTriggers()
+		}
+	})
 
 	const triggersCollapsed = useLocalStorageValue(
 		'windmill_triggers_section_collapsed',
@@ -358,6 +367,15 @@
 			aiDescription: 'Button to navigate to MQTT triggers'
 		},
 		{
+			label: 'AMQP',
+			href: '/amqp_triggers',
+			icon: AmqpIcon,
+			disabled: $userStore?.operator,
+			kind: 'amqp',
+			aiId: 'sidebar-menu-link-amqp',
+			aiDescription: 'Button to navigate to AMQP triggers'
+		},
+		{
 			label: 'Email',
 			href: '/email_triggers',
 			icon: MailIcon,
@@ -400,6 +418,12 @@
 			return !page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
 		})
 	)
+	// Admins, superadmins, and fork creators reach workspace settings (the latter
+	// for the fork members screen; see isForkOwner / backend authorize_fork_owner_add_user).
+	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(currentWs, $userStore?.email)
+	)
 	let secondaryMenuLinks = $derived([
 		// {
 		// 	label: 'Workspace',
@@ -422,7 +446,7 @@
 					aiDescription: 'Button to navigate to account settings',
 					faIcon: undefined
 				},
-				...($userStore?.is_admin || $superadmin
+				...(canManageWorkspace
 					? [
 							{
 								label: 'Workspace',

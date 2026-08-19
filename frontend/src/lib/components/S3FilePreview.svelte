@@ -26,6 +26,12 @@
 		// Optional override of the storage backend (matches the picker's
 		// `storage` prop). Empty/undefined uses the workspace default.
 		storage?: string | undefined
+		// Browse this object storage resource directly instead of the
+		// workspace storage (matches the picker's `s3ResourcePath` prop).
+		s3ResourcePath?: string | undefined
+		// Workspace the previewed object lives in — the acting workspace of the
+		// surface that opened the preview; defaults to the nav workspace.
+		workspace?: string | undefined
 		// Override hooks for non-default backends (e.g. workspace settings
 		// preview before the storage is committed). Default to the standard
 		// helpers service — same defaults as S3FilePickerInner.
@@ -48,6 +54,8 @@
 	let {
 		fileKey,
 		storage = undefined,
+		s3ResourcePath = undefined,
+		workspace = undefined,
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
 		loadFileMetadataRequest = HelpersService.loadFileMetadata,
 		showMetadata = false,
@@ -103,11 +111,13 @@
 	// existence after an upstream run completes — moving from the
 	// "not yet materialized" empty state to the actual preview without
 	// requiring the user to re-click the asset.
+	let ws = $derived(workspace ?? $workspaceStore)
+
 	$effect(() => {
 		const key = fileKey
-		const ws = $workspaceStore
+		const ws_ = ws
 		void refreshKey
-		if (!key || !ws) {
+		if (!key || !ws_) {
 			fileMetadata = undefined
 			filePreview = undefined
 			notFound = false
@@ -129,9 +139,10 @@
 		loadError = undefined
 		try {
 			const meta = await loadFileMetadataRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				fileKey: key,
-				storage
+				storage,
+				s3ResourcePath
 			})
 			if (meta !== undefined) {
 				fileMetadata = {
@@ -158,7 +169,7 @@
 		filePreviewLoading = true
 		try {
 			const raw = await loadFilePreviewRequest({
-				workspace: $workspaceStore!,
+				workspace: ws!,
 				fileKey: key,
 				fileSizeInBytes: size,
 				fileMimeType: mimeType,
@@ -166,7 +177,8 @@
 				csvHasHeader: csvHasHeader,
 				readBytesFrom: 0,
 				readBytesLength: 128 * 1024,
-				storage
+				storage,
+				s3ResourcePath
 			})
 			let content = raw.content
 			if (content !== null && content !== undefined && content.length >= 128 * 1024) {
@@ -191,8 +203,12 @@
 	}
 
 	// `storage` is keyed by the workspace's S3 storage config name — used as
-	// a query-string suffix on the image/PDF preview URLs.
-	let storageQS = $derived(storage ? `&storage=${storage}` : '')
+	// a query-string suffix on the image/PDF preview URLs, together with the
+	// optional custom resource override.
+	let storageQS = $derived(
+		(storage ? `&storage=${storage}` : '') +
+			(s3ResourcePath ? `&s3_resource_path=${encodeURIComponent(s3ResourcePath)}` : '')
+	)
 
 	function onCsvControlsChanged() {
 		if (fileMetadata?.fileKey) {
@@ -245,7 +261,7 @@
 		{:else if fileMetadata?.fileKey.endsWith('.png') || fileMetadata?.fileKey.endsWith('.jpg') || fileMetadata?.fileKey.endsWith('.jpeg') || fileMetadata?.fileKey.endsWith('.webp')}
 			<div>
 				<ExpandableImage
-					src={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+					src={`/api/w/${ws}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
 						fileMetadata.fileKey
 					)}${storageQS}`}
 					alt="S3 preview"
@@ -258,7 +274,7 @@
 					<Loader2 class="animate-spin" />
 				{:then Module}
 					<Module.default
-						source={`/api/w/${$workspaceStore}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
+						source={`/api/w/${ws}/job_helpers/load_image_preview?file_key=${encodeURIComponent(
 							fileMetadata.fileKey
 						)}${storageQS}`}
 					/>

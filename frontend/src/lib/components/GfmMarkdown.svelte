@@ -1,16 +1,32 @@
 <script lang="ts">
 	import { Markdown } from 'svelte-exmarkdown'
 	import { markdownPlugins as plugins } from './markdownPlugins'
+	import { markdownProse, type MarkdownProseSize } from './markdownProse'
+	import { isOfflineReplay } from './recording/offlineReplay.svelte'
 	interface Props {
 		md: string
 		noPadding?: boolean
+		/** Shared prose stack to render with. Omitted keeps the legacy `prose-xs`,
+		 * which the flow-graph notes are laid out against. */
+		prose?: MarkdownProseSize
 	}
 
-	let { md, noPadding }: Props = $props()
+	let { md, noPadding, prose }: Props = $props()
+
+	// Rendering markdown turns `![](url)` into a real `<img>`, i.e. a request. On the
+	// public replay page the source is a recording from an arbitrary origin and the
+	// page promises to issue none, so show the text instead. Gated here rather than
+	// at each call site because every recorded annotation (flow notes, group notes,
+	// step descriptions) reaches markdown through this one component.
+	let asPlainText = $derived(isOfflineReplay())
 </script>
 
-<div class="!prose-xs {noPadding ? '' : 'pgap'}">
-	<Markdown {md} {plugins} />
+<div class="{prose ? markdownProse[prose] : '!prose-xs'} {noPadding ? '' : 'pgap'}">
+	{#if asPlainText}
+		<p class="whitespace-pre-wrap">{md}</p>
+	{:else}
+		<Markdown {md} {plugins} />
+	{/if}
 </div>
 
 <style global>

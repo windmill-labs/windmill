@@ -21,7 +21,7 @@ use windmill_common::{
     DB,
 };
 use windmill_queue::PushArgsOwned;
-use windmill_trigger::filter::{check_filters, Filter};
+use windmill_trigger::filter::CompiledFilters;
 use windmill_trigger::listener::{update_rw_lock, ListeningTrigger};
 use windmill_trigger::trigger_helpers::{
     trigger_runnable, trigger_runnable_and_wait_for_raw_result,
@@ -191,7 +191,7 @@ impl Listener for WebsocketTrigger {
             Cow::Borrowed(&url)
         };
 
-        validate_websocket_url_for_ssrf(&connect_url).await?;
+        let validated = validate_websocket_url_for_ssrf(&connect_url).await?;
 
         // Gateway endpoints are often fronted by an edge proxy (e.g. Cloudflare)
         // that sporadically answers the upgrade request with a transient 5xx
@@ -203,7 +203,7 @@ impl Listener for WebsocketTrigger {
         let mut attempt = 0;
         loop {
             attempt += 1;
-            match connect_async_with_proxy(&*connect_url).await {
+            match connect_async_with_proxy(&*connect_url, validated.pinned_addrs()).await {
                 Ok(conn) => return Ok(Some(conn)),
                 // Only retry in trigger mode: a failed connect there disables the
                 // trigger until a human re-enables it, while capture mode is an
@@ -362,15 +362,14 @@ impl Listener for WebsocketTrigger {
             } => {},
             // Message reader
             _ = async {
-                    let filters: Vec<Filter> = if listening_trigger.trigger_mode {
-                        listening_trigger
-                            .trigger_config
-                            .filters
-                            .iter()
-                            .filter_map(|m| serde_json::from_str(m.get()).ok())
-                            .collect_vec()
+                    let filters = if listening_trigger.trigger_mode {
+                        CompiledFilters::parse(
+                            listening_trigger.trigger_config.filters.iter().map(|m| m.get()),
+                            listening_trigger.trigger_config.filter_logic == "or",
+                            &listening_trigger.path,
+                        )
                     } else {
-                        vec![]
+                        CompiledFilters::default()
                     };
                 loop {
                     if let Some(msg) = reader.next().await {
@@ -391,9 +390,7 @@ impl Listener for WebsocketTrigger {
                                             }
                                         }
 
-                                        let use_or = listening_trigger.trigger_config.filter_logic == "or";
-                                        let should_handle = check_filters(&text, &filters, use_or);
-                                        if should_handle {
+                                        if filters.matches(&text) {
                                             let trigger_info = HashMap::from([
                                                 ("url".to_string(), to_raw_value(&listening_trigger.trigger_config.url)),
                                             ]);

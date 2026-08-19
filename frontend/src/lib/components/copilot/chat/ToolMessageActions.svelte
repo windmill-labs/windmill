@@ -7,6 +7,7 @@
 		Database,
 		DollarSign,
 		FolderOpen,
+		GitCompareArrows,
 		KeyRound,
 		Mail,
 		Package,
@@ -25,6 +26,7 @@
 	import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 	import KafkaIcon from '$lib/components/icons/KafkaIcon.svelte'
 	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
+	import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 	import NatsIcon from '$lib/components/icons/NatsIcon.svelte'
 	import { runToolDisplayAction } from './createdResourceActions.svelte'
 	import type { CreatedResourceTriggerKind, ToolDisplayAction } from './shared'
@@ -53,6 +55,7 @@
 		kafka: { title: 'Kafka trigger', icon: KafkaIcon },
 		nats: { title: 'NATS trigger', icon: NatsIcon },
 		mqtt: { title: 'MQTT trigger', icon: MqttIcon },
+		amqp: { title: 'AMQP trigger', icon: AmqpIcon },
 		sqs: { title: 'SQS trigger', icon: AwsIcon },
 		gcp: { title: 'GCP Pub/Sub trigger', icon: GoogleCloudIcon },
 		azure: { title: 'Azure Event Grid trigger', icon: AzureIcon },
@@ -69,13 +72,19 @@
 		folders: { title: 'Folders', icon: FolderOpen },
 		groups: { title: 'Groups', icon: Users },
 		triggers: { title: 'Triggers', icon: Zap },
-		workspace_settings: { title: 'Workspace settings', icon: Settings }
+		workspace_settings: { title: 'Workspace settings', icon: Settings },
+		compare: { title: 'Compare & Deploy', icon: GitCompareArrows }
 	}
 
 	function getActionCard(action: ToolDisplayAction): ActionCard {
 		if (action.type === 'navigate') {
 			const config = navigatePageConfig[action.page] ?? { title: action.page, icon: Route }
 			return { ...config, subtitle: action.label, buttonIcon: ArrowRight }
+		}
+		if (action.type === 'open_item_preview') {
+			// Preview-item cards render through ToolPreviewCard, not here; keep this branch
+			// only so the exhaustive union stays type-safe.
+			return { title: action.label, icon: SquarePen, subtitle: action.path, buttonIcon: ArrowRight }
 		}
 		const key: ActionCardKey | undefined =
 			action.resource === 'trigger' ? action.triggerKind : action.resource

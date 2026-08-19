@@ -167,8 +167,14 @@ jobs:
         env:
           EXTRA_PROMPT: ${{ inputs.extra_prompt }}
         run: |
+          # prior-comments.md is PR comment text verbatim, and commenting needs no write access.
+          # With a fixed delimiter, a comment containing a bare `EOF` line closes the block early:
+          # the step dies, and whatever follows in that comment is read as further environment
+          # assignments for the rest of this job, which holds the review tokens. Hence a random
+          # delimiter, per GitHub's guidance for untrusted multiline values.
+          delimiter="REVIEW_PROMPT_EOF_$(openssl rand -hex 16)"
           {
-            echo 'REVIEW_PROMPT<<EOF'
+            echo "REVIEW_PROMPT<<$delimiter"
             cat REVIEW.md
             echo ''
             cat .claude/review-prompt.md
@@ -182,7 +188,7 @@ jobs:
               echo ''
               cat prior-comments.md
             fi
-            echo 'EOF'
+            echo "$delimiter"
           } >> "$GITHUB_ENV"
 
       - name: Automatic PR Review
@@ -199,4 +205,4 @@ jobs:
             ${{ env.REVIEW_PROMPT }}
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
-            --model claude-opus-4-8
+            --model claude-opus-5

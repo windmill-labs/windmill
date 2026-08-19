@@ -4,6 +4,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
+	import { resourceTypeSearchText, sortResourceTypesByMatch } from './resourceTypeDisplay'
 	import {
 		OauthService,
 		ResourceService,
@@ -22,7 +23,6 @@
 	import WhitelistIp from './WhitelistIp.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import OauthScopes from './OauthScopes.svelte'
-	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
 	import { base } from '$lib/base'
 	import Required from './Required.svelte'
@@ -35,6 +35,7 @@
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
 	import Label from './Label.svelte'
+	import ResourcePathHint from './ResourcePathHint.svelte'
 
 	interface Props {
 		step?: number
@@ -98,6 +99,7 @@
 	let connectClient: string = $state('')
 	let connectsManual: { key: string; img?: string; instructions: string[] }[] | undefined =
 		$state(undefined)
+	let resourceTypeDescriptions: Record<string, string> = $state({})
 	let args: any = $state({})
 	let renderDescription = $state(true)
 
@@ -396,6 +398,20 @@
 			workspace: effectiveWorkspace
 		})
 
+		// Descriptions only feed search, so they are fetched off the critical path and
+		// allowed to fail: `resources/type/list` is not on the public app domain's route
+		// allow-list (`listnames` is), and it carries every type's full schema. Awaiting it
+		// would hold the list behind a request nothing on screen needs -- in a published
+		// app, behind one that is guaranteed to 403. resourceTypeDescriptions feeds a
+		// $derived, so search re-ranks when they land.
+		ResourceService.listResourceType({ workspace: effectiveWorkspace })
+			.then((types) => {
+				resourceTypeDescriptions = Object.fromEntries(
+					types.filter((t) => t.description).map((t) => [t.name, t.description!])
+				)
+			})
+			.catch(() => {})
+
 		// "Others" lists every resource type — including instance-configured OAuth
 		// providers — so any of them can also be connected with the user's own
 		// credentials or manually, not only via the shared instance setup (same as
@@ -561,7 +577,9 @@
 				args = {}
 			} else {
 				getResourceTypeInfo()
-				getScopesAndParams()
+				// Awaited: the popup is built from `scopes`, so advancing before this
+				// resolves sends the user to an authorize url with no scope at all.
+				await getScopesAndParams()
 			}
 			step += 1
 		} else if (step == 2 && !manual) {
@@ -868,6 +886,22 @@
 	let filteredConnects: { key: string }[] = $state([])
 	let filteredConnectsManual: { key: string; img?: string; instructions: string[] }[] = $state([])
 
+	// uFuzzy scores the name and the description as one string, so searching "google" ranks
+	// every type whose description mentions Google alongside the ones named after it. Re-sort
+	// on which field matched, keeping uFuzzy's order within a tier.
+	const rank = (items: { key: string }[] | undefined) =>
+		items &&
+		sortResourceTypesByMatch(
+			items,
+			filter,
+			(x) => x.key,
+			(x) => resourceTypeDescriptions[x.key]
+		)
+	let rankedConnects = $derived(rank(filteredConnects))
+	let rankedConnectsManual = $derived(
+		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
+	)
+
 	let editScopes = $state(false)
 </script>
 
@@ -880,13 +914,13 @@
 				}))
 			: undefined}
 		bind:filteredItems={filteredConnects}
-		f={(x) => x.key}
+		f={(x) => resourceTypeSearchText(x.key, resourceTypeDescriptions[x.key])}
 	/>
 	<SearchItems
 		{filter}
 		items={connectsManual}
 		bind:filteredItems={filteredConnectsManual}
-		f={(x) => x.key}
+		f={(x) => resourceTypeSearchText(x.key, resourceTypeDescriptions[x.key])}
 	/>
 	{#if step == 1}
 		<div class="pb-2 my-1">
@@ -902,8 +936,8 @@
 
 		<h2 class="mb-4 text-sm font-semibold text-emphasis">Instance-configured OAuth APIs</h2>
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center">
-			{#if filteredConnects}
-				{#each filteredConnects as { key }}
+			{#if rankedConnects}
+				{#each rankedConnects as { key }}
 					<Button
 						unifiedSize="md"
 						variant="default"
@@ -943,8 +977,8 @@
 		{/if}
 
 		<div class="grid sm:grid-cols-2 md:grid-cols-3 gap-x-2 gap-y-1 items-center mb-2">
-			{#if filteredConnectsManual}
-				{#each filteredConnectsManual as { key }}
+			{#if rankedConnectsManual}
+				{#each rankedConnectsManual as { key }}
 					{#if nativeLanguagesCategory.includes(key)}
 						<Button
 							unifiedSize="md"
@@ -957,8 +991,8 @@
 					{/if}
 				{/each}
 			{/if}
-			{#if filteredConnectsManual}
-				{#each filteredConnectsManual as { key }}
+			{#if rankedConnectsManual}
+				{#each rankedConnectsManual as { key }}
 					{#if !nativeLanguagesCategory.includes(key)}
 						<!-- Exclude specific items -->
 						<Button
@@ -991,7 +1025,11 @@
 		</div>
 	{:else if step == 2 && manual}
 		<div class="flex flex-col gap-8">
+			{#if !emptyString(resourceTypeInfo?.description)}
+				<GfmMarkdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} prose="sm" noPadding />
+			{/if}
 			<Label label="Path">
+				<ResourcePathHint />
 				<Path
 					bind:error={pathError}
 					bind:path
@@ -1011,9 +1049,9 @@
 			{/if}
 
 			{#if apiTokenApps[resourceType]}
-				<h2 class="mt-4 mb-2">Instructions</h2>
-				<div class="pl-10">
-					<ol class="list-decimal">
+				<div class="flex flex-col gap-2">
+					<h2 class="text-sm font-semibold text-emphasis">Instructions</h2>
+					<ol class="list-decimal pl-5 text-xs text-primary flex flex-col gap-1">
 						{#each apiTokenApps[resourceType].instructions as step}
 							<li>
 								{@html step}
@@ -1030,15 +1068,6 @@
 						/>
 					</div>
 				{/if}
-			{:else if !emptyString(resourceTypeInfo?.description)}
-				<label class="flex flex-col gap-1">
-					<span class="text-sm font-semibold text-emphasis">
-						{resourceTypeInfo?.name} description
-					</span>
-					<div class="text-xs text-primary font-normal">
-						<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
-					</div>
-				</label>
 			{/if}
 			{#if resourceType == 'postgresql' || resourceType == 'mysql' || resourceType == 'mongodb'}
 				<WhitelistIp />
@@ -1066,7 +1095,7 @@
 				{:else if description == undefined || description == ''}
 					<div class="text-xs text-primary font-normal">No description provided</div>
 				{:else}
-					<GfmMarkdown md={description} />
+					<GfmMarkdown md={description} prose="sm" />
 				{/if}
 			</div>
 
@@ -1075,7 +1104,7 @@
 					<p class="text-red-500 dark:text-red-400 text-xs">
 						Resource type '{resourceType}' not found in your workspace
 					</p>
-					<SyncResourceTypes onSynced={getResourceTypeInfo} />
+					<SyncResourceTypes {resourceType} onSynced={getResourceTypeInfo} />
 				</div>
 			{/if}
 			{#if registryCcCapable()}
@@ -1122,12 +1151,11 @@
 				</div>
 
 				{#if resourceTypeInfo?.description}
-					<div class="flex flex-col gap-1">
-						<h3 class="text-sm font-semibold text-emphasis">Description</h3>
-						<div class="text-xs text-primary font-normal">
-							<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
-						</div>
-					</div>
+					<GfmMarkdown
+						md={urlize(resourceTypeInfo?.description ?? '', 'md')}
+						prose="sm"
+						noPadding
+					/>
 				{/if}
 
 				<LabelsInput bind:labels class="-mt-5" />

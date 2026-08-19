@@ -70,12 +70,15 @@ export function anthropicUsageToChatTokenUsage(
 	}
 }
 
+// Unlike Anthropic, OpenAI's input_tokens already includes cached tokens
+// (input_tokens_details.cached_tokens is a subset), so it must not be added again.
 export function openAIResponsesUsageToChatTokenUsage(
 	usage:
 		| {
 				input_tokens?: number | null
 				output_tokens?: number | null
 				total_tokens?: number | null
+				input_tokens_details?: { cached_tokens?: number | null } | null
 		  }
 		| null
 		| undefined
@@ -90,12 +93,15 @@ export function openAIResponsesUsageToChatTokenUsage(
 	}
 }
 
+// Unlike Anthropic, OpenAI's prompt_tokens already includes cached tokens
+// (prompt_tokens_details.cached_tokens is a subset), so it must not be added again.
 export function openAICompletionsUsageToChatTokenUsage(
 	usage:
 		| {
 				prompt_tokens?: number | null
 				completion_tokens?: number | null
 				total_tokens?: number | null
+				prompt_tokens_details?: { cached_tokens?: number | null } | null
 		  }
 		| null
 		| undefined

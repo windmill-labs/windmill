@@ -173,6 +173,18 @@
 										'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
 										'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;\n' +
 										'ALTER ROLE custom_instance_user CREATEROLE;'
+								},
+								{
+									title: 'Grant replication to custom_instance_replication_user',
+									status: status?.logs.replication_user,
+									description:
+										'Postgres triggers on custom-instance datatables connect as custom_instance_replication_user, whose password is stored in global_settings.custom_instance_replication_pwd. The role is cluster-wide, so it is created on the Windmill PostgreSQL instance rather than on this database : \n\n' +
+										'ALTER ROLE custom_instance_replication_user REPLICATION;\n' +
+										'GRANT custom_instance_user TO custom_instance_replication_user;\n\n' +
+										'Setting REPLICATION requires a superuser on PostgreSQL 15 and older. Managed instances never grant one, so on AWS RDS Windmill falls back to GRANT rds_replication TO custom_instance_replication_user. The database stays usable for datatables if this step fails, but postgres triggers on them do not.' +
+										(status?.logs.replication_user_error
+											? `\n\nError: ${status.logs.replication_user_error}`
+											: '')
 								}
 							],
 							status?.error ?? undefined
@@ -185,11 +197,13 @@
 							endIcon={{ icon: InfoIcon }}
 							onClick={async () => {
 								await SettingService.refreshCustomInstanceUserPwd()
-								sendUserToast('custom_instance_user password refreshed')
-							}}>Refresh custom_instance_user password</Button
+								sendUserToast('custom instance user passwords refreshed')
+							}}>Refresh custom instance passwords</Button
 						>
 						{#snippet text()}
-							Try this if there is an issue with your custom instance database password.
+							Try this if there is an issue with your custom instance database passwords. Rotates
+							both custom_instance_user and the custom_instance_replication_user used by postgres
+							triggers.
 						{/snippet}
 					</Tooltip>
 				{/if}

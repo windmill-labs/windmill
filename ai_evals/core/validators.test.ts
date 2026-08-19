@@ -119,6 +119,57 @@ describe("validateToolExpectations", () => {
     });
   });
 
+  // The whole point of the same-call rule: the per-field rules are existential over
+  // calls, so two single-filter pages would satisfy them while never opening the
+  // combined view the case asks for.
+  it("requires the listed fields on one and the same call", () => {
+    const splitCalls = {
+      success: true,
+      actual: {},
+      assistantMessageCount: 1,
+      toolCallCount: 2,
+      toolsUsed: ["open_page"],
+      toolCallDetails: [
+        { name: "open_page", arguments: { page: "runs", label: "nightly-digest" } },
+        { name: "open_page", arguments: { page: "runs", worker: "wk-eval-1" } },
+      ],
+      skillsInvoked: [],
+    };
+    const sameCallRule = {
+      toolCallArgsSameCall: [
+        {
+          tool: "open_page",
+          args: [
+            { field: "label", stringIncludesAnyOf: ["nightly-digest"] },
+            { field: "worker", stringIncludesAnyOf: ["wk-eval-1"] },
+          ],
+        },
+      ],
+    };
+
+    expect(
+      validateToolExpectations({ run: splitCalls, toolExpect: sameCallRule }).every(
+        (check) => check.passed
+      )
+    ).toBe(false);
+
+    expect(
+      validateToolExpectations({
+        run: {
+          ...splitCalls,
+          toolCallCount: 1,
+          toolCallDetails: [
+            {
+              name: "open_page",
+              arguments: { page: "runs", label: "nightly-digest", worker: "wk-eval-1" },
+            },
+          ],
+        },
+        toolExpect: sameCallRule,
+      }).every((check) => check.passed)
+    ).toBe(true);
+  });
+
   it("rejects forbidden tool usage", () => {
     const checks = validateToolExpectations({
       run: {
@@ -166,6 +217,86 @@ describe("validateToolExpectations", () => {
             tool: "exec_datatable_sql",
             field: "sql",
             stringIncludesAnyOf: ["select"],
+          },
+        ],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("fails nonEmpty when any call left the field blank", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 2,
+        toolsUsed: ["update_artifact"],
+        toolCallDetails: [
+          { name: "update_artifact", arguments: { change_note: "Added a rollback section" } },
+          // A whitespace-only note is as unreadable in the picker as a missing one.
+          { name: "update_artifact", arguments: { change_note: "   " } },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [{ tool: "update_artifact", field: "change_note", nonEmpty: true }],
+      },
+    });
+
+    const nonEmptyCheck = checks.find((c) => c.name.includes("is filled in on every call"));
+    expect(nonEmptyCheck?.passed).toBe(false);
+    expect(nonEmptyCheck?.details).toContain("blank on 1 of 2");
+  });
+
+  it("passes nonEmpty when every call filled the field", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["update_artifact"],
+        toolCallDetails: [
+          { name: "update_artifact", arguments: { change_note: "Tightened phase 2" } },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        toolCallArgs: [{ tool: "update_artifact", field: "change_note", nonEmpty: true }],
+      },
+    });
+
+    expect(checks.every((check) => check.passed)).toBe(true);
+  });
+
+  it("accepts a stringIncludesAnyOf substring inside an array-valued field", () => {
+    const checks = validateToolExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 1,
+        toolsUsed: ["open_page"],
+        toolCallDetails: [
+          {
+            name: "open_page",
+            arguments: {
+              page: "compare",
+              items: ["script:f/evals/global/compare_review_demo"],
+            },
+          },
+        ],
+        skillsInvoked: [],
+      },
+      toolExpect: {
+        requiredToolsUsed: ["open_page"],
+        toolCallArgs: [
+          {
+            tool: "open_page",
+            field: "items",
+            stringIncludesAnyOf: ["f/evals/global/compare_review_demo"],
           },
         ],
       },
@@ -244,6 +375,35 @@ describe("validateToolExpectations", () => {
       details:
         'accepted substrings: insert into, update; values: "DROP TABLE orders"',
     });
+  });
+
+  // Absence has to mean absence: a partial-update tool is only proven correct if the
+  // field was never passed, and an explicit null IS passing it.
+  it("fieldMustBeAbsent accepts an omitted field and rejects a supplied or null one", () => {
+    const run = (args: Record<string, unknown>) =>
+      validateToolExpectations({
+        run: {
+          success: true,
+          actual: {},
+          assistantMessageCount: 1,
+          toolCallCount: 1,
+          toolsUsed: ["write_variable"],
+          toolCallDetails: [{ name: "write_variable", arguments: args }],
+          skillsInvoked: [],
+        },
+        toolExpect: {
+          toolCallArgs: [
+            { tool: "write_variable", field: "value", fieldMustBeAbsent: true },
+          ],
+        },
+      });
+    const absent = (checks: Array<{ name: string; passed: boolean }>) =>
+      checks.find((check) => check.name === "write_variable.value is not supplied")
+        ?.passed;
+
+    expect(absent(run({ path: "u/a/b", description: "only metadata" }))).toBe(true);
+    expect(absent(run({ path: "u/a/b", value: "****" }))).toBe(false);
+    expect(absent(run({ path: "u/a/b", value: null }))).toBe(false);
   });
 
   it("passes requiredToolsAnyOf when any alternative in the group is used", () => {

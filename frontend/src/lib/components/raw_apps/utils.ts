@@ -3,7 +3,7 @@ import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
 import type { InlineScript } from '../apps/sharedTypes'
-import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+import { stateSnapshot } from '$lib/stateSnapshot.svelte'
 import { appSourceToDraftValue, normalizeRawAppData } from './rawAppDraftValue'
 
 // export type RunnableWithFields = any
@@ -172,7 +172,7 @@ export function unsandboxedRawAppHtml(
 	<title>App</title>
 	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
 	<script>
-		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
+		window.ctx = ${ctx ? JSON.stringify(ctx).replace(/</g, '\\u003c') : 'undefined'};
 		(function () {
 			// Keep the parent URL hash in sync for shareable URLs.
 			function notifyParent() {

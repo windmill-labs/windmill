@@ -75,6 +75,114 @@ export function getWorkspaceIdForWorkspaceForkFromBranchName(branchName: string)
 
   return `${WM_FORK_PREFIX}-${branchName.slice(start)}`
 }
+/**
+ * Whether this checkout can vouch for what it once held under `migrations/datatable/**`.
+ *
+ * `known` lists every such path recorded on the current branch (paths stay listed after
+ * the commit that removed them, so a real deletion is still recognisable). `unknown`
+ * means a file's absence from the working tree proves nothing, either because the
+ * history can't be read — no repository, a shallow clone's truncated history, an
+ * unresolvable root, a failing git — or because the working tree deliberately doesn't
+ * mirror it, as in a sparse checkout. Both shapes carry the same obligation on the
+ * caller: trust nothing, rather than read absence as evidence.
+ */
+export type RecordedMigrationPaths =
+  | { kind: "known"; paths: Set<string> }
+  | { kind: "unknown"; reason: string; remedy: string };
+
+/**
+ * Resolve [`RecordedMigrationPaths`] for the checkout at the current directory.
+ *
+ * This is the durable answer to "did this checkout ever track that migration?", which
+ * the working tree cannot give: an absent `migrations/datatable/` is equally a clone
+ * that never pulled migrations and one where the last was deleted, and creating a
+ * migration locally (`wmill datatable migrate new`) makes the directory appear without
+ * anything having been tracked.
+ *
+ * Scoped to `HEAD`, not `--all`: a migration that only ever existed on some other
+ * branch is not evidence that *this* branch ever tracked it, and using it as such would
+ * authorize deleting it. Output paths are repo-root-relative, so the `--show-prefix` of
+ * the working directory is stripped to match the cwd-relative paths a sync diff uses.
+ */
+export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
+  if (!isGitRepository()) {
+    return {
+      kind: "unknown",
+      reason: "this directory is not a git repository",
+      remedy: "Run the push from a git checkout of the synced repository",
+    };
+  }
+  const shallow = spawnSync("git", ["rev-parse", "--is-shallow-repository"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if ((shallow.stdout ?? "").trim() === "true") {
+    return {
+      kind: "unknown",
+      reason: "this is a shallow clone, so its history is truncated",
+      remedy:
+        "Fetch the full history (for actions/checkout, fetch-depth: 0)",
+    };
+  }
+  // A sparse checkout can record migrations in history while never materialising
+  // them in the working tree, so their absence there says nothing about whether the
+  // user deleted them. Over-protective for a sparse cone that does include
+  // migrations/, which the interactive prompt can still override.
+  // `--type=bool` normalises git's booleans (1, yes, on, …) to true/false; a raw
+  // `--get` would let `core.sparseCheckout = 1` walk straight past this.
+  const sparse = spawnSync(
+    "git",
+    ["config", "--type=bool", "--get", "core.sparseCheckout"],
+    { encoding: "utf8", stdio: "pipe" },
+  );
+  if ((sparse.stdout ?? "").trim() === "true") {
+    return {
+      kind: "unknown",
+      reason:
+        "this is a sparse checkout, so its working tree may not hold every tracked file",
+      remedy: "Run the push from a full (non-sparse) checkout",
+    };
+  }
+  const prefixOut = spawnSync("git", ["rev-parse", "--show-prefix"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if ((prefixOut.status ?? 1) !== 0) {
+    return {
+      kind: "unknown",
+      reason: "the repository root could not be resolved",
+      remedy: "Check that git runs correctly in this directory",
+    };
+  }
+  const prefix = (prefixOut.stdout ?? "").trim();
+
+  const r = spawnSync(
+    "git",
+    ["log", "HEAD", "--format=", "--name-only", "--", "migrations/datatable"],
+    { encoding: "utf8", stdio: "pipe", maxBuffer: 64 * 1024 * 1024 },
+  );
+  if ((r.status ?? 1) !== 0) {
+    log.debug(`Could not read git history for migrations: ${r.stderr ?? ""}`);
+    return {
+      kind: "unknown",
+      reason: "its history could not be read",
+      remedy: "Check that git runs correctly in this directory",
+    };
+  }
+  const paths = new Set<string>();
+  for (const line of (r.stdout ?? "").split("\n")) {
+    const p = line.trim();
+    if (p.length === 0) continue;
+    if (prefix.length > 0) {
+      if (!p.startsWith(prefix)) continue;
+      paths.add(p.slice(prefix.length));
+    } else {
+      paths.add(p);
+    }
+  }
+  return { kind: "known", paths };
+}
+
 export function isGitRepository(): boolean {
   try {
     execSync("git rev-parse --git-dir", {
@@ -107,10 +215,12 @@ export interface GitSyncDeployItem {
   commit_msg?: string;
 }
 
-// A fork or dev workspace syncs to its own wm-fork/<branch>/<id> branch. The hub
-// script force-disables use_individual_branch / group_by_folder for these (that
-// disabling also changes the include/promotion derivation — so callers must apply
-// it BEFORE deriving includes, not just for branch naming).
+// A throwaway fork syncs to its own wm-fork/<branch>/<id> branch. The hub script
+// force-disables use_individual_branch / group_by_folder for these (that disabling
+// also changes the include/promotion derivation — so callers must apply it BEFORE
+// deriving includes, not just for branch naming). A dev workspace is the exception:
+// with promotion on it keeps use_individual_branch / group_by_folder and gets
+// per-item wm_deploy/** branches like a root workspace.
 //
 // Fork-ness is "has a parent workspace" OR the "wm-fork-" id prefix. Regular forks
 // get an auto-generated `wm-fork-<slug>` id, but dev workspaces keep a custom id
@@ -165,11 +275,28 @@ export function computeGitSyncDeployBranch(params: {
     clonedBranchName,
   } = params;
 
-  if (isForkWorkspace(workspaceId, parentWorkspaceId)) {
+  // A dev workspace in promotion mode falls through to the wm_deploy/** formula
+  // below (per-item/-folder PRs that promote into its parent). Throwaway forks,
+  // and dev workspaces with promotion off, sync to their own wm-fork/<branch>/<id>
+  // (or env-label) branch.
+  const isDevWorkspace = !!devWorkspaceLabel;
+  if (
+    isForkWorkspace(workspaceId, parentWorkspaceId) &&
+    !(isDevWorkspace && useIndividualBranch)
+  ) {
     return forkBranchName(workspaceId, clonedBranchName, devWorkspaceLabel);
   }
 
-  if (items.length === 0) return null;
+  // A dev workspace's deploys must never fall through to the base branch — that
+  // is its parent's tracked branch, so a null here would push dev content
+  // straight to prod. Anything without its own wm_deploy/** branch (user/group
+  // objects, an unresolvable ref) goes to the dev's env-label branch instead.
+  // A root workspace has no such isolation, so its fallback stays null (base).
+  const fallback = isDevWorkspace
+    ? forkBranchName(workspaceId, clonedBranchName, devWorkspaceLabel)
+    : null;
+
+  if (items.length === 0) return fallback;
   const first = items[0];
 
   // `use_individual_branch` disables debouncing, so items is length 1 here.
@@ -178,11 +305,16 @@ export function computeGitSyncDeployBranch(params: {
     first.path_type === "user" ||
     first.path_type === "group"
   ) {
-    return null;
+    return fallback;
   }
 
-  const ref = first.path ?? first.parent_path;
-  if (!ref) return null;
+  // `||` not `??`: the backend serializes a path that no longer matches the repo
+  // filter (a rename out of the included set) as "" with the old path in
+  // parent_path. That "" must fall back to parent_path — mirroring the backend's
+  // `!item_path.is_empty()` derivation. `??` would keep "", return null, and skip
+  // the branch checkout, letting the removal land on the tracked base branch.
+  const ref = first.path || first.parent_path;
+  if (!ref) return fallback;
 
   return groupByFolder
     ? `wm_deploy/${workspaceId}/${ref.split("/").slice(0, 2).join("__")}`
@@ -285,6 +417,8 @@ export function gitSyncIncludePattern(
       return `${path}.postgres_trigger.*`;
     case "mqtttrigger":
       return `${path}.mqtt_trigger.*`;
+    case "amqptrigger":
+      return `${path}.amqp_trigger.*`;
     case "sqstrigger":
       return `${path}.sqs_trigger.*`;
     case "gcptrigger":
@@ -293,6 +427,10 @@ export function gitSyncIncludePattern(
       return `${path}.azure_trigger.*`;
     case "emailtrigger":
       return `${path}.email_trigger.*`;
+    case "datatable_migration":
+      // One migration is two files under `migrations/datatable/<dt>/`; the
+      // backend already sends the repo-relative base path.
+      return `${path}.up.sql,${path}.down.sql`;
     default:
       // Scripts: `${path}.*` matches the dotted layout
       // (`${path}.script.yaml` etc.), `${path}__mod/**` matches the folder

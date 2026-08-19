@@ -1,5 +1,10 @@
-import { describe, it, expect } from 'vitest'
-import { buildFilterUrl } from './navigation'
+import { describe, it, expect, vi } from 'vitest'
+
+const goto = vi.hoisted(() => vi.fn(async (_path: string) => {}))
+vi.mock('$app/navigation', () => ({ goto: (path: string) => goto(path) }))
+vi.mock('$app/paths', () => ({ base: '' }))
+
+import { buildFilterUrl, setQuery } from './navigation'
 
 // Parse the (un-based) app path the builder returns against a dummy origin so we can
 // assert on pathname / searchParams / hash without caring about ordering.
@@ -48,5 +53,29 @@ describe('buildFilterUrl', () => {
 		const u = parse(buildFilterUrl('/schedules', { path: 'f/x' }, { hash: 'f/a/b' }))
 		expect(u.searchParams.get('path')).toBe('f/x')
 		expect(u.hash).toBe('#f/a/b')
+	})
+})
+
+describe('setQuery', () => {
+	// setQuery reads nothing but `window.location.search`; the node test env has no
+	// real `location`, so a stub carrying the query is the whole browser it needs.
+	function addressBar(search: string) {
+		Object.defineProperty(globalThis, 'location', {
+			value: { search },
+			writable: true,
+			configurable: true
+		})
+	}
+
+	it('preserves params that only the address bar knows about', async () => {
+		goto.mockClear()
+		addressBar('?workspace=wm-fork-x&search=foo')
+
+		await setQuery('kind', 'script')
+
+		const u = parse(goto.mock.calls[0][0])
+		expect(u.searchParams.get('workspace')).toBe('wm-fork-x')
+		expect(u.searchParams.get('search')).toBe('foo')
+		expect(u.searchParams.get('kind')).toBe('script')
 	})
 })

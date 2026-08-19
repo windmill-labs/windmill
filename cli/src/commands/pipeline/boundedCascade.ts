@@ -71,6 +71,7 @@ const assetNodeId = (kind: string, path: string): string => `${kind}:${path}`;
 const NON_AUTORUN_TRIGGER_KINDS = new Set([
   "kafka",
   "mqtt",
+  "amqp",
   "nats",
   "postgres",
   "sqs",
@@ -86,12 +87,10 @@ export function assetUriToNodeId(uri: string): string | undefined {
   if (!m) return undefined;
   const prefix = m[1].toLowerCase();
   const kind = prefix === "s3" ? "s3object" : prefix;
-  // Mirror Rust `parse_asset_syntax`: strip all leading slashes from S3 keys so a
-  // `--to s3:///exports/x` token resolves to the canonical graph node
-  // `s3object:exports/x` (default storage), same as `s3://exports/x`, and a
-  // canonical key never starts with `/`.
-  const path = kind === "s3object" ? m[2].replace(/^\/+/, "") : m[2];
-  return `${kind}:${path}`;
+  // The suffix is kept verbatim (mirrors Rust `parse_asset_syntax`): an S3
+  // path encodes the storage, with a leading `/` for the workspace default
+  // (`s3:///key` → `/key`) vs `s3://secondary/key` → `secondary/key`.
+  return `${kind}:${m[2]}`;
 }
 
 export type LineageDag = {

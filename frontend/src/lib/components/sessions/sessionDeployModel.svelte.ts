@@ -23,6 +23,8 @@ import {
 	type DeployPlanEntry
 } from './sessionDeployModel'
 import { maskKey } from './modifiedItemsMask'
+import { sessionState } from './sessionState.svelte'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 export type DeploymentStatus = { status: 'loading' | 'failed'; error?: string }
 
@@ -261,6 +263,9 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	async function deployOne(item: DeployItem, discard = false): Promise<boolean> {
 		const plan = discard ? discardPlanFor(item) : deployPlanFor(item)
 		if (!plan) return false
+		// Snapshot before the await: the user may switch sessions while the
+		// deploy runs, and the event belongs to the initiating session.
+		const initiatingSessionId = sessionState.currentSessionId
 		// Don't attempt a deploy we know the user can't make (no write permission
 		// on the path, or blocked by the operator / deployer rule) — the UI
 		// disables it too; this is the guard behind that.
@@ -280,6 +285,11 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 						.add(item.key)
 						.add(maskKey(item.draftKind, item.displayPath))
 					getArgs().onItemDeployed?.(item)
+					logFeatureUsage('ai_session', 'deployed', {
+						key: item.draftKind,
+						entityId: initiatingSessionId,
+						workspace: getArgs().workspaceId
+					})
 				}
 			}
 			return res.success

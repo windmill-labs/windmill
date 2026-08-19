@@ -32,7 +32,8 @@ pub type DB = sqlx::Pool<sqlx::Postgres>;
 
 // Re-export oauth2 types that consumers need (also used internally)
 pub use oauth2::{
-    helpers, AccessToken, AuthType, Client as OClient, RefreshToken, Scope, State, Url,
+    helpers, AccessToken, AuthType, Client as OClient, ErrorField, ExecuteError, RefreshToken,
+    Scope, State, Url,
 };
 
 // Re-export reqwest Client (version 0.12 compatible with async-oauth2)
@@ -1176,6 +1177,18 @@ mod tests {
     fn test_slack_verifier() {
         let verifier = SlackVerifier::new("test_secret").unwrap();
         assert!(verifier.verify("123", "body", "wrong_sig").is_err());
+    }
+
+    // Sage Intacct's token endpoint rejects HTTP Basic client authentication on the
+    // refresh_token grant (`invalid_client`), so its credentials must go in the form body.
+    #[test]
+    fn sage_intacct_registry_entry_uses_request_body_client_auth() {
+        let registry: HashMap<String, OAuthConfig> =
+            serde_json::from_str(include_str!("../../oauth_connect.json")).unwrap();
+        assert_eq!(
+            registry.get("sage_intacct").unwrap().req_body_auth,
+            Some(true)
+        );
     }
 
     #[test]

@@ -79,10 +79,43 @@ while :; do
   sleep 60
 done
 
+# Head SHA at trigger time. `/review` is idempotent per head: it skips an agent a
+# running/successful review already covers, re-runs a cancelled/failed one in place on a
+# separate head-tied run, and launches fresh only when nothing covers the head. Verdict
+# reading below therefore keys off the head, not just the trigger timestamp.
+HEAD_SHA=$(retry gh api "repos/$REPO/pulls/$PR" --jq .head.sha)
+echo "Reviewing head $HEAD_SHA"
+
+# Newest non-skipped run of <workflow> tied to the head ("status conclusion"), or empty
+# when none exists. A re-run-in-place or an already-covering review resolves on such a
+# head-tied run — separate from the pr-review-commands run waited on above (a fresh
+# launch instead runs inside it, and posts after the trigger). A `skipped` run is the
+# draft/fork gate and produced no review, so it is ignored.
+head_run_state() {
+  gh run list --repo "$REPO" --workflow "$1" --commit "$HEAD_SHA" --limit 20 \
+    --json databaseId,status,conclusion \
+    --jq '[.[] | select(.conclusion != "skipped")] | sort_by(.databaseId) | last | if . then "\(.status) \(.conclusion // "-")" else empty end' 2>/dev/null || true
+}
+
+# A re-run-in-place review lands on a head-tied run that finishes after the fast
+# pr-review-commands run, so let those settle before reading verdicts.
+for wf in codex-pr-review.yml pi-pr-review.yml pr-ready-review.yml; do
+  while :; do
+    case "$(head_run_state "$wf")" in
+      ""|"completed "*) break ;;
+      *) if [ "$(date +%s)" -gt "$DEADLINE" ]; then break; fi; sleep 30 ;;
+    esac
+  done
+done
+
 OUT_DIR=$(mktemp -d -t review-round-XXXXXX)
 COMMENTS_RAW=$(retry gh api "repos/$REPO/issues/$PR/comments?per_page=100" --paginate)
+# Two views: comments from THIS round (after the trigger) and the full history. A fresh
+# launch posts after the trigger; an idempotent skip leaves the covering verdict in the
+# earlier run's comment, so fall back to history when that agent's head run is green.
 jq -s --arg t "$TRIGGER_TIME" '[.[][] | select(.created_at > $t)]' \
   <<<"$COMMENTS_RAW" > "$OUT_DIR/comments.json"
+jq -s '[.[][]]' <<<"$COMMENTS_RAW" > "$OUT_DIR/comments-all.json"
 # cubic posts through the PR reviews API, not issue comments.
 REVIEWS_RAW=$(retry gh api "repos/$REPO/pulls/$PR/reviews?per_page=100" --paginate)
 jq -s --arg t "$TRIGGER_TIME" '[.[][] | select((.submitted_at // "") > $t)]' \
@@ -90,18 +123,28 @@ jq -s --arg t "$TRIGGER_TIME" '[.[][] | select((.submitted_at // "") > $t)]' \
 
 VERDICT_RE='(Good to merge|Mergeable, but should ideally address nits|Should address issues before merging)'
 
-body_by_header() {
-  jq -r --arg h "$1" '[.[] | select(.body // "" | contains($h))] | last | .body // empty' \
-    "$OUT_DIR/comments.json"
+body_by_header() { # <file> <header-substring>
+  jq -r --arg h "$2" '[.[] | select(.body // "" | contains($h))] | last | .body // empty' "$1"
 }
-body_by_login() {
-  jq -r --arg l "$1" '[.[] | select(.user.login == $l)] | last | .body // empty' \
-    "$OUT_DIR/comments.json"
+body_by_login() { # <file> <login>
+  jq -r --arg l "$2" '[.[] | select(.user.login == $l)] | last | .body // empty' "$1"
+}
+head_ok() { [ "$(head_run_state "$1")" = "completed success" ]; }
+# Latest verdict for a reviewer: prefer this round's comment; if none and the reviewer's
+# head run succeeded (an idempotent /review skipped re-reviewing an already-green head),
+# fall back to the covering comment from the full history.
+verdict_body() { # <header|login> <value> <workflow>
+  local body
+  body=$("body_by_$1" "$OUT_DIR/comments.json" "$2")
+  if [ -z "$body" ] && head_ok "$3"; then
+    body=$("body_by_$1" "$OUT_DIR/comments-all.json" "$2")
+  fi
+  printf '%s' "$body"
 }
 report() { # <reviewer-name> <comment-body>
   local name=$1 body=$2 verdict
   if [ -z "$body" ]; then
-    echo "$name: (no review posted this round)"
+    echo "$name: (no review posted for this head)"
     return
   fi
   printf '%s\n' "$body" > "$OUT_DIR/$name.md"
@@ -110,11 +153,11 @@ report() { # <reviewer-name> <comment-body>
 }
 
 echo
-echo "=== Review round verdicts for $REPO#$PR (posted after $TRIGGER_TIME) ==="
-CODEX_BODY=$(body_by_header '## Codex Review')
+echo "=== Review round verdicts for $REPO#$PR (head $HEAD_SHA) ==="
+CODEX_BODY=$(verdict_body header '## Codex Review' codex-pr-review.yml)
 report codex "$CODEX_BODY"
-report claude "$(body_by_login 'claude[bot]')"
-report pi "$(body_by_header '## Pi Review')"
+report claude "$(verdict_body login 'claude[bot]' pr-ready-review.yml)"
+report pi "$(verdict_body header '## Pi Review' pi-pr-review.yml)"
 CUBIC_BODY=$(jq -r '[.[] | select(.user.login | test("^cubic(-dev-ai)?(\\[bot\\])?$"; "i"))] | last | .body // empty' \
   "$OUT_DIR/pr-reviews.json")
 if [ -z "$CUBIC_BODY" ]; then
@@ -125,5 +168,5 @@ report cubic "$CUBIC_BODY"
 echo
 echo "Full round output: $OUT_DIR (comments.json, pr-reviews.json, one .md per reviewer)"
 if [ -z "$CODEX_BODY" ]; then
-  echo "WARNING: Codex verdict missing - the round is incomplete. Re-trigger with a '/codex' PR comment and wait again." >&2
+  echo "WARNING: no Codex verdict for $HEAD_SHA - its head run is not green (cancelled/failed/absent, not merely skipped-because-already-reviewed). Re-trigger with a '/codex' PR comment (re-runs the interrupted run in place, or launches one) and wait again." >&2
 fi

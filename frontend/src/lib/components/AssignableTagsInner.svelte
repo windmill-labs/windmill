@@ -82,20 +82,43 @@
 		}
 	}
 
+	async function setCustomTags(value: string[]) {
+		await SettingService.setGlobal({
+			key: CUSTOM_TAGS_SETTING,
+			requestBody: { value }
+		})
+		// Servers answer from an in-memory tag cache that replicas only refresh on the
+		// next global-settings poll, so refetching here can still return the pre-write
+		// list. The value just written is authoritative.
+		customTags = value
+		dispatch('refresh')
+	}
+
 	async function saveCustomTag(tag: string, restoreCustomTags: boolean = false) {
 		try {
-			await SettingService.setGlobal({
-				key: CUSTOM_TAGS_SETTING,
-				requestBody: { value: [...(customTags ?? []), tag.trim().replaceAll(' ', '_')] }
-			})
-			dispatch('refresh')
-			loadCustomTags()
+			await setCustomTags([...(customTags ?? []), tag.trim().replaceAll(' ', '_')])
 			sendUserToast(restoreCustomTags ? 'Tag restored' : 'Tag added')
 			if (!restoreCustomTags) {
 				newTag = ''
 			}
 		} catch (err) {
 			sendUserToast(`Could not ${restoreCustomTags ? 'restore' : 'save'} custom tag: ${err}`, true)
+		}
+	}
+
+	async function removeCustomTag(tag: string) {
+		try {
+			await setCustomTags((customTags ?? []).filter((x) => x != tag))
+			sendUserToast('Tag removed', false, [
+				{
+					label: 'Undo',
+					callback: () => {
+						saveCustomTag(tag, true)
+					}
+				}
+			])
+		} catch (err) {
+			sendUserToast(`Could not remove custom tag: ${err}`, true)
 		}
 	}
 </script>
@@ -119,24 +142,7 @@
 						<button
 							class="z-10 rounded-full p-1 duration-200 hover:bg-gray-200"
 							aria-label="Remove item"
-							onclick={stopPropagation(
-								preventDefault(async () => {
-									await SettingService.setGlobal({
-										key: CUSTOM_TAGS_SETTING,
-										requestBody: { value: customTags?.filter((x) => x != customTag) }
-									})
-									dispatch('refresh')
-									loadCustomTags()
-									sendUserToast('Tag removed', false, [
-										{
-											label: 'Undo',
-											callback: () => {
-												saveCustomTag(customTag, true)
-											}
-										}
-									])
-								})
-							)}
+							onclick={stopPropagation(preventDefault(() => removeCustomTag(customTag)))}
 						>
 							<X size={12} />
 						</button>

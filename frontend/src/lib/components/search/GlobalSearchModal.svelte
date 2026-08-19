@@ -40,7 +40,13 @@
 	import { Alert } from '../common'
 	import Popover from '../Popover.svelte'
 	import Logs from 'lucide-svelte/icons/logs'
-	import { AwsIcon, AzureIcon, GoogleCloudIcon, KafkaIcon, MqttIcon, NatsIcon } from '../icons'
+	import AwsIcon from '../icons/AwsIcon.svelte'
+	import AzureIcon from '../icons/AzureIcon.svelte'
+	import GoogleCloudIcon from '../icons/GoogleCloudIcon.svelte'
+	import KafkaIcon from '../icons/KafkaIcon.svelte'
+	import MqttIcon from '../icons/MqttIcon.svelte'
+	import AmqpIcon from '../icons/AmqpIcon.svelte'
+	import NatsIcon from '../icons/NatsIcon.svelte'
 	import RunsSearch from './RunsSearch.svelte'
 	import AskAiButton from '../copilot/AskAiButton.svelte'
 
@@ -150,6 +156,13 @@
 			label: 'Go to MQTT triggers',
 			action: (newtab: boolean = false) => gotoPage('/mqtt_triggers', newtab),
 			icon: MqttIcon,
+			disabled: $userStore?.operator
+		},
+		{
+			search_id: 'nav:amqp_triggers',
+			label: 'Go to AMQP triggers',
+			action: (newtab: boolean = false) => gotoPage('/amqp_triggers', newtab),
+			icon: AmqpIcon,
 			disabled: $userStore?.operator
 		},
 		{

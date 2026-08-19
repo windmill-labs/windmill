@@ -9,8 +9,7 @@
 		workspaceUsageStore,
 		workspaceColor,
 		clearWorkspaceFromStorage,
-		globalForkModal,
-		type UserWorkspace
+		globalForkModal
 	} from '$lib/stores'
 	import { Building, Check, ChevronDown, ChevronRight, Plus, Settings } from 'lucide-svelte'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
@@ -30,7 +29,12 @@
 	import { workspaceAIClients } from '../copilot/lib'
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
-	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
+	import {
+		buildWorkspaceHierarchy,
+		findWorkspaceAncestors,
+		findWorkspaceRoot,
+		isForkOwner
+	} from '$lib/utils/workspaceHierarchy'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { getContrastTextColor } from '$lib/utils'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
@@ -149,25 +153,54 @@
 		e.stopPropagation()
 	}
 
-	function findRoot(id: string | undefined): UserWorkspace | undefined {
-		if (!id || !$userWorkspaces) return undefined
-		let current = $userWorkspaces.find((w) => w.id === id)
-		while (current?.parent_workspace_id) {
-			const parent = $userWorkspaces.find((w) => w.id === current!.parent_workspace_id)
-			if (!parent) break
-			current = parent
-		}
-		return current
-	}
+	// The active workspace's family root — shown in the trigger so a forked active workspace still
+	// surfaces its family name here (the fork itself is shown in the breadcrumb). Resolved exactly
+	// like the scope picker right below, so the two never name different heads for one workspace:
+	// inside a dev workspace's own subtree the head is that dev workspace, not the far root.
+	const currentFamily = $derived(
+		findWorkspaceRoot($workspaceStore ?? undefined, $userWorkspaces ?? [])
+	)
 
-	// The active workspace's family root — shown in the trigger so a forked
-	// active workspace still surfaces its family name here (the fork itself is
-	// shown in the breadcrumb).
-	const currentFamily = $derived(findRoot($workspaceStore ?? undefined))
+	// The row mechanics below — which family to expand, which collapsed row carries the tick — key on
+	// a depth-0 row of the list, which `buildWorkspaceHierarchy` puts at the highest workspace the
+	// caller can see: parentless, or with a parent absent from their list. `findWorkspaceAncestors`
+	// stops at that same visibility boundary, so it lands on the same row. The head displayed above
+	// can sit below it, hence the second resolution.
+	const lineageRoot = $derived.by(() => {
+		const id = $workspaceStore ?? undefined
+		if (!id) return undefined
+		const ancestors = findWorkspaceAncestors(id, $userWorkspaces ?? [])
+		return ancestors.at(-1) ?? $userWorkspaces?.find((w) => w.id === id)
+	})
+
+	// Workspace names carry no uniqueness constraint, and this menu labels every
+	// row by name alone: a prod/staging pair sharing one name renders as two
+	// identical rows. Show the (unique) id alongside the name wherever a name is
+	// shared, so the rows stay tellable apart.
+	const ambiguousNames = $derived.by(() => {
+		const seen = new Set<string>()
+		const ambiguous = new Set<string>()
+		for (const w of $userWorkspaces ?? []) {
+			if (seen.has(w.name)) ambiguous.add(w.name)
+			seen.add(w.name)
+		}
+		return ambiguous
+	})
+
+	// Opening while a fork is active expands that fork's family, so the tick sits
+	// on the active fork's own row instead of on its collapsed root.
+	function seedExpandedFamilies() {
+		expandedFamilies.clear()
+		if (lineageRoot && lineageRoot.id !== $workspaceStore) {
+			expandedFamilies.add(lineageRoot.id)
+		}
+	}
 
 	// The active workspace itself (fork included) — names the settings entry.
 	const activeWorkspace = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
-	const canManageWorkspace = $derived($userStore?.is_admin || $superadmin)
+	const canManageWorkspace = $derived(
+		$userStore?.is_admin || $superadmin || isForkOwner(activeWorkspace, $userStore?.email)
+	)
 
 	// font-normal is explicit: href-less MenuItems render as <button>, which the
 	// global stylesheet makes semibold, unlike the <a> the href entries get.
@@ -177,13 +210,14 @@
 
 <svelte:window onkeydowncapture={onExpandKeydown} />
 
-<!-- Expansion is per-open: every open starts with all families collapsed,
-     including the active fork's. -->
+<!-- Expansion is per-open: every open starts from the active workspace's family
+     alone, discarding whatever the previous open expanded. -->
 <Menu
 	{createMenu}
 	usePointerDownOutside
 	placement="bottom-start"
 	bind:open={menuOpen}
+	on:open={seedExpandedFamilies}
 	on:close={() => expandedFamilies.clear()}
 >
 	{#snippet triggr({ trigger })}
@@ -203,6 +237,9 @@
 				icon={Building}
 				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
 				label={currentFamily?.name ?? $workspaceStore ?? ''}
+				sublabel={!isCollapsed && currentFamily && ambiguousNames.has(currentFamily.name)
+					? currentFamily.id
+					: undefined}
 				{isCollapsed}
 				color={familyColor}
 				showChevron
@@ -229,7 +266,7 @@
 						isActive ||
 						(!strictWorkspaceSelect &&
 							depth === 0 &&
-							currentFamily?.id === workspace.id &&
+							lineageRoot?.id === workspace.id &&
 							!expandedFamilies.has(workspace.id))}
 					{@const expandable =
 						!strictWorkspaceSelect && depth === 0 && familiesWithForks.has(workspace.id)}
@@ -291,6 +328,11 @@
 												>
 											{/if}
 										</div>
+										{#if ambiguousNames.has(workspace.name)}
+											<div class="truncate text-left text-2xs text-tertiary" title={workspace.id}>
+												{workspace.id}
+											</div>
+										{/if}
 									</div>
 								</div>
 								{#if isSelected}
@@ -361,7 +403,9 @@
 						{item}
 					>
 						<Settings size={16} />
-						{activeWorkspace?.name ?? $workspaceStore} settings
+						{(activeWorkspace && ambiguousNames.has(activeWorkspace.name)
+							? activeWorkspace.id
+							: activeWorkspace?.name) ?? $workspaceStore} settings
 					</MenuItem>
 				</div>
 			{/if}

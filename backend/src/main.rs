@@ -40,14 +40,14 @@ use windmill_common::{
     global_settings::{
         AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING, AUDIT_LOG_RETENTION_DAYS_SETTING,
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
-        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING,
-        DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        CONCURRENCY_KEY_MAX_QUEUED_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
+        CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
+        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
+        INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
@@ -64,18 +64,18 @@ use windmill_common::{
         UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WORKSPACE_REGISTRIES_SETTING,
+        WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
     },
     scripts::ScriptLang,
     stats_oss::schedule_stats,
     triggers::TriggerKind,
     utils::{
-        create_default_worker_suffix, worker_name_with_suffix, Mode, GIT_VERSION, HOSTNAME,
-        MODE_AND_ADDONS,
+        checked_worker_name, resolve_worker_suffix, Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
     },
     worker::{
-        is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
-        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, WINDMILL_DIR, WORKER_GROUP,
+        is_native_mode_from_env, reload_custom_tags_setting, validate_worker_lifecycle_env,
+        Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR,
+        WINDMILL_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, INSTANCE_NAME, METRICS_ENABLED,
 };
@@ -122,12 +122,13 @@ use windmill_worker::{
 };
 
 use crate::monitor::{
-    initial_load, load_disable_password_login, load_fork_workspace_tag_append_fork_suffix,
-    load_keep_job_dir, load_metrics_debug_enabled, load_preview_tags_override,
-    load_require_preexisting_user, load_retention_period_overrides, load_tag_per_workspace_enabled,
-    load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
-    load_workspace_fairness_enabled, load_workspace_fairness_max_percent,
-    load_workspace_fairness_min_total, monitor_db, reload_app_workspaced_route_setting,
+    initial_load, load_concurrency_key_max_queued, load_disable_password_login,
+    load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir, load_metrics_debug_enabled,
+    load_preview_tags_override, load_require_preexisting_user, load_retention_period_overrides,
+    load_tag_per_workspace_enabled, load_tag_per_workspace_workspaces,
+    load_workspace_fairness_duration_secs, load_workspace_fairness_enabled,
+    load_workspace_fairness_max_percent, load_workspace_fairness_min_total,
+    load_workspace_max_queued_jobs, monitor_db, reload_app_workspaced_route_setting,
     reload_audit_log_retention_days_setting, reload_base_url_setting,
     reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
     reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
@@ -289,11 +290,18 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     create_dir_all(&*HUB_CACHE_DIR)?;
     create_dir_all(&*BUN_BUNDLE_CACHE_DIR)?;
 
-    // Ensure the latest git sync script is always cached, regardless of hubPaths.json contents
+    // Ensure the backend-hardcoded git sync scripts are always cached, regardless of
+    // hubPaths.json contents. These are run by backend-driven sync (not necessarily listed
+    // in hubPaths.json), so airgapped workers would otherwise miss them on a cache lookup.
     let mut all_paths: Vec<String> = paths.into_values().collect();
-    let latest_git_sync = windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH.to_string();
-    if !all_paths.contains(&latest_git_sync) {
-        all_paths.push(latest_git_sync);
+    for git_sync_path in [
+        windmill_common::workspaces::LATEST_GIT_SYNC_SCRIPT_PATH,
+        windmill_common::workspaces::GIT_SYNC_PULL_SCRIPT_PATH,
+    ] {
+        let git_sync_path = git_sync_path.to_string();
+        if !all_paths.contains(&git_sync_path) {
+            all_paths.push(git_sync_path);
+        }
     }
 
     for path in &all_paths {
@@ -774,6 +782,8 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
     }
 
+    validate_worker_lifecycle_env()?;
+
     let server_mode = !std::env::var("DISABLE_SERVER")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -805,7 +815,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             agent_config.base_internal_url
         );
-        let suffix = create_default_worker_suffix(&hostname);
+        let suffix = resolve_worker_suffix(&hostname, 1)?;
         (
             Connection::Http(agent_config.build_http_client(&suffix)),
             Some(suffix),
@@ -924,46 +934,62 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
 
         // Lower the worker's oom_score_adj so the OOM killer strongly prefers killing
-        // job subprocesses (oom_score_adj=1000) over the worker itself.
+        // job subprocesses (oom_score_adj=JOB_OOM_SCORE_ADJ) over the worker itself.
         // Kubernetes sets it high for burstable QoS (e.g. 937), leaving a tiny gap vs jobs.
         // Requires CAP_SYS_RESOURCE to lower it; if missing, we just warn.
         #[cfg(any(target_os = "linux"))]
-        match std::fs::read_to_string("/proc/self/oom_score_adj") {
-            Ok(current) => {
-                let current = current.trim().to_string();
-                let current_val = match current.parse::<i32>() {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::warn!("Could not parse oom_score_adj '{current}': {e}");
-                        0
-                    }
-                };
-                if current_val > 0 {
-                    match std::fs::write("/proc/self/oom_score_adj", "0") {
-                        Ok(_) => {
-                            tracing::info!(
-                                "Lowered worker oom_score_adj from {current} to 0 \
-                                (jobs get 1000, gap=1000)"
-                            );
+        {
+            // Badness is (memory used, in permille of host RAM) + oom_score_adj, so the gap
+            // must exceed the worker's own footprint in permille to actually steer the kill.
+            // 100 covers a worker holding up to ~10% of host RAM.
+            const MIN_OOM_SCORE_GAP: i32 = 100;
+
+            let job_adj = *windmill_common::worker::JOB_OOM_SCORE_ADJ;
+            match std::fs::read_to_string("/proc/self/oom_score_adj") {
+                Ok(current) => {
+                    let current = current.trim().to_string();
+                    match current.parse::<i32>() {
+                        Ok(mut worker_adj) => {
+                            if worker_adj > 0 {
+                                match std::fs::write("/proc/self/oom_score_adj", "0") {
+                                    Ok(_) => {
+                                        tracing::info!(
+                                            "Lowered worker oom_score_adj from {worker_adj} to 0"
+                                        );
+                                        worker_adj = 0;
+                                    }
+                                    Err(e) => {
+                                        tracing::warn!(
+                                            "Could not lower worker oom_score_adj from {worker_adj} to 0: {e}. \
+                                            Add CAP_SYS_RESOURCE to the container to fix this"
+                                        );
+                                    }
+                                }
+                            }
+                            let gap = job_adj - worker_adj;
+                            if gap >= MIN_OOM_SCORE_GAP {
+                                tracing::info!(
+                                    "Worker oom_score_adj={worker_adj}, jobs get {job_adj} (gap={gap})"
+                                );
+                            } else {
+                                tracing::warn!(
+                                    "Worker oom_score_adj={worker_adj}, jobs get {job_adj} (gap={gap}): \
+                                    too small to reliably steer the OOM killer to the job. \
+                                    Raise JOB_OOM_SCORE_ADJ or lower the worker's own score"
+                                );
+                            }
                         }
                         Err(e) => {
                             tracing::warn!(
-                                "Could not lower worker oom_score_adj from {current} to 0: {e}. \
-                                Gap to jobs is only {} — OOM killer may target the worker instead. \
-                                Add CAP_SYS_RESOURCE to the container to fix this",
-                                1000 - current_val
+                                "Could not parse worker oom_score_adj '{current}': {e}. \
+                                Cannot tell whether jobs (oom_score_adj={job_adj}) outrank the worker"
                             );
                         }
                     }
-                } else {
-                    tracing::info!(
-                        "Worker oom_score_adj={current} (jobs get 1000, gap={})",
-                        1000 - current_val
-                    );
                 }
-            }
-            Err(e) => {
-                tracing::warn!("Could not read worker oom_score_adj: {e}");
+                Err(e) => {
+                    tracing::warn!("Could not read worker oom_score_adj: {e}");
+                }
             }
         }
     }
@@ -1308,7 +1334,7 @@ Windmill Community Edition {GIT_VERSION}
                         let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
-                            create_default_worker_suffix(&hostname)
+                            resolve_worker_suffix(&hostname, i as usize + 1)?
                         };
 
                         let worker_conn = WorkerConn {
@@ -1322,11 +1348,11 @@ Windmill Community Edition {GIT_VERSION}
                                         .build_http_client(&suffix),
                                 )
                             },
-                            worker_name: worker_name_with_suffix(
+                            worker_name: checked_worker_name(
                                 mode == Mode::Agent,
                                 WORKER_GROUP.as_str(),
                                 &suffix,
-                            ),
+                            )?,
                         };
                         workers.push(worker_conn);
                     }
@@ -1603,6 +1629,10 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
 
+        // `workers_f` must stay ahead of `server_f`: these are polled on one task in
+        // declaration order, and `run_server` yields once after handing over the base
+        // internal url so the workers get past that oneshot before it builds its router.
+        // Ordering `server_f` first makes them wait out the whole build instead.
         if mcp_mode {
             futures::try_join!(workers_f, server_f)?;
         } else {
@@ -1665,7 +1695,8 @@ async fn process_notify_event(
         "restart_worker_group" => {
             if worker_mode && payload == *WORKER_GROUP {
                 tracing::info!("Restart requested for worker group '{payload}'");
-                spawn_graceful_killpill(tx, db, 30, "worker group restart requested").await;
+                spawn_graceful_killpill(tx, db, 30, "worker group restart requested", server_mode)
+                    .await;
             }
         }
         "notify_webhook_change" => {
@@ -1702,6 +1733,10 @@ async fn process_notify_event(
                 payload
             );
             windmill_common::variables::WORKSPACE_CRYPT_CACHE.remove(payload);
+        }
+        c if c == windmill_queue::tags::FORK_LINEAGE_CHANGE_CHANNEL => {
+            tracing::info!("Fork lineage change detected ({payload}), dropping tag workspace cache");
+            windmill_queue::tags::apply_fork_lineage_change(payload);
         }
         "notify_workspace_premium_change" => {
             tracing::info!(
@@ -1879,6 +1914,16 @@ async fn process_notify_event(
                         tracing::error!("Error loading workspace fairness min total: {e:#}");
                     }
                 }
+                CONCURRENCY_KEY_MAX_QUEUED_SETTING => {
+                    if let Err(e) = load_concurrency_key_max_queued(db).await {
+                        tracing::error!("Error loading concurrency key max queued: {e:#}");
+                    }
+                }
+                WORKSPACE_MAX_QUEUED_JOBS_SETTING => {
+                    if let Err(e) = load_workspace_max_queued_jobs(db).await {
+                        tracing::error!("Error loading workspace max queued jobs: {e:#}");
+                    }
+                }
                 SMTP_SETTING => {
                     reload_smtp_config(db).await;
                 }
@@ -1957,8 +2002,14 @@ async fn process_notify_event(
                     reload_otel_tracing_proxy_setting(conn).await;
                     if worker_mode {
                         tracing::info!("OTEL tracing proxy setting changed, restarting worker");
-                        spawn_graceful_killpill(tx, db, 30, "OTEL tracing proxy setting change")
-                            .await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "OTEL tracing proxy setting change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
@@ -1969,12 +2020,20 @@ async fn process_notify_event(
                 }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
-                    spawn_graceful_killpill(tx, db, 30, "metrics setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "metrics setting change", server_mode)
+                        .await;
                 }
                 EMAIL_DOMAIN_SETTING => {
                     tracing::info!("Email domain setting changed");
                     if server_mode {
-                        spawn_graceful_killpill(tx, db, 30, "email domain setting change").await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "email domain setting change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -2010,19 +2069,26 @@ async fn process_notify_event(
                 }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");
-                    spawn_graceful_killpill(tx, db, 30, "OTEL setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "OTEL setting change", server_mode).await;
                 }
                 REQUEST_SIZE_LIMIT_SETTING => {
                     if server_mode {
                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                        spawn_graceful_killpill(tx, db, 30, "request size limit change").await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "request size limit change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 SAML_METADATA_SETTING => {
                     tracing::info!(
                         "SAML metadata change detected, killing server expecting to be restarted"
                     );
-                    spawn_graceful_killpill(tx, db, 30, "SAML metadata change").await;
+                    spawn_graceful_killpill(tx, db, 30, "SAML metadata change", server_mode).await;
                 }
                 HUB_BASE_URL_SETTING => {
                     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
@@ -2143,12 +2209,7 @@ pub async fn run_workers(
     // #[cfg(tokio_unstable)]
     // let monitor = tokio_metrics::TaskMonitor::new();
 
-    let ip = windmill_common::external_ip::get_ip()
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = e.to_string(), "failed to get external IP");
-            "unretrievable IP".to_string()
-        });
+    windmill_common::external_ip::resolve_ip_in_background();
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
@@ -2192,7 +2253,6 @@ pub async fn run_workers(
         let conn1 = wk_conf.conn.clone();
         let worker_name = wk_conf.worker_name.clone();
         WORKERS_NAMES.write().await.push(worker_name.clone());
-        let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
@@ -2209,7 +2269,6 @@ pub async fn run_workers(
                 worker_name,
                 i as u64,
                 num_workers as u32,
-                &ip,
                 rx,
                 tx,
                 &base_internal_url,
@@ -2246,16 +2305,24 @@ pub async fn run_workers(
 /// then the sleep+kill is spawned in the background so the notification handler is not blocked.
 ///
 /// Falls back to drain-only delay if DB coordination fails.
+///
+/// Only `server_mode` processes coordinate, on the strength of the worker case: a worker
+/// group restarting costs queue latency rather than lost work, `v2_job_queue` being durable.
+/// Were workers to take part, one could claim the `is_first` slot and leave every server
+/// holding its shutdown open for a peer that serves no API traffic.
 async fn spawn_graceful_killpill(
     tx: &KillpillSender,
     db: &Pool<Postgres>,
     safety_margin_secs: u64,
     context: &str,
+    server_mode: bool,
 ) {
     // Minimum delay before any restart to let in-flight requests drain
     const DRAIN_DELAY_SECS: u64 = 3;
 
-    let (delay, is_first) =
+    let (delay, is_first) = if !server_mode {
+        (DRAIN_DELAY_SECS, true)
+    } else {
         match coordinate_restart_delay(db, safety_margin_secs, DRAIN_DELAY_SECS).await {
             Ok(r) => r,
             Err(e) => {
@@ -2265,7 +2332,8 @@ async fn spawn_graceful_killpill(
                 );
                 (DRAIN_DELAY_SECS, true)
             }
-        };
+        }
+    };
 
     tracing::info!(
         "Scheduling {context} graceful shutdown in {delay}s (first_to_restart={is_first})"

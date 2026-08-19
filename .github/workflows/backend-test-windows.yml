@@ -51,6 +51,11 @@ jobs:
         with:
           cache-workspaces: backend
           toolchain: 1.97.0
+          # This action defaults RUSTFLAGS to "-D warnings"; unset it so the test
+          # run is not failed by cross-platform dead-code (cfg(unix)-only helpers
+          # are unused on Windows). Warning hygiene is enforced on the Linux CI
+          # and the build_windows_worker_ release build, not this test job.
+          rustflags: ""
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -203,9 +208,15 @@ jobs:
           WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
           WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
+        # Windows ships a worker-only binary, so test the crates a worker runs
+        # (windmill-worker/-common/-queue) via -p, not `--all`: this skips the
+        # disk-heavy windmill-api test binaries (LNK1180) and the server-only
+        # windmill-trigger-* crates (amqp does not build on Windows). Linux CI runs the rest.
         run: >
           cargo test
           --no-fail-fast
-          --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,csharp,php,quickjs,mcp,run_inline
-          --all
+          -p windmill-worker
+          -p windmill-common
+          -p windmill-queue
+          --features private,enterprise,deno_core,duckdb,python,rust,csharp,php,quickjs,parquet,mcp,scoped_cache,windmill-git-sync/private,windmill-object-store/private,windmill-object-store/enterprise
           -- --nocapture --test-threads=10
