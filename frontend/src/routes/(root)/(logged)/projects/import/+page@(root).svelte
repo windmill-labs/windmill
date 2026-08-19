@@ -11,7 +11,9 @@
 	} from '$lib/components/ImportProjectCard.svelte'
 	import { fetchHubProject, hubBrowserUrl } from '$lib/hubProject'
 	import ImportProjectStep from '$lib/components/ImportProjectStep.svelte'
+	import ImportSetupStep from '$lib/components/ImportSetupStep.svelte'
 	import ImportWizardSteps from '$lib/components/ImportWizardSteps.svelte'
+	import type { ImportExecution } from '$lib/importWizard/execution.svelte'
 	import WorkspaceTreeView from '$lib/components/workspace/WorkspaceTreeView.svelte'
 	import { superadmin, usersWorkspaceStore } from '$lib/stores'
 	import { get } from 'svelte/store'
@@ -23,6 +25,7 @@
 	import {
 		readPlan,
 		planToSearch,
+		planWorkspaceId,
 		type ImportDestination,
 		type ImportPlan,
 		type WizardStep
@@ -220,6 +223,43 @@
 		// The run has already switched to the destination workspace.
 		goto('/')
 	}
+
+	// Whether a fourth step exists. Known only once the run has fetched the export and
+	// the destination's data tables can be compared against it, so it is false for the
+	// whole wizard until the import finishes — which is exactly when it is first read.
+	let execution = $state<ImportExecution | undefined>(undefined)
+	let setupNeeded = $state(false)
+	$effect(() => {
+		const names = execution?.datatableNames ?? []
+		const workspace = planWorkspaceId(plan)
+		if (!execution?.done || !workspace) {
+			setupNeeded = false
+			return
+		}
+		// Every resource the project ships arrives as an empty stub, so any project with
+		// resources has something to fill in. The step itself re-checks and shows only
+		// what is genuinely outstanding, which is what makes a re-import quiet.
+		if (execution.resourceCount > 0) {
+			setupNeeded = true
+			return
+		}
+		if (names.length === 0) {
+			setupNeeded = false
+			return
+		}
+		let cancelled = false
+		void WorkspaceService.listDataTables({ workspace })
+			.then((tables) => {
+				if (cancelled) return
+				const present = new Set(tables.map((t) => t.name))
+				setupNeeded = names.some((n) => !present.has(n))
+			})
+			.catch(() => {
+				// Can't tell — don't invent a step the user then cannot complete.
+				if (!cancelled) setupNeeded = false
+			})
+		return () => (cancelled = true)
+	})
 </script>
 
 {#if !slug}
@@ -250,7 +290,7 @@
 				{/if}
 			</span>
 		{/snippet}
-		<ImportWizardSteps {step} />
+		<ImportWizardSteps {step} hasSetup={setupNeeded || step === 4} />
 
 		{#if step === 1}
 			<div class="flex flex-col gap-6">
@@ -420,13 +460,23 @@
 					{/if}
 				</div>
 			</div>
-		{:else}
+		{:else if step === 3}
 			<ImportProjectStep
 				{plan}
 				{project}
+				setupPending={setupNeeded}
 				onFolderChange={(folder) => go({ folder }, 3, { replace: true })}
-				onFinish={finish}
+				onFinish={() => (setupNeeded ? go({}, 4) : finish())}
 				onBack={() => go({}, 2)}
+				onExecution={(e) => (execution = e)}
+			/>
+		{:else}
+			<ImportSetupStep
+				workspace={planWorkspaceId(plan) ?? ''}
+				{slug}
+				onSkip={finish}
+				onFinish={finish}
+				onBack={() => go({}, 3)}
 			/>
 		{/if}
 	</CenteredModal>

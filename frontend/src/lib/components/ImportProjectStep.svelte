@@ -26,10 +26,23 @@
 		project?: ImportProjectSummary
 		onFolderChange: (folder: string) => void
 		onFinish: () => void
+		/** True once the run reveals data tables the destination has yet to configure. */
+		setupPending?: boolean
+		/** Hands the run to the page, which needs the export's data tables to know
+		 * whether a setup step follows this one. */
+		onExecution?: (execution: ImportExecution | undefined) => void
 		onBack: () => void
 	}
 
-	let { plan, project, onFolderChange, onFinish, onBack }: Props = $props()
+	let {
+		plan,
+		project,
+		onFolderChange,
+		onFinish,
+		onBack,
+		setupPending = false,
+		onExecution
+	}: Props = $props()
 
 	let folder = $state(plan.folder ?? plan.slug)
 	// The workspace the import will land in, when it is one that already exists. A
@@ -57,7 +70,6 @@
 	)
 
 	// --- the run ---------------------------------------------------------------
-	const missingDatatableModal = createAsyncConfirmationModal()
 	let reviewDrawer = $state<Drawer | undefined>()
 	let reviewList = $state<
 		{ datatable_name: string; sql: string; sql_down: string; run: boolean }[]
@@ -104,22 +116,10 @@
 			// Can't read the target's data tables — skip migrations rather than guess.
 			return []
 		}
+		// A migration whose data table does not exist here is not a reason to stop: the
+		// setup step after this one configures those tables and runs them. Only the
+		// ones that can run now are worth reviewing.
 		const runnable = enabled.filter((m) => present.has(m.datatable_name))
-		const missing = [
-			...new Set(enabled.filter((m) => !present.has(m.datatable_name)).map((m) => m.datatable_name))
-		]
-
-		if (missing.length > 0) {
-			const proceed = await missingDatatableModal.ask({
-				title: 'Some data tables are missing',
-				confirmationText: 'Import without them',
-				children: `This project uses data table(s) "${missing.join(
-					'", "'
-				)}" that don't exist in this workspace, so their migrations will be skipped. To apply them, cancel, create the data table(s) with the same name in Workspace settings → Data tables, then re-run this import.`
-			})
-			if (!proceed) return null
-		}
-
 		if (runnable.length === 0) return []
 		const run = await openMigrationReview(runnable)
 		if (!run) return []
@@ -141,6 +141,7 @@
 	let run = $state<{ key: string; execution: ImportExecution } | undefined>(undefined)
 	const planKey = $derived(JSON.stringify(plan.destination) + plan.slug)
 	const execution = $derived(run?.key === planKey ? run.execution : undefined)
+	$effect(() => onExecution?.(execution))
 
 	function start() {
 		const current =
@@ -323,7 +324,9 @@
 			{/if}
 
 			{#if execution?.done}
-				<Button variant="accent" unifiedSize="sm" onClick={onFinish}>Finish setup →</Button>
+				<Button variant="accent" unifiedSize="sm" onClick={onFinish}>
+					{setupPending ? 'Continue →' : 'Finish setup →'}
+				</Button>
 			{:else}
 				<Button
 					variant="accent"
@@ -347,7 +350,6 @@
 </div>
 
 <Portal>
-	<ConfirmationModal {...missingDatatableModal.props} />
 	<ConfirmationModal {...deleteModal.props} />
 </Portal>
 
@@ -377,11 +379,14 @@
 			{/each}
 		</div>
 		{#snippet actions()}
-			<Button variant="border" onclick={() => closeMigrationReview(false)}>Skip migrations</Button>
+			<Button variant="subtle" unifiedSize="sm" onClick={() => closeMigrationReview(false)}>
+				Skip migrations
+			</Button>
 			<Button
 				variant="accent"
+				unifiedSize="sm"
 				disabled={!reviewList.some((m) => m.run && m.sql.trim() !== '')}
-				onclick={() => closeMigrationReview(true)}
+				onClick={() => closeMigrationReview(true)}
 			>
 				Run selected
 			</Button>

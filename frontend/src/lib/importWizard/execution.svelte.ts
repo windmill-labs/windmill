@@ -1,6 +1,7 @@
 import { WorkspaceService } from '$lib/gen'
 import { switchWorkspace } from '$lib/storeUtils'
-import { workspaceStore } from '$lib/stores'
+import { userStore, workspaceStore } from '$lib/stores'
+import { getUserExt } from '$lib/user'
 import { get } from 'svelte/store'
 import { enterNewWorkspace, refreshWorkspaceList } from '$lib/workspaceCreation'
 import {
@@ -65,6 +66,32 @@ export class ImportExecution {
 	// what it is about to create — the warning below it talks about triggers, and the
 	// page this replaced did show both.
 	#export = $state<ProjectExport | undefined>(undefined)
+
+	/**
+	 * Data tables the project's migrations target. The wizard compares these with the
+	 * destination's configured tables to decide whether a setup step is needed —
+	 * `installProject` skips a migration whose data table does not exist.
+	 */
+	get datatableNames(): string[] {
+		const e = this.#export
+		if (!e) return []
+		return [
+			...new Set(
+				(e.migrations ?? [])
+					.filter((m) => m.enabled && (m.sql ?? '').trim() !== '')
+					.map((m) => m.datatable_name)
+			)
+		]
+	}
+
+	/**
+	 * How many resources the project shipped. Every one arrives as an empty stub —
+	 * the hub never publishes resource values — so a non-zero count means the setup
+	 * step has something to offer.
+	 */
+	get resourceCount(): number {
+		return this.#export?.resources?.length ?? 0
+	}
 
 	get extraCounts(): { triggers: number; migrations: number } | undefined {
 		const e = this.#export
@@ -170,6 +197,7 @@ export class ImportExecution {
 				return undefined
 			}
 			switchWorkspace(d.workspaceId)
+			await this.#adoptUser(d.workspaceId)
 			return d.workspaceId
 		}
 		// Keyed on the workspace existing rather than on the task being green: a retry
@@ -191,6 +219,7 @@ export class ImportExecution {
 		}
 		try {
 			await enterNewWorkspace(d.id)
+			await this.#adoptUser(d.id)
 		} catch (e: any) {
 			const detail = e?.body?.toString?.() ?? String(e)
 			this.#set('create', 'failed', `created, but could not be entered: ${detail}`)
@@ -274,6 +303,23 @@ export class ImportExecution {
 		// and the failures are listed. Only a hard stop leaves `done` false.
 		this.done = true
 		if (failed > 0) this.error = `${failed} item${failed === 1 ? '' : 's'} failed to import.`
+	}
+
+	/**
+	 * Load the membership for the workspace this run just entered.
+	 *
+	 * The wizard's page is reparented out of `(logged)`, so it never gets that
+	 * layout's `getUserExt` call and `$userStore` stays undefined. Anything deciding
+	 * what the user may do then reads "no user" and refuses: `canWrite` returns false
+	 * without one, which renders every field of the resource editor disabled — the
+	 * setup step could show the credentials to fill and then not let anyone fill them.
+	 */
+	async #adoptUser(workspace: string): Promise<void> {
+		try {
+			userStore.set(await getUserExt(workspace))
+		} catch {
+			// Leave it unset; the step degrades to read-only rather than failing the run.
+		}
 	}
 
 	/** Undoes the one thing this run created, when the user asks for it. */

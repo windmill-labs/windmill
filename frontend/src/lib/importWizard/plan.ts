@@ -33,7 +33,8 @@ export interface ImportPlan {
 	folder?: string
 }
 
-export type WizardStep = 1 | 2 | 3
+/** 4 is the optional setup step, reached only when the import leaves work to do. */
+export type WizardStep = 1 | 2 | 3 | 4
 
 export const FOLDER_NAME_RE = /^[a-zA-Z_0-9-]+$/
 
@@ -61,7 +62,7 @@ export function readPlan(url: URL): { plan: ImportPlan; step: WizardStep } {
 	// Rounded as well as clamped: the steps are compared with `>` and `===`, so a
 	// fractional `?step=2.5` would clamp to 2.5 and match neither.
 	const raw = Number(params.get('step') ?? 1)
-	const step = (Number.isFinite(raw) ? Math.min(3, Math.max(1, Math.round(raw))) : 1) as WizardStep
+	const step = (Number.isFinite(raw) ? Math.min(4, Math.max(1, Math.round(raw))) : 1) as WizardStep
 
 	return { plan: { slug, destination, folder: params.get('folder') || undefined }, step }
 }

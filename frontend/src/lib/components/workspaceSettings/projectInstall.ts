@@ -201,7 +201,11 @@ async function importApp(workspace: string, a: ExportItem): Promise<unknown> {
 // Apply one migration to the target data table. If the data table opted into
 // migrations, record it (datatable_migrations + _wm_migrations, run only this
 // version); otherwise run the SQL once as a preview job (unrecorded).
-async function applyOneMigration(
+//
+// Exported because the import can leave migrations unapplied: a data table the
+// project needs may not be configured in the destination yet, and the wizard's setup
+// step runs them once it is.
+export async function applyOneMigration(
 	workspace: string,
 	projectSlug: string,
 	m: ProjectMigration

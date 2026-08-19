@@ -71,7 +71,8 @@ describe('readPlan', () => {
 
 	it('clamps and rounds the step', () => {
 		expect(read('?hub=s&step=0').step).toBe(1)
-		expect(read('?hub=s&step=9').step).toBe(3)
+		// 4 is the optional setup step, so that is the ceiling.
+		expect(read('?hub=s&step=9').step).toBe(4)
 		expect(read('?hub=s&step=nope').step).toBe(1)
 		// A fractional step would match neither `=== 2` nor `=== 3`.
 		expect(read('?hub=s&step=2.5').step).toBe(3)
