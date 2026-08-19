@@ -950,11 +950,13 @@
 		rank(filteredConnectsManual) as typeof filteredConnectsManual | undefined
 	)
 
+	let searching = $derived(filter.trim() !== '')
+
 	// Browsing, the "Others" list leads with the native database types. Searching, that
 	// grouping would outrank the search itself — `ms_sql_server` sorting under `mysql` on
 	// "sql" — so the ranked order stands on its own.
 	let manualOrderedKeys = $derived(
-		filter === ''
+		!searching
 			? [
 					...(rankedConnectsManual ?? [])
 						.filter((x) => nativeLanguagesCategory.includes(x.key))
@@ -976,7 +978,6 @@
 		...(rankedConnects ?? []).map((x) => ({ key: x.key, oauth: true })),
 		...otherKeys.map((key) => ({ key, oauth: false }))
 	])
-	let searching = $derived(filter.trim() !== '')
 	// Both lists start undefined and render skeletons; "nothing found" only means something
 	// once they have landed.
 	let listsLoaded = $derived(rankedConnectsManual !== undefined && rankedConnects !== undefined)
@@ -1012,7 +1013,7 @@
 	$effect(() => {
 		navItems
 		filter
-		untrack(() => (highlightedIndex = filter === '' ? -1 : bestMatchIndex()))
+		untrack(() => (highlightedIndex = searching ? bestMatchIndex() : -1))
 	})
 
 	// Scrolling rows under a resting pointer makes the browser fire `mouseenter` on each one,

@@ -219,12 +219,16 @@ export function resourceTypeDisplayName(name: string): string {
 		.join(' ')
 }
 
+/** All-caps names said as a word rather than letter by letter ("a NATS resource"). */
+const SPOKEN_AS_WORD = new Set(['NATS'])
+
 /**
  * "Add **a** Supabase resource" / "Add **an** Airtable resource". Takes the display label, so
  * a leading acronym is read out letter by letter: "an S3 resource", "an MCP resource".
  */
 export function resourceTypeArticle(label: string): string {
-	const spokenAsVowel = /^[AEFHILMNORSX]([A-Z0-9]|$)/.test(label)
+	const firstWord = label.split(' ')[0] ?? ''
+	const spokenAsVowel = !SPOKEN_AS_WORD.has(firstWord) && /^[AEFHILMNORSX]([A-Z0-9]|$)/.test(label)
 	return spokenAsVowel || /^[aeiou]/i.test(label) ? 'an' : 'a'
 }
 
