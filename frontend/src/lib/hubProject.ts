@@ -1,3 +1,4 @@
+import DOMPurify from 'dompurify'
 import { SettingService } from '$lib/gen'
 import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 import type { ImportProjectSummary } from '$lib/components/ImportProjectCard.svelte'
@@ -73,14 +74,20 @@ export async function fetchHubProject(slug: string): Promise<ImportProjectSummar
  * Returns undefined when the hub ships no icon for that slug (it 404s), which is
  * the caller's cue to fall back to a placeholder.
  *
- * The markup comes from the hub's own icon package, not from user input.
+ * Sanitized before it is returned, because the markup is inlined into this
+ * authenticated origin and the hub is not necessarily ours: `hub_base_url` is an
+ * instance setting, and the import wizard can be pointed at any hub by URL. A
+ * hostile or compromised one answering with `<svg onload=…>` would otherwise run
+ * script here. SVG profile only — no HTML, and `svg` plus `svgFilters` namespaces.
  */
 export async function fetchAppIcon(hub: string, app: string): Promise<string | undefined> {
 	try {
 		const res = await fetch(`${hub}/icons/integrations/${encodeURIComponent(app)}.svg`)
 		if (!res.ok) return undefined
-		const svg = (await res.text()).trim()
-		return svg.startsWith('<svg') ? svg : undefined
+		const raw = (await res.text()).trim()
+		if (!raw.startsWith('<svg')) return undefined
+		const clean = DOMPurify.sanitize(raw, { USE_PROFILES: { svg: true, svgFilters: true } }).trim()
+		return clean.startsWith('<svg') ? clean : undefined
 	} catch {
 		return undefined
 	}

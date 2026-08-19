@@ -6,6 +6,8 @@
 	import { page } from '$app/stores'
 	import { goto } from '$lib/navigation'
 	import Stepper from '$lib/components/common/stepper/Stepper.svelte'
+	import { importIsRunning } from '$lib/importWizard/execution.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		/** 1-based; Stepper is 0-based, hence the -1 below. */
@@ -19,6 +21,13 @@
 	// skip ahead, since each step decides what the next one asks.
 	function onStepClick(index: number) {
 		if (index >= step - 1) return
+		// An import in flight owns the page: stepping back unmounts the step that is
+		// awaiting the migration review, which would leave the run with no controls
+		// and no way to resolve.
+		if (importIsRunning()) {
+			sendUserToast('Wait for the import to finish before going back.', true)
+			return
+		}
 		// All three steps share one route, so going back is a `step` rewrite that
 		// leaves the rest of the wizard's state in the URL alone.
 		const params = new URLSearchParams($page.url.search)

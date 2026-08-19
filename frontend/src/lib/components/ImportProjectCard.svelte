@@ -17,6 +17,7 @@
 </script>
 
 <script lang="ts">
+	import { resource } from 'runed'
 	import { ExternalLink, LayoutGrid } from 'lucide-svelte'
 	import ProjectContentBadges from '$lib/components/ProjectContentBadges.svelte'
 	import { fetchAppIcon } from '$lib/hubProject'
@@ -37,17 +38,17 @@
 	// Icons come from the hub rather than a local map: it ships ~270 of them and is
 	// the thing that knows which slug an integration is filed under. They arrive as
 	// SVG markup so `fill="currentColor"` still resolves against this page.
-	let icons = $state<string[]>([])
-	let fetchedFor: string | undefined = undefined
-	$effect(() => {
-		const key = `${project.hub}|${project.iconApps.join(',')}`
-		if (fetchedFor === key) return
-		fetchedFor = key
-		icons = []
-		void Promise.all(project.iconApps.slice(0, 4).map((a) => fetchAppIcon(project.hub, a))).then(
-			(svgs) => (icons = svgs.filter((s): s is string => !!s))
-		)
-	})
+	// Keyed on a string so "same icons" is an equality the resource can see; the
+	// fetcher reads `project`, which the key changes with.
+	const iconKey = $derived(`${project.hub}|${project.iconApps.slice(0, 4).join(',')}`)
+	const iconResource = resource(
+		() => iconKey,
+		async () =>
+			(
+				await Promise.all(project.iconApps.slice(0, 4).map((a) => fetchAppIcon(project.hub, a)))
+			).filter((s): s is string => !!s)
+	)
+	const icons = $derived(iconResource.current ?? [])
 
 	// The icon row shows the integrations the tile is not already showing: with an
 	// uploaded logo the tile shows none of them, so the row shows them all.

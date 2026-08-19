@@ -5,6 +5,7 @@
 	import { Button } from '$lib/components/common'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import RadioCard from '$lib/components/common/radioCard/RadioCard.svelte'
 	import ImportProjectCard, {
 		type ImportProjectSummary
 	} from '$lib/components/ImportProjectCard.svelte'
@@ -13,13 +14,15 @@
 	import ImportWizardSteps from '$lib/components/ImportWizardSteps.svelte'
 	import WorkspaceTreeView from '$lib/components/workspace/WorkspaceTreeView.svelte'
 	import { superadmin, usersWorkspaceStore } from '$lib/stores'
+	import { get } from 'svelte/store'
+	import { resource } from 'runed'
 	import { isCloudHosted } from '$lib/cloud'
-	import { SettingService, UserService, WorkspaceService, type UserWorkspaceList } from '$lib/gen'
+	import { WorkspaceService, type UserWorkspaceList } from '$lib/gen'
+	import { canCreateWorkspace, loadUsernamePolicy } from '$lib/workspaceCreation'
+	import { toWorkspaceId, validateWorkspaceId } from '$lib/utils/workspaceId'
 	import {
 		readPlan,
 		planToSearch,
-		toWorkspaceId,
-		WORKSPACE_ID_RE,
 		type ImportDestination,
 		type ImportPlan,
 		type WizardStep
@@ -49,33 +52,20 @@
 	}
 
 	// ---------------------------------------------------------------- permissions
-	// Same gate the workspace picker uses for its own create button: on a self-hosted
-	// instance CREATE_WORKSPACE_REQUIRE_SUPERADMIN defaults to true, and an offer that
-	// ends in a 403 is worse than no offer.
 	let canCreate = $state($superadmin || isCloudHosted())
 	$effect(() => {
 		if ($superadmin) canCreate = true
 	})
 	if (!canCreate) {
-		fetch(base + '/api/workspaces/create_workspace_require_superadmin')
-			.then((r) => r.text())
-			.then((t) => (canCreate = t != 'true'))
-			.catch(() => {})
+		void canCreateWorkspace(false).then((c) => (canCreate = c))
 	}
 
-	// createWorkspace rejects a username when the instance automates them, and
-	// requires one when it does not (backend users.rs:1166) — so the field only
-	// exists in the second case, and only then does it travel in the plan.
 	let automateUsername = $state(true)
 	let username = $state('')
-	SettingService.getGlobal({ key: 'automate_username_creation' })
-		.then((v) => {
-			automateUsername = (v as boolean | null) ?? true
-			if (!automateUsername && !username) {
-				UserService.globalWhoami()
-					.then((u) => (username = (u.name?.split(' ')[0] || u.email.split('@')[0]).toLowerCase()))
-					.catch(() => {})
-			}
+	void loadUsernamePolicy()
+		.then((p) => {
+			automateUsername = p.automate
+			if (p.suggested && !username) username = p.suggested
 		})
 		.catch(() => {})
 
@@ -83,25 +73,18 @@
 	// Straight from the hub, cross-origin: this runs before there is a workspace to
 	// proxy through. A failure is not fatal — the wizard still works, the card just
 	// shows the slug and the choices drop their item counts.
-	let project = $state<ImportProjectSummary | undefined>(undefined)
-	let projectError = $state(false)
-	let fetchedFor: string | undefined = undefined
+	const projectResource = resource(
+		() => slug || undefined,
+		async (s): Promise<ImportProjectSummary | undefined> =>
+			s ? await fetchHubProject(s) : undefined
+	)
+	const project = $derived(projectResource.current)
+	const projectError = $derived(!!projectResource.error)
+
 	let hubHost = $state('hub.windmill.dev')
 	void hubBrowserUrl()
 		.then((u) => (hubHost = new URL(u).host))
 		.catch(() => {})
-
-	$effect(() => {
-		if (!slug || fetchedFor === slug) return
-		fetchedFor = slug
-		projectError = false
-		void fetchHubProject(slug)
-			.then((p) => {
-				project = p
-				if (!name) name = p.name
-			})
-			.catch(() => (projectError = true))
-	})
 
 	const itemCount = $derived(
 		project ? Object.values(project.counts).reduce((a: number, b: number) => a + b, 0) : 0
@@ -110,46 +93,32 @@
 
 	// --------------------------------------------------------------------- step 1
 	let chosen = $state<'new' | 'existing' | undefined>(undefined)
-	// `canCreate` starts false and only turns true once the superadmin refresh or the
-	// settings fetch lands, so the default is derived rather than written at init.
-	const choice = $derived(chosen ?? (canCreate ? 'new' : 'existing'))
+	// The plan is consulted before the default so coming back from step 2 shows the
+	// choice that was made there. `canCreate` starts false and only turns true once
+	// the superadmin refresh or the settings fetch lands, so the fallback is derived
+	// rather than written at init.
+	const choice = $derived(chosen ?? plan.destination?.kind ?? (canCreate ? 'new' : 'existing'))
 
 	// --------------------------------------------------------------------- step 2
 	let name = $state(plan.destination?.kind === 'new' ? plan.destination.name : '')
-	let id = $state(plan.destination?.kind === 'new' ? plan.destination.id : '')
+	let id = $state(plan.destination?.kind === 'new' ? plan.destination.id : toWorkspaceId(plan.slug))
 	let idTaken = $state(false)
 	let checkingId = $state(false)
+	// The hub's own name for the project, once it arrives, unless the user has typed.
 	$effect(() => {
-		if (!slug || id) return
-		id = toWorkspaceId(slug)
+		const p = projectResource.current
+		if (p && !name) name = p.name
 	})
 
 	/** Free id nearest the prefill: `-2`, `-3`, … so re-importing a project works. */
 	async function freeId(candidate: string): Promise<string> {
 		for (let n = 1; n <= 20; n++) {
-			const next = n === 1 ? candidate : `${candidate}-${n + 1}`
+			const next = n === 1 ? candidate : `${candidate}-${n}`
+			if (validateWorkspaceId(next)) break
 			if (!(await WorkspaceService.existsWorkspace({ requestBody: { id: next } }))) return next
 		}
 		return candidate
 	}
-
-	// Suffix once when step 2 opens on a taken prefill; after that the user owns the
-	// field and only gets the inline error. Checking is a read, not a change — the
-	// wizard still creates nothing here.
-	let suffixedFor: string | undefined = undefined
-	$effect(() => {
-		if (step !== 2 || choiceIsExisting || !id || suffixedFor === slug) return
-		suffixedFor = slug
-		void (async () => {
-			checkingId = true
-			try {
-				id = await freeId(id)
-				idTaken = false
-			} finally {
-				checkingId = false
-			}
-		})()
-	})
 
 	async function checkId() {
 		const candidate = id.trim()
@@ -164,41 +133,59 @@
 		}
 	}
 
-	const idValid = $derived(WORKSPACE_ID_RE.test(id.trim()))
-	// Step 2 shows the workspace list when step 1 chose "one I already have", which
-	// the plan records by *not* carrying a new-workspace destination.
-	const choiceIsExisting = $derived(plan.destination?.kind !== 'new')
+	const idProblem = $derived(id.trim() ? validateWorkspaceId(id.trim()) : undefined)
+	// Step 2 shows the workspace list when step 1 chose "one I already have".
+	const choiceIsExisting = $derived(plan.destination?.kind === 'existing')
 
-	let workspaces = $state<UserWorkspaceList['workspaces']>([])
-	let listLoading = $state(false)
-	let listError = $state(false)
 	let filter = $state('')
 	let allExpanded = $state(false)
 	let hasForks = $state(false)
 	let expandCollapseAll = $state<(() => void) | undefined>(undefined)
 
-	$effect(() => {
-		if (step !== 2 || !choiceIsExisting || workspaces.length > 0 || listLoading) return
-		listLoading = true
-		void (async () => {
-			try {
-				const list = $usersWorkspaceStore ?? (await WorkspaceService.listUserWorkspaces())
-				usersWorkspaceStore.set(list)
-				workspaces = list.workspaces.filter((w) => !w.disabled)
-			} catch {
-				listError = true
-			} finally {
-				listLoading = false
-			}
-		})()
-	})
+	// Loaded once step 2 actually asks for a workspace. The store is read through
+	// `get` rather than `$usersWorkspaceStore`: the fetcher writes that store, and a
+	// tracked read of it here would make the resource re-run its own result.
+	const workspaceList = resource(
+		() => (step === 2 && choiceIsExisting ? true : undefined),
+		async (needed) => {
+			if (!needed) return undefined
+			const list = get(usersWorkspaceStore) ?? (await WorkspaceService.listUserWorkspaces())
+			usersWorkspaceStore.set(list)
+			return list.workspaces.filter((w) => !w.disabled)
+		}
+	)
+	const workspaces = $derived<UserWorkspaceList['workspaces']>(workspaceList.current ?? [])
 
 	// ----------------------------------------------------------------- transitions
-	function step1Continue() {
-		const destination: ImportDestination | undefined =
+	// Steps 2 and 3 both refine an answer step 1 gives, so a URL that reaches them
+	// without a destination is missing that answer rather than holding a default.
+	$effect(() => {
+		if (step > 1 && !plan.destination) go({}, 1)
+	})
+
+	// Suffixing happens here rather than reactively on step 2: it is a consequence of
+	// choosing to create a workspace, and `-2`, `-3`, … let a project be imported
+	// twice. Checking is a read — the wizard still creates nothing at this point.
+	async function step1Continue() {
+		if (choice === 'new') {
+			checkingId = true
+			try {
+				id = await freeId(id.trim() || toWorkspaceId(slug))
+				idTaken = false
+			} finally {
+				checkingId = false
+			}
+		}
+		const destination: ImportDestination =
 			choice === 'new'
 				? { kind: 'new', name: name.trim() || slug, id: id.trim(), username: username || undefined }
-				: undefined
+				: // Which workspace is step 2's question; the plan records the kind now so
+					// the two answers stay distinguishable in the URL.
+					{
+						kind: 'existing',
+						workspaceId:
+							plan.destination?.kind === 'existing' ? plan.destination.workspaceId : undefined
+					}
 		go({ destination }, 2)
 	}
 
@@ -230,7 +217,7 @@
 
 {#if !slug}
 	<CenteredModal title="Nothing to import" centerVertically={false}>
-		<p class="text-sm text-secondary">
+		<p class="text-xs text-secondary">
 			This page needs a <span class="font-mono">?hub=&lt;slug&gt;</span> to know which project to import.
 			Open it from a project on the hub.
 		</p>
@@ -277,44 +264,37 @@
 					<h2 class="text-sm font-semibold text-emphasis">Where should it go?</h2>
 
 					<!-- The whole card is the control: one choice at a time, shown by the
-					     border and tint rather than a dot. Radio semantics for screen readers. -->
-					{#if canCreate}
-						<button
-							type="button"
-							role="radio"
-							aria-checked={choice === 'new'}
-							class="w-full rounded-lg border p-4 text-left font-normal transition {choice === 'new'
-								? 'border-blue-400/70 bg-blue-50/60 dark:bg-blue-900/20'
-								: 'border-border-light hover:bg-surface-hover'}"
-							onclick={() => (chosen = 'new')}
-						>
-							<h3 class="flex items-center gap-1.5 text-xs font-semibold text-emphasis">
-								<Plus size={14} class="text-secondary" /> A new workspace
-							</h3>
-							<p class="mt-0.5 text-xs text-secondary">
-								Creates <span class="font-medium text-primary">{name}</span> and imports {itemsLabel}
-								into it.
-							</p>
-						</button>
-					{/if}
+					     border and tint rather than a dot, hence `showRadio={false}`. -->
+					<div role="radiogroup" aria-label="Where should it go?" class="flex flex-col gap-3">
+						{#if canCreate}
+							<RadioCard
+								label="A new workspace"
+								showRadio={false}
+								selected={choice === 'new'}
+								onSelect={() => (chosen = 'new')}
+							>
+								{#snippet icon()}
+									<Plus size={14} class="text-secondary" />
+								{/snippet}
+								{#snippet description()}
+									Creates <span class="font-medium text-primary">{name}</span> and imports
+									{itemsLabel} into it.
+								{/snippet}
+							</RadioCard>
+						{/if}
 
-					<button
-						type="button"
-						role="radio"
-						aria-checked={choice === 'existing'}
-						class="w-full rounded-lg border p-4 text-left font-normal transition {choice ===
-						'existing'
-							? 'border-blue-400/70 bg-blue-50/60 dark:bg-blue-900/20'
-							: 'border-border-light hover:bg-surface-hover'}"
-						onclick={() => (chosen = 'existing')}
-					>
-						<h3 class="flex items-center gap-1.5 text-xs font-semibold text-emphasis">
-							<Building size={14} class="text-secondary" /> A workspace I already have
-						</h3>
-						<p class="mt-0.5 text-xs text-secondary">
-							Imports {itemsLabel} into a workspace you already use.
-						</p>
-					</button>
+						<RadioCard
+							label="A workspace I already have"
+							description="Imports {itemsLabel} into a workspace you already use."
+							showRadio={false}
+							selected={choice === 'existing'}
+							onSelect={() => (chosen = 'existing')}
+						>
+							{#snippet icon()}
+								<Building size={14} class="text-secondary" />
+							{/snippet}
+						</RadioCard>
+					</div>
 
 					<div class="mt-2 flex items-center justify-end">
 						<Button unifiedSize="sm" variant="accent" onClick={step1Continue}>Continue →</Button>
@@ -329,31 +309,26 @@
 					</div>
 
 					<div class="grid grid-cols-2 gap-3">
-						<div class="flex flex-col gap-1">
-							<span class="text-[11px] font-medium uppercase tracking-wide text-tertiary">Name</span
-							>
+						<label class="flex flex-col gap-1">
+							<span class="text-xs font-normal text-secondary">Workspace name</span>
 							<TextInput size="sm" bind:value={name} />
-						</div>
-						<div class="flex flex-col gap-1">
-							<span class="text-[11px] font-medium uppercase tracking-wide text-tertiary">ID</span>
+						</label>
+						<label class="flex flex-col gap-1">
+							<span class="text-xs font-normal text-secondary">Workspace ID</span>
 							<TextInput size="sm" bind:value={id} inputProps={{ onblur: checkId }} />
-							{#if id.trim() && !idValid}
-								<span class="text-[11px] text-red-600">
-									Lowercase letters, digits and dashes only.
-								</span>
+							{#if idProblem}
+								<span class="text-2xs font-normal text-red-500">{idProblem}</span>
 							{:else if idTaken}
-								<span class="text-[11px] text-red-600">ID already exists.</span>
+								<span class="text-2xs font-normal text-red-500">ID already exists.</span>
 							{/if}
-						</div>
+						</label>
 					</div>
 
 					{#if !automateUsername}
-						<div class="flex max-w-[50%] flex-col gap-1">
-							<span class="text-[11px] font-medium uppercase tracking-wide text-tertiary">
-								Your username in it
-							</span>
+						<label class="flex max-w-[50%] flex-col gap-1">
+							<span class="text-xs font-normal text-secondary">Your username in it</span>
 							<TextInput size="sm" bind:value={username} />
-						</div>
+						</label>
 					{/if}
 				{:else}
 					<div>
@@ -361,13 +336,18 @@
 						<p class="mt-0.5 text-xs text-secondary">The project is imported into this one.</p>
 					</div>
 
-					{#if listLoading}
+					{#if workspaceList.loading}
 						<div class="flex items-center gap-2 text-xs text-secondary">
 							<Loader2 size={14} class="animate-spin" /> Loading your workspaces…
 						</div>
-					{:else if listError}
-						<p class="text-xs text-red-600">
+					{:else if workspaceList.error}
+						<p class="text-xs text-red-500">
 							Could not list your workspaces. Reload the page, or go back and create a new one.
+						</p>
+					{:else if workspaces.length === 0}
+						<p class="text-xs text-secondary">
+							You are not a member of any workspace yet. Go back and create one, or ask an admin to
+							invite you.
 						</p>
 					{:else}
 						<!-- The same tree the workspace picker renders: forks nested under their
@@ -417,7 +397,7 @@
 						unifiedSize="sm"
 						variant="subtle"
 						startIcon={{ icon: ArrowLeft }}
-						onClick={() => go({ destination: undefined }, 1)}
+						onClick={() => go({}, 1)}
 					>
 						Back
 					</Button>
@@ -425,7 +405,7 @@
 						<Button
 							unifiedSize="sm"
 							variant="accent"
-							disabled={!name.trim() || !idValid || idTaken || checkingId}
+							disabled={!name.trim() || !!idProblem || idTaken || checkingId}
 							onClick={confirmNewWorkspace}
 						>
 							Continue →

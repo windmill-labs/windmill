@@ -3,7 +3,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import FolderPicker from '$lib/components/FolderPicker.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import ProjectContentBadges from '$lib/components/ProjectContentBadges.svelte'
 	import type { ProjectMigration } from '$lib/components/workspaceSettings/projectBundle'
@@ -12,6 +12,7 @@
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { ImportExecution } from '$lib/importWizard/execution.svelte'
+	import { beforeNavigate } from '$app/navigation'
 	import { FOLDER_NAME_RE, planProblem, type ImportPlan } from '$lib/importWizard/plan'
 	import type { ImportProjectSummary } from '$lib/components/ImportProjectCard.svelte'
 	import { ArrowLeft, Check, Download, Loader2, X } from 'lucide-svelte'
@@ -31,6 +32,19 @@
 	let { plan, project, onFolderChange, onFinish, onBack }: Props = $props()
 
 	let folder = $state(plan.folder ?? plan.slug)
+	// The workspace the import will land in, when it is one that already exists. A
+	// `new` destination has no workspace to list folders from until the run creates it.
+	const existingWorkspace = $derived(
+		plan.destination?.kind === 'existing' ? plan.destination.workspaceId : undefined
+	)
+
+	// The picker binds `folder`, so there is no blur event to report on. Mirror every
+	// settled change into the plan — `go` replaces the URL, and a value equal to what
+	// the plan already holds is skipped so this cannot loop.
+	$effect(() => {
+		const next = folder.trim()
+		if (next && next !== (plan.folder ?? '')) onFolderChange(next)
+	})
 	const folderValid = $derived(FOLDER_NAME_RE.test(folder.trim()))
 	const problem = $derived(planProblem({ ...plan, folder: folder.trim() }))
 
@@ -117,16 +131,14 @@
 			}))
 	}
 
-	// One execution per plan. Going back and choosing a different destination makes a
-	// new one, so a previous run's outcome can never be shown against another plan.
-	let execution = $state<ImportExecution | undefined>(undefined)
+	// One execution per plan, tagged with the plan it belongs to. Going back and
+	// choosing a different destination leaves the old run behind the tag rather than
+	// clearing it from an effect, so a previous run's outcome can never be shown
+	// against another plan. The folder is deliberately not part of the tag: it is
+	// pushed onto the existing run instead (see `start`).
+	let run = $state<{ key: string; execution: ImportExecution } | undefined>(undefined)
 	const planKey = $derived(JSON.stringify(plan.destination) + plan.slug)
-	let executionKey: string | undefined = undefined
-	$effect(() => {
-		if (executionKey === planKey) return
-		executionKey = planKey
-		execution = undefined
-	})
+	const execution = $derived(run?.key === planKey ? run.execution : undefined)
 
 	function start() {
 		const current =
@@ -135,9 +147,23 @@
 				{ ...plan, folder: folder.trim() },
 				{ reviewMigrations, hasEeLicense: !!$enterpriseLicense }
 			)
-		execution = current
+		// A retry reuses the execution — that is what keeps a created workspace and a
+		// fetched export from being redone — so the folder, the one field still
+		// editable after a failure, has to be pushed onto it before running again.
+		current.setFolder(folder.trim())
+		run = { key: planKey, execution: current }
 		void current.run()
 	}
+
+	// The browser's own back/forward, which the stepper's guard cannot see. Leaving
+	// mid-run unmounts the migration review the executor may be awaiting.
+	beforeNavigate((nav) => {
+		if (execution?.running) nav.cancel()
+	})
+
+	// If this step is torn down while the review drawer is open, resolve the promise
+	// the executor is waiting on rather than leaving it pending forever.
+	$effect(() => () => reviewResolve?.(false))
 
 	const deleteModal = createAsyncConfirmationModal()
 	async function deleteWorkspace() {
@@ -173,59 +199,74 @@
 		<ProjectContentBadges counts={project.counts} />
 	{/if}
 
-	<div class="max-w-sm">
-		<p class="mb-1 text-[11px] font-medium uppercase tracking-wide text-tertiary">Folder</p>
-		<!-- A plain field, not FolderPicker: that component lists and creates folders in
-		     `$workspaceStore`, and until this step runs there may be no such workspace. -->
-		<TextInput
-			size="sm"
-			bind:value={folder}
-			inputProps={{
-				disabled: execution?.running || execution?.done,
-				onblur: () => onFolderChange(folder.trim())
-			}}
-		/>
-		{#if folder.trim() && !folderValid}
-			<p class="mt-1 text-[11px] text-red-600">Letters, digits, dashes and underscores only.</p>
-		{:else}
-			<p class="mt-1 text-xs text-tertiary">
-				Items import under <span class="font-mono">f/{folder.trim() || plan.slug}/</span>.
-			</p>
-		{/if}
-	</div>
-
-	{#if execution}
-		<!-- The run, task by task, so a failure says which part failed. -->
-		<ul class="flex flex-col gap-1.5 rounded-md border border-border-light p-3">
-			{#each execution.tasks as task (task.key)}
-				<li class="flex items-center gap-2 text-xs">
-					{#if task.status === 'running'}
-						<Loader2 size={13} class="animate-spin text-blue-500" />
-					{:else if task.status === 'done'}
-						<Check size={13} class="text-emerald-600" />
-					{:else if task.status === 'failed'}
-						<X size={13} class="text-red-600" />
-					{:else}
-						<span class="h-[13px] w-[13px] rounded-full border border-border-light"></span>
-					{/if}
-					<span class={task.status === 'pending' ? 'text-tertiary' : 'text-primary'}>
-						{task.label}
-					</span>
-					{#if task.detail}
-						<span class="truncate text-tertiary">— {task.detail}</span>
-					{/if}
-				</li>
-			{/each}
-		</ul>
+	<!-- Only when the destination already exists. A workspace created by this run is
+	     empty, so there is nothing for the project to sit next to and nothing to
+	     choose between — asking would be a question with one answer. It lands in
+	     f/<slug>/ either way; `installProject` creates the folder as it imports. -->
+	{#if existingWorkspace}
+		<div class="max-w-sm">
+			<span class="mb-1 block text-xs font-normal text-secondary">Folder</span>
+			<!-- Pointed at the destination rather than the active workspace: the run is
+			     what enters it, and that has not happened yet on this step. -->
+			<FolderPicker
+				bind:folderName={folder}
+				workspace={existingWorkspace}
+				disabled={execution?.running || execution?.done}
+				size="sm"
+			/>
+			{#if folder.trim() && !folderValid}
+				<p class="mt-1 text-2xs font-normal text-red-500"
+					>Letters, digits, dashes and underscores only.</p
+				>
+			{:else}
+				<p class="mt-1 text-xs text-tertiary">
+					Items import under <span class="font-mono">f/{folder.trim() || plan.slug}/</span>.
+				</p>
+			{/if}
+		</div>
 	{/if}
 
-	{#if execution?.results.length}
-		<ul class="flex max-h-52 flex-col gap-1 overflow-y-auto text-xs">
-			{#each execution.results as r}
-				<li class="flex items-center gap-2">
-					<span class={r.ok ? 'text-emerald-600' : 'text-red-600'}>{r.ok ? '✓' : '✗'}</span>
-					<span class="truncate font-mono">{r.path}</span>
-					{#if !r.ok}<span class="shrink-0 text-red-600">— {r.error}</span>{/if}
+	{#if execution}
+		<!-- The run, task by task, so a failure says which part failed. The paths the
+		     import writes hang off the import task rather than forming a second list:
+		     they are that task's output, not a parallel account of the same run. No
+		     box around it — one run, one component. -->
+		<ul class="flex flex-col gap-1.5">
+			{#each execution.tasks as task (task.key)}
+				<li class="flex flex-col gap-1">
+					<div class="flex items-center gap-2 text-xs">
+						{#if task.status === 'running'}
+							<Loader2 size={13} class="animate-spin text-blue-500" />
+						{:else if task.status === 'done'}
+							<Check size={13} class="text-emerald-600" />
+						{:else if task.status === 'failed'}
+							<X size={13} class="text-red-600" />
+						{:else}
+							<span class="h-[13px] w-[13px] rounded-full border border-border-light"></span>
+						{/if}
+						<span class={task.status === 'pending' ? 'text-tertiary' : 'text-primary'}>
+							{task.label}
+						</span>
+						{#if task.detail}
+							<span class="truncate text-tertiary">— {task.detail}</span>
+						{/if}
+					</div>
+
+					{#if task.key === 'import' && execution.results.length}
+						<!-- Indented to the task's label, so the rule down the left reads as
+						     "these came from the line above". -->
+						<ul
+							class="ml-[6px] flex max-h-52 flex-col gap-1 overflow-y-auto border-l border-border-light pl-4 text-xs"
+						>
+							{#each execution.results as r}
+								<li class="flex items-center gap-2">
+									<span class={r.ok ? 'text-emerald-600' : 'text-red-600'}>{r.ok ? '✓' : '✗'}</span>
+									<span class="truncate font-mono">{r.path}</span>
+									{#if !r.ok}<span class="shrink-0 text-red-600">— {r.error}</span>{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</li>
 			{/each}
 		</ul>

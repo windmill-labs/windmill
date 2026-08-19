@@ -1,5 +1,6 @@
 import { WorkspaceService } from '$lib/gen'
 import { switchWorkspace } from '$lib/storeUtils'
+import { enterNewWorkspace, refreshWorkspaceList } from '$lib/workspaceCreation'
 import {
 	installProject,
 	type InstallResult
@@ -19,6 +20,17 @@ import { planWorkspaceId, type ImportPlan } from './plan'
  * the EE licence — is injected, so the wizard's UI decisions stay in the wizard
  * and this file stays testable without a browser.
  */
+
+/**
+ * Whether an import is mid-flight, readable by anything that can navigate away
+ * from it. The run outlives no component: leaving the last step unmounts the
+ * migration review the executor is awaiting, so a run in progress has to block
+ * the stepper and the browser rather than be silently detached.
+ */
+const runState = $state({ active: false })
+export function importIsRunning(): boolean {
+	return runState.active
+}
 
 export type TaskStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped'
 
@@ -100,6 +112,7 @@ export class ImportExecution {
 	async run(): Promise<void> {
 		if (this.running) return
 		this.running = true
+		runState.active = true
 		this.error = undefined
 		try {
 			const workspace = await this.#ensureWorkspace()
@@ -109,7 +122,17 @@ export class ImportExecution {
 			await this.#import(workspace, exportData)
 		} finally {
 			this.running = false
+			runState.active = false
 		}
+	}
+
+	/**
+	 * The folder is the one part of the plan still editable on the last step, so a
+	 * retry after changing it must import where the field now says — not where the
+	 * first attempt was told to.
+	 */
+	setFolder(folder: string) {
+		this.#plan = { ...this.#plan, folder }
 	}
 
 	async #ensureWorkspace(): Promise<string | undefined> {
@@ -119,28 +142,40 @@ export class ImportExecution {
 			return undefined
 		}
 		if (d.kind === 'existing') {
+			if (!d.workspaceId) {
+				this.error = 'No destination workspace'
+				return undefined
+			}
 			switchWorkspace(d.workspaceId)
 			return d.workspaceId
 		}
-		if (this.tasks.find((t) => t.key === 'create')?.status === 'done') {
-			switchWorkspace(d.id)
-			return d.id
-		}
-		this.#set('create', 'running')
-		try {
-			await WorkspaceService.createWorkspace({
-				requestBody: { id: d.id, name: d.name, username: d.username }
-			})
+		// Keyed on the workspace existing rather than on the task being green: a retry
+		// after entering it failed must not run the create again, which would only
+		// report the id as taken by the workspace this run just made.
+		if (!this.#workspaceCreated) {
+			this.#set('create', 'running')
+			try {
+				await WorkspaceService.createWorkspace({
+					requestBody: { id: d.id, name: d.name, username: d.username }
+				})
+			} catch (e: any) {
+				const detail = e?.body?.toString?.() ?? String(e)
+				this.#set('create', 'failed', detail)
+				this.error = `Could not create the workspace: ${detail}`
+				return undefined
+			}
 			this.#workspaceCreated = true
-			switchWorkspace(d.id)
-			this.#set('create', 'done')
-			return d.id
+		}
+		try {
+			await enterNewWorkspace(d.id)
 		} catch (e: any) {
 			const detail = e?.body?.toString?.() ?? String(e)
-			this.#set('create', 'failed', detail)
-			this.error = `Could not create the workspace: ${detail}`
+			this.#set('create', 'failed', `created, but could not be entered: ${detail}`)
+			this.error = `Created ${d.id}, but could not enter it: ${detail}`
 			return undefined
 		}
+		this.#set('create', 'done')
+		return d.id
 	}
 
 	async #ensureExport(workspace: string): Promise<ProjectExport | undefined> {
@@ -223,6 +258,7 @@ export class ImportExecution {
 		const d = this.#plan.destination
 		if (!this.#workspaceCreated || d?.kind !== 'new') return
 		await WorkspaceService.deleteWorkspace({ workspace: d.id })
+		await refreshWorkspaceList()
 		this.#workspaceCreated = false
 		this.#set('create', 'pending')
 		this.done = false
