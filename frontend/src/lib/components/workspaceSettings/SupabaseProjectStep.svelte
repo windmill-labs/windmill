@@ -56,11 +56,13 @@
 				}
 				// Seeded from the project, the way picking one does. Chosen independently, the
 				// review step names whichever organization happens to be first while the database
-				// under it belongs to another.
+				// under it belongs to another. A lookup that misses leaves it unset rather than
+				// falling back to the first: `supabaseSummary` then shows the project's own
+				// organization by identifier, which is right where a name would be wrong.
 				const seeded = intent.project
 				if (!intent.org) {
 					intent.org = seeded
-						? ((orgs ?? []).find((o) => orgSlug(o) === projectOrg(seeded)) ?? orgs?.[0])
+						? (orgs ?? []).find((o) => orgSlug(o) === projectOrg(seeded))
 						: orgs?.[0]
 				}
 				// The plan decides who gets billed, and the list endpoint does not carry it.
