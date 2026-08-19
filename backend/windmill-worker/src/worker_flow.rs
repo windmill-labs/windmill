@@ -36,7 +36,7 @@ use windmill_common::auth::get_job_perms;
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::cache::{self, RawData};
 use windmill_common::client::AuthedClient;
-use windmill_common::db::Authed;
+use windmill_common::db::{Authed, AuthedRef, UserDB, UserDbWithAuthed};
 use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::flow_status::{
     ApprovalConditions, FlowJobDuration, FlowJobsDuration, FlowStatusModuleWParent,
@@ -4023,6 +4023,21 @@ async fn push_next_flow_job(
     };
     tracing::debug!(id = %flow_job.id, root_id = %job_root, "flow job args computed");
 
+    let flow_root_job = get_root_job_id(&flow_job);
+    // The permissions every step of this run is pushed with. Resolved before the transform
+    // because the step's script/sub-flow reference is looked up under them, so a step cannot
+    // reach a runnable the run itself is not authorized for.
+    let root_job_perms = get_job_perms(db, &flow_root_job, &flow_job.workspace_id).await?;
+    // The end user is a property of whoever triggered the root run, so every step (and
+    // transitively every subflow's step) must see the same WM_END_USER_EMAIL as the run.
+    // It is read from the root's `job_perms` rather than off `flow_job`: only a freshly
+    // pulled job carries `permissioned_as_end_user_email`, and every step past the first
+    // is pushed from a flow job re-fetched by `get_mini_pulled_job`, which does not.
+    let end_user_email = root_job_perms
+        .as_ref()
+        .and_then(|x| x.end_user_email.clone());
+    let job_perms: Option<Authed> = root_job_perms.map(|x| x.into());
+
     let next_flow_transform = compute_next_flow_transform(
         arc_flow_job_args.clone(),
         arc_last_job_result.clone(),
@@ -4040,6 +4055,7 @@ async fn push_next_flow_job(
         resume.clone(),
         approvers.clone(),
         is_skipped,
+        job_perms.as_ref(),
     )
     .warn_after_seconds(3)
     .await?;
@@ -4379,21 +4395,6 @@ async fn push_next_flow_job(
                 .or_else(|| Some(flow_job.id))
         };
 
-        let flow_root_job = get_root_job_id(&flow_job);
-
-        // forward root job permissions to the new job
-        let root_job_perms =
-            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id).await?;
-        // The end user is a property of whoever triggered the root run, so every step (and
-        // transitively every subflow's step) must see the same WM_END_USER_EMAIL as the run.
-        // It is read from the root's `job_perms` rather than off `flow_job`: only a freshly
-        // pulled job carries `permissioned_as_end_user_email`, and every step past the first
-        // is pushed from a flow job re-fetched by `get_mini_pulled_job`, which does not.
-        let end_user_email = root_job_perms
-            .as_ref()
-            .and_then(|x| x.end_user_email.clone());
-        let job_perms: Option<Authed> = root_job_perms.map(|x| x.into());
-
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
         let tag = resolve_flow_step_tag(
             step.is_preprocessor_step(),
@@ -4487,7 +4488,7 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
             continue_with_runners,
-            end_user_email,
+            end_user_email.clone(),
             None,
             None,
         )
@@ -5159,6 +5160,7 @@ async fn compute_next_flow_transform(
     resume: Arc<Box<RawValue>>,
     approvers: Arc<Box<RawValue>>,
     is_skipped: bool,
+    step_authed: Option<&Authed>,
 ) -> error::Result<NextFlowTransform> {
     if module.mock.is_some() && module.mock.as_ref().unwrap().enabled {
         return Ok(NextFlowTransform::Continue(
@@ -5203,6 +5205,7 @@ async fn compute_next_flow_transform(
                 delete_after_secs,
                 &flow_job.workspace_id,
                 db,
+                step_authed,
             )
             .await?;
             if let Some(nested) = nested_restart_payload(status, &module.id, None) {
@@ -5237,6 +5240,7 @@ async fn compute_next_flow_transform(
                 module,
                 tag_override,
                 module.apply_preprocessor,
+                step_authed,
             )
             .await?;
             Ok(NextFlowTransform::Continue(
@@ -5344,6 +5348,7 @@ async fn compute_next_flow_transform(
                 module,
                 delete_after_use,
                 start_runners,
+                step_authed,
             )
             .await
         }
@@ -5403,6 +5408,7 @@ async fn compute_next_flow_transform(
                         module,
                         delete_after_use,
                         start_runners,
+                        step_authed,
                     )
                     .await
                 }
@@ -5723,6 +5729,7 @@ async fn next_loop_iteration(
     module: &FlowModule,
     delete_after_use: bool,
     start_runners: bool,
+    step_authed: Option<&Authed>,
 ) -> Result<NextFlowTransform, Error> {
     let inner_path = || format!("{}/loop-{}", flow_job.runnable_path(), ns.index);
     if is_simple {
@@ -5748,7 +5755,8 @@ async fn next_loop_iteration(
         };
         return Ok(NextFlowTransform::Continue(
             ContinuePayload::SingleJob(
-                payload_from_simple_module(value, db, flow_job, module, inner_path()).await?,
+                payload_from_simple_module(value, db, flow_job, module, inner_path(), step_authed)
+                    .await?,
             ),
             NextStatus::NextLoopIteration { next: ns, simple_input_transforms, start_runners },
         ));
@@ -5968,6 +5976,7 @@ async fn payload_from_simple_module(
     flow_job: &MiniPulledJob,
     module: &FlowModule,
     inner_path: String,
+    step_authed: Option<&Authed>,
 ) -> Result<JobPayloadWithTag, Error> {
     let delete_after_use = module.delete_after_use.unwrap_or(false);
     let delete_after_secs = module.delete_after_secs;
@@ -5979,6 +5988,7 @@ async fn payload_from_simple_module(
                 delete_after_secs,
                 &flow_job.workspace_id,
                 db,
+                step_authed,
             )
             .await?
         }
@@ -5991,6 +6001,7 @@ async fn payload_from_simple_module(
                 module,
                 tag_override,
                 module.apply_preprocessor,
+                step_authed,
             )
             .await?
         }
@@ -6074,14 +6085,37 @@ pub fn raw_script_to_payload(
     }
 }
 
+/// The connection a step's runnable reference is resolved through.
+///
+/// `Some` binds the lookup to the identity the step will run as, so a stored reference cannot
+/// reach a script or sub-flow that identity is not authorized for. `None` (no `job_perms` row for
+/// the root job) falls back to an unfiltered lookup.
+fn step_db_authed<'a>(
+    db: &DB,
+    authed_ref: &'a Option<AuthedRef<'a>>,
+) -> Option<UserDbWithAuthed<'a, AuthedRef<'a>>> {
+    authed_ref
+        .as_ref()
+        .map(|authed| UserDbWithAuthed { db: UserDB::new(db.clone()), authed })
+}
+
 async fn flow_to_payload(
     path: String,
     delete_after_use: bool,
     delete_after_secs: Option<i32>,
     w_id: &str,
     db: &DB,
+    step_authed: Option<&Authed>,
 ) -> Result<JobPayloadWithTag, Error> {
-    let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+    let authed_ref = step_authed.map(|x| x.to_authed_ref());
+    let flow_info = get_latest_flow_version_info_for_path(
+        step_db_authed(db, &authed_ref),
+        &db,
+        w_id,
+        &path,
+        true,
+    )
+    .await?;
     let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo { version, tag, .. } = flow_info;
     let payload = JobPayload::Flow {
@@ -6121,18 +6155,20 @@ pub async fn script_to_payload(
     module: &FlowModule,
     tag_override: Option<String>,
     apply_preprocessor: Option<bool>,
+    step_authed: Option<&Authed>,
 ) -> Result<JobPayloadWithTag, Error> {
     let tag_override = if tag_override.as_ref().is_some_and(|x| x.trim().is_empty()) {
         None
     } else {
         tag_override
     };
+    let authed_ref = step_authed.map(|x| x.to_authed_ref());
     let (payload, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
         if script_hash.is_none() {
             let (jp, tag, delete_after_use, delete_after_secs, script_timeout, on_behalf_of) =
                 script_path_to_payload(
                     &script_path,
-                    None,
+                    step_db_authed(db, &authed_ref),
                     db.clone(),
                     &flow_job.workspace_id,
                     Some(true),
@@ -6149,13 +6185,16 @@ pub async fn script_to_payload(
         } else {
             let hash = script_hash.unwrap();
 
-            let script_info = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
-                .await?
-                .prefetch_cached(&db)
-                .await?;
-            let on_behalf_of = script_info
-                .on_behalf_of(&flow_job.workspace_id, db)
-                .await?;
+            let script_info = get_script_info_for_hash(
+                step_db_authed(db, &authed_ref),
+                db,
+                &flow_job.workspace_id,
+                hash.0,
+            )
+            .await?
+            .prefetch_cached(&db)
+            .await?;
+            let on_behalf_of = script_info.on_behalf_of(&flow_job.workspace_id, db).await?;
             let ScriptHashInfo {
                 tag,
                 cache_ttl,
