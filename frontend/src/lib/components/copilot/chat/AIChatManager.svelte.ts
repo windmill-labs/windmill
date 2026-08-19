@@ -2442,7 +2442,10 @@ export class AIChatManager {
 				// The one place every tool source converges, which is why the capability
 				// filter belongs here and not in `globalToolsFor`. This same array both
 				// advertises the tools and dispatches the calls, so a withheld tool is
-				// unreachable rather than merely unlisted.
+				// unreachable rather than merely unlisted. Filtering is unconditional
+				// because `sessionAccess` is set only for session chats and `changeMode`
+				// keeps those GLOBAL — a non-GLOBAL toolset has no policy entries and
+				// would fail closed to nothing.
 				get tools() {
 					return filterSessionTools([...self.tools, ...self.planMode.tools], self.sessionAccess)
 				},
