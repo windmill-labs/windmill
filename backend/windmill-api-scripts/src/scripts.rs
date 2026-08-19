@@ -289,7 +289,9 @@ async fn list_scripts(
         sqlb.and_where_eq("parent_hashes[array_upper(parent_hashes, 1)]", &ph.0);
     }
     if let Some(ph) = &lq.parent_hash {
-        sqlb.and_where_eq("any(parent_hashes)", &ph.0);
+        // ANY() only ever sits on the right of the comparison; `and_where_eq` would
+        // emit it on the left and Postgres rejects that as a syntax error.
+        sqlb.and_where("? = ANY(parent_hashes)".bind(&ph.0));
     }
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);

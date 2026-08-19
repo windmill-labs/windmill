@@ -147,10 +147,19 @@ $NAV --root backend callees "X"                           # what does X call?
 - **MUST `outline` before `Read`** on unfamiliar files — then `body` or `Read` with offset/limit for specifics
 - **Scratch stays outside the checkout.** Temp scripts, data dumps, cache backups and
   screenshots go in the session scratch directory or `/tmp`, so nothing temporary can end up
-  committed. Write `rm`/`mv`/`cp` as one plain unchained command: a PreToolUse hook
-  auto-allows those when every operand is under `/tmp` or inside this checkout, but it defers
-  on `&&`, `;`, redirects, quotes and `$VAR` — that deferral, not the delete itself, is what
-  turns a routine cleanup into a permission prompt.
+  committed. Write the paths in `rm`/`mv`/`cp` out literally: a PreToolUse hook proves each
+  operand, and auto-allows deletes, moves, copies and mode changes under `/tmp` or inside a git
+  checkout under `$HOME`, as long as one operation stays within a single root — a sibling
+  checkout is a root of its own (`tar` and `unzip` stay `/tmp`-only). Chain deletes freely, each
+  proved on its own operands, but keep writes to one per line, name the destination rather than
+  a directory to drop it in, and put anything else on its own line: a command the hook does not
+  prove drops the whole line back to the normal permission flow. A
+  quoted or `$VAR` operand, a `~`, a redirect, a `$(…)`, a relative `cd`, or a wrapper like
+  `xargs rm` cannot be proved, and that deferral is what turns a cleanup into a prompt.
+- **Change files with Edit/Write, not the shell.** `sed -i`, `cat > file <<'EOF'` and inline
+  `python3 - <<'PY'` scripts put an edit through the PreToolUse guards and the permission
+  classifier, which match `Bash` and nothing else, so a routine edit arrives as a prompt. Bash
+  stays right for running things — tests, builds, git, one-off queries.
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked

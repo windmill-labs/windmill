@@ -14,6 +14,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Alert } from '$lib/components/common'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { react18Template, react19Template, svelte5Template } from './templates'
@@ -125,6 +126,9 @@
 	// would announce AI as unconfigured while it is merely unknown. Gate on the
 	// config describing opWs, and load it here so the claim owns its own evidence.
 	const aiConfigLoaded = $derived(!!opWs && $copilotWorkspace === opWs)
+	// Say where the button leads: the route hands this prompt to a fresh AI
+	// session for everyone who has one, and drives the docked chat for the rest.
+	const handsOffToSession = $derived(prefersSessionHandoff($userStore?.operator))
 	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
 
 	$effect(() => {
@@ -398,8 +402,9 @@
 							}}
 						/>
 						<p class="text-xs text-tertiary">
-							Leave empty to start with a blank template, or describe your app to get AI assistance
-							right away.
+							{handsOffToSession
+								? 'Leave empty to start with a blank template, or describe your app to open an AI session that builds it.'
+								: 'Leave empty to start with a blank template, or describe your app to get AI assistance right away.'}
 						</p>
 					</div>
 				{/if}
@@ -424,7 +429,7 @@
 						startIcon={{ icon: Sparkles }}
 						btnClasses={AIBtnClasses('accent')}
 					>
-						Start with AI
+						{handsOffToSession ? 'Start in AI session' : 'Start with AI'}
 					</Button>
 				{/if}
 			</div>

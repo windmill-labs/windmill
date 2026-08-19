@@ -10,6 +10,14 @@
 		/** Where inside the item the preview should open (a flow's `selected`
 		 * step). Steers the editor only — tab identity is (kind, path). */
 		previewParams?: Record<string, string>
+		/** Pre-fills the new session's composer. Entry points that carry an intent
+		 * (fix this error, run this item) hand it over as text rather than driving
+		 * a chat the caller cannot see. */
+		seedPrompt?: string
+		/** Send `seedPrompt` on arrival rather than parking it in the composer.
+		 * For clicks that already stated the intent; leave it off where the prompt
+		 * is a proposal the user should read first. */
+		autoSend?: boolean
 	}
 
 	// A destination is either an editable item or a page, never both and never
@@ -31,15 +39,17 @@
 	import { BROWSER } from 'esm-env'
 	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { openEditorInSession, openPageInSession } from './sessionSwitch.svelte'
+	import { openSourceInSession } from './sessionSwitch.svelte'
 
 	let {
 		source,
 		btnClasses,
 		btnProps,
+		label,
+		tooltip,
 		fallback
 	}: {
 		/** Undefined (e.g. an item without a path yet) renders the fallback. */
@@ -48,9 +58,15 @@
 		/** Button styling overrides for hosts with their own conventions (an
 		 * editor toolbar). */
 		btnProps?: ComponentProps<typeof AIButton>['btnProps']
-		/** Rendered instead when the user opted out of the sessions beta
-		 * (typically the editor's inline-chat toggle). Never rendered inside
-		 * the session panel. */
+		/** Names the action this replaced, for hosts whose button carried its own
+		 * label ("AI Fix"). Defaults to AIButton's generic "Open in AI session". */
+		label?: string
+		/** Hover text. Pass it whenever `label` is set: a renamed button no longer
+		 * says that clicking it leaves for a session. */
+		tooltip?: string
+		/** Rendered instead when the caller keeps a docked chat to drive — an
+		 * opted-out user or an operator (typically the editor's inline-chat
+		 * toggle). Never rendered inside the session panel. */
 		fallback?: Snippet
 	} = $props()
 
@@ -60,13 +76,11 @@
 	// SessionEditorTarget / the session wrapper); iframe preview tabs are not
 	// the top window.
 	const inSessionPanel = !!getContext('aiChatManager') || (BROWSER && window.self !== window.top)
-	// The sessions page refuses operators, so an entry point on a page they can
-	// reach (Runs, the trigger lists) would only route them into that refusal.
+	// prefersSessionHandoff carries the operator clause: the sessions page refuses
+	// them, so an entry point on a page they can reach (Runs, the trigger lists)
+	// would only route them into that refusal.
 	const show = $derived(
-		!inSessionPanel &&
-			!!(source?.target || source?.page) &&
-			!$userStore?.operator &&
-			isGlobalAiEnabled()
+		!inSessionPanel && !!(source?.target || source?.page) && prefersSessionHandoff($userStore?.operator)
 	)
 
 	// Not $state: only read inside open() as a re-entrancy latch, never rendered.
@@ -75,16 +89,11 @@
 		if (opening || !source) return
 		opening = true
 		try {
-			// `beforeOpen` persists what is on screen and throws when it could not, so a
-			// failure has to stay on this page and say so — the session would otherwise
-			// open on an older draft than the editor the user is looking at.
-			await source.beforeOpen?.()
-			if (source.target) {
-				await openEditorInSession(source.target, source.workspaceId, source.previewParams)
-			} else {
-				const href = source.page?.()
-				if (href) await openPageInSession(href, source.workspaceId)
-			}
+			// `beforeOpen` (run inside openSourceInSession) persists what is on screen
+			// and throws when it could not, so a failure has to stay on this page and
+			// say so — the session would otherwise open on an older draft than the
+			// editor the user is looking at.
+			await openSourceInSession(source)
 		} catch (e) {
 			sendUserToast(e instanceof Error ? e.message : String(e), true)
 		} finally {
@@ -94,7 +103,13 @@
 </script>
 
 {#if show}
-	<AIButton togglePanel={open} btnClasses={btnClasses ?? AIBtnClasses('default')} {btnProps} />
+	<AIButton
+		togglePanel={open}
+		btnClasses={btnClasses ?? AIBtnClasses('default')}
+		{btnProps}
+		{label}
+		{tooltip}
+	/>
 {:else if !inSessionPanel}
 	{@render fallback?.()}
 {/if}

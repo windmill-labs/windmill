@@ -25,6 +25,7 @@ use std::time::Instant;
 use tokio::io::AsyncReadExt;
 use tower::ServiceBuilder;
 use url::Url;
+use windmill_common::assets::AssetUsageAccessType;
 #[cfg(all(feature = "enterprise", feature = "instance_smtp"))]
 use windmill_common::auth::is_super_admin_email;
 use windmill_common::auth::TOKEN_PREFIX_LEN;
@@ -136,6 +137,7 @@ pub fn workspaced_service() -> Router {
 
     Router::new()
         .route("/run_progress/{id}", get(get_run_progress))
+        .route("/run_assets/{id}", get(list_run_assets))
         .route("/dbt_graph/{id}", get(get_dbt_run_graph))
         .route("/dbt_resumable/{id}", get(get_dbt_resumable))
         .route(
@@ -1188,6 +1190,121 @@ async fn get_run_progress(
     Ok(Json(rows))
 }
 
+#[derive(Serialize)]
+struct RunAsset {
+    path: String,
+    kind: windmill_common::assets::AssetKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access_type: Option<AssetUsageAccessType>,
+}
+
+#[derive(Serialize)]
+struct RunAssets {
+    assets: Vec<RunAsset>,
+    truncated: bool,
+}
+
+/// A fan-out run — a forloop writing one object per iteration — touches as many
+/// assets as it has steps, and the whole list would land in one response and one
+/// list in the browser. Cap it, and say so rather than serving a prefix that
+/// reads like the whole answer.
+const RUN_ASSETS_CAP: usize = 1000;
+
+/// Assets a run touched, as recorded by runtime detection, aggregated over the
+/// whole job tree: the recorder attributes an asset to the job that performed
+/// the operation, which for a flow step or a workflow-as-code task is not the
+/// job the user opened. Lives with the job routes for the same reason
+/// `run_progress` does — `asset` has no RLS, and `require_job_read_access` is
+/// what applies the view token, a scoped token's tag filter and the app-embed
+/// cutoff.
+async fn list_run_assets(
+    authed: ApiAuthed,
+    OptViewToken(view_token): OptViewToken,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, job_id)): Path<(String, Uuid)>,
+) -> error::JsonResult<RunAssets> {
+    let created_by = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        job_id,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+    let Some(created_by) = created_by else {
+        return Ok(Json(RunAssets { assets: vec![], truncated: false }));
+    };
+    require_job_read_access(
+        &db,
+        &user_db,
+        &authed,
+        &w_id,
+        &job_id,
+        &created_by,
+        view_token.as_deref(),
+    )
+    .await?;
+
+    // Walked on `db`, like the flow tree is: the gate above is what authorizes the
+    // run, and it grants access the caller's own RLS does not have — a view token,
+    // or a job the caller launched that runs as someone else. Re-filtering the tree
+    // through `user_db` would drop exactly those, and hand a share-link viewer the
+    // empty tab this endpoint exists to fix. The tag scope is the one restriction
+    // that must still hold per job, since the gate only checked the root. It gates
+    // which jobs' assets are read, not which are walked through: the gate admits a
+    // job on its own tag, so an out-of-scope job in the middle of the tree must not
+    // hide a descendant the caller could have asked for directly.
+    let scope_tags = get_scope_tags(&authed).map(|v| v.iter().map(|s| s.to_string()).collect_vec());
+    let rows = sqlx::query!(
+        r#"WITH RECURSIVE job_tree AS (
+            SELECT id, tag FROM v2_job WHERE id = $2 AND workspace_id = $1
+            UNION
+            SELECT j.id, j.tag FROM v2_job j JOIN job_tree t ON j.parent_job = t.id
+             WHERE j.workspace_id = $1
+        )
+        SELECT
+            a.path,
+            a.kind AS "kind!: windmill_common::assets::AssetKind",
+            -- Several jobs of the tree touch one asset, each recording its own
+            -- access. A job that recorded none contributes nothing rather than
+            -- erasing a sibling's, so an all-null group is the only unknown one.
+            -- Grouping here, not in Rust, is what makes LIMIT count assets: the
+            -- retention keeps up to ten job rows per asset.
+            COALESCE(bool_or(a.usage_access_type IN ('r', 'rw')), false) AS "any_read!",
+            COALESCE(bool_or(a.usage_access_type IN ('w', 'rw')), false) AS "any_write!"
+        FROM asset a JOIN job_tree t ON a.usage_path = t.id::text
+        WHERE a.workspace_id = $1 AND a.usage_kind = 'job'
+          AND ($3::text[] IS NULL OR t.tag = ANY($3))
+        GROUP BY a.path, a.kind
+        ORDER BY a.path, a.kind
+        LIMIT $4"#,
+        w_id,
+        job_id,
+        scope_tags.as_deref(),
+        // One asset past the cap is how the response learns it was cut.
+        RUN_ASSETS_CAP as i64 + 1
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let truncated = rows.len() > RUN_ASSETS_CAP;
+    let assets = rows
+        .into_iter()
+        .take(RUN_ASSETS_CAP)
+        .map(|row| RunAsset {
+            path: row.path,
+            kind: row.kind,
+            access_type: match (row.any_read, row.any_write) {
+                (true, true) => Some(AssetUsageAccessType::RW),
+                (true, false) => Some(AssetUsageAccessType::R),
+                (false, true) => Some(AssetUsageAccessType::W),
+                (false, false) => None,
+            },
+        })
+        .collect();
+    Ok(Json(RunAssets { assets, truncated }))
+}
+
 async fn get_flow_job_debug_info(
     OptViewToken(view_token): OptViewToken,
     OptAuthed(opt_authed): OptAuthed,
@@ -1654,20 +1771,21 @@ async fn require_job_within_run_scope(
     .await?;
 
     let runs_app = build_scope_path_predicate(authed, "apps", "run");
-    let in_scope = chain.iter().any(|job| {
-        match (job.runnable_path.as_deref(), job.scope_kind.as_deref()) {
-            (Some(runnable_path), Some(kind))
-                if windmill_api_auth::scopes::run_confinement_admits(
-                    &confinement,
-                    kind,
-                    runnable_path,
-                ) =>
-            {
-                true
-            }
-            _ => job.launched_by_app.as_deref().is_some_and(&runs_app),
-        }
-    });
+    let in_scope =
+        chain.iter().any(
+            |job| match (job.runnable_path.as_deref(), job.scope_kind.as_deref()) {
+                (Some(runnable_path), Some(kind))
+                    if windmill_api_auth::scopes::run_confinement_admits(
+                        &confinement,
+                        kind,
+                        runnable_path,
+                    ) =>
+                {
+                    true
+                }
+                _ => job.launched_by_app.as_deref().is_some_and(&runs_app),
+            },
+        );
 
     if in_scope {
         Ok(())
