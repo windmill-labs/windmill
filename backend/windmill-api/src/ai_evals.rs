@@ -1060,6 +1060,8 @@ pub const AGENT_NODE_ID: &str = "a";
 const PAYLOAD_NODE_ID: &str = "p";
 /// Node id of the loop over the dataset's cases.
 const CASES_NODE_ID: &str = "cases";
+/// The branch holding every scorer of a case, so they measure it at the same time.
+const SCORERS_NODE_ID: &str = "scores";
 
 /// In-flight iterations. A dataset is a burst of calls to one provider, so a run that answers
 /// every case at once is a run that spends its time being rate-limited. Bounded rather than
@@ -1192,7 +1194,27 @@ fn build_run_flow(
     }
     if !scorers.is_empty() {
         modules.push(payload_module());
-        modules.extend(scorer_modules(scorers));
+        // One branch each, run together: scorers read the answer and never each other, so measuring
+        // a case takes as long as its slowest column rather than as long as all of them. Each
+        // branch keeps its own failure, so a judge that errors costs its own column and no other.
+        modules.push(serde_json::json!({
+            "id": SCORERS_NODE_ID,
+            "value": {
+                "type": "branchall",
+                "parallel": true,
+                "branches": scorers
+                    .iter()
+                    .zip(scorer_modules(scorers))
+                    .map(|(scorer, module)| serde_json::json!({
+                        // Named for the column it produces: the graph of a run is read to see which
+                        // scorer did what, and a module id is not what a scorer is called.
+                        "summary": scorer_name(scorer),
+                        "skip_failure": true,
+                        "modules": [module],
+                    }))
+                    .collect::<Vec<_>>(),
+            }
+        }));
     }
 
     Ok(serde_json::from_value(serde_json::json!({
