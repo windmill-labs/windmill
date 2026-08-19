@@ -185,6 +185,7 @@ run $A none  "cp $CWD/AGENTS.md /tmp/a"
 run $A none  "tar -xzf /tmp/a.tar.gz -C $OUT"
 run $A none  "cargo build"
 run $A ask   "chmod -R 777 $CWD/.GIT"
+run $A allow "chmod -R 755 ~/Library/Caches/ms-playwright-mcp"
 run $A ask   "chmod -R 777 ~/Library/Caches/ms-playwright-mcp-backup"
 # The home prefix reaches this guard through `operand_class`, not the rm guard's own resolver.
 case "$CWD" in
