@@ -148,25 +148,22 @@
 
 	async function listUsers(): Promise<void> {
 		// Every membership mutation on this page refetches through here, but so does
-		// mounting it. Bump only on an observed change — never on the first read, which
-		// has nothing to compare against — or opening this tab would make every consumer
-		// re-fetch for a list identical to the one it already holds.
-		// Keyed by workspace: this page survives a workspace switch (it only rewrites
-		// `?workspace=`), and comparing A's members against B's would report a change
-		// where only the workspace changed.
+		// mounting it and switching workspace on it (the switch only rewrites
+		// `?workspace=`, so this component survives). Bump only when the same
+		// workspace's member set is seen to change; anything else re-baselines
+		// silently, or every consumer would re-fetch for a list nothing changed about.
 		const workspace = $workspaceStore!
-		const previous = users === undefined ? undefined : signedFor
+		const previous = lastSeen?.workspace === workspace ? lastSeen.signature : undefined
 		users = await UserService.listUsers({ workspace })
-		const current = membershipSignature(users)
-		signedFor = `${workspace}:${current}`
-		if (previous !== undefined && previous !== `${workspace}:${current}`) {
+		const signature = membershipSignature(users)
+		lastSeen = { workspace, signature }
+		if (previous !== undefined && previous !== signature) {
 			$workspaceMembershipVersion++
 		}
 	}
 
-	// Workspace-qualified signature of the last list seen, so a switch reads as a
-	// different workspace rather than a membership change.
-	let signedFor: string | undefined = undefined
+	// The last member set seen, and which workspace it belonged to.
+	let lastSeen: { workspace: string; signature: string } | undefined = undefined
 
 	// Every field a paid seat count depends on — the developer/operator split, and the
 	// two categories billing excludes.
