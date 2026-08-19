@@ -439,6 +439,7 @@
 {#snippet actionsSnippet()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="mqtt"
 			triggerPath={initialPath}
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}

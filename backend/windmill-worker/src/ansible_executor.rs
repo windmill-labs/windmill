@@ -13,7 +13,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    git_sync_oss::{prepend_token_to_github_url, sanitize_git_url},
+    git_sync_oss::{prepend_token_to_github_url, sanitize_git_url, validate_git_repo_url},
     worker::{
         is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
         write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
@@ -247,6 +247,24 @@ async fn prepare_socket_root(root: &str, stale_after: std::time::Duration) {
     }
 }
 
+/// Validate every user-controlled field of a `GitRepo` before it reaches `git`. The `url` goes
+/// through the transport allowlist (`validate_git_repo_url`); `branch` and `commit` are passed as
+/// positional/option arguments, so a leading `-` would let git parse them as options (argument
+/// injection). Called at each entry point that spawns `git` with these fields.
+fn validate_git_repo(repo: &GitRepo) -> error::Result<()> {
+    validate_git_repo_url(&repo.url)?;
+    for (field, value) in [("branch", &repo.branch), ("commit", &repo.commit)] {
+        if let Some(value) = value {
+            if value.trim_start().starts_with('-') {
+                return Err(error::Error::BadRequest(format!(
+                    "Invalid git repository `{field}`: must not start with '-'"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn clone_repo(
     repo: &GitRepo,
     job_dir: &str,
@@ -259,6 +277,7 @@ async fn clone_repo(
     occupancy_metrics: &mut OccupancyMetrics,
     git_ssh_cmd: &str,
 ) -> error::Result<String> {
+    validate_git_repo(repo)?;
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
     let mut clone_cmd = Command::new(GIT_PATH.as_str());
@@ -400,6 +419,7 @@ async fn clone_repo_without_history(
     occupancy_metrics: &mut OccupancyMetrics,
     git_ssh_cmd: &str,
 ) -> error::Result<()> {
+    validate_git_repo(repo)?;
     let target_path = is_allowed_file_location(job_dir, &repo.target_path)?;
 
     create_empty_dir(&target_path)?;
@@ -926,6 +946,7 @@ pub async fn get_git_repo_full_head_commit_hash(
     repo: &GitRepo,
     git_ssh_cmd: &str,
 ) -> anyhow::Result<String> {
+    validate_git_repo(repo)?;
     let mut git_cmd = Command::new(GIT_PATH.as_str());
 
     git_cmd

@@ -4,9 +4,9 @@
 anonymous usage-stats payload. It answers "does anyone use this, and which variant do they pick"
 without any identifying data leaving the instance.
 
-It currently carries 14 registered actions across three features (`ai_session`, `ai_chat`,
-`flow_editor`). Nearly all of the product is uninstrumented, so new user-facing work is the
-opportunity to change that.
+It currently carries 20 registered actions across eight features (`ai_session`, `ai_chat`,
+`flow_editor`, `flow_run`, `flow_step`, `trigger`, `command_script`, `hub_script`). Nearly all of
+the product is uninstrumented, so new user-facing work is the opportunity to change that.
 
 ## When to instrument
 
@@ -49,9 +49,10 @@ vocabulary closed and small — enumerate the values in a TS union next to the c
 Four steps. Skipping step 1 or 3 fails quietly.
 
 **1. Register the pair** in `FEATURE_USAGE_KINDS`
-(`backend/windmill-api-workspaces/src/workspaces.rs`). An unregistered `(feature, kind)` is
-dropped by `valid_feature_usage_event` with a bare `continue` — no error, no log, still a 204 to
-the browser. Frontend-only instrumentation records **nothing** and looks like it worked.
+(`backend/windmill-common/src/feature_usage_ee.rs`, tracked in `windmill-ee-private`). An
+unregistered `(feature, kind)` is dropped by `is_recordable_event` with a bare `continue` — no
+error, no log, still a 204 to the browser. Frontend-only instrumentation records **nothing** and
+looks like it worked.
 
 **2. Log from the frontend:**
 
@@ -75,6 +76,10 @@ under-discloses what it sends. This has already drifted once.
 SELECT feature, kind, key, entity_id, day, value FROM feature_usage ORDER BY updated_at DESC LIMIT 10;
 ```
 
+Collection sits behind the `private` feature, so a public build records nothing from either the
+HTTP route or the Rust helper. Run the backend with `--features enterprise,private` or this query
+stays empty however correct the instrumentation is.
+
 ## Privacy rules
 
 Only aggregated counts ever leave the instance, and only when telemetry is enabled and minimal
@@ -85,8 +90,21 @@ cannot be collected — drop it.
 
 Counters aggregate over the last 30 days; rows are pruned after 60.
 
-## Backend-only features
+## Logging from the backend
 
-Ingestion is frontend-only: `log_feature_usage` is an HTTP route the browser posts to, and there
-is no Rust-side helper. A feature with no UI cannot be instrumented today without adding one.
-Scope the default to user-facing work, and say so rather than implying backend coverage exists.
+A feature with no UI is instrumented the same way, from Rust:
+
+```rust
+windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+```
+
+Same registry, same key rules, and the same silent drop when the pair is unregistered. `feature`
+and `kind` are `&'static str` so a call site cannot pass a computed pair. The call increments an
+in-memory counter and returns; the monitor loop flushes the accumulator, so it is cheap enough for
+hot paths — but only cheap per call, not free: a key with unbounded cardinality would grow the map
+until it hits the per-action cap and starts dropping new keys.
+
+There is no `entity_id` and no explicit `value` on this path: it counts occurrences.
+
+`feature_usage_ee` holds the registry and the writer; the public build gets the inert
+`feature_usage_oss`, since a CE instance never sends a stats payload.

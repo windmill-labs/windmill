@@ -87,6 +87,7 @@
 	let finished: string[] = []
 	let ITERATIONS_BEFORE_SLOW_REFRESH = 10
 	let ITERATIONS_BEFORE_SUPER_SLOW_REFRESH = 100
+	const MAX_SSE_ATTEMPTS = 3
 
 	let lastStartedAt: number = Date.now()
 	let currentId: string | undefined = $state(undefined)
@@ -179,7 +180,7 @@
 			lastCompletedJobId = undefined
 			clearCurrentJob()
 			lastCallbacks = callbacks
-			noPingTimeout = undefined
+			clearNoPingTimeout()
 			const startedAt = Date.now()
 			const testId = await fn()
 
@@ -669,16 +670,30 @@
 		}
 	}
 
-	function setNoPingTimeout(id: string, attempt: number, callbacks?: Callbacks) {
+	function clearNoPingTimeout() {
 		if (noPingTimeout) {
 			clearTimeout(noPingTimeout)
+			noPingTimeout = undefined
 		}
+	}
+
+	function setNoPingTimeout(id: string, attempt: number, callbacks?: Callbacks) {
+		clearNoPingTimeout()
 		if (isCurrentJob(id)) {
 			noPingTimeout = setTimeout(() => {
+				noPingTimeout = undefined
 				if (isCurrentJob(id)) {
 					currentEventSource?.close()
 					currentEventSource = undefined
-					loadTestJobWithSSE(id, attempt + 1, callbacks)
+					// A proxy that buffers the response rather than cutting it keeps the
+					// connection open and error-free, so this watchdog is the only signal that
+					// no event is getting through. It has to share the retry budget: otherwise
+					// it reopens an equally mute stream forever and polling is never reached.
+					if (attempt < MAX_SSE_ATTEMPTS) {
+						loadTestJobWithSSE(id, attempt + 1, callbacks)
+					} else {
+						syncer(id, callbacks)
+					}
 				}
 			}, 10000)
 		}
@@ -841,10 +856,7 @@
 							if (previewJobUpdates.completed) {
 								currentEventSource?.close()
 								currentEventSource = undefined
-								if (noPingTimeout) {
-									clearTimeout(noPingTimeout)
-									noPingTimeout = undefined
-								}
+								clearNoPingTimeout()
 								isCompleted = true
 								if (onlyResult) {
 									callbacks?.doneResult?.({
@@ -869,16 +881,26 @@
 						console.warn('SSE error:', error)
 						currentEventSource?.close()
 						currentEventSource = undefined
+						clearNoPingTimeout()
 						let delay = 1000
 						let isNoLogsChange = error.type == noLogsChangeRestartEvent
 						if (isNoLogsChange) {
 							delay = 0
 						}
-						if (attempt < 3 || isNoLogsChange) {
+						if (attempt < MAX_SSE_ATTEMPTS || isNoLogsChange) {
 							if (!isNoLogsChange) {
-								console.log(`SSE error (1), retrying ...  attempt: ${attempt + 1}/3`)
+								console.log(
+									`SSE error (1), retrying ...  attempt: ${attempt + 1}/${MAX_SSE_ATTEMPTS}`
+								)
 							}
-							setTimeout(() => loadTestJobWithSSE(id, attempt + 1, callbacks), delay)
+							// A no-logs restart is deliberate (the caller wants a stream with different
+							// query args), not a failure, so it must not consume the retry budget:
+							// toggling the flow graph tab would otherwise exhaust it in a few clicks
+							// and strand a healthy stream on polling.
+							setTimeout(
+								() => loadTestJobWithSSE(id, isNoLogsChange ? attempt : attempt + 1, callbacks),
+								delay
+							)
 						} else {
 							// Fall back to polling on error
 							setTimeout(() => syncer(id, callbacks), 1000)
@@ -901,9 +923,10 @@
 				// Fall back to polling on error
 				currentEventSource?.close()
 				currentEventSource = undefined
+				clearNoPingTimeout()
 
-				if (attempt < 3) {
-					console.log(`SSE error (2), retrying ... attempt: ${attempt}/3`)
+				if (attempt < MAX_SSE_ATTEMPTS) {
+					console.log(`SSE error (2), retrying ... attempt: ${attempt}/${MAX_SSE_ATTEMPTS}`)
 					attempt++
 					loadTestJobWithSSE(id, attempt, callbacks)
 				} else {
@@ -942,6 +965,7 @@
 		clearCurrentId()
 		currentEventSource?.close()
 		currentEventSource = undefined
+		clearNoPingTimeout()
 		replayTimeouts.forEach(clearTimeout)
 		replayTimeouts = []
 	})

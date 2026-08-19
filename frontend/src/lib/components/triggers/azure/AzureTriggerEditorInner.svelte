@@ -404,6 +404,7 @@
 {#snippet actionsButtons()}
 	{#if !drawerLoading && can_write}
 		<TriggerEditorToolbar
+			triggerKind="azure"
 			triggerPath={initialPath}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}

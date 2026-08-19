@@ -11,6 +11,8 @@
 	const derivedHeight = $derived(size ? size : height)
 </script>
 
+<!-- #F9A825 per Material Design Yellow 800 (api.flutter.dev Colors.yellow[800]); glyph is Google's Material Symbols "data_object".
+     JSON itself has no brand owner or published colours — json.org states none — so this is a Material palette pick, not a brand colour. -->
 <svg
 	width={derivedWidth}
 	height={derivedHeight}

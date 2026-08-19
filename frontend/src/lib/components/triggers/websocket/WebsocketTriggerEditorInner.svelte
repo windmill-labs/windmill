@@ -506,6 +506,7 @@
 {#snippet actionsButtons()}
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
+			triggerKind="websocket"
 			triggerPath={initialPath}
 			{trigger}
 			permissions={!drawerLoading && can_write ? 'create' : 'none'}

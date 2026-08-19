@@ -736,6 +736,7 @@
 	{#if !drawerLoading}
 		<TriggerEditorToolbar
 			triggerPath={initialPath}
+			triggerKind="schedule"
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}

@@ -10,6 +10,12 @@ export interface PersistedArtifact {
 	sessionId: string
 	chatId?: string
 	kind: ArtifactKind
+	/** What the artifact is for, where that outlives the session — as opposed to `kind`,
+	 * which is its format. Optional, so records written before it read as undefined. */
+	role?: 'plan'
+	/** The version that stands as the agreed plan; below the current one means the newest
+	 * text is undecided. Only exit_plan_mode can leave it behind. */
+	approvedVersion?: number
 	name: string
 	content: string
 	createdAt: number
@@ -53,6 +59,10 @@ function versionsToKeep(chars: number): number {
 export function currentVersion(a: Pick<PersistedArtifact, 'version'>): number {
 	return a.version ?? 1
 }
+
+// Re-exported so the artifact modules keep asking one module about storage; the definitions sit
+// in planIdentity because that module has to stay import-free, and this one cannot.
+export { isPlanArtifact, planArtifactId } from './planIdentity'
 
 export function versionKey(artifactId: string, version: number): string {
 	return `${artifactId}:${version}`
@@ -140,31 +150,6 @@ export interface ArtifactEdit {
 	snapshots: ArtifactVersion[]
 }
 
-/**
- * Write an artifact and the snapshots that edit produced in one transaction.
- *
- * Never as two writes: a row stamped version N whose snapshot is missing still *reads*
- * as complete, because listVersions synthesizes N from the row itself — until the next
- * edit overwrites that row, at which point N's content is gone and the history has a
- * hole nothing can back-fill.
- */
-export async function putArtifactWithVersions(
-	artifact: PersistedArtifact,
-	snapshots: ArtifactVersion[]
-): Promise<void> {
-	const db = await getDB()
-	if (!db) return
-	try {
-		const tx = db.transaction(['items', 'versions'], 'readwrite')
-		await writeEdit(tx.objectStore('items'), tx.objectStore('versions'), { artifact, snapshots })
-		await tx.done
-	} catch (err) {
-		// A rejected write (most likely QuotaExceededError) leaves the artifact usable for the
-		// session but unpersisted — degrade like the reads rather than throwing at the caller.
-		console.error('Could not persist artifact', err)
-	}
-}
-
 async function writeEdit(
 	items: ItemsStore,
 	versions: VersionsStore,
@@ -173,19 +158,45 @@ async function writeEdit(
 	await items.put(edit.artifact)
 	for (const entry of edit.snapshots) await versions.put(entry)
 	const newest = edit.snapshots.at(-1)
-	if (newest) await pruneVersionsIn(versions, edit.artifact.id, newest.content.length)
+	if (newest) {
+		await pruneVersionsIn(
+			versions,
+			edit.artifact.id,
+			newest.content.length,
+			edit.artifact.approvedVersion
+		)
+	}
+}
+
+/** `unavailable` is no database at all (private browsing), where nothing was refused —
+ * distinct from `rejected`, the database turning this write down. */
+export type WriteOutcome = 'saved' | 'rejected' | 'unavailable'
+
+export interface ArtifactWrite {
+	outcome: WriteOutcome
+	/** The edited row, persisted or not; absent only when the mutator wrote nothing. */
+	artifact?: PersistedArtifact
 }
 
 /**
  * Read an artifact and write it back in one transaction. `mutate` returns the edit to
- * write, or undefined to leave the artifact alone and resolve to undefined. A store that
+ * write, or undefined to leave the artifact alone and resolve to no artifact. A store that
  * fails is reported rather than thrown, so the edited row resolves either way — persisted
  * where it could be, and usable for the session where it could not.
+ *
+ * Most callers read only `artifact` and degrade as the reads do. A caller whose write
+ * carries a *constraint* reads `outcome` instead: the plan cannot be approved on the
+ * strength of a row that would be gone on reload.
  */
 export async function mutateArtifact(
 	id: string,
-	mutate: (existing: PersistedArtifact | undefined) => ArtifactEdit | undefined
-): Promise<PersistedArtifact | undefined> {
+	mutate: (
+		existing: PersistedArtifact | undefined,
+		/** The snapshot `opts.readVersion` named, when it was asked for and is still stored. */
+		snapshot?: ArtifactVersion
+	) => ArtifactEdit | undefined,
+	opts?: { readVersion?: number }
+): Promise<ArtifactWrite> {
 	const db = await getDB()
 	// `transaction()` throws on a connection closed since `getDB()` answered — another tab
 	// upgrading the schema, or a user switch releasing the handle.
@@ -197,15 +208,19 @@ export async function mutateArtifact(
 	}
 	// Not `return undefined`: `create` can hand out an artifact the store never took, and it
 	// stays revisable only if the edit is computed anyway.
-	if (!opened) return mutate(undefined)?.artifact
+	if (!opened) return { outcome: 'unavailable', artifact: mutate(undefined)?.artifact }
 	const tx = opened
 	// Attached before the first await: idb builds `done` eagerly and rejects it on abort, so
 	// attaching later would leave an unhandled rejection. Cleared before each deliberate
 	// abort below, whose own site reports the failure when there was one.
 	let reportFailure = true
-	const settled = tx.done.catch((err) => {
-		if (reportFailure) console.error('Could not persist artifact', err)
-	})
+	const settled: Promise<WriteOutcome> = tx.done.then(
+		() => 'saved',
+		(err) => {
+			if (reportFailure) console.error('Could not persist artifact', err)
+			return 'rejected'
+		}
+	)
 	const abort = () => {
 		try {
 			tx.abort()
@@ -214,33 +229,39 @@ export async function mutateArtifact(
 	const items = tx.objectStore('items')
 	const versions = tx.objectStore('versions')
 	let existing: PersistedArtifact | undefined
+	let snapshot: ArtifactVersion | undefined
 	try {
 		// Read outside this transaction, two tabs both see version N, both stamp N+1, and the
 		// later write silently replaces the earlier one — content and snapshot alike.
 		existing = await items.get(id)
+		// In the same transaction for the same reason: an edit conditioned on a version still
+		// being readable must not weigh it against one another tab pruned in between.
+		if (opts?.readVersion !== undefined) {
+			snapshot = await versions.get(versionKey(id, opts.readVersion))
+		}
 	} catch (err) {
 		console.error('Could not read the artifact being written', err)
 		reportFailure = false
 		abort()
-		await settled
-		return mutate(undefined)?.artifact
+		return { outcome: await settled, artifact: mutate(undefined)?.artifact }
 	}
 	// Kept out of the store's own error handling: a mutator that fails is not the store
 	// failing, so its error is neither reported as one nor swallowed.
 	let edit: ArtifactEdit | undefined
 	try {
-		edit = mutate(existing)
+		edit = mutate(existing, snapshot)
 	} catch (err) {
 		reportFailure = false
 		abort()
 		await settled
 		throw err
 	}
+	// Nothing to write, so nothing was refused either.
 	if (!edit) {
 		reportFailure = false
 		abort()
 		await settled
-		return undefined
+		return { outcome: 'saved' }
 	}
 	try {
 		await writeEdit(items, versions, edit)
@@ -252,21 +273,32 @@ export async function mutateArtifact(
 		reportFailure = false
 		abort()
 	}
-	await settled
-	return edit.artifact
+	return { outcome: await settled, artifact: edit.artifact }
 }
 
+/**
+ * Drop the oldest snapshots past the budget, except the one `protect` names.
+ *
+ * A plan approved at v1 and planned against for twenty more rounds would otherwise lose the
+ * version that stands as agreed. Excluded from the candidates rather than added on top, so
+ * the budget is unchanged and what survives simply stops being contiguous.
+ */
 async function pruneVersionsIn(
 	store: VersionsStore,
 	artifactId: string,
-	newestChars: number
+	newestChars: number,
+	protect?: number
 ): Promise<void> {
 	const keys = await store.index('by-artifact').getAllKeys(artifactId)
 	const keep = versionsToKeep(newestChars)
 	if (keys.length <= keep) return
+	const protectedKey = protect === undefined ? undefined : versionKey(artifactId, protect)
 	// Keys sort lexicographically, which puts ":10" before ":2" — order by the parsed
 	// number so pruning drops the genuinely oldest snapshots.
-	const oldest = keys.sort((a, b) => versionOf(a) - versionOf(b)).slice(0, keys.length - keep)
+	const oldest = keys
+		.sort((a, b) => versionOf(a) - versionOf(b))
+		.filter((key) => key !== protectedKey)
+		.slice(0, keys.length - keep)
 	for (const key of oldest) await store.delete(key)
 }
 

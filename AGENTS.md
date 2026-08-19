@@ -42,6 +42,7 @@ Open-source platform for internal tools, workflows, API integrations, background
 - **Domain vocabulary**: `CONTEXT.md` — the words this codebase uses for its own concepts (step, step setting, trigger step, …). Name things the way it does.
 - **CLI commands**: when adding/modifying/removing a command, subcommand, option, or description in `cli/src/commands/`, run `python system_prompts/generate.py` to refresh `system_prompts/auto-generated/` and `cli/src/guidance/skills.gen.ts`. The CLI docs the agents use to operate `wmill` are derived from the source — stale generated files give agents the wrong flags.
 - **Session recorder**: `frontend/src/lib/components/recording/` is also the recorder `wmill app dev --recording` serves, vendored into the CLI as `cli/src/commands/app/devRecorderBundle.gen.ts`. After changing `rawAppSnapshot.ts` or `rawAppRecording.svelte.ts`, run `bun run gen:dev-recorder` from `cli/` (`cli/test/dev_recorder_bundle_unit.test.ts` fails otherwise).
+- **Raw-app policy**: `frontend/src/lib/components/raw_apps/rawAppPolicy.ts` also derives the policy the server's raw-app deploy stores, vendored into the bundle job as `backend/windmill-api/src/apps_raw_policy.gen.js`. After changing it or anything it imports, run `bun run gen:app-policy` from `cli/` (`cli/test/app_policy_bundle_unit.test.ts` fails otherwise). It rides in the job rather than being read from the CLI the job runs because the images install `windmill-cli` unpinned, so an image can carry one older than its server.
 
 ## Dev Environment
 
@@ -146,10 +147,19 @@ $NAV --root backend callees "X"                           # what does X call?
 - **MUST `outline` before `Read`** on unfamiliar files — then `body` or `Read` with offset/limit for specifics
 - **Scratch stays outside the checkout.** Temp scripts, data dumps, cache backups and
   screenshots go in the session scratch directory or `/tmp`, so nothing temporary can end up
-  committed. Write `rm`/`mv`/`cp` as one plain unchained command: a PreToolUse hook
-  auto-allows those when every operand is under `/tmp` or inside this checkout, but it defers
-  on `&&`, `;`, redirects, quotes and `$VAR` — that deferral, not the delete itself, is what
-  turns a routine cleanup into a permission prompt.
+  committed. Write the paths in `rm`/`mv`/`cp` out literally: a PreToolUse hook proves each
+  operand, and auto-allows deletes, moves, copies and mode changes under `/tmp` or inside a git
+  checkout under `$HOME`, as long as one operation stays within a single root — a sibling
+  checkout is a root of its own (`tar` and `unzip` stay `/tmp`-only). Chain deletes freely, each
+  proved on its own operands, but keep writes to one per line, name the destination rather than
+  a directory to drop it in, and put anything else on its own line: a command the hook does not
+  prove drops the whole line back to the normal permission flow. A
+  quoted or `$VAR` operand, a `~`, a redirect, a `$(…)`, a relative `cd`, or a wrapper like
+  `xargs rm` cannot be proved, and that deferral is what turns a cleanup into a prompt.
+- **Change files with Edit/Write, not the shell.** `sed -i`, `cat > file <<'EOF'` and inline
+  `python3 - <<'PY'` scripts put an edit through the PreToolUse guards and the permission
+  classifier, which match `Bash` and nothing else, so a routine edit arrives as a prompt. Bash
+  stays right for running things — tests, builds, git, one-off queries.
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked

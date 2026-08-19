@@ -56,6 +56,13 @@ pub mod email_ee;
 pub mod email_oss;
 pub mod error;
 pub mod external_ip;
+#[cfg(feature = "private")]
+pub mod feature_usage_ee;
+pub mod feature_usage_oss;
+#[cfg(feature = "private")]
+pub use feature_usage_ee as feature_usage;
+#[cfg(not(feature = "private"))]
+pub use feature_usage_oss as feature_usage;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
@@ -90,6 +97,7 @@ pub mod otel_oss;
 #[cfg(feature = "private")]
 pub mod partition_ee;
 pub mod partition_oss;
+pub mod per_minute_counter;
 #[cfg(feature = "private")]
 pub use partition_ee as partition;
 #[cfg(not(feature = "private"))]
@@ -121,6 +129,7 @@ pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
 pub mod trashbin;
+pub mod trigger_history;
 pub mod triggers;
 pub mod user_drafts;
 pub mod usernames;
