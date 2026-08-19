@@ -635,51 +635,57 @@
 		<!-- What saving does is the consequence worth reading, so it is under the agent it is about
 		     rather than under an icon. The buttons sit against both lines. -->
 		<div
-			class="rounded-md border border-light bg-surface-tertiary px-3 py-1.5 flex items-center gap-2"
+			class="rounded-md border border-light bg-surface-tertiary px-3 py-1.5 flex flex-col gap-1.5"
 		>
-			<Pencil size={16} class="text-primary shrink-0" />
-			<div class="min-w-0 flex-1 flex flex-col">
-				<div class="flex items-center gap-2 min-w-0">
-					<span class="truncate text-xs font-medium" title={editingPath}>{editingPath}</span>
-					{#if version != undefined}
-						<Badge color="gray" class="shrink-0" title="The version these edits sit on">
-							v{version}
-						</Badge>
-					{/if}
-					{#if edited}
-						<Badge color="yellow">unsaved changes</Badge>
-					{/if}
+			<div class="flex items-center gap-2">
+				<Pencil size={16} class="text-primary shrink-0" />
+				<div class="min-w-0 flex-1 flex flex-col">
+					<div class="flex items-center gap-2 min-w-0">
+						<span class="truncate text-xs font-medium" title={editingPath}>{editingPath}</span>
+						{#if version != undefined}
+							<Badge color="gray" class="shrink-0" title="The version these edits sit on">
+								v{version}
+							</Badge>
+						{/if}
+						{#if edited}
+							<Badge color="yellow">unsaved changes</Badge>
+						{/if}
+					</div>
+					<div class="text-2xs text-secondary flex items-center gap-0.5">
+						saving updates every flow using it<Tooltip small>
+							{#snippet text()}
+								Edits are kept on the agent as a draft, so they survive leaving this flow. Save
+								changes writes them back to the agent and re-links this step. Cancel discards them
+								and re-links it unchanged.
+							{/snippet}
+						</Tooltip>
+					</div>
 				</div>
-				<div class="text-2xs text-secondary flex items-center gap-0.5">
-					saving updates every flow using it<Tooltip small>
-						{#snippet text()}
-							Edits are kept on the agent as a draft, so they survive leaving this flow. Save
-							changes writes them back to the agent and re-links this step. Cancel discards them and
-							re-links it unchanged.
-						{/snippet}
-					</Tooltip>
+				<div class="flex items-center gap-1 shrink-0">
+					<Button size="xs2" variant="default" onclick={cancelEdit}>Cancel</Button>
+					<Button
+						size="xs2"
+						variant="accent"
+						startIcon={{ icon: Save }}
+						disabled={saving || !!providerSaveError}
+						onclick={saveChanges}
+					>
+						Save changes
+					</Button>
 				</div>
 			</div>
-			<div class="flex items-center gap-1 shrink-0">
-				<!-- Evals of an agent being edited run the edits, so the card offers them in both of its
-				     states: the question they answer is whether the edit is an improvement. -->
+			<!-- On a line of its own: keeping or discarding the edits is what the row above is for,
+			     and evals is not part of that decision. Offered while editing because evals of an
+			     agent being edited run the edits, which is the question worth asking of them. -->
+			<div class="flex">
 				<Button
 					size="xs2"
-					variant="default"
+					variant="subtle"
 					startIcon={{ icon: FlaskConical }}
-					iconOnly
-					title="Evals: run these edits against a dataset of cases"
+					title="Run these edits against a dataset of cases"
 					onclick={() => (evalsOpen = true)}
-				/>
-				<Button size="xs2" variant="default" onclick={cancelEdit}>Cancel</Button>
-				<Button
-					size="xs2"
-					variant="accent"
-					startIcon={{ icon: Save }}
-					disabled={saving || !!providerSaveError}
-					onclick={saveChanges}
 				>
-					Save changes
+					Evals
 				</Button>
 			</div>
 		</div>

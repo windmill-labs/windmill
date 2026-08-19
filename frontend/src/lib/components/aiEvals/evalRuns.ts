@@ -34,5 +34,7 @@ export function subjectLabel(
 			experiment.subject.kind === 'agent' ? experiment.subject.version : currentVersion
 		return version ? `v${version}` : 'deployed'
 	}
-	return experiment.subject.version ? `v${experiment.subject.version} + edits` : 'unsaved edits'
+	// "draft" rather than a phrase of its own: it is what the rest of Windmill calls the edits
+	// sitting on a saved thing, and a run of them is a run of that version's draft.
+	return experiment.subject.version ? `v${experiment.subject.version} draft` : 'draft'
 }

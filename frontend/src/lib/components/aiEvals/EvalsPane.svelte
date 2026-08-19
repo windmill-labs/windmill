@@ -698,13 +698,13 @@
 	}
 
 	/**
-	 * The run's label is `v23 + edits`, the agent is still on v23 with edits waiting, and they are
+	 * The run's label is `v23 draft`, the agent is still on v23 with edits waiting, and they are
 	 * not the same edits.
 	 *
 	 * That one case, because it is the only one the label cannot express. A run of an older version
 	 * is history and says so (`Run 14 · v23` beside an agent on v24), and a run whose edits were
 	 * deployed is a run of that version — the results endpoint recognises it and restamps it. Only
-	 * two runs both reading `v23 + edits` can silently be two different things.
+	 * two runs both reading `v23 draft` can silently be two different things.
 	 *
 	 * A property of the run, not of its rows: the subject is resolved once when the run is opened
 	 * and every cell is stamped from it, so it is always all of them or none. Saying it once, above
@@ -731,14 +731,14 @@
 
 	     Nothing on the list: which run, and which dataset it was of, is what the rows say. The
 	     pickers belong to a run being read, so they arrive with one. -->
-	<div class="flex flex-wrap items-end gap-2 px-3 pt-2 pb-1">
+	<div class="flex flex-wrap items-end gap-2 px-3 py-2 border-b">
 		{#if viewingRun}
+			<!-- Which run, and what it is read against, side by side: they are one question asked
+			     twice, and a comparison you cannot see the control for is one nobody knows they can
+			     make. The way back is in the dialog's header, which does not move with this row. -->
 			<Label label="Run" class="w-52 shrink">
 				<Select items={experimentItems} bind:value={experimentId} class="text-xs" />
 			</Label>
-			<div class="grow"></div>
-			<!-- Always shown in a run: a comparison you cannot see the control for is a comparison
-			     nobody knows they can make. -->
 			<Label label="Compare to" class="w-48 shrink">
 				<Select
 					items={experimentItems.filter((i) => i.value !== experimentId)}
@@ -749,51 +749,38 @@
 					class="text-xs"
 				/>
 			</Label>
-		{:else}
-			<div class="grow"></div>
 		{/if}
-	</div>
-	<div class="flex items-center gap-2 px-3 pb-2 border-b">
-		<!-- The way back lives in the dialog's header, beside the name of the run it takes you back
-		     from, rather than in this row: the header is the one part of the surface that does not
-		     move, and a control here would move with everything else this row holds. -->
 		<div class="grow"></div>
-		<!-- Only inside a run: it acts on the dataset that run was of, and on the list there is no one
-		     dataset to act on. Its cases and its columns are both in there: what a run measures with
-		     and what it measures are the same dataset. -->
-		{#if viewingRun && selectedDataset}
+		{#if viewingRun}
+			<!-- The only thing to start from inside a run, and it starts from this one: it measures
+			     the answers already stored, so it belongs to the run on screen rather than to the
+			     dataset. Starting a fresh run is a decision about which agent and which dataset,
+			     neither of which this screen is about. -->
 			<Button
 				size="xs"
 				variant="default"
-				startIcon={{ icon: Pencil }}
-				onclick={() => datasetDrawer?.openDrawer('edit')}
+				startIcon={{ icon: Play }}
+				loading={scoringAgain}
+				disabled={scoringAgain || !experimentId || scorers.length === 0 || rows.length === 0}
+				title="Measures the answers this run already stored, with the scorers as they are now. Opens a run of its own and calls the agent for nothing."
+				onclick={scoreAgain}
 			>
-				Edit dataset
+				Run scorers
+			</Button>
+		{:else}
+			<!-- Run asks what to run: which state of the agent, against which dataset. Both are
+			     decisions with a cost, and neither is implied by where you happen to be standing. -->
+			<Button
+				size="xs"
+				variant="accent"
+				startIcon={{ icon: Play }}
+				loading={running}
+				disabled={running || !agentPath}
+				onclick={() => (runDialogOpen = true)}
+			>
+				Run
 			</Button>
 		{/if}
-		<!-- Run asks what to run: which state of the agent, against which dataset. Both are
-		     decisions with a cost, and neither is implied by where you happen to be standing.
-		     Measuring answers a run already produced hangs off the same button: same result, very
-		     different price. -->
-		<Button
-			size="xs"
-			variant="accent"
-			startIcon={{ icon: Play }}
-			loading={running || scoringAgain}
-			disabled={running || !agentPath}
-			onclick={() => (runDialogOpen = true)}
-			dropdownItems={[
-				{
-					label: 'Run scorers only',
-					tooltip:
-						'Measures the answers this run already stored, with the scorers as they are now. Opens a run of its own and calls the agent for nothing.',
-					disabled: !viewingRun || !experimentId || scorers.length === 0 || rows.length === 0,
-					onClick: scoreAgain
-				}
-			]}
-		>
-			Run
-		</Button>
 	</div>
 
 	{#if staleRun}
