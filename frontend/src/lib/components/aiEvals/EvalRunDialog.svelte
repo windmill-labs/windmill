@@ -102,11 +102,7 @@
 	// would be offering a run that is live-resolved and one that is pinned under the same name.
 	let olderVersions = $derived(versions.slice(1))
 	let olderItems = $derived(
-		olderVersions.map((v) => ({
-			label: `v${v.version}`,
-			value: String(v.version),
-			tooltip: 'Inlined as it was.'
-		}))
+		olderVersions.map((v) => ({ label: `v${v.version}`, value: String(v.version) }))
 	)
 	/** Whether the choice came out of the overflow menu, which then shows it and drops its own
 	 *  label: the version you picked is worth more room in the group than the word "More". */

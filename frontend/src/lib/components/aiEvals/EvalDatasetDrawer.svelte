@@ -277,12 +277,16 @@
 	</ConfirmationModal>
 	<DrawerContent
 		title={mode === 'edit' ? 'Edit dataset' : 'New dataset'}
-		tooltip={mode === 'edit'
-			? 'The cases this agent is measured on. Editing them leaves the runs that already executed them as they were.'
-			: 'A set of cases to measure this agent on. Its cases are added once it exists.'}
 		on:close={() => drawer?.closeDrawer()}
 	>
 		<div class="flex flex-col gap-6 h-full min-h-0">
+			<!-- On the page rather than under an icon: it says what the drawer is for, which is worth
+			     reading once without being asked for. -->
+			<span class="text-xs text-secondary">
+				{mode === 'edit'
+					? 'The cases this agent is measured on. Editing them leaves the runs that already executed them as they were.'
+					: 'A set of cases to measure this agent on, and the scorers that read them.'}
+			</span>
 			<!-- Keyed so the path field is seeded for the dataset it was opened for, rather than
 			     carrying the one before it. -->
 			{#key formGeneration}
@@ -290,7 +294,6 @@
 					<Label label="Summary">
 						<TextInput
 							bind:value={summary}
-							size="sm"
 							inputProps={{ placeholder: 'What this set of cases is for' }}
 						/>
 					</Label>

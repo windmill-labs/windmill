@@ -2,6 +2,8 @@
 	import { Button } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import AIProviderPicker from '$lib/components/AIProviderPicker.svelte'
@@ -81,6 +83,9 @@
 	// The scorers this workspace already uses, so a new dataset does not start by retyping the
 	// path of the judge you wrote last week. Filtered server-side to what the caller can read.
 	let recent = $state<RecentScorersResponse>([])
+	/** Which list to pick from. Starts on the scorers already measuring something, which is what
+	 *  "reuse" usually means; it falls back to the workspace when there are none. */
+	let source = $state<'recent' | 'any'>('recent')
 
 	/** The run as the judge reads it, mirroring what the API renders into the user message. */
 	const RUN_SHAPE = `Request: the case's user message
@@ -178,105 +183,128 @@ Expected: the case's expected value`
 
 <div class="flex flex-col gap-6">
 	{#if mode === 'new'}
-	{#if kind === 'agent'}
-		<span class="text-xs text-secondary">
-			An agent handed one whole run to grade. It is an ordinary AI agent resource: this creates it
-			with the prompt below, and editing the column later means editing that agent.
-		</span>
-	{:else}
-		<span class="text-xs text-secondary">
-			A script handed the same run, returning a number, a boolean or {'{ score, reason, checks }'}.
-			The template puts the assertions in main and the helpers below it: exact match, tool called
-			and not called, arguments against each tool's schema, repeated calls, step errors, latency.
-		</span>
-	{/if}
+		{#if kind === 'agent'}
+			<span class="text-xs text-secondary">
+				An agent handed one whole run to grade. It is an ordinary AI agent resource: this creates it
+				with the prompt below, and editing the column later means editing that agent.
+			</span>
+		{:else}
+			<span class="text-xs text-secondary">
+				A script handed the same run, returning a number, a boolean or {'{ score, reason, checks }'}.
+				The template puts the assertions in main and the helpers below it: exact match, tool called
+				and not called, arguments against each tool's schema, repeated calls, step errors, latency.
+			</span>
+		{/if}
 
-	<Label label="Summary">
-		<TextInput
-			bind:value={summary}
-			size="sm"
-			inputProps={{
-				placeholder: kind === 'agent' ? 'Answers the question asked' : 'Tool discipline'
-			}}
-		/>
-	</Label>
-
-	<Label label="Path">
-		<Path
-			bind:this={pathInput}
-			bind:path
-			bind:error={pathError}
-			bind:dirty={pathDirty}
-			initialPath=""
-			namePlaceholder={kind === 'agent' ? 'judge' : 'scorer'}
-			kind={kind === 'agent' ? 'resource' : 'script'}
-			workspaceOverride={workspace}
-			autofocus={false}
-			size="sm"
-		/>
-	</Label>
-
-	<Label
-		label="Pass threshold"
-		tooltip="Optional. A case scoring at or above this counts as a pass, and the column reports a pass rate beside its mean. It can be set or changed later from the column header, and reads the scores already recorded."
-	>
-		<TextInput bind:value={passIf} size="sm" inputProps={{ placeholder: '0.7' }} />
-	</Label>
-
-	{#if kind === 'agent'}
-		<Label label="Model">
-			<AIProviderPicker bind:value={provider} />
+		<Label label="Summary">
+			<TextInput
+				bind:value={summary}
+				size="sm"
+				inputProps={{
+					placeholder: kind === 'agent' ? 'Answers the question asked' : 'Tool discipline'
+				}}
+			/>
 		</Label>
 
-		<Label
-			label="Grading prompt"
-			tooltip="The judge's system prompt. It is stored on the agent, so it can be rewritten later without touching the dataset."
-		>
-			<TextInput
-				underlyingInputEl="textarea"
+		<Label label="Path">
+			<Path
+				bind:this={pathInput}
+				bind:path
+				bind:error={pathError}
+				bind:dirty={pathDirty}
+				initialPath=""
+				namePlaceholder={kind === 'agent' ? 'judge' : 'scorer'}
+				kind={kind === 'agent' ? 'resource' : 'script'}
+				workspaceOverride={workspace}
+				autofocus={false}
 				size="sm"
-				unifiedHeight={false}
-				class="min-h-56 font-mono !text-2xs"
-				bind:value={prompt}
-				inputProps={{ spellcheck: false }}
 			/>
 		</Label>
 
 		<Label
-			label="What the judge is sent"
-			tooltip="The run is passed as the agent's user message, through the same input transform an AI agent step uses."
+			label="Pass threshold"
+			tooltip="Optional. A case scoring at or above this counts as a pass, and the column reports a pass rate beside its mean. It can be set or changed later from the column header, and reads the scores already recorded."
 		>
-			<pre
-				class="text-2xs text-secondary bg-surface-secondary rounded-md p-3 overflow-x-auto whitespace-pre"
-				>{RUN_SHAPE}</pre
-			>
+			<TextInput bind:value={passIf} size="sm" inputProps={{ placeholder: '0.7' }} />
 		</Label>
-	{/if}
 
-	<div class="flex justify-end">
-		<Button
-			size="xs"
-			variant="accent"
-			startIcon={{ icon: Plus }}
-			disabled={!canCreate}
-			onclick={create}
-		>
-			{#if kind === 'agent'}
-				{modelReady ? 'Create judge agent' : 'Pick a model'}
-			{:else}
-				Create script and open it
-			{/if}
-		</Button>
-	</div>
+		{#if kind === 'agent'}
+			<Label label="Model">
+				<AIProviderPicker bind:value={provider} />
+			</Label>
 
+			<Label
+				label="Grading prompt"
+				tooltip="The judge's system prompt. It is stored on the agent, so it can be rewritten later without touching the dataset."
+			>
+				<TextInput
+					underlyingInputEl="textarea"
+					size="sm"
+					unifiedHeight={false}
+					class="min-h-56 font-mono !text-2xs"
+					bind:value={prompt}
+					inputProps={{ spellcheck: false }}
+				/>
+			</Label>
+
+			<Label
+				label="What the judge is sent"
+				tooltip="The run is passed as the agent's user message, through the same input transform an AI agent step uses."
+			>
+				<pre
+					class="text-2xs text-secondary bg-surface-secondary rounded-md p-3 overflow-x-auto whitespace-pre"
+					>{RUN_SHAPE}</pre
+				>
+			</Label>
+		{/if}
+
+		<div class="flex justify-end">
+			<Button
+				size="xs"
+				variant="accent"
+				startIcon={{ icon: Plus }}
+				disabled={!canCreate}
+				onclick={create}
+			>
+				{#if kind === 'agent'}
+					{modelReady ? 'Create judge agent' : 'Pick a model'}
+				{:else}
+					Create script and open it
+				{/if}
+			</Button>
+		</div>
 	{:else}
-	{#if recent.length > 0}
-		<Label label="Reuse one from another dataset">
+		<!-- One source at a time: the ones already measuring something and everything else in the
+	     workspace answer the same question, and side by side the shorter list reads as a preamble
+	     to the picker rather than as the answer it usually is. -->
+		{#if recent.length > 0}
+			<ToggleButtonGroup bind:selected={source} class="w-fit">
+				{#snippet children({ item })}
+					<ToggleButton
+						value="recent"
+						label="Already a scorer"
+						tooltip="Measuring another dataset of this workspace."
+						{item}
+					/>
+					<ToggleButton
+						value="any"
+						label={kind === 'agent' ? 'Any agent' : 'Any script'}
+						tooltip="Anything in the workspace, whether it has scored before or not."
+						{item}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		{/if}
+
+		{#if source === 'recent' && recent.length > 0}
 			<div class="flex flex-col divide-y border rounded-md">
 				{#each recent as scorer (scorer.path)}
+					<!-- Named the way it is named everywhere else: what it is called, the path under it,
+				     and what it already measures on the right. A scorer with no name of its own is its
+				     path, so saying that twice was saying nothing twice. -->
 					<button
 						type="button"
-						class="flex items-center gap-2 px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-50"
+						class="flex items-center gap-3 px-3 py-2 text-left hover:bg-surface-hover disabled:opacity-50"
 						disabled={busy}
 						onclick={() =>
 							onAdd({
@@ -286,36 +314,40 @@ Expected: the case's expected value`
 								pass_if: threshold ?? scorer.pass_if
 							})}
 					>
-						<span class="text-xs text-emphasis truncate">{scorer.name || scorer.path}</span>
-						<span class="text-2xs text-tertiary truncate">{scorer.path}</span>
-						<div class="grow"></div>
-						<span class="text-2xs text-tertiary truncate">{scorer.dataset}</span>
+						<div class="flex flex-col min-w-0 grow">
+							<span class="text-xs text-emphasis truncate leading-tight">
+								{scorer.name || scorer.path}
+							</span>
+							{#if scorer.name}
+								<span class="text-2xs text-tertiary truncate leading-tight">{scorer.path}</span>
+							{/if}
+						</div>
+						<span class="text-2xs text-tertiary truncate shrink-0" title={scorer.dataset}>
+							{scorer.dataset}
+						</span>
 					</button>
 				{/each}
 			</div>
-		</Label>
-	{/if}
-
-	<Label label={kind === 'agent' ? 'An agent in this workspace' : 'A script in this workspace'}>
-		<div class="flex items-center gap-2">
-			<div class="grow min-w-0">
-				{#if kind === 'agent'}
-					<ResourcePicker bind:value={existing} resourceType="ai_agent" />
-				{:else}
-					<ScriptPicker bind:scriptPath={existing} kinds={['script']} clearable {workspace} />
-				{/if}
+		{:else}
+			<div class="flex items-center gap-2">
+				<div class="grow min-w-0">
+					{#if kind === 'agent'}
+						<ResourcePicker bind:value={existing} resourceType="ai_agent" />
+					{:else}
+						<ScriptPicker bind:scriptPath={existing} kinds={['script']} clearable {workspace} />
+					{/if}
+				</div>
+				<Button
+					size="xs"
+					variant="default"
+					disabled={busy || !existing}
+					onclick={() =>
+						existing &&
+						onAdd({ kind, path: existing, name: summary || undefined, pass_if: threshold })}
+				>
+					Add
+				</Button>
 			</div>
-			<Button
-				size="xs"
-				variant="default"
-				disabled={busy || !existing}
-				onclick={() =>
-					existing &&
-					onAdd({ kind, path: existing, name: summary || undefined, pass_if: threshold })}
-			>
-				Add
-			</Button>
-		</div>
-	</Label>
+		{/if}
 	{/if}
 </div>

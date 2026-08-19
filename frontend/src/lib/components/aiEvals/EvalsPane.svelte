@@ -711,7 +711,7 @@
 
 	     Nothing on the list: which run, and which dataset it was of, is what the rows say. The
 	     pickers belong to a run being read, so they arrive with one. -->
-	<div class="flex flex-wrap items-end gap-2 px-3 py-2 border-b">
+	<div class="flex flex-wrap items-end gap-2 py-2 border-b">
 		{#if viewingRun}
 			<!-- Which run, and what it is read against, side by side: they are one question asked
 			     twice, and a comparison you cannot see the control for is one nobody knows they can
@@ -752,12 +752,14 @@
 	     it to be about. No button and no frame of its own — it is a line the table carries, not a
 	     panel above it. -->
 	{#if viewingRun && staleRun}
-		<Alert
-			type="warning"
-			size="xs"
-			title={`This run executed an earlier state of the draft on v${currentVersion}`}
-			collapsible={false}
-		/>
+		<div class="py-2">
+			<Alert
+				type="warning"
+				size="xs"
+				title={`This run executed an earlier state of the draft on v${currentVersion}`}
+				collapsible={false}
+			/>
+		</div>
 	{/if}
 
 	<div class="grow min-h-0">
@@ -949,21 +951,6 @@
 										{/each}
 									</Row>
 								{/each}
-								<tr>
-									<td colspan={scorers.length + 2} class="p-2">
-										<!-- The one bit of curating the table keeps, because a dataset with nothing in
-										     it is exactly where the table has nothing else to offer. It opens where the
-										     rest of the editing is. -->
-										<Button
-											size="xs2"
-											variant="subtle"
-											startIcon={{ icon: Plus }}
-											onclick={() => datasetDrawer?.openDrawer('edit', { addCase: true })}
-										>
-											Add a case
-										</Button>
-									</td>
-								</tr>
 							</tbody>
 						</DataTable>
 					{/if}
