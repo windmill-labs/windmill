@@ -7,12 +7,11 @@
  * branch conflicts on all of them. Dedup keeps one file per group under
  * `dependencies/locks/` and points the metadata at it.
  *
- * What these pin:
+ * What these pin, per the invariants in `lock_dedup.ts`:
  *  - a group keeps the file it already reads, so a bump is a one-file diff
- *  - a shared file is never rewritten or deleted under scripts the sync map does
- *    not cover (the git-sync deploy callback narrows it to a single item)
- *  - the pass is idempotent: a deduplicated tree produces no further changes,
- *    which is what keeps `sync pull`/`push` from seeing a diff on every run
+ *  - nothing is rewritten or deleted under scripts the sync map does not cover
+ *  - the pass is idempotent, which is what keeps `sync pull`/`push` from seeing
+ *    a diff on every run
  */
 
 import { expect, test, describe } from "bun:test";
@@ -36,6 +35,7 @@ const OTHER_LOCK = "requests==2.32.0\nurllib3==2.2.1\npandas==2.2.0\n";
 const SHARED_PY = "dependencies/locks/python3.lock";
 const SHARED_PY_2 = "dependencies/locks/python3-2.lock";
 const SHARED_BUN = "dependencies/locks/bun.lock";
+const TRAVERSING_REF = "dependencies/locks/../../../../tmp/escaped.lock";
 
 function meta(lockRef: string, summary = ""): string {
   return yamlStringify({ summary, lock: lockRef }, yamlOptions);
@@ -169,6 +169,32 @@ describe("computeSharedLockPlan", () => {
     ]);
   });
 
+  test("the majority keeps the file when a minority lags behind", () => {
+    // The case the feature exists for: a bump that most scripts take. The one
+    // that lags must not hold the name hostage and rename the file for the rest.
+    const committed: Record<string, string> = {};
+    for (const base of ["f/a", "f/b", "f/c", "f/d", "f/lag"]) {
+      sharedLock(committed, base, ".py", SHARED_PY);
+    }
+    const tree = treeOf(committed, { [SHARED_PY]: PY_LOCK });
+
+    const remote: Record<string, string> = {};
+    for (const base of ["f/a", "f/b", "f/c", "f/d"]) {
+      ownLock(remote, base, ".py", PY_LOCK_BUMPED);
+    }
+    ownLock(remote, "f/lag", ".py", PY_LOCK);
+    applySharedLockPlanToMap(remote, computeSharedLockPlan(remote, "bun", tree));
+
+    expect(remote[SHARED_PY]).toEqual(PY_LOCK_BUMPED);
+    expect(remote[SHARED_PY_2]).toBeUndefined();
+    for (const base of ["f/a", "f/b", "f/c", "f/d"]) {
+      expect(lockRefOf(remote[`${base}.script.yaml`])).toEqual(
+        `!inline ${SHARED_PY}`,
+      );
+    }
+    expect(remote["f/lag.script.lock"]).toEqual(PY_LOCK);
+  });
+
   test("a lone script keeps its own lock", () => {
     const map: Record<string, string> = {};
     ownLock(map, "f/a", ".py", PY_LOCK);
@@ -255,11 +281,19 @@ describe("computeSharedLockPlan", () => {
     const map: Record<string, string> = {};
     ownLock(map, "f/a.b", ".py", PY_LOCK);
     ownLock(map, "f/c.d", ".py", PY_LOCK);
+    // `f/a` is a Go script that happens to be a prefix of `f/a.b`: its language
+    // must come from its own content file, not its neighbour's.
+    ownLock(map, "f/a", ".go", "go-lock-contents");
+    ownLock(map, "f/e", ".go", "go-lock-contents");
 
     applySharedLockPlanToMap(map, computeSharedLockPlan(map, "bun", treeOf(map)));
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
     expect(lockRefOf(map["f/a.b.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
+    expect(map["dependencies/locks/go.lock"]).toEqual("go-lock-contents");
+    expect(lockRefOf(map["f/a.script.yaml"])).toEqual(
+      "!inline dependencies/locks/go.lock",
+    );
   });
 
   test("only the lock line of the metadata changes", () => {
@@ -373,6 +407,7 @@ describe("collectExistingSharedLocks", () => {
       // The stateful-push mirror holds copies, not scripts — counting them as
       // readers would freeze the shared file's content.
       await write(".wmill/f/team/a.script.yaml", readsShared);
+      await write("f/team/escape.script.yaml", meta(`!inline ${TRAVERSING_REF}`));
 
       const existing = await collectExistingSharedLocks(root);
 
@@ -381,6 +416,10 @@ describe("collectExistingSharedLocks", () => {
         "f/team/dist/b.script.yaml",
       ]);
       expect(existing.contents.get(SHARED_PY)).toEqual(PY_LOCK);
+      // A reference is repo content and becomes a path this pass writes to, so
+      // one that escapes the workspace is not a reference at all.
+      expect([...existing.refs.values()]).not.toContain(TRAVERSING_REF);
+      expect(existing.refs.get("f/team/escape.script.yaml")).toBeUndefined();
     } finally {
       await rm(root, { recursive: true, force: true });
     }

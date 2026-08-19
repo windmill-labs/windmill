@@ -2520,8 +2520,7 @@ async function compareDynFSElement(
   // represents them. Collapsing the remote side (in both directions) is what
   // makes the two sides comparable: a pull then writes the shared file instead
   // of thousands of copies, and a push sees no diff for the copies it does not
-  // keep. The working tree is read unfiltered, because the shared files it holds
-  // are read by scripts these maps may not cover.
+  // keep.
   if (skips.dedupeLockfiles) {
     const remoteMap = isEls1Remote === true ? m1 : m2;
     applySharedLockPlanToMap(
@@ -4482,9 +4481,18 @@ export async function push(
   // (their lock is on disk already, in the shared file), and `--auto-metadata`
   // would otherwise run one dependency job per script sharing the lock.
   const changedPaths = new Set(changes.map((c) => c.path));
+  let unconvertedTree = false;
   for (let i = changes.length - 1; i >= 0; i--) {
     const change = changes[i];
-    if (change.name === "deleted" || !isSharedLockPath(change.path)) continue;
+    if (!isSharedLockPath(change.path)) continue;
+    if (change.name === "deleted") {
+      // The remote view is deduplicated whether or not the tree is: a shared
+      // lockfile missing from the tree reads as a deletion to push, and there is
+      // no such object to delete. Left in, it is reported on every push forever.
+      unconvertedTree = true;
+      changes.splice(i, 1);
+      continue;
+    }
     const referrers = scriptsReferencingSharedLock(localMap, change.path);
     if (referrers.length === 0) {
       // A shared lockfile no script reads is not a change to the remote in any
@@ -4506,6 +4514,13 @@ export async function push(
         after: localMap[metaPath],
       });
     }
+  }
+  if (unconvertedTree) {
+    log.warn(
+      colors.yellow(
+        `dedupeLockfiles is on but this checkout still holds one lockfile per script. Run 'wmill generate-metadata' (or pull) to convert it — until then every script reads as changed.`,
+      ),
+    );
   }
 
   const autoRegenerate = !!(opts as any).autoMetadata;

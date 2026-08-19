@@ -19,7 +19,7 @@ import {
   languageNeedsLock,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath, sharedLockPath } from "./resource_folders.ts";
+import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath, isSharedLockPath, sharedLockPath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
 import { DBT_DESCRIPTOR_NAME, isMissingDbtDescriptor } from "./resource_folders.ts";
@@ -376,7 +376,11 @@ export async function generateScriptMetadataInternal(
         filteredRawWorkspaceDependencies,
         tempScriptRefs,
         lockPathOverride,
-        opts.dedupeLockfiles,
+        // The group's file when the script already reads one, its language's
+        // otherwise: a script joins the default group by resolving to its lock.
+        opts.dedupeLockfiles
+          ? (sharedLockRefIn(metadataContent) ?? sharedLockPath(language))
+          : undefined,
       );
     } else {
       metadataParsedContent.lock = "";
@@ -776,6 +780,19 @@ async function fetchScriptLock(
   return lock;
 }
 
+/**
+ * The shared lockfile a metadata FILE reads, when it reads one that exists.
+ * `parseMetadataFile` resolves `lock` to the lockfile's content, so the
+ * reference itself survives only in the raw text.
+ */
+function sharedLockRefIn(metadataContent: string): string | undefined {
+  const match = /!inline (dependencies\/locks\/[^\s'"]+\.lock)/.exec(
+    metadataContent,
+  );
+  const ref = match?.[1];
+  return ref && isSharedLockPath(ref) && existsSync(ref) ? ref : undefined;
+}
+
 async function updateScriptLock(
   workspace: Workspace,
   scriptContent: string,
@@ -785,7 +802,7 @@ async function updateScriptLock(
   rawWorkspaceDependencies: Record<string, string>,
   tempScriptRefs?: Record<string, string>,
   lockPathOverride?: string,
-  dedupeLockfiles?: boolean,
+  sharedLockRef?: string,
 ): Promise<void> {
   if (!languageNeedsLock(language)) {
     // A dbt lock is written by the dependency job on a worker, from a real
@@ -819,15 +836,18 @@ async function updateScriptLock(
 
   const lockPath = lockPathOverride ?? remotePath + ".script.lock";
   if (lock != "") {
-    // Under `dedupeLockfiles`, a lock that still resolves to what the language's
-    // scripts share stays in the one shared file. Writing a copy here is what
+    // Under `dedupeLockfiles`, a lock that still resolves to what this script's
+    // group shares stays in the one shared file. Writing a copy here is what
     // would put the 1900-file diff back, one regenerated script at a time.
-    const shared = sharedLockPath(language);
-    if (dedupeLockfiles && existsSync(shared) && readTextFileSync(shared) === lock) {
+    if (
+      sharedLockRef &&
+      existsSync(sharedLockRef) &&
+      readTextFileSync(sharedLockRef) === lock
+    ) {
       if (existsSync(lockPath)) {
         await rm(lockPath);
       }
-      metadataContent.lock = "!inline " + shared;
+      metadataContent.lock = "!inline " + sharedLockRef;
       return;
     }
     await writeFile(lockPath, lock, "utf-8");

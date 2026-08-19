@@ -46,6 +46,21 @@ import {
 
 const INLINE_PREFIX = "!inline ";
 
+/** Content-file extensions of the languages that carry a lock, longest first.
+ *  A language absent here is simply never deduplicated.
+ *  for related places search: ADD_NEW_LANG */
+const LOCKABLE_EXTS = [
+  ".fetch.ts",
+  ".deno.ts",
+  ".bun.ts",
+  ".playbook.yml",
+  ".ts",
+  ".py",
+  ".go",
+  ".php",
+  ".rs",
+];
+
 /** Below this a shared file would trade one lock file for two. It gates only
  *  NEW shared files: a script already on one stays there however few are left,
  *  or a narrowed sync scope would tear the group apart. */
@@ -63,11 +78,8 @@ export type LockDedupOptions = {
   defaultTs?: "bun" | "deno" | undefined;
 };
 
-/**
- * The working tree as it stands: which shared lockfiles it holds, who reads
- * them, and every script in it. Collected unfiltered, so a plan can tell what a
- * narrowed sync map is leaving out. Paths are forward-slashed.
- */
+/** The working tree as it stands, collected unfiltered (see the header).
+ *  Paths are forward-slashed. */
 export type ExistingSharedLocks = {
   /** script metadata file -> the shared lockfile it references */
   refs: Map<string, string>;
@@ -163,23 +175,18 @@ function languageOfScript(
   defaultTs: "bun" | "deno" | undefined,
 ): string | undefined {
   const dir = base.slice(0, base.lastIndexOf("/") + 1);
-  // A script's content file is `<base>.<ext>`, and never `.yaml`/`.json`/`.lock`
-  // — those are its metadata and its lock (`.playbook.yml` is `.yml`, and a dbt
-  // descriptor belongs to a base of its own, so dbt stays out of dedup).
-  const candidates = (byDirectory.get(dir) ?? []).filter(
-    (c) =>
-      c.startsWith(base + ".") &&
-      !c.endsWith(".yaml") &&
-      !c.endsWith(".json") &&
-      !c.endsWith(".lock"),
-  );
-  // Sorted so a base that somehow carries two content files resolves the same
-  // way on every run, rather than following map insertion order.
-  for (const candidate of candidates.sort()) {
-    try {
-      return inferContentTypeFromFilePath(candidate, defaultTs);
-    } catch {
-      // not a script content file (a resource, a schema, …)
+  const siblings = new Set(byDirectory.get(dir) ?? []);
+  // `<base><ext>` and nothing looser: `f/a.b.py` is the content file of the
+  // script `f/a.b`, not of `f/a`, and a prefix match would read one script's
+  // language off another's file. Longest extension first, so `.bun.ts` is not
+  // taken for `.ts` (dbt is absent from the list, and stays out of dedup).
+  for (const ext of LOCKABLE_EXTS) {
+    if (siblings.has(base + ext)) {
+      try {
+        return inferContentTypeFromFilePath(base + ext, defaultTs);
+      } catch {
+        // not a language this CLI knows
+      }
     }
   }
   return undefined;
@@ -250,14 +257,23 @@ function serializeMetadata(entry: ScriptEntry): string {
     : yamlStringify(entry.parsed, yamlOptions);
 }
 
-/** How many scripts in the whole tree read a given shared lockfile. */
-function referrerCount(
+/**
+ * Scripts that read a shared lockfile and that this plan does not speak for,
+ * i.e. the ones outside the sync map. Referrers inside it are being reassigned
+ * by this same plan, so they cannot be surprised by a content change — counting
+ * them would hand a lagging minority a veto over the majority's own file.
+ */
+function unrepresentedReaders(
   existing: ExistingSharedLocks,
+  map: Record<string, string>,
   sharedRef: string,
 ): number {
   let count = 0;
-  for (const ref of existing.refs.values()) {
-    if (ref === sharedRef) count++;
+  for (const [metaRef, ref] of existing.refs) {
+    if (ref !== sharedRef) continue;
+    if (map[toMapKey(metaRef)] === undefined && map[metaRef] === undefined) {
+      count++;
+    }
   }
   return count;
 }
@@ -271,6 +287,7 @@ function incumbentFor(
   group: ScriptEntry[],
   content: string,
   existing: ExistingSharedLocks,
+  map: Record<string, string>,
   claimed: Set<string>,
 ): string | undefined {
   const votes = new Map<string, number>();
@@ -292,10 +309,13 @@ function incumbentFor(
   }
   if (best === undefined) return undefined;
   // Keeping the name costs nothing while the content is unchanged. Moving the
-  // content is only this group's call when no one else reads the file.
+  // content takes a real group speaking for every reader — otherwise one script
+  // that drifted would rename the file for all the others, or keep a shared
+  // file to itself.
   if (
     existing.contents.get(best) !== content &&
-    bestVotes < referrerCount(existing, best)
+    (group.length < MIN_SHARED_GROUP ||
+      unrepresentedReaders(existing, map, best) > 0)
   ) {
     return undefined;
   }
@@ -331,10 +351,6 @@ function allocateName(
 /**
  * What a sync map (path -> content) has to change for duplicated script locks to
  * become one shared file per group. Pure: neither argument is touched.
- *
- * `existing` is the working tree as it stands, unfiltered — it is what keeps
- * names stable across a dependency bump and what protects the scripts a
- * narrowed sync map leaves out.
  */
 export function computeSharedLockPlan(
   map: Record<string, string>,
@@ -357,17 +373,13 @@ export function computeSharedLockPlan(
     }
   }
 
-  // Whether this sync covers the whole tree. A partial one — narrowed includes,
-  // or the per-item `extraIncludes` the git-sync deploy callback passes — may
-  // hold groups together but must not form new ones, since what it cannot see
-  // may belong to them.
+  // A sync that cannot see the whole tree conserves only (see the header).
   const partialView = [...existing.scripts].some(
     (script) => map[toMapKey(script)] === undefined && map[script] === undefined,
   );
 
   // Where every script ends up, so a shared file with nothing left reading it
-  // can be dropped. Seeded with the tree's own scripts, the ones out of scope
-  // included.
+  // can be dropped. Seeded with the whole tree, out-of-scope scripts included.
   const finalRefs = new Map(existing.refs);
   const claimed = new Set<string>();
 
@@ -382,7 +394,7 @@ export function computeSharedLockPlan(
     );
 
     for (const [content, group] of groups) {
-      let target = incumbentFor(group, content, existing, claimed);
+      let target = incumbentFor(group, content, existing, map, claimed);
       if (
         target === undefined &&
         !partialView &&
@@ -473,11 +485,8 @@ const SCAN_SKIP_DIRS = new Set([".git", ".wmill", "node_modules"]);
 
 /**
  * The shared lockfiles in the working tree, the scripts that read them, and
- * every script metadata file there is.
- *
- * Deliberately NOT filtered by the sync's includes/excludes: a script this sync
- * does not cover still reads its lockfile, and a plan blind to it would rewrite
- * or delete that file underneath it.
+ * every script metadata file there is — deliberately NOT filtered by the sync's
+ * includes/excludes, which is what lets a plan tell what its map leaves out.
  */
 export async function collectExistingSharedLocks(
   root: string,
@@ -516,7 +525,10 @@ export async function collectExistingSharedLocks(
       // A substring match on the raw text rather than a parse: this reads every
       // script metadata file in the workspace, and the reference is a literal.
       const match = SHARED_LOCK_REF_RE.exec(await readFile(full, "utf-8"));
-      if (match) existing.refs.set(rel, match[1]);
+      // Validated, not just matched: a reference is repo content, it becomes a
+      // path this pass writes to, and `dependencies/locks/../../../x.lock`
+      // satisfies the pattern while resolving outside the workspace.
+      if (match && isSharedLockPath(match[1])) existing.refs.set(rel, match[1]);
     }
   };
   await walk("");
