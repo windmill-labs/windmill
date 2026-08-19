@@ -80,8 +80,10 @@ export const whitelabelNameStore = derived([enterpriseLicense], ([enterpriseLice
 	return undefined
 })
 export const workerTags = writable<string[] | undefined>(undefined)
-export const usageStore = writable<number>(0)
-export const workspaceUsageStore = writable<number>(0)
+// `undefined` while unresolved. `0` is a real usage value, so a placeholder that
+// reads as one lets a failed or in-flight fetch render as "no executions used".
+export const usageStore = writable<number | undefined>(undefined)
+export const workspaceUsageStore = writable<number | undefined>(undefined)
 export const initialArgsStore = writable<any>(undefined)
 export const oauthStore = writable<TokenResponse | undefined>(undefined)
 export const userStore = writable<UserExt | undefined>(undefined)

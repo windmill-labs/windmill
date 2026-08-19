@@ -108,7 +108,7 @@
 			<div class="border-t">
 				{#if $isPremiumStore === false}
 					<span class="text-secondary block w-full text-left px-4 py-2 text-xs">
-						{$usageStore}/1000 user execs
+						{$usageStore ?? '—'}/1000 user execs
 						<Tooltip small>
 							{#snippet text()}
 								{EXECUTIONS_HINT}
@@ -117,13 +117,15 @@
 					</span>
 					<div class="px-4 w-full h-1 mb-1">
 						<div class="bg-gray-200 h-full rounded-sm overflow-hidden">
-							<div class="bg-blue-400 h-full" style="width: {Math.min($usageStore, 1000) / 10}%"
+							<div
+								class="bg-blue-400 h-full"
+								style="width: {Math.min($usageStore ?? 0, 1000) / 10}%"
 							></div>
 						</div>
 					</div>
 					{#if $workspaceStore != 'demo'}
 						<span class="text-secondary block w-full text-left px-4 py-2 text-xs">
-							{$workspaceUsageStore}/1000 free workspace execs
+							{$workspaceUsageStore ?? '—'}/1000 free workspace execs
 							<Tooltip small>
 								{#snippet text()}
 									{EXECUTIONS_HINT}
@@ -134,7 +136,7 @@
 							<div class="bg-gray-200 h-full rounded-sm overflow-hidden">
 								<div
 									class="bg-blue-400 h-full"
-									style="width: {Math.min($workspaceUsageStore, 1000) / 10}%"
+									style="width: {Math.min($workspaceUsageStore ?? 0, 1000) / 10}%"
 								></div>
 							</div>
 						</div>

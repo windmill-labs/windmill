@@ -236,7 +236,7 @@
 				...(cloudHosted && $isPremiumStore === false
 					? [
 							{
-								displayName: `${$usageStore}/1000 user execs`,
+								displayName: `${$usageStore ?? '—'}/1000 user execs`,
 								icon: Gauge,
 								tooltip: EXECUTIONS_HINT,
 								disabled: true

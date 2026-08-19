@@ -485,20 +485,28 @@
 	async function loadUsage() {
 		const workspace = $workspaceStore
 		if (!isCloudHosted() || !workspace) return
-		// Usage belongs to a workspace the same way the tier does, and the meter reads
-		// it as a headline number: clear it for a new workspace, and drop a response
-		// that lost the race to the one for the workspace we are on now.
+		// Workspace usage belongs to a workspace the way the tier does: clear it for a
+		// new one, and drop a response that lost the race. User usage is account-wide,
+		// so it survives the switch. Each is assigned on its own so one endpoint
+		// failing leaves the other's number intact rather than unresolved.
 		if (usageFetchedFor !== workspace) {
 			usageFetchedFor = workspace
-			$workspaceUsageStore = 0
+			$workspaceUsageStore = undefined
 		}
-		const [userUsage, workspaceUsage] = await Promise.all([
-			UserService.getUsage(),
+		await Promise.all([
+			UserService.getUsage()
+				.then((usage) => {
+					$usageStore = usage
+				})
+				.catch((e) => console.error('Could not fetch user usage', e)),
 			WorkspaceService.getWorkspaceUsage({ workspace })
+				.then((usage) => {
+					if ($workspaceStore === workspace) {
+						$workspaceUsageStore = usage
+					}
+				})
+				.catch((e) => console.error('Could not fetch workspace usage', e))
 		])
-		if ($workspaceStore !== workspace) return
-		$usageStore = userUsage
-		$workspaceUsageStore = workspaceUsage
 	}
 
 	async function loadHubBaseUrl() {

@@ -32,11 +32,10 @@
 	// configured, so it would leave regular members with no block at all.
 	let seats = $state<number | undefined>(undefined)
 
-	// A fork's usage, tier and bill all resolve to its billing root — the topmost
-	// parentless workspace — while its own member list is deliberately a subset of
-	// the root's. Counting fork members would meter root usage against a fork-sized
-	// cap and invent overages, so seats come from the root. When the root is not
-	// visible from here the cap is unknowable and the paid meter stays hidden.
+	// A fork's usage and tier resolve to its billing root while its member list is a
+	// subset of the root's, so seats must come from the root or the cap is fork-sized
+	// against root usage. `undefined` when the root isn't visible from here: the cap
+	// is then unknowable, and the caller hides the meter rather than guessing.
 	function billingRoot(workspace: string, all: UserWorkspace[]): string | undefined {
 		const self = all.find((w) => w.id === workspace)
 		if (!self) return undefined
@@ -85,13 +84,15 @@
 		hard: boolean
 	}
 
-	// Free tier: two caps apply at once and either one stops jobs on its own. Paid:
-	// one soft cap, the executions the workspace's seats already include.
+	// Every input is tri-state while it resolves, and a quota built from a missing
+	// one would render as a real number: each is listed only once its own usage,
+	// tier and cap are known. Free tier: two caps apply at once and either stops
+	// jobs on its own. Paid: one soft cap, the executions the seats already include.
 	const quotas = $derived<Quota[]>(
 		$isPremiumStore === undefined
 			? []
 			: $isPremiumStore
-				? seats
+				? seats !== undefined && $workspaceUsageStore !== undefined
 					? [
 							{
 								key: 'workspace',
@@ -104,16 +105,20 @@
 						]
 					: []
 				: [
-						{
-							key: 'user',
-							label: 'Your executions',
-							short: 'Your execs',
-							used: $usageStore,
-							cap: FREE_EXECUTION_QUOTA,
-							hard: true
-						},
+						...($usageStore !== undefined
+							? [
+									{
+										key: 'user',
+										label: 'Your executions',
+										short: 'Your execs',
+										used: $usageStore,
+										cap: FREE_EXECUTION_QUOTA,
+										hard: true
+									}
+								]
+							: []),
 						// The demo workspace has no workspace-level quota.
-						...($workspaceStore !== 'demo'
+						...($workspaceStore !== 'demo' && $workspaceUsageStore !== undefined
 							? [
 									{
 										key: 'workspace',

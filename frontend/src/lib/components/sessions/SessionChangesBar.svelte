@@ -63,7 +63,7 @@
 	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar. On cloud,
 	// forking is a premium-only feature (backend caps it per paid seat).
 	const forksAllowed = $derived(
-		(!isCloudHosted() || $isPremiumStore) &&
+		(!isCloudHosted() || $isPremiumStore !== false) &&
 			canCreateFork($userStore) &&
 			$workspaceStore !== 'admins'
 	)
