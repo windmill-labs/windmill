@@ -30,8 +30,8 @@
 		tooltip?: string | undefined
 		shouldDisplayLeft?: boolean
 		shouldDisplayRight?: boolean
-		overriden?: boolean
-		overridding?: boolean
+		overridden?: boolean
+		overriding?: boolean
 		wmClass?: string | undefined
 	}
 
@@ -45,8 +45,8 @@
 		tooltip = undefined,
 		shouldDisplayLeft = false,
 		shouldDisplayRight = false,
-		overriden = false,
-		overridding = false,
+		overridden = false,
+		overriding = false,
 		wmClass = undefined
 	}: Props = $props()
 
@@ -143,9 +143,9 @@
 							<div class="text-xs font-medium text-primary"> Plain CSS </div>
 
 							<div class="flex flex-row gap-1">
-								{#if overriden}
-									<Badge color="red" small>Overriden by local</Badge>
-								{:else if overridding}
+								{#if overridden}
+									<Badge color="red" small>Overridden by local</Badge>
+								{:else if overriding}
 									<Badge color="blue" small>Overriding global</Badge>
 								{/if}
 								{#if quickStyleProperties?.length}
