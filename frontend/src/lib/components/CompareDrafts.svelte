@@ -22,7 +22,11 @@
 		discardDraft,
 		draftBaseIsStale
 	} from '$lib/utils_draft_deploy'
-	import { checkDeployPermission, type DeployPermission } from '$lib/utils_workspace_deploy'
+	import {
+		checkDeployPermission,
+		deployPermissionForKinds,
+		type DeployPermission
+	} from '$lib/utils_workspace_deploy'
 	import {
 		type DraftItem,
 		invalidateWorkspaceDrafts,
@@ -307,17 +311,27 @@
 	// Whether the user may deploy drafts into this workspace, via the shared util —
 	// same as the fork compare page and the session review drawer. Fail-open while
 	// resolving.
-	let deployPerm = $state<DeployPermission>({ ok: true })
+	let workspaceDeployPerm = $state<DeployPermission>({ ok: true })
 	$effect(() => {
 		const ws = currentWorkspaceId
 		// Reset to fail-open on workspace change, and drop a stale resolution —
 		// otherwise the previous workspace's verdict lingers (or lands last) and
 		// gates the wrong workspace.
-		deployPerm = { ok: true }
+		workspaceDeployPerm = { ok: true }
 		void checkDeployPermission(ws).then((p) => {
-			if (ws === currentWorkspaceId) deployPerm = p
+			if (ws === currentWorkspaceId) workspaceDeployPerm = p
 		})
 	})
+	// A direct-deployment lock never reaches trigger or schedule drafts server-side, so it must
+	// not disable a selection made only of those. One refused kind still blocks the whole action.
+	let deployPerm = $derived(
+		deployPermissionForKinds(
+			workspaceDeployPerm,
+			visibleItems
+				.filter((i) => selectedItems.includes(i.key) && isDeployable(i))
+				.map((i) => i.draftKind)
+		)
+	)
 	// Select all on the first non-empty load (acting on everything is the common
 	// intent); only once, so a refetch after a deploy doesn't re-select the
 	// leftovers.

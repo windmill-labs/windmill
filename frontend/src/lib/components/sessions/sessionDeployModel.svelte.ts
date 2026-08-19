@@ -2,10 +2,12 @@ import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
 import {
 	checkDeployPermission,
 	checkItemExists,
+	deployPermissionForKind,
 	getItemValue,
 	type DeployPermission,
 	type DeployResult
 } from '$lib/utils_workspace_deploy'
+import type { Kind } from '$lib/utils_deployable'
 import {
 	deployDraft,
 	discardDraft,
@@ -269,7 +271,8 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		// Don't attempt a deploy we know the user can't make (no write permission
 		// on the path, or blocked by the operator / deployer rule) — the UI
 		// disables it too; this is the guard behind that.
-		if (!discard && (!item.canWrite || !deployPerm.ok)) return false
+		if (!discard && (!item.canWrite || !deployPermissionForKind(deployPerm, item.deployKind).ok))
+			return false
 		setStatus(item.key, { status: 'loading' })
 		deploying = true
 		try {
@@ -350,8 +353,12 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			return staleKeys.has(key)
 		},
 		/** Whether the user may deploy into the session workspace. */
-		get deployPermission(): DeployPermission {
-			return deployPerm
+		/**
+		 * Per-kind, because a direct-deployment lock never reaches schedules or triggers
+		 * server-side — a row of that kind stays deployable while a script row does not.
+		 */
+		deployPermissionForKind(kind: Kind): DeployPermission {
+			return deployPermissionForKind(deployPerm, kind)
 		},
 		deployRow,
 		discardRow

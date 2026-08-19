@@ -41,6 +41,7 @@
 	import type { Kind } from '$lib/utils_deployable'
 	import {
 		checkDeployPermission,
+		deployPermissionForKinds,
 		deployItem,
 		deleteItemInWorkspace,
 		diffActionableInDirection,
@@ -984,7 +985,17 @@
 			void checkDeployPermission(ws).then((p) => (deployPerms = { ...deployPerms, [ws]: p }))
 		}
 	})
-	let deployPerm = $derived(deployPerms[deployTargetWorkspace] ?? { ok: true })
+	let workspaceDeployPerm = $derived(deployPerms[deployTargetWorkspace] ?? { ok: true })
+	// A direct-deployment lock never reaches schedules or triggers server-side, so it must not
+	// disable a selection made only of those. One refused kind still blocks the whole action.
+	let deployPerm = $derived(
+		deployPermissionForKinds(
+			workspaceDeployPerm,
+			(comparison?.diffs ?? [])
+				.filter((d) => selectedItems.includes(getItemKey(d)))
+				.map((d) => d.kind)
+		)
+	)
 
 	// Fetch summaries and on_behalf_of_email when comparison data loads
 	$effect(() => {

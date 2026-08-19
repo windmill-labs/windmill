@@ -21,6 +21,7 @@ import {
 	WorkspaceService,
 	type User
 } from '$lib/gen'
+import type { UserDraftItemKind } from '$lib/gen'
 import {
 	fetchProtectionRulesForWorkspace,
 	canUserBypassRuleKindInRulesets
@@ -703,7 +704,79 @@ export async function createFolderIfAbsent(
 	}
 }
 
-export type DeployPermission = { ok: boolean; reason?: string }
+/** Which term refused, so a caller can scope a refusal the server applies to only some kinds. */
+export type DeployRefusal = 'operator' | 'DisableDirectDeployment' | 'RestrictDeployToDeployers'
+
+export type DeployPermission = { ok: boolean; reason?: string; refusedBy?: DeployRefusal }
+
+// The server reaches `check_deploy_rules` from the item handlers, and only these kinds call it
+// (windmill-api-{scripts,flows,groups}, windmill-api/src/apps.rs, windmill-store/src/{resources,
+// variables}.rs). Schedules and triggers hit no gate at all, so a protection rule must not
+// disable them here. Exhaustive by construction: a new `Kind` fails to compile without a verdict.
+const KIND_GATED_BY_DEPLOY_RULES: Record<Kind, boolean> = {
+	script: true,
+	flow: true,
+	app: true,
+	raw_app: true,
+	resource: true,
+	resource_type: true,
+	variable: true,
+	folder: true,
+	schedule: false,
+	http_trigger: false,
+	websocket_trigger: false,
+	kafka_trigger: false,
+	nats_trigger: false,
+	postgres_trigger: false,
+	mqtt_trigger: false,
+	amqp_trigger: false,
+	sqs_trigger: false,
+	gcp_trigger: false,
+	azure_trigger: false,
+	email_trigger: false,
+	datatable_migration: false,
+	trigger: false,
+	data_pipeline: false
+}
+
+// Every gated kind is spelled identically in `Kind` and `UserDraftItemKind`, so one lookup serves
+// both taxonomies and the drafts surface needs no bridge. The kinds whose spellings diverge
+// (`trigger_http` vs `http_trigger`) are exactly the ungated ones — so if a trigger kind ever
+// becomes gated server-side, it needs its draft spelling added here too.
+const GATED_KIND_NAMES = new Set(
+	Object.entries(KIND_GATED_BY_DEPLOY_RULES)
+		.filter(([, gated]) => gated)
+		.map(([kind]) => kind)
+)
+
+export function kindGatedByDeployRules(kind: Kind | UserDraftItemKind): boolean {
+	return GATED_KIND_NAMES.has(kind)
+}
+
+/**
+ * Narrow a workspace-level refusal to one item kind. Only the direct-deployment term is scoped:
+ * the deployers-only term over-reaches the same way, but it does so on `main` too, and loosening
+ * it here would change behaviour beyond mirroring the server.
+ */
+export function deployPermissionForKind(
+	perm: DeployPermission,
+	kind: Kind | UserDraftItemKind
+): DeployPermission {
+	if (perm.ok) return perm
+	if (perm.refusedBy === 'DisableDirectDeployment' && !kindGatedByDeployRules(kind)) {
+		return { ok: true }
+	}
+	return perm
+}
+
+/** The refusal a bulk action carries: it applies as soon as one selected kind is still refused. */
+export function deployPermissionForKinds(
+	perm: DeployPermission,
+	kinds: (Kind | UserDraftItemKind)[]
+): DeployPermission {
+	if (perm.ok) return perm
+	return kinds.some((k) => !deployPermissionForKind(perm, k).ok) ? perm : { ok: true }
+}
 
 /**
  * Whether the current user may deploy into `workspace`. Mirrors `check_deploy_rules` in
@@ -727,7 +800,11 @@ export async function checkDeployPermission(
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
 		if (me.operator) {
-			return { ok: false, reason: "You're an operator in this workspace — operators can't deploy" }
+			return {
+				ok: false,
+				reason: "You're an operator in this workspace — operators can't deploy",
+				refusedBy: 'operator'
+			}
 		}
 		const userInfo = {
 			is_admin: !!me.is_admin,
@@ -742,7 +819,8 @@ export async function checkDeployPermission(
 			if (!canUserBypassRuleKindInRulesets(rulesets, 'DisableDirectDeployment', userInfo)) {
 				return {
 					ok: false,
-					reason: `Direct deployment to ${workspace} is disabled — fork the workspace or open a pull request`
+					reason: `Direct deployment to ${workspace} is disabled — fork the workspace or open a pull request`,
+					refusedBy: 'DisableDirectDeployment'
 				}
 			}
 			// `wm_deployers` membership is an implicit pass on this rule only, so it cannot
@@ -754,7 +832,8 @@ export async function checkDeployPermission(
 			) {
 				return {
 					ok: false,
-					reason: `Only workspace admins and members of wm_deployers can deploy to ${workspace}`
+					reason: `Only workspace admins and members of wm_deployers can deploy to ${workspace}`,
+					refusedBy: 'RestrictDeployToDeployers'
 				}
 			}
 		}

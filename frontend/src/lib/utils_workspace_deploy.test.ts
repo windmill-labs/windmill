@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { ProtectionRuleset, ProtectionRuleKind, User } from './gen'
+import type { DeployPermission } from './utils_workspace_deploy'
 import {
 	checkDeployPermission,
+	deployPermissionForKind,
+	deployPermissionForKinds,
+	kindGatedByDeployRules,
 	checkPathWritePermission,
 	diffActionableInDirection,
 	diffCreatesInTarget,
@@ -193,5 +197,63 @@ describe('workspace-level deploy permission', () => {
 		const res = await permission({ ...member, operator: true, is_super_admin: true }, [])
 		expect(res.ok).toBe(false)
 		expect(res.reason).toContain('operator')
+	})
+})
+
+describe('scoping a refusal to the kinds the server gates', () => {
+	const locked: DeployPermission = {
+		ok: false,
+		reason: 'Direct deployment to prod is disabled',
+		refusedBy: 'DisableDirectDeployment'
+	}
+	const deployersOnly: DeployPermission = {
+		ok: false,
+		reason: 'Only workspace admins and members of wm_deployers can deploy to prod',
+		refusedBy: 'RestrictDeployToDeployers'
+	}
+
+	// The kinds whose handlers call check_deploy_rules, against those that reach no gate.
+	it('gates the item kinds the server gates, and no others', () => {
+		for (const k of [
+			'script',
+			'flow',
+			'app',
+			'raw_app',
+			'resource',
+			'resource_type',
+			'variable',
+			'folder'
+		] as const) {
+			expect(kindGatedByDeployRules(k)).toBe(true)
+		}
+		for (const k of ['schedule', 'http_trigger', 'email_trigger', 'data_pipeline'] as const) {
+			expect(kindGatedByDeployRules(k)).toBe(false)
+		}
+	})
+
+	// Draft rows speak UserDraftItemKind; the gated names coincide, the ungated ones don't.
+	it('reads draft kinds with the same lookup', () => {
+		expect(kindGatedByDeployRules('variable')).toBe(true)
+		expect(kindGatedByDeployRules('trigger_schedule')).toBe(false)
+		expect(kindGatedByDeployRules('trigger_http')).toBe(false)
+	})
+
+	it('keeps a direct-deployment refusal off the kinds the server never gates', () => {
+		expect(deployPermissionForKind(locked, 'script').ok).toBe(false)
+		expect(deployPermissionForKind(locked, 'schedule').ok).toBe(true)
+		expect(deployPermissionForKind(locked, 'trigger_schedule').ok).toBe(true)
+	})
+
+	// The deployers-only term over-reaches the same way, but it does so on main too. Narrowing it
+	// would loosen the UI beyond mirroring the new rule, so it stays workspace-wide.
+	it('leaves the deployers-only refusal applying to every kind', () => {
+		expect(deployPermissionForKind(deployersOnly, 'script').ok).toBe(false)
+		expect(deployPermissionForKind(deployersOnly, 'schedule').ok).toBe(false)
+	})
+
+	it('blocks a mixed selection but frees an all-ungated one', () => {
+		expect(deployPermissionForKinds(locked, ['schedule', 'script']).ok).toBe(false)
+		expect(deployPermissionForKinds(locked, ['schedule', 'http_trigger']).ok).toBe(true)
+		expect(deployPermissionForKinds(deployersOnly, ['schedule']).ok).toBe(false)
 	})
 })
