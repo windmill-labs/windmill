@@ -522,7 +522,7 @@
 
 <div class="px-2 xl:px-4 py-1.5 border-b border-light">
 	{#if agent}
-		<div class="rounded-md bg-surface-tertiary px-3 py-2">
+		<div class="rounded-md border border-light bg-surface-tertiary px-3 py-2">
 			<!-- The line is the control: clicking it says what the agent is. Only the path leaves for
 			     the resource, and the buttons do their own thing, so both stop here. -->
 			<div
@@ -635,7 +635,9 @@
 	{:else if editingPath}
 		<!-- What saving does is the consequence worth reading, so it is under the agent it is about
 		     rather than under an icon. The buttons sit against both lines. -->
-		<div class="rounded-md bg-surface-tertiary px-3 py-1.5 flex flex-col gap-1.5">
+		<div
+			class="rounded-md border border-light bg-surface-tertiary px-3 py-1.5 flex flex-col gap-1.5"
+		>
 			<div class="flex items-center gap-2">
 				<Pencil size={16} class="text-primary shrink-0" />
 				<div class="min-w-0 flex-1 flex flex-col">
