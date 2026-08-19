@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.ordinal, s.scorer_id, c.job_id AS \"job_id!\", j.status::text AS status\n         FROM eval_score s\n         JOIN eval_experiment_case c\n              ON c.experiment_id = s.experiment_id AND c.ordinal = s.ordinal\n         JOIN v2_job_completed j ON j.id = c.job_id AND j.workspace_id = $2\n         WHERE s.experiment_id = $1 AND s.job_id IS NULL AND s.score IS NULL AND s.error IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ordinal",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "scorer_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "job_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "feb39c8b5167f45fbecfd9be703eda1fc11cf08fb55a56bf07bc0e015a47dd0b"
+}

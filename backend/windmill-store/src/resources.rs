@@ -81,11 +81,8 @@ pub fn workspaced_service() -> Router {
             "/history/p/{*path}",
             get(get_resource_history).delete(clear_resource_history),
         )
-        .route("/history/v/{version}", get(get_resource_version))
-        .route(
-            "/history/restore/v/{version}",
-            post(restore_resource_version),
-        )
+        .route("/history/v/{id}", get(get_resource_version))
+        .route("/history/restore/v/{id}", post(restore_resource_version))
         .route("/delete/{*path}", delete(delete_resource))
         .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
@@ -2172,7 +2169,10 @@ async fn set_resource_value(
 
 #[derive(Serialize)]
 struct ResourceVersion {
+    /// How a version is addressed. Unique across the table, so it says nothing about how many
+    /// times this resource has been saved — `version` is what a version is called.
     id: i64,
+    version: i64,
     created_at: chrono::DateTime<chrono::Utc>,
     created_by: Option<String>,
 }
@@ -2180,6 +2180,7 @@ struct ResourceVersion {
 #[derive(Serialize)]
 struct ResourceVersionWithValue {
     id: i64,
+    version: i64,
     created_at: chrono::DateTime<chrono::Utc>,
     created_by: Option<String>,
     value: Option<serde_json::Value>,
@@ -2215,7 +2216,7 @@ async fn get_resource_history(
 
     let versions = sqlx::query_as!(
         ResourceVersion,
-        "SELECT id, created_at, created_by FROM resource_version
+        "SELECT id, version, created_at, created_by FROM resource_version
          WHERE workspace_id = $1 AND path = $2 ORDER BY id DESC LIMIT $3",
         w_id,
         path,
@@ -2329,19 +2330,19 @@ async fn missing_references(
 async fn get_resource_version(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, version)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<ResourceVersionWithValue> {
     let mut tx = user_db.begin(&authed).await?;
 
     let row = sqlx::query!(
-        "SELECT id, path, created_at, created_by, value FROM resource_version
+        "SELECT id, version, path, created_at, created_by, value FROM resource_version
          WHERE workspace_id = $1 AND id = $2",
         w_id,
-        version
+        id
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let row = not_found_if_none(row, "ResourceVersion", version.to_string())?;
+    let row = not_found_if_none(row, "ResourceVersion", id.to_string())?;
     check_scopes(&authed, || format!("resources:read:{}", row.path))?;
 
     let missing = missing_references(&mut tx, &w_id, row.value.as_ref()).await?;
@@ -2349,6 +2350,7 @@ async fn get_resource_version(
 
     Ok(Json(ResourceVersionWithValue {
         id: row.id,
+        version: row.version,
         created_at: row.created_at,
         created_by: row.created_by,
         value: row.value,
@@ -2427,17 +2429,17 @@ async fn restore_resource_version(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Path((w_id, version)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<String> {
     let mut tx = user_db.clone().begin(&authed).await?;
     let row = sqlx::query!(
-        "SELECT path, value FROM resource_version WHERE workspace_id = $1 AND id = $2",
+        "SELECT path, value, version FROM resource_version WHERE workspace_id = $1 AND id = $2",
         w_id,
-        version
+        id
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let row = not_found_if_none(row, "ResourceVersion", version.to_string())?;
+    let row = not_found_if_none(row, "ResourceVersion", id.to_string())?;
     tx.commit().await?;
 
     check_scopes(&authed, || format!("resources:write:{}", row.path))?;
@@ -2458,7 +2460,7 @@ async fn restore_resource_version(
 
     Ok(format!(
         "resource {} restored to version {}",
-        row.path, version
+        row.path, row.version
     ))
 }
 

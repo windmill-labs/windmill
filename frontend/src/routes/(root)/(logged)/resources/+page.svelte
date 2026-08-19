@@ -74,7 +74,7 @@
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
-	import AgentEvalDrawer from '$lib/components/aiEvals/AgentEvalDrawer.svelte'
+	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -1388,7 +1388,7 @@
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
-<AgentEvalDrawer agentPath={evalsAgentPath} bind:open={evalsOpen} />
+<AgentEvalModal agentPath={evalsAgentPath} bind:open={evalsOpen} />
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}

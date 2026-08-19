@@ -3,9 +3,15 @@
 A reusable AI agent (`docs/reusable-ai-agents.md`) can be run on its own, against a curated set
 of **cases** — the inputs it is expected to keep handling.
 
-The surface is one table. A row is a case, a column is a scorer, and the cell is that scorer's
-verdict on the newest run of that case. Selecting a row opens its detail beside the table; there
-is no third pane.
+The surface is two screens deep. It opens on **this agent's runs**, across every dataset it has
+been measured on: one row per run, carrying what it scored as a badge per column, because the
+question you arrive with is whether the agent got better and that is a comparison down a column.
+Opening a run is the second screen — **one table**, a row per case, a column per scorer, the cell
+being that scorer's verdict; selecting a row opens its detail beside the table, and there is no
+third pane. Editing the dataset a run was of is a drawer over both, not a mode of them.
+
+It is a **dialog**, not a side drawer: what it holds is a screen of its own, read across its full
+width, rather than a panel beside the thing you came from.
 
 Three words, and no fourth:
 
@@ -13,21 +19,39 @@ Three words, and no fourth:
 - a **run** is one case executed once, which is a job;
 - an **experiment** is the set of runs over a dataset.
 
-It is reachable from everywhere an agent already is: the **Evals tab** of the AI agent step in the
-flow editor, the `ai_agent` row on `/resources`, and an AI agent run's detail page. The flow editor
-gets a tab rather than a drawer because it is where you sit while changing a prompt.
+It is reachable from everywhere an agent already is, and always over what you were doing rather
+than instead of it: the agent card at the top of an AI agent step's inputs in the flow editor, the `ai_agent`
+row on `/resources`, and an AI agent run's detail page. In the flow editor it is a button on the
+card rather than a tab of the step, because what it opens is the agent's history rather than a
+setting of the step, and the card is the one thing on screen that is about the agent.
 
 **Evals belong to a saved agent.** A dataset and its runs hang off an `ai_agent` resource, so they
 outlive the step being renamed, copied or deleted, and two runs are comparable because they name
-the same thing. A step whose agent is written inline has nothing to hang them on: the tab says so
-and points at **Save as reusable agent**, which is one click and the only setup evals ask for.
+the same thing. A step whose agent is written inline has nothing to hang them on, and no card
+either: what stands in its place is **Save as reusable agent**, which is one click and the only
+setup evals ask for.
 
 ## What runs
 
-A case is executed as one job: a one-step flow whose single module is an `aiagent` step, pushed as
-a `RawFlow` preview. That is the same vehicle `ModuleTest.svelte` uses to test an agent step, so a
-case exercises the production branch of `ai_executor.rs` rather than a parallel one — a playground
-that behaves differently from production would be worse than none.
+**A run is one flow**: a loop over the dataset's cases, each iteration answering its case and then
+scoring the answer. Pushed as a `RawFlow`, so the agent step is the same vehicle
+`ModuleTest.svelte` uses to test an agent step and a case exercises the production branch of
+`ai_executor.rs` rather than a parallel one — a playground that behaves differently from production
+would be worse than none.
+
+One flow rather than one job per case, because **a run outlives the tab that started it**. A
+dataset of two hundred cases against a slow provider takes long enough that nobody watches it, and
+only a worker can notice that the last case finished; anything the client would otherwise have had
+to do at that point — scoring above all — is a step instead. It also makes the run one thing to
+watch, to cancel, and to point a schedule at.
+
+The loop is `parallel` with a bounded `parallelism` and `skip_failures`: a dataset is a burst of
+calls to one provider, so answering every case at once is a run that spends its time being
+rate-limited, and one case failing is one cell of the run rather than the end of it.
+
+The cases are the loop's **static iterator**, so they live in the flow's value, which is stored
+once. Passing them as an argument would put a copy of the whole dataset in every iteration's
+arguments.
 
 The step is built one of two ways, and both name the same agent:
 
@@ -40,9 +64,18 @@ The step is built one of two ways, and both name the same agent:
 The configuration is never taken from the request. A subject carrying one is refused: it would run
 something other than the resource it names, and a run nobody can attribute is worse than no run.
 
-Scoring is not part of this flow. A case job produces an answer and stores it, and scoring reads
-that answer afterwards — which is what lets a scorer added next week score a run from today
-without calling the agent again.
+Each iteration is an agent step, then a **payload step**, then one step per scorer. The payload
+step exists because the flow cannot see what it needs to: the agent's own result carries the
+answer and every message, but each tool call's arguments, result, status, duration and schema
+belong to the job that ran it. The step reads them back through `GET /ai_evals/run_payload`, whose
+one argument is the iteration's own job id, and hands the scorers exactly what a scorer receives
+anywhere else. A scorer therefore measures the agent's latency and not its own: the payload
+reports the *agent step's* duration, never the iteration's.
+
+Scoring stays separable even so. Its steps read a run that already exists, which is what lets a
+scorer added next week score a run from today without calling the agent again — that is
+`score_again`, the same flow with the agent step left out and each iteration pointed at the answer
+the earlier run recorded.
 
 A draft is the transforms as authored, expressions included. One that reads `results.<step>.x` or
 a `flow_input` the case does not supply resolves to nothing here, the same way it would in any run
@@ -70,29 +103,42 @@ The pane shows the **answer** and nothing else of a job. A trajectory is what th
 in full, and a second copy of it in a side panel is a worse version of a page that already exists;
 `job_id` is the way there.
 
+For a recorded row the answer is read off the row rather than out of the job, because `job_id` is
+the whole iteration — the agent and then the scorers that measured it — and its result is the last
+scorer's verdict, not the answer. The link is still the iteration, which is the run of that case.
+A trial has no scorers after it, so its own result is its answer and it is rendered as one.
+
 What makes a job findable again is stamped on it at push:
 
-- `runnable_path` is `<agent>/<dataset>/<case>` (just `<agent>` for an unsaved case), so the
-  existing `script_path_start` / `script_path_exact` job filters answer "every run of this agent"
-  and "every run of this case" with no new state. `v2_job.runnable_path` is `varchar(255)`, so a
-  stamp that would overflow degrades to the agent path alone.
-- `_eval` in the flow's args records `{subject: {kind, path, version}, dataset, case_id}`, so a
-  job opened cold from the runs page explains itself, and an over-long path still carries the
-  association. Extra flow inputs are inert — the module reads only
-  `user_message`/`user_attachments`.
+- `runnable_path` is `<agent>/<dataset>` on the run's flow (`<agent>/<dataset>/<case>` on a
+  single-case trial, just `<agent>` for an unsaved one), so the existing `script_path_start` job
+  filter answers "every run of this agent" with no new state. `v2_job.runnable_path` is
+  `varchar(255)`, so a stamp that would overflow degrades to the agent path alone.
+- `_eval` in the flow's args records `{subject: {kind, path, version}, dataset, experiment_id}`,
+  and every iteration inherits it, so a job opened cold from the runs page explains itself. Which
+  case an iteration ran is in its own `iter.value`, which is also how a cell finds its job again.
+  Extra flow inputs are inert — the agent step reads only `user_message`/`user_attachments`.
 
 ## Versioning
 
-`subject.version` is the `resource_version` id the agent was at when the run was **enqueued**. It
-is recorded, never used to pin execution: a linked agent step resolves its resource when it runs,
-and that stays true. Without the record, a run from last week could not be attributed to a prompt
-state, which is the reason resource versioning landed before this.
+`subject.version` is the agent's version number: how many times it has been saved. It is counted
+per resource rather than read off `resource_version.id`, which is one identity sequence for the
+whole table — an agent saved nine times reads v4 … v24 under it, and the gaps count writes in
+workspaces the reader cannot see. The id stays how a version is addressed, by the history routes
+and by restore; the number is what a version is called, and what runs are named and compared by.
 
-Because resolution is live, the stamp is the version at enqueue rather than the one that
+The number is stored on the row rather than counted when read, because both ways of deleting
+versions take the oldest: the monitor's trim past `MAX_RESOURCE_VERSIONS`, and clearing a history
+down to its current value. Counting the survivors would renumber under either, so a run recorded
+against v3 would later name a different version.
+
+For an `agent` run the version is recorded, never used to pin execution: a linked agent step
+resolves its resource when it runs, and that stays true. Without the record, a run from last week
+could not be attributed to a prompt state, which is the reason resource versioning landed before
+this. Because resolution is live, the stamp is the version at enqueue rather than the one that
 executed: a run that waits in the queue while the agent is edited runs the newer value and is
-recorded against the older id. Closing that gap means either pinning execution to a version or
-having the executor report the version it resolved, both of which belong with the experiment
-work.
+recorded against the older number. Pinning is a subject kind of its own — an `agent_version` run
+inlines the value it names, which is the only way to run one.
 
 A version captures the resource, not its transitive closure. Two byte-identical versions can
 behave differently because a `$var:`/`$res:` they reference changed underneath them, so a
@@ -200,13 +246,14 @@ up.
 In the flow editor, editing a linked agent forks the configuration into the step and clears the
 link. The edits are mirrored into that agent's own resource draft as they are made, so evals still
 name the agent: the step is where you type, and the draft is what runs. Which agent a step is,
-whether it is being edited, and whether those edits are saved is a strip **above the step's tabs**,
-because it is true of every tab. Inside the step inputs it read as being about the inputs, which is
-why the evals table used to repeat it in an alert of its own. While an agent is being edited the
-strip says on the line — not under an icon — that saving updates every flow using the agent, and
-carries an unsaved-changes badge once there is something to save.
+whether it is being edited, and whether those edits are saved is a **card at the top of the step's
+inputs**, inside the same scroll region as the fields it is about, rather than a second bar with a
+scrollbar of its own. Evals open from that card in both of its states, since evals of an agent
+being edited run the edits and the question they answer is whether the edit is an improvement.
+While an agent is being edited the card says on the line — not under an icon — that saving updates
+every flow using the agent, and carries an unsaved-changes badge once there is something to save.
 
-The strip also names the version, because that is what a run is recorded against: `v24` beside the
+The card also names the version, because that is what a run is recorded against: `v24` beside the
 agent, and `v24` beside an unsaved-changes badge for edits sitting on top of it, which is what a run
 labelled `v24 + edits` executed. It comes from the resource's newest history entry, since the
 resource itself does not carry its version.
@@ -240,8 +287,8 @@ What makes the result readable is that the answers and their provenance are copi
 than mixed: every cell keeps the parent's `job_id`, `subject_version` and draft hash, so the new run
 is attributed to the version that produced those answers, goes stale against the current agent
 exactly as its parent does, and tells you nothing about the agent as it is now. `scored_from` records
-where the answers came from, and the run picker says so, because a run that reads like any other
-would be read as the agent having answered again.
+where the answers came from, and both the list of runs and the run picker say so, because a run
+that reads like any other would be read as the agent having answered again.
 
 It is deliberately all of the dataset's scorers rather than the one you edited. A run holding one
 column could not be compared with any other run on the rest of them, and re-running a deterministic
@@ -273,7 +320,14 @@ without a threshold is a plain number and is not dressed up as a verdict.
 The line is deliberately outside the score's **definition** hash: where it sits is an
 interpretation of a score rather than part of producing it. Moving it re-reads every run already
 recorded — every pass rate in the history changes at once, with nothing re-run and no model call.
-It can be set when the column is added and changed later from the column header.
+It can be set when the column is added and changed later under **Scorer settings** beside the
+column in the dataset drawer, which is also where the column is named.
+
+The name is this dataset's own name for the scorer, seeded from the summary given when it was
+added. It is a copy, not a link: the script or judge agent keeps whatever it is called, so renaming
+a column here does not rename anything a second dataset shows. Reading it live from the runnable
+instead would cost a fetch per column and leave a column blank for anyone who cannot read what it
+points at.
 
 ### What a scorer receives
 
@@ -313,22 +367,23 @@ column is not something you edit at all.
 Which kind you are adding is chosen before the form opens, because the two share almost nothing: a
 judge is created next to the dataset from the model you pick and a grading prompt that starts at the
 default and is editable there, and a script is created from the template below and opened in the
-editor, since writing the assertions is the work. Both are named by a summary of what they score,
-which becomes the column header and, prefixed with the dataset, the path; both take a path you can
-change. That is what
+editor, since writing the assertions is the work. Both are named by a summary of what they score, which becomes the column header and, prefixed with
+the dataset, the path; both take a path you can change, and both open with that summary already
+filled in — it names the column *and* derives the path, so an empty one is two decisions before the
+first score. That is what
 keeps the choice between them about how you want to score rather than about setup cost.
 
-Editing a column is editing the runnable it points at, so the column menu opens it in place: a
-script in the script editor drawer, a judge in the resource editor.
+Editing a column is editing the runnable it points at, so the dataset drawer opens it in place: a
+script in the script editor, a judge in the resource editor.
 
 A `reason` is worth returning: it is what the cell shows on hover, together with the per-assertion
 `checks`, so a number that looks wrong can be read rather than re-derived from the trajectory.
 
-Rescoring is offered at two grains, and both of them are repair rather than editing. A column
-rescores whole from its header, which is what a judge edit calls for; a cell that **failed** to
-score offers to try again from its own hover, because a judge that returned nothing readable or a
-scorer that threw should not cost a rerun of the dataset. A cell that scored is not re-scorable on
-its own: a run whose numbers can be replaced one at a time until they read well is not evidence.
+Rescoring is one grain and one act: **Run scorers only**, which measures a whole run again with
+the columns as they are now and records the result as a run of its own (see *Measuring a run
+again*). Nothing rescores a single cell or a single column in place. A run whose numbers can be
+replaced one at a time until they read well is not evidence, and a column rescored on its own
+would leave a run whose cells were measured by two different sets of scorers.
 
 A scorer may return a bare number, a boolean, or `{score, reason, checks}`; a judge's answer arrives
 under `output`, sometimes as a string holding one of those, and often as a markdown code fence
@@ -400,7 +455,8 @@ its score row, so a score outlives the job that produced it and that job's reten
 Opening evals selects the dataset this agent was last worked in, remembered per agent in
 `localStorage` and only restored while it still exists and is still readable. Nothing else is
 chosen for you: opening on whichever dataset happens to sort first reads as this agent's history
-when it is not. The picker lists this agent's own datasets first and everyone else's below, sorted
+when it is not, and no run is opened either — which run you want is what the list is there to
+answer. The picker lists this agent's own datasets first and everyone else's below, sorted
 rather than filtered — running one dataset against a second agent is the comparison the picker
 exists for, and hiding the others is how nobody finds it.
 
@@ -411,25 +467,93 @@ sorts with the agent's own. Both stay editable, and with no summary the fallback
 agent, because a Windmill path is `<kind>/<owner>/<name>` and the picker that edits it cannot
 express a deeper one.
 
-Creating one and editing one are the same two fields, so they are the same drawer, reached from the
-dataset picker. A drawer rather than a form in the table: inline, creating pushed the table down and
-editing replaced it, and neither reads as the small edit it is. Renaming moves the dataset, and its
-cases and its runs follow through the foreign keys.
+### Editing the dataset is a drawer on top of the runs
 
-A case has no save button, and nothing reports that it saved: the panel edits the row, edits are
-written on a short debounce, and the row following what you type is the confirmation. A write that
-fails says so in a toast. Running it stays a separate decision, taken with the case open, which is
-why the row carries no Run button either — only Delete, which asks first. **Add a case** adds an empty row and opens it, and nothing is added for you: a
-dataset whose first row is a case nobody wrote starts with noise in it.
+The table answers what a run measured. What the next run will measure is the dataset, and it is
+edited in a drawer over the table: the summary and the path, then the **scorers**, then the cases as
+a list beside the editor for the one selected. Columns before cases, because a column applies to
+every case and a case is read against every column.
+
+**Every way of managing a scorer is in that drawer** — adding, renaming, moving its pass line,
+opening the agent or script behind it, removing it. The column header over a run's table reports;
+it does not edit. A run is permanent, so a control on it that changed what the columns are would be
+editing the past from the one place that must not.
+
+Adding one offers four entries rather than two: **new** or **existing**, for an **AI judge** or a
+**code scorer**. Writing a scorer and picking one that already exists need different fields, and
+which of the two you are doing is the first thing the form needs to know. A new one of either kind
+opens with its summary already filled in — the summary names the column *and* derives the path, so
+an empty one is two decisions before the first score. Creating a dataset is the same drawer with the same two fields and no
+cases yet, so there is one place a dataset is written and one shape to learn. It is reached from
+**Edit dataset** above the table, from the pencil on an open row, and from **Add a case** under the
+last row; **New dataset** is in the dataset picker, which is where choosing which dataset you are in
+belongs. Renaming moves the dataset, and its cases and its runs follow through the foreign keys.
+
+Curating and reading are kept apart because they answer different questions and a table that did
+both invited editing a case while looking at what an earlier version of it scored. So the row keeps
+no Delete — deleting is in the drawer's case list, and it asks first — and a row's panel is
+read-only, showing the case *as the run executed it* rather than as the dataset holds it now.
+
+A case has no save button, and nothing reports that it saved: edits are written on a short
+debounce, and the list following what you type is the confirmation. A write that fails says so in a
+toast. **Add a case** writes an empty case and opens it, and nothing is filled in for you: a dataset
+whose first case is one nobody wrote starts with noise in it.
 
 A case is its message, what it expects, and nothing else. It carries no name: the message is what
 identifies it in a table read left to right.
 
+A case captured from a run arrives in the same drawer, in the dataset it would join, with an
+explicit **Add to dataset** rather than the debounce the other cases have: it was written by a run
+rather than by the reader, and one that is merely being looked at must not save itself.
+
+### What the list of runs shows
+
+One row per run of this agent, newest first, whichever dataset it was of: the run's number and what
+executed it (`v24`, `v24 + edits`, or a pinned `v18`), how many cases it holds, what it scored, the
+dataset, and when. A run that only scored an earlier one says so under its number instead of naming
+who started it.
+
+One list across datasets rather than one per dataset, because "has this agent got better" is not a
+question about a dataset. Each row names the dataset it is of — summary first, path under it — and
+that name is the way into its cases and columns.
+
+The scores are one badge per scorer rather than one number per run. A dataset with three columns is
+three different questions, and a single figure would be their average rather than an answer to any
+of them — the same reason the table under a run reports each column separately. Each chip is the
+headline that column reports: a pass rate where the column has a line to pass, the mean where it
+does not, read through the thresholds as they are **now**, so moving a pass line re-reads every run
+already recorded. A column that never scored a run reads `—`; a run still going spins.
+
+Each badge is named and resolved server-side. A list spanning datasets cannot hold every dataset's
+scorers to look a column's name up, so the name and the kind ride along with the number, and the
+thresholds are joined in per (run, column) — one grouped query over `eval_score` rather than a read
+of each run's cells, so a hundred runs is one aggregate. A run whose scores are still in its flow is
+read out of it by the list itself — capped per call, newest first, and skipped entirely for runs
+already collected, so the steady state is one query and not one flow read per row.
+
+### Running asks what to run
+
+**Run** opens a dialog with two questions, because both answers cost a provider bill and neither
+follows from where you happen to be standing:
+
+- **which state of the agent.** `Latest` resolves the agent when the run executes, the way a flow
+  step does. A past version is *inlined as it was* — a reference resolves live, so inlining is the
+  only way to run one, and it is the same mechanism the draft already uses. `Unsaved edits` runs
+  the draft, and is preselected when there are edits waiting, because that is why you came.
+- **which dataset**, as a resource picker does it: named by its summary with the path under it, an
+  edit button on the row, and a way to start a new one without leaving.
+
+A pinned version reproduces the configuration, not the world around it: `$var:` and `$res:`
+references inside it still resolve at run time. Nothing about the agent as it is now can make a run
+of `v18` stale, which is the reason to pin one.
+
+The run that was just started opens straight away: it is the one thing on the screen still
+changing, and watching it is why you pressed Run.
+
 ### What the table lists
 
 The rows are the dataset's cases, in dataset order, each carrying its result in the selected
-experiment when it has one. Adding a case writes the row and opens it for editing: a case is a row
-of the dataset, and running it is a separate decision that a case does not have to be worth yet. A table built from the experiment alone would leave a dataset that has
+experiment when it has one. A table built from the experiment alone would leave a dataset that has
 never been run looking empty, which is exactly the state in which someone wants to press Run. A case
 the experiment ran but the dataset no longer holds keeps its row at the end: the run happened, and
 deleting the case does not unmake it.
@@ -494,13 +618,28 @@ stray write to those tables through `user_db` fails rather than silently succeed
 
 ### Why an experiment is recorded before it is launched
 
-Launching picks every job's id up front, writes the experiment and its case set in one
-transaction, and only then pushes the jobs. The order is the point. Pushing first and recording
-afterwards leaves a window in which jobs are running that no experiment accounts for, that nothing
-will collect and that a retry would silently duplicate. In this order, a launch that dies partway
-leaves a recorded case whose job is missing — which the results table shows — and if a push fails
-midway the cases that never reached the queue are removed again, so an experiment holds exactly
-what ran.
+Launching picks the run job's id up front, writes the experiment, its case set and a pending score
+per cell in one transaction, and only then queues the flow. The order is the point. Queueing first
+and recording afterwards leaves a window in which a flow is running that no experiment accounts
+for, that nothing will collect and that a retry would silently duplicate. In this order, a launch
+that dies before the push leaves an experiment naming a job that never started — a run that did
+not run — and a push that fails deletes it, because one failed push is the whole run.
 
 The dataset's foreign key is what makes a concurrent delete safe: the transaction fails, and at
-that point no job has been queued.
+that point nothing has been queued.
+
+### How a cell finds its job, and its score
+
+The flow engine mints the iteration job ids, so a case is recorded before it has one. Two things
+fill the gap, both on read:
+
+- **Which iteration ran which case.** The case is what the loop iterates over, so it is in the
+  iteration's own arguments by construction: `args -> 'iter' -> 'value' ->> 'case_id'` matches the
+  cell, whatever order the iterations finish in.
+- **What the scorers returned.** Each scorer step's result is read out of the iteration's flow
+  status into the pending row that was written for it. A cell scored inside the run has no scoring
+  job of its own, which is what tells it apart from one scored by the older per-case path.
+
+Read-driven because there is nothing to drive it: the flow runs on workers that know nothing about
+these tables. The run holds its answers and its scores whether or not anyone is watching, and this
+is what copies them into rows that outlive the jobs' retention.

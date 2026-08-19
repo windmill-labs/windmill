@@ -27,7 +27,7 @@
 		isScriptPreview
 	} from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import AgentEvalDrawer from '$lib/components/aiEvals/AgentEvalDrawer.svelte'
+	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
 
 	import {
 		Activity,
@@ -618,7 +618,7 @@
 
 <HighlightTheme />
 
-<AgentEvalDrawer bind:open={evalsOpen} capture={evalCapture} />
+<AgentEvalModal bind:open={evalsOpen} capture={evalCapture} />
 
 <ScheduleEditor bind:this={scheduleEditor} />
 

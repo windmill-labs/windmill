@@ -11,14 +11,6 @@ export function kindLabel(kind: ScorerKind): string {
 	return kind === 'agent' ? 'Judge agent' : 'Script'
 }
 
-/** Where the column's runnable is edited. Editing a scorer is editing the thing itself. */
-export function scorerHref(scorer: Scorer, workspace: string | undefined): string {
-	const ws = workspace ? `?workspace=${encodeURIComponent(workspace)}` : ''
-	return scorer.kind === 'agent'
-		? `/resources${ws}${ws ? '&' : '?'}path=${encodeURIComponent(scorer.path)}`
-		: `/scripts/get/${scorer.path}${ws}`
-}
-
 /** Scores are read across a row, so they are padded to a fixed width rather than trimmed. */
 export function formatScore(score: number | undefined): string {
 	return score == undefined ? '—' : score.toFixed(2)

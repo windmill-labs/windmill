@@ -9,7 +9,8 @@
 	import { workspaceStore } from '$lib/stores'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
+	import { Bot, ChevronDown, ChevronUp, FlaskConical, Save, Unlink, Pencil } from 'lucide-svelte'
+	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
@@ -39,8 +40,7 @@
 		toolInputs = $bindable(),
 		moduleId,
 		opWorkspace = undefined,
-		flowPath = '',
-		onEditStart = undefined
+		flowPath = ''
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
@@ -52,8 +52,6 @@
 		opWorkspace?: string
 		// Scope for the linked-agent tools store (the flow path); must match what the graph reads.
 		flowPath?: string
-		/** Editing forks the agent into the step, which is only editable in the step inputs. */
-		onEditStart?: () => void
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $workspaceStore)
@@ -128,6 +126,9 @@
 
 	/** The agent the card is about: the one this step links to, or the one being edited. */
 	let cardPath = $derived(agent ?? editingPath)
+	// Evals belong to the agent, not to the step, so they open over the flow rather than as one of
+	// the step's tabs: what you go there to read is a history of runs, not a setting of this step.
+	let evalsOpen = $state(false)
 	// Bumped on every write to the resource, so a save that leaves the card on the same agent still
 	// refetches the version it just minted.
 	let writes = $state(0)
@@ -141,7 +142,7 @@
 				return { ws, path }
 			}
 			const history = await ResourceService.getResourceHistory({ workspace: ws, path })
-			return { ws, path, version: history.versions?.[0]?.id }
+			return { ws, path, version: history.versions?.[0]?.version }
 		}
 	)
 	// Guarded like the link above: a response for a previous agent must not label this one.
@@ -188,11 +189,6 @@
 
 	function toolLabel(tool: AgentTool): string {
 		return tool.summary || tool.value?.tool_type || tool.id
-	}
-
-	/** Saving is offered from the Evals tab too, which has no card of its own to put a button on. */
-	export function openSaveDrawer() {
-		openSave()
 	}
 
 	// What the agent is, rather than which agent it is: a strip that sits above every tab says the
@@ -434,9 +430,6 @@
 			const path = await forkFromResource(false)
 			if (path) {
 				setAgentEditingPath(tools, path)
-				// The fork is only editable in the step inputs, so Edit takes you there rather than
-				// leaving you on a tab that has nothing to do with what you just asked for.
-				onEditStart?.()
 				sendUserToast(`Editing ${path}. Make changes, then Save changes to update it`)
 			} else {
 				sendUserToast('The step changed while loading the agent. Try Edit again', true)
@@ -576,6 +569,17 @@
 					<Button
 						size="xs2"
 						variant="default"
+						startIcon={{ icon: FlaskConical }}
+						iconOnly
+						title="Evals: run this agent against a dataset of cases"
+						on:click={(e) => {
+							e.stopPropagation()
+							evalsOpen = true
+						}}
+					/>
+					<Button
+						size="xs2"
+						variant="default"
 						startIcon={{ icon: Pencil }}
 						iconOnly
 						title="Edit the saved agent (updates it everywhere it's used)"
@@ -657,6 +661,16 @@
 				</div>
 			</div>
 			<div class="flex items-center gap-1 shrink-0">
+				<!-- Evals of an agent being edited run the edits, so the card offers them in both of its
+				     states: the question they answer is whether the edit is an improvement. -->
+				<Button
+					size="xs2"
+					variant="default"
+					startIcon={{ icon: FlaskConical }}
+					iconOnly
+					title="Evals: run these edits against a dataset of cases"
+					onclick={() => (evalsOpen = true)}
+				/>
 				<Button size="xs2" variant="default" onclick={cancelEdit}>Cancel</Button>
 				<Button
 					size="xs2"
@@ -730,3 +744,5 @@
 		{/snippet}
 	</DrawerContent>
 </Drawer>
+
+<AgentEvalModal agentPath={cardPath} {opWorkspace} bind:open={evalsOpen} />

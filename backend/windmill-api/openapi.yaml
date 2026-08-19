@@ -7776,7 +7776,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/resources/history/v/{version}:
+  /w/{workspace}/resources/history/v/{id}:
     get:
       summary: get a single resource version, with its value
       operationId: getResourceVersion
@@ -7784,9 +7784,10 @@ paths:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: version
+        - name: id
           in: path
           required: true
+          description: The version's id, not its number.
           schema:
             type: integer
             format: int64
@@ -7808,7 +7809,7 @@ paths:
                     required:
                       - missing_references
 
-  /w/{workspace}/resources/history/restore/v/{version}:
+  /w/{workspace}/resources/history/restore/v/{id}:
     post:
       summary: restore a resource to a previous version
       operationId: restoreResourceVersion
@@ -7816,9 +7817,10 @@ paths:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: version
+        - name: id
           in: path
           required: true
+          description: The version's id, not its number.
           schema:
             type: integer
             format: int64
@@ -11982,70 +11984,40 @@ paths:
                     pending:
                       type: boolean
 
-  /w/{workspace}/ai_evals/score:
-    post:
-      summary: score an experiment from the answers it already stored
-      operationId: scoreExperiment
+  /w/{workspace}/ai_evals/run_payload:
+    get:
+      summary: the run one iteration of an eval run answered, as its scorers read it
+      operationId: evalRunPayload
       description: >
-        Scoring is separate from running: it reads the answers the runs stored and never calls the
-        agent. One run, one column, a whole experiment or a column across history are the same
-        operation at different grains, which is what lets a scorer added today score an experiment
-        that ran last week.
+        Called by the step a run's flow places between the agent and its scorers. Every tool call
+        is enriched with the arguments, result, status and duration of the job that ran it, and
+        with the schema of the script version it ran, none of which the flow itself can read.
       tags:
         - ai_evals
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: what to score
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [dataset, experiment_id]
-              properties:
-                dataset:
-                  type: string
-                experiment_id:
-                  type: string
-                  format: uuid
-                scorer_ids:
-                  type: array
-                  description: The columns to score. All of the dataset's scorers when absent.
-                  items:
-                    type: string
-                case_ids:
-                  type: array
-                  description: The cases to score. The whole experiment when absent.
-                  items:
-                    type: string
-                    format: uuid
-                force:
-                  type: boolean
-                  description: >
-                    Score cells that already carry a score from the same definition. Off by
-                    default, so scoring an experiment twice costs nothing the second time.
+        - name: job_id
+          in: query
+          required: true
+          description: The flow job that answered the case.
+          schema:
+            type: string
+            format: uuid
       responses:
         "200":
-          description: what the request settled and what it queued
+          description: the run and its rendering
           content:
             application/json:
               schema:
                 type: object
-                required: [scored, jobs, skipped, unscorable]
+                required: [run, rendered]
                 properties:
-                  scored:
-                    type: integer
-                    description: Cells settled in the API, with no job.
-                  jobs:
-                    type: integer
-                    description: Scoring jobs queued.
-                  skipped:
-                    type: integer
-                    description: Cells already carrying a score from the current definition.
-                  unscorable:
-                    type: integer
-                    description: Cells whose run has not finished, or produced no answer to score.
+                  run:
+                    type: object
+                    description: The case, the answer, and every tool call the agent made.
+                  rendered:
+                    type: string
+                    description: The same run as a judge agent is shown it.
 
   /w/{workspace}/ai_evals/scorer_defaults:
     get:
@@ -12198,6 +12170,35 @@ paths:
               schema:
                 type: string
                 format: uuid
+
+  /w/{workspace}/ai_evals/experiments/list_all:
+    get:
+      summary: list every experiment, across datasets
+      operationId: listAllExperiments
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: subject_path
+          description: >
+            Restrict to one agent's runs, which is what makes the list a history rather than a
+            log. Runs of what is deployed, of a past version, and of the edits waiting on top are
+            all that agent's, so this does not discriminate by kind.
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: >
+            The 100 newest experiments, each naming the dataset it is of. Restricted to datasets
+            the caller can read.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EvalExperiment"
 
   /w/{workspace}/ai_evals/experiments/list/{path}:
     get:
@@ -26498,9 +26499,10 @@ components:
           type: string
           description: >
             `agent` runs a saved ai_agent resource by reference. `agent_draft` runs that agent's
-            undeployed draft: the value is read server-side and inlined, because a reference
-            resolves live and so would run what the draft replaces.
-          enum: [agent, agent_draft]
+            undeployed draft, and `agent_version` one past version of it named by `version`: both
+            are read server-side and inlined, because a reference resolves live and so would run
+            neither the draft nor the version asked for.
+          enum: [agent, agent_draft, agent_version]
         path:
           type: string
           description: Path of the ai_agent resource.
@@ -26509,9 +26511,11 @@ components:
           format: int64
           nullable: true
           description: >
-            resource_version id the agent was at when the run was enqueued. Recorded so a run
-            stays attributable to a prompt state; it does not pin execution, which stays live, so
-            a run that waits in the queue across an edit runs a later version than this.
+            resource_version id the agent was at when the run was enqueued. For `agent` and
+            `agent_draft` it is recorded so a run stays attributable to a prompt state, and does
+            not pin execution — a run that waits in the queue across an edit runs a later version
+            than this. For `agent_version` it is the request's own, says which version to inline,
+            and is required.
         draft:
           $ref: "#/components/schemas/AgentDraft"
         draft_hash:
@@ -26715,13 +26719,58 @@ components:
           description: >
             The run whose answers this one measured again. Set exactly when nothing was run: the
             cells are that run's, and so is the version they are attributed to.
+        run_job_id:
+          type: string
+          format: uuid
+          description: >
+            The flow executing the run: one job holding every case and its scores. Absent on runs
+            recorded when a run was a job per case.
         case_count:
           type: integer
+        scores:
+          type: array
+          description: >
+            What the run scored, one entry per scorer that produced a number. Carried on the run
+            itself so a list of runs can say what each one scored without reading every cell of
+            every one of them. Empty on a run whose scores have not been read yet.
+          items:
+            $ref: "#/components/schemas/ExperimentScore"
+        running:
+          type: boolean
+          description: >
+            Whether the flow executing this run is still going. What makes a list of runs worth
+            watching rather than worth reloading.
         created_at:
           type: string
           format: date-time
         created_by:
           type: string
+
+    ExperimentScore:
+      type: object
+      description: >-
+        One scorer's headline for one run: the two numbers a column reports, over that run's cells.
+      required: [scorer_id, name, kind, scored]
+      properties:
+        scorer_id:
+          type: string
+        name:
+          type: string
+          description: >
+            What the column is called in the dataset that ran it, resolved server-side because a
+            list of runs spanning datasets cannot hold every dataset's scorers to look it up.
+        kind:
+          type: string
+          enum: [agent, script]
+        mean:
+          type: number
+        pass_rate:
+          type: number
+          description: >
+            The share of scored cells at or above the column's threshold, for a column that has
+            one. Absent where the column has no threshold and the mean is the whole headline.
+        scored:
+          type: integer
 
     CellScore:
       type: object
@@ -26756,7 +26805,7 @@ components:
 
     ExperimentRow:
       type: object
-      required: [case_id, input, job_id, status, scores]
+      required: [case_id, input, status, scores]
       properties:
         case_id:
           type: string
@@ -26769,9 +26818,12 @@ components:
         job_id:
           type: string
           format: uuid
+          description: >
+            The iteration that ran this case. Absent between a run being recorded and its flow
+            reaching this case, which reads as a case still to run.
         status:
           type: string
-          description: The case job's status; `running` until it completes.
+          description: The case's status; `running` until its iteration completes.
           enum: [running, success, failure, canceled, skipped]
         output:
           type: string
@@ -29144,6 +29196,11 @@ components:
         id:
           type: integer
           format: int64
+          description: How this version is addressed. Unique across every resource, so it says nothing about how many times this one has been saved.
+        version:
+          type: integer
+          format: int64
+          description: Which version of this resource it is, counted from its first. What a version is called.
         created_at:
           type: string
           format: date-time
@@ -29151,6 +29208,7 @@ components:
           type: string
       required:
         - id
+        - version
         - created_at
 
     ListableResource:

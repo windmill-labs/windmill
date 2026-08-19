@@ -175,52 +175,6 @@
 	let settingsDrawer: Drawer | undefined = $state()
 </script>
 
-<ConfirmationModal
-	open={unsavedModalOpen}
-	title="Unsaved changes detected"
-	confirmationText="Discard changes"
-	on:canceled={() => {
-		unsavedModalOpen = false
-	}}
-	on:confirmed={() => {
-		console.log('confirmed')
-		closeAnyway = true
-		unsavedModalOpen = false
-		scriptEditorDrawer?.closeDrawer()
-	}}
->
-	<div class="flex flex-col w-full space-y-4">
-		<span>Are you sure you want to discard the changes you have made? </span>
-		<Button
-			wrapperClasses="self-start"
-			variant="default"
-			size="xs"
-			on:click={() => {
-				if (!savedScript || !script) {
-					return
-				}
-				unsavedModalOpen = false
-				closeAnyway = true
-				displayEditor = false
-				diffDrawer?.openDrawer()
-				diffDrawer?.setDiff({
-					title: 'Saved <> Current',
-					mode: 'simple',
-					original: savedScript,
-					current: script,
-					button: {
-						text: 'Close anyway',
-						onClick: () => {
-							closeAnyway = true
-							diffDrawer?.closeDrawer()
-						}
-					}
-				})
-			}}
-			>Show diff
-		</Button>
-	</div>
-</ConfirmationModal>
 <!-- <div id="monaco-widgets-root" class="monaco-editor" style="z-index: 1200;" /> -->
 
 <Drawer
@@ -230,6 +184,55 @@
 		checkForUnsavedChanges()
 	}}
 >
+	<!-- Inside the drawer, not beside it. The drawer is portalled to the body and stacked well
+	     above the page, so a modal rendered from wherever this component happens to be mounted is
+	     trapped under it by any positioned ancestor with a z-index of its own — which the flow
+	     editor's split panes have, leaving the drawer impossible to close. -->
+	<ConfirmationModal
+		open={unsavedModalOpen}
+		title="Unsaved changes detected"
+		confirmationText="Discard changes"
+		on:canceled={() => {
+			unsavedModalOpen = false
+		}}
+		on:confirmed={() => {
+			closeAnyway = true
+			unsavedModalOpen = false
+			scriptEditorDrawer?.closeDrawer()
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>Are you sure you want to discard the changes you have made? </span>
+			<Button
+				wrapperClasses="self-start"
+				variant="default"
+				size="xs"
+				on:click={() => {
+					if (!savedScript || !script) {
+						return
+					}
+					unsavedModalOpen = false
+					closeAnyway = true
+					displayEditor = false
+					diffDrawer?.openDrawer()
+					diffDrawer?.setDiff({
+						title: 'Saved <> Current',
+						mode: 'simple',
+						original: savedScript,
+						current: script,
+						button: {
+							text: 'Close anyway',
+							onClick: () => {
+								closeAnyway = true
+								diffDrawer?.closeDrawer()
+							}
+						}
+					})
+				}}
+				>Show diff
+			</Button>
+		</div>
+	</ConfirmationModal>
 	<DrawerContent
 		title="Script Editor"
 		noPadding

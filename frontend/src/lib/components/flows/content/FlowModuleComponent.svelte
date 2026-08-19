@@ -9,7 +9,6 @@
 		EDITOR_BAR_HELPERS_INLINE_THRESHOLD
 	} from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
-	import EvalsPane from '$lib/components/aiEvals/EvalsPane.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
 
@@ -19,7 +18,6 @@
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
-	import { getAgentEditingPath } from '../agentEditStore.svelte'
 	import type { FlowEditorContext, FlowGraphAssetContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowRunSettings from './FlowRunSettings.svelte'
@@ -70,7 +68,7 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Save, Terminal } from 'lucide-svelte'
+	import { Bug, Terminal } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/utils'
 
 	const {
@@ -179,48 +177,7 @@
 			Boolean(flowStore.val.value?.chat_input_enabled) &&
 			flowModule.value.type === 'aiagent'
 	)
-	let visibleSelected = $derived(
-		selected === 'chat' && !canShowChatTab
-			? 'inputs'
-			: selected === 'evals' && flowModule.value.type !== 'aiagent'
-				? 'inputs'
-				: selected
-	)
-	// The pane is mounted on the first visit and kept, so its state survives a trip to another
-	// tab; before that it costs nothing.
-	let evalsOpened = $state(false)
-	$effect(() => {
-		if (visibleSelected === 'evals') {
-			untrack(() => (evalsOpened = true))
-		}
-	})
-	// A step forked from a saved agent for editing: what it runs is the step, but the edits are on
-	// top of that agent's current version, and a run that cannot say so reads as anonymous.
-	let editedAgentPath = $derived(
-		flowModule.value.type === 'aiagent' && !flowModule.value.agent
-			? getAgentEditingPath(flowModule.value.tools)
-			: undefined
-	)
-	// Saving the step as an agent is offered from the Evals tab, whose whole content is a message
-	// saying to do it. The card that owns the drawer lives in the step inputs and is unmounted while
-	// Evals is showing, so the request outlives the tab switch and fires once the card is there.
-	let agentResourceBar: { openSaveDrawer: () => void } | undefined = $state(undefined)
-	let saveAgentRequested = $state(false)
-	$effect(() => {
-		const bar = agentResourceBar
-		if (!saveAgentRequested || !bar) return
-		untrack(() => {
-			saveAgentRequested = false
-			bar.openSaveDrawer()
-		})
-	})
-
-	// The agent evals belong to. Editing a linked agent forks it into the step, so the step is not
-	// linked while it is being edited, but the evals are still that agent's: the edits are mirrored
-	// into its draft and run from there.
-	let evalAgentPath = $derived(
-		flowModule.value.type === 'aiagent' ? (flowModule.value.agent ?? editedAgentPath) : undefined
-	)
+	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
 	let runSettings: FlowRunSettings | undefined = $state()
 	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
 	let validCode = $state(true)
@@ -1123,59 +1080,6 @@
 
 					{#snippet bottomPaneContent()}
 						<div class="flex flex-col h-full min-h-0">
-							{#if flowModule.value.type === 'aiagent'}
-								<!-- Above the tabs and outside the panes, because what it says holds for all of them:
-							     which agent this step is, whether it is being edited, and whether the edits are
-							     saved. Inside the step inputs it read as being about the inputs, which is why the
-							     Evals tab had to repeat it in an alert of its own. -->
-								<AgentResourceBar
-									bind:this={agentResourceBar}
-									moduleId={linkedToolsModuleId}
-									opWorkspace={opWs}
-									flowPath={$pathStore}
-									onEditStart={() => (selected = 'inputs')}
-									bind:agent={
-										() =>
-											flowModule.value.type === 'aiagent' ? flowModule.value.agent : undefined,
-										(v) => {
-											if (flowModule.value.type === 'aiagent') {
-												flowModule.value.agent = v
-											}
-										}
-									}
-									bind:inputTransforms={
-										() => (flowModule.value as any).input_transforms,
-										(v) => {
-											if (flowModule.value.type === 'aiagent') {
-												;(flowModule.value as any).input_transforms = v
-											}
-										}
-									}
-									bind:tools={
-										() =>
-											flowModule.value.type === 'aiagent'
-												? (flowModule.value.tools ?? noTools(flowModule.value))
-												: noTools(flowModule),
-										(v) => {
-											if (flowModule.value.type === 'aiagent') {
-												flowModule.value.tools = v
-											}
-										}
-									}
-									bind:toolInputs={
-										() =>
-											flowModule.value.type === 'aiagent'
-												? (flowModule.value.tool_inputs ?? {})
-												: {},
-										(v) => {
-											if (flowModule.value.type === 'aiagent') {
-												// An emptied map reverts to absent so the doc matches its pre-override state.
-												flowModule.value.tool_inputs = Object.keys(v).length > 0 ? v : undefined
-											}
-										}
-									}
-								/>
-							{/if}
 							<div class="grow min-h-0">
 								<Splitpanes>
 									<Pane minSize={36} bind:size={leftPanelSize}>
@@ -1198,9 +1102,6 @@
 														label="Chat"
 													/>
 												{/if}
-												{#if flowModule.value.type === 'aiagent'}
-													<Tab value="evals" label="Evals" />
-												{/if}
 												{#if !preprocessorModule && !isAgentTool}
 													<Tab value="advanced" label="Run settings">
 														{#snippet extra()}
@@ -1221,6 +1122,55 @@
 																title={reloadError}
 																class="absolute left-2 top-2 rounded-full w-2 h-2 bg-red-300"
 															></div>
+														{/if}
+														{#if flowModule.value.type === 'aiagent'}
+															<!-- Inside the wrapper so the card scrolls with the inputs (a single scroll
+															     region) instead of stacking a second scrollbar above it. -->
+															<AgentResourceBar
+																moduleId={linkedToolsModuleId}
+																opWorkspace={opWs}
+																flowPath={$pathStore}
+																bind:agent={
+																	() =>
+																		flowModule.value.type === 'aiagent' ? flowModule.value.agent : undefined,
+																	(v) => {
+																		if (flowModule.value.type === 'aiagent') {
+																			flowModule.value.agent = v
+																		}
+																	}
+																}
+																bind:inputTransforms={
+																	() => (flowModule.value as any).input_transforms,
+																	(v) => {
+																		if (flowModule.value.type === 'aiagent') {
+																			;(flowModule.value as any).input_transforms = v
+																		}
+																	}
+																}
+																bind:tools={
+																	() =>
+																		flowModule.value.type === 'aiagent'
+																			? (flowModule.value.tools ?? noTools(flowModule.value))
+																			: noTools(flowModule),
+																	(v) => {
+																		if (flowModule.value.type === 'aiagent') {
+																			flowModule.value.tools = v
+																		}
+																	}
+																}
+																bind:toolInputs={
+																	() =>
+																		flowModule.value.type === 'aiagent'
+																			? (flowModule.value.tool_inputs ?? {})
+																			: {},
+																	(v) => {
+																		if (flowModule.value.type === 'aiagent') {
+																			// An emptied map reverts to absent so the doc matches its pre-override state.
+																			flowModule.value.tool_inputs = Object.keys(v).length > 0 ? v : undefined
+																		}
+																	}
+																}
+															/>
 														{/if}
 														<InputTransformSchemaForm
 															class="px-2 xl:px-4 pb-8"
@@ -1355,39 +1305,6 @@
 													{workspaceScriptNoEditReason}
 													onEditWorkspaceScript={openWorkspaceScriptSettings}
 												/>
-											{/if}
-											<!-- Outside the tab chain and hidden rather than unmounted: the pane holds
-									     which dataset, run and case you are looking at, and stepping over to the
-									     step's inputs and back should not throw that away. -->
-											{#if evalsOpened && flowModule.value.type === 'aiagent'}
-												<div class="flex-1 min-h-0" class:hidden={visibleSelected !== 'evals'}>
-													{#if evalAgentPath}
-														<EvalsPane agentPath={evalAgentPath} opWorkspace={opWs} />
-													{:else}
-														<div
-															class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center"
-														>
-															<span class="text-sm text-emphasis"
-																>Evals run against a saved agent</span
-															>
-															<span class="text-xs text-secondary max-w-md">
-																A dataset and the runs made against it belong to the agent, so they
-																outlive this step being renamed, copied or deleted.
-															</span>
-															<Button
-																size="xs"
-																variant="accent"
-																startIcon={{ icon: Save }}
-																onclick={() => {
-																	saveAgentRequested = true
-																	selected = 'inputs'
-																}}
-															>
-																Save as reusable agent
-															</Button>
-														</div>
-													{/if}
-												</div>
 											{/if}
 										</div>
 									</Pane>

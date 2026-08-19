@@ -1,24 +1,18 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { Play } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
 	import { onDestroy, untrack } from 'svelte'
 	import type { CaseDraft } from './evalCaseUtils'
 
 	let {
 		draft = $bindable(),
-		running = false,
 		canSave = true,
-		onRun,
 		onSave
 	}: {
 		draft: CaseDraft
-		running?: boolean
 		canSave?: boolean
-		onRun: () => void
 		onSave: () => void | Promise<void>
 	} = $props()
 
@@ -122,17 +116,4 @@
 			inputProps={{ placeholder: 'The answer this case should produce (optional)' }}
 		/>
 	</Label>
-
-	<div class="flex gap-2 justify-end items-center">
-		<Button
-			variant="default"
-			size="xs"
-			startIcon={{ icon: Play }}
-			disabled={running || !draft.id}
-			title={draft.id ? 'Run this case now' : 'Save the case first'}
-			onclick={onRun}
-		>
-			{running ? 'Running' : 'Run'}
-		</Button>
-	</div>
 </div>

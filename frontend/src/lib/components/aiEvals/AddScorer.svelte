@@ -25,22 +25,37 @@
 		workspace,
 		datasetPath,
 		kind,
+		mode,
 		onAdd,
 		onEditScript
 	}: {
 		workspace: string
 		datasetPath: string
 		kind: ScorerKind
+		/** Writing a scorer and picking one that exists are different jobs with different fields,
+		 *  so they are different forms rather than one with half of it below a divider. */
+		mode: 'new' | 'existing'
 		onAdd: (scorer: Scorer) => Promise<void>
 		/** Opens the script editor on what was just created, by hash. */
 		onEditScript: (hash: string) => void
 	} = $props()
 
+	/** What a scorer of this kind is called before it is called anything else. Prefilled rather
+	 *  than left empty: it names the column and derives the path, so an empty one is two decisions
+	 *  before the first score. */
+	const DEFAULT_SUMMARY: Record<ScorerKind, string> = {
+		agent: 'AI judge',
+		script: 'Code scorer'
+	}
+
 	let path = $state('')
 	let pathError = $state('')
 	// What the column is for. It names the runnable, as a script's summary names its path, and it is
 	// what the column header shows instead of the last segment of a path.
-	let summary = $state('')
+	// Seeded from the kind this form was opened for. The drawer keys the form on every open, so the
+	// initial value is the whole of it — hence `untrack` rather than a derived that would fight the
+	// reader's own typing.
+	let summary = $state(untrack(() => DEFAULT_SUMMARY[kind]))
 	let pathDirty = $state(false)
 	let pathInput: Path | undefined = $state(undefined)
 	$effect(() => {
@@ -162,6 +177,7 @@ Expected: the case's expected value`
 </script>
 
 <div class="flex flex-col gap-6">
+	{#if mode === 'new'}
 	{#if kind === 'agent'}
 		<span class="text-xs text-secondary">
 			An agent handed one whole run to grade. It is an ordinary AI agent resource: this creates it
@@ -253,10 +269,9 @@ Expected: the case's expected value`
 		</Button>
 	</div>
 
-	<div class="border-t"></div>
-
+	{:else}
 	{#if recent.length > 0}
-		<Label label="Or reuse one from another dataset">
+		<Label label="Reuse one from another dataset">
 			<div class="flex flex-col divide-y border rounded-md">
 				{#each recent as scorer (scorer.path)}
 					<button
@@ -281,7 +296,7 @@ Expected: the case's expected value`
 		</Label>
 	{/if}
 
-	<Label label={kind === 'agent' ? 'Or use an existing agent' : 'Or use an existing script'}>
+	<Label label={kind === 'agent' ? 'An agent in this workspace' : 'A script in this workspace'}>
 		<div class="flex items-center gap-2">
 			<div class="grow min-w-0">
 				{#if kind === 'agent'}
@@ -302,4 +317,5 @@ Expected: the case's expected value`
 			</Button>
 		</div>
 	</Label>
+	{/if}
 </div>

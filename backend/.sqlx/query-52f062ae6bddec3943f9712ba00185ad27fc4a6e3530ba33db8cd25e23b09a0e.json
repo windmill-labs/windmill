@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT e.subject, e.run_number, e.label, e.scored_from, e.created_at, e.created_by,\n                (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)\n                    AS \"case_count!\"\n         FROM eval_experiment e\n         WHERE e.workspace_id = $1 AND e.dataset_path = $2 AND e.id = $3",
+  "query": "SELECT e.subject, e.run_number, e.label, e.scored_from, e.run_job_id, e.created_at,\n                e.created_by,\n                (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)\n                    AS \"case_count!\"\n         FROM eval_experiment e\n         WHERE e.workspace_id = $1 AND e.dataset_path = $2 AND e.id = $3",
   "describe": {
     "columns": [
       {
@@ -25,16 +25,21 @@
       },
       {
         "ordinal": 4,
+        "name": "run_job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "created_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "case_count!",
         "type_info": "Int8"
       }
@@ -51,10 +56,11 @@
       false,
       true,
       true,
+      true,
       false,
       false,
       null
     ]
   },
-  "hash": "e968cddb004672053de0cea70c25e3c0c3c6fe393f5af5904f4e37805afa4a4e"
+  "hash": "52f062ae6bddec3943f9712ba00185ad27fc4a6e3530ba33db8cd25e23b09a0e"
 }

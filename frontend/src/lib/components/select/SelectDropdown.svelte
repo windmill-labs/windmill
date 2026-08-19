@@ -145,16 +145,19 @@
 					}}
 				>
 					{@render startSnippet?.({ item, close: () => (open = false) })}
-					<span class={itemLabelWrapperClasses}>
-						{item.label || '\xa0'}
-					</span>
+					<!-- Label and subtitle are one block: with an `endSnippet` the button is a flex row,
+					     and a subtitle outside this would sit beside the row's actions instead of under
+					     the name it belongs to. -->
+					<div class={twMerge('min-w-0', itemLabelWrapperClasses)}>
+						<div class="truncate">{item.label || '\xa0'}</div>
+						{#if item.subtitle}
+							<div class="text-2xs text-secondary truncate">{item.subtitle}</div>
+						{/if}
+					</div>
 					{#if item.__is_create}
 						<PlusIcon class="inline ml-auto" size={16} />
 					{:else}
 						{@render endSnippet?.({ item, close: () => (open = false) })}
-					{/if}
-					{#if item.subtitle}
-						<div class="text-2xs text-secondary">{item.subtitle}</div>
 					{/if}
 				</button>
 			</li>
