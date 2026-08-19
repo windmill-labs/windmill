@@ -626,11 +626,12 @@
 				<ExternalLink size={12} />
 			</a>
 		{/if}
-		{#if !viewingRun}
-			<!-- Only on the list, and only this: a run is a record, so there is nothing on it to
-			     start. Named for what it opens rather than for what that then does: it asks which
-			     state of the agent and which dataset, and both cost a provider bill, so a button
-			     that reads as spending one on the way past would be lying about the click. -->
+		{#if !viewingRun && experiments.length > 0}
+			<!-- Only on the list, and only once there is a list: with no runs the table offers this
+			     itself, where the first row would be. Named for what it opens rather than for what
+			     that then does: it asks which state of the agent and which dataset, and both cost a
+			     provider bill, so a button that reads as spending one on the way past would be lying
+			     about the click. -->
 			<Button
 				size="xs"
 				variant="accent"
@@ -691,6 +692,7 @@
 								await useDataset(path)
 								datasetDrawer?.openDrawer('edit')
 							}}
+							onNew={() => (runDialogOpen = true)}
 						/>
 					{:else}
 						<!-- Square against the panel: a rounded corner there reads as the table ending, when

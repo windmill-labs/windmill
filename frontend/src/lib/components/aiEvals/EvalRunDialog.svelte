@@ -88,7 +88,9 @@
 		untrack(() => {
 			// Seeded on every open: the dataset you were last in, and whichever state of the agent
 			// there is most reason to measure — edits waiting are why you came.
-			dataset = defaultDataset ?? datasets[0]?.path
+			// Only a dataset this agent has actually been worked in. Falling back to whichever came
+			// first offered someone else's set as though it were the obvious one.
+			dataset = defaultDataset
 			hasDraft = hasUndeployedChanges
 			choice = hasUndeployedChanges ? 'draft' : 'deployed'
 			touched = false
@@ -183,73 +185,94 @@
 		<!-- The pencil rides the field itself, as a resource picker's does: the dataset you are about
 		     to measure against is exactly when you notice a case is missing from it. -->
 		<Label label="Dataset" tooltip="The set of cases the agent is measured on.">
-			<div
-				class="relative flex flex-row items-center w-full"
-				role="group"
-				onmouseenter={() => (hoveringDataset = true)}
-				onmouseleave={() => (hoveringDataset = false)}
-			>
-				<Select
-					items={datasetItems}
-					bind:value={dataset}
-					placeholder="Select a dataset"
-					clearable
-					class="text-xs w-full"
-					transformInputSelectedText={datasetFieldText}
+			{#if datasets.length === 0}
+				<!-- There is nothing to pick from and one thing to do, so it is the only thing offered:
+				     a run is of a dataset, and this agent has none. -->
+				<div class="flex flex-col items-start gap-2">
+					<span class="text-xs text-secondary">
+						A run measures the agent on a set of cases, and there is no set yet.
+					</span>
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: Plus }}
+						onclick={() => {
+							open = false
+							onNewDataset()
+						}}
+					>
+						New dataset
+					</Button>
+				</div>
+			{:else}
+				<div
+					class="relative flex flex-row items-center w-full"
+					role="group"
+					onmouseenter={() => (hoveringDataset = true)}
+					onmouseleave={() => (hoveringDataset = false)}
 				>
-					<!-- The way into a dataset from the row that names it, as a resource picker does: what
+					<Select
+						items={datasetItems}
+						bind:value={dataset}
+						placeholder="Select a dataset"
+						clearable
+						class="text-xs w-full"
+						transformInputSelectedText={datasetFieldText}
+					>
+						<!-- The way into a dataset from the row that names it, as a resource picker does: what
 				     you are about to measure is exactly when you notice a case is missing. -->
-					{#snippet endSnippet({ item, close })}
-						<Button
-							variant="subtle"
-							size="xs2"
-							wrapperClasses="-mr-2 pl-1 -my-2"
-							btnClasses="hover:bg-surface-tertiary"
-							startIcon={{ icon: Pencil }}
-							iconOnly
-							title="Edit this dataset"
-							on:click={() => {
-								close()
-								open = false
-								onEditDataset(item.value ?? '')
-							}}
-						/>
-					{/snippet}
-					{#snippet bottomSnippet({ close })}
-						<div class="flex flex-col border-t">
-							<button
-								type="button"
-								class="flex items-center gap-2 px-3 py-2 text-xs text-secondary hover:bg-surface-hover"
-								onclick={() => {
+						{#snippet endSnippet({ item, close })}
+							<Button
+								variant="subtle"
+								size="xs2"
+								wrapperClasses="-mr-2 pl-1 -my-2"
+								btnClasses="hover:bg-surface-tertiary"
+								startIcon={{ icon: Pencil }}
+								iconOnly
+								title="Edit this dataset"
+								on:click={() => {
 									close()
 									open = false
-									onNewDataset()
+									onEditDataset(item.value ?? '')
 								}}
-							>
-								<Plus size={13} />
-								New dataset
-							</button>
+							/>
+						{/snippet}
+						{#snippet bottomSnippet({ close })}
+							<div class="flex flex-col border-t">
+								<button
+									type="button"
+									class="flex items-center gap-2 px-3 py-2 text-xs text-secondary hover:bg-surface-hover"
+									onclick={() => {
+										close()
+										open = false
+										onNewDataset()
+									}}
+								>
+									<Plus size={13} />
+									New dataset
+								</button>
+							</div>
+						{/snippet}
+					</Select>
+					{#if dataset && hoveringDataset}
+						<div class="absolute right-10 z-20">
+							<Button
+								variant="subtle"
+								size="xs2"
+								wrapperClasses="pl-1"
+								btnClasses="hover:bg-surface-tertiary"
+								startIcon={{ icon: Pencil }}
+								iconOnly
+								title="Edit this dataset"
+								on:click={() => {
+									open = false
+									onEditDataset(dataset ?? '')
+								}}
+							/>
 						</div>
-					{/snippet}
-				</Select>
-				{#if dataset && hoveringDataset}
-					<div class="absolute right-10 z-20">
-						<Button
-							variant="subtle"
-							size="xs2"
-							wrapperClasses="pl-1"
-							btnClasses="hover:bg-surface-tertiary"
-							startIcon={{ icon: Pencil }}
-							iconOnly
-							title="Edit this dataset"
-							on:click={() => {
-								open = false
-								onEditDataset(dataset ?? '')
-							}}
-						/>
-					</div>
-				{/if}
-			</div>
+					{/if}
+				</div>
+			{/if}
 		</Label>
 	</div>
 	{#snippet actions()}

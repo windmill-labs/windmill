@@ -135,6 +135,23 @@ Expected: the case's expected value`
 		}
 	})
 
+	/**
+	 * The shape a verdict has to arrive in. Asking for it in the prompt leaves the model free to
+	 * quote the agent inside its own reason and break the JSON around it; an output schema is the
+	 * provider enforcing the shape instead. Windmill delivers it whichever way the model takes it,
+	 * so there is no list of models to keep here.
+	 */
+	const VERDICT_SCHEMA = {
+		$schema: 'https://json-schema.org/draft/2020-12/schema',
+		type: 'object',
+		properties: {
+			score: { type: 'number', description: 'How well the agent did, from 0 to 1.' },
+			reason: { type: 'string', description: 'One or two sentences on why.' }
+		},
+		required: ['score'],
+		order: ['score', 'reason']
+	}
+
 	async function createJudge() {
 		await ResourceService.createResource({
 			workspace,
@@ -142,7 +159,12 @@ Expected: the case's expected value`
 				path,
 				resource_type: 'ai_agent',
 				description: summary || `Judge for eval dataset ${datasetPath}`,
-				value: { provider, system_prompt: prompt, output_type: 'text' }
+				value: {
+					provider,
+					system_prompt: prompt,
+					output_type: 'text',
+					output_schema: VERDICT_SCHEMA
+				}
 			}
 		})
 		await onAdd({ kind: 'agent', path, name: summary || undefined, pass_if: threshold })

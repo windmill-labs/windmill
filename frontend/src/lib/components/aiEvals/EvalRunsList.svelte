@@ -5,7 +5,8 @@
 	import Row from '$lib/components/table/Row.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-	import { Bot, Code2, Loader2 } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import { Bot, Code2, Loader2, Plus } from 'lucide-svelte'
 	import type { EvalDataset, EvalExperiment, ExperimentScore } from '$lib/gen'
 	import { formatScore } from './evalScorers'
 	import { experimentName, subjectLabel } from './evalRuns'
@@ -14,7 +15,8 @@
 		experiments,
 		datasets,
 		onOpen,
-		onEditDataset
+		onEditDataset,
+		onNew
 	}: {
 		/** Every run of this agent, newest first, whichever dataset each is of. */
 		experiments: EvalExperiment[]
@@ -22,6 +24,8 @@
 		datasets: EvalDataset[]
 		onOpen: (experiment: EvalExperiment) => void
 		onEditDataset: (dataset: string) => void
+		/** Starts the first run, from the table that has none to show. */
+		onNew: () => void
 	} = $props()
 
 	function datasetSummary(path: string): string | undefined {
@@ -152,12 +156,17 @@
 		{#if experiments.length === 0}
 			<tr>
 				<td colspan="5" class="p-6">
-					<div class="flex flex-col items-center justify-center gap-2 text-center">
+					<div class="flex flex-col items-center justify-center gap-3 text-center">
 						<span class="text-sm text-emphasis">No runs yet</span>
 						<span class="text-xs text-secondary max-w-md">
 							A run answers every case of a dataset and scores the answers. Each one is kept, so the
 							next has something to be compared against.
 						</span>
+						<!-- Where the first row would be: an empty table's one move belongs in it rather than
+						     above it, where it reads as a control over rows that are not there. -->
+						<Button size="xs" variant="accent" startIcon={{ icon: Plus }} onclick={onNew}>
+							New evaluation
+						</Button>
 					</div>
 				</td>
 			</tr>
