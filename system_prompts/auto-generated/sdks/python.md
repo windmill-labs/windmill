@@ -6,8 +6,12 @@ The client configures itself from the job's environment — base URL, token and 
 are all set before your code runs, so there is nothing to initialize and no reason to read
 WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
 reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
-HTTP for third-party APIs. A function that is not listed below does not exist — pick one that is
-rather than inventing a name.
+HTTP for third-party APIs.
+
+The functions below are the surface to prefer. For an endpoint none of them covers,
+wmill.Windmill().get(endpoint) and .post(endpoint) issue an authenticated request against this
+instance. What does not exist is a function name you guessed at: if it is not listed below, do
+not call it.
 
 To know who is running the script, read the contextual variables rather than calling the API:
 `os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app

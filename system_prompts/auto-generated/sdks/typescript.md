@@ -6,8 +6,12 @@ The client configures itself from the job's environment — base URL, token and 
 are all set before your code runs, so there is nothing to initialize and no reason to read
 WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
 reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
-HTTP for third-party APIs. A function that is not listed below does not exist — pick one that is
-rather than inventing a name.
+HTTP for third-party APIs.
+
+The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it.
 
 To know who is running the script, read the contextual variables rather than calling the API:
 `process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when

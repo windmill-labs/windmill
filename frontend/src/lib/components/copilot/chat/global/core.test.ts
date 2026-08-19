@@ -1977,6 +1977,55 @@ describe('global AI tools', () => {
 		expect(asPath.inlineScript).toBeUndefined()
 	})
 
+	it("resets a path runnable's schema when it is retargeted, and keeps it when it is not", async () => {
+		// The editor populates `schema` from the item the runnable points at, and
+		// genWmillTs types `backend.<key>(args)` from it — so it must not outlive the target.
+		const flowSchema = {
+			type: 'object',
+			properties: { old_arg: { type: 'string' } }
+		}
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/retargeted_app',
+			{
+				summary: 'Retargeted',
+				files: {},
+				runnables: {
+					go: {
+						name: 'Run the flow',
+						type: 'path',
+						runType: 'flow',
+						path: 'u/admin/first_flow',
+						fields: {},
+						schema: flowSchema
+					}
+				},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/retargeted_app',
+			key: 'go',
+			runnable: { name: 'Run the flow', type: 'flow', path: 'u/admin/first_flow' }
+		})
+		expect(
+			getBackendDraft<any>('raw_app', 'u/admin/retargeted_app', { workspace: WORKSPACE }).runnables
+				.go.schema
+		).toEqual(flowSchema)
+
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/retargeted_app',
+			key: 'go',
+			runnable: { name: 'Run the other flow', type: 'flow', path: 'u/admin/second_flow' }
+		})
+		expect(
+			getBackendDraft<any>('raw_app', 'u/admin/retargeted_app', { workspace: WORKSPACE }).runnables
+				.go.schema
+		).toEqual({})
+	})
+
 	it('does not echo the app value back to the model on write', async () => {
 		const sentinel = 'SENTINEL_DO_NOT_ECHO_DEADBEEF'
 		seedBackendDraft(

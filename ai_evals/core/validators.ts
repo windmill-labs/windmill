@@ -169,7 +169,19 @@ export function validateAssistantExpectations(input: {
   if (!expect) {
     return [];
   }
-  const text = input.run.assistantText ?? "";
+  // Only some mode runners report assistantText. Defaulting a missing one to "" would pass
+  // every forbiddenMentions entry forever, so a case that expects to inspect what the
+  // assistant said fails on the mode that cannot show it.
+  if (input.run.assistantText === undefined) {
+    return [
+      check(
+        "assistant text is available to check",
+        false,
+        "this mode's runner does not report assistantText, so assistantExpect cannot be evaluated"
+      ),
+    ];
+  }
+  const text = input.run.assistantText;
   const checks: BenchmarkCheck[] = [];
 
   for (const phrases of expect.requiredMentionsAnyOf ?? []) {

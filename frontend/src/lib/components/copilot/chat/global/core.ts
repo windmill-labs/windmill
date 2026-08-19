@@ -57,6 +57,7 @@ import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
 import { isCloudHosted } from '$lib/cloud'
+import { BROWSER } from 'esm-env'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -1242,19 +1243,23 @@ const buildGlobalSystemPrompt = (
 		: ''
 	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
 	// Edition and hosting change which features exist and how the product behaves.
-	// Read from the stores rather than guessed at mid-conversation; both are cheap
-	// enough to sit in the cached prefix. Deliberately no base URL: runnable code
-	// must never build one (the SDK is already configured), and offering one here
-	// is what invites a hardcoded URL into a script.
-	const instanceLine = `This is ${
-		isCloudHosted() ? 'Windmill Cloud (app.windmill.dev)' : 'a self-hosted Windmill instance'
-	}, running ${
-		get(enterpriseLicense) ? 'Enterprise Edition' : 'Community Edition'
-	}. Use that to judge whether a feature is available before promising it.`
+	// Both are only knowable in the browser: the hostname and a store the app populates
+	// at init. A non-browser caller — the eval runner — reads false for each and would
+	// otherwise be told "self-hosted Community Edition" whatever it points at, so say
+	// nothing there rather than assert the default. Deliberately no base URL either:
+	// runnable code must never build one (the SDK is already configured), and offering
+	// one here is what invites a hardcoded URL into a script.
+	const instanceLine = BROWSER
+		? ` This is ${
+				isCloudHosted() ? 'Windmill Cloud (app.windmill.dev)' : 'a self-hosted Windmill instance'
+			}, running ${
+				get(enterpriseLicense) ? 'Enterprise Edition' : 'Community Edition'
+			}. Use that to judge whether a feature is available before promising it.`
+		: ''
 
 	return `You are Windmill's global workspace assistant.
 
-The current user's workspace username is "${username}". ${instanceLine}
+The current user's workspace username is "${username}".${instanceLine}
 
 Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.
 
@@ -1579,11 +1584,19 @@ function buildPersistedRunnable(
 			)
 		: (existing?.fields ?? {})
 
-	// Converting between kinds must drop the other kind's fields. Spreading `existing`
-	// alone leaves an inline runnable still carrying `runType`/`path` (or a path runnable
-	// still carrying `inlineScript`), and `isRunnableByName` resolves that hybrid to the
-	// inline branch — so an app "wired to a flow" silently runs stale inline code instead.
+	// Converting between kinds must drop the other kind's fields. Every consumer dispatches on
+	// `type` (isRunnableByName / isRunnableByPath), so a leftover does not change which code
+	// runs — it contradicts it: a runnable reported back as inline still names a flow in
+	// `path`, and that is what the model reads on its next turn.
 	const { runType: _runType, path: _path, inlineScript: _inlineScript, ...carried } = existing ?? {}
+
+	// `schema` describes the item a path runnable points at, so it only survives while that
+	// target is unchanged. Carried across a retarget it types `backend.<key>(args)` from the
+	// previous item's inputs, because hiddenRunnableToTsType reads it for the path branch.
+	const sameTarget =
+		(existing?.type === 'path' || existing?.type === 'runnableByPath') &&
+		existing?.runType === input.type &&
+		existing?.path === input.path
 
 	if (input.type === 'inline') {
 		if (!input.inlineScript) {
@@ -1611,7 +1624,7 @@ function buildPersistedRunnable(
 		runType: input.type,
 		path: input.path,
 		fields,
-		schema: existing?.schema ?? {}
+		schema: sameTarget ? (existing?.schema ?? {}) : {}
 	}
 }
 
@@ -2133,6 +2146,13 @@ ${getFlowPrompt()}`
 type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
 
 function getAppInstructions(language?: ScriptLang): string {
+	// getRawAppPrompt swaps in the Python SDK for python3, so the pointer has to swap with
+	// it: telling the model to re-fetch a reference it is already holding wastes a turn, and
+	// naming the wrong SDK contradicts the text right below the sentence.
+	const sdkLine =
+		language === 'python3'
+			? '- The authoring reference below carries the Python SDK, for `python3` inline runnables. For a `bun` runnable, call `get_instructions` again with `subject: "app"` and no language.'
+			: '- The authoring reference below carries the TypeScript SDK. For a `python3` runnable, call `get_instructions` again with `subject: "app"` and `language: "python3"`.'
 	return `# Global draft app instructions
 
 - Global mode edits raw app drafts only; it does not save or deploy unless the user explicitly asks to deploy.
@@ -2144,7 +2164,7 @@ function getAppInstructions(language?: ScriptLang): string {
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
 - Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
 - Inline runnables run the app's DRAFT code, so they work in the preview with nothing deployed. Path runnables — and \`wmill.runFlow*\` / \`runScriptByPath\` called from inside any runnable — run the DEPLOYED item at that path, and a draft is invisible to them. An app wired to a flow you just drafted does nothing until that flow is deployed — but the APP does not have to be deployed for that: the preview runs its draft. So offer to deploy just the referenced flow/script with deploy_workspace_item and leave the app a draft the user keeps testing in the preview; don't route a one-item dependency deploy through the compare page, and don't ask them to deploy the app unless they want to ship it. Never dodge it by reimplementing the flow inside an inline runnable — that leaves two copies of the same logic and an app that ignores the flow they asked for.
-- The authoring reference below carries the TypeScript SDK. For a \`python3\` runnable, call \`get_instructions\` again with \`subject: "app"\` and \`language: "python3"\`.
+${sdkLine}
 - Use \`deploy_workspace_item\` after explicit user deploy intent. The deploy tool bundles JS/CSS before saving the raw app.
 - Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file; large files are truncated to a head slice, so pass \`offset\`/\`limit\` to page through the rest rather than re-reading the whole file.
 - To find where a symbol or string lives across the app, call \`search_app\` (greps every frontend file and inline runnable, returns matching \`file:line\` rows) instead of reading files one by one — then \`read_app_file\` only the ranges you need. The loop is list (\`read_workspace_item\`) → locate (\`search_app\`) → inspect (\`read_app_file\` with \`offset\`/\`limit\`).

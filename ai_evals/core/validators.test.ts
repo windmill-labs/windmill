@@ -64,6 +64,41 @@ describe("validateAssistantExpectations", () => {
 
     expect(checks.map((c) => c.passed)).toEqual([true, false, true]);
   });
+
+  it("rejects a deploy claim that names the app instead of the flow", () => {
+    const checks = validateAssistantExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 0,
+        toolsUsed: [],
+        skillsInvoked: [],
+        assistantText: "Built both. The app must be deployed before the button works.",
+      },
+      assistantExpect: {
+        requiredMentionsAnyOf: [["deploy the flow", "flow must be deployed"]],
+      },
+    });
+
+    expect(checks.map((c) => c.passed)).toEqual([false]);
+  });
+
+  it("fails instead of passing green when the mode reports no assistant text", () => {
+    const checks = validateAssistantExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 0,
+        toolsUsed: [],
+        skillsInvoked: [],
+      },
+      assistantExpect: { forbiddenMentions: ["WM_TOKEN"] },
+    });
+
+    expect(checks.map((c) => c.passed)).toEqual([false]);
+  });
 });
 
 describe("validateToolExpectations", () => {

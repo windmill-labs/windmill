@@ -728,13 +728,27 @@ defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the ma
 
 # The client configures itself from the job's contextual variables (`setClient` reads
 # BASE_INTERNAL_URL/BASE_URL and WM_TOKEN). Agents that miss this reconstruct that logic by hand
-# and get it wrong; they also invent plausible-sounding function names.
+# and get it wrong; they also invent plausible-sounding function names. Each language gets its own
+# escape hatch sentence, because the listing below is the helper surface, not the whole API — a
+# flat "if it is not listed it does not exist" would be false and would leave an uncovered
+# endpoint with no legal move.
 PRECONFIGURED_CLIENT = """The client configures itself from the job's environment — base URL, token and credentials mode
 are all set before your code runs, so there is nothing to initialize and no reason to read
 WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
 reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
-HTTP for third-party APIs. A function that is not listed below does not exist — pick one that is
-rather than inventing a name."""
+HTTP for third-party APIs."""
+
+# Listed below = the ergonomic helpers. Services (TS) and Windmill.get/post (Python) are the
+# supported way to reach an endpoint that has no helper.
+UNLISTED_ENDPOINTS_TS = """The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it."""
+
+UNLISTED_ENDPOINTS_PY = """The functions below are the surface to prefer. For an endpoint none of them covers,
+wmill.Windmill().get(endpoint) and .post(endpoint) issue an authenticated request against this
+instance. What does not exist is a function name you guessed at: if it is not listed below, do
+not call it."""
 
 
 def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:
@@ -742,6 +756,7 @@ def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:
     md = "# TypeScript SDK (windmill-client)\n\n"
     md += "Import: import * as wmill from 'windmill-client'\n\n"
     md += PRECONFIGURED_CLIENT + "\n\n"
+    md += UNLISTED_ENDPOINTS_TS + "\n\n"
     md += IDENTITY_OF_THE_RUN_TS + "\n\n"
 
     for i, func in enumerate(functions):
@@ -766,6 +781,7 @@ def generate_py_sdk_markdown(functions: list[dict], _classes: list[dict]) -> str
     md = "# Python SDK (wmill)\n\n"
     md += "Import: import wmill\n\n"
     md += PRECONFIGURED_CLIENT + "\n\n"
+    md += UNLISTED_ENDPOINTS_PY + "\n\n"
     md += IDENTITY_OF_THE_RUN_PY + "\n\n"
 
     for func in functions:

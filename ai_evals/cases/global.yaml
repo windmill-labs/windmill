@@ -2253,12 +2253,23 @@
     # forbiddenMentions entry: the correct answer routinely says "you don't need to deploy
     # the app", and the matcher is a plain substring test that can't see the negation. The
     # judge checklist covers it instead.
+    # Every alternative has to name the FLOW. Bare phrasings like "must be deployed" are
+    # satisfied by the exact wrong answer this case exists to catch ("the app must be
+    # deployed"), which would let the regression back in unnoticed.
     requiredMentionsAnyOf:
       - - deploy the flow
-        - deployed before
-        - must be deployed
-        - needs to be deployed
-        - has to be deployed
-        - deploy it before
-        - once deployed
-        - after you deploy
+        - deploy that flow
+        - deploy this flow
+        - deploy just the flow
+        - deploying the flow
+        - deploy the workflow
+        - deploying the workflow
+        - deploy hello_world_flow
+        - flow must be deployed
+        - flow needs to be deployed
+        - flow has to be deployed
+        - flow needs deploying
+        - flow is deployed
+        - workflow must be deployed
+        - workflow needs to be deployed
+        - workflow has to be deployed

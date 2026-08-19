@@ -139,7 +139,7 @@ An inline runnable runs as an ordinary Windmill job. `import * as wmill from 'wi
 
 **Don't read `WM_TOKEN` or `BASE_INTERNAL_URL` and build an API URL to `fetch`.** The client's own `setClient` already reads exactly those, and it also sets the credentials mode a raw app needs (`WM_RAW_APP` suppresses credentials, because a sandboxed bundle calls the API from an opaque origin that can never pair with `Access-Control-Allow-Origin: *`). Rebuilding that by hand drops the parts you can't see. Use `wmill.*` for everything Windmill, and `fetch` only for third-party APIs.
 
-Only call `wmill` functions that appear in the SDK reference. A plausible-looking name that is not listed there does not exist — `getBaseUrl`, `getWorkspaceToken` and friends are inventions, not API.
+Prefer the `wmill` functions that appear in the SDK reference; for an endpoint none of them covers, the generated service classes (`JobService`, `ScriptService`, ...) are importable from `windmill-client`. What is not available is a name you guessed at: `getBaseUrl` and `getWorkspaceToken` are inventions, not API.
 
 ### Path runnables (script / flow / hubscript)
 
