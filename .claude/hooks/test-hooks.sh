@@ -14,6 +14,16 @@ CWD="$(git -C "$H" rev-parse --show-toplevel)"
 OUT="$HOME/not-a-git-tree"   # never written to; only the guards' path checks look at it
 fails=0
 
+# A tree's own root is auto-allowable only when it is a LINKED worktree, whose `.git` is a
+# pointer file so the history lives in the main repo and survives; a primary checkout's `.git`
+# is the history itself. The suite runs from either kind, so the rows that name the root follow
+# the one it is run in — which is also what pins both halves of that rule.
+if [ -f "$CWD/.git" ]; then
+  ROOT_SOLO=allow ROOT_CHAINED=none      # linked worktree
+else
+  ROOT_SOLO=ask ROOT_CHAINED=ask         # primary checkout
+fi
+
 run() { # run <hook> <allow|ask|none> <command>
   local hook="$1" want="$2" cmd="$3" out got
   out=$(jq -nc --arg c "$cmd" --arg w "$CWD" \
@@ -45,7 +55,7 @@ run $G ask   "rm $CWD/.claude/settings.json"
 run $G ask   "rm $CWD/.claude/settings.local.json"
 run $G ask   "rm -rf $CWD/backend/.env"
 run $G ask   "rm -rf $CWD/.env.local"
-run $G ask   "rm -rf $CWD"
+run $G $ROOT_SOLO "rm -rf $CWD"
 run $G ask   "rm -rf $CWD/*"
 run $G ask   "rm -rf /etc/passwd"
 run $G ask   'rm -rf "$HOME/x"'
@@ -148,7 +158,7 @@ run $A allow "cp -r /tmp/a /tmp/b"
 run $A allow "tar -xzf /tmp/a.tar.gz -C /tmp/out"
 run $A ask   "mv /tmp/a $OUT"
 run $A ask   "mv $CWD/AGENTS.md /tmp/a"
-run $A ask   "chmod -R 777 $CWD"
+run $A $ROOT_SOLO "chmod -R 777 $CWD"
 run $A none  "ls && mv /tmp/a /tmp/b"     # proved move, unexamined neighbour
 run $A ask   'echo $(mv /tmp/a /etc)'
 run $A ask   "timeout --signal KILL 5 mv /tmp/a /etc"
@@ -164,7 +174,7 @@ run $A none  "cargo build"
 run $A none  "mkdir -p /tmp/x; mv /tmp/a /tmp/x; chmod 755 /tmp/x"   # one write per line
 run $A none  "$(printf 'mv /tmp/a /tmp/b\nchmod 755 /tmp/b')"
 run $A ask   "ls && mv /tmp/a /etc"
-run $A ask   "$(printf 'mkdir -p /tmp/x\nchmod -R 777 %s' "$CWD")"
+run $A $ROOT_CHAINED "$(printf 'mkdir -p /tmp/x\nchmod -R 777 %s' "$CWD")"
 run $A allow "cd /tmp/x && tar -xzf /tmp/a.tar.gz -C /tmp/out"
 # The checkout is a root of its own, so an in-repo move or chmod is as auto-allowable as the
 # in-repo delete already was — but one operation may not straddle it and /tmp.
