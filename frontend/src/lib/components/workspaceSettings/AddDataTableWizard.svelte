@@ -122,26 +122,35 @@
 	 */
 	let pathTakenError = $state('')
 	let variableCheck: ReturnType<typeof setTimeout> | undefined = undefined
+	/**
+	 * Whether a check for `path` still answers the question on screen. Read once before the
+	 * request and again after it: the cleanup can cancel a pending timer but not a request
+	 * already in flight, so an answer that arrives late has to re-earn its relevance. `path`
+	 * alone is not enough -- it is built from the review step's fields, so picking an existing
+	 * resource stops the wizard minting one without changing it.
+	 */
+	function pathStillChecked(path: string): boolean {
+		return (
+			path === resourcePath && wiz.step === 3 && mintsResource && !!path && path !== claimedPath
+		)
+	}
+
 	$effect(() => {
 		const path = resourcePath
-		if (wiz.step !== 3 || !mintsResource || !path) {
-			pathTakenError = ''
-			return
-		}
 		// A path this wizard already wrote is not somebody else's to protect -- the same
 		// exemption the hard check in `finish()` makes, or a retry would refuse its own secret
 		// and leave Finish permanently disabled.
-		if (path === claimedPath) {
+		if (!pathStillChecked(path)) {
 			pathTakenError = ''
 			return
 		}
 		clearTimeout(variableCheck)
 		variableCheck = setTimeout(async () => {
 			const taken = await VariableService.existsVariable({ workspace: $workspaceStore!, path })
-			// Two checks can be in flight at once and resolve out of order. Answering for a path
-			// that is no longer the one on screen is not merely stale: a `false` for an older
-			// path would clear the error guarding the path actually about to be written.
-			if (path !== resourcePath) return
+			// Two checks can be in flight at once and resolve out of order. A `false` for a path
+			// nobody is on any more would clear the error guarding the one about to be written;
+			// a `true` would disable Finish over a path this run stopped caring about.
+			if (!pathStillChecked(path)) return
 			pathTakenError = taken ? 'a variable already exists at this path' : ''
 		}, 500)
 		return () => clearTimeout(variableCheck)
