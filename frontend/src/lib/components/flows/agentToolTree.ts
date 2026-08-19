@@ -220,8 +220,13 @@ export function collectInvalidAgentToolNames(modules: unknown): InvalidAgentTool
 	const invalid: InvalidAgentToolName[] = []
 	visitAgentModules(modules, (mod, v) => {
 		const tools: AgentTool[] = Array.isArray(v.tools) ? v.tools : []
-		const siblingNames = tools.map((tool) => tool.summary ?? '')
-		for (const tool of tools) {
+		// Only a flowmodule tool's summary is a callable name: the worker never reads an mcp or
+		// websearch summary, so a blank one there must stay writable (both default to '').
+		const named = tools.filter(
+			(tool) => tool.value?.tool_type !== 'mcp' && tool.value?.tool_type !== 'websearch'
+		)
+		const siblingNames = named.map((tool) => tool.summary ?? '')
+		for (const tool of named) {
 			const name = tool.summary ?? ''
 			const error = getToolNameError(name, tool.value?.tool_type, siblingNames)
 			if (error) {

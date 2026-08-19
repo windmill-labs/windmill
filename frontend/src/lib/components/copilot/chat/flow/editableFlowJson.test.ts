@@ -102,7 +102,7 @@ describe('flow settings in the compact editable view', () => {
 })
 
 describe('AI agent tool names', () => {
-	function makeAgentFlow(toolSummary: string) {
+	function makeAgentFlow(toolSummary: string, extraTools: unknown[] = []) {
 		return {
 			modules: [
 				{
@@ -128,7 +128,8 @@ describe('AI agent tool names', () => {
 									content: 'export async function main() { return 1 }',
 									input_transforms: {}
 								}
-							}
+							},
+							...extraTools
 						]
 					}
 				}
@@ -144,5 +145,13 @@ describe('AI agent tool names', () => {
 
 	it('accepts an underscored tool name', () => {
 		expect(() => validateEditableFlowJson(makeAgentFlow('search_documentation'))).not.toThrow()
+	})
+
+	it('leaves mcp and websearch summaries alone - the worker never reads them as names', () => {
+		const flow = makeAgentFlow('search_documentation', [
+			{ id: 'mcp_tool', summary: '', value: { tool_type: 'mcp', resource_path: 'f/mcp/server' } },
+			{ id: 'websearch_tool', summary: 'Web Search', value: { tool_type: 'websearch' } }
+		])
+		expect(() => validateEditableFlowJson(flow)).not.toThrow()
 	})
 })

@@ -141,7 +141,7 @@ tool, \`websearch\` for web search.
 
 These rules cover \`flowmodule\` tools, the ones the agent calls by name. A \`websearch\` tool's
 \`summary\` is a plain label (\`Web Search\`), and an \`mcp\` tool exposes the MCP server's own tool
-names, so neither is name-checked beyond being non-empty.
+names, so neither is name-checked at all — leave those summaries as they are.
 
 - A flowmodule tool's \`summary\` is the **name the agent calls it by**, not a human label. Put the
   human-readable explanation in \`description\`
@@ -162,7 +162,7 @@ names, so neither is name-checked beyond being non-empty.
 - Missing \`input_transforms\` - Rawscript parameters won't receive values without them
 - Referencing future steps - \`results.step_id\` only works for steps that execute before the current one
 - Duplicate module IDs - Each module ID must be unique in the flow
-- AI agent tool names with spaces - \`summary\` is the tool name and only accepts letters, numbers and underscores
+- AI agent flowmodule tool names with spaces - \`summary\` is the tool name and only accepts letters, numbers and underscores
 
 ## Data Flow Between Steps
 
@@ -381,7 +381,7 @@ Before finalizing a flow, verify:
 - any failure handler is in \`value.failure_module\`
 - any approval step has module-level \`suspend\`
 - no downstream step references inner branch step ids from outside the branch
-- every AI agent tool has a unique \`summary\` made only of letters, numbers and underscores
+- every AI agent flowmodule tool has a unique \`summary\` made only of letters, numbers and underscores
 
 ## S3 Object Operations
 
