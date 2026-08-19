@@ -60,10 +60,12 @@
 	let saving = $state(false)
 	/** The columns chosen while naming a dataset that does not exist yet, sent with the create. */
 	let pendingScorers = $state<Scorer[]>([])
-	/** The cases written for it before it exists. A case cannot be stored without a dataset to be
-	 *  a row of, so they are held here, given ids of their own to be edited by, and created with
-	 *  the dataset in one request. */
-	let pendingCases = $state<CaseDraft[]>([])
+	/** The drawer's own copy of the cases, which is what the editor edits. Nothing here is written
+	 *  until Save: a case is a row of a set being curated, and a set half saved while someone is
+	 *  still typing in it is not a state anyone asked for. Ids that are not in `storedIds` are the
+	 *  drawer's own, given to cases it is holding for a dataset that has yet to be told about them. */
+	let workingCases = $state<CaseDraft[]>([])
+	let storedIds = $state<Set<string>>(new Set())
 
 	let selectedCaseId = $state<string | undefined>(undefined)
 	let caseDraft = $state<CaseDraft | undefined>(undefined)
@@ -95,7 +97,8 @@
 		// Cleared per open: what was collected for a dataset that was never created belongs to that
 		// attempt, not to the next one.
 		pendingScorers = []
-		pendingCases = []
+		workingCases = next === 'edit' ? cases.map((c) => fromStoredCase(c) as CaseDraft) : []
+		storedIds = new Set(next === 'edit' ? cases.map((c) => c.id) : [])
 		if (next === 'edit') {
 			path = datasetPath ?? ''
 			summary = dataset?.summary ?? ''
@@ -124,16 +127,23 @@
 		if (opts?.addCase) addCase()
 	}
 
-	/** The cases on screen: the dataset's own once it exists, and the ones written for it before
-	 *  that when it does not. */
-	let shownCases = $derived<CaseDraft[]>(mode === 'edit' ? cases.map(fromStoredCase) : pendingCases)
-
 	function selectCase(id: string | undefined) {
-		const found = id ? shownCases.find((c) => c.id === id) : undefined
+		const found = id ? workingCases.find((c) => c.id === id) : undefined
 		selectedCaseId = found?.id
-		caseDraft = found ? (structuredClone($state.snapshot(found)) as CaseDraft) : undefined
+		caseDraft = found
 		draftGeneration += 1
 	}
+
+	/** Edits land in the list as they are typed, so switching cases keeps them and Save writes
+	 *  them. In the list rather than on the server: nothing here has been asked for yet. */
+	$effect(() => {
+		const draft = caseDraft
+		if (!draft?.id) return
+		const id = draft.id
+		untrack(() => {
+			workingCases = workingCases.map((c) => (c.id === id ? draft : c))
+		})
+	})
 
 	/** The summary names the dataset, as it does a script: what it is for is the thing you know
 	 *  first, and a path derived from it beats one you have to invent. Until the path is typed in,
@@ -165,7 +175,7 @@
 					// What was written for it while it was being named: the dataset arrives holding it
 					// rather than being created empty and then edited to hold what was already chosen.
 					scorers: pendingScorers,
-					cases: pendingCases.map(({ id: _id, ...rest }) => rest)
+					cases: workingCases.map(({ id: _id, ...rest }) => rest)
 				}
 			})
 			// Stays open, on the dataset it just made: scorers and cases are what a dataset is, and
@@ -180,11 +190,43 @@
 		}
 	}
 
+	/** Writes the cases as the drawer now holds them: the ones it added, the ones it changed and
+	 *  the ones it dropped, in that order so a rename below moves a set that is already right. */
+	async function saveCases() {
+		if (!workspace || !datasetPath) return
+		const stored = new Map(cases.map((c) => [c.id, c]))
+		const kept = new Set<string>()
+		for (const working of workingCases) {
+			const id = working.id
+			if (!id || !storedIds.has(id)) {
+				const { id: _local, ...rest } = working
+				await AiEvalsService.addEvalCase({ workspace, path: datasetPath, requestBody: rest })
+				continue
+			}
+			kept.add(id)
+			const before = stored.get(id)
+			const unchanged =
+				before != undefined &&
+				JSON.stringify(fromStoredCase(before)) === JSON.stringify($state.snapshot(working))
+			if (unchanged) continue
+			await AiEvalsService.updateEvalCase({
+				workspace,
+				path: datasetPath,
+				requestBody: { ...$state.snapshot(working), id }
+			})
+		}
+		for (const id of storedIds) {
+			if (kept.has(id)) continue
+			await AiEvalsService.deleteEvalCase({ workspace, path: datasetPath, requestBody: { id } })
+		}
+	}
+
 	/** Renaming moves the dataset: its cases and experiments follow it through the foreign keys. */
 	async function saveDataset() {
 		if (!workspace || !datasetPath || !dataset || !path || pathError) return
 		saving = true
 		try {
+			await saveCases()
 			await AiEvalsService.updateEvalDataset({
 				workspace,
 				path: datasetPath,
@@ -196,7 +238,10 @@
 					scorers: dataset.scorers
 				}
 			})
+			await onCasesChanged()
 			await onRenamed(path)
+			// The list is what was just written, so the ids it holds are now the dataset's own.
+			storedIds = new Set(workingCases.map((c) => c.id).filter((id): id is string => !!id))
 			// Re-seeded on the path it now has: the picker reads a path that is not the one it
 			// opened on as a path someone else has taken.
 			formGeneration += 1
@@ -207,88 +252,44 @@
 		}
 	}
 
-	/** Adding a case writes the row: a case is a row of the dataset, so asking for one puts it
-	 *  there and the editor beside the list fills it in. */
-	async function addCase() {
-		if (mode === 'new') {
-			const draft = { ...emptyCase(), id: randomUUID() }
-			pendingCases = [...pendingCases, draft]
-			selectedCaseId = draft.id
-			caseDraft = { ...draft }
-			draftGeneration += 1
-			return
-		}
-		if (!workspace || !datasetPath) return
-		try {
-			const id = await AiEvalsService.addEvalCase({
-				workspace,
-				path: datasetPath,
-				requestBody: emptyCase()
-			})
-			await onCasesChanged()
-			selectedCaseId = id
-			caseDraft = { ...emptyCase(), id }
-			draftGeneration += 1
-		} catch (e) {
-			sendUserToast(`Failed to add a case: ${e}`, true)
-		}
+	/** Adding a case puts a row in the list the drawer is holding. It reaches the dataset when the
+	 *  drawer is saved, like every other edit made here. */
+	function addCase() {
+		const draft = { ...emptyCase(), id: randomUUID() }
+		workingCases = [...workingCases, draft]
+		selectedCaseId = draft.id
+		caseDraft = draft
+		draftGeneration += 1
 	}
 
-	async function saveCase() {
-		if (!caseDraft) return
-		if (mode === 'new') {
-			const draft = caseDraft
-			pendingCases = pendingCases.map((c) => (c.id === draft.id ? { ...draft } : c))
-			return
-		}
-		if (!workspace || !datasetPath) return
-		try {
-			if (caseDraft.id) {
-				await AiEvalsService.updateEvalCase({
-					workspace,
-					path: datasetPath,
-					requestBody: { ...caseDraft, id: caseDraft.id }
-				})
-			} else {
-				// The id the write returns is adopted, so saving twice edits the case rather than
-				// adding a second one.
-				const id = await AiEvalsService.addEvalCase({
-					workspace,
-					path: datasetPath,
-					requestBody: caseDraft
-				})
-				caseDraft = { ...caseDraft, id }
-				selectedCaseId = id
-			}
-			await onCasesChanged()
-		} catch (e) {
-			sendUserToast(`Failed to save the case: ${e}`, true)
-		}
+	/** Puts a case captured from a run into the list, which is what the button over the fields
+	 *  offers: until then it is a draft the drawer is showing, not one of the set. */
+	function keepCapturedCase() {
+		if (!caseDraft || caseDraft.id) return
+		const draft = { ...$state.snapshot(caseDraft), id: randomUUID() } as CaseDraft
+		workingCases = [...workingCases, draft]
+		selectedCaseId = draft.id
+		caseDraft = draft
+		draftGeneration += 1
 	}
 
-	async function deleteCase(id: string) {
-		if (mode === 'new') {
-			pendingCases = pendingCases.filter((c) => c.id !== id)
-			if (selectedCaseId === id) selectCase(undefined)
-			return
-		}
-		if (!workspace || !datasetPath) return
-		try {
-			await AiEvalsService.deleteEvalCase({
-				workspace,
-				path: datasetPath,
-				requestBody: { id }
-			})
-			if (selectedCaseId === id) selectCase(undefined)
-			await onCasesChanged()
-		} catch (e) {
-			sendUserToast(`Failed to delete the case: ${e}`, true)
-		}
+	function deleteCase(id: string) {
+		workingCases = workingCases.filter((c) => c.id !== id)
+		if (selectedCaseId === id) selectCase(undefined)
 	}
 
 	let metadataUnchanged = $derived(
 		path === (datasetPath ?? '') && (summary || '') === (dataset?.summary ?? '')
 	)
+	/** Whether the list holds anything the dataset does not: added, edited or dropped. */
+	let casesChanged = $derived.by(() => {
+		if (workingCases.length !== cases.length) return true
+		const stored = new Map(cases.map((c) => [c.id, JSON.stringify(fromStoredCase(c))]))
+		return workingCases.some(
+			(c) => !c.id || stored.get(c.id) !== JSON.stringify($state.snapshot(c))
+		)
+	})
+	let nothingToSave = $derived(metadataUnchanged && !casesChanged)
 </script>
 
 <Drawer bind:this={drawer} size="900px">
@@ -371,7 +372,7 @@
 			<div class="flex flex-col gap-2 grow min-h-0">
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-semibold text-emphasis">Cases</span>
-					<span class="text-2xs text-tertiary">{shownCases.length}</span>
+					<span class="text-2xs text-tertiary">{workingCases.length}</span>
 					<div class="grow"></div>
 					<Button
 						size="xs2"
@@ -385,13 +386,13 @@
 				</div>
 				<div class="flex gap-3 grow min-h-0">
 					<div class="w-60 shrink-0 overflow-auto border rounded-md">
-						{#if shownCases.length === 0}
+						{#if workingCases.length === 0}
 							<div class="p-3 text-2xs text-tertiary">
 								A case is a question this agent is asked, and what a good answer to it looks like.
 							</div>
 						{:else}
 							<div class="divide-y">
-								{#each shownCases as stored (stored.id)}
+								{#each workingCases as stored (stored.id)}
 									<div
 										class={`flex items-center gap-1 pr-1 ${stored.id === selectedCaseId ? 'bg-blue-50 dark:bg-blue-900/50' : 'hover:bg-surface-hover'}`}
 									>
@@ -425,21 +426,22 @@
 									<span class="text-2xs text-tertiary grow">
 										Captured from a run, and not in the dataset yet.
 									</span>
-									<Button size="xs" variant="accent" startIcon={{ icon: Plus }} onclick={saveCase}>
+									<Button
+										size="xs"
+										variant="accent"
+										startIcon={{ icon: Plus }}
+										onclick={keepCapturedCase}
+									>
 										Add to dataset
 									</Button>
 								</div>
 							{/if}
 							{#key draftGeneration}
-								<EvalCaseEditor
-									bind:draft={caseDraft}
-									canSave={mode === 'new' || !!datasetPath}
-									onSave={saveCase}
-								/>
+								<EvalCaseEditor bind:draft={caseDraft} />
 							{/key}
 						{:else}
 							<span class="text-xs text-tertiary">
-								{shownCases.length === 0
+								{workingCases.length === 0
 									? 'Add a case to fill it in here.'
 									: 'Pick a case to edit it.'}
 							</span>
@@ -454,7 +456,7 @@
 					size="xs"
 					variant="accent"
 					loading={saving}
-					disabled={saving || !path || !!pathError || metadataUnchanged}
+					disabled={saving || !path || !!pathError || nothingToSave}
 					onclick={saveDataset}
 				>
 					Save

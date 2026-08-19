@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { base } from '$lib/base'
-	import { Alert, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -11,13 +11,11 @@
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import {
 		AiEvalsService,
-		JobService,
 		type EvalCase,
 		type EvalDataset,
 		type EvalExperiment,
 		type EvalSubject,
 		type ExperimentRow,
-		type Job,
 		type Scorer,
 		type ScorerMean
 	} from '$lib/gen'
@@ -26,7 +24,6 @@
 	import { onDestroy, untrack } from 'svelte'
 	import {
 		Plus,
-		Play,
 		X,
 		Check,
 		Ban,
@@ -35,18 +32,16 @@
 		Minus,
 		Bot,
 		Code2,
-		Pencil,
 		ExternalLink
 	} from 'lucide-svelte'
 	import EvalDatasetDrawer from './EvalDatasetDrawer.svelte'
-	import EvalRunResult from './EvalRunResult.svelte'
 	import EvalRunsList from './EvalRunsList.svelte'
 	import EvalRunDialog from './EvalRunDialog.svelte'
+	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { caseLabel, type CaseDraft } from './evalCaseUtils'
 	import type { EvalsLocation } from './evalRuns'
 	import { experimentName, subjectLabel } from './evalRuns'
-	import { formatDelta, formatScore, passedBy, scorerLabel } from './evalScorers'
-	import type { ScoreCaseResultResponse } from '$lib/gen'
+	import { formatDelta, formatScore, scorerLabel } from './evalScorers'
 
 	let {
 		agentPath,
@@ -112,7 +107,6 @@
 	// A run resolves the agent live, so it executes what is deployed: edits sitting in a draft are
 	// not what any of these numbers describe.
 	let undeployedChanges = $state(false)
-	let loading = $state(false)
 	let running = $state(false)
 	let scorers = $derived(dataset?.scorers ?? [])
 	// Which columns have scoring in flight. Rescoring a deterministic scorer lands on the same
@@ -122,9 +116,6 @@
 	)
 
 	let selectedCaseId = $state<string | undefined>(undefined)
-	/** The trial's own job, which is the one job this pane reads: a recorded row's answer comes
-	 *  with the row. */
-	let trialJob = $state<(Job & { result?: any }) | undefined>(undefined)
 
 	// The dataset is edited on top of the runs rather than in among them: what a run measured and
 	// what the next one will are two different questions, and the table answers the first.
@@ -205,7 +196,8 @@
 			storedCases = {}
 			return
 		}
-		loading = true
+		// Deliberately not the pane's `loading`: opening a dataset to edit it happens over the runs
+		// list, and blanking that list to a skeleton makes the click read as navigation.
 		try {
 			const [row, cases] = await Promise.all([
 				AiEvalsService.getEvalDataset({ workspace: ws, path }),
@@ -218,8 +210,6 @@
 			if (generation === loadGeneration) {
 				sendUserToast(`Failed to load ${path}: ${e}`, true)
 			}
-		} finally {
-			if (generation === loadGeneration) loading = false
 		}
 	}
 
@@ -283,77 +273,6 @@
 	})
 
 	/**
-	 * A trial run: one case, run now, to see what the agent does with it. It is a job and nothing
-	 * more — looking at what it did is not a claim that it belongs in this dataset's history — so it
-	 * never touches the table. It is scored where it stands and shown in the case panel, beside the
-	 * recorded result it leaves alone.
-	 */
-	type TrialRun = {
-		case_id: string
-		job_id: string
-		status: string
-		/** The scoring job, once the run has finished and the scorers have been sent after it. */
-		score_job_id?: string
-		scores?: ScoreCaseResultResponse
-	}
-	let trial = $state<TrialRun | undefined>(undefined)
-
-	async function refreshTrial() {
-		if (!ws || !trial) return
-		const current = $state.snapshot(trial)
-		if (current.status !== 'running') return
-		try {
-			const loaded = (await JobService.getJob({
-				workspace: ws,
-				id: current.job_id,
-				noLogs: true
-			})) as Job & { result?: any; success?: boolean }
-			if (trial?.job_id !== current.job_id) return
-			if (loaded.type === 'CompletedJob') {
-				trial = { ...current, status: loaded.success ? 'success' : 'failure' }
-			}
-			// Kept whichever case is open: the panel shows it under the trial's own case, and coming
-			// back to that case after the trial finished is exactly when the polling has stopped.
-			trialJob = loaded as Job & { result?: any }
-		} catch {
-			// A job that has not been created yet: the panel says running until it says otherwise.
-		}
-	}
-
-	/** A trial is scored where it stands: a run whose numbers you cannot see is a run you have to
-	 *  eyeball, which is the thing scorers exist to replace. */
-	async function scoreTrial() {
-		if (!ws || !selectedDataset || scorers.length === 0 || !trial) return
-		const current = $state.snapshot(trial)
-		if (current.status !== 'success') return
-		try {
-			if (!current.score_job_id) {
-				const scoreJob = await AiEvalsService.scoreCaseRun({
-					workspace: ws,
-					requestBody: {
-						dataset: selectedDataset,
-						case_id: current.case_id,
-						job_id: current.job_id
-					}
-				})
-				if (trial?.job_id === current.job_id) trial = { ...current, score_job_id: scoreJob }
-				return
-			}
-			if (current.scores?.every((s) => !s.pending)) return
-			const scores = await AiEvalsService.scoreCaseResult({
-				workspace: ws,
-				dataset: selectedDataset,
-				jobId: current.score_job_id
-			})
-			if (trial?.job_id === current.job_id) trial = { ...current, scores }
-		} catch (e) {
-			sendUserToast(`Failed to score the trial run: ${e}`, true)
-			// Dropped rather than retried every two seconds: the run itself is still there.
-			if (trial?.job_id === current.job_id) trial = { ...current, scores: [] }
-		}
-	}
-
-	/**
 	 * The agent is edited elsewhere — another tab, the drawer, a colleague — and the table has to
 	 * notice: a run's numbers stop describing the agent the moment it moves. Watched on its own
 	 * small endpoint rather than by re-reading the results, which harvest scores and read every
@@ -395,13 +314,9 @@
 
 	/** A case still running, or a score not in yet. On the list, a run whose flow is still going. */
 	let pollNeeded = $derived(
-		trial?.status === 'running' ||
-			(trial?.status === 'success' &&
-				scorers.length > 0 &&
-				(!trial.scores || trial.scores.some((s) => s.pending))) ||
-			(viewingRun
-				? rows.some((row) => row.status === 'running' || row.scores.some((score) => score.pending))
-				: experiments.some((e) => e.running))
+		viewingRun
+			? rows.some((row) => row.status === 'running' || row.scores.some((score) => score.pending))
+			: experiments.some((e) => e.running)
 	)
 	let poller: ReturnType<typeof setInterval> | undefined = undefined
 	$effect(() => {
@@ -419,13 +334,9 @@
 	/**
 	 * Read what the run has produced so far. Nothing here drives it: a run answers and scores
 	 * itself on workers, so closing this pane costs the numbers nothing, and reopening it shows
-	 * where the run got to. The trial is the exception, being watched rather than recorded.
+	 * where the run got to.
 	 */
 	async function refresh() {
-		// The trial first, and before the guard below: a dataset that has never been run has no
-		// experiment to read, and a trial there is exactly what someone is looking at.
-		await refreshTrial()
-		await scoreTrial()
 		if (!ws || !selectedDataset) return
 		// On the list, the run in flight is a row whose scores are still arriving; in a run, it is
 		// the table. Reading both would read every cell of a run nobody is looking at.
@@ -478,33 +389,6 @@
 			await openRun(id)
 		} catch (e) {
 			sendUserToast(`Failed to run the dataset: ${e}`, true)
-		} finally {
-			running = false
-		}
-	}
-
-	/** Runs one case now, as a trial. Nothing is recorded: the table goes on showing what the
-	 *  selected run recorded, and Run all is what produces numbers to compare. */
-	/**
-	 * Measure the selected run's answers again, with the scorers as they are now.
-	 *
-	 * A run is permanent, so this makes a run of its own rather than replacing the numbers on the one
-	 * being looked at. It calls the agent for nothing: the answers are the expensive artifact and they
-	 * are already stored, which is the whole reason scoring is a separate act from running.
-	 */
-
-	async function runCase(caseId: string) {
-		if (!ws || !selectedDataset) return
-		running = true
-		try {
-			const res = await AiEvalsService.runEval({
-				workspace: ws,
-				requestBody: { subject, dataset: selectedDataset, case_id: caseId }
-			})
-			trial = { case_id: caseId, job_id: res.job_id, status: 'running' }
-			trialJob = undefined
-		} catch (e) {
-			sendUserToast(`Failed to run the case: ${e}`, true)
 		} finally {
 			running = false
 		}
@@ -595,7 +479,12 @@
 		location = run
 			? {
 					label: `${experimentName(run)} · ${subjectLabelOf(run)}`,
-					back: () => (viewingRun = false)
+					// The panel showed a case of this run, so it closes with the run rather than hanging
+					// over the list that replaces it.
+					back: () => {
+						viewingRun = false
+						selectedCaseId = undefined
+					}
 				}
 			: undefined
 	})
@@ -767,11 +656,7 @@
 		<Splitpanes class="h-full">
 			<Pane size={selectedRow ? 60 : 100} minSize={35}>
 				<div class="h-full overflow-auto">
-					{#if loading}
-						<div class="p-3 flex flex-col gap-1">
-							<Skeleton layout={[[2], 0.5, [2], 0.5, [2]]} />
-						</div>
-					{:else if datasets.length === 0}
+					{#if datasets.length === 0}
 						<!-- Nothing to run and nothing to have run: the first dataset is the only move. -->
 						<div class="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
 							<span class="text-sm text-emphasis">No dataset yet</span>
@@ -802,7 +687,9 @@
 							}}
 						/>
 					{:else}
-						<DataTable size="sm" tableFixed>
+						<!-- Square against the panel: a rounded corner there reads as the table ending, when
+						     what is beside it is the row it opened. -->
+						<DataTable size="sm" tableFixed rounded={!selectedRow}>
 							<!-- A score column is as wide as a score and its column name need; the question and the
 							     answer share what is left. Sized rather than divided equally, because the text will
 							     take any width it is given and leave the numbers squeezed against each other. -->
@@ -824,9 +711,9 @@
 											<!-- Two rows, always: the name, and the number under the name it is a number of.
 											     The second row keeps its height while there is nothing in it, so the table
 											     does not move when the first score lands. -->
-											<div class="flex flex-col items-end min-w-0">
+											<div class="flex flex-col items-end min-w-0 w-full overflow-hidden">
 												<span
-													class="flex items-center gap-1 min-w-0"
+													class="flex items-center gap-1 min-w-0 max-w-full"
 													title={columnTitle(scorer, mean)}
 												>
 													{#if scorer.kind === 'agent'}
@@ -834,7 +721,7 @@
 													{:else}
 														<Code2 size={13} class="text-tertiary shrink-0" />
 													{/if}
-													<span class="truncate">{scorerLabel(scorer)}</span>
+													<span class="truncate min-w-0">{scorerLabel(scorer)}</span>
 													{#if scoringColumns.has(scorer.id ?? '')}
 														<Loader2 size={12} class="animate-spin text-blue-500 shrink-0" />
 													{/if}
@@ -966,27 +853,6 @@
 								{caseLabel(openRow)}
 							</span>
 							<div class="grow"></div>
-							<!-- Running this one case is a decision made with the case open, which is here.
-							     Nothing is recorded: the table goes on showing what the selected run recorded. -->
-							<Button
-								size="xs2"
-								variant="default"
-								startIcon={{ icon: Play }}
-								loading={running}
-								disabled={running || !subject.path}
-								title="Run this case now, without recording it"
-								onclick={() => runCase(openRow.case_id)}
-							>
-								Run
-							</Button>
-							<Button
-								size="xs2"
-								variant="subtle"
-								startIcon={{ icon: Pencil }}
-								iconOnly
-								title="Edit this case"
-								onclick={() => datasetDrawer?.openDrawer('edit', { caseId: openRow.case_id })}
-							/>
 							<Button
 								size="xs2"
 								variant="subtle"
@@ -1013,59 +879,6 @@
 									</span>
 								</Label>
 							{/if}
-							{#if trial && trial.case_id === selectedCaseId}
-								{@const trialStatus = statusOf(trial.status)}
-								<!-- Dashed, named and beside the table rather than in it: what a trial produced is
-								     worth seeing, and is not a result the selected run ever had. -->
-								<div class="rounded-md border border-dashed p-3 flex flex-col gap-2">
-									<div class="flex items-center gap-2">
-										<trialStatus.icon size={14} class={trialStatus.class} />
-										<span class="text-xs font-semibold text-emphasis">Trial run</span>
-										<div class="grow"></div>
-										<Button size="xs2" variant="subtle" onclick={() => (trial = undefined)}>
-											Clear
-										</Button>
-									</div>
-									<span class="text-2xs text-tertiary">
-										Not part of {experiment ? experimentName(experiment) : 'any run'}, which still
-										shows what it recorded. Run all is what makes a run these numbers would belong
-										to.
-									</span>
-									{#if scorers.length > 0}
-										<div class="flex flex-wrap gap-x-4 gap-y-1">
-											{#each scorers as scorer (scorer.id)}
-												{@const cell = trial.scores?.find((s) => s.scorer_id === scorer.id)}
-												{@const passed = passedBy(scorer, cell?.score)}
-												<span
-													class="text-2xs flex items-baseline gap-1.5"
-													title={cell?.reason ?? ''}
-												>
-													<span class="text-tertiary">{scorerLabel(scorer)}</span>
-													{#if trial.status === 'running' || !cell || cell.pending}
-														<Loader2 size={12} class="animate-spin text-blue-500" />
-													{:else if cell.score != undefined}
-														{#if passed != undefined}
-															<span class={passed ? 'text-green-500' : 'text-red-500'}>
-																{passed ? '✓' : '✗'}
-															</span>
-														{/if}
-														<span class="tabular-nums font-medium text-emphasis">
-															{formatScore(cell.score)}
-														</span>
-													{:else if cell.error}
-														<span class="text-red-500" title={cell.error}>failed</span>
-													{:else}
-														<span class="text-tertiary">—</span>
-													{/if}
-												</span>
-											{/each}
-										</div>
-									{/if}
-								</div>
-							{/if}
-							{#if trial?.case_id === selectedCaseId && trialJob}
-								<EvalRunResult job={trialJob} title="Trial run" />
-							{/if}
 							{#if experiment && (openRow.job_id || openRow.output != undefined)}
 								<!-- The answer as the run recorded it. The job behind the row is the whole
 								     iteration — the agent and then the scorers that measured it — so the answer
@@ -1075,7 +888,7 @@
 										class="flex items-center gap-2 px-2 py-1 border-b border-light bg-surface-secondary"
 									>
 										<span class="text-2xs font-semibold text-secondary truncate">
-											{experimentName(experiment)}
+											Case result
 										</span>
 										<div class="grow"></div>
 										{#if openRow.job_id}
@@ -1091,9 +904,11 @@
 									</div>
 									<div class="p-2">
 										{#if openRow.output != undefined}
-											<span class="text-xs text-secondary whitespace-pre-wrap break-words">
-												{openRow.output}
-											</span>
+											<!-- Rendered: an agent writes prose, and its own headings and lists are how it
+											     meant the answer to be read. -->
+											<div class="text-xs text-secondary break-words">
+												<GfmMarkdown md={openRow.output} noPadding />
+											</div>
 										{:else}
 											<span class="text-xs text-tertiary">{statusOf(openRow.status).label}</span>
 										{/if}

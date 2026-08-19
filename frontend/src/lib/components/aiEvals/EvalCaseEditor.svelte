@@ -3,17 +3,12 @@
 	import Label from '$lib/components/Label.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { onDestroy, untrack } from 'svelte'
 	import type { CaseDraft } from './evalCaseUtils'
 
 	let {
-		draft = $bindable(),
-		canSave = true,
-		onSave
+		draft = $bindable()
 	}: {
 		draft: CaseDraft
-		canSave?: boolean
-		onSave: () => void | Promise<void>
 	} = $props()
 
 	// The fields are edited as local state seeded from the draft, not bound through it: the parent
@@ -52,33 +47,6 @@
 			draft.input = next
 		}
 	})
-
-	// A case is a row, and editing a row saves it. Debounced rather than saved per keystroke, and
-	// with nothing to say about it: the row in the table is the case, so watching it follow what you
-	// type is the confirmation, and a write that fails says so in a toast.
-	let saveTimer: ReturnType<typeof setTimeout> | undefined = undefined
-	let lastSaved = $state<string | undefined>(undefined)
-	$effect(() => {
-		const snapshot = JSON.stringify($state.snapshot(draft))
-		const blocked = !canSave
-		untrack(() => {
-			if (lastSaved === undefined) {
-				// The state the editor opened on is what is stored: saving it back would write the
-				// case over itself on every case you merely look at.
-				lastSaved = snapshot
-				return
-			}
-			if (blocked || snapshot === lastSaved) return
-			clearTimeout(saveTimer)
-			saveTimer = setTimeout(() => {
-				lastSaved = snapshot
-				onSave()
-			}, SAVE_DEBOUNCE_MS)
-		})
-	})
-	onDestroy(() => clearTimeout(saveTimer))
-
-	const SAVE_DEBOUNCE_MS = 600
 </script>
 
 <div class="flex flex-col gap-4">
