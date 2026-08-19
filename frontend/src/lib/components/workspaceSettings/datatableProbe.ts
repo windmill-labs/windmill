@@ -19,7 +19,12 @@ const PRIVILEGES = `SELECT current_user AS usr,
        has_schema_privilege(current_schema(), 'CREATE') AS can_create_table,
        has_database_privilege(current_database(), 'CREATE') AS can_create_schema,
        to_regclass('_wm_migrations') IS NOT NULL AS has_migrations_table,
-       format('GRANT CREATE ON SCHEMA %I TO %I', current_schema(), current_user) AS grant_schema,
+       -- A role whose search_path names no valid schema has a NULL current_schema(), and
+       -- format('%I', NULL) raises rather than returning NULL, which would fail the whole
+       -- query on the one case fix_search_path exists to report.
+       CASE WHEN current_schema() IS NULL THEN NULL
+            ELSE format('GRANT CREATE ON SCHEMA %I TO %I', current_schema(), current_user)
+       END AS grant_schema,
        format('GRANT CREATE ON DATABASE %I TO %I', current_database(), current_user) AS grant_database,
        format('ALTER ROLE %I SET search_path = public', current_user) AS fix_search_path`
 
