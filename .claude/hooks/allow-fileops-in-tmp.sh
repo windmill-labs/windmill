@@ -244,7 +244,9 @@ check_fileops_segment() {
     [ -n "$seen_class" ] && [ "$cls" != "$seen_class" ] && defer "\`$t\` puts this $verb across two roots"
     seen_class="$cls"
     ops+=("${resolved#*$'\n'}")
-    case "$t" in /*) ;; *) rel_operand=1 ;; esac
+    # Against the expanded token, since `~/a` is cwd-independent and only reads as relative
+    # before `expand_home_prefix` has run.
+    case "$(expand_home_prefix "$t")" in /*) ;; *) rel_operand=1 ;; esac
     path_operand=1
   done
 

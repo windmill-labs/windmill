@@ -285,11 +285,14 @@ path_class() {
   # bound (10G here) and clearing one costs a re-download and nothing else. They sit outside
   # every checkout, where no other class reaches them. Matched including the root itself,
   # unlike the repo class, because wiping the whole directory is the point.
+  # Each root is named exactly and then again with `/*`, rather than one trailing `*`: a case
+  # pattern's `*` spans the `-` as well, which would put a sibling somebody created themselves —
+  # `ms-playwright-mcp-backup` — in a class that auto-allows deleting it.
   case "$canon" in
     "$HOME_ROOT"/Library/Caches/ms-playwright | "$HOME_ROOT"/Library/Caches/ms-playwright/* \
-      | "$HOME_ROOT"/Library/Caches/ms-playwright-mcp* \
+      | "$HOME_ROOT"/Library/Caches/ms-playwright-mcp | "$HOME_ROOT"/Library/Caches/ms-playwright-mcp/* \
       | "$HOME_ROOT"/.cache/ms-playwright | "$HOME_ROOT"/.cache/ms-playwright/* \
-      | "$HOME_ROOT"/.cache/ms-playwright-mcp*)
+      | "$HOME_ROOT"/.cache/ms-playwright-mcp | "$HOME_ROOT"/.cache/ms-playwright-mcp/*)
       printf 'mcp-cache'
       return 0
       ;;

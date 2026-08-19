@@ -62,7 +62,9 @@ run $G ask   "rm -rf /etc/passwd"
 # the one expansion the charset check tolerates — so the row that matters is the one proving the
 # prefix does not carry anything else along with it.
 run $G allow "rm -rf ~/Library/Caches/ms-playwright-mcp"
+run $G allow "rm -rf ~/.cache/ms-playwright-mcp"          # the Linux spelling of the same root
 run $G allow 'rm -rf $HOME/Library/Caches/ms-playwright-mcp/mcp-chrome-*'
+run $G ask   "rm -rf ~/.cache/ms-playwright-mcp-backup"   # a sibling, not the cache
 run $G ask   "rm -rf ~/not-a-git-tree"
 # The exclusion list is the whole protection for these paths — the `repo:` class allows deletes
 # everywhere else in a checkout — and macOS resolves `.GIT` to `.git`, so the fold is what keeps
@@ -183,6 +185,7 @@ run $A none  "cp $CWD/AGENTS.md /tmp/a"
 run $A none  "tar -xzf /tmp/a.tar.gz -C $OUT"
 run $A none  "cargo build"
 run $A ask   "chmod -R 777 $CWD/.GIT"
+run $A ask   "chmod -R 777 ~/Library/Caches/ms-playwright-mcp-backup"
 # The home prefix reaches this guard through `operand_class`, not the rm guard's own resolver.
 case "$CWD" in
   "$HOME"/*) run $A allow "mv ~${CWD#"$HOME"}/frontend/a.ts ~${CWD#"$HOME"}/frontend/b.ts" ;;
