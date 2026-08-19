@@ -224,7 +224,7 @@
 	const wizardEnabled = isDataTableWizardEnabled()
 	let wizardOpen = $state(false)
 	/** Opened through the wizard's own `open()`, which is what sets a fresh run up. */
-	let wizard: { open: () => void } | undefined = $state(undefined)
+	let wizard: { open: (parked?: WizardResume) => void } | undefined = $state(undefined)
 	let wizardResume: WizardResume | undefined = $state(undefined)
 
 	// Supabase sends the user back here after authorizing; pick the wizard back up where it
@@ -234,7 +234,9 @@
 		const parked = takeParkedWizard()
 		if (parked) {
 			wizardResume = parked
-			wizard?.open()
+			// Handed in, not left to the `resume` prop: the wizard rebuilds the run synchronously
+			// inside this call, and a parked run that arrived late would come back as a fresh one.
+			wizard?.open(parked)
 		}
 	})
 

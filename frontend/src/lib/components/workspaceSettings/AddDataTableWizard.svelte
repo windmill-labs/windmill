@@ -353,13 +353,13 @@
 			})
 	})
 
-	function reset() {
+	function reset(from: WizardResume | undefined) {
 		wiz = newWizardState({
-			name: resume?.name || defaultTableName(),
-			projectName: resume?.projectName || defaultProjectName(),
+			name: from?.name || defaultTableName(),
+			projectName: from?.projectName || defaultProjectName(),
 			folder: defaultFolder()
 		})
-		wiz.supabase.region = resume?.region ?? DEFAULT_SUPABASE_REGION
+		wiz.supabase.region = from?.region ?? DEFAULT_SUPABASE_REGION
 		run = { steps: [], running: false }
 		maxStep = 1
 		// What the last run claimed belongs to the data table it created; a fresh one has to
@@ -372,38 +372,39 @@
 		lastFailure = ''
 		pathTakenError = ''
 		poolerUnavailable = undefined
-		if (resume) {
+		if (from) {
 			wiz.provider = 'supabase'
 			// The clears above are for a fresh run. This one is the same run coming back from the
 			// redirect, so what it had already created is still its own to write over.
-			claims = claimsFromJSON(resume.claims)
-			createdProjects = resume.createdProjects ?? []
+			claims = claimsFromJSON(from.claims)
+			createdProjects = from.createdProjects ?? []
 			leftBehind = anythingClaimed(claims) || createdProjects.length > 0
 			// Which side of the toggle it was on, and the organization it was pointed at. Left to
 			// default, a run that died mid-create comes back asking for the password it generated.
-			if (resume.mode) wiz.supabase.mode = resume.mode
-			if (resume.org) wiz.supabase.org = resume.org
+			if (from.mode) wiz.supabase.mode = from.mode
+			if (from.org) wiz.supabase.org = from.org
 			// The password is deliberately not parked -- it is a secret and sessionStorage is not
 			// the place for one. Carrying the project is what stops the resume landing on a
 			// different database with an empty password field and no sign anything moved.
-			if (resume.project) wiz.supabase.project = resume.project
-			if (resume.connectionMode) wiz.supabase.connectionMode = resume.connectionMode
-			const cut = resume.resourcePath?.lastIndexOf('/') ?? -1
-			if (resume.resourcePath && cut > 0) {
-				wiz.review.folder = resume.resourcePath.slice(0, cut)
-				wiz.review.resourceName = resume.resourcePath.slice(cut + 1)
+			if (from.project) wiz.supabase.project = from.project
+			if (from.connectionMode) wiz.supabase.connectionMode = from.connectionMode
+			const cut = from.resourcePath?.lastIndexOf('/') ?? -1
+			if (from.resourcePath && cut > 0) {
+				wiz.review.folder = from.resourcePath.slice(0, cut)
+				wiz.review.resourceName = from.resourcePath.slice(cut + 1)
 			}
 			enterStep(2)
 		}
 	}
 
 	/**
-	 * Opened by the settings page. Reopening after the Supabase redirect drops the user back on
-	 * the setup step with what they had already chosen, so authorizing does not feel like
-	 * starting over.
+	 * Opened by the settings page. A run coming back from the Supabase redirect is handed in
+	 * rather than read off the `resume` prop: the caller has it, and taking it as an argument is
+	 * what keeps the restore independent of when the prop it was assigned to reaches this
+	 * component.
 	 */
-	export function open() {
-		reset()
+	export function open(parked?: WizardResume) {
+		reset(parked ?? resume)
 		opened = true
 	}
 

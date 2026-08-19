@@ -66,7 +66,7 @@ export function anythingClaimed(claims: Claims): boolean {
 
 /**
  * Carried across the full-page redirect the blocked-popup Supabase leg falls back to. No secret
- * travels: a mark is a username or a resource path.
+ * travels: a mark is a timestamp or a resource path.
  */
 export function claimsToJSON(claims: Claims): Claim[] {
 	return [...claims]

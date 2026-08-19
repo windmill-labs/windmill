@@ -24,9 +24,18 @@
 const CONNECTION_STRING =
 	/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>\[[^\]]+\]|[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?/
 
-/** Everything after the first `?`, which is where every query parameter lives. */
-function queryOf(connectionString: string): string {
-	return connectionString.split('?').slice(1).join('?')
+/**
+ * The query parameters, read the way libpq reads them: names are case-insensitive, and a name
+ * repeated takes its last value. One reader for both the parser and the allowlist below, or
+ * they disagree about what a string says — a name only one of them folds is refused by neither
+ * and honoured by neither.
+ */
+function paramsOf(connectionString: string): Map<string, string> {
+	const query = connectionString.split('?').slice(1).join('?')
+	const params = new Map<string, string>()
+	if (!query) return params
+	new URLSearchParams(query).forEach((value, name) => params.set(name.toLowerCase(), value))
+	return params
 }
 
 /**
@@ -63,8 +72,7 @@ export function parsePostgresConnectionString(
 	// By parameter name, never by searching the query text: `sslmode=` also occurs inside
 	// another parameter's *value*, and a substring match there reads someone's
 	// `application_name=sslmode=disable` as a request to turn TLS off.
-	const query = queryOf(connectionString)
-	const sslmode = query ? new URLSearchParams(query).get('sslmode') : null
+	const sslmode = paramsOf(connectionString).get('sslmode')
 	return {
 		user: decode(user),
 		password: password ? decode(password) : undefined,
@@ -92,15 +100,10 @@ const COSMETIC_PARAMS = ['application_name']
  * other than the one pasted, behind a probe that reports success.
  */
 export function unsupportedConnectionParam(connectionString: string): string | undefined {
-	const query = queryOf(connectionString)
-	if (!query) return undefined
-	let found: string | undefined = undefined
-	new URLSearchParams(query).forEach((_value, name) => {
-		const known = REPRESENTABLE_PARAMS.includes(name.toLowerCase())
-		const harmless = COSMETIC_PARAMS.includes(name.toLowerCase())
-		if (!found && !known && !harmless) found = name
-	})
-	return found
+	for (const name of paramsOf(connectionString).keys()) {
+		if (!REPRESENTABLE_PARAMS.includes(name) && !COSMETIC_PARAMS.includes(name)) return name
+	}
+	return undefined
 }
 
 /**

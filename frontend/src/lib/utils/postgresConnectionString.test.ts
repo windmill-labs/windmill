@@ -138,6 +138,26 @@ describe('unsupportedConnectionParam', () => {
 		expect(parsePostgresConnectionString(disguised)?.sslmode).toBeUndefined()
 	})
 
+	// libpq matches parameter names case-insensitively. Folding in one reader and not the other
+	// is what lets a name through the allowlist and past the parser, so the string is saved as
+	// whatever the default happens to be rather than what it asked for.
+	it('reads a parameter whatever its case', () => {
+		const shouted = 'postgres://u:p@h/db?SslMode=verify-full'
+		expect(unsupportedConnectionParam(shouted)).toBeUndefined()
+		expect(parsePostgresConnectionString(shouted)?.sslmode).toBe('verify-full')
+		expect(unsupportedConnectionParam('postgres://u:p@h/db?Connect_Timeout=1')).toBe(
+			'connect_timeout'
+		)
+	})
+
+	// libpq takes the last of a repeated parameter. Taking the first reads a weaker mode than
+	// the string actually asks for.
+	it('takes the last value of a repeated parameter', () => {
+		expect(
+			parsePostgresConnectionString('postgres://u:p@h/db?sslmode=disable&sslmode=require')?.sslmode
+		).toBe('require')
+	})
+
 	it('ignores the one it can store, and the ones that cost nothing', () => {
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?sslmode=require')).toBeUndefined()
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?application_name=wm')).toBeUndefined()

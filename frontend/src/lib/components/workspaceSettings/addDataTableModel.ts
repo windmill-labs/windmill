@@ -368,7 +368,7 @@ export type RunDeps = {
 	 * name or the path in between.
 	 */
 	claims: Claims
-	/** The mark written onto a secret or resource this run creates: `edited_by` / `created_by`. */
+	/** Stands in as the mark where the object was written but its timestamp could not be read back. */
 	username: string
 }
 
