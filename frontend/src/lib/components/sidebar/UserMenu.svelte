@@ -106,7 +106,7 @@
 
 		{#if isCloudHosted()}
 			<div class="border-t">
-				{#if !$isPremiumStore}
+				{#if $isPremiumStore === false}
 					<span class="text-secondary block w-full text-left px-4 py-2 text-xs">
 						{$usageStore}/1000 user execs
 						<Tooltip small>

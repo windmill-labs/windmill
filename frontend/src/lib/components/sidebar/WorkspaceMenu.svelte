@@ -423,7 +423,7 @@
 				</div>
 			{/if}
 		</div>
-		{#if isCloudHosted() && !$isPremiumStore && !strictWorkspaceSelect}
+		{#if isCloudHosted() && $isPremiumStore === false && !strictWorkspaceSelect}
 			<div class="py-1" role="none">
 				{#if $workspaceStore != 'demo'}
 					<span class="text-secondary block w-full text-left px-4 py-2 text-xs">

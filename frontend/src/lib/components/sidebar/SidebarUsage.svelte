@@ -7,9 +7,12 @@
 		isPremiumStore,
 		usageStore,
 		userStore,
+		userWorkspaces,
 		workspaceStore,
-		workspaceUsageStore
+		workspaceUsageStore,
+		type UserWorkspace
 	} from '$lib/stores'
+	import { findWorkspaceAncestors } from '$lib/utils/workspaceHierarchy'
 	import { Button } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
@@ -29,19 +32,36 @@
 	// configured, so it would leave regular members with no block at all.
 	let seats = $state<number | undefined>(undefined)
 
+	// A fork's usage, tier and bill all resolve to its billing root — the topmost
+	// parentless workspace — while its own member list is deliberately a subset of
+	// the root's. Counting fork members would meter root usage against a fork-sized
+	// cap and invent overages, so seats come from the root. When the root is not
+	// visible from here the cap is unknowable and the paid meter stays hidden.
+	function billingRoot(workspace: string, all: UserWorkspace[]): string | undefined {
+		const self = all.find((w) => w.id === workspace)
+		if (!self) return undefined
+		if (!self.parent_workspace_id) return workspace
+		const top = findWorkspaceAncestors(workspace, all).at(-1)
+		return top && !top.parent_workspace_id ? top.id : undefined
+	}
+
 	$effect(() => {
 		const workspace = $workspaceStore
 		const premium = $isPremiumStore
+		const all = $userWorkspaces
 		untrack(() => {
 			seats = undefined
 			if (!isCloudHosted() || !premium || !workspace) return
-			loadSeats(workspace)
+			const root = billingRoot(workspace, all ?? [])
+			if (root) loadSeats(workspace, root)
 		})
 	})
 
-	async function loadSeats(workspace: string) {
+	async function loadSeats(workspace: string, root: string) {
 		try {
-			const users = await UserService.listUsers({ workspace })
+			// Throws for a fork member with no seat in the root, which is the same
+			// answer as an unresolvable root: leave the paid meter hidden.
+			const users = await UserService.listUsers({ workspace: root })
 			// Nothing cancels the request for the workspace we left, so a slow response
 			// for it must not overwrite the one we are on — it would leave the cap wrong
 			// until the next switch.
@@ -51,7 +71,7 @@
 			// Billing-page seat math: 1 developer = 1 seat, 2 operators = 1 seat.
 			seats = Math.ceil(developers + operators / 2)
 		} catch (e) {
-			console.error('Could not compute workspace seats', e)
+			console.error('Could not compute billing-workspace seats', e)
 		}
 	}
 

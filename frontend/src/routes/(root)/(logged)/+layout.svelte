@@ -109,8 +109,9 @@
 
 	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
-	// Workspace whose premium tier `isPremiumStore` currently describes.
+	// Workspace the `isPremiumStore` / `workspaceUsageStore` values currently describe.
 	let premiumFetchedFor: string | undefined = undefined
+	let usageFetchedFor: string | undefined = undefined
 	let menuOpen = $state(false)
 	// Set by the workspace⇄session switch before it navigates, so the mobile menu
 	// drawer stays open across a mode toggle (unlike a normal link navigation,
@@ -293,6 +294,13 @@
 
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
+			// Before the first await: the tier describes a workspace, and SidebarUsage
+			// reacts to $workspaceStore the moment it changes. Leaving the old value in
+			// place for the length of the round-trip below renders the workspace we left.
+			if (premiumFetchedFor !== workspace) {
+				premiumFetchedFor = workspace
+				isPremiumStore.set(undefined)
+			}
 			// A preview iframe shares BOTH localStorage and sessionStorage with the
 			// top-level app (same-origin nested browsing contexts share the top-level
 			// session storage). Persisting its session-scoped workspace to either would
@@ -334,13 +342,6 @@
 			// affordances like the fork entry points on cloud. The `is_premium` endpoint is a boolean
 			// and no longer admin-gated. Best-effort: a failure here must not block user-store init.
 			if (isCloudHosted()) {
-				// Clear before fetching a different workspace's tier, and drop a superseded
-				// response, for the same reason the user store above does: a consumer that
-				// renders a number from the tier would otherwise show the workspace we left.
-				if (premiumFetchedFor !== workspace) {
-					premiumFetchedFor = workspace
-					isPremiumStore.set(undefined)
-				}
 				try {
 					const premium = await WorkspaceService.getIsPremium({ workspace })
 					if ($workspaceStore === workspace) {
@@ -482,12 +483,22 @@
 	}
 
 	async function loadUsage() {
-		if (isCloudHosted() && $workspaceStore) {
-			$usageStore = await UserService.getUsage()
-			$workspaceUsageStore = await WorkspaceService.getWorkspaceUsage({
-				workspace: $workspaceStore!
-			})
+		const workspace = $workspaceStore
+		if (!isCloudHosted() || !workspace) return
+		// Usage belongs to a workspace the same way the tier does, and the meter reads
+		// it as a headline number: clear it for a new workspace, and drop a response
+		// that lost the race to the one for the workspace we are on now.
+		if (usageFetchedFor !== workspace) {
+			usageFetchedFor = workspace
+			$workspaceUsageStore = 0
 		}
+		const [userUsage, workspaceUsage] = await Promise.all([
+			UserService.getUsage(),
+			WorkspaceService.getWorkspaceUsage({ workspace })
+		])
+		if ($workspaceStore !== workspace) return
+		$usageStore = userUsage
+		$workspaceUsageStore = workspaceUsage
 	}
 
 	async function loadHubBaseUrl() {

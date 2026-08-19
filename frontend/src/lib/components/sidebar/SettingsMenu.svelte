@@ -233,7 +233,7 @@
 					icon: Settings,
 					action: () => goto(USER_SETTINGS_HASH)
 				},
-				...(cloudHosted && !$isPremiumStore
+				...(cloudHosted && $isPremiumStore === false
 					? [
 							{
 								displayName: `${$usageStore}/1000 user execs`,
