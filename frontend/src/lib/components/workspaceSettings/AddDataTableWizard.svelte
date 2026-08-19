@@ -184,7 +184,15 @@
 		return list.length ? `f/${list[0]}` : `u/${$userStore?.username ?? 'admin'}`
 	}
 
-	let nameError = $derived(datatableNameError(wiz.review.name, existingNames))
+	// A row this run wrote and could not take back out is still its own: `removeRow` reports
+	// `kept` when the undo cannot reach the server, and counting that name as taken refuses the
+	// retry on the one name the user has every right to reuse.
+	let nameError = $derived(
+		datatableNameError(
+			wiz.review.name,
+			existingNames.filter((n) => n !== claimedName)
+		)
+	)
 	// Every database on the instance, not just the data table ones: the name has to be free
 	// in PostgreSQL, and a collision with a database created for something else still fails.
 	let instanceNameError = $derived(
