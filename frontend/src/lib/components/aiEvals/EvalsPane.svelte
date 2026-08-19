@@ -953,6 +953,13 @@
 											<div class="text-xs text-secondary break-words">
 												<GfmMarkdown md={openRow.output} noPadding />
 											</div>
+										{:else if openRow.status === 'running'}
+											<!-- A wait, not an answer: the word alone sat exactly where the answer goes
+											     and read as one. -->
+											<span class="text-xs text-tertiary inline-flex items-center gap-1.5">
+												<Loader2 size={12} class="animate-spin text-blue-500" />
+												Running
+											</span>
 										{:else}
 											<span class="text-xs text-tertiary">{statusOf(openRow.status).label}</span>
 										{/if}

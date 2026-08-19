@@ -3719,6 +3719,44 @@ async fn read_verdict(
     })
 }
 
+/// The score and reason read straight out of text that failed to parse as JSON. Deliberately not a
+/// second JSON parser: it looks for the two keys and takes what follows, which is what survives a
+/// model writing an unescaped quote in the middle of a sentence.
+fn salvage_verdict(text: &str) -> (Option<f64>, Option<String>, Option<serde_json::Value>) {
+    fn after_key<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+        let start = text.find(key)? + key.len();
+        Some(text[start..].trim_start().strip_prefix(':')?.trim_start())
+    }
+
+    let score = after_key(text, "\"score\"").and_then(|rest| {
+        if rest.starts_with("true") {
+            return Some(1.0);
+        }
+        if rest.starts_with("false") {
+            return Some(0.0);
+        }
+        let end = rest
+            .find(|c: char| !matches!(c, '0'..='9' | '.' | '-' | '+' | 'e' | 'E'))
+            .unwrap_or(rest.len());
+        rest[..end].parse::<f64>().ok()
+    });
+
+    // To the last quote of the object, so an unescaped one inside the sentence stays part of it.
+    let reason = after_key(text, "\"reason\"")
+        .and_then(|rest| rest.strip_prefix('"'))
+        .and_then(|rest| {
+            let body = match rest.rfind('}') {
+                Some(brace) => &rest[..brace],
+                None => rest,
+            };
+            let end = body.rfind('"')?;
+            Some(body[..end].to_string())
+        })
+        .filter(|reason| !reason.is_empty());
+
+    (score, reason, None)
+}
+
 /// A scorer may return a bare number, a boolean, or `{score, reason, checks}`; an agent wraps its
 /// answer in `output`, sometimes as a string holding any of those. Anything with no number in it
 /// is left empty rather than guessed at.
@@ -3755,11 +3793,17 @@ fn extract_verdict(value: &RawValue) -> (Option<f64>, Option<String>, Option<ser
         // when told to reply with JSON only. Both are the model doing what it was asked; refusing
         // to read them is what turns a good verdict into "no number to plot".
         if let serde_json::Value::String(text) = &parsed {
-            if let Ok(inner) = serde_json::from_str::<serde_json::Value>(unfence(text)) {
+            let text = unfence(text);
+            if let Ok(inner) = serde_json::from_str::<serde_json::Value>(text) {
                 if let Ok(raw) = serde_json::value::to_raw_value(&inner) {
                     return extract_verdict(&raw);
                 }
             }
+            // Nearly JSON: a judge that quotes the agent inside its own reason writes those quotes
+            // unescaped, which is invalid and is also the most ordinary thing for it to say. The
+            // number is what the column plots, so it is read out of the text rather than lost with
+            // the object around it.
+            return salvage_verdict(text);
         }
         return (None, None, None);
     };
@@ -4735,6 +4779,17 @@ mod tests {
             Some(0.15)
         );
         assert_eq!(score("{\"output\": \"```\\n0.6\\n```\"}"), Some(0.6));
+
+        // A judge quoting the agent inside its own reason, which is invalid JSON and the most
+        // ordinary sentence for it to write. The number is what the column plots, so it survives.
+        let quoted = extract_verdict(&raw(
+            r#"{"output": "{\"score\": 0.8, \"reason\": \"invented context (\"stop asking me\", never said) here\"}"}"#,
+        ));
+        assert_eq!(quoted.0, Some(0.8));
+        assert_eq!(
+            quoted.1.as_deref(),
+            Some(r#"invented context ("stop asking me", never said) here"#)
+        );
 
         // nothing numeric to plot: left empty rather than guessed at
         assert_eq!(score(r#"{"output": "not a score"}"#), None);
