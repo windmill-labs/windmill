@@ -1,6 +1,7 @@
 import { resource } from 'runed'
 import { UserService, WorkspaceService } from '$lib/gen'
 import { isCloudHosted } from '$lib/cloud'
+import { scopedValue } from '$lib/utils/scopedValue'
 import {
 	isPremiumStore,
 	premiumFetchFailed,
@@ -10,28 +11,23 @@ import {
 } from '$lib/stores'
 
 /**
- * The cloud execution counters and the workspace's plan tier, as `resource`s owned by
- * the root layout.
- *
- * These are per-workspace values published into app-wide stores, so every read site
- * would otherwise have to answer "does this still describe the workspace I'm rendering?"
- * on its own. `resource` answers the ordering half — it discards a superseded fetch and
- * exposes `loading`/`error` as states rather than in-band values — and each value is
- * tagged with the workspace it was fetched for, so the single publish site below can
- * assert the other half. Call once, at layout init.
+ * The cloud execution counters and the workspace's plan tier. Call once, at layout init:
+ * these are app-wide values, and the logged-in layout outlives every in-app navigation.
  */
 export function createUsageResources(args: {
 	workspace: () => string | undefined
 	user: () => UserExt | undefined
 }) {
-	// Both counters and the tier are cloud-only, and all three need an authenticated
-	// membership: key on the user being loaded *for this workspace*, so a switch can't
-	// fire them against the workspace we left.
+	// All three need an authenticated membership, so they key on the user being loaded
+	// *for this workspace* — a switch must not fire them against the workspace we left.
 	const readyWorkspace = () => {
 		const workspace = args.workspace()
 		if (!isCloudHosted() || !workspace) return undefined
 		return args.user()?.workspace_id === workspace ? workspace : undefined
 	}
+	// The user counter is account-wide, so its key is the account: a workspace switch
+	// is not a change of key and must not re-fetch or clear it.
+	const readyUser = () => (isCloudHosted() ? args.user()?.email : undefined)
 
 	// `Number(...)`: both usage endpoints serve text/plain, so the client hands back a
 	// string despite the generated `number` type. Interpolation and arithmetic coerce
@@ -39,46 +35,43 @@ export function createUsageResources(args: {
 	// separator would silently go missing above 999.
 	const workspaceExecutions = resource(readyWorkspace, async (workspace) =>
 		workspace
-			? {
-					workspace,
-					value: Number(await WorkspaceService.getWorkspaceUsage({ workspace }))
-				}
+			? { key: workspace, value: Number(await WorkspaceService.getWorkspaceUsage({ workspace })) }
 			: undefined
 	)
 
-	// Account-wide rather than per-workspace, so it survives a switch; still keyed on
-	// the workspace being ready, since that is when the session is usable.
-	const userExecutions = resource(readyWorkspace, async (workspace) =>
-		workspace ? Number(await UserService.getUsage()) : undefined
+	const userExecutions = resource(readyUser, async (email) =>
+		email ? { key: email, value: Number(await UserService.getUsage()) } : undefined
 	)
 
 	const premium = resource(readyWorkspace, async (workspace) =>
-		workspace ? { workspace, value: await WorkspaceService.getIsPremium({ workspace }) } : undefined
+		workspace
+			? { key: workspace, value: await WorkspaceService.getIsPremium({ workspace }) }
+			: undefined
 	)
 
-	// The one place any of this reaches the stores. A value is published only when it is
-	// still tagged with the active workspace, and `undefined` while loading or after a
-	// failure — never a stand-in like `0` or `false`, both of which are legal values a
-	// consumer would render as real.
+	const scopedWorkspaceExecutions = scopedValue<number>()
+	const scopedUserExecutions = scopedValue<number>()
+	const scopedPremium = scopedValue<boolean>()
+
+	// The only place any of this reaches a store. `undefined` until a value for the
+	// active scope has arrived — never a stand-in like `0` or `false`, both of which are
+	// legal values a consumer would render as real.
 	$effect(() => {
-		const workspace = args.workspace()
-		const current = workspaceExecutions.current
-		const live = !workspaceExecutions.loading && current && current.workspace === workspace
-		workspaceUsageStore.set(live ? current.value : undefined)
+		workspaceUsageStore.set(
+			scopedWorkspaceExecutions(args.workspace(), workspaceExecutions.current)
+		)
 	})
 
 	$effect(() => {
-		usageStore.set(userExecutions.loading ? undefined : userExecutions.current)
+		usageStore.set(scopedUserExecutions(args.user()?.email, userExecutions.current))
 	})
 
 	$effect(() => {
-		const workspace = args.workspace()
-		const current = premium.current
-		const live = !premium.loading && !premium.error && current && current.workspace === workspace
-		isPremiumStore.set(live ? current.value : undefined)
-		// Distinguishable from "still loading", which is what lets affordances hold
-		// through the pending window and still fail closed once the fetch has failed.
-		premiumFetchFailed.set(!!premium.error)
+		const tier = scopedPremium(args.workspace(), premium.current)
+		isPremiumStore.set(tier)
+		// Only a failure that left us with no tier for this workspace counts: a late
+		// rejection for a workspace we left must not retract affordances here.
+		premiumFetchFailed.set(!!premium.error && tier === undefined)
 	})
 
 	return {

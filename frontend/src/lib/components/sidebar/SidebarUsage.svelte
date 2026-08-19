@@ -14,6 +14,7 @@
 		type UserWorkspace
 	} from '$lib/stores'
 	import { refreshExecutions } from '$lib/usage.svelte'
+	import { scopedValue } from '$lib/utils/scopedValue'
 	import { findWorkspaceAncestors } from '$lib/utils/workspaceHierarchy'
 	import { Button } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
@@ -49,13 +50,15 @@
 	// membership version that moves when someone is added, removed or reassigned — so
 	// a change re-resolves it and a superseded response is discarded rather than
 	// racing the current one.
+	const billingRootId = $derived.by(() => {
+		const workspace = $workspaceStore
+		if (!isCloudHosted() || !$isPremiumStore || !workspace) return undefined
+		return billingRoot(workspace, $userWorkspaces ?? [])
+	})
+
 	const seatsResource = resource(
-		() => {
-			const workspace = $workspaceStore
-			if (!isCloudHosted() || !$isPremiumStore || !workspace) return undefined
-			const root = billingRoot(workspace, $userWorkspaces ?? [])
-			return root ? { root, version: $workspaceMembershipVersion } : undefined
-		},
+		() =>
+			billingRootId ? { root: billingRootId, version: $workspaceMembershipVersion } : undefined,
 		async (key) => {
 			if (!key) return undefined
 			const { root } = key
@@ -68,12 +71,14 @@
 			const billable = users.filter((u) => !u.disabled && !u.is_service_account)
 			const developers = billable.filter((u) => !u.operator).length
 			const operators = billable.length - developers
-			return Math.ceil(developers + operators / 2)
+			return { key: root, value: Math.ceil(developers + operators / 2) }
 		}
 	)
 
-	// Never a stale count from the workspace we left: `loading` is the reset.
-	const seats = $derived(seatsResource.loading ? undefined : seatsResource.current)
+	// Tagged with the root it counted, so a late answer for another workspace neither
+	// replaces this cap nor blanks it, and a re-read keeps the bar on screen meanwhile.
+	const scopedSeats = scopedValue<number>()
+	const seats = $derived(scopedSeats(billingRootId, seatsResource.current))
 
 	type Quota = {
 		key: string
