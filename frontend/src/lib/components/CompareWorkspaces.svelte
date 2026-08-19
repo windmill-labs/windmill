@@ -982,7 +982,7 @@
 
 	// Can the user actually deploy into the target workspace? Shared with the session
 	// review drawer via the same checkDeployPermission util. Cached per workspace;
-	// `deployPerm` tracks whichever side the current direction targets.
+	// `workspaceDeployPerm` tracks whichever side the current direction targets.
 	let deployPerms = $state<Record<string, DeployPermission>>({})
 	const deployPermFetched = new Set<string>()
 	$effect(() => {
