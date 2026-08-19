@@ -90,7 +90,10 @@ export const workspaceStore = writable<string | undefined>(
 )
 export const defaultScripts = writable<WorkspaceDefaultScripts | undefined>(undefined)
 export const dbClockDrift = writable<number | undefined>(undefined)
-export const isPremiumStore = writable<boolean>(false)
+// `undefined` until the active workspace's tier is known — a tier belongs to a
+// workspace, so consumers rendering a number from it must not read the previous
+// one's value across a switch. Truthiness checks read it exactly like `false`.
+export const isPremiumStore = writable<boolean | undefined>(undefined)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)

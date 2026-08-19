@@ -42,6 +42,10 @@
 	async function loadSeats(workspace: string) {
 		try {
 			const users = await UserService.listUsers({ workspace })
+			// Nothing cancels the request for the workspace we left, so a slow response
+			// for it must not overwrite the one we are on — it would leave the cap wrong
+			// until the next switch.
+			if ($workspaceStore !== workspace) return
 			const developers = users.filter((u) => !u.operator).length
 			const operators = users.length - developers
 			// Billing-page seat math: 1 developer = 1 seat, 2 operators = 1 seat.
@@ -64,42 +68,44 @@
 	// Free tier: two caps apply at once and either one stops jobs on its own. Paid:
 	// one soft cap, the executions the workspace's seats already include.
 	const quotas = $derived<Quota[]>(
-		$isPremiumStore
-			? seats
-				? [
+		$isPremiumStore === undefined
+			? []
+			: $isPremiumStore
+				? seats
+					? [
+							{
+								key: 'workspace',
+								label: 'Workspace executions',
+								short: 'Workspace execs',
+								used: $workspaceUsageStore,
+								cap: seats * SEAT_EXECUTION_QUOTA,
+								hard: false
+							}
+						]
+					: []
+				: [
 						{
-							key: 'workspace',
-							label: 'Workspace executions',
-							short: 'Workspace execs',
-							used: $workspaceUsageStore,
-							cap: seats * SEAT_EXECUTION_QUOTA,
-							hard: false
-						}
+							key: 'user',
+							label: 'Your executions',
+							short: 'Your execs',
+							used: $usageStore,
+							cap: FREE_EXECUTION_QUOTA,
+							hard: true
+						},
+						// The demo workspace has no workspace-level quota.
+						...($workspaceStore !== 'demo'
+							? [
+									{
+										key: 'workspace',
+										label: 'Workspace executions',
+										short: 'Workspace execs',
+										used: $workspaceUsageStore,
+										cap: FREE_EXECUTION_QUOTA,
+										hard: true
+									}
+								]
+							: [])
 					]
-				: []
-			: [
-					{
-						key: 'user',
-						label: 'Your executions',
-						short: 'Your execs',
-						used: $usageStore,
-						cap: FREE_EXECUTION_QUOTA,
-						hard: true
-					},
-					// The demo workspace has no workspace-level quota.
-					...($workspaceStore !== 'demo'
-						? [
-								{
-									key: 'workspace',
-									label: 'Workspace executions',
-									short: 'Workspace execs',
-									used: $workspaceUsageStore,
-									cap: FREE_EXECUTION_QUOTA,
-									hard: true
-								}
-							]
-						: [])
-				]
 	)
 
 	const tightest = $derived(
@@ -164,7 +170,7 @@
 {/snippet}
 
 {#if isCloudHosted() && tightest}
-	<div class="px-2 pb-2">
+	<div class="px-2 pt-2 pb-2">
 		<Tooltip placement="right" class="w-full">
 			{#snippet text()}
 				{tightest.label} this month: {fmt(tightest.used)}/{fmt(tightest.cap)}.
@@ -175,6 +181,7 @@
 					? 'justify-center'
 					: 'flex-col gap-1'}"
 				onclick={() => (open = true)}
+				aria-label="{tightest.label} this month: {fmt(tightest.used)} of {fmt(tightest.cap)}"
 			>
 				{#if isCollapsed}
 					{@render ring(tightest)}
@@ -197,7 +204,9 @@
 				<div class="flex flex-col gap-1.5">
 					<div class="flex items-baseline justify-between gap-2">
 						<span class="text-sm text-emphasis">{quota.label}</span>
-						<span class="text-sm text-secondary tabular-nums">{fmt(quota.used)}/{fmt(quota.cap)}</span>
+						<span class="text-sm text-secondary tabular-nums"
+							>{fmt(quota.used)}/{fmt(quota.cap)}</span
+						>
 					</div>
 					{@render bar(quota)}
 				</div>
@@ -214,8 +223,8 @@
 				</p>
 			{:else}
 				<p class="text-xs text-secondary">
-					Either quota reaching {fmt(FREE_EXECUTION_QUOTA)} stops jobs from running for the rest of the month.
-					Team and Enterprise plans lift both limits.
+					Either quota reaching {fmt(FREE_EXECUTION_QUOTA)} stops jobs from running for the rest of the
+					month. Team and Enterprise plans lift both limits.
 					{#if !$userStore?.is_admin}
 						Ask a workspace admin to change the plan.
 					{/if}

@@ -109,6 +109,8 @@
 
 	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
+	// Workspace whose premium tier `isPremiumStore` currently describes.
+	let premiumFetchedFor: string | undefined = undefined
 	let menuOpen = $state(false)
 	// Set by the workspace⇄session switch before it navigates, so the mobile menu
 	// drawer stays open across a mode toggle (unlike a normal link navigation,
@@ -332,8 +334,18 @@
 			// affordances like the fork entry points on cloud. The `is_premium` endpoint is a boolean
 			// and no longer admin-gated. Best-effort: a failure here must not block user-store init.
 			if (isCloudHosted()) {
+				// Clear before fetching a different workspace's tier, and drop a superseded
+				// response, for the same reason the user store above does: a consumer that
+				// renders a number from the tier would otherwise show the workspace we left.
+				if (premiumFetchedFor !== workspace) {
+					premiumFetchedFor = workspace
+					isPremiumStore.set(undefined)
+				}
 				try {
-					isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
+					const premium = await WorkspaceService.getIsPremium({ workspace })
+					if ($workspaceStore === workspace) {
+						isPremiumStore.set(premium)
+					}
 				} catch (e) {
 					console.error('Could not fetch premium status', e)
 				}
@@ -1091,11 +1103,11 @@
 										</SidebarScrollArea>
 									{/if}
 
-									<div class="w-52 pt-2">
+									<div class="w-52">
 										<SidebarUsage isCollapsed={false} />
 									</div>
 
-									<div class="px-4 pb-3.5 w-52">
+									<div class="px-4 pt-3 pb-3.5 w-52">
 										{@render brandMark(false)}
 									</div>
 								</div>
@@ -1229,12 +1241,12 @@
 								</SidebarScrollArea>
 							{/if}
 
-							<div class="flex-shrink-0 pt-2">
+							<div class="flex-shrink-0">
 								<SidebarUsage {isCollapsed} />
 							</div>
 
 							<div
-								class="flex-shrink-0 flex pb-3.5 {isCollapsed
+								class="flex-shrink-0 flex pt-3 pb-3.5 {isCollapsed
 									? 'flex-col items-center gap-3'
 									: 'items-center justify-between px-4'}"
 							>
