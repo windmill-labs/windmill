@@ -27,8 +27,6 @@
 		isPremiumStore,
 		premiumFetchFailed,
 		superadmin,
-		usageStore,
-		workspaceUsageStore,
 		userStore,
 		workspaceStore,
 		userWorkspaces,
@@ -74,6 +72,7 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
+	import { refreshUsage } from '$lib/usage'
 	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
@@ -110,9 +109,8 @@
 
 	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
-	// Workspace the `isPremiumStore` / `workspaceUsageStore` values currently describe.
+	// Workspace the `isPremiumStore` value currently describes.
 	let premiumFetchedFor: string | undefined = undefined
-	let usageFetchedFor: string | undefined = undefined
 	let menuOpen = $state(false)
 	// Set by the workspace⇄session switch before it navigates, so the mobile menu
 	// drawer stays open across a mode toggle (unlike a normal link navigation,
@@ -481,43 +479,12 @@
 
 	function onLoad() {
 		loadFavorites()
-		loadUsage()
+		refreshUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
 		loadWsBaseUrl()
 		loadDisableHub()
 		loadUsedTriggerKinds()
-	}
-
-	async function loadUsage() {
-		const workspace = $workspaceStore
-		if (!isCloudHosted() || !workspace) return
-		// Workspace usage belongs to a workspace the way the tier does: clear it for a
-		// new one, and drop a response that lost the race. User usage is account-wide,
-		// so it survives the switch. Each is assigned on its own so one endpoint
-		// failing leaves the other's number intact rather than unresolved.
-		if (usageFetchedFor !== workspace) {
-			usageFetchedFor = workspace
-			$workspaceUsageStore = undefined
-		}
-		// `Number(...)`: both usage endpoints serve text/plain, so the client hands back
-		// a string despite the generated `number` type. Interpolation and arithmetic
-		// coerce it, but `toLocaleString` on a string returns it unchanged — the
-		// thousands separator would silently go missing above 999.
-		await Promise.all([
-			UserService.getUsage()
-				.then((usage) => {
-					$usageStore = Number(usage)
-				})
-				.catch((e) => console.error('Could not fetch user usage', e)),
-			WorkspaceService.getWorkspaceUsage({ workspace })
-				.then((usage) => {
-					if ($workspaceStore === workspace) {
-						$workspaceUsageStore = Number(usage)
-					}
-				})
-				.catch((e) => console.error('Could not fetch workspace usage', e))
-		])
 	}
 
 	async function loadHubBaseUrl() {

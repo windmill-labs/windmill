@@ -19,7 +19,8 @@
 		workspaceStore,
 		superadmin,
 		globalEmailInvite,
-		enterpriseLicense
+		enterpriseLicense,
+		workspaceMembershipVersion
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { Loader2, Mails, Search, Plus, UserMinus, X, Bot, LogIn } from 'lucide-svelte'
@@ -147,6 +148,9 @@
 
 	async function listUsers(): Promise<void> {
 		users = await UserService.listUsers({ workspace: $workspaceStore! })
+		// Every membership mutation on this page refetches through here; the bump is what
+		// lets seat-derived numbers elsewhere re-resolve instead of showing a stale cap.
+		$workspaceMembershipVersion++
 	}
 
 	async function listInvites(): Promise<void> {

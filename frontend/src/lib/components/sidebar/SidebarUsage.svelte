@@ -8,10 +8,12 @@
 		usageStore,
 		userStore,
 		userWorkspaces,
+		workspaceMembershipVersion,
 		workspaceStore,
 		workspaceUsageStore,
 		type UserWorkspace
 	} from '$lib/stores'
+	import { refreshUsage } from '$lib/usage'
 	import { findWorkspaceAncestors } from '$lib/utils/workspaceHierarchy'
 	import { Button } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
@@ -57,9 +59,13 @@
 		})
 	})
 
-	// Membership changes elsewhere don't notify this component, so the cap can lag an
-	// added member. Re-resolve when the modal opens, which is when the number is being
-	// read rather than glanced at; without clearing `seats`, so the bar doesn't blank.
+	// Seats move when membership does, and `workspaceMembershipVersion` is the signal
+	// for that. Re-resolves without clearing `seats`, so the bar doesn't blank.
+	$effect(() => {
+		$workspaceMembershipVersion
+		untrack(() => refreshSeats())
+	})
+
 	function refreshSeats() {
 		const workspace = $workspaceStore
 		if (!isCloudHosted() || !$isPremiumStore || !workspace) return
@@ -218,6 +224,9 @@
 					: 'flex-col gap-1'}"
 				onclick={() => {
 					open = true
+					// Executions accrue continuously, and the layout only reads them on a
+					// workspace change: refresh the numerator too, not just the cap.
+					refreshUsage()
 					refreshSeats()
 				}}
 				aria-label="{tightest.label} this month: {fmt(tightest.used)} of {fmt(tightest.cap)}"
