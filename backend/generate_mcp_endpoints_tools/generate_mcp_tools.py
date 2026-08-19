@@ -147,7 +147,16 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                 else:
                     # Log warning when a required field is missing from schema properties
                     print(f"Warning: Required field '{field}' not found in body schema properties", file=sys.stderr)
-    
+
+        # An operation declaring `requestBody: required: true` cannot be called without a
+        # body: axum's Json extractor rejects the bodyless request with 415 before the
+        # handler runs. Carry that over so the MCP layer can refuse a call whose arguments
+        # produce no body instead of dispatching one that cannot succeed. A pass-through
+        # body (no declared properties, e.g. runScriptByPath) is excluded: `{}` is a valid
+        # body there, for a runnable that takes no arguments.
+        if body_schema and request_body.get('required') and body_schema.get('properties'):
+            body_schema['minProperties'] = 1
+
     # Sanitize empty schemas for JSON Schema draft 2020-12 compliance
     path_params_schema = sanitize_empty_schemas(path_params_schema)
     query_params_schema = sanitize_empty_schemas(query_params_schema)
