@@ -68,8 +68,12 @@
 
 	async function loadPremiumInfo() {
 		const info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
-		const developerNb = users?.filter((x) => !x.operator)?.length ?? 0
-		const operatorNb = users?.filter((x) => x.operator)?.length ?? 0
+		// Same basis as the backend's `count_paid_seats`: disabled members and service
+		// accounts are not billed, so counting them overstates the seats shown here
+		// against the seats actually charged.
+		const billable = users?.filter((x) => !x.disabled && !x.is_service_account) ?? []
+		const developerNb = billable.filter((x) => !x.operator).length
+		const operatorNb = billable.length - developerNb
 		const usage = info.usage ?? 0
 
 		const seatsFromUsers = Math.ceil(developerNb + operatorNb / 2)

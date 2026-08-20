@@ -14,6 +14,7 @@
 		type UserWorkspace
 	} from '$lib/stores'
 	import { refreshExecutions } from '$lib/usage.svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { scopedValue, tagged } from '$lib/utils/scopedValue'
 	import { findWorkspaceAncestors } from '$lib/utils/workspaceHierarchy'
 	import { Button } from '$lib/components/common'
@@ -75,8 +76,14 @@
 	const scopedSeats = scopedValue<number>()
 	const seats = $derived(scopedSeats(billingRootId, seatsResource.current))
 
+	type QuotaKey = 'user' | 'workspace'
+
+	/** Every key the meter can report, so the whole vocabulary is readable here. A paid
+	workspace has no per-user quota, so `paid:user` does not exist. */
+	type UsageMeterKey = `free:${QuotaKey}` | 'paid:workspace'
+
 	type Quota = {
-		key: string
+		key: QuotaKey
 		label: string
 		short: string
 		used: number
@@ -96,7 +103,7 @@
 				? seats !== undefined && $workspaceUsageStore !== undefined
 					? [
 							{
-								key: 'workspace',
+								key: 'workspace' as const,
 								label: 'Workspace executions',
 								short: 'Workspace execs',
 								used: $workspaceUsageStore,
@@ -109,7 +116,7 @@
 						...($usageStore !== undefined
 							? [
 									{
-										key: 'user',
+										key: 'user' as const,
 										label: 'Your executions',
 										short: 'Your execs',
 										used: $usageStore,
@@ -122,7 +129,7 @@
 						...($workspaceStore !== 'demo' && $workspaceUsageStore !== undefined
 							? [
 									{
-										key: 'workspace',
+										key: 'workspace' as const,
 										label: 'Workspace executions',
 										short: 'Workspace execs',
 										used: $workspaceUsageStore,
@@ -209,6 +216,8 @@
 					: 'flex-col gap-1'}"
 				onclick={() => {
 					open = true
+					const key: UsageMeterKey = $isPremiumStore ? 'paid:workspace' : `free:${tightest.key}`
+					logFeatureUsage('usage_meter', 'opened', { key })
 					// Executions accrue continuously and seats move with membership; both
 					// are read here rather than glanced at, so re-read both.
 					refreshExecutions()
