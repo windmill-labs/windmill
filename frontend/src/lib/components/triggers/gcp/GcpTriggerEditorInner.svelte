@@ -83,6 +83,12 @@
 	let retry: Retry | undefined = $state()
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
+	/** The credential mode the deployed trigger is in, as opposed to the one currently selected in
+	 * the form. A non-admin may keep a trigger that already uses the instance's credentials, but
+	 * may not move one onto them, so the permission has to key off this rather than the live mode. */
+	let loadedUsesDefaultCredentials = $derived(
+		originalConfig ? originalConfig.gcp_resource_path == null : false
+	)
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -537,6 +543,7 @@
 				bind:isValid
 				bind:gcp_resource_path
 				bind:use_default_credentials
+				loaded_uses_default_credentials={loadedUsesDefaultCredentials}
 				bind:project_id
 				bind:subscription_id
 				bind:delivery_type

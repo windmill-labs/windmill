@@ -103,6 +103,8 @@
 		gcp_resource_path?: string | undefined
 		/** Authenticate as the server itself instead of with a `gcloud` resource. */
 		use_default_credentials?: boolean
+		/** Whether the config was *loaded* in that mode, as opposed to switched into it here. */
+		loaded_uses_default_credentials?: boolean
 		project_id?: string
 		subscription_id?: string
 		topic_id?: string
@@ -124,6 +126,7 @@
 		isValid = $bindable(false),
 		gcp_resource_path = $bindable(),
 		use_default_credentials = $bindable(),
+		loaded_uses_default_credentials = false,
 		project_id = $bindable(),
 		subscription_id = $bindable(''),
 		topic_id = $bindable(''),
@@ -144,7 +147,11 @@
 	 * building a config that cannot be saved. Someone who inherits such a trigger still sees the
 	 * mode it is in. */
 	const usesDefaultCredentials = $derived(use_default_credentials ?? false)
-	const canUseDefaultCredentials = $derived($userStore?.is_admin === true || usesDefaultCredentials)
+	// Keyed on the loaded mode, not the live one: reading the live mode would make the toggle a
+	// one-way door, disabling itself the moment a non-admin switched an inherited ADC trigger away.
+	const canUseDefaultCredentials = $derived(
+		$userStore?.is_admin === true || loaded_uses_default_credentials
+	)
 	const hasCredentials = $derived(usesDefaultCredentials || !emptyStringTrimmed(gcp_resource_path))
 	/** Saving re-provisions the subscription with the instance's credentials, so the backend runs
 	 * the admin check on every write, not only when the mode is switched. A non-admin who inherits
@@ -264,7 +271,7 @@
 							<!-- `|| undefined` so clearing the field means "unset" rather than an empty
 							     string that would travel as `?project_id=` and dirty the config. -->
 							<TextInput
-								bind:value={() => project_id ?? '', (v) => (project_id = v || undefined)}
+								bind:value={() => project_id ?? '', (v) => (project_id = emptyStringTrimmed(v) ? undefined : v)}
 								inputProps={{
 									placeholder: 'my-gcp-project',
 									disabled: !can_write,
