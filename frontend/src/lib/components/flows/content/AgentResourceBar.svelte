@@ -445,12 +445,19 @@
 		// `tools` is one array per module value, so it identifies the step itself — the path alone
 		// would not, since a replacement can carry the same link.
 		const stepMarker = tools
+		const draftKey = { workspace: ws, itemKind: 'resource' as const, path }
 		if (resumeDraft) {
-			// A write the server refused stays parked for a retry, and this read is what makes that
-			// retry wrong: it reseeds `last_sync` from the copy it is about to open on, which is the
-			// stamp that would let a later flush put the refused value over the draft that won.
-			// Dropped before the read rather than after, so the debounce cannot fire mid-flight.
-			UserDraftDbSyncer.dropPending({ workspace: ws, itemKind: 'resource', path })
+			// A write can still be queued here: Cancel leaves the debounce running, which is what
+			// makes "Cancel keeps your work" true, and reopening within it must not lose the last
+			// edit. Sent before the read, so the read returns it, and while `last_sync` is still the
+			// one it was written against — the server judges it on its own baseline, landing an edit
+			// made a moment ago and refusing again one it has already refused. Only a write that
+			// survives that is left parked, and the read below is what earns the right to drop it.
+			try {
+				await UserDraftDbSyncer.flush(draftKey)
+			} catch {
+				// Reported by the card's own failure alert; all that matters here is it did not land.
+			}
 		}
 		// `getDraft` rather than a second request for the draft: the overlay rides the load that
 		// already has to succeed, so a failure cannot quietly mean "no draft" and let the next
@@ -496,10 +503,12 @@
 			if (draftCfg) {
 				source = draftCfg
 			}
-			UserDraftDbSyncer.recordRemoteSync(
-				{ workspace: ws, itemKind: 'resource', path },
-				res.draft_saved_at
-			)
+			// Whatever is still parked was composed against an older copy than the one just read, so
+			// flushing it later would put content the editor no longer shows over the draft on
+			// screen. Dropped after the read rather than before it: until the read lands, this is
+			// the only copy of those edits, and a read that fails has to leave them recoverable.
+			UserDraftDbSyncer.dropPending(draftKey)
+			UserDraftDbSyncer.recordRemoteSync(draftKey, res.draft_saved_at)
 		}
 		const brain = agentConfigToInputTransforms(source)
 		inputTransforms = { ...brain, ...local }
