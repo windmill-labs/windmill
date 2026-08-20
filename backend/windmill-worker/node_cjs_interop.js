@@ -6,8 +6,12 @@
 // verbatim and node hits the limitation; rewrite them to a namespace import plus
 // a lookup that falls back to `default` (i.e. `module.exports`).
 //
-// Named bindings become snapshots instead of live bindings, which only differs
-// for an ESM package that mutates an exported binding after evaluation.
+// Only packages node loads as CommonJS are rewritten: the rewrite turns named
+// imports into snapshots, which would freeze an ESM export its package mutates
+// after evaluation.
+
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const WM_IDENT = "[A-Za-z_$][A-Za-z0-9_$]*";
 const WM_NS_CLAUSE = `\\*\\s*as\\s+${WM_IDENT}`;
@@ -15,12 +19,21 @@ const WM_NAMED_CLAUSE = "\\{[^{}]*\\}";
 const WM_CLAUSE = `(?:${WM_NS_CLAUSE}|${WM_NAMED_CLAUSE}|${WM_IDENT}(?:\\s*,\\s*(?:${WM_NS_CLAUSE}|${WM_NAMED_CLAUSE}))?)`;
 const WM_IMPORT = `(^|[;}\\n])import\\s*(?:(${WM_CLAUSE})\\s*from\\s*)?(?:"([^"\\n]*)"|'([^'\\n]*)')`;
 
-function wmRewriteExternalImports(code, externals) {
+function wmRewriteExternalImports(code, externals, jobDir) {
   if (!externals || externals.length === 0) {
     return code;
   }
-  const isExternal = (spec) =>
-    externals.some((name) => spec === name || spec.startsWith(name + "/"));
+  const eligible = new Map();
+  const needsInterop = (spec) => {
+    let ok = eligible.get(spec);
+    if (ok === undefined) {
+      ok =
+        externals.some((name) => spec === name || spec.startsWith(name + "/")) &&
+        wmIsCommonJs(spec, jobDir);
+      eligible.set(spec, ok);
+    }
+    return ok;
+  };
 
   // Import statements are found on a copy whose literals are blanked out, so
   // that generated code holding an import statement in a string is not touched.
@@ -34,7 +47,7 @@ function wmRewriteExternalImports(code, externals) {
       continue;
     }
     const spec = m[3] !== undefined ? m[3] : m[4];
-    if (isExternal(spec)) {
+    if (needsInterop(spec)) {
       found.push({ at: hit.index, len: hit[0].length, lead: m[1], clause: m[2], spec });
     }
   }
@@ -104,6 +117,38 @@ function wmRewriteExternalImports(code, externals) {
     out +
     code.slice(cursor)
   );
+}
+
+// Node's own rule for the format of the file a specifier resolves to: the
+// extension decides, and `.js` follows the `type` of the closest package.json.
+function wmIsCommonJs(spec, jobDir) {
+  let file;
+  try {
+    file = Bun.resolveSync(spec, jobDir);
+  } catch (err) {
+    return true;
+  }
+  if (file.endsWith(".mjs")) {
+    return false;
+  }
+  if (!file.endsWith(".js")) {
+    return true;
+  }
+  let dir = dirname(file);
+  for (;;) {
+    let pkg = null;
+    try {
+      pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    } catch (err) {}
+    if (pkg !== null) {
+      return pkg.type !== "module";
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      return true;
+    }
+    dir = parent;
+  }
 }
 
 function wmParseImportClause(clause) {

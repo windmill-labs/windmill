@@ -1284,7 +1284,8 @@ fn test_generate_bun_bundle_propagates_exit_status() {
 /// see the named exports of a CommonJS package that builds `module.exports`
 /// dynamically (lodash & co.), so a named import fails to instantiate and a
 /// namespace import yields nothing but `default`. The bundle must import such a
-/// package as a namespace and read the names off `default` instead.
+/// package as a namespace and read the names off `default` instead — while
+/// leaving an ESM package's named imports as the live bindings node gives it.
 #[test]
 fn test_node_loader_cjs_named_export_interop() {
     use std::process::Command;
@@ -1313,12 +1314,27 @@ module.exports = api;
     )
     .unwrap();
 
+    // An ESM package whose exported binding changes after evaluation.
+    let esm_dir = dir.join("node_modules").join("live-esm-pkg");
+    std::fs::create_dir_all(&esm_dir).unwrap();
+    std::fs::write(
+        esm_dir.join("package.json"),
+        r#"{ "name": "live-esm-pkg", "version": "1.0.0", "type": "module", "main": "index.js" }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        esm_dir.join("index.js"),
+        "export let count = 0;\nexport function bump() { count++; }\n",
+    )
+    .unwrap();
+
     std::fs::write(
         dir.join("main.ts"),
         r#"
 import { greet } from "dyn-cjs-pkg";
 import * as pkg from "dyn-cjs-pkg";
-export function main() { return [greet("a"), pkg.greet("b")]; }
+import { count, bump } from "live-esm-pkg";
+export function main() { bump(); return [greet("a"), pkg.greet("b"), count]; }
 "#,
     )
     .unwrap();
@@ -1370,7 +1386,7 @@ console.log(JSON.stringify(Main.main()));
         "node rejected the bundle:\nstdout:\n{stdout}\nstderr:\n{}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(stdout.trim(), r#"["greet a","greet b"]"#);
+    assert_eq!(stdout.trim(), r#"["greet a","greet b",1]"#);
 }
 
 /// Regression test for the install_bun_lockfile no-DB path: same code shape as

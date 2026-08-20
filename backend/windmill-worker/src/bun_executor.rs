@@ -912,7 +912,7 @@ if (!result?.success || !(result.outputs?.length > 0)) {{
 try {{
     const bundlePath = "{job_dir_js}/wrapper.js";
     const bundle = await Bun.file(bundlePath).text();
-    const interoped = wmRewriteExternalImports(bundle, fileNames);
+    const interoped = wmRewriteExternalImports(bundle, fileNames, "{job_dir_js}");
     if (interoped !== bundle) {{
         await Bun.write(bundlePath, interoped);
     }}
