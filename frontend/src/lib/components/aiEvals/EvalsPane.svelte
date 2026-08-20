@@ -292,9 +292,15 @@
 		})
 	})
 	onDestroy(() => clearInterval(subjectWatch))
-	// Coming back to the tab is the moment an edit made elsewhere is most likely waiting.
+	// Coming back to the tab is the moment an edit made elsewhere is most likely waiting, and the
+	// same is true of a run: the poller only arms for a run this pane already knows about, so one
+	// started from another tab would otherwise never appear on a list left open.
 	$effect(() => {
-		const onFocus = () => untrack(() => readSubjectState())
+		const onFocus = () =>
+			untrack(() => {
+				readSubjectState()
+				refresh()
+			})
 		window.addEventListener('focus', onFocus)
 		document.addEventListener('visibilitychange', onFocus)
 		return () => {

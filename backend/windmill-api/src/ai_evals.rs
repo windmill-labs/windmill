@@ -2972,8 +2972,10 @@ pub struct ExperimentRow {
     /// reaching this case, which reads as a case still to run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub job_id: Option<Uuid>,
-    /// The case's own status: `running` until its iteration completes, then `success`, `failure`,
-    /// `canceled` or `skipped`.
+    /// What happened to the answer: the iteration's own `success`, `failure`, `canceled` or
+    /// `skipped` once it has finished, and until then the agent step's, since the answer is
+    /// written before the scorers that keep the iteration running have read it. `running` while
+    /// the agent is still answering.
     pub status: String,
     /// The agent's answer, which is what a table cell shows. The whole trajectory stays
     /// reachable through `job_id`, so the row carries the text rather than the result object.
@@ -3268,9 +3270,12 @@ pub async fn experiment_results(
                 None,
             )
             .await
-            .ok()
-            .and_then(|(r, _)| agent_answer(&r));
-            (job_id, output)
+            .ok();
+            // The answer and whether producing it succeeded, which is what the Answer column is
+            // about. The iteration goes on to score the answer, so its own status is not available
+            // until the scorers are done and would report an answer as still being written.
+            let answered = output.as_ref().map(|(_, success)| *success);
+            (job_id, (output.and_then(|(r, _)| agent_answer(&r)), answered))
         }
     }))
     .buffered(8)
@@ -3352,14 +3357,24 @@ pub async fn experiment_results(
             name: case.name,
             input: serde_json::from_value(case.input)?,
             expected: opt_to_raw(case.expected)?,
+            // The iteration's verdict once it has one, since that is the whole of what happened to
+            // the case. While it is still running, the agent step's: the answer is written before
+            // the scorers read it, and a spinner beside an answer that is already there reads as
+            // an answer still being written.
             status: case
                 .job_id
                 .and_then(|id| statuses.get(&id).cloned())
+                .or_else(|| {
+                    case.job_id
+                        .and_then(|id| answers.get(&id))
+                        .and_then(|(_, answered)| *answered)
+                        .map(|ok| if ok { "success" } else { "failure" }.to_string())
+                })
                 .unwrap_or_else(|| "running".to_string()),
             output: case
                 .job_id
-                .and_then(|id| answers.get(&id).cloned())
-                .flatten(),
+                .and_then(|id| answers.get(&id))
+                .and_then(|(output, _)| output.clone()),
             subject_version: case.subject_version,
             subject_draft_hash: case.subject_draft_hash,
             job_id: case.job_id,
