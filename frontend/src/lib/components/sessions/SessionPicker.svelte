@@ -34,8 +34,8 @@
 		selectSession,
 		sessionLastActivityAt,
 		sessionState,
+		setNewSessionWorkspace,
 		setSessionArchived,
-		setSessionPendingWorkspace,
 		syncWorkspaceTo,
 		type Session
 	} from './sessionState.svelte'
@@ -63,7 +63,12 @@
 	import { page } from '$app/state'
 	import { base } from '$app/paths'
 	import { devBadgeText } from '$lib/utils/devWorkspaceLabel'
-	import { GROUP_BY_OPTIONS, LAST_ACTIVITY_OPTIONS, type GroupBy } from './sessionFilters'
+	import {
+		dateBucket,
+		GROUP_BY_OPTIONS,
+		LAST_ACTIVITY_OPTIONS,
+		type GroupBy
+	} from './sessionFilters'
 
 	// The row icon only distinguishes "the session's fork workspace no longer
 	// exists" (detached) — never the fork's ahead/behind sync state, which is
@@ -139,7 +144,6 @@
 	const showArchived = useLocalStorageValue('windmill_sessions_show_archived', false, 'boolean')
 	// Hide sessions untouched for longer than this many days. 0 = no cutoff.
 	const lastActivityDays = useLocalStorageValue('windmill_sessions_last_activity_days', 0, 'number')
-	// `hint` is the compact form shown on the collapsed submenu row.
 	// How the list is carved into groups. 'none' keeps the family grouping (headers
 	// only when a second family shows up); the others always draw headers.
 	const groupBy = useLocalStorageValue<GroupBy>('windmill_sessions_group_by', 'none', 'string')
@@ -259,20 +263,6 @@
 	// Family labels are redundant when scoped to a single family — only show them
 	// if the active-session override surfaces a second family.
 	const showGroupHeaders = $derived(sessionGroups.length > 1)
-
-	// Calendar-relative bucket for a timestamp, counted from local midnight so
-	// "Today" means today's date rather than the last 24 hours.
-	function dateBucket(ts: number, now: number): { key: string; label: string; rank: number } {
-		const midnight = new Date(now)
-		midnight.setHours(0, 0, 0, 0)
-		const startOfToday = midnight.getTime()
-		const day = 24 * 60 * 60 * 1000
-		if (ts >= startOfToday) return { key: 'today', label: 'Today', rank: 0 }
-		if (ts >= startOfToday - day) return { key: 'yesterday', label: 'Yesterday', rank: 1 }
-		if (ts >= startOfToday - 7 * day) return { key: 'week', label: 'Last 7 days', rank: 2 }
-		if (ts >= startOfToday - 30 * day) return { key: 'month', label: 'Last 30 days', rank: 3 }
-		return { key: 'older', label: 'Older', rank: 4 }
-	}
 
 	// The list as the user chose to see it. `workspaceId` is set on the groups that
 	// stand for a workspace — the ones whose header offers "new session here".
@@ -420,7 +410,7 @@
 	// workspace rather than the one currently open.
 	async function createAndOpenIn(workspaceId: string) {
 		const fresh = createSession()
-		setSessionPendingWorkspace(fresh.id, workspaceId)
+		setNewSessionWorkspace(fresh.id, workspaceId)
 		await activate(fresh)
 	}
 
@@ -540,8 +530,25 @@
 
 	function handleBatchArchive() {
 		const archive = !allSelectedArchived
-		for (const id of selectedIds) setSessionArchived(id, archive)
+		let skipped = 0
+		for (const id of selectedIds) {
+			const session = sessionState.sessions.find((s) => s.id === id)
+			if (!session) continue
+			// Unarchiving a session whose fork workspace is gone can't persist (the
+			// putSession guard drops it) and reconcile would re-archive it, so the row
+			// would silently revert. Same guard as the per-row menu.
+			if (!archive && isUnavailableFork(session)) {
+				skipped++
+				continue
+			}
+			setSessionArchived(id, archive)
+		}
 		exitSelectionMode()
+		if (skipped > 0) {
+			sendUserToast(
+				`${skipped} session${skipped === 1 ? '' : 's'} kept archived: their forked workspace no longer exists`
+			)
+		}
 	}
 
 	// After deleting the open session, land somewhere usable: the newest remaining
@@ -855,15 +862,16 @@
 					]}
 				>
 					{#snippet buttonReplacement()}
-						<span
+						<Button
+							nonCaptureEvent
+							unifiedSize="md"
+							variant="subtle"
+							iconOnly
+							startIcon={{ icon: Settings }}
 							title="Session list options"
 							aria-label="Session list options"
-							class="inline-flex items-center justify-center w-5 h-5 rounded text-tertiary hover:bg-surface-hover hover:text-primary {activeFilters
-								? 'text-emphasis'
-								: ''}"
-						>
-							<Settings size={12} />
-						</span>
+							btnClasses={activeFilters ? 'text-emphasis' : ''}
+						/>
 					{/snippet}
 				</DropdownV2>
 			</div>
