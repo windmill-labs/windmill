@@ -13,7 +13,7 @@
 		cases = $bindable(),
 		onRemove,
 		locked = false,
-		editing = $bindable(false)
+		onEditingChange
 	}: {
 		/** The drawer's working copy. Edits land here as they are made; the drawer writes them. */
 		cases: CaseDraft[]
@@ -22,9 +22,9 @@
 		/** The cases are being written. An edit made now would be one the request already left
 		 *  behind, and the drawer closes on the response, so it would go without being saved. */
 		locked?: boolean
-		/** A cell is open, holding an edit the list does not have yet. Reported up so Save can be
-		 *  pressed for it: the press is what commits the cell, so it has to reach a live button. */
-		editing?: boolean
+		/** A cell opened or closed. Reported up so Save can be pressed for an edit the list does not
+		 *  hold yet: the press is what commits the cell, so it has to reach a live button. */
+		onEditingChange?: (editing: boolean) => void
 	} = $props()
 
 	type Row = { id: string; question: string; expected: string }
@@ -76,8 +76,8 @@
 					setExpected(target, e.newValue ?? '')
 				}
 			},
-			onCellEditingStarted: () => (editing = true),
-			onCellEditingStopped: () => (editing = false),
+			onCellEditingStarted: () => onEditingChange?.(true),
+			onCellEditingStopped: () => onEditingChange?.(false),
 			suppressColumnMoveAnimation: true,
 			suppressDragLeaveHidesColumns: true,
 			onGridReady: (e) => (api = e.api)
@@ -130,12 +130,10 @@
 	})
 
 	/**
-	 * Commit whatever cell is open into `cases`, synchronously.
+	 * Commit whatever cell is open into `cases`, and wait for it to land there.
 	 *
-	 * Called by the drawer before it reads the list to save it. `stopEditing` fires
-	 * `onCellValueChanged` in the same tick, so the value is in `cases` by the time this returns —
-	 * which is the whole point: a cell someone is still typing in when they press Save is an edit
-	 * they made, and an effect reacting to the save would run a microtask too late to catch it.
+	 * Called by the drawer before it reads the list to save it: a cell someone is still typing in
+	 * when they press Save is an edit they made, and it has to be in the list the press writes.
 	 */
 	export async function flush() {
 		api?.stopEditing()

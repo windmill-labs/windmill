@@ -6,13 +6,14 @@
 
 	let {
 		agentPath = undefined,
-		open = $bindable(false),
+		open = $bindable(),
 		opWorkspace = undefined
 	}: {
 		/** The agent under test. A dataset and its runs belong to a saved agent, so without one
 		 * the dialog can only say so. */
 		agentPath?: string
-		open?: boolean
+		/** Bound by every caller: the surface that opens this owns whether it is open. */
+		open: boolean
 		/** The workspace the opening editor operates on, which differs from the nav workspace in
 		 * fork and session editors. Every read and write targets it. */
 		opWorkspace?: string

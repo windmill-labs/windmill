@@ -13,7 +13,7 @@
 	import { untrack } from 'svelte'
 
 	let {
-		open = $bindable(false),
+		open = $bindable(),
 		workspace,
 		agentPath,
 		datasets,
@@ -26,7 +26,8 @@
 		onEditDataset,
 		onNewDataset
 	}: {
-		open?: boolean
+		/** Bound by every caller: the surface that opens this owns whether it is open. */
+		open: boolean
 		workspace: string | undefined
 		agentPath: string
 		datasets: EvalDataset[]
