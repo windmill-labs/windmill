@@ -386,9 +386,9 @@ Expected: the case's expected value`
 						unifiedSize="sm"
 						disabled={busy}
 						wrapperClasses="w-full"
-						btnClasses="w-full !justify-start !rounded-none flex items-center gap-3 px-3 py-2 text-left !font-normal {picked?.path ===
+						btnClasses="w-full !h-auto !justify-start !rounded-none flex items-center gap-3 px-3 py-2 text-left !font-normal {picked?.path ===
 						scorer.path
-							? 'bg-blue-50 dark:bg-blue-900/50'
+							? 'bg-blue-50 dark:bg-blue-900/50 hover:bg-blue-50 dark:hover:bg-blue-900/50'
 							: 'hover:bg-surface-hover'}"
 						onClick={() => (picked = scorer)}
 					>

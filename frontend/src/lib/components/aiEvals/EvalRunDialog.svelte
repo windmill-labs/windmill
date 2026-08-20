@@ -263,7 +263,7 @@
 									variant="subtle"
 									unifiedSize="sm"
 									wrapperClasses="w-full"
-									btnClasses="w-full !justify-start !rounded-none flex items-center gap-2 px-3 py-2 text-xs !font-normal text-secondary hover:bg-surface-hover"
+									btnClasses="w-full !h-auto !justify-start !rounded-none flex items-center gap-2 px-3 py-2 text-xs !font-normal text-secondary hover:bg-surface-hover"
 									onClick={() => {
 										close()
 										stepAside(onNewDataset)
