@@ -1097,9 +1097,9 @@ async fn test_privilege_gates_reject_a_job_token_directly(
         "a superadmin API token must still hold instance admin"
     );
 
-    // The boolean sibling decides whether `list_worker_groups` and the concurrency-group
-    // listing obfuscate their rows rather than refusing, so a job token reading `true`
-    // leaks rather than 403s.
+    // The boolean sibling, which `list_worker_groups` consults to decide whether to
+    // obfuscate rather than to refuse: reading `true` there returns `env_vars_static` in
+    // the clear, so this one fails by leaking rather than by letting a request through.
     assert!(
         !windmill_api_auth::is_instance_admin(&job),
         "a job token must not read as instance admin"
