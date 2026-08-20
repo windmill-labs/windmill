@@ -5,9 +5,22 @@
 	// instance configuration through `preview` so nothing here talks to the API: signing in
 	// always fails with the credentials error, and the provider buttons don't navigate.
 	import Login, { type LoginPreview } from '$lib/components/Login.svelte'
+	import LoginHeading from '$lib/components/LoginHeading.svelte'
 	import { WindmillIcon } from '$lib/components/icons'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import { goto } from '$lib/navigation'
+	import { onMount } from 'svelte'
+
+	// A pixel-accurate login card that silently drops what is typed into it has no business on
+	// a deployed instance, where browsers would offer to autofill real credentials into it.
+	let enabled = $state(false)
+	onMount(() => {
+		enabled = import.meta.env.DEV
+		if (!enabled) {
+			goto('/')
+		}
+	})
 
 	// The width the login page ships with today is max-w-sm; the others are for comparison.
 	const widths = [
@@ -64,7 +77,7 @@
 		},
 		{
 			title: 'Four providers',
-			note: 'Where the old layout used to break into two columns.',
+			note: 'Four buttons, still stacked; the card grows by a row per provider.',
 			preview: { logins: [google, github, microsoft, okta], smtpConfigured: true }
 		},
 		{
@@ -99,53 +112,50 @@
 	]
 </script>
 
-<div class="p-4 bg-surface-secondary min-h-screen">
-	<div class="flex flex-wrap items-end gap-4 mb-4">
-		<div>
-			<h1 class="text-lg font-semibold text-emphasis">Login page states</h1>
-			<p class="text-xs text-secondary">
-				Real cards, fixed instance config, no API calls. Sign in always fails so the error state is
-				one click away (click twice for the shake).
-			</p>
-		</div>
-		<div class="w-56">
-			<div class="text-xs font-semibold text-emphasis mb-1">Card width</div>
-			<Select items={widths} bind:value={width} />
-		</div>
-		<DarkModeToggle forcedDarkMode={false} />
-	</div>
-
-	<div class="grid grid-cols-1 2xl:grid-cols-2 gap-4">
-		{#each variants as variant (variant.title)}
-			{@const hasThirdParty = (variant.preview.logins?.length ?? 0) > 0 || !!variant.preview.saml}
-			<div class="border rounded-lg overflow-hidden bg-surface-secondary">
-				<div class="px-4 py-2 border-b bg-surface">
-					<div class="text-sm font-semibold text-emphasis">{variant.title}</div>
-					<div class="text-xs text-secondary">{variant.note}</div>
-				</div>
-				<div class="py-10 px-4">
-					<div class="sm:mx-auto sm:w-full {width}">
-						<div class="mx-auto flex justify-center">
-							<WindmillIcon height="48px" width="48px" spin="slow" />
-						</div>
-						<h2 class="mt-6 text-center text-2xl font-semibold tracking-tight text-emphasis">
-							{hasThirdParty ? 'Log in or sign up' : 'Log in'}
-						</h2>
-						<p class="mt-2 text-center text-xs text-secondary">
-							{hasThirdParty
-								? 'Log in or sign up with any of the methods below'
-								: 'Log in with your email and password'}
-						</p>
-					</div>
-					<div class="mt-8 sm:mx-auto sm:w-full {width}">
-						<Login
-							preview={variant.preview}
-							firstTime={variant.firstTime ?? false}
-							autoRedirect={false}
-						/>
-					</div>
-				</div>
+{#if enabled}
+	<div class="p-4 bg-surface-secondary min-h-screen">
+		<div class="flex flex-wrap items-end gap-4 mb-4">
+			<div>
+				<h1 class="text-lg font-semibold text-emphasis">Login page states</h1>
+				<p class="text-xs text-secondary">
+					Real cards, fixed instance config, no API calls. Sign in always fails so the error state
+					is one click away (click twice for the shake).
+				</p>
 			</div>
-		{/each}
+			<div class="w-56">
+				<div class="text-xs font-semibold text-emphasis mb-1">Card width</div>
+				<Select items={widths} bind:value={width} />
+			</div>
+			<DarkModeToggle forcedDarkMode={false} />
+		</div>
+
+		<div class="grid grid-cols-1 2xl:grid-cols-2 gap-4">
+			{#each variants as variant (variant.title)}
+				{@const hasThirdParty = (variant.preview.logins?.length ?? 0) > 0 || !!variant.preview.saml}
+				<div class="border rounded-lg overflow-hidden bg-surface-secondary">
+					<div class="px-4 py-2 border-b bg-surface">
+						<div class="text-sm font-semibold text-emphasis">{variant.title}</div>
+						<div class="text-xs text-secondary">{variant.note}</div>
+					</div>
+					<div class="py-10 px-4">
+						<div class="sm:mx-auto sm:w-full {width}">
+							<div class="mx-auto flex justify-center">
+								<WindmillIcon height="48px" width="48px" spin="slow" />
+							</div>
+							<div class="mt-6">
+								<LoginHeading {hasThirdParty} />
+							</div>
+						</div>
+						<div class="mt-8 sm:mx-auto sm:w-full {width}">
+							<Login
+								preview={variant.preview}
+								firstTime={variant.firstTime ?? false}
+								autoRedirect={false}
+							/>
+						</div>
+					</div>
+				</div>
+			{/each}
+		</div>
 	</div>
-</div>
+{/if}

@@ -20,6 +20,8 @@
 		allowMultiline?: boolean
 		/** Renders the field in its error state; the message itself is the caller's to display. */
 		error?: boolean
+		/** id of the element holding that message, wired up as aria-describedby. */
+		describedBy?: string
 		onKeyDown?: (event: KeyboardEvent) => void
 		onBlur?: (event: FocusEvent) => void
 	}
@@ -35,6 +37,7 @@
 		autocomplete = 'new-password',
 		allowMultiline = true,
 		error = false,
+		describedBy = undefined,
 		onKeyDown,
 		onBlur
 	}: Props = $props()
@@ -89,6 +92,8 @@
 				placeholder,
 				rows: minRows ?? 3,
 				autocomplete,
+				'aria-invalid': hasError ? 'true' : undefined,
+				'aria-describedby': describedBy,
 				onblur: (e) => onBlur?.(e),
 				onkeydown: (e) => {
 					onKeyDown?.(e)
@@ -110,6 +115,8 @@
 				disabled,
 				placeholder,
 				autocomplete,
+				'aria-invalid': hasError ? 'true' : undefined,
+				'aria-describedby': describedBy,
 				onblur: (e) => onBlur?.(e),
 				onkeydown: (e) => {
 					if (allowMultiline && e.key === 'Enter') {

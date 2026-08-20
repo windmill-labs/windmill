@@ -152,15 +152,27 @@
 		shake = true
 	}
 
+	// Only messages the login endpoint is known to produce are shown. Anything else — a SQL
+	// error (which the API also returns as a 400, with the query and a source location), a
+	// proxy's HTML error page — would otherwise be printed verbatim to an unauthenticated
+	// visitor.
+	const KNOWN_LOGIN_ERRORS = ['Password login is disabled on this instance']
+
 	function loginErrorMessage(err: any): string {
 		// The API returns errors as plain text, prefixed by their class
 		// (e.g. "Bad request: Invalid login"); ApiError.message is only the HTTP status text.
 		const body = typeof err?.body === 'string' ? err.body : (err?.body?.error?.message ?? '')
 		const detail = body.replace(/^(Bad request|Internal|Error): /, '').trim()
-		if (err?.status === 401 || detail === 'Invalid login') {
+		if (detail === 'Invalid login') {
 			return 'Invalid email or password.'
 		}
-		return detail || 'Could not sign you in. Please try again.'
+		if (err?.status === 429) {
+			return 'Too many login attempts. Please try again later.'
+		}
+		if (KNOWN_LOGIN_ERRORS.includes(detail)) {
+			return detail
+		}
+		return 'Could not sign you in. Please try again.'
 	}
 
 	type OAuthLogin = {
@@ -631,6 +643,8 @@
 									id: 'email',
 									type: 'email',
 									autocomplete: 'username',
+									'aria-invalid': credentialsError ? 'true' : undefined,
+									'aria-describedby': credentialsError ? 'login-error' : undefined,
 									onkeydown: (e) => {
 										// Only move on once the field holds something: while the browser's
 										// credential dropdown is open, Enter belongs to the dropdown
@@ -657,10 +671,15 @@
 								autocomplete="current-password"
 								allowMultiline={false}
 								error={!!credentialsError}
+								describedBy={credentialsError ? 'login-error' : undefined}
 								onKeyDown={handleKeyDown}
 							/>
 						</div>
-						<InputError error={credentialsError} />
+						<!-- The message replaced a toast, which screen readers announced; role="alert"
+							keeps a failed attempt audible, since the red borders alone are colour-only. -->
+						<div id="login-error" role="alert">
+							<InputError error={credentialsError} />
+						</div>
 						{#if smtpConfigured}
 							<div class="text-right pt-1">
 								<a

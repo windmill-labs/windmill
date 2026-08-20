@@ -18,6 +18,7 @@
 	import { clearStores } from '$lib/storeUtils'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import Login from '$lib/components/Login.svelte'
+	import LoginHeading from '$lib/components/LoginHeading.svelte'
 	import { onMount } from 'svelte'
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
@@ -40,8 +41,8 @@
 	let showPassword = false
 	let firstTime = $state(false)
 	// A third-party login creates the account on first use, so the page only offers sign-up
-	// once the instance has one configured.
-	let hasThirdParty = $state(false)
+	// once the instance has one configured. undefined until the card reports what it loaded.
+	let hasThirdParty = $state<boolean | undefined>(undefined)
 
 	function clearWindmillCloudCookies() {
 		const domain = window.location.hostname
@@ -137,8 +138,11 @@
 	}
 </script>
 
+<!-- min-h-screen, not h-screen: a card taller than the viewport (many providers, one per row)
+	would otherwise overflow a centered fixed-height box on both edges, leaving the top of the
+	card unreachable since the page can only scroll down. -->
 <div
-	class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-surface-secondary h-screen"
+	class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-surface-secondary min-h-screen"
 >
 	<LoginPageHeader />
 	<div class="sm:mx-auto sm:w-full sm:max-w-sm">
@@ -147,14 +151,9 @@
 				<WindmillIcon height="48px" width="48px" spin="slow" />
 			{/if}
 		</div>
-		<h2 class="mt-6 text-center text-2xl font-semibold tracking-tight text-emphasis">
-			{hasThirdParty ? 'Log in or sign up' : 'Log in'}
-		</h2>
-		<p class="mt-2 text-center text-xs text-secondary">
-			{hasThirdParty
-				? 'Log in or sign up with any of the methods below'
-				: 'Log in with your email and password'}
-		</p>
+		<div class="mt-6">
+			<LoginHeading {hasThirdParty} />
+		</div>
 	</div>
 
 	<div
