@@ -433,6 +433,7 @@ pub async fn get_reserved_variables(
     };
 
     let custom_envs = get_cached_workspace_envs(conn, w_id).await;
+    let root_workspace = crate::workspaces::root_workspace_id(conn, w_id).await;
 
     let joined_schedule_path = schedule_path
         .clone()
@@ -460,6 +461,15 @@ pub async fn get_reserved_variables(
         name: "WM_WORKSPACE".to_string(),
         value: w_id.to_string(),
         description: "Workspace id of the current script".to_string(),
+        is_custom: false,
+    },
+    ContextualVariable {
+        name: "WM_ROOT_WORKSPACE".to_string(),
+        value: root_workspace,
+        description: "Workspace id of the nearest dev or prod workspace at or above the current \
+                      one. Equal to WM_WORKSPACE unless the script runs in a fork, in which case \
+                      it is the closest dev or prod workspace the fork descends from - not \
+                      necessarily its direct parent, since a fork of a fork skips past it".to_string(),
         is_custom: false,
     },
     ContextualVariable {
