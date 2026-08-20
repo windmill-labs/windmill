@@ -47,6 +47,7 @@
 	import Badge from './common/badge/Badge.svelte'
 	import {
 		getLastLoginMethod,
+		clearPendingLoginMethod,
 		confirmPendingLoginMethod,
 		markLoginMethodPending,
 		rememberLoginMethod,
@@ -139,14 +140,30 @@
 		}
 	] as const
 
-	let orderedLogins = $derived.by(() => {
+	type ThirdPartyMethod = {
+		method: { kind: 'oauth'; provider: string } | { kind: 'saml' }
+		displayName: string
+		icon?: any
+	}
+
+	// Known providers keep their declared order and customs follow them, as they did before the
+	// last-used ordering existed; SAML sits at the end. Whatever worked last time is hoisted out.
+	let orderedThirdParty = $derived.by(() => {
 		const known = providers.map((p) => p.type as string)
-		const sorted = [...(logins ?? [])].sort((a, b) => known.indexOf(a.type) - known.indexOf(b.type))
-		const lastIdx = sorted.findIndex((l) =>
-			sameLoginMethod(lastUsed, { kind: 'oauth', provider: l.type })
-		)
-		if (lastIdx > 0) sorted.unshift(...sorted.splice(lastIdx, 1))
-		return sorted
+		const rank = (type: string) => (known.indexOf(type) === -1 ? known.length : known.indexOf(type))
+		const oauth: ThirdPartyMethod[] = [...(logins ?? [])]
+			.sort((a, b) => rank(a.type) - rank(b.type))
+			.map((login) => ({
+				method: { kind: 'oauth', provider: login.type },
+				displayName: login.displayName,
+				icon: providers.find((p) => p.type === login.type)?.icon
+			}))
+		const all: ThirdPartyMethod[] = saml
+			? [...oauth, { method: { kind: 'saml' }, displayName: 'SSO' }]
+			: oauth
+		const lastIdx = all.findIndex((m) => sameLoginMethod(lastUsed, m.method))
+		if (lastIdx > 0) all.unshift(...all.splice(lastIdx, 1))
+		return all
 	})
 
 	let showPassword = $state(false)
@@ -528,6 +545,7 @@
 			if (!win) {
 				window.removeEventListener('message', popupListener)
 				window.removeEventListener('storage', handleStorageEvent)
+				clearPendingLoginMethod()
 				return false
 			}
 			// Safety net for Safari: when the popup is opened without a fresh user
@@ -644,30 +662,22 @@
 				<Skeleton layout={[0.5, [2.375]]} />
 			{/each}
 		{:else}
-			{#each orderedLogins as login (login.type)}
-				{@const known = providers.find((p) => p.type === login.type)}
+			{#each orderedThirdParty as entry (entry.method.kind === 'saml' ? 'saml' : entry.method.provider)}
 				<div class="relative">
-					{#if sameLoginMethod(lastUsed, { kind: 'oauth', provider: login.type })}
+					{#if sameLoginMethod(lastUsed, entry.method)}
 						{@render lastUsedBadge()}
 					{/if}
 					<Button
 						variant="default"
 						unifiedSize="lg"
-						startIcon={known ? { icon: known.icon, classes: 'h-4' } : undefined}
-						onClick={() => storeRedirect(login.type)}
+						startIcon={entry.icon ? { icon: entry.icon, classes: 'h-4' } : undefined}
+						onClick={() =>
+							entry.method.kind === 'saml' ? redirectSaml() : storeRedirect(entry.method.provider)}
 					>
-						Continue with {login.displayName}
+						Continue with {entry.displayName}
 					</Button>
 				</div>
 			{/each}
-		{/if}
-		{#if saml}
-			<div class="relative">
-				{#if sameLoginMethod(lastUsed, { kind: 'saml' })}
-					{@render lastUsedBadge()}
-				{/if}
-				<Button variant="default" unifiedSize="lg" onClick={redirectSaml}>Continue with SSO</Button>
-			</div>
 		{/if}
 	</div>
 {/snippet}
@@ -747,11 +757,11 @@
 								}}
 							/>
 						</div>
-						{#if errorField === 'email'}
-							<div id={emailErrorId} role="alert">
+						<div id={emailErrorId} role="alert" class="min-h-5">
+							{#if errorField === 'email'}
 								<InputError error={credentialsError} />
-							</div>
-						{/if}
+							{/if}
+						</div>
 					</div>
 
 					<div class="space-y-1">

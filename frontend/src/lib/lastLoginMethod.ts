@@ -45,7 +45,11 @@ export function markLoginMethodPending(method: LastLoginMethod) {
 	write(PENDING_KEY, method)
 }
 
-/** Called once a session exists: whatever redirect was in flight is the method that worked. */
+export function clearPendingLoginMethod() {
+	write(PENDING_KEY, undefined)
+}
+
+/** Call only where a session is proven: whatever redirect was in flight is what worked. */
 export function confirmPendingLoginMethod() {
 	const pending = read(PENDING_KEY)
 	if (pending) rememberLoginMethod(pending)

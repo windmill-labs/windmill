@@ -128,6 +128,16 @@
 			}
 		},
 		{
+			title: 'Last used: SSO',
+			note: 'SAML leads the list when it is what worked last, ahead of the OAuth buttons.',
+			preview: {
+				logins: [google, github],
+				saml: true,
+				smtpConfigured: true,
+				lastUsed: { kind: 'saml' }
+			}
+		},
+		{
 			title: 'SAML only',
 			note: 'A single SSO button, password login still reachable underneath.',
 			preview: { saml: true }

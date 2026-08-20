@@ -3,7 +3,13 @@
 	import { page } from '$app/state'
 
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
+	import {
+		usersWorkspaceStore,
+		workspaceStore,
+		userStore,
+		enterpriseLicense,
+		whitelabelNameStore
+	} from '$lib/stores'
 	import { emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
@@ -15,6 +21,7 @@
 	import { onMount } from 'svelte'
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
+	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 
 	const email = page.url.searchParams.get('email') ?? ''
 	const password = page.url.searchParams.get('password') ?? ''
@@ -114,6 +121,8 @@
 
 	async function redirectIfNecessary() {
 		await UserService.getCurrentEmail()
+		// Reached only with a session: an SSO round trip that landed back here worked.
+		confirmPendingLoginMethod()
 		redirectUser()
 	}
 
@@ -138,7 +147,9 @@
 	<LoginPageHeader showBrand={false} />
 	<div class="sm:mx-auto sm:w-full sm:max-w-sm">
 		<div class="mx-auto flex justify-center">
-			<WindmillIcon height="48px" width="48px" spin="slow" />
+			{#if !$enterpriseLicense || !$whitelabelNameStore}
+				<WindmillIcon height="48px" width="48px" spin="slow" />
+			{/if}
 		</div>
 		<div class="mt-6">
 			<LoginHeading {hasThirdParty} />

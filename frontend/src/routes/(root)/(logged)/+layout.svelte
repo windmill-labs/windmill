@@ -308,9 +308,9 @@
 				}
 			}
 			const user = await getUserExt(workspace)
-			// A session exists, so whatever OAuth/SAML redirect was in flight is the method that
-			// worked; the login card reads it back to lead with it next time.
-			confirmPendingLoginMethod()
+			// getUserExt resolves to undefined on failure, so a user is the only proof of a
+			// session: without it a cancelled SSO round trip would claim the "Last used" badge.
+			if (user) confirmPendingLoginMethod()
 			// Every workspace change starts a fetch without cancelling the one before it,
 			// so a slow response can land after a faster one for the workspace the user
 			// has since moved to. The store must describe the active workspace: letting a
