@@ -162,7 +162,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "value",
                 "is_secret",
                 "description"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -244,7 +245,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "The path to the variable (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -392,7 +394,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "path",
                 "value",
                 "resource_type"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -464,7 +467,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "The path to the resource (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -719,7 +723,8 @@ Creates a new version of an existing script when called with the same path and t
                 "summary",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -980,7 +985,8 @@ Creates a new version of an existing script when called with the same path and t
                 "value",
                 "path"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -1035,7 +1041,8 @@ Creates a new version of an existing script when called with the same path and t
                 "summary",
                 "value"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -1199,7 +1206,7 @@ Creates a new version of an existing script when called with the same path and t
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Possible values: viewer, publisher, anonymous"
+                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
                                 },
                                 "on_behalf_of": {
                                         "type": "string"
@@ -1226,7 +1233,8 @@ Creates a new version of an existing script when called with the same path and t
                 "value",
                 "summary",
                 "policy"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -1313,7 +1321,7 @@ Creates a new version of an existing script when called with the same path and t
                                 },
                                 "execution_mode": {
                                         "type": "string",
-                                        "description": "Possible values: viewer, publisher, anonymous"
+                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
                                 },
                                 "on_behalf_of": {
                                         "type": "string"
@@ -1341,7 +1349,8 @@ Creates a new version of an existing script when called with the same path and t
         },
         "required": [
                 "value"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -1463,7 +1472,8 @@ Creates a new version of an existing script when called with the same path and t
                 "args",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -2034,7 +2044,8 @@ You should get the schema of the script or flow before creating the schedule to 
                 "script_path",
                 "is_flow",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -2239,7 +2250,8 @@ You should get the schema of the script or flow before updating the schedule to 
                 "schedule",
                 "timezone",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,

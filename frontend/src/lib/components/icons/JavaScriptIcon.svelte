@@ -11,6 +11,7 @@
 	const derivedHeight = $derived(size ? size : height)
 </script>
 
+<!-- #F7DF1E per js.svg in github.com/voodootikigod/logo.js, the origin of the JavaScript logo. Fixed mark: yellow field, black lettering, no per-theme variant. -->
 <svg
 	width={derivedWidth}
 	height={derivedHeight}

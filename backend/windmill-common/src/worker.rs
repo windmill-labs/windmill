@@ -30,6 +30,7 @@ use crate::{
     agent_workers::PingJobStatusResponse,
     cache::{unwrap_or_error, RawNode, RawScript},
     error::{self, to_anyhow},
+    external_ip::UNKNOWN_IP,
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
@@ -263,6 +264,31 @@ lazy_static::lazy_static! {
 
     pub static ref NO_LOGS: bool = std::env::var("NO_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
 
+    /// Shut the worker process down once it has executed this many jobs, so a supervisor
+    /// (docker restart policy, kubernetes, systemd, ...) restarts it on a pristine
+    /// environment. Meant for deployments that cannot sandbox jobs with nsjail and rely on
+    /// the process/container lifetime to isolate one execution from the next. `0` (or unset)
+    /// disables it. Only the jobs the worker's own main loop ran count: ones handed off to a
+    /// dedicated worker or a flow runner are executed by another task and never counted.
+    /// Workers of one process share that environment, so with `NUM_WORKERS > 1` the first of
+    /// them to reach the limit takes the whole process down, cancelling whatever the others
+    /// still run in a container or a dedicated worker. Run one worker per process.
+    /// A value that does not parse is rejected at startup by [`validate_worker_lifecycle_env`]
+    /// rather than read as "disabled" here: a deployment that isolates executions this way
+    /// would otherwise keep running with no isolation at all.
+    pub static ref EXIT_AFTER_N_JOBS: Option<u64> = std::env::var("EXIT_AFTER_N_JOBS")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .filter(|x| *x > 0);
+
+    /// Replaces the random part of the worker name, which is what makes a restarted process
+    /// reclaim its `worker_ping` row rather than register as a new worker. Two worker
+    /// processes must never share it: it is only needed when several of them run on one host
+    /// under the same worker group, since the name is otherwise derived from the hostname.
+    pub static ref WORKER_SUFFIX: Option<String> = std::env::var("WORKER_SUFFIX")
+        .ok()
+        .filter(|x| !x.is_empty());
+
     pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
 
     pub static ref LIMIT_WINDOWS_TO_1CU: bool = std::env::var("LIMIT_WINDOWS_TO_1CU").ok().is_some_and(|x| x == "1" || x == "true");
@@ -448,6 +474,18 @@ lazy_static::lazy_static! {
 
 lazy_static::lazy_static! {
     pub static ref ROOT_CACHE_NOMOUNT_DIR: String = format!("{}/cache_nomount/", *WINDMILL_DIR);
+}
+
+/// Refuses to start on an `EXIT_AFTER_N_JOBS` that does not parse. Silently ignoring it
+/// would leave a worker meant to recycle its environment running forever without doing so,
+/// which is exactly the guarantee the deployment set it for.
+pub fn validate_worker_lifecycle_env() -> anyhow::Result<()> {
+    match std::env::var("EXIT_AFTER_N_JOBS") {
+        Ok(v) if !v.is_empty() && v.parse::<u64>().is_err() => Err(anyhow::anyhow!(
+            "EXIT_AFTER_N_JOBS must be a positive integer (or 0 to disable), got '{v}'"
+        )),
+        _ => Ok(()),
+    }
 }
 
 /// Whether native mode is forced by the environment (NATIVE_MODE=true env var or WORKER_GROUP=native).
@@ -911,20 +949,22 @@ pub fn write_file_at_user_defined_location(
 }
 
 pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
-    let q = sqlx::query!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        CUSTOM_TAGS_SETTING
-    )
-    .fetch_optional(db)
-    .await?;
+    let q =
+        crate::global_settings::load_value_from_global_settings(db, CUSTOM_TAGS_SETTING).await?;
+    apply_custom_tags_setting(q);
+    Ok(())
+}
 
+/// The half of [`reload_custom_tags_setting`] after the read, so a batched settings pass can
+/// apply a value it already fetched.
+pub fn apply_custom_tags_setting(q: Option<serde_json::Value>) {
     let tags = if let Some(q) = q {
-        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.value.clone()) {
+        if let Ok(v) = serde_json::from_value::<Vec<String>>(q.clone()) {
             v
         } else {
             tracing::error!(
                 "Could not parse custom tags setting as vec of strings, found: {:#?}",
-                &q.value
+                &q
             );
             vec![]
         }
@@ -952,7 +992,6 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
         ]
         .concat(),
     ));
-    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -1472,6 +1511,73 @@ pub fn get_vcpus() -> Option<i64> {
     (sys.cpus().len() * 100000).try_into().ok()
 }
 
+/// The window `get_vcpus`'s quota is spent over, in the same microseconds. Only
+/// their ratio is a number of CPUs, and the window is configurable — 100ms is
+/// merely its usual value.
+#[cfg(not(windows))]
+pub fn get_cpu_period() -> Option<i64> {
+    if Path::new("/sys/fs/cgroup/cpu/cpu.cfs_period_us").exists() {
+        // cgroup v1
+        parse_file("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+    } else {
+        // cgroup v2: `cpu.max` is "<quota|max> <period>"
+        let cgroup_path = get_cgroupv2_path()?;
+        parse_file::<String>(&format!("{cgroup_path}/cpu.max"))?
+            .split_whitespace()
+            .nth(1)?
+            .parse()
+            .ok()
+    }
+    .filter(|period| *period > 0)
+}
+
+#[cfg(windows)]
+pub fn get_cpu_period() -> Option<i64> {
+    Some(100000)
+}
+
+/// CPUs the process is allowed to run on, ignoring any bandwidth quota — the count
+/// Go's `NumCPU` reports. `available_parallelism` cannot stand in for it: that folds
+/// the quota in, so a fraction of a CPU makes it report a single-core machine.
+#[cfg(not(windows))]
+pub fn get_affinity_cpus() -> Option<usize> {
+    // "Cpus_allowed_list:\t0-7,16-23"
+    let status = parse_file::<String>("/proc/self/status")?;
+    let list = status
+        .split("Cpus_allowed_list:")
+        .nth(1)?
+        .lines()
+        .next()?
+        .trim();
+
+    let cpus = list
+        .split(',')
+        .map(|range| {
+            let (first, last) = range.split_once('-').unwrap_or((range, range));
+            let (first, last) = (first.trim().parse::<usize>(), last.trim().parse::<usize>());
+            match (first, last) {
+                (Ok(first), Ok(last)) if last >= first => Some(last - first + 1),
+                _ => None,
+            }
+        })
+        .sum::<Option<usize>>()?;
+
+    (cpus > 0).then_some(cpus)
+}
+
+#[cfg(windows)]
+pub fn get_affinity_cpus() -> Option<usize> {
+    // The 1CU cap is a policy rather than a bandwidth quota, so it is the whole
+    // answer here as it is for `get_vcpus` and `get_memory` — a consumer that reads
+    // this as the hardware count would raise the worker back above the cap.
+    if *LIMIT_WINDOWS_TO_1CU {
+        return Some(1);
+    }
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    Some(sys.cpus().len()).filter(|cpus| *cpus > 0)
+}
+
 #[cfg(not(windows))]
 fn get_memory_from_meminfo() -> Option<i64> {
     let memory_info = parse_file::<String>("/proc/meminfo")?;
@@ -1645,25 +1751,23 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.ip.as_deref(),
                 db,
             )
             .await?
         }
         PingType::Initial => {
-            if insert_ping.worker_instance.is_none()
-                || insert_ping.version.is_none()
-                || insert_ping.ip.is_none()
-            {
-                return Err(anyhow::anyhow!(
-                    "Worker instance, version and ip are required"
-                ));
+            if insert_ping.worker_instance.is_none() || insert_ping.version.is_none() {
+                return Err(anyhow::anyhow!("Worker instance and version are required"));
             }
 
             insert_ping_query(
                 &insert_ping.worker_instance.unwrap(),
                 &worker_name,
                 worker_group,
-                &insert_ping.ip.unwrap(),
+                // An agent worker sends the sentinel rather than nothing, to stay acceptable to
+                // servers that still require an IP here; both mean "not resolved yet".
+                insert_ping.ip.as_deref().filter(|ip| *ip != UNKNOWN_IP),
                 insert_ping.tags.unwrap_or_default().as_slice(),
                 insert_ping.dw,
                 insert_ping.dws.as_deref(),
@@ -1791,11 +1895,22 @@ pub async fn fetch_raw_script_from_app_query(
     .map(|r| RawScript { content: r.code, lock: r.lock, meta: None, modules: None })
 }
 
+/// Returns the number of jobs the row already accounted for: non-zero when a worker of the
+/// same name pinged before, i.e. when this process is a restart of an earlier one (see
+/// [`crate::utils::resolve_worker_suffix`]) and its counter is meant to keep climbing.
+///
+/// Everything else describing the process is overwritten on such a restart — a row left
+/// reporting the version or the isolation mode of the process that died would, for
+/// `wm_version`, hold the instance-wide `MIN_VERSION` back forever, and one still naming the
+/// job that process was killed mid-way through skews the zombie/OOM diagnostics that read it.
+/// `started_at` and `jobs_executed` are the only two columns carried over, being the
+/// continuity itself — plus `ip` for as long as `ip` is `None`, which means the external IP
+/// lookup has not resolved yet and the predecessor's address is still the best guess.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
     worker_group: &str,
-    ip: &str,
+    ip: Option<&str>,
     tags: &[String],
     dw: Option<String>,
     dws: Option<&[String]>,
@@ -1805,10 +1920,15 @@ pub async fn insert_ping_query(
     job_isolation: Option<String>,
     native_mode: bool,
     db: &DB,
-) -> anyhow::Result<()> {
-    sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers, native_mode = EXCLUDED.native_mode",
+) -> anyhow::Result<i32> {
+    // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
+    // meanwhile the value a previous process wrote to a reclaimed row is the best guess we have. A
+    // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
+    // literal below must stay equal to `external_ip::UNKNOWN_IP`.
+    let previous_jobs_executed = sqlx::query_scalar!(
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        RETURNING jobs_executed",
         worker_instance,
         worker_name,
         ip,
@@ -1822,9 +1942,9 @@ pub async fn insert_ping_query(
         job_isolation.as_deref(),
         native_mode,
         )
-        .execute(db)
+        .fetch_one(db)
         .await?;
-    Ok(())
+    Ok(previous_jobs_executed)
 }
 
 pub async fn update_worker_ping_from_job_query(
@@ -1912,12 +2032,13 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
+    ip: Option<&str>,
     db: &DB,
 ) -> anyhow::Result<()> {
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12 WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -1930,6 +2051,7 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_5m,
         occupancy_rate_30m,
         native_mode,
+        ip,
     )
         .execute(db))
     .await??;

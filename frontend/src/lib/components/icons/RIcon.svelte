@@ -7,6 +7,8 @@
 	let { height = 24, width = 24 }: Props = $props()
 </script>
 
+<!-- #276DC3 per r-project.org/logo (gradient stops copied from the authoritative Rlogo.svg).
+     R Foundation licenses the mark CC-BY-SA 4.0 / GPL-2 — attribution required, changes must be indicated. -->
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	{width}

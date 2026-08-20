@@ -9,13 +9,23 @@
  * and the Svelte/Vue plugins included. Reimplementing any of that here would be
  * a third bundler to keep in step with the other two.
  */
+declare const __wmillAppPolicy: {
+	updateRawAppPolicy: (
+		runnables: Record<string, unknown>,
+		current: undefined
+	) => Promise<{ triggerables_v2: Record<string, unknown> }>
+}
+
 export async function main(
 	files: Record<string, string>,
 	shared_ui: Record<string, string> | undefined,
 	cli_command: string[],
 	// Set unless the server was told to build with a specific command.
-	prefer_installed_cli: boolean | undefined
-): Promise<{ js_gz: string; css_gz: string }> {
+	prefer_installed_cli: boolean | undefined,
+	// The app's `value.runnables`, whose policy is derived here for the same
+	// reason the bundle is built here: it has to match what the editor writes.
+	runnables: Record<string, unknown> | undefined
+): Promise<{ js_gz: string; css_gz: string; triggerables_v2: Record<string, unknown> }> {
 	const fs = await import('node:fs/promises')
 	const path = await import('node:path')
 
@@ -114,8 +124,53 @@ export async function main(
 		throw new Error('bundle produced no javascript:\n' + buildOutput)
 	}
 
+	// A runnable the derivation can't fully classify still yields a key, just an
+	// unusable one (`r:undefined/undefined`, or the hash of an absent script), and
+	// the deploy would then succeed with grants no run can ever match. The tool
+	// schema describes `runnables` only as an object and the on-disk format has no
+	// discriminator at all (`wmill app push` adds it), so these shapes are all
+	// reachable: check them before deriving and name the ones at fault. An
+	// explicitly empty entry is a runnable nobody configured yet, and needs no
+	// grant.
+	const nonEmpty = (v: unknown) => typeof v === 'string' && v.length > 0
+	// The prefixes `execute_component` resolves a run against; anything else is a
+	// grant no run can match.
+	const RUN_TYPES = ['script', 'flow', 'hubscript']
+	const malformed = Object.entries(runnables ?? {})
+		.filter(([, r]) => r != null)
+		.filter(([, r]) => {
+			if (typeof r !== 'object') return true
+			const run = r as Record<string, any>
+			if (run.type === 'inline' || run.type === 'runnableByName') {
+				return !nonEmpty(run.inlineScript?.content)
+			}
+			if (run.type === 'path' || run.type === 'runnableByPath') {
+				return !RUN_TYPES.includes(run.runType) || !nonEmpty(run.path)
+			}
+			return true
+		})
+		.map(([id]) => id)
+	if (malformed.length > 0) {
+		throw new Error(
+			`no policy could be derived for runnable(s) ${malformed.join(', ')}: each must be an ` +
+				`object with a \`type\` of "inline" (with \`inlineScript.content\`) or "path" (with ` +
+				`\`path\` and a \`runType\` of ${RUN_TYPES.join(', ')})`
+		)
+	}
+
+	// The policy's `triggerables_v2` is the allowlist the server matches every run
+	// against, keyed by a hash of each inline runnable's code. Derived by the
+	// frontend's own code, bundled into this script by cli/generate-app-policy.ts,
+	// so the keys are the ones the app editor writes: anything else leaves the
+	// app's runnables "forbidden by policy". Prepended above as a plain `var`, so
+	// it is in this module's scope (a module's top-level `var` is not a global).
+	const { triggerables_v2 } = await __wmillAppPolicy.updateRawAppPolicy(
+		runnables ?? {},
+		undefined
+	)
+
 	// Gzipped so a large app's bundle stays well inside MAX_RESULT_SIZE_MB, which
 	// a deployment can set far below the 500MB default.
 	const gz = (s: string) => Buffer.from(Bun.gzipSync(Buffer.from(s, 'utf8'))).toString('base64')
-	return { js_gz: gz(js), css_gz: gz(css) }
+	return { js_gz: gz(js), css_gz: gz(css), triggerables_v2 }
 }

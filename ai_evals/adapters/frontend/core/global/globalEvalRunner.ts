@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import type { AIProvider } from "$lib/gen/types.gen";
 import {
   globalToolsFor,
@@ -12,9 +13,19 @@ import {
   getGlobalDraft,
   listGlobalDrafts,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
+import { appendPlanModeInstructions } from "../../../../../frontend/src/lib/components/copilot/chat/planMode";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
+import { createEvalPlanTools } from "./planModeTools";
 import { UserDraft } from "../../../../../frontend/src/lib/userDraft.svelte";
-import { createEvalArtifactHelpers } from "./evalArtifactStore";
+import {
+  createEvalArtifactHelpers,
+  type SeededArtifact,
+} from "./evalArtifactStore";
+import {
+  createEvalPreviewPanel,
+  type EvalPreviewPanel,
+  type EvalPreviewTabFixture,
+} from "./evalPreviewTabs";
 import type { ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
@@ -65,11 +76,35 @@ export interface GlobalUserFixture {
   folders_read?: string[];
 }
 
+/**
+ * Flatten every assistant turn's text. Tool calls are excluded — only what the
+ * user would actually read counts as having been said to them.
+ */
+function assistantTextOf(messages: ChatCompletionMessageParam[]): string {
+  const parts: string[] = [];
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const content = message.content;
+    if (typeof content === "string") {
+      parts.push(content);
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (part && typeof part === "object" && "text" in part) {
+          parts.push(String((part as { text?: unknown }).text ?? ""));
+        }
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
 export interface GlobalEvalResult {
   success: boolean;
   state: GlobalDraftState;
   error?: string;
   assistantMessageCount: number;
+  /** Everything the assistant said to the user, for `assistantExpect` checks. */
+  assistantText: string;
   toolCallCount: number;
   toolsUsed: string[];
   toolCallDetails: ToolCallDetail[];
@@ -83,11 +118,18 @@ export interface GlobalEvalOptions {
   user?: GlobalUserFixture;
   // Emulate a session chat (preview tools + session prompt); default false = standalone baseline.
   sessionChat?: boolean;
+  // Start in plan mode: the gate refuses every tool without `planModeSafe`, and the two plan
+  // tools are offered. Needs sessionChat, which is what plan mode is gated on in production.
+  planMode?: boolean;
   model?: string;
   maxIterations?: number;
   provider?: AIProvider;
   backend: WindmillBackendSettings;
   workspaceRoot?: string;
+  // Artifacts the session already holds when the run starts.
+  artifacts?: SeededArtifact[];
+  /** Tabs already open in the side panel, including any artifact version the reader pinned. */
+  previewTabs?: EvalPreviewTabFixture[];
   runContext?: ModeRunContext;
 }
 
@@ -106,27 +148,67 @@ export async function runGlobalEval(
     options.workspaceFixtures ?? {},
   );
   seedLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
+  // Declared out here only so `finally` can reach it; a malformed fixture throws while
+  // building it, and everything seeded above still has to be torn down.
+  let panel: EvalPreviewPanel | undefined;
 
   try {
+    const evalArtifacts = createEvalArtifactHelpers(options.artifacts);
+    // Only a session chat has a side panel, so only it gets one here. Seeded tabs would
+    // otherwise vanish without a word, and the case would measure an empty panel.
+    if (!options.sessionChat && options.previewTabs?.length) {
+      throw new Error(
+        "This fixture seeds previewTabs, which only a session chat has — set runtime.sessionChat: true on the case.",
+      );
+    }
+    if (options.sessionChat) {
+      panel = createEvalPreviewPanel({
+        sessionId: evalArtifacts.sessionId,
+        tabs: options.previewTabs ?? [],
+        artifactIds: evalArtifacts.seededIds,
+      });
+    }
     const model = options.model ?? "claude-haiku-4-5-20251001";
     const injectActiveEditorContext =
       process.env[DISABLE_ACTIVE_EDITOR_CONTEXT_ENV] !== "1";
+    const planMode = options.planMode
+      ? createEvalPlanTools({
+          create: evalArtifacts.helpers.artifacts.create,
+          sessionId: evalArtifacts.helpers.sessionId,
+          chatId: evalArtifacts.helpers.getChatId(),
+        })
+      : undefined;
     // Pass the seeded identity straight to the prompt builder rather than mutating
     // the process-global `userStore`, so concurrent cases never race on it.
-    const evalArtifacts = createEvalArtifactHelpers();
+    const baseSystemMessage = prepareGlobalSystemMessage(undefined, {
+      user: options.user,
+      previewTools: options.sessionChat ?? false,
+    });
     const rawResult = await runEval({
       userPrompt,
-      systemMessage: prepareGlobalSystemMessage(undefined, {
-        user: options.user,
-        previewTools: options.sessionChat ?? false,
+      systemMessage: baseSystemMessage,
+      // Re-derived per request, as production's getter is: the instructions have to leave
+      // the prompt when the plan is approved, or the model is still told it may not build
+      // while the gate has already opened.
+      getSystemMessage: planMode
+        ? () =>
+            planMode.isPlanModeActive()
+              ? appendPlanModeInstructions(baseSystemMessage, 0)
+              : baseSystemMessage
+        : undefined,
+      isPlanModeActive: planMode?.isPlanModeActive,
+      isToolAvailable: planMode?.isToolAvailable,
+      userMessage: prepareGlobalUserMessage(userPrompt, [], {
+        ...(injectActiveEditorContext ? { workspace: workspaceRoot } : {}),
+        activePreview: panel?.activePreview(),
       }),
-      userMessage: prepareGlobalUserMessage(
-        userPrompt,
-        [],
-        injectActiveEditorContext ? { workspace: workspaceRoot } : {},
-      ),
-      tools: getGlobalEvalTools(options.sessionChat ?? false),
-      helpers: evalArtifacts.helpers,
+      tools: [
+        ...getGlobalEvalTools(options.sessionChat ?? false),
+        ...(planMode?.tools ?? []),
+      ],
+      helpers: panel
+        ? { ...evalArtifacts.helpers, openArtifact: panel.openArtifact }
+        : evalArtifacts.helpers,
       apiKey,
       getOutput: async () => ({
         ...(await collectGlobalDraftState(workspaceRoot)),
@@ -152,6 +234,7 @@ export async function runGlobalEval(
       success: rawResult.success,
       error: rawResult.error,
       assistantMessageCount: rawResult.iterations,
+      assistantText: assistantTextOf(rawResult.messages),
       toolCallCount: rawResult.toolCallsCount,
       toolsUsed: rawResult.toolsCalled,
       toolCallDetails: rawResult.toolCallDetails,
@@ -159,6 +242,7 @@ export async function runGlobalEval(
       finalContextTokens: rawResult.finalContextTokens,
     };
   } finally {
+    panel?.dispose();
     clearGlobalDrafts(workspaceRoot);
     clearLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
     unregisterBenchmarkWorkspaceRunnables(workspaceRoot);

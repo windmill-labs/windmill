@@ -22,7 +22,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -333,7 +333,18 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-primary mt-2"> No websocket triggers </div>
+			<EmptyState
+				icon={Unplug}
+				title="No WebSocket triggers yet"
+				description="Windmill can listen to WebSocket events and trigger scripts or flows based on them."
+				action={{
+					label: 'Add a WebSocket trigger',
+					icon: Plus,
+					onClick: () => websocketTriggerEditor?.openNew(false),
+					aiId: 'websocket-triggers-empty-add',
+					aiDescription: 'Add WebSocket trigger'
+				}}
+			/>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, url, is_flow, extra_perms, canWrite, marked, error, last_server_ping, server_id, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}

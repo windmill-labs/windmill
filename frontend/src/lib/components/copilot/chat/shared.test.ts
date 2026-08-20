@@ -7,6 +7,11 @@ vi.mock('monaco-editor', () => ({
 	editor: {}
 }))
 
+vi.mock('$lib/utils/featureUsage', () => ({
+	logFeatureUsage: vi.fn(),
+	logHubScriptPick: vi.fn()
+}))
+
 const userHolder = vi.hoisted(() => ({
 	current: { is_super_admin: true } as { is_super_admin: boolean }
 }))
@@ -318,7 +323,7 @@ describe('processToolCall', () => {
 			}
 		})
 
-		expect(requestConfirmation).toHaveBeenCalledWith('call_2')
+		expect(requestConfirmation).toHaveBeenCalledWith('call_2', 'create_schedule')
 		expect(fn).toHaveBeenCalled()
 		expect(setToolStatus).toHaveBeenCalledWith(
 			'call_2',
@@ -902,6 +907,285 @@ describe('processToolCall', () => {
 			})
 		)
 	})
+
+	// The counter is silently dropped by the backend when the key is malformed, so nothing
+	// here fails loudly if a path stops logging or logs the wrong status.
+	it('logs one feature-usage outcome per tool call, keyed <tool>:<status>', async () => {
+		const { createToolDef, processToolCall } = await import('./shared')
+		const { logFeatureUsage } = await import('$lib/utils/featureUsage')
+
+		const outcomeKeys = async (
+			tool: Partial<import('./shared').Tool<any>> = {},
+			toolCallbacks: Partial<import('./shared').ToolCallbacks> = {}
+		) => {
+			vi.mocked(logFeatureUsage).mockClear()
+			await runToolCall(
+				{
+					def: createToolDef(z.object({}), 'run_script', 'Run script'),
+					fn: vi.fn().mockResolvedValue('done'),
+					...tool
+				},
+				toolCallbacks
+			)
+			return vi
+				.mocked(logFeatureUsage)
+				.mock.calls.map(([feature, kind, opts]) => [feature, kind, opts?.key])
+		}
+
+		expect(await outcomeKeys()).toEqual([['ai_chat', 'tool', 'run_script:ok']])
+		expect(await outcomeKeys({ fn: vi.fn().mockRejectedValue(new Error('boom')) })).toEqual([
+			['ai_chat', 'tool', 'run_script:error']
+		])
+		expect(await outcomeKeys({ validateBeforeConfirmation: () => 'not deployed' })).toEqual([
+			['ai_chat', 'tool', 'run_script:rejected']
+		])
+		expect(
+			await outcomeKeys(
+				{ requiresConfirmation: true },
+				{ requestConfirmation: vi.fn().mockResolvedValue(false) }
+			)
+		).toEqual([['ai_chat', 'tool', 'run_script:declined']])
+		expect(await outcomeKeys({}, { isPlanModeActive: () => true })).toEqual([
+			['ai_chat', 'tool', 'run_script:blocked_plan_mode']
+		])
+
+		// A name the model invented resolves to no tool, and must never reach telemetry.
+		vi.mocked(logFeatureUsage).mockClear()
+		await processToolCall({
+			tools: [{ def: createToolDef(z.object({}), 'run_script', 'Run script'), fn: vi.fn() }],
+			toolCall: {
+				id: 'call_ghost',
+				type: 'function',
+				function: { name: 'hallucinated_tool', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() }
+		})
+		expect(logFeatureUsage).not.toHaveBeenCalled()
+	})
+})
+
+async function runToolCall(
+	tool: Partial<import('./shared').Tool<any>> & {
+		def: import('./shared').Tool<any>['def']
+		fn: import('./shared').Tool<any>['fn']
+	},
+	toolCallbacks: Partial<import('./shared').ToolCallbacks>,
+	args: Record<string, unknown> = {}
+) {
+	const { processToolCall } = await import('./shared')
+	return processToolCall({
+		tools: [tool as import('./shared').Tool<any>],
+		toolCall: {
+			id: 'call_plan',
+			type: 'function',
+			function: { name: tool.def.function.name, arguments: JSON.stringify(args) }
+		},
+		helpers: {},
+		workspace: 'test-workspace',
+		toolCallbacks: {
+			setToolStatus: vi.fn(),
+			removeToolStatus: vi.fn(),
+			...toolCallbacks
+		}
+	})
+}
+
+describe('processToolCall plan-mode gate', () => {
+	it('blocks an untagged tool while plan mode is active', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const onToolBlockedByPlanMode = vi.fn()
+
+		const result = await runToolCall(
+			{ def: createToolDef(z.object({}), 'write_script', 'Write script'), fn },
+			{ isPlanModeActive: () => true, onToolBlockedByPlanMode }
+		)
+
+		expect(fn).not.toHaveBeenCalled()
+		expect(onToolBlockedByPlanMode).toHaveBeenCalledOnce()
+		expect(result.content).toContain('plan mode is active')
+	})
+
+	it('blocks a mutating tool before its own validator gets to run', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const validateBeforeConfirmation = vi.fn().mockResolvedValue('target is undeployed')
+		const onToolBlockedByPlanMode = vi.fn()
+
+		const result = await runToolCall(
+			{
+				def: createToolDef(z.object({}), 'write_script', 'Write script'),
+				validateBeforeConfirmation,
+				fn
+			},
+			{ isPlanModeActive: () => true, onToolBlockedByPlanMode }
+		)
+
+		expect(validateBeforeConfirmation).not.toHaveBeenCalled()
+		expect(onToolBlockedByPlanMode).toHaveBeenCalledOnce()
+		expect(result.content).toContain('plan mode is active')
+	})
+
+	it('allows a plan-mode-safe tool while plan mode is active', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ok')
+
+		const result = await runToolCall(
+			{ def: createToolDef(z.object({}), 'read_file', 'Read file'), planModeSafe: true, fn },
+			{ isPlanModeActive: () => true }
+		)
+
+		expect(fn).toHaveBeenCalled()
+		expect(result.content).toBe('ok')
+	})
+
+	it('runs an untagged tool normally when plan mode is inactive', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+
+		const result = await runToolCall(
+			{ def: createToolDef(z.object({}), 'write_script', 'Write script'), fn },
+			{ isPlanModeActive: () => false }
+		)
+
+		expect(fn).toHaveBeenCalled()
+		expect(result.content).toBe('ran')
+	})
+
+	it('does not block an unknown tool name — falls through to the unknown-tool error', async () => {
+		const { processToolCall } = await import('./shared')
+		const result = await processToolCall({
+			tools: [],
+			toolCall: {
+				id: 'call_unknown',
+				type: 'function',
+				function: { name: 'made_up_tool', arguments: '{}' }
+			},
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				isPlanModeActive: () => true
+			}
+		})
+
+		expect(result.content).not.toContain('plan mode is active')
+		expect(result.content).toContain('Unknown tool call')
+	})
+
+	it('returns the tool cancellationMessage when the user rejects the confirmation', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn()
+		const setToolStatus = vi.fn()
+
+		const result = await runToolCall(
+			{
+				def: createToolDef(z.object({ summary: z.string() }), 'exit_plan_mode', 'Exit plan mode'),
+				planModeSafe: true,
+				requiresConfirmation: true,
+				cancellationMessage: 'keep planning',
+				fn
+			},
+			{
+				isPlanModeActive: () => true,
+				requestConfirmation: vi.fn().mockResolvedValue(false),
+				setToolStatus
+			}
+		)
+
+		expect(fn).not.toHaveBeenCalled()
+		expect(result.content).toBe('keep planning')
+		// The one place a decline is recorded: planCardState reads it to tell a plan the
+		// user turned down apart from a call that merely errored.
+		expect(setToolStatus).toHaveBeenCalledWith(
+			'call_plan',
+			expect.objectContaining({ declinedByUser: true })
+		)
+	})
+
+	it('blocks a mutating tool if plan mode is entered while its confirmation is pending', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		let planActive = false
+		// The user switches into plan mode while the confirmation card is open, then
+		// approves it: requestConfirmation flips the posture, then resolves true.
+		const requestConfirmation = vi.fn().mockImplementation(async () => {
+			planActive = true
+			return true
+		})
+
+		const result = await runToolCall(
+			{
+				def: createToolDef(z.object({}), 'write_script', 'Write script'),
+				requiresConfirmation: true,
+				fn
+			},
+			{ isPlanModeActive: () => planActive, requestConfirmation }
+		)
+
+		expect(requestConfirmation).toHaveBeenCalled()
+		expect(fn).not.toHaveBeenCalled()
+		expect(result.content).toContain('plan mode is active')
+	})
+
+	it('refuses only the arguments a tagged tool names, in its own words', async () => {
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const setToolStatus = vi.fn()
+		const tool = {
+			def: createToolDef(z.object({ id: z.string() }), 'update_doc', 'Update a doc'),
+			planModeSafe: true,
+			refuseInPlanMode: ({ args }: { args: any }) =>
+				args.id === 'the-plan'
+					? { label: 'Not that one', result: 'Write anything but the plan.' }
+					: undefined,
+			fn
+		}
+
+		const refused = await runToolCall(
+			tool,
+			{ isPlanModeActive: () => true, setToolStatus },
+			{
+				id: 'the-plan'
+			}
+		)
+		expect(fn).not.toHaveBeenCalled()
+		expect(refused.content).toBe('Write anything but the plan.')
+		expect(setToolStatus).toHaveBeenCalledWith(
+			'call_plan',
+			expect.objectContaining({ content: 'Not that one', blockedByPlanMode: true })
+		)
+
+		const allowed = await runToolCall(tool, { isPlanModeActive: () => true }, { id: 'a-note' })
+		expect(fn).toHaveBeenCalled()
+		expect(allowed.content).toBe('ran')
+	})
+
+	it('never asks a tool which arguments it refuses once plan mode is over', async () => {
+		// The posture is the only thing that makes this hook relevant: consulted outside it, a
+		// tool that narrows itself for planning would narrow itself for every other mode too.
+		const { createToolDef } = await import('./shared')
+		const fn = vi.fn().mockResolvedValue('ran')
+		const refuseInPlanMode = vi.fn().mockReturnValue('refused')
+
+		const result = await runToolCall(
+			{
+				def: createToolDef(z.object({ id: z.string() }), 'update_doc', 'Update a doc'),
+				planModeSafe: true,
+				refuseInPlanMode,
+				fn
+			},
+			{ isPlanModeActive: () => false },
+			{ id: 'the-plan' }
+		)
+
+		expect(refuseInPlanMode).not.toHaveBeenCalled()
+		expect(fn).toHaveBeenCalled()
+		expect(result.content).toBe('ran')
+	})
 })
 
 describe('isActiveUserQuestion', () => {
@@ -1400,5 +1684,47 @@ describe('createSearchHubScriptsTool', () => {
 		expect(results[0].error).toContain('hub unreachable')
 		expect(results[0].content).toBeUndefined()
 		expect(results[1].content).toBe('ok')
+	})
+})
+
+describe('processToolCall confirmation hooks', () => {
+	async function hookedTool() {
+		const { createToolDef } = await import('./shared')
+		return {
+			def: createToolDef(z.object({}), 'apply_change', 'Apply change'),
+			requiresConfirmation: true,
+			fn: vi.fn().mockResolvedValue('ok'),
+			onConfirmationRequested: vi.fn()
+		}
+	}
+
+	it('requests before the card resolves', async () => {
+		const tool = await hookedTool()
+		let requestedBeforeResolve = false
+		const requestConfirmation = vi.fn(async () => {
+			requestedBeforeResolve = tool.onConfirmationRequested.mock.calls.length === 1
+			return false
+		})
+
+		await runToolCall(tool, { requestConfirmation })
+
+		expect(requestedBeforeResolve).toBe(true)
+		// The hook needs the id and callbacks to attach what it sets up to this card.
+		expect(tool.onConfirmationRequested).toHaveBeenCalledWith(
+			expect.objectContaining({ toolId: 'call_plan', toolCallbacks: expect.any(Object) })
+		)
+		expect(tool.fn).not.toHaveBeenCalled()
+	})
+
+	it('fires no hook when the confirmation is auto-accepted', async () => {
+		const tool = await hookedTool()
+
+		await runToolCall(tool, {
+			requestConfirmation: vi.fn(async () => true),
+			shouldAutoAcceptToolConfirmations: () => true
+		})
+
+		expect(tool.onConfirmationRequested).not.toHaveBeenCalled()
+		expect(tool.fn).toHaveBeenCalled()
 	})
 })

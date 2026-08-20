@@ -7,8 +7,8 @@
  */
 
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes, require_devops_role, require_is_writer,
-    require_super_admin, ApiAuthed,
+    build_scope_path_predicate, check_scopes, require_devops_role, require_instance_admin,
+    require_is_writer, require_super_admin, ApiAuthed,
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
@@ -2846,7 +2846,7 @@ async fn create_pg_database(
     windmill_common::validate_dbname(&req.target_dbname)?;
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
-    if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+    if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         if !req.target_dbname.starts_with("wm_fork_") {
             return Err(Error::BadRequest(
                 "Non-superadmin users can only create databases with names starting with 'wm_fork_'"
@@ -2963,7 +2963,7 @@ async fn import_pg_database(
         resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
-        if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+        if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
             if !override_dbname.starts_with("wm_fork_") {
                 return Err(Error::BadRequest(
                     "Non-superadmin users can only override target dbname with names starting with 'wm_fork_'"
@@ -3037,7 +3037,7 @@ async fn edit_ducklake_config(
     Json(new_config): Json<EditDucklakeConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    let is_superadmin = require_super_admin(&db, &email).await.is_ok();
+    let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     // Lake names end up interpolated in `ATTACH 'ducklake://<name>'`,
     // generated maintenance SQL and the reserved maintenance schedule path
@@ -3130,11 +3130,11 @@ async fn edit_datatable_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(mut new_config): Json<EditDataTableConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    let is_superadmin = require_super_admin(&db, &email).await.is_ok();
+    let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     let mut tx = db.begin().await?;
 
@@ -4677,6 +4677,28 @@ async fn set_environment_variable(
 
     match value {
         Some(value) => {
+            // The worker escapes the name when it splices it into the NativeTS/Bun
+            // prologue, so this is a friendly guard against new non-identifier
+            // names, not the injection defense. Skip it for names that already
+            // exist so a value edit of a grandfathered name (the edit UI resubmits
+            // the name) isn't rejected with no in-product way to fix it.
+            if !windmill_common::variables::is_valid_js_identifier(&name) {
+                let already_exists = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM workspace_env WHERE workspace_id = $1 AND name = $2)",
+                    &w_id,
+                    name
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false);
+
+                if !already_exists {
+                    return Err(Error::BadRequest(format!(
+                        "Invalid environment variable name '{name}': must start with a letter, underscore or '$' and contain only letters, digits, underscores or '$'"
+                    )));
+                }
+            }
+
             sqlx::query!(
                 "INSERT INTO workspace_env (workspace_id, name, value) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, name) DO UPDATE SET value = EXCLUDED.value",
                 &w_id,
@@ -4761,7 +4783,7 @@ async fn set_encryption_key(
     Path(w_id): Path<String>,
     Json(request): Json<SetEncryptionKeyRequest>,
 ) -> Result<()> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     if !WORKSPACE_KEY_REGEXP.is_match(request.new_key.as_str()) {
         return Err(Error::BadRequest(
@@ -4917,7 +4939,7 @@ async fn get_workspace_as_superadmin(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Workspace> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let workspace = sqlx::query_as!(
         Workspace,
         "SELECT
@@ -4948,9 +4970,8 @@ async fn list_workspaces_as_super_admin(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Query(pagination): Query<Pagination>,
-    ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<Vec<Workspace>> {
-    require_devops_role(&db, &email).await?;
+    require_devops_role(&db, &authed).await?;
     let (per_page, offset) = paginate(pagination);
 
     let mut tx = user_db.begin(&authed).await?;
@@ -5022,7 +5043,7 @@ struct SessionWorkspaceStatusRequest {
 /// lingering, so it is deliberately not treated as unreachable.
 async fn session_workspace_status(
     Extension(db): Extension<DB>,
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Json(req): Json<SessionWorkspaceStatusRequest>,
 ) -> JsonResult<HashMap<String, String>> {
     if req.workspace_ids.len() > 1000 {
@@ -5030,7 +5051,8 @@ async fn session_workspace_status(
             "Too many workspace ids (max 1000)".to_string(),
         ));
     }
-    let is_superadmin = windmill_common::auth::is_super_admin_email(&db, &email).await?;
+    let email = &authed.email;
+    let is_superadmin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
     let rows = sqlx::query!(
         // A missing workspace row must be caught before the membership arm: for a
         // superadmin the two arms below both fall through, and a hard-deleted workspace
@@ -5232,7 +5254,7 @@ async fn create_workspace(
     Json(nw): Json<CreateWorkspace>,
 ) -> Result<String> {
     if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     }
 
     #[cfg(not(feature = "enterprise"))]
@@ -6815,7 +6837,7 @@ async fn create_workspace_fork_branch(
     }
 
     if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     }
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
@@ -7227,7 +7249,7 @@ async fn create_workspace_fork(
     _check_nb_of_workspaces(&db).await?;
 
     if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     }
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &parent_workspace_id,
@@ -7423,8 +7445,11 @@ async fn create_workspace_fork(
     tx.commit().await?;
 
     // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
-    // would bypass ducklake fork isolation for the TTL.
+    // would bypass ducklake fork isolation for the TTL. The same lookup could have cached the id
+    // as its own root workspace, which would make the fork's first jobs report themselves as their
+    // own environment instead of the parent.
     windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&forked_id);
+    windmill_queue::tags::invalidate_fork_parent_cache(&forked_id);
 
     if locked_prod {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);
@@ -7570,7 +7595,7 @@ async fn attach_dev_workspace(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
-    if !is_admin_of_dev && !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+    if !is_admin_of_dev && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::PermissionDenied(format!(
             "Attaching workspace '{dev_w_id}' as a dev requires being an admin of it (or a superadmin)"
         )));
@@ -8073,9 +8098,7 @@ async fn archive_workspace(
         .fetch_optional(&db)
         .await?
         .unwrap_or(false);
-        if !is_prod_admin
-            && !windmill_common::auth::is_super_admin_email(&db, &authed.email).await?
-        {
+        if !is_prod_admin && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
             return Err(Error::PermissionDenied(format!(
                 "Archiving dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
             )));
@@ -8150,6 +8173,7 @@ async fn leave_workspace(
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> Result<String> {
+    windmill_api_auth::forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND email = $2",
@@ -8179,7 +8203,9 @@ async fn unarchive_workspace(
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Global route (unarchives any workspace by id) gated on the caller's own
+    // is_admin claim, so it must reject a job token — see require_instance_admin.
+    require_instance_admin(&authed)?;
 
     // Unarchiving re-activates a soft-deleted workspace, so it must respect the
     // same CE workspace-count cap as creating one. The archived workspace is
@@ -10200,7 +10226,7 @@ async fn compare_workspaces(
     // source AND the fork (superadmin satisfies both), which guarantees full
     // visibility of every item on every side. `fork_authed.is_admin` already folds
     // in superadmin; `authed.is_admin` (source side) does not, so OR it in.
-    let is_super_admin = windmill_common::auth::is_super_admin_email(&db, &authed.email).await?;
+    let is_super_admin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
     let sees_all_items = is_super_admin || (authed.is_admin && fork_authed.is_admin);
     let all_ahead_items_visible = all_ahead_items_visible || sees_all_items;
     let all_behind_items_visible = all_behind_items_visible || sees_all_items;
@@ -10602,8 +10628,11 @@ async fn load_workspace_authed(
         .await
         .map_err(|e| Error::internal_err(e.to_string()))?;
 
-    let is_super_admin =
-        windmill_common::auth::is_super_admin_email(db, &base_authed.email).await?;
+    // Job-aware: this grants an admin claim in a workspace the caller may have no
+    // relationship with, and `job_id` is carried into the result — so a `WM_TOKEN`
+    // whose on-behalf identity is a superadmin would hold admin everywhere
+    // (GHSA-hfh4-cx4h-3fcr). It then falls through to its real membership below.
+    let is_super_admin = windmill_api_auth::is_super_admin_authed(db, base_authed).await?;
 
     let user_row = sqlx::query!(
         "SELECT username, is_admin, operator FROM usr
@@ -10628,6 +10657,7 @@ async fn load_workspace_authed(
             is_session_token: base_authed.is_session_token,
             token_prefix: base_authed.token_prefix.clone(),
             read_only: base_authed.read_only,
+            job_id: base_authed.job_id,
         });
     };
 
@@ -10659,6 +10689,7 @@ async fn load_workspace_authed(
         is_session_token: base_authed.is_session_token,
         token_prefix: base_authed.token_prefix.clone(),
         read_only: base_authed.read_only,
+        job_id: base_authed.job_id,
     })
 }
 
@@ -11467,41 +11498,6 @@ struct LogFeatureUsagePayload {
     events: Vec<FeatureUsageEvent>,
 }
 
-// Only registered (feature, kind) actions are accepted, so telemetry stays
-// limited to predefined feature actions. Keys are shape-checked (identifier-like,
-// no spaces) rather than pinned to value sets: they come from our own frontend
-// (modes, tab/draft kinds, tool names, provider:model) and pinning every value
-// server-side was not worth the maintenance.
-const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
-    ("ai_session", "created"),
-    ("ai_session", "message"),
-    ("ai_session", "autonomy"),
-    ("ai_session", "tab"),
-    ("ai_session", "tokens"),
-    ("ai_session", "deployed"),
-    ("ai_session", "archived"),
-    ("ai_session", "deleted"),
-    ("ai_session", "beta_optout"),
-    ("ai_session", "beta_optin"),
-    ("ai_chat", "message"),
-    ("ai_chat", "model"),
-    ("ai_chat", "tool"),
-    ("flow_editor", "panel_placement"),
-];
-
-fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
-    !s.is_empty()
-        && s.len() <= max_len
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/'))
-}
-
-fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
-    FEATURE_USAGE_KINDS.contains(&(e.feature.as_str(), e.kind.as_str()))
-        && (e.key.is_empty() || is_identifier_shaped(&e.key, 100))
-        && (e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, 50))
-}
-
 async fn log_feature_usage(
     Extension(db): Extension<DB>,
     Json(payload): Json<LogFeatureUsagePayload>,
@@ -11510,7 +11506,15 @@ async fn log_feature_usage(
     // single INSERT error out ("cannot affect row a second time").
     let mut agg: HashMap<(String, String, String, String), i64> = HashMap::new();
     for e in payload.events.into_iter().take(MAX_FEATURE_USAGE_EVENTS) {
-        if !valid_feature_usage_event(&e) {
+        // Which actions may be recorded lives in
+        // `windmill_common::feature_usage`, shared with the in-process writer so
+        // both admit exactly the same events.
+        if !windmill_common::feature_usage::is_recordable_event(
+            &e.feature,
+            &e.kind,
+            &e.key,
+            &e.entity_id,
+        ) {
             continue;
         }
         let value = e.value.unwrap_or(1).clamp(1, 1_000_000);
@@ -11520,12 +11524,18 @@ async fn log_feature_usage(
     if agg.is_empty() {
         return Ok(StatusCode::NO_CONTENT);
     }
-    let mut features = Vec::with_capacity(agg.len());
-    let mut kinds = Vec::with_capacity(agg.len());
-    let mut keys = Vec::with_capacity(agg.len());
-    let mut entity_ids = Vec::with_capacity(agg.len());
-    let mut values = Vec::with_capacity(agg.len());
-    for ((feature, kind, key, entity_id), value) in agg {
+    // Sorted for the same reason as `flush_feature_usage`: this endpoint and the
+    // backend flusher upsert the same rows, and two batches touching them in
+    // opposite orders deadlock.
+    let mut rows: Vec<((String, String, String, String), i64)> = agg.into_iter().collect();
+    rows.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+    let mut features = Vec::with_capacity(rows.len());
+    let mut kinds = Vec::with_capacity(rows.len());
+    let mut keys = Vec::with_capacity(rows.len());
+    let mut entity_ids = Vec::with_capacity(rows.len());
+    let mut values = Vec::with_capacity(rows.len());
+    for ((feature, kind, key, entity_id), value) in rows {
         features.push(feature);
         kinds.push(kind);
         keys.push(key);

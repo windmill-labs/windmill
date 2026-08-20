@@ -24,7 +24,7 @@
 	import { getLatestHashForScript } from '$lib/scripts'
 	import { sendUserToast, type Item } from '$lib/utils'
 	import { twMerge } from 'tailwind-merge'
-	import { getToolNameError } from '$lib/components/graph/renderers/nodes/AIToolNode.svelte'
+	import { getToolNameError } from '$lib/components/flows/agentToolUtils'
 	import autosize from '$lib/autosize'
 
 	interface Props {

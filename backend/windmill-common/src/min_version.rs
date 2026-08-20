@@ -6,8 +6,12 @@ use semver::Version;
 // The release that stops reading `script`/`flow`.`on_behalf_of_email`. It must name the release
 // this actually ships in: set below it, the compatibility write stops while a worker that still
 // reads that column is live, and those runnables run as their deployer with no error anywhere.
-pub const MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL: VC =
-    vc(1, 776, 0, "On-behalf-of principal");
+pub const MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL: VC = vc(1, 776, 0, "On-behalf-of principal");
+// A deploy-time binary build is a `dependencies` job distinguished only by a job arg. A
+// worker that predates the arg would run it as a real lock generation, redeploying an
+// already-deployed hash (duplicate git-sync commit, duplicate fork tally, a re-triggered
+// relative-import cascade). Must name the release this ships in.
+pub const MIN_VERSION_SUPPORTS_BINARY_PREBUILD: VC = vc(1, 789, 0, "Auto-build binary on deploy");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");

@@ -1693,6 +1693,8 @@ export type Item = {
 	action?: (e: MouseEvent) => void
 	icon?: any
 	iconColor?: string
+	/** Extra props for `icon`, for an icon that does not take lucide's `size`. */
+	iconProps?: Record<string, any>
 	href?: string
 	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean
@@ -1702,6 +1704,10 @@ export type Item = {
 	id?: string
 	tooltip?: string
 	separatorTop?: boolean
+	/** Renders an on/off switch at the end of the row, so `icon` keeps the leading
+	 * slot. Presentational: the row's own click is what flips it, so `action` must
+	 * apply the change. */
+	toggle?: boolean
 	submenuItems?: Item[]
 	shortcut?: string
 	// Renders a trailing check on the right of the label to mark the
