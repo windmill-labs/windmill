@@ -71,6 +71,7 @@ export interface BenchmarkWorkspaceAiProvider {
 	path: string
 	/** Resource type, which for AI resources is the provider kind (`anthropic`, `openai`, ...). */
 	kind: string
+	/** What this resource's `/ai/proxy/models` listing returns. */
 	models?: string[]
 	/** Set to point the resource at a gateway rather than the provider's own API. */
 	base_url?: string
@@ -1164,6 +1165,9 @@ function parseBenchmarkRequestBody(
 /** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
  * Any other relative fetch must keep its normal (non-benchmark) behavior —
  * intercepting it with a synthetic 404 sends the model into retry loops. */
+// Not anchored: the frontend builds this URL from location.origin, so it arrives absolute.
+const BENCHMARK_AI_MODELS_PATH = /\/api\/w\/([^/]+)\/ai\/proxy\/models$/
+
 export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]
 	return (
@@ -1172,7 +1176,8 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 		BENCHMARK_RUN_BY_PATH.test(path) ||
 		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
 		path === '/api/embeddings/query_hub_scripts' ||
-		path.startsWith('/api/scripts/hub/get_full/')
+		path.startsWith('/api/scripts/hub/get_full/') ||
+		BENCHMARK_AI_MODELS_PATH.test(path)
 	)
 }
 
@@ -1182,6 +1187,17 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 	const path = url.split('?')[0]
 	if (path === '/api/workers/list') {
 		return Response.json(BENCHMARK_WORKERS)
+	}
+	// The provider's own model listing, which grounds an AI agent step's model id. Keyed by the
+	// resource the caller names, so two seeded providers can serve different models.
+	const aiModels = BENCHMARK_AI_MODELS_PATH.exec(path)
+	if (aiModels) {
+		const headers = new Headers(init?.headers)
+		const resourcePath = headers.get('X-Resource-Path') ?? ''
+		const seed = benchmarkWorkspaceRunnables
+			.get(decodeURIComponent(aiModels[1]))
+			?.aiProviders?.find((entry) => entry.path === resourcePath)
+		return Response.json({ data: (seed?.models ?? []).map((id) => ({ id })) })
 	}
 	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
 		return Response.json([])

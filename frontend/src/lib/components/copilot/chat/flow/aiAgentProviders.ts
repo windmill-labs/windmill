@@ -11,10 +11,14 @@ export type AiAgentProviderOption = {
 	/** `models` came from the endpoint's own listing. False when that listing failed and the
 	 * models are a fallback, which cannot rule an id out. */
 	modelsAreLive: boolean
+	/** An id outside `models` is provably wrong for this resource. Requires a live listing that
+	 * is exhaustive for the kind and an endpoint that serves what it lists: a filtered listing
+	 * (`fetchAvailableModels` drops OpenAI ids outside `gpt-`/`o`/`codex`, so fine-tunes never
+	 * appear) or a gateway (which may accept aliases it omits) can only warn. */
+	modelsRuleOutOthers: boolean
 	/** The resource points at a gateway rather than the provider's own API (custom `base_url`,
-	 * a non-standard platform, or the `customai` kind). Such an endpoint names its models as it
-	 * likes and may accept aliases its listing omits, so an id outside `models` is not provably
-	 * wrong there. Unknown endpoints count as custom, never the other way round. */
+	 * a non-standard platform, or the `customai` kind). Unknown endpoints count as custom, never
+	 * the other way round. */
 	customEndpoint: boolean
 }
 
@@ -40,8 +44,8 @@ function describeOption(option: AiAgentProviderOption): string {
 			: ''
 	const caveat = !option.modelsAreLive
 		? ' (the endpoint would not list its models, so these are a guess — confirm the id with the user)'
-		: option.customEndpoint
-			? ' (custom endpoint: it may accept model names this list does not show)'
+		: !option.modelsRuleOutOthers
+			? ' (the endpoint may also serve model names this list does not show)'
 			: ''
 	const modelList = models.length > 0 ? `${models.join(', ')}${more}${caveat}` : 'none listed'
 	return `- \`${option.resourceRef}\` (kind \`${option.kind}\`) — models: ${modelList}`
@@ -53,16 +57,22 @@ function describeOption(option: AiAgentProviderOption): string {
  * here; this is the part that only exists at run time. Empty string when the workspace has no AI
  * provider resource, so the caller can drop the section.
  */
-export function formatAiAgentProvidersPrompt(catalog: AiAgentProviderCatalog): string {
+export function formatAiAgentProvidersPrompt(
+	catalog: AiAgentProviderCatalog,
+	{ canAskUser }: { canAskUser: boolean }
+): string {
 	if (catalog.options.length === 0) {
 		return ''
 	}
 	// One resource plus a workspace default leaves nothing to decide. Anything else — several
-	// resources to choose between, or no default model — is the user's call, not a guess.
+	// resources to choose between, or no default model — is the user's call, so it is put to them
+	// wherever the chat can ask. A chat without the tool says what it picked instead.
 	const choiceLine =
 		catalog.options.length === 1 && catalog.defaultModel
 			? `Unless the user asks for something else, use kind \`${catalog.defaultModel.kind}\` with model \`${catalog.defaultModel.model}\` — the workspace default. Name the model you used in your reply.`
-			: `When the user has not said which provider resource or model the agent should use, ask with \`askUserQuestion\` before writing the step, offering the resources and models above as proposed answers. Do not pick one yourself.`
+			: canAskUser
+				? `When the user has not said which provider resource or model the agent should use, ask with \`askUserQuestion\` before writing the step, offering the resources and models above as proposed answers. Do not pick one yourself.`
+				: `When the user has not said which provider resource or model the agent should use, pick the one that best fits what they asked for and name it in your reply, so they can correct it.`
 	const truncationLine = catalog.resourcesAreComplete
 		? ''
 		: '\nThis list is incomplete: the workspace has AI provider resources that are not shown.'
@@ -72,6 +82,27 @@ An AI agent step's \`model\` must be one of the ids listed below for the resourc
 
 ${catalog.options.map(describeOption).join('\n')}${truncationLine}
 ${choiceLine}`
+}
+
+/** What a set of modules needs from the catalog: `needsCatalog` is false when no AI agent step
+ * states a provider of its own, and `resourceRefs` are the `$res:` references those steps use. */
+export function collectAiAgentProviderRefs(modules: unknown): {
+	needsCatalog: boolean
+	resourceRefs: string[]
+} {
+	let needsCatalog = false
+	const resourceRefs = new Set<string>()
+	forEachAiAgentModule(modules, (_mod, value) => {
+		if (value.agent) return
+		const transform = value.input_transforms?.provider
+		if (!transform || transform.type !== 'static') return
+		needsCatalog = true
+		const resource = (transform.value as Record<string, unknown> | undefined)?.resource
+		if (typeof resource === 'string') {
+			resourceRefs.add(resource)
+		}
+	})
+	return { needsCatalog, resourceRefs: [...resourceRefs] }
 }
 
 /** Tool-result suffix for provider findings that did not block the write. Empty when there are none. */
@@ -136,7 +167,7 @@ function checkProviderValue(
 	if (match.modelsAreLive && !match.models.includes(model)) {
 		return {
 			message: `model "${model}" is not in the model listing of "${resource}"`,
-			blocking: !match.customEndpoint
+			blocking: match.modelsRuleOutOthers
 		}
 	}
 	return undefined

@@ -1,8 +1,23 @@
 import { ResourceService, WorkspaceService, type AIConfig, type AIProvider } from '$lib/gen'
 import { AI_PROVIDERS, fetchAvailableModels } from '../../lib'
-import type { AiAgentProviderCatalog, AiAgentProviderOption } from './aiAgentProviders'
+import {
+	collectAiAgentProviderRefs,
+	type AiAgentProviderCatalog,
+	type AiAgentProviderOption
+} from './aiAgentProviders'
 
 const AI_RESOURCE_TYPES = Object.keys(AI_PROVIDERS) as AIProvider[]
+
+/** Kinds whose model listing `fetchAvailableModels` narrows before returning it: OpenAI and Azure
+ * OpenAI keep only `gpt-`/`o`/`codex` ids (so a fine-tune never appears), Bedrock keeps text
+ * models and inference profiles, and Google AI rewrites each id. For those the list is a
+ * shortlist to choose from, never grounds for calling an id wrong. */
+const FILTERED_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set([
+	'openai',
+	'azure_openai',
+	'googleai',
+	'aws_bedrock'
+])
 
 /** Each resource costs one model listing call against the provider. A workspace with a
  * long tail of AI resources would otherwise stall every flow write. */
@@ -39,6 +54,33 @@ export function getAiAgentProviderCatalog(
 	})
 	cache.set(workspace, { at: Date.now(), promise })
 	return promise
+}
+
+/**
+ * The catalog a set of flow modules should be validated against, or undefined when no AI agent
+ * step states its own provider — in which case nothing is fetched at all.
+ *
+ * A resource the cached catalog does not know is re-read once with the cache bypassed before it
+ * can be rejected, so a resource created since the catalog was built (by this chat, or in another
+ * tab) is not turned away for the rest of the TTL.
+ */
+export async function getAiAgentProviderCatalogFor(
+	workspace: string | undefined,
+	modules: unknown
+): Promise<AiAgentProviderCatalog | undefined> {
+	const { needsCatalog, resourceRefs } = collectAiAgentProviderRefs(modules)
+	if (!needsCatalog) {
+		return undefined
+	}
+	const catalog = await getAiAgentProviderCatalog(workspace)
+	const unknown = resourceRefs.some(
+		(ref) => !catalog.options.some((option) => option.resourceRef === ref)
+	)
+	if (!unknown || !catalog.resourcesAreComplete || !workspace) {
+		return catalog
+	}
+	cache.delete(workspace)
+	return getAiAgentProviderCatalog(workspace)
 }
 
 async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
@@ -171,7 +213,12 @@ async function loadOption(
 		customEndpoint
 	}
 	if (listed.length > 0) {
-		return { ...base, models: listed, modelsAreLive: true }
+		return {
+			...base,
+			models: listed,
+			modelsAreLive: true,
+			modelsRuleOutOthers: !customEndpoint && !FILTERED_MODEL_LISTING_KINDS.has(candidate.kind)
+		}
 	}
 	// Without a live listing, a model id cannot be ruled out: offer the configured
 	// models (then the curated defaults) as a hint, but leave the check off.
@@ -179,5 +226,5 @@ async function loadOption(
 		configuredModels.length > 0
 			? configuredModels
 			: (AI_PROVIDERS[candidate.kind]?.defaultModels ?? [])
-	return { ...base, models: fallback, modelsAreLive: false }
+	return { ...base, models: fallback, modelsAreLive: false, modelsRuleOutOthers: false }
 }

@@ -52,7 +52,7 @@ import {
 	type FlowValueSettings
 } from './editableFlowJson'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
-import { getAiAgentProviderCatalog } from './aiAgentProviderCatalog'
+import { getAiAgentProviderCatalogFor } from './aiAgentProviderCatalog'
 import { formatAiAgentProviderWarnings } from './aiAgentProviders'
 
 type FlowJsonUpdate = {
@@ -556,11 +556,15 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				'current flow JSON'
 			)
 
-			const aiProviders = await getAiAgentProviderCatalog(workspace)
+			const patchedValue = JSON.parse(updatedFlowJson)
+			const aiProviders = await getAiAgentProviderCatalogFor(
+				workspace,
+				(patchedValue as { modules?: unknown } | null)?.modules
+			)
 			const aiProviderWarnings: string[] = []
 			let parsedFlow: EditableFlowJson
 			try {
-				parsedFlow = validateEditableFlowJson(JSON.parse(updatedFlowJson), {
+				parsedFlow = validateEditableFlowJson(patchedValue, {
 					aiProviders,
 					aiProviderWarnings
 				})
@@ -717,7 +721,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			const aiProviderWarnings: string[] = []
 			if (parsedModules !== undefined) {
-				const aiProviders = await getAiAgentProviderCatalog(workspace)
+				const aiProviders = await getAiAgentProviderCatalogFor(workspace, parsedModules)
 				parsedModules = validateFlowModules(parsedModules, { aiProviders, aiProviderWarnings })
 				const reservedIds = collectAllFlowModuleIdsFromModules(parsedModules).filter(
 					(id) => id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE

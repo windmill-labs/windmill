@@ -2067,7 +2067,8 @@ export class AIChatManager {
 	// iteration, so a send that beats the fetch still picks them up on the next one.
 	private appendFlowAiAgentProviders = async (target: ChatCompletionSystemMessageParam) => {
 		const catalog = await getAiAgentProviderCatalog(this.operatingWorkspace)
-		const section = formatAiAgentProvidersPrompt(catalog)
+		// Flow mode's tools are flowTools, which carry no askUserQuestion.
+		const section = formatAiAgentProvidersPrompt(catalog, { canAskUser: false })
 		// A mode switch or a rebuild since the fetch started owns the message now.
 		if (section === '' || this.systemMessage !== target) {
 			return

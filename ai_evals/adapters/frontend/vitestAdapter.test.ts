@@ -9,6 +9,15 @@ import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
 // no meaning in the vitest environment — serve the ones the benchmark handles.
 // Every other relative fetch keeps its normal behavior (it fails the same way
 // it does without this stub) so unrelated tools see an unchanged environment.
+// The frontend builds API URLs from location.origin (fetchAvailableModels does), and node has no
+// location — without one those calls throw before the stub below ever sees them.
+if (typeof (globalThis as { location?: unknown }).location === 'undefined') {
+	Object.defineProperty(globalThis, 'location', {
+		value: new URL('http://benchmark.local/'),
+		configurable: true
+	})
+}
+
 const ORIGINAL_FETCH = globalThis.fetch
 globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 	const url = typeof input === 'string' ? input : ((input as Request | URL | null)?.url ?? '')

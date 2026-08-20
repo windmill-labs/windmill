@@ -69,7 +69,10 @@ import {
 	restoreSpecialRawscriptModule,
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
-import { getAiAgentProviderCatalog } from '../flow/aiAgentProviderCatalog'
+import {
+	getAiAgentProviderCatalog,
+	getAiAgentProviderCatalogFor
+} from '../flow/aiAgentProviderCatalog'
 import {
 	formatAiAgentProviderWarnings,
 	formatAiAgentProvidersPrompt
@@ -2103,7 +2106,9 @@ ${getScriptPrompt(selected)}`
 }
 
 async function getFlowInstructions(workspace: string | undefined): Promise<string> {
-	const aiAgentProviders = formatAiAgentProvidersPrompt(await getAiAgentProviderCatalog(workspace))
+	const aiAgentProviders = formatAiAgentProvidersPrompt(await getAiAgentProviderCatalog(workspace), {
+		canAskUser: true
+	})
 	return `# Global draft flow instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
@@ -3300,11 +3305,12 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeFlowSchema.parse(ctx.args)
-			const aiProviders = await getAiAgentProviderCatalog(ctx.workspace)
+			const modules = parseOptionalJsonArg(parsed.modules, 'modules')
+			const aiProviders = await getAiAgentProviderCatalogFor(ctx.workspace, modules)
 			const aiProviderWarnings: string[] = []
 			const editable = validateEditableFlowJson(
 				{
-					modules: parseOptionalJsonArg(parsed.modules, 'modules'),
+					modules,
 					schema: parseOptionalJsonArg(parsed.schema, 'schema'),
 					preprocessor_module: parseOptionalJsonArg(
 						parsed.preprocessor_module,
@@ -5037,7 +5043,10 @@ async function patchFlowJson(
 		throw new Error(`Invalid JSON after replacement: ${message}`)
 	}
 
-	const aiProviders = await getAiAgentProviderCatalog(ctx.workspace)
+	const aiProviders = await getAiAgentProviderCatalogFor(
+		ctx.workspace,
+		(parsedValue as { modules?: unknown } | null)?.modules
+	)
 	const aiProviderWarnings: string[] = []
 	const patchedEditable = validateEditableFlowJson(parsedValue, { aiProviders, aiProviderWarnings })
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
