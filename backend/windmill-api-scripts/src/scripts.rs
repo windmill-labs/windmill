@@ -668,8 +668,8 @@ async fn create_script(
 /// The URL names the version being superseded, so the body needs no `parent_hash`: a
 /// caller that cannot read one (an MCP client, whose tool schema has no hash field)
 /// still gets a version chained onto the history rather than a fork of it. The body's
-/// own `path` is where the script should end up, defaulting to the URL's, and naming a
-/// different one moves the script there.
+/// own `path` is where the script should end up: the URL's again to leave it there,
+/// another to move it.
 async fn update_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
