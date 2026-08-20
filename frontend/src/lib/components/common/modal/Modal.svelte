@@ -158,7 +158,7 @@
 		unifiedSize="sm"
 		title={isBack ? `Back to ${segment.label}` : undefined}
 		onClick={segment.onclick}
-		wrapperClasses="min-w-0"
+		wrapperClasses="min-w-0 shrink"
 		btnClasses="group !px-0 !font-normal text-secondary hover:text-emphasis hover:!bg-transparent gap-0.5 min-w-0"
 	>
 		{#if isBack}
