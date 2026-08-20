@@ -61,7 +61,35 @@ def flatten_allof_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
     return merged
 
-def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "", include_fields: Optional[List[str]] = None, opaque_fields: Optional[List[str]] = None, include_query_params: Optional[List[str]] = None) -> tuple:
+def validate_fixed_fields(fixed_fields: Optional[Dict[str, Any]], body_schema: Optional[Dict[str, Any]], request_body: Dict[str, Any], tool_name: str) -> None:
+    """Check the invariants `x-mcp-tool-fixed-fields` relies on to mean anything.
+
+    A fixed field is written into the body by the MCP layer, after the caller's
+    arguments and only when a body is being sent at all.
+    """
+    if not fixed_fields:
+        return
+    if not isinstance(fixed_fields, dict):
+        raise ValueError(f"{tool_name}: x-mcp-tool-fixed-fields must be a mapping")
+
+    # Exposing a fixed field as an argument too would advertise a choice the tool
+    # does not honour, since the fixed value overwrites whatever the caller sent.
+    exposed = set((body_schema or {}).get('properties') or {})
+    clash = sorted(set(fixed_fields) & exposed)
+    if clash:
+        raise ValueError(f"{tool_name}: field(s) both fixed and exposed: {', '.join(clash)}")
+
+    # A caller who fills in no body field at all gets no body, and so no fixed fields
+    # either. `requestBody: required: true` is what makes the MCP layer reject that
+    # call outright (via minProperties), leaving no path on which the fields go missing.
+    if not request_body.get('required'):
+        raise ValueError(
+            f"{tool_name}: x-mcp-tool-fixed-fields needs requestBody.required, "
+            "otherwise a bodyless call drops them silently"
+        )
+
+
+def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "", include_fields: Optional[List[str]] = None, opaque_fields: Optional[List[str]] = None, include_query_params: Optional[List[str]] = None, fixed_fields: Optional[Dict[str, Any]] = None, tool_name: str = "") -> tuple:
     """Extract separate schemas for path parameters, query parameters, and request body."""
     path_params_schema = {
         "type": "object",
@@ -154,6 +182,8 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
         # takes no arguments.
         if body_schema and request_body.get('required') and body_schema.get('properties'):
             body_schema['minProperties'] = 1
+
+        validate_fixed_fields(fixed_fields, body_schema, request_body, tool_name)
 
     # Sanitize empty schemas for JSON Schema draft 2020-12 compliance
     path_params_schema = sanitize_empty_schemas(path_params_schema)
@@ -464,15 +494,6 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
     if duplicates:
         raise ValueError(f"duplicate MCP tool name(s): {', '.join(duplicates)}")
 
-    # A fixed field overwrites whatever the caller sent, so exposing it as an argument
-    # too would advertise a choice the tool does not honour.
-    for tool in tools:
-        clash = sorted(set(tool.get('fixed_fields') or {}) & set(tool.get('include_fields') or []))
-        if clash:
-            raise ValueError(
-                f"{tool['name']}: field(s) both fixed and exposed: {', '.join(clash)}"
-            )
-
     return tools
 
 def generate_typescript_code(tools: List[Dict[str, Any]], spec: Dict[str, Any], base_path: str = "") -> str:
@@ -512,7 +533,8 @@ export const mcpEndpointTools: EndpointTool[] = [];
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema, query_field_renames, body_field_renames = extract_separate_schemas(
             tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
-            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params')
+            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params'),
+            tool.get('fixed_fields'), tool_name
         )
 
         # Convert schemas to TypeScript - use 'as const' for better type inference
@@ -585,7 +607,8 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema, query_field_renames, body_field_renames = extract_separate_schemas(
             tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
-            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params')
+            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params'),
+            tool.get('fixed_fields'), tool_name
         )
 
         path_params_rust = schema_to_rust_value(path_params_schema)

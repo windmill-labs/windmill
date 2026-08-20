@@ -455,6 +455,27 @@ async fn test_auto_parent_resolves_parent_hash(db: Pool<Postgres>) -> anyhow::Re
         "v3 parent_hashes should contain v2 hash {v2_hash}, got: {parent_hashes:?}"
     );
 
+    // Redeploy v1's exact body. The version hash covers the parent, so this is a
+    // distinct version of the lineage rather than a repeat of the archived v1 —
+    // which it is not if the hash is taken before auto_parent resolves the parent.
+    let mut revert = new_script(
+        "u/test-user/auto_parent_test",
+        "v1",
+        "export async function main() { return 1; }",
+    );
+    revert["auto_parent"] = json!(true);
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&revert)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "reverting to v1's content with auto_parent: {}",
+        resp.text().await?
+    );
+
     Ok(())
 }
 
