@@ -8,6 +8,7 @@
 	import ToggleButtonMore from '$lib/components/common/toggleButton-v2/ToggleButtonMore.svelte'
 	import { AiEvalsService, ResourceService, type EvalDataset, type EvalSubject } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
+	import MissingWorkerTagAlert from '$lib/components/jobs/MissingWorkerTagAlert.svelte'
 	import { Pencil, Play, Plus } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 
@@ -288,6 +289,11 @@
 				</div>
 			{/if}
 		</Label>
+
+		<!-- Said here rather than discovered from a run that never starts: the step that assembles
+		     each iteration for the scorers is a native job, and that tag belongs to the `native`
+		     worker group. Nothing serving it means the run queues rather than fails. -->
+		<MissingWorkerTagAlert tag="nativets" subject="Eval runs" {workspace} />
 	</div>
 	{#snippet actions()}
 		<Button
