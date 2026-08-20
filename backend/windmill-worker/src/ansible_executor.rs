@@ -485,9 +485,10 @@ async fn fetch_repo_archive(
 /// Unpack a GitHub archive, whose entries all sit under one
 /// `{owner}-{repo}-{sha}` directory that gets dropped.
 ///
-/// Entries are joined onto `target` by hand rather than through
-/// `Archive::unpack`, so that a crafted archive can't place a file outside the
-/// job directory.
+/// Each entry's path is required to be a plain relative one, so a `..` or
+/// absolute entry can't land a file outside `target`. Symlinks are left to
+/// `tar`'s own unpack, which keeps a link from escaping the directory it
+/// unpacks into.
 fn unpack_repo_archive(archive_path: &PathBuf, target: &PathBuf) -> error::Result<()> {
     use std::path::Component;
 

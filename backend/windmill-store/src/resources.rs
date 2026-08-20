@@ -3201,11 +3201,23 @@ async fn get_git_commit_hash(
     // installation token server-side rather than embedding one in a URL here.
     // It returns `None` for a repo that isn't app-backed, which is exactly the
     // ls-remote case below.
+    //
+    // Admin-only for the same reason as the archive route: the repository is
+    // named by the resource's own `url`, which anyone with write on its path
+    // controls, so reading it would let a caller aim the installation
+    // credential at any repository it can reach.
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    if let Some((_, commit_hash)) =
-        windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path).await?
+    if git_repo_resource_value
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
     {
-        return Ok(Json(GitCommitHashResponse { commit_hash }));
+        require_admin(authed.is_admin, &authed.username)?;
+        if let Some((_, commit_hash)) =
+            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path).await?
+        {
+            return Ok(Json(GitCommitHashResponse { commit_hash }));
+        }
     }
 
     let mut git_resource: GitRepositoryResource = serde_json::from_value(git_repo_resource_value)
