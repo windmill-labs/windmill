@@ -470,6 +470,16 @@ pub async fn save_cases(
     }
 
     let mut tx = db.begin().await?;
+    // One replacement at a time per dataset. Two of them would otherwise each delete what its own
+    // list does not hold before either inserts, and both would commit — leaving the union of the
+    // two sets rather than either of the two the callers asked for.
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('ai_eval_cases:' || $1 || '/' || $2))",
+        w_id,
+        path
+    )
+    .execute(&mut *tx)
+    .await?;
     let kept: Vec<Uuid> = payload.cases.iter().filter_map(|c| c.id).collect();
     sqlx::query!(
         "DELETE FROM eval_case
