@@ -97,6 +97,37 @@
 			email: 'someone@windmill.dev'
 		},
 		{
+			title: 'Last used: Google',
+			note: 'Badged and moved to the top of the list; the rest keep their order.',
+			preview: {
+				logins: [github, google, microsoft],
+				smtpConfigured: true,
+				lastUsed: { kind: 'oauth', provider: 'google' }
+			}
+		},
+		{
+			title: 'Last used: email and password',
+			note: 'The form leads the card, already open, with the providers under the divider.',
+			preview: {
+				logins: [github, google],
+				smtpConfigured: true,
+				lastUsed: { kind: 'password' }
+			}
+		},
+		{
+			title: 'Long provider name, last used',
+			note: 'A custom provider with a long display name, badged: the worst case for the label.',
+			preview: {
+				logins: [
+					{ type: 'keycloak', displayName: 'Acme Corporation Single Sign-On' },
+					github,
+					{ type: 'authentik', displayName: 'Authentik (staging)' }
+				],
+				smtpConfigured: true,
+				lastUsed: { kind: 'oauth', provider: 'keycloak' }
+			}
+		},
+		{
 			title: 'SAML only',
 			note: 'A single SSO button, password login still reachable underneath.',
 			preview: { saml: true }

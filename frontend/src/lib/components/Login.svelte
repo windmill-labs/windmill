@@ -1,4 +1,6 @@
 <script module lang="ts">
+	import type { LastLoginMethod } from '$lib/lastLoginMethod'
+
 	/** Feeds the login card a fixed instance configuration instead of the live one.
 	 * Only the kitchen sink at /kitchen_sink/login sets it; production always fetches. */
 	export type LoginPreview = {
@@ -8,6 +10,7 @@
 		smtpConfigured?: boolean
 		cloud?: boolean
 		autoRedirecting?: boolean
+		lastUsed?: LastLoginMethod
 	}
 </script>
 
@@ -26,7 +29,7 @@
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { classNames, emptyString, escapeHtml, parseQueryParams } from '$lib/utils'
+	import { emptyString, escapeHtml, parseQueryParams } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
@@ -41,6 +44,14 @@
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 	import InputError from './InputError.svelte'
 	import { loginErrorMessage } from '$lib/loginError'
+	import Badge from './common/badge/Badge.svelte'
+	import {
+		getLastLoginMethod,
+		confirmPendingLoginMethod,
+		markLoginMethodPending,
+		rememberLoginMethod,
+		sameLoginMethod
+	} from '$lib/lastLoginMethod'
 
 	interface Props {
 		rd?: string | undefined
@@ -74,12 +85,16 @@
 	let previewConfig = $derived(import.meta.env.DEV ? preview : undefined)
 	let cloudHosted = $derived(previewConfig ? !!previewConfig.cloud : isCloudHosted())
 
+	let lastUsed = $state<LastLoginMethod | undefined>(undefined)
+	let lastUsedPassword = $derived(!!lastUsed && lastUsed.kind === 'password')
+
 	// Scoped per instance: the kitchen sink mounts every card at once, and a hardcoded id
 	// would point each card's labels and aria-describedby at the first card's fields.
 	const uid = $props.id()
 	const emailId = `${uid}-email`
 	const passwordId = `${uid}-password`
 	const errorId = `${uid}-error`
+	const emailErrorId = `${uid}-email-error`
 
 	const providers = [
 		{
@@ -124,7 +139,15 @@
 		}
 	] as const
 
-	const providersType = providers.map((p) => p.type as string)
+	let orderedLogins = $derived.by(() => {
+		const known = providers.map((p) => p.type as string)
+		const sorted = [...(logins ?? [])].sort((a, b) => known.indexOf(a.type) - known.indexOf(b.type))
+		const lastIdx = sorted.findIndex((l) =>
+			sameLoginMethod(lastUsed, { kind: 'oauth', provider: l.type })
+		)
+		if (lastIdx > 0) sorted.unshift(...sorted.splice(lastIdx, 1))
+		return sorted
+	})
 
 	let showPassword = $state(false)
 	let passwordField = $state<Password | undefined>(undefined)
@@ -136,6 +159,9 @@
 	let disablePasswordLogin = $state(false)
 	let autoRedirecting = $state(false)
 	let oauthFlowDone = false
+
+	// The method that worked last time leads: the form takes the top of the card, already open.
+	let passwordFirst = $derived(lastUsedPassword && !disablePasswordLogin && !autoRedirecting)
 
 	// Errors that belong to the credentials the user just submitted: they stay under the
 	// password field until either field changes, so a stale message can't outlive its attempt.
@@ -218,6 +244,7 @@
 		}
 
 		formError = undefined
+		rememberLoginMethod({ kind: 'password' })
 
 		if (firstTime) {
 			goto('/user/first-time')
@@ -300,9 +327,12 @@
 			saml = previewConfig.saml ? 'https://idp.example.com/sso' : undefined
 			disablePasswordLogin = previewConfig.disablePasswordLogin ?? false
 			autoRedirecting = previewConfig.autoRedirecting ?? false
+			lastUsed = previewConfig.lastUsed
 			showPassword =
 				!disablePasswordLogin &&
-				((logins.length === 0 && !saml) || (email != undefined && email.length > 0))
+				(lastUsedPassword ||
+					(logins.length === 0 && !saml) ||
+					(email != undefined && email.length > 0))
 			onOptionsLoaded?.({ hasThirdParty: logins.length > 0 || !!saml })
 			return
 		}
@@ -333,9 +363,12 @@
 			console.error('Could not load logins', loginsResult.reason)
 		}
 
+		lastUsed = getLastLoginMethod()
 		showPassword =
 			!disablePasswordLogin &&
-			((logins?.length === 0 && !saml) || (email != undefined && email.length > 0))
+			(lastUsedPassword ||
+				(logins?.length === 0 && !saml) ||
+				(email != undefined && email.length > 0))
 
 		onOptionsLoaded?.({ hasThirdParty: (logins?.length ?? 0) > 0 || !!saml })
 
@@ -452,6 +485,7 @@
 	function finishOauthFlow(via: 'postMessage' | 'storage' | 'poll', win?: Window) {
 		if (oauthFlowDone) return
 		oauthFlowDone = true
+		confirmPendingLoginMethod()
 		console.log(`oauth: signaled via ${via}`)
 		if (win && !win.closed) win.close()
 		window.removeEventListener('message', popupListener)
@@ -481,6 +515,7 @@
 	function storeRedirect(provider: string): boolean {
 		// The kitchen sink renders real provider buttons; clicking one must not leave the page.
 		if (previewConfig) return true
+		markLoginMethodPending({ kind: 'oauth', provider })
 		persistRd()
 		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
 		console.log('storeRedirect', popup, url)
@@ -543,6 +578,7 @@
 			return false
 		}
 		if (previewConfig) return true
+		markLoginMethodPending({ kind: 'saml' })
 		let target = saml
 		let relayStateSet = false
 		// Carry the SP-initiated deep link through the IdP round-trip via SAML
@@ -581,8 +617,66 @@
 <!-- The red borders are colour-only, so role="alert" is what makes a failed attempt reach a
 	screen reader. -->
 {#snippet errorMessage()}
-	<div id={errorId} role="alert">
-		<InputError error={credentialsError} />
+	<div id={errorId} role="alert" class="min-h-5">
+		{#if errorField !== 'email'}
+			<InputError error={credentialsError} />
+		{/if}
+	</div>
+{/snippet}
+
+<!-- Straddles the button's top edge, so the row keeps its height and the badge reads as a
+	label on the button rather than another line of content. -->
+{#snippet lastUsedBadge()}
+	<!-- Hung off the corner like a notification badge: a long provider name wraps to two lines
+		inside the button, and anything sitting further in would land on the label. The ring is
+		the card's own colour so the badge punches through the button border. -->
+	<div class="absolute top-0 right-0 -translate-y-1/2 translate-x-1/4 z-10">
+		<Badge color="blue" small class="ring-2 ring-surface !px-1 !py-0 !text-[10px] leading-4">
+			Last used
+		</Badge>
+	</div>
+{/snippet}
+
+{#snippet providerButtons()}
+	<div class="grid gap-4 {autoRedirecting ? 'hidden' : ''}">
+		{#if !logins}
+			{#each Array(4) as _}
+				<Skeleton layout={[0.5, [2.375]]} />
+			{/each}
+		{:else}
+			{#each orderedLogins as login (login.type)}
+				{@const known = providers.find((p) => p.type === login.type)}
+				<div class="relative">
+					{#if sameLoginMethod(lastUsed, { kind: 'oauth', provider: login.type })}
+						{@render lastUsedBadge()}
+					{/if}
+					<Button
+						variant="default"
+						unifiedSize="lg"
+						startIcon={known ? { icon: known.icon, classes: 'h-4' } : undefined}
+						onClick={() => storeRedirect(login.type)}
+					>
+						Continue with {login.displayName}
+					</Button>
+				</div>
+			{/each}
+		{/if}
+		{#if saml}
+			<div class="relative">
+				{#if sameLoginMethod(lastUsed, { kind: 'saml' })}
+					{@render lastUsedBadge()}
+				{/if}
+				<Button variant="default" unifiedSize="lg" onClick={redirectSaml}>Continue with SSO</Button>
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet orDivider()}
+	<div class="flex items-center gap-3 my-6">
+		<div class="h-px flex-1 bg-border-light"></div>
+		<span class="text-2xs uppercase text-secondary">or</span>
+		<div class="h-px flex-1 bg-border-light"></div>
 	</div>
 {/snippet}
 
@@ -590,64 +684,37 @@
 	{#if autoRedirecting}
 		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
 	{/if}
-	<div class="grid gap-4 {autoRedirecting ? 'hidden' : ''}">
-		{#if !logins}
-			{#each Array(4) as _}
-				<Skeleton layout={[0.5, [2.375]]} />
-			{/each}
-		{:else}
-			{#each providers as { type, icon }}
-				{#if logins?.some((login) => login.type === type)}
+
+	{#if !passwordFirst}
+		{@render providerButtons()}
+		{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
+			{@render orDivider()}
+			<!-- Only an entry point to the form below: once that is open the divider is what
+				separates the two ways in. -->
+			{#if !showPassword}
+				<div class="center-center">
 					<Button
-						variant="default"
-						startIcon={{ icon, classes: 'h-4' }}
-						on:click={() => storeRedirect(type)}
+						unifiedSize="sm"
+						variant="subtle"
+						onClick={() => {
+							showPassword = true
+						}}
 					>
-						{logins.find((login) => login.type === type)?.displayName}
+						Log in without third-party
 					</Button>
-				{/if}
-			{/each}
-			{#each logins.filter((login) => !providersType?.includes(login.type)) as login}
-				<Button variant="default" on:click={() => storeRedirect(login.type)}>
-					{login.displayName}
-				</Button>
-			{/each}
-		{/if}
-		{#if saml}
-			<Button variant="default" on:click={redirectSaml}>SSO</Button>
-		{/if}
-	</div>
-	{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
-		<div class="flex items-center gap-3 mt-6">
-			<div class="h-px flex-1 bg-border-light"></div>
-			<span class="text-2xs uppercase text-secondary">or</span>
-			<div class="h-px flex-1 bg-border-light"></div>
-		</div>
-		<!-- Only an entry point to the form below: once that is open (a ?email= deep link opens it
-			straight away) the divider is what separates the two ways in. -->
-		{#if !showPassword}
-			<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-4' : 'mt-2')}>
-				<Button
-					size="xs"
-					variant="subtle"
-					on:click={() => {
-						showPassword = true
-					}}
-				>
-					Log in without third-party
-				</Button>
-			</div>
+				</div>
+			{/if}
 		{/if}
 	{/if}
 
 	{#if !autoRedirecting && showPassword && !disablePasswordLogin}
-		<div class={saml || (logins && logins.length > 0) ? 'mt-6' : ''}>
+		<div>
 			{#if firstTime}
 				<p class="text-xs text-center w-full pb-4 text-secondary">
 					Welcome! Default credentials admin@windmill.dev / changeme have been prefilled.
 				</p>
 			{/if}
-			<div class="space-y-6">
+			<div class="space-y-4">
 				{#if cloudHosted}
 					<p class="text-xs text-secondary pb-6">
 						To get credentials without the OAuth providers above, send an email at
@@ -667,7 +734,8 @@
 									type: 'email',
 									autocomplete: 'username',
 									'aria-invalid': emailErrored ? 'true' : undefined,
-									'aria-describedby': emailErrored ? errorId : undefined,
+									'aria-describedby':
+										errorField === 'email' ? emailErrorId : emailErrored ? errorId : undefined,
 									onkeydown: (e) => {
 										// Only move on once the field holds something: while the browser's
 										// credential dropdown is open, Enter belongs to the dropdown
@@ -680,7 +748,9 @@
 							/>
 						</div>
 						{#if errorField === 'email'}
-							{@render errorMessage()}
+							<div id={emailErrorId} role="alert">
+								<InputError error={credentialsError} />
+							</div>
 						{/if}
 					</div>
 
@@ -701,24 +771,24 @@
 								onKeyDown={handleKeyDown}
 							/>
 						</div>
-						{#if errorField !== 'email'}
-							{@render errorMessage()}
-						{/if}
-						{#if smtpConfigured}
-							<div class="text-right pt-1">
-								<a
-									href="{base}/user/forgot-password"
-									class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
-								>
-									Forgot password?
-								</a>
-							</div>
-						{/if}
+						{@render errorMessage()}
 					</div>
 				</div>
 
-				<div class="pt-2">
-					<Button onClick={login} variant="accent" disabled={!email || !password}>Sign in</Button>
+				<div>
+					<Button onClick={login} variant="accent" unifiedSize="lg" disabled={!email || !password}>
+						Log in
+					</Button>
+					{#if smtpConfigured}
+						<div class="text-center pt-2">
+							<a
+								href="{base}/user/forgot-password"
+								class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+							>
+								Forgot password?
+							</a>
+						</div>
+					{/if}
 				</div>
 			</div>
 
@@ -735,5 +805,10 @@
 				</p>
 			{/if}
 		</div>
+	{/if}
+
+	{#if passwordFirst && (saml || (logins && logins.length > 0))}
+		{@render orDivider()}
+		{@render providerButtons()}
 	{/if}
 </div>

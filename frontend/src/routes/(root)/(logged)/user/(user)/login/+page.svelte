@@ -3,17 +3,11 @@
 	import { page } from '$app/state'
 
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import {
-		usersWorkspaceStore,
-		workspaceStore,
-		userStore,
-		enterpriseLicense,
-		whitelabelNameStore
-	} from '$lib/stores'
+	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
 	import { emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
-	import { WindmillIcon } from '$lib/components/icons'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
+	import { WindmillIcon } from '$lib/components/icons'
 	import { clearStores } from '$lib/storeUtils'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import Login from '$lib/components/Login.svelte'
@@ -136,25 +130,22 @@
 	}
 </script>
 
-<!-- min-h-screen, not h-screen: a card taller than the viewport (many providers, one per row)
-	would otherwise overflow a centered fixed-height box on both edges, leaving the top of the
-	card unreachable since the page can only scroll down. -->
-<div
-	class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-surface-secondary min-h-screen"
->
-	<LoginPageHeader />
+<!-- Anchored to the top, not centered: the card grows when the password form opens or an
+	error appears, and centering would slide the mark and the fields under the pointer. -->
+<div class="flex flex-col pt-24 pb-12 sm:px-6 lg:px-8 relative bg-surface-secondary min-h-screen">
+	<!-- The one page that keeps the mark in the middle: it names the instance you are logging
+		into, so the header's corner lockup would just say it twice. -->
+	<LoginPageHeader showBrand={false} />
 	<div class="sm:mx-auto sm:w-full sm:max-w-sm">
 		<div class="mx-auto flex justify-center">
-			{#if !$enterpriseLicense || !$whitelabelNameStore}
-				<WindmillIcon height="48px" width="48px" spin="slow" />
-			{/if}
+			<WindmillIcon height="48px" width="48px" spin="slow" />
 		</div>
 		<div class="mt-6">
 			<LoginHeading {hasThirdParty} />
 		</div>
 	</div>
 
-	<div class="mt-6 sm:mx-auto sm:w-full sm:max-w-sm mb-48">
+	<div class="mt-6 sm:mx-auto sm:w-full sm:max-w-sm">
 		<Login
 			{firstTime}
 			{rd}
