@@ -378,25 +378,42 @@ pub(crate) fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool)
     }
 }
 
-/// Stamp a bun 1.4 text lockfile back to `lockfileVersion: 1`.
+/// An empty `lockfileVersion: 1` lockfile, planted before `bun install` so bun writes v1.
 ///
-/// Only the header distinguishes the two for the flat `{"dependencies": {...}}` the dependency
-/// job writes: no overrides, catalogs or workspaces, so nothing needs v2 syntax. Both bun
-/// versions honour the result. Gated on [`MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2`] so the fleet
-/// stops paying for this once every worker can read v2.
-fn downgrade_bun_lockfile_v2(lockfile: String) -> String {
-    const V2: &str = "\"lockfileVersion\": 2";
-    const V1: &str = "\"lockfileVersion\": 1";
-    match lockfile.find(V2) {
-        Some(i) => {
-            let mut out = String::with_capacity(lockfile.len());
-            out.push_str(&lockfile[..i]);
-            out.push_str(V1);
-            out.push_str(&lockfile[i + V2.len()..]);
-            out
-        }
-        None => lockfile,
+/// bun keeps whichever version the lockfile it found already had, and only raises it when the
+/// dependencies genuinely need newer syntax. Seeding therefore gets a real v1 lockfile — written
+/// by bun, not rewritten by us — whenever v1 can express the resolution, and lets bun escalate
+/// when it cannot. [`bun_lockfile_version`] catches the escalation afterwards.
+const EMPTY_V1_BUN_LOCK: &str = r#"{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {},
+  },
+  "packages": {}
+}"#;
+
+async fn seed_v1_bun_lockfile(job_dir: &str) -> Result<()> {
+    let path = format!("{job_dir}/bun.lock");
+    if tokio::fs::metadata(&path).await.is_ok() {
+        return Ok(());
     }
+    write_file(job_dir, "bun.lock", EMPTY_V1_BUN_LOCK)?;
+    Ok(())
+}
+
+/// The `lockfileVersion` a bun text lockfile declares, if it declares one.
+fn bun_lockfile_version(lockfile: &str) -> Option<u32> {
+    let i = lockfile.find("\"lockfileVersion\"")?;
+    let rest = &lockfile[i + "\"lockfileVersion\"".len()..];
+    let digits = rest
+        .trim_start()
+        .strip_prefix(':')?
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    digits.parse().ok()
 }
 
 pub async fn gen_bun_lockfile(
@@ -518,6 +535,9 @@ pub async fn gen_bun_lockfile(
     }
 
     if !empty_deps {
+        if !npm_mode && !MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.met_conservatively() {
+            seed_v1_bun_lockfile(job_dir).await?;
+        }
         install_bun_lockfile(
             mem_peak,
             canceled_by,
@@ -562,7 +582,18 @@ pub async fn gen_bun_lockfile(
                     let mut buf = String::default();
                     file.read_to_string(&mut buf).await?;
                     if !MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.met_conservatively() {
-                        buf = downgrade_bun_lockfile_v2(buf);
+                        // Seeding asked bun for v1; a higher version back means these
+                        // dependencies cannot be expressed in one. Storing it anyway would not
+                        // fail on an older worker — it would install from package.json alone and
+                        // silently resolve different versions.
+                        if let Some(v) = bun_lockfile_version(&buf).filter(|v| *v > 1) {
+                            return Err(error::Error::ExecutionErr(format!(
+                                "bun produced a v{v} lockfile, which workers older than {} \
+                                 cannot read. Finish upgrading every worker before deploying \
+                                 dependencies that need it (overrides, catalogs).",
+                                MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.version()
+                            )));
+                        }
                     }
                     content.push_str(&buf);
                 } else {
@@ -4150,17 +4181,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_downgrade_bun_lockfile_v2() {
-        let v2 = "{\n  \"lockfileVersion\": 2,\n  \"packages\": { \"a\": [\"a@1.0.0\"] }\n}";
-        let downgraded = downgrade_bun_lockfile_v2(v2.to_string());
-        assert!(downgraded.contains("\"lockfileVersion\": 1,"));
-        // everything but the header survives verbatim: the pins are the whole point
-        assert!(downgraded.contains("\"a@1.0.0\""));
-        assert_eq!(downgraded.len(), v2.len());
-
-        // a lockfile bun already wrote as v1 is left exactly as-is
-        let v1 = "{\n  \"lockfileVersion\": 1,\n  \"packages\": {}\n}";
-        assert_eq!(downgrade_bun_lockfile_v2(v1.to_string()), v1);
+    fn test_bun_lockfile_version() {
+        assert_eq!(bun_lockfile_version(EMPTY_V1_BUN_LOCK), Some(1));
+        assert_eq!(
+            bun_lockfile_version("{\n  \"lockfileVersion\": 2,\n  \"packages\": {}\n}"),
+            Some(2)
+        );
+        // bun raises the version on its own for overrides/catalogs; anything above 1 has to be
+        // recognised, not just the version that happened to exist when this was written
+        assert_eq!(bun_lockfile_version("{\"lockfileVersion\":3}"), Some(3));
+        assert_eq!(
+            bun_lockfile_version("{ \"lockfileVersion\" : 42 }"),
+            Some(42)
+        );
+        assert_eq!(bun_lockfile_version("{\"packages\":{}}"), None);
     }
 
     #[test]
