@@ -155,18 +155,20 @@
 			? formError.message
 			: undefined
 	)
-	let emailErrored = $derived(!!credentialsError && formError?.fields !== 'password')
-	let passwordErrored = $derived(!!credentialsError && formError?.fields !== 'email')
+	// 'both' sits under the password field, at the end of the form, where a rejected
+	// credential pair belongs; a single missing field gets the message under itself.
+	let errorField = $derived(credentialsError ? (formError?.fields ?? 'both') : undefined)
+	let emailErrored = $derived(errorField === 'email' || errorField === 'both')
+	let passwordErrored = $derived(errorField === 'password' || errorField === 'both')
 
 	async function failLogin(message: string, fields: 'both' | 'email' | 'password' = 'both') {
 		// The shake is for a retry that fails the same way: on the first failure the message
 		// appearing is the signal, and shaking it in would be noise.
 		const wasAlreadyShown = credentialsError != undefined
 		formError = { message, fields, email, password }
-		// Drop the class, then force a style recalculation before re-adding it. tick() alone only
-		// writes the DOM: without reading a layout property in between, the browser coalesces the
-		// removal and the re-add into one recalculation, sees the class as never having left, and
-		// replays nothing from the second retry onwards.
+		// tick() only writes the DOM. Without a layout read between the removal and the re-add,
+		// the browser coalesces both into one style recalculation, sees a class that never left,
+		// and replays nothing from the second retry onwards.
 		shake = false
 		if (!wasAlreadyShown) return
 		await tick()
@@ -570,6 +572,14 @@
 	})
 </script>
 
+<!-- The red borders are colour-only, so role="alert" is what makes a failed attempt reach a
+	screen reader. -->
+{#snippet errorMessage()}
+	<div id={errorId} role="alert">
+		<InputError error={credentialsError} />
+	</div>
+{/snippet}
+
 <div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
 	{#if autoRedirecting}
 		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
@@ -647,7 +657,7 @@
 									type: 'email',
 									autocomplete: 'username',
 									'aria-invalid': emailErrored ? 'true' : undefined,
-									'aria-describedby': credentialsError ? errorId : undefined,
+									'aria-describedby': emailErrored ? errorId : undefined,
 									onkeydown: (e) => {
 										// Only move on once the field holds something: while the browser's
 										// credential dropdown is open, Enter belongs to the dropdown
@@ -659,6 +669,9 @@
 								}}
 							/>
 						</div>
+						{#if errorField === 'email'}
+							{@render errorMessage()}
+						{/if}
 					</div>
 
 					<div class="space-y-1">
@@ -674,15 +687,13 @@
 								autocomplete="current-password"
 								allowMultiline={false}
 								error={passwordErrored}
-								describedBy={credentialsError ? errorId : undefined}
+								describedBy={passwordErrored ? errorId : undefined}
 								onKeyDown={handleKeyDown}
 							/>
 						</div>
-						<!-- The red borders are colour-only, so role="alert" is what makes a failed
-							attempt reach a screen reader. -->
-						<div id={errorId} role="alert">
-							<InputError error={credentialsError} />
-						</div>
+						{#if errorField !== 'email'}
+							{@render errorMessage()}
+						{/if}
 						{#if smtpConfigured}
 							<div class="text-right pt-1">
 								<a

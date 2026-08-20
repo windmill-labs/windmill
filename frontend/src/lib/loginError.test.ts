@@ -15,9 +15,10 @@ describe('loginErrorMessage', () => {
 				body: 'Bad request: Password login is disabled on this instance'
 			})
 		).toBe('Password login is disabled on this instance')
-		expect(
-			loginErrorMessage({ status: 429, body: 'Too many login attempts. Please try again later.' })
-		).toBe('Too many login attempts. Please try again later.')
+		// The rate limiter's own wording is not echoed back: a 429 always gets this sentence.
+		expect(loginErrorMessage({ status: 429, body: 'Bad request: slow down' })).toBe(
+			'Too many login attempts. Please try again later.'
+		)
 	})
 
 	it('never surfaces server text it does not recognise, to an unauthenticated visitor', () => {
@@ -30,6 +31,9 @@ describe('loginErrorMessage', () => {
 			loginErrorMessage({ status: 502, body: '<html><body>502 Bad Gateway</body></html>' })
 		).toBe('Could not sign you in. Please try again.')
 		expect(loginErrorMessage(new TypeError('Failed to fetch'))).toBe(
+			'Could not sign you in. Please try again.'
+		)
+		expect(loginErrorMessage({ status: 400, body: { error: { message: { nested: true } } } })).toBe(
 			'Could not sign you in. Please try again.'
 		)
 	})

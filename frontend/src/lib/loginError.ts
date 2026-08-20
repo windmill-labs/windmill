@@ -8,9 +8,9 @@ const GENERIC_LOGIN_ERROR = 'Could not sign you in. Please try again.'
 export function loginErrorMessage(err: any): string {
 	// The API returns errors as plain text, prefixed by their class (e.g. "Bad request: Invalid
 	// login"); ApiError.message is only the HTTP status text.
-	const body = typeof err?.body === 'string' ? err.body : (err?.body?.error?.message ?? '')
-	const detail =
-		typeof body === 'string' ? body.replace(/^(Bad request|Internal|Error): /, '').trim() : ''
+	const raw = typeof err?.body === 'string' ? err.body : err?.body?.error?.message
+	const body = typeof raw === 'string' ? raw : ''
+	const detail = body.replace(/^(Bad request|Internal|Error): /, '').trim()
 	if (detail === 'Invalid login') {
 		return 'Invalid email or password.'
 	}
