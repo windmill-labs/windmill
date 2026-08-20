@@ -136,7 +136,11 @@ async fn record_case_answers(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
 /// The distinction is what makes settling a row safe: a lookup that failed for any other reason —
 /// a database error, a malformed flow status — must not be recorded as a case that produced no
 /// answer, because nothing reads that row again.
-pub(crate) async fn agent_result(db: &DB, w_id: &str, job_id: Uuid) -> Result<Option<(Box<RawValue>, bool)>> {
+pub(crate) async fn agent_result(
+    db: &DB,
+    w_id: &str,
+    job_id: Uuid,
+) -> Result<Option<(Box<RawValue>, bool)>> {
     match windmill_queue::get_result_and_success_by_id_from_flow(
         db,
         w_id,
@@ -216,8 +220,14 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
         }
         // What to say when the job is over and this scorer left nothing: the two are different
         // states, and a cell reading "no answer to score" beside an Answer column that plainly
-        // shows one is the report being wrong rather than the run.
-        let missing = if row.answered == Some(true) {
+        // shows one is the report being wrong rather than the run. Only `record_case_answers`
+        // knows which happened, and the listing syncs without it — so until it has run there is
+        // nothing to settle on, and the cell waits rather than freezing the wrong half of the
+        // distinction into a score row no later read revisits.
+        let Some(answered) = row.answered else {
+            return Ok((row.ordinal, row.scorer_id, None));
+        };
+        let missing = if answered {
             "This scorer did not run for the case"
         } else {
             "The case produced no answer to score"
