@@ -623,17 +623,21 @@
 			<span class="text-2xs uppercase text-secondary">or</span>
 			<div class="h-px flex-1 bg-border-light"></div>
 		</div>
-		<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-4' : 'mt-2')}>
-			<Button
-				size="xs"
-				variant="subtle"
-				on:click={() => {
-					showPassword = !showPassword
-				}}
-			>
-				Log in without third-party
-			</Button>
-		</div>
+		<!-- Only an entry point to the form below: once that is open (a ?email= deep link opens it
+			straight away) the divider is what separates the two ways in. -->
+		{#if !showPassword}
+			<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-4' : 'mt-2')}>
+				<Button
+					size="xs"
+					variant="subtle"
+					on:click={() => {
+						showPassword = true
+					}}
+				>
+					Log in without third-party
+				</Button>
+			</div>
+		{/if}
 	{/if}
 
 	{#if !autoRedirecting && showPassword && !disablePasswordLogin}
