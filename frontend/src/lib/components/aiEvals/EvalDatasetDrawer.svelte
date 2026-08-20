@@ -63,6 +63,9 @@
 	let formGeneration = $state(0)
 	let creating = $state(false)
 	let saving = $state(false)
+	/** The drawer is writing the dataset, by either route. The cases are what is being written,
+	 *  so nothing may change them until it lands. */
+	let writing = $derived(creating || saving)
 	/** The columns chosen while naming a dataset that does not exist yet, sent with the create. */
 	let pendingScorers = $state<Scorer[]>([])
 	/** The drawer's own copy of the cases, which is what the editor edits. Nothing here is written
@@ -73,6 +76,8 @@
 	let storedIds = $state<Set<string>>(new Set())
 
 	let removingCase = $state<CaseDraft | undefined>(undefined)
+	/** The grid, so an open cell can be committed before the list is read to write it. */
+	let casesGrid: EvalCasesGrid | undefined = $state()
 
 	/** The next free `<agent>_datasetN`, which is what a dataset is called until it is named. */
 	function nextDatasetIndex(): number {
@@ -129,6 +134,7 @@
 	 *  know what is in it, so it is made for you here and renamed from this same drawer. */
 	async function createDataset() {
 		if (!workspace || !path || pathError) return
+		casesGrid?.flush()
 		creating = true
 		try {
 			const created = path
@@ -184,6 +190,8 @@
 	/** Renaming moves the dataset: its cases and experiments follow it through the foreign keys. */
 	async function saveDataset() {
 		if (!workspace || !datasetPath || !dataset || !path || pathError) return
+		// Before anything reads the list: a cell still open is an edit that must go in with it.
+		casesGrid?.flush()
 		saving = true
 		try {
 			await saveCases()
@@ -326,10 +334,10 @@
 					<span class="text-2xs text-tertiary">{workingCases.length}</span>
 					<div class="grow"></div>
 					<Button
-						size="xs"
+						unifiedSize="xs"
 						variant="default"
 						startIcon={{ icon: Plus }}
-						disabled={(mode === 'edit' && !datasetPath) || saving}
+						disabled={(mode === 'edit' && !datasetPath) || writing}
 						onclick={addCase}
 					>
 						Add a case
@@ -340,14 +348,19 @@
 				     The same grid the data tables are edited in, so a set of rows is edited the one way
 				     this app edits rows. -->
 				<div class="grow min-h-0">
-					<EvalCasesGrid bind:cases={workingCases} onRemove={removeCase} locked={saving} />
+					<EvalCasesGrid
+						bind:this={casesGrid}
+						bind:cases={workingCases}
+						onRemove={removeCase}
+						locked={writing}
+					/>
 				</div>
 			</div>
 		</div>
 		{#snippet actions()}
 			{#if mode === 'edit'}
 				<Button
-					size="xs"
+					unifiedSize="xs"
 					variant="accent"
 					loading={saving}
 					disabled={saving || !path || !!pathError || nothingToSave}
@@ -357,7 +370,7 @@
 				</Button>
 			{:else}
 				<Button
-					size="xs"
+					unifiedSize="xs"
 					variant="accent"
 					startIcon={{ icon: Plus }}
 					loading={creating}

@@ -100,6 +100,9 @@
 				{ field: 'expected', headerName: 'Expected', flex: 2 }
 			] as any,
 			onDelete: (values) => {
+				// Locked for the same reason the cells are: the list is being written, and a row
+				// dropped now is one the request already left behind.
+				if (locked) return
 				const target = cases.find((c) => c.id === (values as Row).id)
 				if (target) onRemove(target)
 			}
@@ -117,13 +120,20 @@
 
 	$effect(() => {
 		const editable = !locked
-		untrack(() => {
-			if (!api) return
-			// Whatever cell is open goes in with the save rather than being abandoned by it.
-			if (!editable) api.stopEditing()
-			api.updateGridOptions({ defaultColDef: { ...defaultColDef, editable } })
-		})
+		untrack(() => api?.updateGridOptions({ defaultColDef: { ...defaultColDef, editable } }))
 	})
+
+	/**
+	 * Commit whatever cell is open into `cases`, synchronously.
+	 *
+	 * Called by the drawer before it reads the list to save it. `stopEditing` fires
+	 * `onCellValueChanged` in the same tick, so the value is in `cases` by the time this returns —
+	 * which is the whole point: a cell someone is still typing in when they press Save is an edit
+	 * they made, and an effect reacting to the save would run a microtask too late to catch it.
+	 */
+	export function flush() {
+		api?.stopEditing()
+	}
 </script>
 
 <DarkModeObserver bind:darkMode />
