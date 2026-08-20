@@ -1165,8 +1165,9 @@ function parseBenchmarkRequestBody(
 /** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
  * Any other relative fetch must keep its normal (non-benchmark) behavior —
  * intercepting it with a synthetic 404 sends the model into retry loops. */
-// Not anchored: the frontend builds this URL from location.origin, so it arrives absolute.
-const BENCHMARK_AI_MODELS_PATH = /\/api\/w\/([^/]+)\/ai\/proxy\/models$/
+// Not anchored: the frontend builds this URL from location.origin, so it arrives absolute. The
+// workspace id is greedy because an eval workspace is a temp directory path, slashes and all.
+const BENCHMARK_AI_MODELS_PATH = /\/api\/w\/(.+)\/ai\/proxy\/models$/
 
 export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]

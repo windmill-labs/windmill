@@ -32,6 +32,29 @@ export type AiAgentProviderCatalog = {
 	defaultModel?: { kind: AIProvider; model: string }
 }
 
+/** A model id as every provider writes one: `claude-sonnet-5`, `meta-llama/Llama-3.3-70B`,
+ * `anthropic.claude-haiku-4-5-20251001-v1:0`, `ft:gpt-4o:acme::abc`. Anything else is not
+ * rendered: a resource may point at a gateway someone else controls, and its listing lands in a
+ * system prompt, so a value with newlines or backticks could append instructions to the chat's
+ * own context. Length-bounded for the same reason. */
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:+@/-]{0,79}$/
+
+/** Models kept per resource, before the prompt's own display cap. Bounds what a hostile or broken
+ * listing can hold in memory and match against. */
+const MAX_MODELS_PER_RESOURCE = 200
+
+/** Keep only the entries of a provider's model listing that are usable as an id. */
+export function sanitizeModelIds(ids: readonly unknown[]): string[] {
+	const kept: string[] = []
+	for (const id of ids) {
+		if (typeof id === 'string' && MODEL_ID.test(id)) {
+			kept.push(id)
+		}
+		if (kept.length === MAX_MODELS_PER_RESOURCE) break
+	}
+	return kept
+}
+
 /** Models listed per resource in the prompt. Providers expose hundreds of ids (OpenRouter,
  * Bedrock); the whole list would crowd out the flow instructions. */
 const MAX_PROMPTED_MODELS = 25
@@ -54,8 +77,10 @@ function describeOption(option: AiAgentProviderOption): string {
 /**
  * Prompt section naming the AI provider resources an AI agent step may reference and the models
  * each one serves. The provider config's shape is in the flow authoring reference, not repeated
- * here; this is the part that only exists at run time. Empty string when the workspace has no AI
- * provider resource, so the caller can drop the section.
+ * here; this is the part that only exists at run time.
+ *
+ * Empty string only when the catalog does not know the workspace's resources — a workspace that
+ * definitively has none still gets a section saying so. Callers append whatever is non-empty.
  */
 export function formatAiAgentProvidersPrompt(
 	catalog: AiAgentProviderCatalog,
@@ -154,7 +179,9 @@ function knownOptionsHint(catalog: AiAgentProviderCatalog): string {
 const PROVIDER_SHAPE =
 	'{ "type": "static", "value": { "kind": "<provider kind>", "resource": "$res:<resource path>", "model": "<model id>" } }'
 
-type ProviderIssue = { message: string; blocking: boolean }
+/** `settled` marks a finding the catalog established rather than one it could not rule out, so
+ * the tool result does not hedge a fact. */
+type ProviderIssue = { message: string; blocking: boolean; settled?: boolean }
 
 function blocking(message: string): ProviderIssue {
 	return { message, blocking: true }
@@ -187,8 +214,9 @@ function checkProviderValue(
 	if (catalog.options.length === 0) {
 		return catalog.resourcesAreComplete
 			? {
-					message: `this workspace has no AI provider resources, so "${resource}" cannot resolve at run time`,
-					blocking: false
+					message: `this workspace has no AI provider resources, so "${resource}" cannot resolve and the step cannot run. Tell the user to create an AI provider resource (Anthropic, OpenAI, ...) and rewrite the step against it.`,
+					blocking: false,
+					settled: true
 				}
 			: undefined
 	}
@@ -238,6 +266,8 @@ export function validateAiAgentProviders(
 		if (!issue) return
 		if (issue.blocking) {
 			errors.push(`Step "${mod.id}": ${issue.message}`)
+		} else if (issue.settled) {
+			warnings?.push(`Step "${mod.id}": ${issue.message}`)
 		} else {
 			warnings?.push(
 				`Step "${mod.id}": ${issue.message}, which could not be ruled out. Confirm it with the user if the step fails to run.`

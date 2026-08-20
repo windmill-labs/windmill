@@ -2,6 +2,7 @@ import { ResourceService, WorkspaceService, type AIConfig, type AIProvider } fro
 import { AI_PROVIDERS, fetchAvailableModels } from '../../lib'
 import {
 	collectAiAgentProviderRefs,
+	sanitizeModelIds,
 	selectAiAgentProviderCandidates,
 	type AiAgentProviderCatalog,
 	type AiAgentProviderOption
@@ -26,9 +27,12 @@ const MAX_PROVIDER_RESOURCES = 8
 const MODELS_TIMEOUT_MS = 10_000
 
 /** Anthropic's model listing pages at 20 and `fetchAvailableModels` ignores `has_more`; the AI
- * proxy routes on the path alone, so no caller can ask for more. A listing that fills a page may
- * therefore be truncated, and only a shorter one is provably the whole set. */
-const SINGLE_PAGE_MODEL_COUNT = 20
+ * proxy routes on the path alone, so no caller can ask for more. A listing that fills that page
+ * may be truncated, and only a shorter one is provably the whole set. Providers that return every
+ * model in one response are not held to it — several legitimately list far more than 20. */
+function SINGLE_PAGE_MODEL_COUNT(kind: AIProvider): number {
+	return kind === 'anthropic' ? 20 : Number.POSITIVE_INFINITY
+}
 const CACHE_TTL_MS = 5 * 60_000
 
 const cache = new Map<string, { at: number; promise: Promise<AiAgentProviderCatalog> }>()
@@ -143,12 +147,18 @@ async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
 		kept.map((candidate) => loadOption(workspace, candidate, configuredByPath))
 	)
 
+	// The default belongs to the resource its provider is configured with. Matching on kind alone
+	// would pin the instance fallback's default model onto a workspace-local resource of the same
+	// kind, whose endpoint serves something else entirely.
 	const defaultModel = aiConfig.default_model
+	const defaultResourcePath = defaultModel
+		? aiConfig.providers?.[defaultModel.provider]?.resource_path
+		: undefined
 	return {
 		options,
 		resourcesAreComplete: listedAllResources && kept.length === candidates.length,
 		defaultModel:
-			defaultModel && options.some((option) => option.kind === defaultModel.provider)
+			defaultModel && options.some((option) => option.resourcePath === defaultResourcePath)
 				? { kind: defaultModel.provider, model: defaultModel.model }
 				: undefined
 	}
@@ -210,15 +220,16 @@ async function loadOption(
 		resourceRef: `$res:${candidate.resourcePath}`,
 		customEndpoint
 	}
-	if (listed.length > 0) {
+	const safeListed = sanitizeModelIds(listed)
+	if (safeListed.length > 0) {
 		return {
 			...base,
-			models: listed,
+			models: safeListed,
 			modelsAreLive: true,
 			modelsRuleOutOthers:
 				!customEndpoint &&
 				!FILTERED_MODEL_LISTING_KINDS.has(candidate.kind) &&
-				listed.length < SINGLE_PAGE_MODEL_COUNT
+				safeListed.length < SINGLE_PAGE_MODEL_COUNT(candidate.kind)
 		}
 	}
 	// Without a live listing, a model id cannot be ruled out: offer the configured
@@ -227,5 +238,10 @@ async function loadOption(
 		configuredModels.length > 0
 			? configuredModels
 			: (AI_PROVIDERS[candidate.kind]?.defaultModels ?? [])
-	return { ...base, models: fallback, modelsAreLive: false, modelsRuleOutOthers: false }
+	return {
+		...base,
+		models: sanitizeModelIds(fallback),
+		modelsAreLive: false,
+		modelsRuleOutOthers: false
+	}
 }

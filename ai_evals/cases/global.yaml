@@ -2335,3 +2335,33 @@
   # Whether the assistant asked before writing lives in the tool record, not in the draft the
   # global judge sees.
   skipJudge: true
+
+# Only satisfiable from the resource's own model listing: the workspace AI settings configure just
+# claude-sonnet-5, so an assistant working off the settings has no Opus id to write.
+- id: global-ai-agent-step-uses-listed-model
+  prompt: |-
+    Create a draft flow at `f/evals/global/deep_review` with a single AI agent step that reviews a
+    pull request diff. The diff comes in as a flow input called `diff`. Use the Opus model — this
+    one needs the strongest model available. No tools.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/ai_provider_anthropic.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/deep_review
+        valueIncludes:
+          - aiagent
+          - $res:f/evals/global/anthropic_main
+          - claude-opus-5
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a draft flow at f/evals/global/deep_review with one AI agent step
+    - the step uses the workspace's anthropic resource f/evals/global/anthropic_main
+    - the model is the Opus one the user asked for, taken from the models that resource serves
+    - the diff flow input reaches the agent
