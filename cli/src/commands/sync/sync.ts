@@ -180,12 +180,9 @@ import { isSharedLockPath, SHARED_LOCK_DIR } from "../../utils/script_common.ts"
 import {
   applySharedLockPlanToDisk,
   applySharedLockPlanToMap,
-  collectExistingSharedLocks,
   computeSharedLockPlan,
   isEmptySharedLockPlan,
   scriptsReferencingSharedLock,
-  NO_EXISTING_SHARED_LOCKS,
-  type ExistingSharedLocks,
   type LockDedupOptions,
 } from "../../utils/lock_dedup.ts";
 
@@ -2572,20 +2569,9 @@ async function compareDynFSElement(
   // keep.
   if (skips.dedupeLockfiles) {
     const remoteMap = isEls1Remote === true ? m1 : m2;
-    const localMapForScope = isEls1Remote === true ? m2 : m1;
     applySharedLockPlanToMap(
       remoteMap,
-      computeSharedLockPlan(remoteMap, {
-        defaultTs: skips.defaultTs,
-        existing: await collectExistingSharedLocks(process.cwd()),
-        json,
-        // Scope is what the LOCAL side holds: a script added locally and not yet
-        // pushed is absent from the remote map but is covered by this sync, and
-        // counting it as an unseen reader would explode its group.
-        inScope: (metaRef) =>
-          localMapForScope[toMapKeySep(metaRef)] !== undefined ||
-          localMapForScope[metaRef] !== undefined,
-      }),
+      computeSharedLockPlan(remoteMap, { defaultTs: skips.defaultTs }),
     );
   }
 
@@ -4012,20 +3998,6 @@ export async function pull(
 }
 
 /**
- * The shared lockfiles a run starts from. Take it BEFORE regenerating anything:
- * `updateScriptLock` moves a script off its shared file as soon as its lock
- * resolves differently, and a snapshot taken after that no longer shows which
- * file the group owns.
- */
-export async function snapshotSharedLocks(
-  opts: SyncOptions,
-): Promise<ExistingSharedLocks> {
-  return opts.dedupeLockfiles
-    ? await collectExistingSharedLocks(process.cwd())
-    : NO_EXISTING_SHARED_LOCKS;
-}
-
-/**
  * Fold the lockfile that the scripts of a language share back into the one
  * shared file (`dedupeLockfiles`), and give the scripts that ended up with a
  * lock of their own theirs back.
@@ -4045,11 +4017,6 @@ export async function dedupeLockfilesOnDisk(args: {
   ignore: (p: string, isD: boolean) => boolean;
   rawWorkspaceDependencies: Record<string, string>;
   tree: DoubleLinkedDependencyTree;
-  /** The tree BEFORE this run regenerated anything — see `snapshotSharedLocks`.
-   *  Passed in rather than collected here: taken afterwards it would show the
-   *  scripts regeneration has already moved off their shared file, and the group
-   *  would be handed a new name instead of keeping its own. */
-  existing: ExistingSharedLocks;
   /** Content paths whose generation failed this run. Their metadata may be
    *  rewritten, but never re-hashed: recording a hash for a script whose lock
    *  never regenerated marks it up-to-date, and it is never retried. */
@@ -4063,7 +4030,6 @@ export async function dedupeLockfilesOnDisk(args: {
     ignore,
     rawWorkspaceDependencies,
     tree,
-    existing,
     failed = [],
     dryRun,
   } = args;
@@ -4073,11 +4039,7 @@ export async function dedupeLockfilesOnDisk(args: {
     opts.json ?? false,
     opts,
   );
-  const plan = computeSharedLockPlan(map, {
-    defaultTs: opts.defaultTs,
-    existing,
-    json: opts.json ?? false,
-  });
+  const plan = computeSharedLockPlan(map, { defaultTs: opts.defaultTs });
   if (isEmptySharedLockPlan(plan)) return;
 
   const summary = `${Object.keys(plan.writes).length} file(s) written, ${plan.deletes.length} removed`;
@@ -4659,10 +4621,6 @@ export async function push(
   }
 
   const autoRegenerate = !!(opts as any).autoMetadata;
-  // Only the regeneration below reads it, and it walks the whole tree.
-  const sharedLocksBefore = autoRegenerate
-    ? await snapshotSharedLocks(opts)
-    : NO_EXISTING_SHARED_LOCKS;
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
   const staleApps: string[] = [];
@@ -4833,7 +4791,6 @@ export async function push(
           ignore: await ignoreF(opts),
           rawWorkspaceDependencies,
           tree,
-          existing: sharedLocksBefore,
           dryRun: opts.dryRun,
         });
       } finally {

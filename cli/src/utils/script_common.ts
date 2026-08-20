@@ -44,39 +44,148 @@ export const workspaceDependenciesLanguages: WorkspaceDependenciesLanguage[] = [
   { language: "powershell", filename: "modules.json" },
 ] as const;
 
+export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
+  const relativePath = path.replace("dependencies/", "");
+  for (const { filename, language } of workspaceDependenciesLanguages) {
+    if (relativePath.endsWith(filename)) {
+      return {
+        name: relativePath === filename ? undefined : relativePath.replace("." + filename, ""),
+        language
+      };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Annotation parser — mirrors backend's WorkspaceDependenciesAnnotatedRefs::parse
+// (windmill-common/src/workspace_dependencies.rs), so the CLI can tell which
+// workspace dependency file a script resolves against without asking a worker.
+// ---------------------------------------------------------------------------
+
+export type AnnotationMode = "manual" | "extra";
+
+export interface WorkspaceDepsAnnotation {
+  mode: AnnotationMode;
+  external: string[];
+  inline: string | null;
+}
+
+const LANG_ANNOTATION_CONFIG: Partial<
+  Record<ScriptLanguage, { comment: string; keyword: string; validityRe?: RegExp }>
+> = {
+  python3: { comment: "#", keyword: "requirements", validityRe: /^#\s?(\S+)\s*$/ },
+  bun: { comment: "//", keyword: "package_json" },
+  nativets: { comment: "//", keyword: "package_json" },
+  go: { comment: "//", keyword: "go_mod" },
+  php: { comment: "//", keyword: "composer_json" },
+  powershell: { comment: "#", keyword: "modules_json" },
+};
+
+export function extractWorkspaceDepsAnnotation(
+  scriptContent: string,
+  language: ScriptLanguage,
+): WorkspaceDepsAnnotation | null {
+  const config = LANG_ANNOTATION_CONFIG[language];
+  if (!config) return null;
+
+  const { comment, keyword, validityRe } = config;
+  const extraMarkerUnderscore = `extra_${keyword}:`;
+  const extraMarkerHyphen = `extra-${keyword}:`;
+  const manualMarker = `${keyword}:`;
+
+  const stripComment = (l: string): string | null => {
+    if (!l.startsWith(comment)) return null;
+    return l.substring(comment.length).trimStart();
+  };
+  const isExtra = (l: string): boolean => {
+    const s = stripComment(l);
+    return s !== null && (s.startsWith(extraMarkerUnderscore) || s.startsWith(extraMarkerHyphen));
+  };
+  const isManual = (l: string): boolean => {
+    const s = stripComment(l);
+    return s !== null && s.startsWith(manualMarker);
+  };
+
+  const lines = scriptContent.split("\n");
+
+  // Find first annotation line (mirrors Rust find_position)
+  let pos = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (isExtra(lines[i]) || isManual(lines[i])) {
+      pos = i;
+      break;
+    }
+  }
+  if (pos === -1) return null;
+
+  const annotationLine = lines[pos];
+  const mode: AnnotationMode = isExtra(annotationLine) ? "extra" : "manual";
+
+  // Parse external references from the annotation line
+  const marker = mode === "extra"
+    ? (annotationLine.includes(extraMarkerUnderscore) ? extraMarkerUnderscore : extraMarkerHyphen)
+    : manualMarker;
+  const unparsed = annotationLine.replaceAll(marker, "").replaceAll(comment, "");
+  const external = unparsed
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  // Parse inline deps from subsequent lines
+  const inlineParts: string[] = [];
+  for (let i = pos + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (validityRe) {
+      const match = validityRe.exec(l);
+      if (match && match[1]) {
+        inlineParts.push(match[1]);
+      } else {
+        break;
+      }
+    } else {
+      if (!l.startsWith(comment)) {
+        break;
+      }
+      inlineParts.push(l.substring(comment.length));
+    }
+  }
+
+  const inlineStr = inlineParts.join("\n");
+  const inline = inlineStr.trim().length > 0 ? inlineStr : null;
+
+  return { mode, external, inline };
+}
+
 /** Where the lockfiles shared by several scripts live when `dedupeLockfiles`
  *  is on — see `utils/lock_dedup.ts`. A top-level directory of its own: what a
  *  group shares is a resolved lock, which needs no workspace dependency file
  *  behind it, and inline-script locks would belong here too. */
 export const SHARED_LOCK_DIR = "locks";
 
-export function sharedLockPath(language: string, n = 1): string {
-  return n === 1
-    ? `${SHARED_LOCK_DIR}/${language}.lock`
-    : `${SHARED_LOCK_DIR}/${language}-${n}.lock`;
+/** The lockfile shared by the scripts that resolve against a workspace
+ *  dependency file: its own name, plus `.lock`. Appending rather than replacing
+ *  the extension keeps the correspondence exact and reversible —
+ *  `dependencies/team_a.requirements.in` <-> `locks/team_a.requirements.in.lock`. */
+export function sharedLockPathFor(depFilePath: string): string {
+  const name = depFilePath.replaceAll("\\", "/").split("/").pop()!;
+  return `${SHARED_LOCK_DIR}/${name}.lock`;
 }
 
-/**
- * Whether a path is a shared lockfile Windmill would have written.
- *
- * Narrow on purpose: `locks/` is an ordinary word, so a repo may already have
- * one holding something else. Only the names `sharedLockPath` can produce are
- * claimed — anything else under `locks/` stays invisible to sync, and cannot be
- * swept as an unreferenced shared lock.
- */
-export function isSharedLockPath(p: string): boolean {
+/** The workspace dependency file a shared lockfile belongs to, if it is one. */
+export function depFileOfSharedLock(p: string): string | undefined {
   const normalized = p.replaceAll("\\", "/");
-  if (!normalized.startsWith(SHARED_LOCK_DIR + "/")) return false;
+  if (!normalized.startsWith(SHARED_LOCK_DIR + "/")) return undefined;
   const name = normalized.slice(SHARED_LOCK_DIR.length + 1);
-  if (name.includes("/")) return false;
-  const match = /^(.+?)(?:-(\d+))?\.lock$/.exec(name);
-  if (!match) return false;
-  const n = match[2] === undefined ? 1 : Number(match[2]);
-  return (
-    languageNeedsLock(match[1]) &&
-    n >= 1 &&
-    sharedLockPath(match[1], n) === normalized
-  );
+  if (name.includes("/") || !name.endsWith(".lock")) return undefined;
+  const depFile = "dependencies/" + name.slice(0, -".lock".length);
+  const info = workspaceDependenciesPathToLanguageAndFilename(depFile);
+  // `locks/vendor.lock` names no dependency file, so it is not Windmill's: a
+  // repo that already keeps lockfiles here keeps them.
+  return info && languageNeedsLock(info.language) ? depFile : undefined;
+}
+
+export function isSharedLockPath(p: string): boolean {
+  return depFileOfSharedLock(p) !== undefined;
 }
 
 /**

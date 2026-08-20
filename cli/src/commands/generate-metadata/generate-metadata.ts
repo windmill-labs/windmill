@@ -23,9 +23,7 @@ import {
   elementsToMap,
   FSFSElement,
   ignoreF,
-  snapshotSharedLocks,
 } from "../sync/sync.ts";
-import { type ExistingSharedLocks } from "../../utils/lock_dedup.ts";
 import { hasScriptExt } from "../script/script.ts";
 import { isFolderResourcePathAnyFormat, isScriptModulePath, isModuleEntryPoint, scriptPathToRemotePath } from "../../utils/resource_folders.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
@@ -427,7 +425,6 @@ async function maybeDedupeLockfiles(
   rawWorkspaceDependencies: Record<string, string>,
   tree: DoubleLinkedDependencyTree,
   folder: string | undefined,
-  existing: ExistingSharedLocks,
   failed: string[] = [],
 ): Promise<void> {
   if (!opts.dedupeLockfiles) return;
@@ -446,7 +443,6 @@ async function maybeDedupeLockfiles(
     ignore,
     rawWorkspaceDependencies,
     tree,
-    existing,
     failed,
   };
   if (opts.dryRun) {
@@ -506,10 +502,6 @@ export async function generateMetadata(
   // Build dependency tree for relative import tracking
   const tree = new DoubleLinkedDependencyTree();
   tree.setWorkspaceDeps(rawWorkspaceDependencies);
-
-  // Before anything regenerates: which shared lockfile each group owns is only
-  // visible while its scripts still reference it.
-  const sharedLocksBefore = await snapshotSharedLocks(opts);
 
   // === Collect stale scripts ===
   if (!skipScripts) {
@@ -667,7 +659,7 @@ export async function generateMetadata(
     // Turning `dedupeLockfiles` on in a repo whose metadata is already current
     // is exactly the case where nothing is stale, and the conversion still has
     // to happen — the sync compares against a deduplicated remote either way.
-    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder, sharedLocksBefore);
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
     return;
   }
 
@@ -697,7 +689,7 @@ export async function generateMetadata(
   if (opts.dryRun) {
     // The preview belongs on this path too: the conversion is what a stale tree
     // is about to get, and only the up-to-date path reported it.
-    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder, sharedLocksBefore);
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
     return;
   }
 
@@ -845,7 +837,7 @@ export async function generateMetadata(
   // not be re-hashed as though this run had refreshed them.
   await maybeDedupeLockfiles(
     opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder,
-    sharedLocksBefore, errors.map((e) => e.path),
+    errors.map((e) => e.path),
   );
 
   const succeeded = total - errors.length;

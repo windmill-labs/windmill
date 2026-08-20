@@ -107,7 +107,7 @@
     },
     "dedupeLockfiles": {
       "type": "boolean",
-      "description": "Share one lockfile per language in locks/, instead of an identical .script.lock per script"
+      "description": "Share one lockfile per workspace dependency file (locks/<depfile>.lock), instead of an identical .script.lock per script"
     },
     "lint": {
       "type": "boolean",
