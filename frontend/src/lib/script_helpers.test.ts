@@ -42,9 +42,9 @@ describe('bashRunsInCustomImage', () => {
 	})
 })
 
-// getResetCode short-circuits to a per-language `main` stub before it ever looks at `kind`.
-// A preprocessor step resets through the same button, and a `main` body cannot run under the
-// preprocessor entrypoint, so every preprocessor-capable language must keep its entrypoint.
+// Preprocessors must bypass getResetCode's per-language `main` templates: a preprocessor step
+// resets through the same button as an action script, and a `main` body cannot run under the
+// preprocessor entrypoint.
 describe('getResetCode for preprocessors', () => {
 	// The concrete `language` values a preprocessor step can carry. PREPROCESSOR_SUPPORTED_LANGUAGES
 	// also holds the 'typescript'/'python' aliases, which no script is ever stored with.
