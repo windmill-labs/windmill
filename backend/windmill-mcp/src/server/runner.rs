@@ -166,16 +166,19 @@ enum EndpointPathPolicy {
     /// endpoint scope grants the capability; when the token also carries path
     /// patterns for `kind`, every listed argument must match them.
     ///
-    /// `optional_fields` is for a destination path the tool lets the caller omit,
-    /// where absent means "leave it where it is": requiring it would refuse every
-    /// call that does not move anything. An empty one is stripped from the arguments
-    /// before it reaches the handler, so it means absent rather than "the empty path".
-    /// Names are the ones the tool exposes, so a body path colliding with the URL's is
-    /// `path__body` — the URL path keeps the plain name (see `generate_mcp_tools.py`).
+    /// `optional_fields` is for a destination path the tool lets the caller omit, where
+    /// absent means "leave it where it is": requiring it would refuse every call that
+    /// does not move anything. Absent or empty, it is filled in from the argument it
+    /// pairs with before the request is built, so the item stays where it is without
+    /// the endpoint having to accept a body that omits its own path. Names are the ones
+    /// the tool exposes, so a body path colliding with the URL's is `path__body` — the
+    /// URL path keeps the plain name (see `generate_mcp_tools.py`).
     PathArgs {
         kind: &'static str,
         fields: &'static [&'static str],
-        optional_fields: &'static [&'static str],
+        /// `(destination, source)` pairs: a destination path the tool lets the caller
+        /// omit, and the argument it means when omitted.
+        optional_fields: &'static [(&'static str, &'static str)],
     },
     /// Affects scripts without taking a checkable path (delete-by-hash) or
     /// executes arbitrary code (preview). Unavailable to path-confined tokens —
@@ -204,12 +207,16 @@ fn endpoint_path_policy(endpoint_name: &str) -> Option<EndpointPathPolicy> {
         // These address the item via the URL path and can move it to the path given
         // in the body — both must stay within scope, and the body one only binds
         // when supplied, since omitting it is how a caller updates in place.
-        "updateScript" => {
-            Some(PathArgs { kind: "script", fields: &["path"], optional_fields: &["path__body"] })
-        }
-        "updateFlow" => {
-            Some(PathArgs { kind: "flow", fields: &["path"], optional_fields: &["path__body"] })
-        }
+        "updateScript" => Some(PathArgs {
+            kind: "script",
+            fields: &["path"],
+            optional_fields: &[("path__body", "path")],
+        }),
+        "updateFlow" => Some(PathArgs {
+            kind: "flow",
+            fields: &["path"],
+            optional_fields: &[("path__body", "path")],
+        }),
         "deleteScriptByHash" | "runScriptPreviewAndWaitResult" => Some(Unconfinable("script")),
         _ => None,
     }
@@ -284,19 +291,31 @@ fn authorize_endpoint_call(
     args: &mut Value,
     read_only: bool,
 ) -> Result<(), ErrorData> {
-    // An optional destination the caller left empty means "leave the item where it is",
-    // which is what a client obliged to fill in every argument sends. Dropped here so
-    // no handler has to read it that way: `update_script` does, `update_flow` takes it
-    // literally and moves the flow to the empty path. Dropping it also leaves nothing
-    // for the confinement below to authorize, since nothing moves.
+    // A destination the caller omitted, or left empty because it had to fill in every
+    // argument, means "leave the item where it is". Resolved to the path the item is
+    // already at, so the endpoint receives a body naming its own path rather than one
+    // that omits it, and so `update_flow` cannot read the empty string as the empty
+    // path and move the flow there. The confinement below then sees a destination
+    // equal to the source, which it already has to allow.
     if let Some(EndpointPathPolicy::PathArgs { optional_fields, .. }) =
         endpoint_path_policy(&endpoint_tool.name)
     {
-        if let Some(obj) = args.as_object_mut() {
-            obj.retain(|key, value| {
-                !optional_fields.contains(&key.as_str())
-                    || value.as_str().is_some_and(|s| !s.is_empty())
-            });
+        for (destination, source) in optional_fields {
+            let unset = args
+                .get(destination)
+                .is_none_or(|v| !v.as_str().is_some_and(|s| !s.is_empty()));
+            let Some(current) = args
+                .get(source)
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            if unset {
+                if let Some(obj) = args.as_object_mut() {
+                    obj.insert(destination.to_string(), Value::String(current));
+                }
+            }
         }
     }
 
@@ -327,10 +346,10 @@ fn authorize_endpoint_call(
                 Some(EndpointPathPolicy::PathArgs { kind, fields, optional_fields })
                     if path_confined(scope_config, kind) =>
                 {
-                    // Empty ones are already gone, so every one still here is a move.
+                    // Filled in above when omitted, so each one names a real path.
                     let supplied = optional_fields
                         .iter()
-                        .filter_map(|field| args.get(field).and_then(|v| v.as_str()).map(Ok));
+                        .filter_map(|(field, _)| args.get(field).and_then(|v| v.as_str()).map(Ok));
                     for path in fields
                         .iter()
                         .map(|field| require_path_arg(endpoint_tool, args, field))
@@ -1201,35 +1220,39 @@ mod tests {
         }
     }
 
-    /// An empty destination means "leave it where it is", and is dropped so it reaches
-    /// no handler as the empty path: `update_flow` takes one literally and moves the
-    /// flow there, so only this strip stands between a confined token and that move.
+    /// A destination the caller omitted, or left empty because it had to fill in every
+    /// argument, is filled in with the path the item is already at. The endpoint then
+    /// never receives a body that omits its own path, and `update_flow` never receives
+    /// the empty string, which it would read as the empty path and move the flow there.
     #[test]
-    fn empty_optional_destination_is_stripped_from_the_arguments() {
-        for (tool, config) in [
-            (
-                "updateScript",
-                cfg(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]),
-            ),
-            (
-                "updateFlow",
-                cfg(&["mcp:flows:f/team/*", "mcp:endpoints:*"]),
-            ),
-            // Unconfined tokens go through the same strip: the empty path is not one
-            // anyone meant to write, whatever else the token may reach.
-            ("updateFlow", cfg(&["mcp:all"])),
-        ] {
-            let mut args = json!({"path": "f/team/a", "path__body": "", "summary": "s"});
-            authorize_endpoint_call(&config, &ep(tool, "POST"), &mut args, false)
-                .unwrap_or_else(|e| panic!("{tool} should allow an empty destination: {e:?}"));
-            assert_eq!(
-                args,
+    fn an_unset_optional_destination_becomes_the_current_path() {
+        for tool in ["updateScript", "updateFlow"] {
+            let kind_scope = if tool == "updateScript" {
+                "mcp:scripts:f/team/*"
+            } else {
+                "mcp:flows:f/team/*"
+            };
+            for mut args in [
                 json!({"path": "f/team/a", "summary": "s"}),
-                "{tool} should drop the empty destination and nothing else"
-            );
+                json!({"path": "f/team/a", "path__body": "", "summary": "s"}),
+                json!({"path": "f/team/a", "path__body": null, "summary": "s"}),
+            ] {
+                authorize_endpoint_call(
+                    &cfg(&[kind_scope, "mcp:endpoints:*"]),
+                    &ep(tool, "POST"),
+                    &mut args,
+                    false,
+                )
+                .unwrap_or_else(|e| panic!("{tool} should allow an unset destination: {e:?}"));
+                assert_eq!(
+                    args,
+                    json!({"path": "f/team/a", "path__body": "f/team/a", "summary": "s"}),
+                    "{tool} should fill the destination in with the current path"
+                );
+            }
         }
 
-        // A destination that names somewhere is left for the confinement to check.
+        // A destination that names somewhere else is left for the confinement to check.
         let mut args = json!({"path": "f/team/a", "path__body": "f/team/b"});
         authorize_endpoint_call(
             &cfg(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]),

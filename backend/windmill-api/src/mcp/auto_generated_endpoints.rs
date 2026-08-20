@@ -730,8 +730,8 @@ Deploying a new version of an existing script is `POST /w/{workspace}/scripts/up
         name: Cow::Borrowed("updateScript"),
         description: Cow::Borrowed("update script: Deploys a new version of the script at `path`, which must already hold one.
 The URL names the version being superseded, so no `parent_hash` is needed. The
-body's `path` is where the script should end up: omit it to keep the script
-where it is, or set it to move the script there, which archives the old path"),
+body's `path` is where the script should end up: repeat the URL's to keep the
+script where it is, or name another to move it there, archiving the old path"),
         instructions: Cow::Borrowed("Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one."),
         path: Cow::Borrowed("/w/{workspace}/scripts/update/{path}"),
         method: Cow::Borrowed("POST"),

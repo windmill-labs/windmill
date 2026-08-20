@@ -13534,7 +13534,7 @@ paths:
           required: true
           schema: *ref_98
       requestBody:
-        description: The new version of the script. `path` defaults to the one in the URL.
+        description: The new version of the script, whose `path` is where it should end up.
         required: true
         content:
           application/json:

@@ -521,11 +521,13 @@ async fn test_update_script_chains_moves_and_refuses_a_free_path(
         .unwrap()
         .to_string();
 
-    // No body path: the script stays where it is, chained onto v1.
-    let mut v2 = new_script(path, "v2", "export async function main() { return 2; }");
-    v2.as_object_mut().unwrap().remove("path");
+    // The body repeats the path, so the script stays where it is, chained onto v1.
     let resp = authed(client().post(format!("{base}/update/{path}")))
-        .json(&v2)
+        .json(&new_script(
+            path,
+            "v2",
+            "export async function main() { return 2; }",
+        ))
         .send()
         .await
         .unwrap();

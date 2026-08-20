@@ -677,29 +677,13 @@ async fn update_script(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<CreateScriptQuery>,
-    Json(mut body): Json<serde_json::Value>,
+    Json(mut ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
     let path = path.to_path();
     // Superseding the version at this path is a write to it, checked before anything
     // reads the row so a path outside the token's scope answers the same whether or
     // not a script is there.
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
-
-    // `NewScript` cannot express an optional path — the create route needs it — so the
-    // default is applied before deserializing rather than after. Null and empty both
-    // read as "keep it where it is": they are what a caller obliged to fill in every
-    // field sends, and taking either literally would move the script to the empty path.
-    let obj = body
-        .as_object_mut()
-        .ok_or_else(|| Error::BadRequest("the script body must be a JSON object".to_string()))?;
-    if !obj
-        .get("path")
-        .is_some_and(|p| p.as_str().is_some_and(|s| !s.is_empty()))
-    {
-        obj.insert("path".to_string(), serde_json::json!(path));
-    }
-    let mut ns: NewScript = serde_json::from_value(body)
-        .map_err(|e| Error::BadRequest(format!("could not parse the script: {e}")))?;
 
     // Lineage comes from the URL, resolved in the deploying transaction; letting a body
     // field name a parent, or a body flag re-derive one from the destination, would fork
