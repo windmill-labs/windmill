@@ -133,13 +133,11 @@ versions take the oldest: the monitor's trim past `MAX_RESOURCE_VERSIONS`, and c
 down to its current value. Counting the survivors would renumber under either, so a run recorded
 against v3 would later name a different version.
 
-For an `agent` run the version is recorded, never used to pin execution: a linked agent step
-resolves its resource when it runs, and that stays true. Without the record, a run from last week
-could not be attributed to a prompt state, which is the reason resource versioning landed before
-this. Because resolution is live, the stamp is the version at enqueue rather than the one that
-executed: a run that waits in the queue while the agent is edited runs the newer value and is
-recorded against the older number. Pinning is a subject kind of its own — an `agent_version` run
-inlines the value it names, which is the only way to run one.
+For an `agent` run the version names the configuration the run read when it opened, which is the
+one every case executes. Without the record, a run from last week could not be attributed to a
+prompt state, which is the reason resource versioning landed before this. Pinning an *older*
+version is a subject kind of its own — an `agent_version` run says which version to read, where an
+`agent` run reads whatever is deployed at the moment it starts.
 
 A version captures the resource, not its transitive closure. Two byte-identical versions can
 behave differently because a `$var:`/`$res:` they reference changed underneath them, so a
@@ -579,8 +577,8 @@ that point nothing has been queued.
 
 ### How a cell finds its job, and its score
 
-The flow engine mints the iteration job ids, so a case is recorded before it has one. Two things
-fill the gap, both on read:
+The flow engine mints the iteration job ids, so a case is recorded before it has one. Three things
+fill the gap, each copied out of the flow the first time it can be read:
 
 - **Which iteration ran which case.** The case is what the loop iterates over, so it is in the
   iteration's own arguments by construction: `args -> 'iter' -> 'value' ->> 'case_id'` matches the
@@ -595,12 +593,11 @@ All three are written once, when they first become readable, and every later rea
 A job that was retained away before anything read it leaves the cell saying so, rather than
 looking like a case still being answered.
 
-Two things drive that write. A run's flow ends with a step that calls `POST
-/ai_evals/experiments/collect` on itself, so a run records what it produced whether or not anyone
-watched it finish — which is what a run started and left behind depends on. Reading a run collects
-it too, which covers the run whose flow never reached that step: one cancelled part-way, or started
-while nothing served the `nativets` tag.
+The flow itself cannot write them: it runs on workers that know nothing about these tables. So two
+things call the collector. A run's flow ends with a step that calls `POST
+/ai_evals/experiments/collect` on itself, which is what records a run nobody watched finish — the
+one started and left behind. Reading a run collects it too, which covers the run whose flow never
+reached that step: one cancelled part-way, or started while nothing served the `nativets` tag.
 
-Read-driven because there is nothing to drive it: the flow runs on workers that know nothing about
-these tables. The run holds its answers and its scores whether or not anyone is watching, and this
-is what copies them into rows that outlive the jobs' retention.
+That step is bookkeeping, so it is `continue_on_error`: a run whose every case answered and scored
+does not become a failed job because the call did not land.

@@ -629,6 +629,11 @@ async fn resolve_deployed_draft(
 /// Nothing else drives these tables — the flow executes on workers that know nothing about them —
 /// so without this a run is only ever collected by someone looking at it, and one started and left
 /// would lose its answers and scores to the jobs' retention.
+///
+/// Gated on reading the run rather than on writing its dataset, which is the rule for everything
+/// else here, because this writes nothing a reader could not already cause: it is the same harvest
+/// `experiment_results` performs behind the same check, over the run's own cells, and it reports a
+/// count rather than any of what it read.
 pub async fn collect_experiment(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -636,8 +641,8 @@ pub async fn collect_experiment(
     Path(w_id): Path<String>,
     Query(query): Query<ExperimentId>,
 ) -> JsonResult<usize> {
-    // Through `user_db`: the caller is the run's own job token, and it collects a run its runner
-    // can see. The row also carries the job to read it out of, so nothing here is caller-supplied.
+    // Through `user_db`, so the run is one the caller can see. The row carries the job to read it
+    // out of, so nothing that is read afterwards is caller-supplied.
     let mut tx = user_db.begin(&authed).await?;
     let experiment = sqlx::query!(
         "SELECT id, run_job_id FROM eval_experiment WHERE workspace_id = $1 AND id = $2",

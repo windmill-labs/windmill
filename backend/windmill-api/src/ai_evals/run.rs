@@ -98,6 +98,10 @@ fn collect_module(experiment_id: Uuid) -> serde_json::Value {
     serde_json::json!({
         "id": COLLECT_NODE_ID,
         "summary": "Record what the run produced",
+        // Bookkeeping, so it does not decide whether the run succeeded: a run whose every case
+        // answered and scored must not read as a failed job because this call did not land. What
+        // it would have written is written again by the first read of the run.
+        "continue_on_error": true,
         "value": {
             "type": "rawscript",
             "language": "bunnative",
@@ -935,4 +939,91 @@ pub(crate) fn experiment_from_row(
         created_at,
         created_by,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn subject() -> EvalSubject {
+        EvalSubject {
+            kind: EvalSubjectKind::Agent,
+            path: "f/e/agent".to_string(),
+            version: Some(3),
+            draft: None,
+            draft_hash: None,
+        }
+    }
+
+    fn scorer(kind: ScorerDef) -> Scorer {
+        Scorer { id: "s1".to_string(), name: None, pass_if: None, def: kind }
+    }
+
+    /// Where the collect step sits is load-bearing twice over: inside the loop it would run once
+    /// per case, and `backfill_case_jobs` matches a case to any child of the run carrying an
+    /// `iter` argument, which the collect job must therefore never be.
+    #[test]
+    fn the_collect_step_runs_once_after_the_loop() {
+        let experiment = Uuid::new_v4();
+        let flow = build_run_flow(
+            &subject(),
+            None,
+            &[],
+            &[],
+            &std::collections::HashMap::new(),
+            experiment,
+        )
+        .unwrap();
+        let value = serde_json::to_value(&flow).unwrap();
+        let modules = value["modules"].as_array().unwrap();
+        assert_eq!(
+            modules.iter().map(|m| m["id"].as_str().unwrap()).collect::<Vec<_>>(),
+            vec![CASES_NODE_ID, COLLECT_NODE_ID]
+        );
+        let collect = &modules[1];
+        // The run it records is baked in rather than read from the iteration around it, which is
+        // what makes it a step of the run and not of a case.
+        assert_eq!(
+            collect["value"]["input_transforms"]["experiment_id"]["value"]
+                .as_str()
+                .unwrap(),
+            experiment.to_string()
+        );
+        assert!(collect["value"]["input_transforms"]["iter"].is_null());
+        // A failed record must not fail a run whose cases all answered.
+        assert_eq!(collect["continue_on_error"].as_bool(), Some(true));
+    }
+
+    /// A judge is pinned by inlining its configuration, and a judge the caller cannot read stays a
+    /// linked step. The two arms differ by exactly one field, which is the difference between a run
+    /// that grades against one definition and one that resolves the judge per case.
+    #[test]
+    fn a_judge_is_inlined_when_it_could_be_read_and_linked_otherwise() {
+        let judge = scorer(ScorerDef::Agent { path: "f/e/judge".to_string() });
+        let scorers = vec![&judge];
+
+        let linked = scorer_modules(&scorers, &std::collections::HashMap::new());
+        assert_eq!(linked[0]["value"]["agent"].as_str(), Some("f/e/judge"));
+
+        let mut judges = std::collections::HashMap::new();
+        judges.insert(
+            "f/e/judge".to_string(),
+            AgentDraft {
+                input_transforms: serde_json::json!({
+                    "system_prompt": { "type": "static", "value": "grade it" }
+                }),
+                tools: vec![],
+            },
+        );
+        let pinned = scorer_modules(&scorers, &judges);
+        let value = &pinned[0]["value"];
+        assert!(value["agent"].is_null());
+        assert_eq!(
+            value["input_transforms"]["system_prompt"]["value"].as_str(),
+            Some("grade it")
+        );
+        // The case reaches the judge either way.
+        assert!(value["input_transforms"]["user_message"]["expr"].is_string());
+        assert!(value["input_transforms"]["user_attachments"]["expr"].is_string());
+    }
 }
