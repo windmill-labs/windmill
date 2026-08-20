@@ -447,13 +447,39 @@ pub(crate) async fn deployed_agent_config(
     value.map(config_to_draft).transpose()
 }
 
-/// What the agent hashes to as deployed. A draft run whose hash is this one ran exactly what is
-/// deployed now, however it got there: that is a run of the version, not a run of a draft.
-pub(crate) async fn deployed_agent_hash(db: &DB, w_id: &str, path: &str) -> Result<Option<String>> {
-    Ok(deployed_agent_config(db, w_id, path)
-        .await?
+/// What the agent is deployed as, and which version that is, from one read.
+///
+/// Together rather than separately, because `resolve_deployed_draft` permanently converts a draft
+/// run into a run of a version on the strength of the pair: a deploy landing between two reads
+/// would pair the old hash with the new number and file the run under a version whose
+/// configuration never ran.
+pub(crate) async fn deployed_agent_state(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+) -> Result<(Option<String>, Option<i64>)> {
+    let row = sqlx::query!(
+        "SELECT r.value AS \"value: sqlx::types::Json<serde_json::Value>\",
+                (SELECT version FROM resource_version v
+                 WHERE v.workspace_id = r.workspace_id AND v.path = r.path
+                 ORDER BY v.version DESC LIMIT 1) AS version
+         FROM resource r
+         WHERE r.workspace_id = $1 AND r.path = $2 AND r.resource_type = 'ai_agent'",
+        w_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+    let Some(row) = row else {
+        return Ok((None, None));
+    };
+    let hash = row
+        .value
+        .map(|v| config_to_draft(v.0))
+        .transpose()?
         .as_ref()
-        .map(draft_hash))
+        .map(draft_hash);
+    Ok((hash, row.version))
 }
 
 pub(crate) async fn agent_draft_config(
@@ -465,11 +491,18 @@ pub(crate) async fn agent_draft_config(
     require_agent(authed, user_db, w_id, agent_path).await?;
     let mut tx = user_db.clone().begin(authed).await?;
     // Read through `user_db` alongside the resource itself, so a draft is only reachable to
-    // someone who can read what it is a draft of.
+    // someone who can read what it is a draft of — and scoped to this caller, because a draft is
+    // per-user: `draft` carries no policies and holds a row per owner, so an unscoped read picks
+    // an arbitrary colleague's unpublished prompt and runs it as yours. A legacy row carries no
+    // owner at all and is the workspace's, which is why it is the fallback rather than excluded.
     let value = sqlx::query_scalar!(
-        "SELECT value FROM draft WHERE workspace_id = $1 AND path = $2 AND typ = 'resource'",
+        "SELECT value FROM draft
+         WHERE workspace_id = $1 AND path = $2 AND typ = 'resource'
+               AND (email = $3 OR email IS NULL)
+         ORDER BY email NULLS LAST LIMIT 1",
         w_id,
-        agent_path
+        agent_path,
+        authed.email,
     )
     .fetch_optional(&mut *tx)
     .await?;

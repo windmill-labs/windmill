@@ -174,9 +174,7 @@ async fn resolve_listed_drafts(
     }
     let mut deployed = std::collections::HashMap::new();
     for path in drafted {
-        let hash = deployed_agent_hash(db, w_id, &path).await?;
-        let version = current_resource_version(db, w_id, &path).await?;
-        deployed.insert(path, (hash, version));
+        deployed.insert(path.clone(), deployed_agent_state(db, w_id, &path).await?);
     }
     for experiment in experiments.iter_mut() {
         let Some((hash, version)) = deployed.get(&experiment.subject.path) else {
@@ -860,16 +858,15 @@ pub async fn experiment_results(
     // What the subject is now: the version it is on, whether it has edits waiting, and — for a
     // draft — what those edits hash to, so a row that ran an earlier draft can say so.
     let mut subject_current_draft_hash = None;
-    let subject_deployed_hash = deployed_agent_hash(&db, &w_id, &experiment.subject.path).await?;
+    // One read, so the hash and the version it belongs to cannot come from either side of a deploy.
+    let (subject_deployed_hash, deployed_version) =
+        deployed_agent_state(&db, &w_id, &experiment.subject.path).await?;
     let (subject_current_version, subject_has_undeployed_changes) = match experiment.subject.kind {
         // A pinned version is what it is: nothing about the agent as it is now can make a run of
         // v18 stale, which is the reason to pin one.
-        EvalSubjectKind::AgentVersion => (
-            current_resource_version(&db, &w_id, &experiment.subject.path).await?,
-            false,
-        ),
+        EvalSubjectKind::AgentVersion => (deployed_version, false),
         EvalSubjectKind::Agent => {
-            let version = current_resource_version(&db, &w_id, &experiment.subject.path).await?;
+            let version = deployed_version;
             // Whether a resource has a draft is information about that resource, and `draft`
             // carries no policies of its own: the agent is read through `user_db` first, so a
             // caller who cannot see it is told nothing about it.
@@ -886,9 +883,11 @@ pub async fn experiment_results(
             let undeployed = visible
                 && sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM draft
-                     WHERE workspace_id = $1 AND path = $2 AND typ = 'resource')",
+                     WHERE workspace_id = $1 AND path = $2 AND typ = 'resource'
+                           AND (email = $3 OR email IS NULL))",
                     w_id,
-                    experiment.subject.path
+                    experiment.subject.path,
+                    authed.email,
                 )
                 .fetch_one(&db)
                 .await?
@@ -904,9 +903,11 @@ pub async fn experiment_results(
                  WHERE r.workspace_id = $1 AND r.path = $2
                        AND EXISTS(SELECT 1 FROM draft d
                                   WHERE d.workspace_id = $1 AND d.path = r.path
-                                        AND d.typ = 'resource'))",
+                                        AND d.typ = 'resource'
+                                        AND (d.email = $3 OR d.email IS NULL)))",
                 w_id,
-                experiment.subject.path
+                experiment.subject.path,
+                authed.email,
             )
             .fetch_one(&mut *tx)
             .await?
@@ -917,8 +918,7 @@ pub async fn experiment_results(
                     &agent_draft_config(&authed, &user_db, &w_id, &experiment.subject.path).await?,
                 ));
             }
-            let version = current_resource_version(&db, &w_id, &experiment.subject.path).await?;
-            (version, still_drafted)
+            (deployed_version, still_drafted)
         }
     };
 
