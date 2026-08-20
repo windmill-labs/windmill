@@ -26,17 +26,30 @@ pub(crate) async fn resolve_definition(db: &DB, w_id: &str, scorer: &Scorer) -> 
 /// Read-driven because there is nothing to drive it: the flow runs on workers that know nothing
 /// about these tables. A run therefore holds its answers and its scores whether or not anyone is
 /// watching, and this is what copies them into rows that outlive the jobs' retention.
+/// A run's own last step calls this, so a run records itself whether or not anyone watched it.
+/// Reading it does too, which is what covers a run whose flow never reached that step.
+///
+/// `answers` is what separates the two: a listing reports each run's score aggregates and never
+/// shows an answer, so harvesting them there reads a column of every case of every listed run to
+/// display none of it.
 pub(crate) async fn sync_run(
     db: &DB,
     w_id: &str,
     experiment_id: Uuid,
     run_job_id: Uuid,
+    answers: bool,
 ) -> Result<()> {
     backfill_case_jobs(db, w_id, experiment_id, run_job_id).await?;
-    record_case_answers(db, w_id, experiment_id).await?;
+    if answers {
+        record_case_answers(db, w_id, experiment_id).await?;
+    }
     harvest_flow_scores(db, w_id, experiment_id).await?;
     Ok(())
 }
+
+/// In-flight reads of what a run produced. Each is several queries and a run holds up to
+/// `MAX_CASES_PER_RUN` cases, so they go a few at a time rather than one after another.
+const HARVEST_CONCURRENCY: usize = 8;
 
 /// Copy what each iteration produced into its row: the agent's answer, whether producing it
 /// succeeded, and how the iteration ended.
@@ -57,20 +70,13 @@ async fn record_case_answers(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
     )
     .fetch_all(db)
     .await?;
-    for row in unrecorded {
-        // The job was retained away before anything read it. Recorded as such rather than left
-        // looking like a case still being answered, and rather than re-read on every request for
-        // as long as the run is kept.
+
+    use futures::StreamExt;
+    let answers = futures::stream::iter(unrecorded.into_iter().map(|row| async move {
+        // The job was retained away before anything read it: nothing to read, and nothing more
+        // will ever be there to read.
         if !row.job_exists {
-            sqlx::query!(
-                "UPDATE eval_experiment_case SET status = 'unavailable'
-                 WHERE experiment_id = $1 AND ordinal = $2",
-                experiment_id,
-                row.ordinal
-            )
-            .execute(db)
-            .await?;
-            continue;
+            return (row.ordinal, None, None, Some("unavailable".to_string()));
         }
         // The agent step's own result, never the iteration's: the iteration goes on to score the
         // answer, so the answer is settled long before the iteration is.
@@ -83,26 +89,34 @@ async fn record_case_answers(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
         )
         .await
         .ok();
-        // Nothing to record yet, and the iteration may still produce it.
-        if agent.is_none() && row.status.is_none() {
-            continue;
-        }
-        // An iteration that ended without an answer — skipped, cancelled, or an agent that
-        // failed outright — produced none, and saying so is what stops this re-reading it.
+        // An iteration that ended without an answer — skipped, cancelled, or an agent that failed
+        // outright — produced none, and saying so is what stops this re-reading it.
         let answered = agent
             .as_ref()
             .map(|(_, success)| *success)
             .or_else(|| row.status.is_some().then_some(false));
+        let output = agent.as_ref().and_then(|(result, _)| agent_answer(result));
+        (row.ordinal, output, answered, row.status)
+    }))
+    .buffered(HARVEST_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await;
+
+    for (ordinal, output, answered, status) in answers {
+        // Nothing to record yet, and the iteration may still produce it.
+        if answered.is_none() && status.is_none() {
+            continue;
+        }
         sqlx::query!(
             "UPDATE eval_experiment_case
              SET output = COALESCE(output, $3), answered = COALESCE(answered, $4),
                  status = COALESCE(status, $5)
              WHERE experiment_id = $1 AND ordinal = $2",
             experiment_id,
-            row.ordinal,
-            agent.as_ref().and_then(|(result, _)| agent_answer(result)),
+            ordinal,
+            output,
             answered,
-            row.status,
+            status,
         )
         .execute(db)
         .await?;
@@ -157,22 +171,22 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
     )
     .fetch_all(db)
     .await?;
-    for row in pending {
+
+    use futures::StreamExt;
+    let verdicts = futures::stream::iter(pending.into_iter().map(|row| async move {
         // Nothing left to read the verdict out of. Settled here, since a cell left pending is one
         // every later listing would go back to this same absent job for.
         if !row.job_exists {
-            sqlx::query!(
-                "UPDATE eval_score SET error = 'The run that produced this score is no longer available'
-                 WHERE experiment_id = $1 AND ordinal = $2 AND scorer_id = $3",
-                experiment_id,
+            return (
                 row.ordinal,
                 row.scorer_id,
-            )
-            .execute(db)
-            .await?;
-            continue;
+                Some((
+                    Verdict::default(),
+                    Some("The run that produced this score is no longer available".to_string()),
+                )),
+            );
         }
-        let Some((verdict, error)) = read_verdict(
+        let verdict = read_verdict(
             db,
             w_id,
             row.job_id,
@@ -180,8 +194,16 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
             row.status.as_deref(),
             "The case produced no answer to score",
         )
-        .await
-        else {
+        .await;
+        (row.ordinal, row.scorer_id, verdict)
+    }))
+    .buffered(HARVEST_CONCURRENCY)
+    .collect::<Vec<_>>()
+    .await;
+
+    for (ordinal, scorer_id, read) in verdicts {
+        // Still to come: a scorer whose own step has not run yet.
+        let Some((verdict, error)) = read else {
             continue;
         };
         sqlx::query!(
@@ -189,8 +211,8 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
              SET score = $4, reason = $5, checks = $6, error = $7, not_applicable = $8
              WHERE experiment_id = $1 AND ordinal = $2 AND scorer_id = $3",
             experiment_id,
-            row.ordinal,
-            row.scorer_id,
+            ordinal,
+            scorer_id,
             verdict.score,
             verdict.reason,
             verdict.checks,

@@ -53,13 +53,15 @@ The cases are the loop's **static iterator**, so they live in the flow's value, 
 once. Passing them as an argument would put a copy of the whole dataset in every iteration's
 arguments.
 
-The step is built one of two ways, and both name the same agent:
+Whichever state of the agent is chosen — what is deployed, its draft, or a past version — its
+configuration is read once, when the run is opened, and inlined into the step every case runs. A
+linked step would resolve the resource when each case reaches it, so a deploy part-way through a
+run would be executed by the cases after it while every row still named the version the run started
+against. One run measures one configuration; the cost is that a run does not exercise the linked
+branch the production step takes.
 
-- **The deployed agent** (`subject.kind = "agent"`) is named by path, and the step resolves it
-  live, as the linked branch does in production.
-- **Its draft** (`subject.kind = "agent_draft"`) is the same agent with the edits waiting on it.
-  The draft's value is read server-side and inlined as an unlinked step, because a reference
-  resolves live and would otherwise run what the edits replace.
+The draft and a past version could not be run any other way in the first place: a reference
+resolves to what is deployed, which is exactly what neither of them is.
 
 The configuration is never taken from the request. A subject carrying one is refused: it would run
 something other than the resource it names, and a run nobody can attribute is worse than no run.
@@ -177,10 +179,10 @@ it is its own.
   filtered to the agent the pane was opened on, across both kinds, so a dataset shared by two
   agents never shows one agent's runs when the other is opened, and comparing a draft run against
   the deployed run before it is the comparison the pane is for.
-- **A version is per cell** (`eval_experiment_case.subject_version`), not per experiment, because
-  the agent resolves live and a dataset that takes minutes to run can span an edit. What is
-  *recorded* is uniform, though: the subject is resolved once when the run is opened and every cell
-  is stamped from it.
+- **A version is per cell** (`eval_experiment_case.subject_version`), not per experiment. The
+  subject is resolved once when the run is opened and every cell is stamped from it, so the column
+  is uniform today; it is per cell so that a run which one day executes cell by cell can say so
+  rather than averaging two versions silently.
 
 The table watches the agent while it is open — a small `subject_state` read every few seconds,
 paused while the tab is hidden and repeated when it regains focus. The results endpoint reports the
@@ -484,10 +486,9 @@ already collected, so the steady state is one query and not one flow read per ro
 **Run** opens a dialog with two questions, because both answers cost a provider bill and neither
 follows from where you happen to be standing:
 
-- **which state of the agent.** `Latest` resolves the agent when the run executes, the way a flow
-  step does. A past version is *inlined as it was* — a reference resolves live, so inlining is the
-  only way to run one, and it is the same mechanism the draft already uses. `Unsaved edits` runs
-  the draft, and is preselected when there are edits waiting, because that is why you came.
+- **which state of the agent.** `Latest` is the agent as it is saved when you press Run. A past
+  version is what it was then, and `Unsaved edits` runs the draft — preselected when there are
+  edits waiting, because that is why you came. All three are read once and run by every case.
 - **which dataset**, as a resource picker does it: named by its summary with the path under it, an
   edit button on the row, and a way to start a new one without leaving.
 
@@ -593,6 +594,12 @@ fill the gap, both on read:
 All three are written once, when they first become readable, and every later read is of the rows.
 A job that was retained away before anything read it leaves the cell saying so, rather than
 looking like a case still being answered.
+
+Two things drive that write. A run's flow ends with a step that calls `POST
+/ai_evals/experiments/collect` on itself, so a run records what it produced whether or not anyone
+watched it finish — which is what a run started and left behind depends on. Reading a run collects
+it too, which covers the run whose flow never reached that step: one cancelled part-way, or started
+while nothing served the `nativets` tag.
 
 Read-driven because there is nothing to drive it: the flow runs on workers that know nothing about
 these tables. The run holds its answers and its scores whether or not anyone is watching, and this

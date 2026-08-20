@@ -12151,6 +12151,32 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/ai_evals/experiments/collect:
+    post:
+      summary: record what a run produced, so it outlives the jobs that produced it
+      description: >
+        Called by a run's own flow as its last step. The answers and scores a run produced live in
+        its jobs, which have their own retention; this copies them onto the run's rows. Reading a
+        run does the same, so this is what covers a run nobody opened.
+      operationId: collectExperiment
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: how many of the run's cases are recorded
+          content:
+            application/json:
+              schema:
+                type: integer
+
   /w/{workspace}/ai_evals/experiments/list_all:
     get:
       summary: list every experiment, across datasets
@@ -26809,8 +26835,10 @@ components:
             reaching this case, which reads as a case still to run.
         status:
           type: string
-          description: The case's status; `running` until its iteration completes.
-          enum: [running, success, failure, canceled, skipped]
+          description: >
+            The case's status; `running` until its iteration completes, and `unavailable` for a
+            case whose job was retained away before anything read what it produced.
+          enum: [running, success, failure, canceled, skipped, unavailable]
         output:
           type: string
           description: The agent's answer. The full trajectory stays reachable through job_id.

@@ -218,7 +218,7 @@ async fn sync_listed_runs(db: &DB, w_id: &str, experiments: &[EvalExperiment]) -
         .filter(|e| unread.contains(&e.id))
         .take(MAX_RUNS_SYNCED_PER_LIST)
     {
-        sync_run(db, w_id, experiment.id, experiment.run_job_id).await?;
+        sync_run(db, w_id, experiment.id, experiment.run_job_id, false).await?;
     }
     Ok(())
 }
@@ -414,7 +414,8 @@ pub struct ExperimentRow {
     /// What happened to the answer: the iteration's own `success`, `failure`, `canceled` or
     /// `skipped` once it has finished, and until then the agent step's, since the answer is
     /// written before the scorers that keep the iteration running have read it. `running` while
-    /// the agent is still answering.
+    /// the agent is still answering, and `unavailable` for a case whose job was retained away
+    /// before anything read what it produced.
     pub status: String,
     /// The agent's answer, which is what a table cell shows. The whole trajectory stays
     /// reachable through `job_id`, so the row carries the text rather than the result object.
@@ -470,9 +471,9 @@ pub struct ExperimentResults {
     /// one. Absent for a draft, which has no versions to be behind.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject_current_version: Option<i64>,
-    /// The agent has edits that were never deployed. A run resolves the resource live and so
-    /// executes the deployed value: without this, editing an agent and running evals reads as
-    /// testing the edits when it is testing what they replace.
+    /// The agent has edits that were never deployed. A run of the agent executes what is deployed
+    /// when it starts: without this, editing an agent and running evals reads as testing the edits
+    /// when it is testing what they replace.
     pub subject_has_undeployed_changes: bool,
     /// What the draft hashes to now, for a draft subject. A row carrying a different one ran a
     /// configuration that has since been edited, which is the draft's answer to a version bump.
@@ -623,6 +624,47 @@ async fn resolve_deployed_draft(
     Ok(())
 }
 
+/// Record what a run produced, from inside the run: the last step of a run's own flow calls this.
+///
+/// Nothing else drives these tables — the flow executes on workers that know nothing about them —
+/// so without this a run is only ever collected by someone looking at it, and one started and left
+/// would lose its answers and scores to the jobs' retention.
+pub async fn collect_experiment(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<ExperimentId>,
+) -> JsonResult<usize> {
+    // Through `user_db`: the caller is the run's own job token, and it collects a run its runner
+    // can see. The row also carries the job to read it out of, so nothing here is caller-supplied.
+    let mut tx = user_db.begin(&authed).await?;
+    let experiment = sqlx::query!(
+        "SELECT id, run_job_id FROM eval_experiment WHERE workspace_id = $1 AND id = $2",
+        w_id,
+        query.id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let experiment =
+        experiment.ok_or_else(|| Error::NotFound(format!("Eval run {} not found", query.id)))?;
+    sync_run(&db, &w_id, experiment.id, experiment.run_job_id, true).await?;
+    let recorded = sqlx::query_scalar!(
+        "SELECT count(*) AS \"count!\" FROM eval_experiment_case
+         WHERE experiment_id = $1 AND status IS NOT NULL",
+        experiment.id
+    )
+    .fetch_one(&db)
+    .await?;
+    Ok(Json(recorded as usize))
+}
+
+#[derive(Deserialize)]
+pub struct ExperimentId {
+    pub id: Uuid,
+}
+
 /// The rows a results table is built from. The job ids come out of `eval_experiment_case`, which
 /// only this module writes, so they can be read on the unrestricted pool: the caller's access was
 /// established by the dataset read below, and the ids are not caller-supplied.
@@ -644,13 +686,13 @@ pub async fn experiment_results(
     // What the run has produced so far is read into its rows here, so an answer and a score
     // outlive the jobs that produced them rather than being recomputed from jobs that may have
     // been retained away.
-    sync_run(&db, &w_id, query.id, experiment.run_job_id).await?;
+    sync_run(&db, &w_id, query.id, experiment.run_job_id, true).await?;
     let scores = load_scores(&db, query.id).await?;
 
     let baseline = match query.baseline.filter(|id| *id != query.id) {
         Some(id) => {
             let baseline = read_experiment(&db, &w_id, &dataset, id).await?;
-            sync_run(&db, &w_id, id, baseline.run_job_id).await?;
+            sync_run(&db, &w_id, id, baseline.run_job_id, true).await?;
             Some((baseline, load_scores(&db, id).await?))
         }
         None => None,

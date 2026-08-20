@@ -67,6 +67,7 @@ pub fn workspaced_service() -> Router {
         .route("/scorer_defaults", get(scorer_defaults))
         .route("/run_payload", get(run_payload))
         .route("/experiments/run", post(run_experiment))
+        .route("/experiments/collect", post(collect_experiment))
         .route("/scorers/recent", get(recent_scorers))
         .route("/subject_state", get(subject_state))
         .route("/experiments/list_all", get(list_all_experiments))

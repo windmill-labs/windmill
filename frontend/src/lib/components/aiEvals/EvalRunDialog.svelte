@@ -49,8 +49,6 @@
 	 *  when it is the reason the dialog was opened. */
 	let hasDraft = $state(false)
 	let dataset = $state<string | undefined>(undefined)
-	/** Whether the chosen dataset has columns to fill, which is what a run does beyond answering. */
-	let scored = $derived((datasets.find((d) => d.path === dataset)?.scorers?.length ?? 0) > 0)
 	let hoveringDataset = $state(false)
 	/** Set while the dialog is standing aside for the dataset drawer, which it is brought back
 	 *  from: naming a dataset is a detour on the way to a run, and what was already chosen for that
@@ -125,8 +123,8 @@
 	})
 
 	let latest = $derived(versions[0]?.version)
-	// Everything but the newest: the newest is what `deployed` resolves to, and offering it twice
-	// would be offering a run that is live-resolved and one that is pinned under the same name.
+	// Everything but the newest: the newest is what `deployed` reads, so offering it here would be
+	// offering the same run under two names.
 	let olderVersions = $derived(versions.slice(1))
 	let olderItems = $derived(
 		olderVersions.map((v) => ({ label: `v${v.version}`, value: String(v.version) }))
@@ -171,7 +169,7 @@
 	<div class="flex flex-col gap-6 min-w-96">
 		<Label
 			label="Agent version"
-			tooltip="The saved agent is resolved when the run executes, as it is in production. Its draft and any earlier version are inlined as they are, which is the only way to run either."
+			tooltip="Whichever you pick is read once, when the run starts, and every case runs that same configuration. Deploying an edit part-way through changes what the next run measures, never this one."
 		>
 			<!-- The two worth naming are the two you are choosing between while editing; every
 			     earlier version is one click further, since running one is a deliberate act. -->
@@ -188,7 +186,7 @@
 					<ToggleButton
 						value="deployed"
 						label={latest ? `v${latest} (latest deployed)` : 'Latest deployed'}
-						tooltip="The agent as saved, resolved when the run executes."
+						tooltip="The agent as it is saved right now."
 						{item}
 					/>
 					{#if olderItems.length > 0}
@@ -292,13 +290,11 @@
 			{/if}
 		</Label>
 
-		<!-- Said here rather than discovered from a run that never starts: the step that assembles
-		     each iteration for the scorers is a native job, and that tag belongs to the `native`
-		     worker group. Nothing serving it means the run queues rather than fails. Only for a
-		     dataset that has scorers, since that step is only in the flow when there are any. -->
-		{#if scored}
-			<MissingWorkerTagAlert tag="nativets" subject="Eval runs" {workspace} />
-		{/if}
+		<!-- Said here rather than discovered from a run that never starts: a run ends with a native
+		     job that records what it produced, and scored datasets assemble each iteration with
+		     another. That tag belongs to the `native` worker group rather than the default one, and
+		     nothing serving it means the run queues rather than fails. -->
+		<MissingWorkerTagAlert tag="nativets" subject="Eval runs" {workspace} />
 	</div>
 	{#snippet actions()}
 		<Button
