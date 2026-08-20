@@ -259,17 +259,19 @@
 						{/snippet}
 						{#snippet bottomSnippet({ close })}
 							<div class="flex flex-col border-t">
-								<button
-									type="button"
-									class="flex items-center gap-2 px-3 py-2 text-xs text-secondary hover:bg-surface-hover"
-									onclick={() => {
+								<Button
+									variant="subtle"
+									unifiedSize="sm"
+									wrapperClasses="w-full"
+									btnClasses="w-full !justify-start !rounded-none flex items-center gap-2 px-3 py-2 text-xs !font-normal text-secondary hover:bg-surface-hover"
+									onClick={() => {
 										close()
 										stepAside(onNewDataset)
 									}}
 								>
 									<Plus size={13} />
 									New dataset
-								</button>
+								</Button>
 							</div>
 						{/snippet}
 					</Select>

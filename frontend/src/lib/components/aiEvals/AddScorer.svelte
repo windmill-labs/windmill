@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Label from '$lib/components/Label.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import { Button } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
@@ -380,14 +381,16 @@ Expected: the case's expected value`
 				     called, the path under it, and the dataset it already measures on the right. A
 				     scorer with no name of its own is its path, so saying that twice was saying
 				     nothing twice. -->
-					<button
-						type="button"
-						class="flex items-center gap-3 px-3 py-2 text-left disabled:opacity-50 {picked?.path ===
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						disabled={busy}
+						wrapperClasses="w-full"
+						btnClasses="w-full !justify-start !rounded-none flex items-center gap-3 px-3 py-2 text-left !font-normal {picked?.path ===
 						scorer.path
 							? 'bg-blue-50 dark:bg-blue-900/50'
 							: 'hover:bg-surface-hover'}"
-						disabled={busy}
-						onclick={() => (picked = scorer)}
+						onClick={() => (picked = scorer)}
 					>
 						{#if scorer.kind === 'agent'}
 							<Bot size={14} class="text-tertiary shrink-0" />
@@ -416,7 +419,7 @@ Expected: the case's expected value`
 								<span class="truncate leading-tight">{scorer.dataset}</span>
 							</span>
 						</span>
-					</button>
+					</Button>
 				{/each}
 			</div>
 		{:else if kind === 'agent'}
