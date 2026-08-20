@@ -140,6 +140,7 @@
 		{ message: string; email: string | undefined; password: string | undefined } | undefined
 	>(undefined)
 	let shake = $state(false)
+	let fieldsEl = $state<HTMLDivElement | undefined>(undefined)
 	let credentialsError = $derived(
 		formError && formError.email === email && formError.password === password
 			? formError.message
@@ -151,11 +152,14 @@
 		// appearing is the signal, and shaking it in would be noise.
 		const wasAlreadyShown = credentialsError != undefined
 		formError = { message, email, password }
-		// Drop the class and let the DOM settle before re-adding it, otherwise a repeat
-		// failure replays nothing.
+		// Drop the class, then force a style recalculation before re-adding it. tick() alone only
+		// writes the DOM: without reading a layout property in between, the browser coalesces the
+		// removal and the re-add into one recalculation, sees the class as never having left, and
+		// replays nothing from the second retry onwards.
 		shake = false
 		if (!wasAlreadyShown) return
 		await tick()
+		void fieldsEl?.offsetWidth
 		shake = true
 	}
 
@@ -638,7 +642,7 @@
 						contact@windmill.dev
 					</p>
 				{/if}
-				<div class="space-y-6 {shake ? 'motion-safe:animate-shake' : ''}">
+				<div bind:this={fieldsEl} class="space-y-6 {shake ? 'motion-safe:animate-shake' : ''}">
 					<div class="space-y-1">
 						<label for={emailId} class="block text-xs font-semibold text-emphasis"> Email </label>
 						<div>
