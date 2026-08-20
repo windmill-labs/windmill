@@ -231,11 +231,10 @@
 			})
 			await onCasesChanged()
 			await onRenamed(path)
-			// The list is what was just written, so the ids it holds are now the dataset's own.
-			storedIds = new Set(workingCases.map((c) => c.id).filter((id): id is string => !!id))
-			// Re-seeded on the path it now has: the picker reads a path that is not the one it
-			// opened on as a path someone else has taken.
-			formGeneration += 1
+			// Everything the drawer holds is written, so saving is the whole of what it was opened
+			// for and it closes on that, as creating does. The next open seeds it from the dataset
+			// as it now stands rather than from what this one was left holding.
+			drawer?.closeDrawer()
 		} catch (e) {
 			sendUserToast(`Failed to save the dataset: ${e}`, true)
 		} finally {

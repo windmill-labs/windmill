@@ -10,7 +10,7 @@
 
 <script lang="ts">
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
-	import { ChevronRight } from 'lucide-svelte'
+	import { ChevronLeft, ChevronRight } from 'lucide-svelte'
 	import { getOverlayHost, overlayHostActive } from '$lib/components/common/overlayHost.svelte'
 
 	const bubble = createBubbler()
@@ -83,6 +83,10 @@
 	// The title is the root of the path, so a dialog at its root is a one-segment breadcrumb.
 	const segments = $derived(trail?.length ? trail : [{ label: title, onclick: undefined }])
 
+	// The level under the one you are on, when there is one: what both Escape and the back control
+	// return to.
+	const back = $derived(trail && trail.length > 1 ? trail[trail.length - 2] : undefined)
+
 	const dispatch = createEventDispatcher()
 
 	let disposable: Disposable | undefined = $state(undefined)
@@ -122,7 +126,6 @@
 					// Inside a dialog that holds levels, Escape leaves the level rather than the
 					// dialog: closing outright would throw away the surface someone navigated into,
 					// which is the one thing they did not ask for. It still closes at the root.
-					const back = trail && trail.length > 1 ? trail[trail.length - 2] : undefined
 					if (back?.onclick) {
 						back.onclick()
 					} else {
@@ -204,52 +207,70 @@
 												? 'pr-8'
 												: ''}"
 										>
-											<!-- leading-7 throughout, the heading included: an h3 carries a line-height
-											     of its own, so without it the row is six pixels shorter at the root than
-											     it is one level in, and the whole header steps as you navigate. -->
-											<nav
-												aria-label="Breadcrumb"
-												class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold leading-7"
-											>
-												{#each segments as segment, i (i)}
-													{#if i === 1}
+											<div class="flex flex-row items-center gap-1.5 min-w-0">
+												{#if back?.onclick}
+													<!-- Beside the path rather than in it: the breadcrumb says where you are,
+													     and one level back is a move rather than a place. The way out of a
+													     level someone navigated into is worth a control of its own, not only
+													     a word in a path they have to read to find. -->
+													<Button
+														size="xs2"
+														variant="subtle"
+														startIcon={{ icon: ChevronLeft }}
+														iconOnly
+														title="Back to {back.label}"
+														onclick={back.onclick}
+													/>
+												{/if}
+												<!-- leading-7 throughout, the heading included: an h3 carries a line-height
+												     of its own, so without it the row is six pixels shorter at the root than
+												     it is one level in, and the whole header steps as you navigate. -->
+												<nav
+													aria-label="Breadcrumb"
+													class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold leading-7"
+												>
+													{#each segments as segment, i (i)}
+														{#if i === 1}
+															{@render titleBadge?.()}
+														{/if}
+														{#if i > 0}
+															<ChevronRight size={18} class="text-tertiary shrink-0" />
+														{/if}
+														{#if i === 0}
+															<h3
+																class="shrink-0 leading-7 {segment.onclick ? '' : 'text-emphasis'}"
+															>
+																{#if segment.onclick}
+																	<button
+																		type="button"
+																		class="text-secondary hover:text-emphasis hover:underline"
+																		onclick={segment.onclick}
+																	>
+																		{segment.label}
+																	</button>
+																{:else}
+																	{segment.label}
+																{/if}
+															</h3>
+														{:else if segment.onclick}
+															<button
+																type="button"
+																class="text-secondary hover:text-emphasis hover:underline truncate"
+																onclick={segment.onclick}
+															>
+																{segment.label}
+															</button>
+														{:else}
+															<span class="text-emphasis truncate" aria-current="page">
+																{segment.label}
+															</span>
+														{/if}
+													{/each}
+													{#if segments.length === 1}
 														{@render titleBadge?.()}
 													{/if}
-													{#if i > 0}
-														<ChevronRight size={18} class="text-tertiary shrink-0" />
-													{/if}
-													{#if i === 0}
-														<h3 class="shrink-0 leading-7 {segment.onclick ? '' : 'text-emphasis'}">
-															{#if segment.onclick}
-																<button
-																	type="button"
-																	class="text-secondary hover:text-emphasis hover:underline"
-																	onclick={segment.onclick}
-																>
-																	{segment.label}
-																</button>
-															{:else}
-																{segment.label}
-															{/if}
-														</h3>
-													{:else if segment.onclick}
-														<button
-															type="button"
-															class="text-secondary hover:text-emphasis hover:underline truncate"
-															onclick={segment.onclick}
-														>
-															{segment.label}
-														</button>
-													{:else}
-														<span class="text-emphasis truncate" aria-current="page">
-															{segment.label}
-														</span>
-													{/if}
-												{/each}
-												{#if segments.length === 1}
-													{@render titleBadge?.()}
-												{/if}
-											</nav>
+												</nav>
+											</div>
 											{@render settings?.()}
 										</div>
 

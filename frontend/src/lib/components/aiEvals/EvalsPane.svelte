@@ -590,6 +590,14 @@
 					class="text-xs"
 				/>
 			</Label>
+		{:else}
+			<!-- Directly under the dialog's title, which names the screen without saying what it is
+			     for. On the list only: a run being read is about that run, and this is about the
+			     history it sits in. -->
+			<span class="text-xs text-secondary max-w-2xl self-center">
+				Each run answers a dataset of cases with this agent and scores the answers, so runs can be
+				compared.
+			</span>
 		{/if}
 		<div class="grow"></div>
 		{#if viewingRun && experiment?.run_job_id}
@@ -604,22 +612,36 @@
 				<ExternalLink size={12} />
 			</a>
 		{/if}
-		{#if !viewingRun && loaded && experiments.length > 0}
-			<!-- Only on the list, and only once there is a list: with no runs the table offers this
-			     itself, where the first row would be. Named for what it opens rather than for what
-			     that then does: it asks which state of the agent and which dataset, and both cost a
-			     provider bill, so a button that reads as spending one on the way past would be lying
-			     about the click. -->
+		{#if !viewingRun && loaded && datasets.length > 0}
+			<!-- Beside starting a run rather than only inside the dialog that starts one: a dataset
+			     is a set someone curates between runs, and reaching it through the run they are not
+			     making yet is a detour. Secondary, because a run is what this screen is a list of.
+			     Absent until there is a dataset: the empty state below is then the one move. -->
 			<Button
 				size="xs"
-				variant="accent"
+				variant="default"
 				startIcon={{ icon: Plus }}
-				loading={running}
-				disabled={running || !agentPath}
-				onclick={() => (runDialogOpen = true)}
+				onclick={() => datasetDrawer?.openDrawer('new')}
 			>
-				New evaluation
+				New dataset
 			</Button>
+			{#if experiments.length > 0}
+				<!-- Only once there is a list: with no runs the table offers this itself, where the
+				     first row would be. Named for what it opens rather than for what that then does:
+				     it asks which state of the agent and which dataset, and both cost a provider
+				     bill, so a button that reads as spending one on the way past would be lying
+				     about the click. -->
+				<Button
+					size="xs"
+					variant="accent"
+					startIcon={{ icon: Plus }}
+					loading={running}
+					disabled={running || !agentPath}
+					onclick={() => (runDialogOpen = true)}
+				>
+					New evaluation
+				</Button>
+			{/if}
 		{/if}
 	</div>
 
