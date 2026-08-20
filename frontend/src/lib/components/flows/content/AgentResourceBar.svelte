@@ -188,6 +188,13 @@
 			? draftLeftHere.has
 			: (linkedInfo?.hasDraft ?? false)
 	)
+	/** The write that failed was the delete, so the draft is still there rather than missing. Both
+	 *  go through one syncer key, and the two say opposite things to whoever reads the card. */
+	let discardFailed = $derived(
+		draftSyncFailure !== undefined &&
+			draftLeftHere?.path === cardPath &&
+			draftLeftHere?.has === false
+	)
 	// Evals belong to the agent, not to the step, so they open over the flow rather than as one of
 	// the step's tabs: what you go there to read is a history of runs, not a setting of this step.
 	let evalsOpen = $state(false)
@@ -640,6 +647,13 @@
 	 */
 	async function reloadFromServer() {
 		if (!editingPath) return
+		// The refused write is still parked for a retry, and taking the server's copy is the decision
+		// not to retry it. Left there it outlives this editor: the reload seeds `last_sync` from the
+		// copy it just read, which is exactly the stamp that would make a later flush of the
+		// discarded value acceptable to the server, over the draft that won.
+		if (draftQuery) {
+			UserDraftDbSyncer.dropPending(draftQuery)
+		}
 		cancelEdit()
 		try {
 			const path = await forkFromResource(false, true)
@@ -896,15 +910,24 @@
 	     the only account of a failed one is what leaves the step claiming work it lost. -->
 	{#if draftNotWritten}
 		<div class="mt-1">
-			<Alert type="error" size="xs" title="These edits are not on the agent">
-				{#if draftSyncFailure}
-					They could not be written to its draft: {draftSyncFailure}. Editing the agent again
-					retries, and Save changes writes them straight to it.
-				{:else}
+			{#if discardFailed}
+				<!-- Both writes this card makes share one key, so a failed delete arrives here too —
+				     saying the edits are missing while the badge above correctly says they are there. -->
+				<Alert type="error" size="xs" title="This agent still has unsaved changes">
+					Discarding them did not reach the server: {draftSyncFailure}. Discard again from Edit, or
+					from the agent itself.
+				</Alert>
+			{:else if draftSyncFailure}
+				<Alert type="error" size="xs" title="These edits are not on the agent">
+					They could not be written to its draft: {draftSyncFailure}. Save changes, while the step
+					is still open, writes them to the agent instead.
+				</Alert>
+			{:else}
+				<Alert type="error" size="xs" title="These edits are not on the agent">
 					A newer draft of this agent was saved elsewhere, so these were not written over it. The
 					agent's draft, and anything run against it, is that other one.
-				{/if}
-			</Alert>
+				</Alert>
+			{/if}
 		</div>
 	{/if}
 </div>
