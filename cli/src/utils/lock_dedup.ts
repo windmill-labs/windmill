@@ -238,22 +238,19 @@ export function sharedLockRefOf(
 }
 
 /**
- * Whether a metadata file reads a given shared lockfile.
+ * Whether a metadata file may reference a shared lockfile but cannot say which.
  *
- * Unparseable metadata counts as a reader: a `.script.yaml` carrying git
- * conflict markers is a file whose `lock` cannot be read, not one that reads
- * nothing, and deleting the lockfile it may point at is the unrecoverable half
- * of that guess.
+ * A `.script.yaml` carrying git conflict markers is a file whose `lock` cannot
+ * be read, not one that reads nothing, and deleting a lockfile it may point at
+ * is the unrecoverable half of that guess.
  */
-export function metadataReadsSharedLock(
+export function metadataLockUnreadable(
   metaPath: string,
   metaContent: string,
   isJson: boolean,
-  lockRef: string,
 ): boolean {
   if (!metaContent.includes(INLINE_PREFIX.trimEnd())) return false;
-  if (parseMetadata(metaPath, metaContent, isJson) === undefined) return true;
-  return sharedLockRefOf(metaPath, metaContent, isJson) === lockRef;
+  return parseMetadata(metaPath, metaContent, isJson) === undefined;
 }
 
 /**

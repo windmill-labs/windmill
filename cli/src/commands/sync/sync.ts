@@ -180,7 +180,8 @@ import { isSharedLockPath, SHARED_LOCK_DIR } from "../../utils/script_common.ts"
 import {
   applySharedLockPlanToDisk,
   applySharedLockPlanToMap,
-  metadataReadsSharedLock,
+  metadataLockUnreadable,
+  sharedLockRefOf,
   computeSharedLockPlan,
   isEmptySharedLockPlan,
   scriptsReferencingSharedLock,
@@ -194,22 +195,91 @@ function isScriptLockPath(p: string): boolean {
 }
 
 /**
+ * Every shared lockfile the tree still reads, from a single walk.
+ *
+ * One pull can retire several at once — `--skip-workspace-dependencies` retires
+ * all of them, and consolidating k dependency files retires k-1 — so a walk per
+ * deletion would re-read and re-parse the same metadata each time. Read after
+ * the pull has applied (or refused) every metadata change, because that is the
+ * only moment the answer is settled.
+ */
+export type SharedLockReaders = {
+  /** Reference (`locks/<depfile>.lock`) to the metadata files reading it. */
+  byRef: Map<string, string[]>;
+  /** Metadata whose `lock` cannot be read, which pins every shared lockfile. */
+  unreadable: string[];
+};
+
+export async function collectSharedLockReaders(
+  json: boolean,
+): Promise<SharedLockReaders> {
+  const metaExt = json ? ".script.json" : ".script.yaml";
+  const modMeta = json ? "__mod/script.json" : "__mod/script.yaml";
+  const readers: SharedLockReaders = { byRef: new Map(), unreadable: [] };
+  const walk = async (dir: string): Promise<void> => {
+    let entries: Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (e) {
+      // A directory that is not there holds no reader. Anything else hides
+      // scripts, and a lockfile deleted out from under one resolves to nothing.
+      if ((e as { code?: string })?.code === "ENOENT") return;
+      throw e;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (isNeverWalkedDir(entry.name)) continue;
+        await walk(full);
+        continue;
+      }
+      const rel = full.replaceAll(SEP, "/");
+      if (!rel.endsWith(metaExt) && !rel.endsWith(modMeta)) continue;
+      const content = await readTextFile(full);
+      // The `lock` field, not the raw text: a folded line, a summary quoting
+      // the path, or a stale twin of the other format would each answer wrongly.
+      const ref = sharedLockRefOf(rel, content, json);
+      if (ref === undefined) {
+        if (metadataLockUnreadable(rel, content, json)) readers.unreadable.push(rel);
+        continue;
+      }
+      const existing = readers.byRef.get(ref);
+      if (existing) existing.push(rel);
+      else readers.byRef.set(ref, [rel]);
+    }
+  };
+  for (const root of ["f", "u", "g"]) {
+    await walk(root);
+  }
+  return readers;
+}
+
+/**
  * Whether the metadata beside a script lockfile still points at it. Read from
  * disk, after the pull has applied (or refused) every metadata change, because
- * that is the only moment the answer is settled — and from the `lock` field of
+ * that is the only moment the answer is settled - and from the `lock` field of
  * the twin this sync reads, not the raw text: a folded line, a summary quoting
  * the path, or a stale twin of the other format would each answer wrongly.
+ *
+ * Returns the reason it is kept, or undefined when nothing reads it.
  */
-async function isLockStillRead(
+async function lockStillReadBecause(
   lockPath: string,
   json: boolean,
-): Promise<boolean> {
+  sharedReaders: SharedLockReaders,
+): Promise<string | undefined> {
   const n = lockPath.replaceAll(SEP, "/");
   // A shared lockfile is read by any number of scripts, so the whole tree
-  // answers rather than one sibling. Only ever reached when one is on its way
-  // out, which is rare enough to pay for a walk.
+  // answers rather than one sibling.
   if (isSharedLockPath(n)) {
-    return await anyScriptReferences(n, json);
+    const readers = sharedReaders.byRef.get(n)?.length ?? 0;
+    if (readers > 0) return `${readers} script(s) on disk still reference it`;
+    if (sharedReaders.unreadable.length > 0) {
+      // Naming the file matters: on a dependency-file deletion this line is the
+      // only signal, and "still references it" would point away from the fix.
+      return `${sharedReaders.unreadable[0]} cannot be parsed, so what it reads is unknown`;
+    }
+    return undefined;
   }
   const metaPath = n.endsWith("__mod/script.lock")
     ? n.slice(0, -".lock".length) + (json ? ".json" : ".yaml")
@@ -219,60 +289,19 @@ async function isLockStillRead(
   try {
     content = await readTextFile(metaPath.replaceAll("/", SEP));
   } catch {
-    return false; // no metadata: nothing reads it
+    return undefined; // no metadata: nothing reads it
   }
   try {
     const parsed = json
       ? JSON.parse(content)
       : yamlParseContent(metaPath, content);
-    return parsed?.["lock"] === "!inline " + n;
+    return parsed?.["lock"] === "!inline " + n
+      ? `${metaPath} still references it`
+      : undefined;
   } catch {
     // Unparseable metadata is not proof that nothing reads the lock.
-    return true;
+    return `${metaPath} cannot be parsed, so what it reads is unknown`;
   }
-}
-
-/**
- * Whether any script in the workspace still reads a given lockfile, read from
- * disk after the pull has applied (or refused) every metadata change.
- */
-async function anyScriptReferences(
-  lockRef: string,
-  json: boolean,
-): Promise<boolean> {
-  const metaExt = json ? ".script.json" : ".script.yaml";
-  const modMeta = json ? "__mod/script.json" : "__mod/script.yaml";
-  const walk = async (dir: string): Promise<boolean> => {
-    let entries: Dirent[];
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch (e) {
-      // A directory that is not there holds no reader. Anything else hides
-      // scripts, and a lockfile deleted out from under one resolves to nothing.
-      if ((e as { code?: string })?.code === "ENOENT") return false;
-      throw e;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        if (isNeverWalkedDir(entry.name)) continue;
-        if (await walk(full)) return true;
-        continue;
-      }
-      const rel = full.replaceAll(SEP, "/");
-      if (!rel.endsWith(metaExt) && !rel.endsWith(modMeta)) continue;
-      // The `lock` field, not the raw text: a folded line, a summary quoting the
-      // path, or a stale twin of the other format would each answer wrongly.
-      if (metadataReadsSharedLock(rel, await readTextFile(full), json, lockRef)) {
-        return true;
-      }
-    }
-    return false;
-  };
-  for (const root of ["f", "u", "g"]) {
-    if (await walk(root)) return true;
-  }
-  return false;
 }
 
 /** Sync maps are keyed with the platform separator; `!inline` refs are not. */
@@ -3859,13 +3888,19 @@ export async function pull(
       }
     }
 
+    const sharedReaders = deferredLockDeletions.some((d) =>
+      isSharedLockPath(d.path),
+    )
+      ? await collectSharedLockReaders(opts.json ?? false)
+      : { byRef: new Map(), unreadable: [] };
     for (const deferred of deferredLockDeletions) {
-      if (await isLockStillRead(deferred.path, opts.json ?? false)) {
-        log.info(
-          colors.yellow(
-            `Keeping ${deferred.path}: metadata on disk still references it.`,
-          ),
-        );
+      const keptBecause = await lockStillReadBecause(
+        deferred.path,
+        opts.json ?? false,
+        sharedReaders,
+      );
+      if (keptBecause !== undefined) {
+        log.info(colors.yellow(`Keeping ${deferred.path}: ${keptBecause}.`));
         continue;
       }
       log.info(`Deleting ${changeTypeLabel(deferred.path)}${deferred.path}`);
@@ -4652,6 +4687,10 @@ export async function push(
   // would otherwise run one dependency job per script sharing the lock.
   const changedPaths = new Set(changes.map((c) => c.path));
   let unconvertedTree = false;
+  // The whole tree, not `localMap`: `includes`/`excludes` have already filtered
+  // that, and a shared lockfile's readers are exactly what the filter hides.
+  // Built once, on the first shared-lock change and never otherwise.
+  let treeReaders: SharedLockReaders | undefined;
   for (let i = changes.length - 1; i >= 0; i--) {
     const change = changes[i];
     if (!isSharedLockPath(change.path)) continue;
@@ -4664,10 +4703,25 @@ export async function push(
       continue;
     }
     const referrers = scriptsReferencingSharedLock(localMap, change.path);
+    treeReaders ??= await collectSharedLockReaders(opts.json ?? false);
+    const outOfScope =
+      (treeReaders.byRef.get(change.path.replaceAll(SEP, "/"))?.length ?? 0) -
+      referrers.length;
     // Out of `changes` either way: a shared lockfile has no object on the
     // remote, so the apply loop skips it. Left in, the preview and the "N
     // changes" count would report something no push ever applies as such.
     changes.splice(i, 1);
+    // A scoped push deploys what it was scoped to, so the readers the filter
+    // excluded keep the previous lock on the remote. Silence there is the
+    // trap: the changed file has no object of its own, so nothing else in the
+    // output would account for it.
+    if (outOfScope > 0) {
+      log.warn(
+        colors.yellow(
+          `${change.path} changed, but ${outOfScope} of the script(s) sharing it are outside this push's scope and keep the previous lock on the remote. Widen --includes/--excludes to deploy the new lock to all of them.`,
+        ),
+      );
+    }
     if (referrers.length === 0) continue;
     log.info(
       colors.gray(
