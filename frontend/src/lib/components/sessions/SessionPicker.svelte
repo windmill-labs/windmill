@@ -823,6 +823,7 @@
 					fixedHeight={false}
 					placement="bottom-end"
 					enableFlyTransition
+					customWidth={180}
 					items={[
 						{
 							displayName: archivedCount > 0 ? `Show archived (${archivedCount})` : 'Show archived',
