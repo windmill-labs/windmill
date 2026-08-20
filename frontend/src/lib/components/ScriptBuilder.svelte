@@ -1474,6 +1474,8 @@
 												bind:selected={
 													() => script.kind ?? 'script',
 													(kind) => {
+														// Load-bearing: any write to script.kind echoes back through the
+														// group, and initContent replaces the editor content outright.
 														if (kind === (script.kind ?? 'script')) return
 														template = 'script'
 														script.kind = kind as Script['kind']
