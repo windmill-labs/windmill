@@ -365,10 +365,11 @@ function serializeMetadata(entry: ScriptEntry): string {
 export type SharedLockPlanContext = {
   defaultTs?: "bun" | "deno" | undefined;
   /**
-   * Workspace dependency files this sync knows of beyond the ones in `map`.
-   * The map is not the whole truth: `--skip-workspace-dependencies` drops them
-   * from it, and a dependency file missing from the map is not a dependency
-   * file that is gone.
+   * Workspace dependency files to consider beyond the ones in `map`, for the
+   * one caller whose map cannot hold them: `--skip-workspace-dependencies`.
+   * Pass nothing otherwise — with dependency files in the map, an absence there
+   * is a deletion, and adding disk's copy would keep a lockfile alive one sync
+   * past the file it is named after.
    */
   depFiles?: Iterable<string>;
   /**
@@ -399,10 +400,12 @@ export function computeSharedLockPlan(
       ownLock.push(entry);
       continue;
     }
-    byDepFile.set(entry.depFile, [
-      ...(byDepFile.get(entry.depFile) ?? []),
-      entry,
-    ]);
+    // Push into the existing array rather than rebuild it: a workspace where
+    // every script shares one dependency file is the case this exists for, and
+    // copying the group per insert makes that quadratic.
+    const group = byDepFile.get(entry.depFile);
+    if (group) group.push(entry);
+    else byDepFile.set(entry.depFile, [entry]);
   }
 
   const point = (entry: ScriptEntry, targetKey: string) => {
@@ -428,7 +431,9 @@ export function computeSharedLockPlan(
     // itself so the outcome never depends on map ordering.
     const byContent = new Map<string, ScriptEntry[]>();
     for (const entry of group) {
-      byContent.set(entry.lock, [...(byContent.get(entry.lock) ?? []), entry]);
+      const sameLock = byContent.get(entry.lock);
+      if (sameLock) sameLock.push(entry);
+      else byContent.set(entry.lock, [entry]);
     }
     let content = "";
     let count = 0;
