@@ -1,6 +1,5 @@
 use super::*;
 
-
 /// What every scorer is handed, whether it is a judge prompt, a script or a flow. An agent is
 /// judged on its behaviour, so the final answer is the smaller half of the evidence: the calls it
 /// made, with their arguments and results, are the rest.
@@ -24,7 +23,6 @@ pub struct EvalRunPayload {
     pub job_id: Uuid,
 }
 
-
 #[derive(Serialize, Debug, Clone)]
 pub struct EvalToolCall {
     pub name: String,
@@ -41,14 +39,12 @@ pub struct EvalToolCall {
     pub truncated: bool,
 }
 
-
 #[derive(Serialize, Debug, Clone)]
 pub struct EvalToolDef {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<Box<RawValue>>,
 }
-
 
 #[derive(Serialize, Debug, Clone)]
 pub struct EvalMetrics {
@@ -60,11 +56,9 @@ pub struct EvalMetrics {
     pub usage: Option<Box<RawValue>>,
 }
 
-
 /// A tool result large enough to swamp a judge's context is cut here. The scorer is told, so a
 /// check reading a truncated result can say so instead of failing on the missing tail.
 const MAX_TOOL_RESULT_BYTES: usize = 4 * 1024;
-
 
 fn truncate_value(value: Box<RawValue>) -> (Box<RawValue>, bool) {
     if value.get().len() <= MAX_TOOL_RESULT_BYTES {
@@ -77,13 +71,13 @@ fn truncate_value(value: Box<RawValue>) -> (Box<RawValue>, bool) {
     }
 }
 
-
 /// Assemble the payload from a completed case job: the agent step's own result carries the answer
 /// and the message list, and every message that made a tool call names the job that ran it.
 async fn build_run_payload(
     db: &DB,
     w_id: &str,
     job_id: Uuid,
+    agent_job: Uuid,
     input: EvalCaseInput,
     expected: Option<Box<RawValue>>,
     status: String,
@@ -162,6 +156,11 @@ async fn build_run_payload(
     if !call_job_ids.is_empty() {
         // The schema comes from the script the call actually ran, which is the only version a
         // check on its arguments may fairly be made against.
+        //
+        // Constrained to the agent step's own children rather than to the workspace: these ids
+        // come out of a job result, so a caller who can run a flow can put any id there. A tool
+        // call is pushed as a child of the agent that made it, which is what makes that the
+        // boundary — anything else named here is some other job, and is not read.
         let rows = sqlx::query!(
             "SELECT j.id, j.args AS \"args: sqlx::types::Json<Box<RawValue>>\",
                     c.result AS \"result: sqlx::types::Json<Box<RawValue>>\",
@@ -170,9 +169,10 @@ async fn build_run_payload(
              FROM v2_job j
              LEFT JOIN v2_job_completed c ON c.id = j.id
              LEFT JOIN script s ON s.workspace_id = j.workspace_id AND s.hash = j.runnable_id
-             WHERE j.id = ANY($1) AND j.workspace_id = $2",
+             WHERE j.id = ANY($1) AND j.workspace_id = $2 AND j.parent_job = $3",
             &call_job_ids,
-            w_id
+            w_id,
+            agent_job
         )
         .fetch_all(db)
         .await?;
@@ -229,13 +229,11 @@ async fn build_run_payload(
     })
 }
 
-
 #[derive(Deserialize)]
 pub struct RunPayloadQuery {
     /// The flow job that answered the case: an iteration of a run.
     pub job_id: Uuid,
 }
-
 
 /// What the scorers of one iteration are handed.
 #[derive(Serialize)]
@@ -244,7 +242,6 @@ pub struct RunPayloadResponse {
     /// The same run as a judge reads it. Rendered once per case rather than once per judge.
     pub rendered: String,
 }
-
 
 /// Assemble the payload for one answered case, for the step that feeds the scorers.
 ///
@@ -311,6 +308,7 @@ pub async fn run_payload(
         &db,
         &w_id,
         query.job_id,
+        agent_job,
         serde_json::from_value(input)?,
         expected
             .map(|e| serde_json::value::to_raw_value(&e))
@@ -326,7 +324,6 @@ pub async fn run_payload(
     let rendered = render_run(&run);
     Ok(Json(RunPayloadResponse { run, rendered }))
 }
-
 
 /// The job of the agent step inside a run's flow, from the flow status of either a running or a
 /// finished one.
@@ -356,7 +353,6 @@ async fn agent_step_job(db: &DB, w_id: &str, flow_job: Uuid) -> Result<Option<Uu
         .and_then(|j| Uuid::parse_str(j).ok()))
 }
 
-
 /// The system prompt a judge agent is created with. It is the agent's own, so editing a judge is
 /// editing that resource — there is no second copy of the grading contract on the dataset.
 pub const JUDGE_SYSTEM_PROMPT: &str = r#"You are grading one run of an AI agent.
@@ -367,13 +363,11 @@ same arguments, and tool errors left unrecovered.
 
 Reply with JSON only, of the form {"score": <number between 0 and 1>, "reason": <one sentence>}."#;
 
-
 fn render_json(value: Option<&RawValue>) -> String {
     value
         .map(|v| v.get().to_string())
         .unwrap_or_else(|| "(none)".to_string())
 }
-
 
 /// Tool calls as the judge reads them: numbered, in order, with arguments, result and duration.
 fn render_tool_calls(calls: &[EvalToolCall]) -> String {
@@ -407,7 +401,6 @@ fn render_tool_calls(calls: &[EvalToolCall]) -> String {
         .join("\n")
 }
 
-
 /// One run, as a judge is shown it.
 fn render_run(run: &EvalRunPayload) -> String {
     format!(
@@ -418,7 +411,6 @@ fn render_run(run: &EvalRunPayload) -> String {
         render_json(run.expected.as_deref()),
     )
 }
-
 
 /// Module id of a scorer inside a scoring job. `assign_scorer_ids` keeps ids to
 /// `[A-Za-z0-9_]`, so this is a valid identifier.
