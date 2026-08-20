@@ -1,10 +1,8 @@
 use super::*;
 
-
 /// Node id of the agent step. The answer is read back by this id, so it is part of the stored
 /// shape rather than an implementation detail.
 pub const AGENT_NODE_ID: &str = "a";
-
 
 /// Node id of the step that assembles what the scorers are handed.
 
@@ -15,13 +13,11 @@ const CASES_NODE_ID: &str = "cases";
 /// The branch holding every scorer of a case, so they measure it at the same time.
 const SCORERS_NODE_ID: &str = "scores";
 
-
 /// In-flight iterations. A dataset is a burst of calls to one provider, so a run that answers
 /// every case at once is a run that spends its time being rate-limited. Bounded rather than
 /// configurable: a knob here would be a second place to say what the agent's own concurrency
 /// limit already says.
 const RUN_PARALLELISM: u16 = 8;
-
 
 /// What each iteration is handed: the case, small enough to sit in every iteration's arguments.
 #[derive(Serialize)]
@@ -32,7 +28,6 @@ struct CaseIteration {
     #[serde(skip_serializing_if = "Option::is_none")]
     expected: Option<Box<RawValue>>,
 }
-
 
 /// Assembles the payload the scorers read, for the run this iteration is about.
 ///
@@ -54,7 +49,6 @@ export async function main() {
   return await res.json()
 }
 "#;
-
 
 fn payload_module() -> serde_json::Value {
     serde_json::json!({
@@ -80,7 +74,6 @@ fn payload_module() -> serde_json::Value {
     })
 }
 
-
 /// The scorer steps of one iteration, reading the payload the step before them assembled.
 fn scorer_modules(scorers: &[&Scorer]) -> Vec<serde_json::Value> {
     scorers
@@ -97,6 +90,16 @@ fn scorer_modules(scorers: &[&Scorer]) -> Vec<serde_json::Value> {
                         "user_message": {
                             "type": "javascript",
                             "expr": format!("results.{}.rendered", PAYLOAD_NODE_ID),
+                        },
+                        // The case's own attachments, handed to the judge as they were handed to
+                        // the agent: a case whose answer is about an image is one a judge cannot
+                        // grade from the text of the request alone.
+                        "user_attachments": {
+                            "type": "javascript",
+                            "expr": format!(
+                                "results.{}.run.input.user_attachments",
+                                PAYLOAD_NODE_ID
+                            ),
                         },
                     }
                 }),
@@ -130,7 +133,6 @@ fn scorer_modules(scorers: &[&Scorer]) -> Vec<serde_json::Value> {
         .collect()
 }
 
-
 /// The flow a whole run is: one loop over the dataset's cases, each iteration answering the case
 /// and then scoring the answer.
 ///
@@ -139,10 +141,11 @@ fn scorer_modules(scorers: &[&Scorer]) -> Vec<serde_json::Value> {
 /// rather than in its arguments, which every iteration inherits a copy of.
 fn build_run_flow(
     subject: &EvalSubject,
+    config: Option<&AgentDraft>,
     cases: &[CaseIteration],
     scorers: &[&Scorer],
 ) -> Result<windmill_common::flows::FlowValue> {
-    let mut modules: Vec<serde_json::Value> = vec![agent_module(subject)?];
+    let mut modules: Vec<serde_json::Value> = vec![agent_module(subject, config)?];
     if !scorers.is_empty() {
         modules.push(payload_module());
         // One branch each, run together: scorers read the answer and never each other, so measuring
@@ -184,10 +187,9 @@ fn build_run_flow(
     }))?)
 }
 
-
 /// The agent step, reading its case from the iteration rather than from the flow's arguments.
-fn agent_module(subject: &EvalSubject) -> Result<serde_json::Value> {
-    let flow = build_case_flow(subject)?;
+fn agent_module(subject: &EvalSubject, config: Option<&AgentDraft>) -> Result<serde_json::Value> {
+    let flow = build_case_flow(subject, config)?;
     let mut value = serde_json::to_value(&flow.modules[0].value)?;
     if let Some(map) = value.as_object_mut() {
         let transforms = map
@@ -208,13 +210,15 @@ fn agent_module(subject: &EvalSubject) -> Result<serde_json::Value> {
     Ok(serde_json::json!({ "id": AGENT_NODE_ID, "value": value }))
 }
 
-
 /// The agent step as a one-module flow, so the module shape is validated by deserializing
 /// through `FlowValue` rather than trusted as raw JSON.
-fn build_case_flow(subject: &EvalSubject) -> Result<windmill_common::flows::FlowValue> {
-    // A draft runs the step exactly as authored: its own brain transforms are the module's, and
+fn build_case_flow(
+    subject: &EvalSubject,
+    config: Option<&AgentDraft>,
+) -> Result<windmill_common::flows::FlowValue> {
+    // The configuration runs exactly as authored: its own brain transforms are the module's, and
     // the case supplies the message and the attachments over the top.
-    let mut input_transforms = match subject.draft.as_ref().map(|d| &d.input_transforms) {
+    let mut input_transforms = match config.map(|c| &c.input_transforms) {
         Some(serde_json::Value::Object(map)) => map.clone(),
         _ => serde_json::Map::new(),
     };
@@ -227,10 +231,12 @@ fn build_case_flow(subject: &EvalSubject) -> Result<windmill_common::flows::Flow
 
     let mut agent_value = serde_json::Map::new();
     agent_value.insert("type".to_string(), serde_json::json!("aiagent"));
-    match &subject.draft {
-        Some(draft) => {
-            agent_value.insert("tools".to_string(), serde_json::json!(draft.tools));
+    match config {
+        Some(config) => {
+            agent_value.insert("tools".to_string(), serde_json::json!(config.tools));
         }
+        // Only when the agent has no readable configuration to inline: a linked step resolves the
+        // resource when the case runs, which is what the run is otherwise pinned against.
         None => {
             agent_value.insert("agent".to_string(), serde_json::json!(subject.path));
             agent_value.insert("tools".to_string(), serde_json::json!([]));
@@ -245,11 +251,14 @@ fn build_case_flow(subject: &EvalSubject) -> Result<windmill_common::flows::Flow
     }))?)
 }
 
-
 /// The number the agent is on: how many times it has been saved, not the identity of the row
 /// holding that value. Runs are named by it and compared by it, so it has to be the resource's own
 /// count rather than a sequence the whole instance shares.
-pub(crate) async fn current_resource_version(db: &DB, w_id: &str, path: &str) -> Result<Option<i64>> {
+pub(crate) async fn current_resource_version(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+) -> Result<Option<i64>> {
     let version = sqlx::query_scalar!(
         "SELECT version FROM resource_version WHERE workspace_id = $1 AND path = $2
          ORDER BY version DESC LIMIT 1",
@@ -260,7 +269,6 @@ pub(crate) async fn current_resource_version(db: &DB, w_id: &str, path: &str) ->
     .await?;
     Ok(version)
 }
-
 
 /// Read the agent through `user_db` so a caller who cannot read the resource cannot run it.
 pub(crate) async fn require_agent(
@@ -288,7 +296,6 @@ pub(crate) async fn require_agent(
     }
 }
 
-
 /// An `ai_agent` value as the configuration to run it with: its brain becomes the module's input
 /// transforms, its tools the module's tools. The same conversion for a draft and for what is
 /// deployed, so the two hash comparably, which is what lets a draft run be recognised as the
@@ -311,10 +318,12 @@ fn config_to_draft(value: serde_json::Value) -> Result<AgentDraft> {
     Ok(AgentDraft { input_transforms: serde_json::Value::Object(input_transforms), tools })
 }
 
-
-/// What the agent hashes to as deployed. A draft run whose hash is this one ran exactly what is
-/// deployed now, however it got there: that is a run of the version, not a run of a draft.
-pub(crate) async fn deployed_agent_hash(db: &DB, w_id: &str, path: &str) -> Result<Option<String>> {
+/// The agent's deployed value, in the shape a step runs.
+pub(crate) async fn deployed_agent_config(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+) -> Result<Option<AgentDraft>> {
     let value = sqlx::query_scalar!(
         "SELECT value FROM resource
          WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
@@ -324,13 +333,17 @@ pub(crate) async fn deployed_agent_hash(db: &DB, w_id: &str, path: &str) -> Resu
     .fetch_optional(db)
     .await?
     .flatten();
-    Ok(value
-        .map(config_to_draft)
-        .transpose()?
+    value.map(config_to_draft).transpose()
+}
+
+/// What the agent hashes to as deployed. A draft run whose hash is this one ran exactly what is
+/// deployed now, however it got there: that is a run of the version, not a run of a draft.
+pub(crate) async fn deployed_agent_hash(db: &DB, w_id: &str, path: &str) -> Result<Option<String>> {
+    Ok(deployed_agent_config(db, w_id, path)
+        .await?
         .as_ref()
         .map(draft_hash))
 }
-
 
 pub(crate) async fn agent_draft_config(
     authed: &ApiAuthed,
@@ -371,29 +384,35 @@ pub(crate) async fn agent_draft_config(
     })
 }
 
-
 /// Fill in what the client cannot: the version a saved agent is at, or the configuration sitting
 /// in its draft. Both run paths do this identically, and a subject that skipped it would run the
 /// wrong definition or record no version.
+///
+/// Returns the configuration the run executes, read once here. Every case of a run then executes
+/// that one configuration: resolved per case instead, an agent deployed while a run is in flight
+/// would be executed by the cases after it while every row still names the version the run
+/// started against.
 async fn resolve_subject(
     authed: &ApiAuthed,
     db: &DB,
     user_db: &UserDB,
     w_id: &str,
     subject: &mut EvalSubject,
-) -> Result<()> {
-    match subject.kind {
+) -> Result<Option<AgentDraft>> {
+    Ok(match subject.kind {
         EvalSubjectKind::Agent => {
             require_agent(authed, user_db, w_id, &subject.path).await?;
-            // The version the agent is at now. Recorded so the run stays attributable to a prompt
-            // state later; it does not pin execution, which stays live.
+            // The version that configuration is, recorded so the run stays attributable to a
+            // prompt state later.
             subject.version = current_resource_version(db, w_id, &subject.path).await?;
+            deployed_agent_config(db, w_id, &subject.path).await?
         }
         EvalSubjectKind::AgentDraft => {
             subject.draft = Some(agent_draft_config(authed, user_db, w_id, &subject.path).await?);
             // The version the draft is an edit of. It is not a version of its own, but a run
             // of "v15 plus unsaved edits" is not attributable without knowing which v15.
             subject.version = current_resource_version(db, w_id, &subject.path).await?;
+            subject.draft.clone()
         }
         EvalSubjectKind::AgentVersion => {
             let Some(version) = subject.version else {
@@ -404,11 +423,10 @@ async fn resolve_subject(
             subject.draft = Some(
                 agent_version_config(authed, user_db, db, w_id, &subject.path, version).await?,
             );
+            subject.draft.clone()
         }
-    }
-    Ok(())
+    })
 }
-
 
 /// One version of an agent out of its history, in the shape a step runs.
 ///
@@ -444,7 +462,6 @@ async fn agent_version_config(
     })
 }
 
-
 /// The configuration is never taken from the client: a saved agent runs by reference and its
 /// draft is read from the workspace, so a request carrying one would run something other than the
 /// resource it names.
@@ -467,13 +484,11 @@ fn validate_subject(subject: &EvalSubject) -> Result<()> {
 // Experiments
 // -----------------------------------------------------------------------------------------------
 
-
 #[derive(Deserialize)]
 pub struct RunExperiment {
     pub dataset: String,
     pub subject: EvalSubject,
 }
-
 
 /// Open a run of this dataset. A run is a fixed point: it is written once and then only ever
 /// read, which is what makes it worth comparing against.
@@ -534,7 +549,6 @@ async fn new_run(
     Ok(id)
 }
 
-
 pub async fn run_experiment(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -548,7 +562,7 @@ pub async fn run_experiment(
 
     let mut subject = payload.subject;
     validate_subject(&subject)?;
-    resolve_subject(&authed, &db, &user_db, &w_id, &mut subject).await?;
+    let config = resolve_subject(&authed, &db, &user_db, &w_id, &mut subject).await?;
 
     let cases = read_cases(&authed, &user_db, &w_id, &payload.dataset, None).await?;
     if cases.is_empty() {
@@ -585,7 +599,7 @@ pub async fn run_experiment(
             expected: case.expected.clone(),
         })
         .collect::<Vec<_>>();
-    let flow_value = build_run_flow(&subject, &iterations, &scorers)?;
+    let flow_value = build_run_flow(&subject, config.as_ref(), &iterations, &scorers)?;
 
     // The whole run is recorded, with the id of the job that will hold it, before that job is
     // queued. A launch that dies partway therefore leaves an experiment naming a job that never
@@ -664,7 +678,6 @@ pub async fn run_experiment(
     Ok(experiment_id.to_string())
 }
 
-
 /// The cells a run will fill in, written at launch. A pending row is what the table reads as a
 /// score still being produced, and it is where the definition that produced it is recorded.
 async fn insert_pending_scores(
@@ -703,7 +716,6 @@ async fn insert_pending_scores(
     .await?;
     Ok(())
 }
-
 
 /// Queue the flow a run is. Its id is chosen by the caller, so the experiment can name it before
 /// it exists.
@@ -770,7 +782,6 @@ async fn push_run_flow(
     tx.commit().await?;
     Ok(uuid)
 }
-
 
 pub(crate) fn experiment_from_row(
     id: Uuid,
