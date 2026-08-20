@@ -113,8 +113,10 @@ async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
 			resourceType: AI_RESOURCE_TYPES.join(',')
 		}).catch((err) => {
 			console.error('Could not list AI provider resources', err)
-			// Whatever the AI settings name still gets a catalog entry below, but the catalog no
-			// longer knows the workspace's resources, so nothing may be rejected for being absent.
+			// The catalog no longer knows the workspace's resources, so nothing may be rejected for
+			// being absent. Candidates come only from this list — a resource named by the AI
+			// settings is not one, since that config may be the instance's, whose resources live
+			// in another workspace and cannot resolve here.
 			listedAllResources = false
 			return []
 		}),

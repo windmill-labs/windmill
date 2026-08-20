@@ -74,7 +74,7 @@ describe('validateAiAgentProviders', () => {
 
 	it('reports, but does not reject, an unlisted model the listing cannot rule out', () => {
 		// A gateway may accept aliases it omits; a filtered listing (OpenAI fine-tunes) omits ids
-		// the endpoint serves. Both reach validation as modelsRuleOutOthers: false.
+		// the endpoint serves. Both reach validation as a listing that cannot rule an id out.
 		for (const option of [
 			{ ...ANTHROPIC, customEndpoint: true },
 			{ ...ANTHROPIC, models: { ...ANTHROPIC.models, complete: false } }
