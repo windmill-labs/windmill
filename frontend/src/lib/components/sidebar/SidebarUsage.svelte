@@ -267,7 +267,7 @@
 		{#snippet actions()}
 			{#if $userStore?.is_admin}
 				<Button
-					unifiedSize="sm"
+					unifiedSize="md"
 					onclick={() => {
 						open = false
 						goto('/workspace_settings?tab=premium')
