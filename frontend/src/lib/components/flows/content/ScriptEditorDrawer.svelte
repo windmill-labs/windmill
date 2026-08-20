@@ -206,7 +206,7 @@
 			<Button
 				wrapperClasses="self-start"
 				variant="default"
-				size="xs"
+				unifiedSize="xs"
 				on:click={() => {
 					if (!savedScript || !script) {
 						return

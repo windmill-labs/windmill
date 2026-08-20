@@ -584,7 +584,7 @@
 						</span>
 					{/if}
 					<Button
-						size="xs2"
+						unifiedSize="2xs"
 						variant="default"
 						startIcon={{ icon: FlaskConical }}
 						title="Run this agent against a dataset of cases"
@@ -683,7 +683,7 @@
 				     belongs to the line naming them rather than to the row that keeps or discards
 				     them. -->
 				<Button
-					size="xs2"
+					unifiedSize="2xs"
 					variant="default"
 					startIcon={{ icon: FlaskConical }}
 					title="Run these edits against a dataset of cases"
@@ -695,9 +695,9 @@
 			<!-- Deciding the edits' fate gets a row of its own: at this width it was wrapping into
 			     the line that names them, and the two are not the same question. -->
 			<div class="flex items-center justify-end gap-1">
-				<Button size="xs2" variant="default" onclick={cancelEdit}>Cancel</Button>
+				<Button unifiedSize="2xs" variant="default" onclick={cancelEdit}>Cancel</Button>
 				<Button
-					size="xs2"
+					unifiedSize="2xs"
 					variant="accent"
 					startIcon={{ icon: Save }}
 					disabled={saving || !!providerSaveError}
@@ -714,7 +714,7 @@
 		{/if}
 	{:else}
 		<Button
-			size="xs2"
+			unifiedSize="2xs"
 			variant="default"
 			startIcon={{ icon: Save }}
 			wrapperClasses="w-full"

@@ -173,7 +173,7 @@
 						</span>
 						<!-- Where the first row would be: an empty table's one move belongs in it rather than
 						     above it, where it reads as a control over rows that are not there. -->
-						<Button size="xs" variant="accent" startIcon={{ icon: Plus }} onclick={onNew}>
+						<Button unifiedSize="xs" variant="accent" startIcon={{ icon: Plus }} onclick={onNew}>
 							New evaluation
 						</Button>
 					</div>
