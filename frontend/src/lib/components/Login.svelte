@@ -161,11 +161,17 @@
 	let emailErrored = $derived(errorField === 'email' || errorField === 'both')
 	let passwordErrored = $derived(errorField === 'password' || errorField === 'both')
 
-	async function failLogin(message: string, fields: 'both' | 'email' | 'password' = 'both') {
+	async function failLogin(
+		message: string,
+		fields: 'both' | 'email' | 'password' = 'both',
+		// The pair the message is about. Defaults to what is in the fields right now, but a
+		// rejected request passes what it actually submitted: the user may have typed on since.
+		attempted: { email: string | undefined; password: string | undefined } = { email, password }
+	) {
 		// The shake is for a retry that fails the same way: on the first failure the message
 		// appearing is the signal, and shaking it in would be noise.
 		const wasAlreadyShown = credentialsError != undefined
-		formError = { message, fields, email, password }
+		formError = { message, fields, ...attempted }
 		// tick() only writes the DOM. Without a layout read between the removal and the re-add,
 		// the browser coalesces both into one style recalculation, sees a class that never left,
 		// and replays nothing from the second retry onwards.
@@ -207,7 +213,7 @@
 		try {
 			await UserService.login({ requestBody })
 		} catch (err) {
-			failLogin(loginErrorMessage(err))
+			failLogin(loginErrorMessage(err), 'both', requestBody)
 			return
 		}
 
