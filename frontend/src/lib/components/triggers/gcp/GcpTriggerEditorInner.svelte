@@ -344,15 +344,26 @@
 		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			const ok = await withForkConflictRetry(
-				(force) =>
-					GcpTriggerService.setGcpTriggerMode({
-						path: initialPath,
-						workspace: wsId ?? '',
-						requestBody: { mode: newMode, force }
-					}),
-				'GCP Pub/Sub trigger'
-			)
+			let ok: boolean
+			try {
+				ok = await withForkConflictRetry(
+					(force) =>
+						GcpTriggerService.setGcpTriggerMode({
+							path: initialPath,
+							workspace: wsId ?? '',
+							requestBody: { mode: newMode, force }
+						}),
+					'GCP Pub/Sub trigger'
+				)
+			} catch (err) {
+				// `withForkConflictRetry` re-throws anything that is not a fork conflict, and
+				// enabling a trigger on application default credentials is rejected for non-admins,
+				// so a refusal here is expected rather than exceptional: put the toggle back and say
+				// why, instead of leaving it showing a mode the server did not accept.
+				mode = previousMode
+				sendUserToast(err?.body ?? err?.message ?? 'Could not change trigger mode', true)
+				return
+			}
 			if (!ok) {
 				mode = previousMode
 				return
