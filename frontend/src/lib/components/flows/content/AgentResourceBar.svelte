@@ -475,7 +475,16 @@
 		// Read so an edit to either re-runs this.
 		const config = JSON.stringify(inputTransformsToAgentConfig(inputTransforms, tools))
 		untrack(() => {
-			if (!path || deployedConfig === undefined || config === mirrored) return
+			if (!path || deployedConfig === undefined) return
+			// The fork is written into the step through bound props, so it arrives over several
+			// states: the first ones read back are the step part-way through being forked, not
+			// anything anyone edited. It has landed once what the step holds is what was forked
+			// into it, and only from there is a difference an edit.
+			if (!forkSettled) {
+				forkSettled = config === deployedConfig
+				return
+			}
+			if (config === mirrored) return
 			const had = mirrored !== undefined && mirrored !== deployedConfig
 			mirrored = config
 			if (config !== deployedConfig) {
@@ -490,6 +499,9 @@
 	/** The agent as deployed, and the last state compared against it. */
 	let deployedConfig: string | undefined = $state(undefined)
 	let mirrored: string | undefined = $state(undefined)
+	/** The step is holding the configuration that was forked into it, so what it holds from here is
+	 *  what someone did to it. */
+	let forkSettled = $state(false)
 	/** Whether what is in the editor differs from the agent it is an edit of. */
 	let edited = $derived(
 		deployedConfig !== undefined && mirrored !== undefined && mirrored !== deployedConfig
@@ -499,6 +511,7 @@
 			untrack(() => {
 				deployedConfig = undefined
 				mirrored = undefined
+				forkSettled = false
 			})
 		}
 	})
@@ -513,7 +526,11 @@
 		if (!path) {
 			return
 		}
-		clearDraft(path)
+		// Only what this editor wrote. Edit opens on the deployed value, so a draft it never
+		// diverged from is someone's unsaved work and cancelling is not a decision about it.
+		if (edited) {
+			clearDraft(path)
+		}
 		agent = path
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)
