@@ -181,8 +181,18 @@
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
-			gcp_resource_path = defaultValues?.gcp_resource_path ?? ''
-			use_default_credentials = false
+			// A draft or capture config reaches `openNew` too, and it stores the credentials mode as
+			// an explicit `gcp_resource_path: null`. Only an absent key means "fresh trigger", so
+			// collapsing null and missing here would silently reopen an ADC config in service
+			// account mode.
+			const reopenedAsDefaultCredentials =
+				!!defaultValues &&
+				'gcp_resource_path' in defaultValues &&
+				defaultValues.gcp_resource_path == null
+			gcp_resource_path = reopenedAsDefaultCredentials
+				? undefined
+				: (defaultValues?.gcp_resource_path ?? '')
+			use_default_credentials = reopenedAsDefaultCredentials
 			project_id = defaultValues?.project_id ?? undefined
 			delivery_type = defaultValues?.delivery_type ?? 'pull'
 			delivery_config = defaultValues?.delivery_config ?? undefined

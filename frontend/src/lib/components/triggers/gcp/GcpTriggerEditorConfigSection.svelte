@@ -47,7 +47,7 @@
 		}
 		try {
 			loadingTopic = true
-			topic_items = use_default_credentials
+			topic_items = usesDefaultCredentials
 				? await GcpTriggerService.listGoogleTopicsWithDefaultCredentials({
 						workspace: wsId!,
 						projectId: project_id
@@ -70,7 +70,7 @@
 		try {
 			loadingSubscription = true
 			const requestBody = { topic_id, project_id }
-			subscription_items = use_default_credentials
+			subscription_items = usesDefaultCredentials
 				? await GcpTriggerService.listAllTgoogleTopicSubscriptionsWithDefaultCredentials({
 						workspace: wsId!,
 						requestBody
@@ -118,9 +118,9 @@
 		can_write = false,
 		headless = false,
 		isValid = $bindable(false),
-		gcp_resource_path = $bindable(undefined),
-		use_default_credentials = $bindable(false),
-		project_id = $bindable(undefined),
+		gcp_resource_path = $bindable(),
+		use_default_credentials = $bindable(),
+		project_id = $bindable(),
 		subscription_id = $bindable(''),
 		topic_id = $bindable(''),
 		delivery_type = $bindable('pull'),
@@ -139,11 +139,12 @@
 	 * resource ACL covers. The backend enforces this too; hiding it keeps a non-admin from
 	 * building a config that cannot be saved. Someone who inherits such a trigger still sees the
 	 * mode it is in. */
-	const canUseDefaultCredentials = $derived(
-		$userStore?.is_admin === true || use_default_credentials
-	)
-	const hasCredentials = $derived(use_default_credentials || !emptyStringTrimmed(gcp_resource_path))
+	const usesDefaultCredentials = $derived(use_default_credentials ?? false)
+	const canUseDefaultCredentials = $derived($userStore?.is_admin === true || usesDefaultCredentials)
+	const hasCredentials = $derived(usesDefaultCredentials || !emptyStringTrimmed(gcp_resource_path))
 
+	// One-shot on mount, so read the props rather than the derived: referencing `$derived` state
+	// here captures its initial value anyway, and Svelte warns about it.
 	if (gcp_resource_path || use_default_credentials) {
 		loadAllPubSubTopicsFromProject()
 	}
@@ -151,8 +152,15 @@
 	function onCredentialsModeChange(useDefault: boolean) {
 		use_default_credentials = useDefault
 		gcp_resource_path = useDefault ? undefined : ''
+		// The topic and subscription belong to the credentials that listed them. Keeping them
+		// across a switch leaves the form valid and saveable against names the new credentials may
+		// not have, or worse may have in a different project.
 		topic_items = []
 		subscription_items = []
+		topic_id = ''
+		subscription_id = ''
+		cloud_subscription_id = ''
+		create_update_subscription_id = ''
 		if (useDefault) {
 			loadAllPubSubTopicsFromProject()
 		}
@@ -195,7 +203,7 @@
 			<Subsection label="Connection setup">
 				<div class="flex flex-col gap-3 mt-2">
 					<ToggleButtonGroup
-						selected={use_default_credentials ? 'default' : 'resource'}
+						selected={usesDefaultCredentials ? 'default' : 'resource'}
 						on:selected={(e) => onCredentialsModeChange(e.detail === 'default')}
 					>
 						{#snippet children({ item })}
@@ -219,7 +227,7 @@
 						{/snippet}
 					</ToggleButtonGroup>
 
-					{#if !use_default_credentials}
+					{#if !usesDefaultCredentials}
 						<ResourcePicker
 							workspace={wsId}
 							resourceType="gcloud"
