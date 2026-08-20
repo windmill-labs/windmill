@@ -11749,8 +11749,10 @@ paths:
               properties:
                 path:
                   type: string
+                  maxLength: 255
                 summary:
                   type: string
+                  maxLength: 1000
                 scorers:
                   type: array
                   items:
@@ -11804,11 +11806,13 @@ paths:
               properties:
                 path:
                   type: string
+                  maxLength: 255
                   description: >
                     Renames the dataset. Its cases and experiments follow through the foreign
                     keys, so a rename keeps the history it already has.
                 summary:
                   type: string
+                  maxLength: 1000
                 scorers:
                   type: array
                   description: >
