@@ -13,7 +13,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    git_sync_oss::{prepend_token_to_github_url, sanitize_git_url},
+    git_sync_oss::sanitize_git_url,
     worker::{
         is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
         write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
@@ -385,6 +385,113 @@ pub fn create_empty_dir(path: &PathBuf) -> std::io::Result<()> {
     } else {
         std::fs::create_dir_all(path)
     }
+}
+
+/// Lay down the tree of an app-backed repository, which git can't clone
+/// because its URL carries no credential.
+///
+/// The server holds the GitHub App installation token and answers with a
+/// tarball of one commit, so the worker never handles a GitHub credential.
+/// Going over HTTP rather than the database is also what lets agent workers
+/// use app-backed repos at all.
+async fn fetch_repo_archive(
+    client: &AuthedClient,
+    resource_path: &str,
+    git_ref: Option<&str>,
+    job_dir: &str,
+    target_path: &str,
+    job_id: &Uuid,
+    w_id: &str,
+    conn: &Connection,
+) -> error::Result<()> {
+    let target_path = is_allowed_file_location(job_dir, target_path)?;
+    create_empty_dir(&target_path)?;
+
+    let url = format!(
+        "{}/api/w/{}/github_app/repo_archive/{}",
+        client.base_internal_url, client.workspace, resource_path
+    );
+    let query = git_ref
+        .map(|r| vec![("ref", r.to_string())])
+        .unwrap_or_default();
+    let response = client.get(&url, query).await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(error::Error::BadRequest(format!(
+            "Failed to download `{}` ({}): {}",
+            resource_path, status, body
+        )));
+    }
+
+    let commit = response
+        .headers()
+        .get("x-commit-sha")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let archive_path = PathBuf::from(job_dir).join("repo_archive.tar.gz");
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| anyhow!("Failed to read repository archive: {e}"))?;
+    tokio::fs::write(&archive_path, &bytes).await?;
+
+    let unpack_target = target_path.clone();
+    let unpack_archive = archive_path.clone();
+    tokio::task::spawn_blocking(move || unpack_repo_archive(&unpack_archive, &unpack_target))
+        .await
+        .map_err(|e| anyhow!("Failed to extract repository archive: {e}"))??;
+    let _ = tokio::fs::remove_file(&archive_path).await;
+
+    append_logs(
+        job_id,
+        w_id,
+        format!("Fetched {} at {}\n", resource_path, commit),
+        conn,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// Unpack a GitHub archive, whose entries all sit under one
+/// `{owner}-{repo}-{sha}` directory that gets dropped.
+///
+/// Entries are joined onto `target` by hand rather than through
+/// `Archive::unpack`, so that a crafted archive can't place a file outside the
+/// job directory.
+fn unpack_repo_archive(archive_path: &PathBuf, target: &PathBuf) -> error::Result<()> {
+    use std::path::Component;
+
+    let file = std::fs::File::open(archive_path)?;
+    let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.into_owned();
+
+        let mut components = path.components();
+        components.next();
+        let relative: PathBuf = components.collect();
+        if relative.as_os_str().is_empty() {
+            continue;
+        }
+        if relative
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        {
+            return Err(error::Error::BadRequest(format!(
+                "Repository archive contains an unsafe path: {}",
+                path.display()
+            )));
+        }
+
+        entry.unpack(target.join(relative))?;
+    }
+
+    Ok(())
 }
 
 async fn clone_repo_without_history(
@@ -1498,20 +1605,8 @@ pub async fn handle_ansible_job(
             #[cfg(feature = "enterprise")]
             let is_github_app = git_repo_resource.get("is_github_app").and_then(|s| s.as_bool())
                 .ok_or(anyhow!("Failed to get `is_github_app` field from git repo resource, please check that the resource has the correct type (git_repository)"))?;
-
-            #[cfg(feature = "enterprise")]
-            if is_github_app {
-                if let Connection::Sql(db) = conn {
-                    let token = windmill_common::git_sync_oss::get_github_app_token_internal(
-                        db,
-                        &client.token,
-                    )
-                    .await?;
-                    secret_url = prepend_token_to_github_url(&secret_url, &token)?;
-                } else {
-                    return Err(windmill_common::error::Error::BadRequest("Github App authentication is currently unavailable for agent workers. Contact the windmill team to request this feature".to_string()));
-                }
-            }
+            #[cfg(not(feature = "enterprise"))]
+            let is_github_app = false;
 
             let branch = Some(git_repo_resource.get("branch").and_then(|s| s.as_str()).map(|s| s.to_string())
                 .ok_or(anyhow!("Failed to get branch from git repo resource, please check that the resource has the correct type (git_repository)"))?).filter(|s| !s.is_empty());
@@ -1531,7 +1626,22 @@ pub async fn handle_ansible_job(
                 conn,
             )
             .await;
-            if let Some(commit) = interpolated_commit.as_ref() {
+            if is_github_app {
+                // An app-backed repo's URL carries no credential, so git can't
+                // authenticate against it. The server serves the commit's tree
+                // instead, which is all a playbook run reads.
+                fetch_repo_archive(
+                    &client,
+                    &delegated_git_repo.resource,
+                    interpolated_commit.as_deref().or(repo.branch.as_deref()),
+                    job_dir,
+                    &repo.target_path,
+                    &job.id,
+                    &job.workspace_id,
+                    conn,
+                )
+                .await?;
+            } else if let Some(commit) = interpolated_commit.as_ref() {
                 clone_repo_without_history(
                     &repo,
                     commit,

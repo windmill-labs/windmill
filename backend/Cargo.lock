@@ -16582,6 +16582,7 @@ dependencies = [
  "derive_more 1.0.0",
  "dotenv",
  "eventsource-stream",
+ "flate2",
  "flume",
  "fs4",
  "futures",
