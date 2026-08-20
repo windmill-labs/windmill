@@ -14,7 +14,6 @@
 	import { getUserExt } from '$lib/user'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
-	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import { clearStores } from '$lib/storeUtils'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import Login from '$lib/components/Login.svelte'
@@ -157,11 +156,8 @@
 	</div>
 
 	<div
-		class={classNames('mt-8 sm:mx-auto sm:w-full sm:max-w-sm', showPassword ? 'mb-16' : 'mb-48')}
+		class={classNames('mt-6 sm:mx-auto sm:w-full sm:max-w-sm', showPassword ? 'mb-16' : 'mb-48')}
 	>
-		<div class="flex justify-end">
-			<DarkModeToggle forcedDarkMode={false} />
-		</div>
 		<Login
 			{firstTime}
 			{rd}

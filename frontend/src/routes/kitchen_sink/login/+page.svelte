@@ -146,7 +146,7 @@
 								<LoginHeading {hasThirdParty} />
 							</div>
 						</div>
-						<div class="mt-8 sm:mx-auto sm:w-full {width}">
+						<div class="mt-6 sm:mx-auto sm:w-full {width}">
 							<Login
 								preview={variant.preview}
 								firstTime={variant.firstTime ?? false}

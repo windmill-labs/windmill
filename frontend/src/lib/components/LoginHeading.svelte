@@ -9,7 +9,7 @@
 
 <!-- Held blank rather than defaulted while the options load: a third-party login also creates
 	the account, so guessing either way flashes copy that is wrong for half the instances. -->
-<div class="min-h-[4.5rem]">
+<div class="min-h-[3.5rem]">
 	{#if hasThirdParty !== undefined}
 		<h2 class="text-center text-2xl font-semibold tracking-tight text-emphasis">
 			{hasThirdParty ? 'Log in or sign up' : 'Log in'}
