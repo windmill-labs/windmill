@@ -4689,13 +4689,8 @@ export async function push(
   let unconvertedTree = false;
   // The whole tree, not `localMap`: `includes`/`excludes` have already filtered
   // that, and a shared lockfile's readers are exactly what the filter hides.
-  // Nothing to hide when nothing filters, so the walk is for narrowed pushes
-  // only, once, on the first shared-lock change.
-  const scopeIsNarrowed = [
-    opts.includes,
-    opts.excludes,
-    opts.extraIncludes,
-  ].some((p) => (p?.length ?? 0) > 0);
+  // One metadata pass, on the first shared-lock change and never otherwise, so
+  // it is a dependency bump that pays for it and not an ordinary push.
   let treeReaders: SharedLockReaders | undefined;
   for (let i = changes.length - 1; i >= 0; i--) {
     const change = changes[i];
@@ -4709,7 +4704,7 @@ export async function push(
       continue;
     }
     const referrers = scriptsReferencingSharedLock(localMap, change.path);
-    if (scopeIsNarrowed && treeReaders === undefined) {
+    if (treeReaders === undefined) {
       try {
         treeReaders = await collectSharedLockReaders(opts.json ?? false);
       } catch (e) {
