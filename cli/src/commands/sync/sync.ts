@@ -2585,6 +2585,13 @@ async function compareDynFSElement(
         // files out of both maps, and absent is not the same as gone.
         depFiles: Object.keys(await getRawWorkspaceDependencies(false)),
         present,
+        // A dependency file the two sides disagree on is one this sync moves,
+        // so a lock that disagrees with the shared file came from the bump.
+        movedDepFiles: Object.keys(remoteMap).filter(
+          (k) =>
+            k.replaceAll(SEP, "/").startsWith("dependencies/") &&
+            remoteMap[k] !== localMapForLocks[k],
+        ),
       }),
     );
   }
@@ -4035,6 +4042,8 @@ export async function dedupeLockfilesOnDisk(args: {
    *  rewritten, but never re-hashed: recording a hash for a script whose lock
    *  never regenerated marks it up-to-date, and it is never retried. */
   failed?: string[];
+  /** Dependency files this run regenerated against — see the planner. */
+  movedDepFiles?: string[];
   dryRun?: boolean;
 }): Promise<void> {
   const {
@@ -4045,6 +4054,7 @@ export async function dedupeLockfilesOnDisk(args: {
     rawWorkspaceDependencies,
     tree,
     failed = [],
+    movedDepFiles = [],
     dryRun,
   } = args;
   const map = await elementsToMap(
@@ -4056,6 +4066,7 @@ export async function dedupeLockfilesOnDisk(args: {
   const plan = computeSharedLockPlan(map, {
     defaultTs: opts.defaultTs,
     depFiles: Object.keys(await getRawWorkspaceDependencies(false)),
+    movedDepFiles,
   });
   if (isEmptySharedLockPlan(plan)) return;
 
@@ -4808,6 +4819,9 @@ export async function push(
           ignore: await ignoreF(opts),
           rawWorkspaceDependencies,
           tree,
+          // `getRawWorkspaceDependencies(true)` returns only the files that are
+          // not up to date, which is exactly what this run regenerated against.
+          movedDepFiles: Object.keys(rawWorkspaceDependencies),
           dryRun: opts.dryRun,
         });
       } finally {

@@ -753,18 +753,21 @@ async function updateScriptLock(
     // hand that variant to every other script reading it. A disagreeing script
     // takes a private lock, and the whole-tree pass decides which content the
     // shared file keeps.
-    if (sharedLockRef) {
-      if (!existsSync(sharedLockRef)) {
-        await mkdir(path.dirname(sharedLockRef), { recursive: true });
-        await writeFile(sharedLockRef, lock, "utf-8");
+    // Joins, never creates: this runs once per script and in parallel, so two
+    // scripts that resolve differently — a pinned Python version, an `//npm`
+    // annotation — would both find the file absent, both write, and one would
+    // lose its lock with no copy left anywhere. Creating and moving a shared
+    // lockfile is the whole-tree pass's job, which sees every script at once.
+    if (
+      sharedLockRef &&
+      existsSync(sharedLockRef) &&
+      readTextFileSync(sharedLockRef) === lock
+    ) {
+      if (existsSync(lockPath)) {
+        await rm(lockPath);
       }
-      if (readTextFileSync(sharedLockRef) === lock) {
-        if (existsSync(lockPath)) {
-          await rm(lockPath);
-        }
-        metadataContent.lock = "!inline " + sharedLockRef;
-        return;
-      }
+      metadataContent.lock = "!inline " + sharedLockRef;
+      return;
     }
     await writeFile(lockPath, lock, "utf-8");
     metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");

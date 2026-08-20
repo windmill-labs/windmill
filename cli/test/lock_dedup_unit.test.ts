@@ -252,32 +252,53 @@ describe("computeSharedLockPlan", () => {
     expect(lockRefOf(map["f/a.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
   });
 
-  test("a lone script does not move a lockfile others read", () => {
-    // It may be the one pinning a Python version rather than the first of a
-    // bump everyone took — two agreeing scripts settle it.
-    const alone = workspace(PY_DEPS);
-    ownLock(alone, "f/pinned", ".py", OTHER_LOCK);
+  test("a script that disagrees moves the lockfile only if the file moved", () => {
+    // The dependency file is unchanged, so this script pins something the
+    // worker also locks (a Python version, an `//npm` annotation). It must not
+    // hand that variant to every other script reading the file.
+    const pinned = workspace(PY_DEPS);
+    ownLock(pinned, "f/pinned", ".py", OTHER_LOCK);
     applySharedLockPlanToMap(
-      alone,
-      computeSharedLockPlan(alone, {
+      pinned,
+      computeSharedLockPlan(pinned, {
         defaultTs: "bun",
         present: { [SHARED_PY]: PY_LOCK },
       }),
     );
-    expect(alone[SHARED_PY]).toEqual(PY_LOCK);
-    expect(alone["f/pinned.script.lock"]).toEqual(OTHER_LOCK);
+    expect(pinned[SHARED_PY]).toEqual(PY_LOCK);
+    expect(pinned["f/pinned.script.lock"]).toEqual(OTHER_LOCK);
 
+    // The same shape, but the dependency file moved: one script is enough, or a
+    // sync narrowed to one item could never carry a bump through.
     const bumped = workspace(PY_DEPS);
     ownLock(bumped, "f/a", ".py", PY_LOCK_BUMPED);
-    ownLock(bumped, "f/b", ".py", PY_LOCK_BUMPED);
     applySharedLockPlanToMap(
       bumped,
       computeSharedLockPlan(bumped, {
         defaultTs: "bun",
         present: { [SHARED_PY]: PY_LOCK },
+        movedDepFiles: [PY_DEPS],
       }),
     );
     expect(bumped[SHARED_PY]).toEqual(PY_LOCK_BUMPED);
+    expect(bumped["f/a.script.lock"]).toBeUndefined();
+    expect(lockRefOf(bumped["f/a.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
+  });
+
+  test("a dependency file with a single script can still take a bump", () => {
+    const map = workspace(PY_DEPS);
+    ownLock(map, "f/only", ".py", PY_LOCK_BUMPED);
+    applySharedLockPlanToMap(
+      map,
+      computeSharedLockPlan(map, {
+        defaultTs: "bun",
+        present: { [SHARED_PY]: PY_LOCK },
+        movedDepFiles: [PY_DEPS],
+      }),
+    );
+
+    expect(map[SHARED_PY]).toEqual(PY_LOCK_BUMPED);
+    expect(map["f/only.script.lock"]).toBeUndefined();
   });
 
   test("a language that needs no lock is never deduplicated", () => {

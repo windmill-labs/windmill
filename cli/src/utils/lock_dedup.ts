@@ -368,6 +368,13 @@ export type SharedLockPlanContext = {
    * is left with an `!inline` that resolves to nothing.
    */
   present?: Record<string, string>;
+  /**
+   * Dependency files whose content this operation changed. It is what separates
+   * the two reasons a script's lock can disagree with the shared one: the file
+   * moved and this script took the bump, or the script pins something the
+   * worker also locks and the file is not its to move.
+   */
+  movedDepFiles?: Iterable<string>;
 };
 
 export function computeSharedLockPlan(
@@ -376,6 +383,9 @@ export function computeSharedLockPlan(
 ): SharedLockPlan {
   const plan: SharedLockPlan = { writes: {}, deletes: [] };
   const depFiles = depFilesByKey([...Object.keys(map), ...(ctx.depFiles ?? [])]);
+  const movedDepFiles = new Set(
+    [...(ctx.movedDepFiles ?? [])].map((p) => toRefPath(p)),
+  );
   // Every shared lockfile this sync can see, from either side.
   const present: Record<string, string> = { ...ctx.present };
   for (const [key, content] of Object.entries(map)) {
@@ -435,11 +445,12 @@ export function computeSharedLockPlan(
     const sharedRef = sharedLockPathFor(depFile);
     const sharedKey = toMapKey(sharedRef);
     const held = present[sharedRef];
-    // One script is not enough to move a lockfile others read: it may be the
-    // one that pins something, rather than the first of a bump everyone took.
-    // Two agreeing scripts settle it, and a full sync heals what one deferred.
-    const moved = held === undefined || content === held || count >= 2;
-    const finalContent = moved ? content : held;
+    // A disagreement moves the file only when the file itself moved. Counting
+    // scripts instead would leave a one-script dependency file — or any bump a
+    // narrowed sync sees one script at a time — stuck on a stale lock forever.
+    const moves =
+      held === undefined || content === held || movedDepFiles.has(depFile);
+    const finalContent = moves ? content : held;
     if (map[sharedKey] !== finalContent) plan.writes[sharedKey] = finalContent;
     for (const entry of group) {
       if (entry.lock === finalContent) point(entry, sharedKey);

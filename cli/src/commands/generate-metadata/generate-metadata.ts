@@ -426,6 +426,7 @@ async function maybeDedupeLockfiles(
   tree: DoubleLinkedDependencyTree,
   folder: string | undefined,
   failed: string[] = [],
+  movedDepFiles: string[] = [],
 ): Promise<void> {
   if (!opts.dedupeLockfiles) return;
   if (folder && opts.strictFolderBoundaries) {
@@ -444,6 +445,7 @@ async function maybeDedupeLockfiles(
     rawWorkspaceDependencies,
     tree,
     failed,
+    movedDepFiles,
   };
   if (opts.dryRun) {
     await dedupeLockfilesOnDisk({ ...args, dryRun: true });
@@ -838,6 +840,7 @@ export async function generateMetadata(
   await maybeDedupeLockfiles(
     opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder,
     errors.map((e) => e.path),
+    staleItems.filter((i) => i.type === "dependencies").map((i) => i.path),
   );
 
   const succeeded = total - errors.length;
