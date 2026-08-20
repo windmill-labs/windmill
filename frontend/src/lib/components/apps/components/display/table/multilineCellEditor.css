@@ -16,7 +16,10 @@
 	border-radius: 3px;
 	outline: none;
 	resize: none;
-	overflow: hidden;
+	/* Past this it scrolls rather than growing: a cell can hold far more text than the grid it is
+	   in is tall, and an editor the height of the whole document is not an editor. */
+	max-height: 40vh;
+	overflow-y: auto;
 	background-color: var(--ag-background-color);
 	color: var(--ag-foreground-color);
 	font: inherit;

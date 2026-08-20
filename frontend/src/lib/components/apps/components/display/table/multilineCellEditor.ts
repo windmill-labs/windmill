@@ -22,11 +22,17 @@ export class MultilineCellEditor implements ICellEditorComp {
 	private eGui!: HTMLDivElement
 	private textarea!: HTMLTextAreaElement
 	private params!: ICellEditorParams
+	private wasEmpty = false
 
 	init(params: ICellEditorParams) {
 		this.params = params
 		this.eGui = document.createElement('div')
 		this.eGui.className = 'wm-multiline-cell-editor'
+
+		// Whether the cell held nothing, so that opening an edit and leaving it alone gives the value
+		// back rather than the empty string it was shown as. A column that distinguishes the two is
+		// one where the difference is the whole point.
+		this.wasEmpty = params.value == undefined
 
 		this.textarea = document.createElement('textarea')
 		this.textarea.rows = 1
@@ -84,6 +90,9 @@ export class MultilineCellEditor implements ICellEditorComp {
 	}
 
 	getValue() {
+		// Nothing typed into a cell that held nothing is not an edit: returning '' here would write
+		// an empty string over a null, which the grid would see as a change and commit.
+		if (this.wasEmpty && this.textarea.value === '') return this.params.value
 		return this.textarea.value
 	}
 
