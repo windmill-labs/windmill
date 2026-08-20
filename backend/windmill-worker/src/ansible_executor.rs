@@ -6,9 +6,11 @@ use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use anyhow::anyhow;
 use futures::future::try_join_all;
+use futures::StreamExt;
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
@@ -414,7 +416,7 @@ async fn fetch_repo_archive(
     let query = git_ref
         .map(|r| vec![("ref", r.to_string())])
         .unwrap_or_default();
-    let response = client.get(&url, query).await?;
+    let response = client.get_streaming(&url, query).await?;
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
@@ -431,12 +433,17 @@ async fn fetch_repo_archive(
         .unwrap_or("unknown")
         .to_string();
 
+    // Written out chunk by chunk: a repository is arbitrarily large, and
+    // holding one in the worker's memory would take every job on it down.
     let archive_path = PathBuf::from(job_dir).join("repo_archive.tar.gz");
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| anyhow!("Failed to read repository archive: {e}"))?;
-    tokio::fs::write(&archive_path, &bytes).await?;
+    let mut file = tokio::fs::File::create(&archive_path).await?;
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| anyhow!("Failed to read repository archive: {e}"))?;
+        file.write_all(&chunk).await?;
+    }
+    file.flush().await?;
+    drop(file);
 
     let unpack_target = target_path.clone();
     let unpack_archive = archive_path.clone();
@@ -488,7 +495,13 @@ fn unpack_repo_archive(archive_path: &PathBuf, target: &PathBuf) -> error::Resul
             )));
         }
 
-        entry.unpack(target.join(relative))?;
+        // A tar is not required to carry an entry for each directory, so the
+        // parent may not exist yet when its file arrives.
+        let dest = target.join(relative);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        entry.unpack(dest)?;
     }
 
     Ok(())
@@ -2217,6 +2230,60 @@ mod tests {
         map.into_iter()
             .map(|(k, v)| (k, RawValue::from_string(v.to_string()).unwrap()))
             .collect()
+    }
+
+    /// Build a gzipped tar whose entries are `(path, contents)`, laid out the
+    /// way GitHub does it: everything under one top-level directory.
+    fn tar_gz_with(dir: &std::path::Path, entries: &[(&str, &str)]) -> PathBuf {
+        let path = dir.join("archive.tar.gz");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            file,
+            flate2::Compression::fast(),
+        ));
+        for (name, contents) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o644);
+            // The name is written into the header directly: `set_path` rejects
+            // `..`, and a hostile archive is precisely what this builds.
+            header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
+            header.set_cksum();
+            builder.append(&header, contents.as_bytes()).unwrap();
+        }
+        builder.into_inner().unwrap().finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn unpack_strips_the_top_level_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = tar_gz_with(
+            dir.path(),
+            &[("acme-repo-abc123/playbooks/site.yml", "- hosts: all\n")],
+        );
+        let target = dir.path().join("out");
+        std::fs::create_dir(&target).unwrap();
+
+        unpack_repo_archive(&archive, &target).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(target.join("playbooks/site.yml")).unwrap(),
+            "- hosts: all\n"
+        );
+    }
+
+    #[test]
+    fn unpack_refuses_to_write_outside_the_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = tar_gz_with(dir.path(), &[("acme-repo-abc123/../../escaped", "pwned")]);
+        let target = dir.path().join("out");
+        std::fs::create_dir(&target).unwrap();
+
+        assert!(unpack_repo_archive(&archive, &target).is_err());
+        // The entry named a path two levels above the target; nothing there.
+        assert!(!dir.path().parent().unwrap().join("escaped").exists());
+        assert!(!dir.path().join("escaped").exists());
     }
 
     #[test]
