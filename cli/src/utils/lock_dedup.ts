@@ -484,7 +484,7 @@ export function computeSharedLockPlan(
     const sharedRef = sharedLockPathFor(depFile);
     const sharedKey = toMapKey(sharedRef);
     const held = present[sharedRef];
-    // Whether a disagreement moves the file, for three independent reasons.
+    // Whether the file takes this content, for any of four reasons.
     const heldInputs = held === undefined ? undefined : depInputsOf(held);
     const contentInputs = depInputsOf(content);
     const inputsChanged =
