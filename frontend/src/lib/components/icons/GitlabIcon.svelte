@@ -1,17 +1,31 @@
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
+
 	interface Props {
-		height?: string
-		width?: string
+		size?: number
+		height?: number
+		width?: number
+		class?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props()
+	let {
+		size = undefined,
+		height: heightProp = 24,
+		width: widthProp = 24,
+		class: clazz = ''
+	}: Props = $props()
+
+	const { width, height } = $derived(
+		size ? { width: size, height: size } : { width: widthProp, height: heightProp }
+	)
 </script>
 
 <!-- #E24329, with #FC6D26 / #FCA326, per https://design.gitlab.com/brand-design/color (Orange 03p/02p/01p, "colors from our core logo"). -->
 <svg
 	{width}
 	{height}
-	viewBox="93.97 97.52 192.05 184.99"
+	class={twMerge(clazz)}
+	viewBox="83.3 83.28 213.44 213.44"
 	fill="currentColor"
 	xmlns="http://www.w3.org/2000/svg"
 >

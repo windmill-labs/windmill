@@ -23,7 +23,7 @@
 <!-- #000000 / #FFFFFF per pocket-id.org header logo (fill isDark ? #ffffff : #000000) and pocket-id/pocket-id frontend/src/lib/components/logo.svelte. -->
 <svg
 	xmlns="http://www.w3.org/2000/svg"
-	viewBox="-346.211 -706.48 712.96 712.96"
+	viewBox="-385.86 -746.11 792.22 792.22"
 	{width}
 	{height}
 	fill="currentColor"

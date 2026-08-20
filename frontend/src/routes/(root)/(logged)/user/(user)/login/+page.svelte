@@ -39,6 +39,9 @@
 
 	let showPassword = false
 	let firstTime = $state(false)
+	// A third-party login creates the account on first use, so the page only offers sign-up
+	// once the instance has one configured.
+	let hasThirdParty = $state(false)
 
 	function clearWindmillCloudCookies() {
 		const domain = window.location.hostname
@@ -138,26 +141,36 @@
 	class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-surface-secondary h-screen"
 >
 	<LoginPageHeader />
-	<div class="sm:mx-auto sm:w-full sm:max-w-md">
+	<div class="sm:mx-auto sm:w-full sm:max-w-sm">
 		<div class="mx-auto flex justify-center">
 			{#if !$enterpriseLicense || !$whitelabelNameStore}
-				<WindmillIcon height="80px" width="80px" spin="slow" />
+				<WindmillIcon height="48px" width="48px" spin="slow" />
 			{/if}
 		</div>
 		<h2 class="mt-6 text-center text-2xl font-semibold tracking-tight text-emphasis">
-			Log in or sign up
+			{hasThirdParty ? 'Log in or sign up' : 'Log in'}
 		</h2>
 		<p class="mt-2 text-center text-xs text-secondary">
-			Log in or sign up with any of the methods below
+			{hasThirdParty
+				? 'Log in or sign up with any of the methods below'
+				: 'Log in with your email and password'}
 		</p>
 	</div>
 
 	<div
-		class={classNames('mt-8 sm:mx-auto sm:w-full sm:max-w-xl', showPassword ? 'mb-16' : 'mb-48')}
+		class={classNames('mt-8 sm:mx-auto sm:w-full sm:max-w-sm', showPassword ? 'mb-16' : 'mb-48')}
 	>
 		<div class="flex justify-end">
 			<DarkModeToggle forcedDarkMode={false} />
 		</div>
-		<Login {firstTime} {rd} {error} {password} {email} autoRedirect={false} />
+		<Login
+			{firstTime}
+			{rd}
+			{error}
+			{password}
+			{email}
+			autoRedirect={false}
+			onOptionsLoaded={(options) => (hasThirdParty = options.hasThirdParty)}
+		/>
 	</div>
 </div>

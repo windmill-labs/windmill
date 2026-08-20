@@ -1,12 +1,27 @@
+<script module lang="ts">
+	/** Feeds the login card a fixed instance configuration instead of the live one.
+	 * Only the kitchen sink at /kitchen_sink/login sets it; production always fetches. */
+	export type LoginPreview = {
+		logins?: { type: string; displayName: string }[]
+		saml?: boolean
+		disablePasswordLogin?: boolean
+		smtpConfigured?: boolean
+		cloud?: boolean
+		autoRedirecting?: boolean
+	}
+</script>
+
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import Github from '$lib/components/icons/brands/Github.svelte'
-	import Gitlab from '$lib/components/icons/brands/Gitlab.svelte'
-	import Google from '$lib/components/icons/brands/Google.svelte'
-	import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
-	import Okta from '$lib/components/icons/brands/Okta.svelte'
-	import Auth0 from '$lib/components/icons/brands/Auth0.svelte'
-	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
+	import {
+		Auth0Icon,
+		GithubIcon,
+		GitlabIcon,
+		GoogleIcon,
+		MicrosoftIcon,
+		NextcloudIcon,
+		OktaIcon
+	} from '$lib/components/icons'
 	import PocketIdIcon from '$lib/components/icons/PocketIdIcon.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
@@ -24,6 +39,7 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
+	import InputError from './InputError.svelte'
 
 	interface Props {
 		rd?: string | undefined
@@ -34,6 +50,10 @@
 		firstTime?: boolean
 		autoRedirect?: boolean
 		onLoginSuccess?: () => void
+		preview?: LoginPreview
+		/** Reports the instance's login options once loaded, so the page around the card can
+		 * adapt its heading: a third-party login also creates the account on first use. */
+		onOptionsLoaded?: (options: { hasThirdParty: boolean }) => void
 	}
 
 	let {
@@ -44,39 +64,43 @@
 		popup = false,
 		firstTime = false,
 		autoRedirect = true,
-		onLoginSuccess = undefined
+		onLoginSuccess = undefined,
+		preview = undefined,
+		onOptionsLoaded = undefined
 	}: Props = $props()
+
+	let cloudHosted = $derived(preview ? !!preview.cloud : isCloudHosted())
 
 	const providers = [
 		{
 			type: 'github',
 			name: 'GitHub',
-			icon: Github
+			icon: GithubIcon
 		},
 		{
 			type: 'gitlab',
 			name: 'GitLab',
-			icon: Gitlab
+			icon: GitlabIcon
 		},
 		{
 			type: 'google',
 			name: 'Google',
-			icon: Google
+			icon: GoogleIcon
 		},
 		{
 			type: 'microsoft',
 			name: 'Microsoft',
-			icon: Microsoft
+			icon: MicrosoftIcon
 		},
 		{
 			type: 'okta',
 			name: 'Okta',
-			icon: Okta
+			icon: OktaIcon
 		},
 		{
 			type: 'auth0',
 			name: 'Auth0',
-			icon: Auth0
+			icon: Auth0Icon
 		},
 		{
 			type: 'nextcloud',
@@ -103,6 +127,42 @@
 	let autoRedirecting = $state(false)
 	let oauthFlowDone = false
 
+	// Errors that belong to the credentials the user just submitted: they stay under the
+	// password field until either field changes, so a stale message can't outlive its attempt.
+	let formError = $state<
+		{ message: string; email: string | undefined; password: string | undefined } | undefined
+	>(undefined)
+	let shake = $state(false)
+	let credentialsError = $derived(
+		formError && formError.email === email && formError.password === password
+			? formError.message
+			: undefined
+	)
+
+	async function failLogin(message: string) {
+		// The shake is for a retry that fails the same way: on the first failure the message
+		// appearing is the signal, and shaking it in would be noise.
+		const wasAlreadyShown = credentialsError != undefined
+		formError = { message, email, password }
+		// Drop the class and let the DOM settle before re-adding it, otherwise a repeat
+		// failure replays nothing.
+		shake = false
+		if (!wasAlreadyShown) return
+		await tick()
+		shake = true
+	}
+
+	function loginErrorMessage(err: any): string {
+		// The API returns errors as plain text, prefixed by their class
+		// (e.g. "Bad request: Invalid login"); ApiError.message is only the HTTP status text.
+		const body = typeof err?.body === 'string' ? err.body : (err?.body?.error?.message ?? '')
+		const detail = body.replace(/^(Bad request|Internal|Error): /, '').trim()
+		if (err?.status === 401 || detail === 'Invalid login') {
+			return 'Invalid email or password.'
+		}
+		return detail || 'Could not sign you in. Please try again.'
+	}
+
 	type OAuthLogin = {
 		type: string
 		displayName: string
@@ -110,7 +170,12 @@
 
 	async function login(): Promise<void> {
 		if (!email || !password) {
-			sendUserToast('Please fill in both email and password', true)
+			failLogin('Enter both your email and password.')
+			return
+		}
+
+		if (preview) {
+			failLogin('Invalid email or password.')
 			return
 		}
 
@@ -127,9 +192,11 @@
 		try {
 			await UserService.login({ requestBody })
 		} catch (err) {
-			sendUserToast('Invalid credentials', true)
+			failLogin(loginErrorMessage(err))
 			return
 		}
+
+		formError = undefined
 
 		if (firstTime) {
 			goto('/user/first-time')
@@ -207,6 +274,16 @@
 	}
 
 	async function loadLogins() {
+		if (preview) {
+			logins = preview.logins ?? []
+			saml = preview.saml ? 'https://idp.example.com/sso' : undefined
+			disablePasswordLogin = preview.disablePasswordLogin ?? false
+			autoRedirecting = preview.autoRedirecting ?? false
+			showPassword = !disablePasswordLogin && logins.length === 0 && !saml
+			onOptionsLoaded?.({ hasThirdParty: logins.length > 0 || !!saml })
+			return
+		}
+
 		const [loginsResult, disabledResult] = await Promise.allSettled([
 			OauthService.listOauthLogins(),
 			UserService.isPasswordLoginDisabled()
@@ -236,6 +313,8 @@
 		showPassword =
 			!disablePasswordLogin &&
 			((logins?.length === 0 && !saml) || (email != undefined && email.length > 0))
+
+		onOptionsLoaded?.({ hasThirdParty: (logins?.length ?? 0) > 0 || !!saml })
 
 		if (autoRedirect && autoLogin && !error && !shouldSkipAutoRedirect()) {
 			if (autoLogin === 'saml' && saml) {
@@ -270,6 +349,10 @@
 	})
 
 	async function checkSmtpConfigured() {
+		if (preview) {
+			smtpConfigured = preview.smtpConfigured ?? false
+			return
+		}
 		try {
 			smtpConfigured = await UserService.isSmtpConfigured()
 		} catch (err) {
@@ -373,6 +456,8 @@
 	}
 
 	function storeRedirect(provider: string): boolean {
+		// The kitchen sink renders real provider buttons; clicking one must not leave the page.
+		if (preview) return true
 		persistRd()
 		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
 		console.log('storeRedirect', popup, url)
@@ -434,6 +519,7 @@
 			sendUserToast('No SAML login available', true)
 			return false
 		}
+		if (preview) return true
 		let target = saml
 		let relayStateSet = false
 		// Carry the SP-initiated deep link through the IdP round-trip via SAML
@@ -467,17 +553,13 @@
 	$effect(() => {
 		error && sendUserToast(escapeHtml(error), true)
 	})
-
-	let loginOptionCount = $derived((logins?.length ?? 0) + (saml ? 1 : 0))
 </script>
 
 <div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
 	{#if autoRedirecting}
 		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
 	{/if}
-	<div
-		class="grid {loginOptionCount > 3 ? 'grid-cols-2' : ''} gap-4 {autoRedirecting ? 'hidden' : ''}"
-	>
+	<div class="grid gap-4 {autoRedirecting ? 'hidden' : ''}">
 		{#if !logins}
 			{#each Array(4) as _}
 				<Skeleton layout={[0.5, [2.375]]} />
@@ -505,7 +587,12 @@
 		{/if}
 	</div>
 	{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
-		<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-6' : '')}>
+		<div class="flex items-center gap-3 mt-6">
+			<div class="h-px flex-1 bg-border-light"></div>
+			<span class="text-2xs uppercase text-secondary">or</span>
+			<div class="h-px flex-1 bg-border-light"></div>
+		</div>
+		<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-4' : 'mt-2')}>
 			<Button
 				size="xs"
 				variant="subtle"
@@ -519,65 +606,72 @@
 	{/if}
 
 	{#if !autoRedirecting && showPassword && !disablePasswordLogin}
-		<div>
+		<div class={saml || (logins && logins.length > 0) ? 'mt-6' : ''}>
 			{#if firstTime}
 				<p class="text-xs text-center w-full pb-4 text-secondary">
 					Welcome! Default credentials admin@windmill.dev / changeme have been prefilled.
 				</p>
 			{/if}
 			<div class="space-y-6">
-				{#if isCloudHosted()}
+				{#if cloudHosted}
 					<p class="text-xs text-secondary pb-6">
 						To get credentials without the OAuth providers above, send an email at
 						contact@windmill.dev
 					</p>
 				{/if}
-				<div class="space-y-1">
-					<label for="email" class="block text-xs font-semibold text-emphasis"> Email </label>
-					<div>
-						<TextInput
-							size="md"
-							bind:value={email}
-							inputProps={{
-								id: 'email',
-								type: 'email',
-								autocomplete: 'username',
-								onkeydown: (e) => {
-									// Only move on once the field holds something: while the browser's
-									// credential dropdown is open, Enter belongs to the dropdown
-									if (e.key === 'Enter' && !e.isComposing && !e.repeat && e.currentTarget.value) {
-										e.preventDefault()
-										passwordField?.focus()
+				<div class="space-y-6 {shake ? 'motion-safe:animate-shake' : ''}">
+					<div class="space-y-1">
+						<label for="email" class="block text-xs font-semibold text-emphasis"> Email </label>
+						<div>
+							<TextInput
+								size="md"
+								error={!!credentialsError}
+								bind:value={email}
+								inputProps={{
+									id: 'email',
+									type: 'email',
+									autocomplete: 'username',
+									onkeydown: (e) => {
+										// Only move on once the field holds something: while the browser's
+										// credential dropdown is open, Enter belongs to the dropdown
+										if (e.key === 'Enter' && !e.isComposing && !e.repeat && e.currentTarget.value) {
+											e.preventDefault()
+											passwordField?.focus()
+										}
 									}
-								}
-							}}
-						/>
-					</div>
-				</div>
-
-				<div class="space-y-1">
-					<label for="password" class="block text-xs font-semibold text-emphasis"> Password </label>
-					<div>
-						<Password
-							bind:this={passwordField}
-							bind:password
-							id="password"
-							placeholder=""
-							autocomplete="current-password"
-							allowMultiline={false}
-							onKeyDown={handleKeyDown}
-						/>
-					</div>
-					{#if smtpConfigured}
-						<div class="text-right pt-1">
-							<a
-								href="{base}/user/forgot-password"
-								class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
-							>
-								Forgot password?
-							</a>
+								}}
+							/>
 						</div>
-					{/if}
+					</div>
+
+					<div class="space-y-1">
+						<label for="password" class="block text-xs font-semibold text-emphasis">
+							Password
+						</label>
+						<div>
+							<Password
+								bind:this={passwordField}
+								bind:password
+								id="password"
+								placeholder=""
+								autocomplete="current-password"
+								allowMultiline={false}
+								error={!!credentialsError}
+								onKeyDown={handleKeyDown}
+							/>
+						</div>
+						<InputError error={credentialsError} />
+						{#if smtpConfigured}
+							<div class="text-right pt-1">
+								<a
+									href="{base}/user/forgot-password"
+									class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+								>
+									Forgot password?
+								</a>
+							</div>
+						{/if}
+					</div>
 				</div>
 
 				<div class="pt-2">
@@ -585,7 +679,7 @@
 				</div>
 			</div>
 
-			{#if isCloudHosted()}
+			{#if cloudHosted}
 				<p class="text-2xs text-secondary mt-10 text-center">
 					By logging in, you agree to our
 					<a href="https://windmill.dev/terms_of_service" target="_blank" rel="noreferrer">

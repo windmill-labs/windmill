@@ -18,6 +18,8 @@
 		autocomplete?: HTMLInputAttributes['autocomplete']
 		/** Off for login-style fields: keeps Enter free to submit. Overrides `minRows`. */
 		allowMultiline?: boolean
+		/** Renders the field in its error state; the message itself is the caller's to display. */
+		error?: boolean
 		onKeyDown?: (event: KeyboardEvent) => void
 		onBlur?: (event: FocusEvent) => void
 	}
@@ -32,11 +34,13 @@
 		id,
 		autocomplete = 'new-password',
 		allowMultiline = true,
+		error = false,
 		onKeyDown,
 		onBlur
 	}: Props = $props()
 
 	let red = $derived(required && (password == '' || password == undefined))
+	let hasError = $derived(red || error)
 	let hideValue = $state(true)
 	let forceMultiline = $state(false)
 	let isMultiline = $derived(
@@ -76,7 +80,7 @@
 		<TextInput
 			bind:this={textareaRef}
 			size="md"
-			error={red}
+			error={hasError}
 			bind:value={password}
 			underlyingInputEl="textarea"
 			inputProps={{
@@ -99,7 +103,7 @@
 		<TextInput
 			bind:this={inputRef}
 			size="md"
-			error={red}
+			error={hasError}
 			bind:value={password}
 			inputProps={{
 				id,
