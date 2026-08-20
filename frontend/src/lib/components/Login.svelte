@@ -71,6 +71,13 @@
 
 	let cloudHosted = $derived(preview ? !!preview.cloud : isCloudHosted())
 
+	// Scoped per instance: the kitchen sink mounts every card at once, and a hardcoded id
+	// would point each card's labels and aria-describedby at the first card's fields.
+	const uid = $props.id()
+	const emailId = `${uid}-email`
+	const passwordId = `${uid}-password`
+	const errorId = `${uid}-error`
+
 	const providers = [
 		{
 			type: 'github',
@@ -633,18 +640,18 @@
 				{/if}
 				<div class="space-y-6 {shake ? 'motion-safe:animate-shake' : ''}">
 					<div class="space-y-1">
-						<label for="email" class="block text-xs font-semibold text-emphasis"> Email </label>
+						<label for={emailId} class="block text-xs font-semibold text-emphasis"> Email </label>
 						<div>
 							<TextInput
 								size="md"
 								error={!!credentialsError}
 								bind:value={email}
 								inputProps={{
-									id: 'email',
+									id: emailId,
 									type: 'email',
 									autocomplete: 'username',
 									'aria-invalid': credentialsError ? 'true' : undefined,
-									'aria-describedby': credentialsError ? 'login-error' : undefined,
+									'aria-describedby': credentialsError ? errorId : undefined,
 									onkeydown: (e) => {
 										// Only move on once the field holds something: while the browser's
 										// credential dropdown is open, Enter belongs to the dropdown
@@ -659,25 +666,25 @@
 					</div>
 
 					<div class="space-y-1">
-						<label for="password" class="block text-xs font-semibold text-emphasis">
+						<label for={passwordId} class="block text-xs font-semibold text-emphasis">
 							Password
 						</label>
 						<div>
 							<Password
 								bind:this={passwordField}
 								bind:password
-								id="password"
+								id={passwordId}
 								placeholder=""
 								autocomplete="current-password"
 								allowMultiline={false}
 								error={!!credentialsError}
-								describedBy={credentialsError ? 'login-error' : undefined}
+								describedBy={credentialsError ? errorId : undefined}
 								onKeyDown={handleKeyDown}
 							/>
 						</div>
 						<!-- The message replaced a toast, which screen readers announced; role="alert"
 							keeps a failed attempt audible, since the red borders alone are colour-only. -->
-						<div id="login-error" role="alert">
+						<div id={errorId} role="alert">
 							<InputError error={credentialsError} />
 						</div>
 						{#if smtpConfigured}
