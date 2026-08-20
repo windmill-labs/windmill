@@ -834,6 +834,17 @@
 															{/if}
 														</span>
 													</Popover>
+												{:else if cell?.not_applicable}
+													<!-- A verdict, so it is said rather than left as the dash of a cell
+													     nothing reached. The column's mean is of the cases it measured. -->
+													<Popover placement="left" disablePopup={!cell.reason}>
+														{#snippet text()}
+															<span class="text-xs max-w-80 text-left">{cell.reason}</span>
+														{/snippet}
+														<span class="text-2xs text-tertiary" title="Not measured on this case">
+															n/a
+														</span>
+													</Popover>
 												{:else if cell?.error}
 													<Popover placement="left">
 														{#snippet text()}
@@ -928,6 +939,8 @@
 														>
 															{formatScore(cell.score)}
 														</span>
+													{:else if cell?.not_applicable}
+														<span class="text-2xs text-tertiary shrink-0">n/a</span>
 													{:else}
 														<span class="text-2xs text-tertiary shrink-0">no score</span>
 													{/if}

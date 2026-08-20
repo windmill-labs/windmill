@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_score\n             SET score = $4, reason = $5, checks = $6, error = $7, not_applicable = $8\n             WHERE experiment_id = $1 AND ordinal = $2 AND scorer_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Text",
+        "Float8",
+        "Text",
+        "Jsonb",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4ae6285b9e3a46854dcb165602780a56218cdf08c1e0734be0a8160f10a677f0"
+}

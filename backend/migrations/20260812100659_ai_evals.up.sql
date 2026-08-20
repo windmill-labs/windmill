@@ -176,6 +176,10 @@ CREATE TABLE eval_score (
     -- [{name, passed, detail}], for scorers that report per-assertion results.
     checks JSONB NULL,
     error TEXT NULL,
+    -- The scorer read the run and said it had nothing to measure on this case. A verdict, not a
+    -- failure: the cell is left out of the column's mean and pass rate rather than counted as a
+    -- zero or reported as a scorer that produced nothing.
+    not_applicable BOOLEAN NOT NULL DEFAULT false,
     -- Hash of the scorer configuration that produced this score, including the script hash or flow
     -- version actually executed. Two scores of the same scorer whose definitions differ are still
     -- compared, but the column says the scorer changed rather than letting it read as a change of

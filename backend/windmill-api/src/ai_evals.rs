@@ -1687,7 +1687,7 @@ async fn insert_pending_scores(
          FROM UNNEST($2::int[], $3::text[], $4::text[]) AS t(ordinal, scorer_id, definition)
          ON CONFLICT (experiment_id, ordinal, scorer_id)
          DO UPDATE SET definition = EXCLUDED.definition, score = NULL, reason = NULL,
-                       checks = NULL, error = NULL",
+                       checks = NULL, error = NULL, not_applicable = false",
         experiment_id,
         &rows_ordinal,
         &rows_scorer,
@@ -1941,7 +1941,8 @@ async fn sync_listed_runs(db: &DB, w_id: &str, experiments: &[EvalExperiment]) -
     let ids: Vec<Uuid> = experiments.iter().map(|e| e.id).collect();
     let unread = sqlx::query_scalar!(
         "SELECT DISTINCT experiment_id FROM eval_score
-         WHERE experiment_id = ANY($1) AND score IS NULL AND error IS NULL",
+         WHERE experiment_id = ANY($1) AND score IS NULL AND error IS NULL
+               AND NOT not_applicable",
         &ids
     )
     .fetch_all(db)
@@ -2730,14 +2731,14 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
               ON c.experiment_id = s.experiment_id AND c.ordinal = s.ordinal
          LEFT JOIN v2_job_completed j ON j.id = c.job_id AND j.workspace_id = $2
          WHERE s.experiment_id = $1 AND s.score IS NULL AND s.error IS NULL
-               AND c.job_id IS NOT NULL",
+               AND NOT s.not_applicable AND c.job_id IS NOT NULL",
         experiment_id,
         w_id
     )
     .fetch_all(db)
     .await?;
     for row in pending {
-        let Some((score, reason, checks, error)) = read_verdict(
+        let Some((verdict, error)) = read_verdict(
             db,
             w_id,
             row.job_id,
@@ -2750,15 +2751,17 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
             continue;
         };
         sqlx::query!(
-            "UPDATE eval_score SET score = $4, reason = $5, checks = $6, error = $7
+            "UPDATE eval_score
+             SET score = $4, reason = $5, checks = $6, error = $7, not_applicable = $8
              WHERE experiment_id = $1 AND ordinal = $2 AND scorer_id = $3",
             experiment_id,
             row.ordinal,
             row.scorer_id,
-            score,
-            reason,
-            checks,
+            verdict.score,
+            verdict.reason,
+            verdict.checks,
             error,
+            verdict.not_applicable,
         )
         .execute(db)
         .await?;
@@ -2779,12 +2782,7 @@ async fn read_verdict(
     // depending on where the scorer ran: its own job failed, or the case it was to score never
     // produced an answer.
     missing_error: &str,
-) -> Option<(
-    Option<f64>,
-    Option<String>,
-    Option<serde_json::Value>,
-    Option<String>,
-)> {
+) -> Option<(Verdict, Option<String>)> {
     let module = scorer_module_id(scorer_id);
     let result = windmill_queue::get_result_and_success_by_id_from_flow(
         db,
@@ -2797,26 +2795,28 @@ async fn read_verdict(
     .ok();
     Some(match result {
         Some((value, _)) => {
-            let (score, reason, checks) = extract_verdict(&value);
-            match score {
-                Some(_) => (score, reason, checks, None),
+            let verdict = extract_verdict(&value);
+            match verdict {
+                // A number, or the scorer saying this case is not one it measures. Both are
+                // answers, so both are recorded and neither is an error.
+                Verdict { score: Some(_), .. } | Verdict { not_applicable: true, .. } => {
+                    (verdict, None)
+                }
                 // The job around this scorer is still going, so a module with no number in it is
                 // one that has not run yet. Recording a failure here would make it permanent.
-                None if job_status.is_none() => return None,
-                None if job_status == Some("success") => (
-                    None,
-                    reason,
-                    checks,
+                _ if job_status.is_none() => return None,
+                _ if job_status == Some("success") => (
+                    verdict,
                     Some("The scorer returned no number to plot".to_string()),
                 ),
-                None => (None, reason, checks, Some(missing_error.to_string())),
+                _ => (verdict, Some(missing_error.to_string())),
             }
         }
         None if job_status == Some("success") => return None,
         // The job holding this scorer has not finished, so a module with nothing in it yet is a
         // step that has not run rather than one that produced nothing.
         None if job_status.is_none() => return None,
-        None => (None, None, None, Some(missing_error.to_string())),
+        None => (Verdict::default(), Some(missing_error.to_string())),
     })
 }
 
@@ -2875,9 +2875,27 @@ fn unfence(text: &str) -> &str {
     inner.trim_end().trim_end_matches("```").trim()
 }
 
-fn extract_verdict(value: &RawValue) -> (Option<f64>, Option<String>, Option<serde_json::Value>) {
+/// What a scorer said about one run. `not_applicable` is the scorer declining to measure this
+/// case rather than failing to: an explicit `{"score": null}`, which is what Braintrust's scorers
+/// return for the same thing. A bare `null` stays an error, since a scorer that forgot to return
+/// is indistinguishable from one that returned nothing on purpose.
+#[derive(Default)]
+struct Verdict {
+    score: Option<f64>,
+    reason: Option<String>,
+    checks: Option<serde_json::Value>,
+    not_applicable: bool,
+}
+
+impl Verdict {
+    fn scored(score: f64) -> Self {
+        Verdict { score: Some(score), ..Default::default() }
+    }
+}
+
+fn extract_verdict(value: &RawValue) -> Verdict {
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value.get()) else {
-        return (None, None, None);
+        return Verdict::default();
     };
     fn as_number(value: &serde_json::Value) -> Option<f64> {
         match value {
@@ -2887,7 +2905,7 @@ fn extract_verdict(value: &RawValue) -> (Option<f64>, Option<String>, Option<ser
         }
     }
     if let Some(number) = as_number(&parsed) {
-        return (Some(number), None, None);
+        return Verdict::scored(number);
     }
     let serde_json::Value::Object(map) = &parsed else {
         // A judge often answers with JSON inside a string, and often fences it as markdown even
@@ -2904,25 +2922,41 @@ fn extract_verdict(value: &RawValue) -> (Option<f64>, Option<String>, Option<ser
             // unescaped, which is invalid and is also the most ordinary thing for it to say. The
             // number is what the column plots, so it is read out of the text rather than lost with
             // the object around it.
-            return salvage_verdict(text);
+            let (score, reason, checks) = salvage_verdict(text);
+            return Verdict { score, reason, checks, not_applicable: false };
         }
-        return (None, None, None);
+        return Verdict::default();
+    };
+    let reason = || {
+        map.get("reason")
+            .or_else(|| map.get("comment"))
+            .and_then(|r| r.as_str())
+            .map(|r| r.to_string())
     };
     if let Some(score) = map.get("score").and_then(as_number) {
-        return (
-            Some(score),
-            map.get("reason")
-                .and_then(|r| r.as_str())
-                .map(|r| r.to_string()),
-            map.get("checks").cloned(),
-        );
+        return Verdict {
+            score: Some(score),
+            reason: reason(),
+            checks: map.get("checks").cloned(),
+            not_applicable: false,
+        };
+    }
+    // Written out rather than merely absent, which is what separates it from a scorer that
+    // returned an object with no verdict in it at all.
+    if map.get("score").is_some_and(|s| s.is_null()) {
+        return Verdict {
+            score: None,
+            reason: reason(),
+            checks: map.get("checks").cloned(),
+            not_applicable: true,
+        };
     }
     match map.get("output") {
         Some(output) => match serde_json::value::to_raw_value(output) {
             Ok(raw) => extract_verdict(&raw),
-            Err(_) => (None, None, None),
+            Err(_) => Verdict::default(),
         },
-        None => (None, None, None),
+        None => Verdict::default(),
     }
 }
 
@@ -2947,6 +2981,10 @@ pub struct CellScore {
     pub checks: Option<Box<RawValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// The scorer read this case and had nothing to measure on it. Left out of the column's mean
+    /// and pass rate rather than counted as a zero.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub not_applicable: bool,
     /// A scoring job is still running for this cell.
     pub pending: bool,
     /// Which side of the scorer's threshold the score fell on, when it has one.
@@ -3061,6 +3099,7 @@ struct ScoreRow {
     reason: Option<String>,
     checks: Option<serde_json::Value>,
     error: Option<String>,
+    not_applicable: bool,
     definition: String,
 }
 
@@ -3070,7 +3109,7 @@ async fn load_scores(
     experiment_id: Uuid,
 ) -> Result<std::collections::HashMap<(i32, String), ScoreRow>> {
     Ok(sqlx::query!(
-        "SELECT ordinal, scorer_id, score, reason, checks, error, definition
+        "SELECT ordinal, scorer_id, score, reason, checks, error, not_applicable, definition
          FROM eval_score WHERE experiment_id = $1",
         experiment_id
     )
@@ -3085,6 +3124,7 @@ async fn load_scores(
                 reason: r.reason,
                 checks: r.checks,
                 error: r.error,
+                not_applicable: r.not_applicable,
                 definition: r.definition,
             },
         )
@@ -3342,10 +3382,12 @@ pub async fn experiment_results(
                     .map(|c| serde_json::value::to_raw_value(&c))
                     .transpose()?,
                 error: current.and_then(|c| c.error.clone()),
+                not_applicable: current.map(|c| c.not_applicable).unwrap_or(false),
                 // A row exists because the run was launched with this scorer, so an empty one is
                 // a score still to come — whether a scoring job is producing it or the run is.
+                // Unless the scorer has already answered that this case is not one it measures.
                 pending: current
-                    .map(|c| c.score.is_none() && c.error.is_none())
+                    .map(|c| c.score.is_none() && c.error.is_none() && !c.not_applicable)
                     .unwrap_or(false),
                 passed: scorer.passed(current.and_then(|c| c.score)),
                 baseline: baseline_score.and_then(|b| b.score),
@@ -3510,6 +3552,8 @@ pub async fn experiment_results(
 /// the file reads as the checks that were chosen rather than as a library to learn.
 pub const SCORER_SCRIPT_TEMPLATE: &str = r#"// A scorer receives one run and returns a number between 0 and 1, a boolean, or
 // { score, reason, checks } — checks show up in the case detail.
+// Return { score: null } for a case this scorer has nothing to measure on: the cell
+// is left out of the column's mean and pass rate rather than counted as a zero.
 type ToolCall = {
   name: string
   args?: Record<string, unknown>
@@ -3679,7 +3723,7 @@ mod tests {
     /// unrecognised is a silently empty cell, not an error.
     #[test]
     fn extract_verdict_reads_every_documented_scorer_shape() {
-        let score = |json: &str| extract_verdict(&raw(json)).0;
+        let score = |json: &str| extract_verdict(&raw(json)).score;
         assert_eq!(score("0.75"), Some(0.75));
         assert_eq!(score("true"), Some(1.0));
         assert_eq!(score(r#"{"score": 0.5}"#), Some(0.5));
@@ -3703,9 +3747,9 @@ mod tests {
         let quoted = extract_verdict(&raw(
             r#"{"output": "{\"score\": 0.8, \"reason\": \"invented context (\"stop asking me\", never said) here\"}"}"#,
         ));
-        assert_eq!(quoted.0, Some(0.8));
+        assert_eq!(quoted.score, Some(0.8));
         assert_eq!(
-            quoted.1.as_deref(),
+            quoted.reason.as_deref(),
             Some(r#"invented context ("stop asking me", never said) here"#)
         );
 
@@ -3713,11 +3757,40 @@ mod tests {
         assert_eq!(score(r#"{"output": "not a score"}"#), None);
         assert_eq!(score(r#"{"verdict": "good"}"#), None);
 
-        let (score, reason, checks) = extract_verdict(&raw(
+        let full = extract_verdict(&raw(
             r#"{"score": 0.5, "reason": "half", "checks": [{"name": "a"}]}"#,
         ));
-        assert_eq!((score, reason), (Some(0.5), Some("half".to_string())));
-        assert!(checks.is_some());
+        assert_eq!((full.score, full.reason), (Some(0.5), Some("half".to_string())));
+        assert!(full.checks.is_some());
+        assert!(!full.not_applicable);
+
+        // `comment` as the rationale, which is what a scorer written for LangSmith or Langfuse
+        // returns. Read rather than dropped, since the number arrives either way.
+        assert_eq!(
+            extract_verdict(&raw(r#"{"score": 1, "comment": "fine"}"#))
+                .reason
+                .as_deref(),
+            Some("fine")
+        );
+    }
+
+    /// A scorer saying it has nothing to measure on a case, which is a verdict rather than a
+    /// failure: the cell is left out of the mean instead of counted as a zero. Spelled out, so a
+    /// scorer that returns nothing at all is still an error rather than silently excused.
+    #[test]
+    fn an_explicit_null_score_is_not_applicable_rather_than_missing() {
+        let na = extract_verdict(&raw(r#"{"score": null, "reason": "no sources to cite"}"#));
+        assert!(na.not_applicable);
+        assert_eq!(na.score, None);
+        assert_eq!(na.reason.as_deref(), Some("no sources to cite"));
+
+        // Through a judge's wrapper, as any other verdict is.
+        assert!(extract_verdict(&raw(r#"{"output": {"score": null}}"#)).not_applicable);
+        assert!(extract_verdict(&raw(r#"{"output": "{\"score\": null}"}"#)).not_applicable);
+
+        // Not the same as a scorer that returned nothing, or an object with no verdict in it.
+        assert!(!extract_verdict(&raw("null")).not_applicable);
+        assert!(!extract_verdict(&raw(r#"{"verdict": "good"}"#)).not_applicable);
     }
 
     /// The definition hash is what tells a comparison that the scorer changed. The path alone

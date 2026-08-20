@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT DISTINCT experiment_id FROM eval_score\n         WHERE experiment_id = ANY($1) AND score IS NULL AND error IS NULL",
+  "query": "SELECT DISTINCT experiment_id FROM eval_score\n         WHERE experiment_id = ANY($1) AND score IS NULL AND error IS NULL\n               AND NOT not_applicable",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "a8cc6def8b8c99d5484fb6b430d7dbf4e0a5f5060a51374501bc5dc840ee7a3d"
+  "hash": "5dcaea907b1ebb2854becc44c00eac5838995dce3d2a696769e00fb74c34288f"
 }

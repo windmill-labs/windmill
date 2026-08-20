@@ -26498,6 +26498,11 @@ components:
         checks: {}
         error:
           type: string
+        not_applicable:
+          type: boolean
+          description: >
+            The scorer read this case and had nothing to measure on it. Left out of the column's
+            mean and pass rate rather than counted as a zero.
         pending:
           type: boolean
           description: A scoring job is still running for this cell.

@@ -327,9 +327,16 @@ A `reason` is worth returning: it is what the cell shows on hover, together with
 A scorer may return a bare number, a boolean, or `{score, reason, checks}`; a judge's answer arrives
 under `output`, sometimes as a string holding one of those, and often as a markdown code fence
 around it — a model told to reply with JSON only does that often enough that refusing to read it
-would turn good verdicts into missing ones. Anything with no number in it is left
+would turn good verdicts into missing ones. `comment` is read as `reason`, so a scorer written for
+another platform keeps its rationale. Anything with no number in it is left
 empty rather than guessed at, and means skip the empty ones — a missing score counted as zero would
 read as a regression.
+
+`{score: null}` is the one exception, and it means the scorer read the case and had nothing to
+measure on it: a column asking whether sources were cited has no verdict on a case with nothing to
+cite. The cell shows `n/a` and is left out of the column's mean and pass rate, which is not the
+same as the scorer failing — that is an error, and the column reports it as one. Written out
+rather than merely absent, since a scorer that returns nothing at all is a scorer that is broken.
 
 ### What a run says it ran
 

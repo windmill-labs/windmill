@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT ordinal, scorer_id, score, reason, checks, error, definition\n         FROM eval_score WHERE experiment_id = $1",
+  "query": "SELECT ordinal, scorer_id, score, reason, checks, error, not_applicable, definition\n         FROM eval_score WHERE experiment_id = $1",
   "describe": {
     "columns": [
       {
@@ -35,6 +35,11 @@
       },
       {
         "ordinal": 6,
+        "name": "not_applicable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
         "name": "definition",
         "type_info": "Varchar"
       }
@@ -51,8 +56,9 @@
       true,
       true,
       true,
+      false,
       false
     ]
   },
-  "hash": "d7242b7440cbc7323998d9c9b0b697755dcb9161a88c880e5e4c3383db70560a"
+  "hash": "80a5dd06cc5b9f7cb0bcd3b8cdd92c62d40a4ab97fab0f2dd330bd7629c0a632"
 }
