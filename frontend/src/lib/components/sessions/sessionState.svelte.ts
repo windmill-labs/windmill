@@ -110,6 +110,14 @@ export type Session = {
 	// untouched draft never persists, so idle `+` clicks vanish on reload
 	// instead of littering the sidebar.
 	transient?: boolean
+	// Epoch ms of the last write to this record — typing, renaming, archiving,
+	// changing preview tabs, or catching up on new messages. Stamped by the two
+	// write funnels (persistTouched, markSessionSeen), so it tracks use rather
+	// than creation; merely opening a session without reading anything new is not
+	// a write and does not bump it.
+	// Absent on records last written before the field existed; readers fall back
+	// to createdAt via sessionLastActivityAt.
+	lastActivityAt?: number
 	// Per-session unread watermark: the displayMessages count the last time
 	// the user was on this session's page. Compared against the runtime's
 	// current message count to derive the unread badge (see sessionUnread).
@@ -400,7 +408,14 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 // directly, so an untouched draft stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
 	if (s.transient) delete s.transient
+	s.lastActivityAt = Date.now()
 	void putSession(s)
+}
+
+// When the session was last used. Pre-dates-the-field records report their
+// creation time, which is the earliest activity they could have had.
+export function sessionLastActivityAt(s: Session): number {
+	return s.lastActivityAt ?? s.createdAt
 }
 
 // Sessions whose record has been removed from IndexedDB. Ids come from createLongHash
@@ -819,6 +834,17 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	// Picking an existing workspace cancels any pending fork intent.
 	s.pending_fork = undefined
 	if (changed) persistTouched(s)
+}
+
+// Park a just-created session on a workspace. Deliberately does not persist a
+// still-transient draft: picking where it will live is part of creating it, not a
+// user touch, so an unused draft still vanishes on reload (see `transient`).
+export function setNewSessionWorkspace(id: string, workspace_id: string) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.pending_workspace_id = workspace_id
+	s.pending_fork = undefined
+	if (!s.transient) persistTouched(s)
 }
 
 // Records the user's intent to create a new fork without firing the API
