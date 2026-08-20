@@ -12283,9 +12283,9 @@ paths:
                   subject_has_undeployed_changes:
                     type: boolean
                     description: >
-                      The agent has edits that were never deployed. A run resolves the resource
-                      live and executes the deployed value, so those edits are not what any of
-                      these numbers describe.
+                      The agent has edits that were never deployed. A run of the agent executes
+                      what was deployed when it started, so those edits are not what any of these
+                      numbers describe.
 
   /w/{workspace}/path_autocomplete/list_paths:
     get:
@@ -26553,10 +26553,11 @@ components:
         kind:
           type: string
           description: >
-            `agent` runs a saved ai_agent resource by reference. `agent_draft` runs that agent's
-            undeployed draft, and `agent_version` one past version of it named by `version`: both
-            are read server-side and inlined, because a reference resolves live and so would run
-            neither the draft nor the version asked for.
+            `agent` runs the ai_agent resource as it is deployed when the run opens, `agent_draft`
+            the caller's own undeployed draft of it, and `agent_version` one past version named by
+            `version`. All three are read server-side and inlined into the run, so every case of a
+            run executes one configuration: a deploy part-way through changes what the next run
+            measures, never this one.
           enum: [agent, agent_draft, agent_version]
         path:
           type: string
@@ -26566,12 +26567,10 @@ components:
           format: int64
           nullable: true
           description: >
-            The agent's per-path version number when the run was enqueued: how many times the
-            resource had been saved, not a resource_version row id. For `agent` and
-            `agent_draft` it is recorded so a run stays attributable to a prompt state, and does
-            not pin execution — a run that waits in the queue across an edit runs a later version
-            than this. For `agent_version` it is the request's own, says which version to inline,
-            and is required.
+            The agent's per-path version number when the run opened: how many times the resource
+            had been saved, not a resource_version row id. For `agent` and `agent_draft` it names
+            the configuration the run read and every case executed. For `agent_version` it is the
+            request's own, says which version to inline, and is required.
         draft:
           $ref: "#/components/schemas/AgentDraft"
         draft_hash:
