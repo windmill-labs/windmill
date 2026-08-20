@@ -38,6 +38,10 @@
 		 * that does not move, which is why the way back belongs in it rather than in a control each
 		 * body places for itself. */
 		trail?: ModalTrailSegment[]
+		/** A line under the title saying what the dialog is for. In the header rather than at the
+		 * top of the body: it describes the surface, not whatever the body currently holds, so it
+		 * does not scroll away with it. */
+		description?: string
 		/** Make the dialog fill the height it is anchored to and lay its body out as a flex
 		 * column, so content can size itself with `h-full` / `flex-1 min-h-0`. Off by default:
 		 * the dialog otherwise hugs its content, and percentage heights inside it do not
@@ -63,6 +67,7 @@
 		cancelText = undefined,
 		kind = 'button',
 		trail = undefined,
+		description = undefined,
 		fillHeight = false,
 		minZIndex: minZIndexProp = undefined,
 		titleBadge,
@@ -273,6 +278,10 @@
 											</div>
 											{@render settings?.()}
 										</div>
+
+										{#if description}
+											<p class="mt-1 text-xs text-secondary">{description}</p>
+										{/if}
 
 										<div class="mt-4 text-sm text-primary {fillHeight ? 'flex-1 min-h-0' : ''}">
 											{@render children_render?.()}

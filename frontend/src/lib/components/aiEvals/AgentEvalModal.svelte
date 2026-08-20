@@ -25,6 +25,13 @@
 	let trail = $derived(
 		location ? [{ label: TITLE, onclick: location.back }, { label: location.label }] : undefined
 	)
+	// Says what the dialog is for, so it belongs to the dialog's own name and goes when you
+	// navigate past it: a level in is about one run, not about what runs are.
+	let description = $derived(
+		location
+			? undefined
+			: 'Each run answers a dataset of cases with this agent and scores the answers, so runs can be compared.'
+	)
 </script>
 
 <!-- A dialog rather than a drawer: what it holds is a screen of its own — a history, then a run of
@@ -35,6 +42,7 @@
 <Modal
 	title={TITLE}
 	{trail}
+	{description}
 	bind:open
 	kind="X"
 	class="w-[90vw] sm:w-[90vw] max-w-[1400px] sm:max-w-[1400px] h-[85vh]"

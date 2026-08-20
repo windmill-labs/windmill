@@ -590,14 +590,6 @@
 					class="text-xs"
 				/>
 			</Label>
-		{:else}
-			<!-- Directly under the dialog's title, which names the screen without saying what it is
-			     for. On the list only: a run being read is about that run, and this is about the
-			     history it sits in. -->
-			<span class="text-xs text-secondary max-w-2xl self-center">
-				Each run answers a dataset of cases with this agent and scores the answers, so runs can be
-				compared.
-			</span>
 		{/if}
 		<div class="grow"></div>
 		{#if viewingRun && experiment?.run_job_id}
