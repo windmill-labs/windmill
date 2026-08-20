@@ -83,12 +83,11 @@
 	let retry: Retry | undefined = $state()
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
-	/** The credential mode the deployed trigger is in, as opposed to the one currently selected in
+	/** The credential mode the config was loaded in, as opposed to the one currently selected in
 	 * the form. A non-admin may keep a trigger that already uses the instance's credentials, but
-	 * may not move one onto them, so the permission has to key off this rather than the live mode. */
-	let loadedUsesDefaultCredentials = $derived(
-		originalConfig ? originalConfig.gcp_resource_path == null : false
-	)
+	 * may not move one onto them, so the permission has to key off this rather than the live mode.
+	 * Set at load rather than derived from the deployed row, so a draft-only trigger counts too. */
+	let loadedUsesDefaultCredentials = $state(false)
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -199,6 +198,7 @@
 				? undefined
 				: (defaultValues?.gcp_resource_path ?? '')
 			use_default_credentials = reopenedAsDefaultCredentials
+			loadedUsesDefaultCredentials = reopenedAsDefaultCredentials
 			project_id = defaultValues?.project_id ?? undefined
 			delivery_type = defaultValues?.delivery_type ?? 'pull'
 			delivery_config = defaultValues?.delivery_config ?? undefined
@@ -258,6 +258,7 @@
 		initialScriptPath = cfg?.script_path
 		gcp_resource_path = cfg?.gcp_resource_path ?? undefined
 		use_default_credentials = cfg?.gcp_resource_path == null
+		loadedUsesDefaultCredentials = use_default_credentials
 		project_id = cfg?.project_id ?? undefined
 		delivery_type = cfg?.delivery_type
 		subscription_id = cfg?.subscription_id

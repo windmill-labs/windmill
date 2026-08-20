@@ -268,8 +268,9 @@
 							<!-- Typing does not refetch: every keystroke would be a Pub/Sub call for a
 							     project id that is not finished being typed. The refresh button next to
 							     the topic picker is what reloads the lists. -->
-							<!-- `|| undefined` so clearing the field means "unset" rather than an empty
-							     string that would travel as `?project_id=` and dirty the config. -->
+							<!-- Cleared means "unset", not an empty or whitespace-only string: that would
+							     travel as `?project_id=`, dirty the config, and reach the column as a
+							     value `empty_as_none` does not trim away. -->
 							<TextInput
 								bind:value={() => project_id ?? '', (v) => (project_id = emptyStringTrimmed(v) ? undefined : v)}
 								inputProps={{

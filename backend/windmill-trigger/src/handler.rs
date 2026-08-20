@@ -267,6 +267,22 @@ pub trait TriggerCrud: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Authorize a mode transition, for kinds where attaching a listener is itself privileged
+    /// rather than merely a write on the row — a trigger authenticating as the instance instead of
+    /// through a workspace resource, say. Create and update authorize their own config, but a row
+    /// can also arrive by being cloned into a workspace fork, so the transition needs its own
+    /// check. Runs before the mode is written; the default adds no authorization.
+    async fn authorize_set_trigger_mode(
+        &self,
+        _authed: &ApiAuthed,
+        _tx: &mut PgConnection,
+        _workspace_id: &str,
+        _path: &str,
+        _mode: &TriggerMode,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     async fn set_trigger_mode(
         &self,
         authed: &ApiAuthed,
@@ -575,10 +591,7 @@ async fn create_trigger<T: TriggerCrud>(
     // Reject a forged superadmin run identity in a preserved permissioned_as
     // (the sentinel guard; a trigger's email is derived from it at execution).
     let resolved_permissioned_as = new_trigger.base.resolve_permissioned_as(&authed);
-    windmill_common::auth::validate_on_behalf_of(
-        Some(&resolved_permissioned_as),
-        None,
-    )?;
+    windmill_common::auth::validate_on_behalf_of(Some(&resolved_permissioned_as), None)?;
 
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         new_trigger.base.permissioned_as.as_deref(),
@@ -837,10 +850,7 @@ async fn update_trigger<T: TriggerCrud>(
     // Reject a forged superadmin run identity in a preserved permissioned_as
     // (the sentinel guard; a trigger's email is derived from it at execution).
     let resolved_permissioned_as = edit_trigger.base.resolve_permissioned_as(&authed);
-    windmill_common::auth::validate_on_behalf_of(
-        Some(&resolved_permissioned_as),
-        None,
-    )?;
+    windmill_common::auth::validate_on_behalf_of(Some(&resolved_permissioned_as), None)?;
 
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         edit_trigger.base.permissioned_as.as_deref(),
@@ -1149,6 +1159,10 @@ async fn set_trigger_mode<T: TriggerCrud>(
             )));
         }
     }
+
+    handler
+        .authorize_set_trigger_mode(&authed, &mut *tx, &workspace_id, path, &payload.mode)
+        .await?;
 
     let before =
         trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
