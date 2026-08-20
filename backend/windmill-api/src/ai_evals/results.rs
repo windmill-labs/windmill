@@ -218,7 +218,11 @@ async fn sync_listed_runs(db: &DB, w_id: &str, experiments: &[EvalExperiment]) -
         .filter(|e| unread.contains(&e.id))
         .take(MAX_RUNS_SYNCED_PER_LIST)
     {
-        sync_run(db, w_id, experiment.id, experiment.run_job_id, false).await?;
+        // Best-effort, for the same reason reading one run is: this is the home screen, and one
+        // run with an unreadable cell must not cost the list of every other run.
+        if let Err(e) = sync_run(db, w_id, experiment.id, experiment.run_job_id, false).await {
+            tracing::warn!("could not collect eval run {}: {e:#}", experiment.id);
+        }
     }
     Ok(())
 }
