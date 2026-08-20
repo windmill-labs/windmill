@@ -41,6 +41,7 @@
 	import type { Kind } from '$lib/utils_deployable'
 	import {
 		checkDeployPermission,
+		deployPermissionForKinds,
 		deployItem,
 		deleteItemInWorkspace,
 		diffActionableInDirection,
@@ -950,21 +951,28 @@
 		toggleDeploymentDirection(v)
 	}
 
-	// Fetch user permissions for both workspaces
+	// Fetch user permissions for both workspaces. The server's `can_preserve_on_behalf_of` reads
+	// the merged `is_admin || super_admin`, which `whoami` reports as two fields.
 	$effect(() => {
 		;[currentWorkspaceId, parentWorkspaceId]
 		async function fetchPermissions() {
 			try {
 				const parentUser = await UserService.whoami({ workspace: parentWorkspaceId })
 				canPreserveInParent =
-					parentUser.is_admin || parentUser.groups?.includes('wm_deployers') || false
+					parentUser.is_admin ||
+					parentUser.is_super_admin ||
+					parentUser.groups?.includes('wm_deployers') ||
+					false
 			} catch {
 				canPreserveInParent = false
 			}
 			try {
 				const currentUser = await UserService.whoami({ workspace: currentWorkspaceId })
 				canPreserveInCurrent =
-					currentUser.is_admin || currentUser.groups?.includes('wm_deployers') || false
+					currentUser.is_admin ||
+					currentUser.is_super_admin ||
+					currentUser.groups?.includes('wm_deployers') ||
+					false
 			} catch {
 				canPreserveInCurrent = false
 			}
@@ -972,10 +980,9 @@
 		fetchPermissions()
 	})
 
-	// Can the user actually deploy into the target workspace? Fills the frontend
-	// gap for the `RestrictDeployToDeployers` rule (+ operator), shared with the
-	// session review drawer via the same checkDeployPermission util. Cached per
-	// workspace; `deployPerm` tracks whichever side the current direction targets.
+	// Can the user actually deploy into the target workspace? Shared with the session
+	// review drawer via the same checkDeployPermission util. Cached per workspace;
+	// `workspaceDeployPerm` tracks whichever side the current direction targets.
 	let deployPerms = $state<Record<string, DeployPermission>>({})
 	const deployPermFetched = new Set<string>()
 	$effect(() => {
@@ -985,7 +992,17 @@
 			void checkDeployPermission(ws).then((p) => (deployPerms = { ...deployPerms, [ws]: p }))
 		}
 	})
-	let deployPerm = $derived(deployPerms[deployTargetWorkspace] ?? { ok: true })
+	let workspaceDeployPerm = $derived(deployPerms[deployTargetWorkspace] ?? { ok: true })
+	// A direct-deployment lock never reaches schedules or triggers server-side, so it must not
+	// disable a selection made only of those. One refused kind still blocks the whole action.
+	let deployPerm = $derived(
+		deployPermissionForKinds(
+			workspaceDeployPerm,
+			(comparison?.diffs ?? [])
+				.filter((d) => selectedItems.includes(getItemKey(d)))
+				.map((d) => d.kind)
+		)
+	)
 
 	// Fetch summaries and on_behalf_of_email when comparison data loads
 	$effect(() => {

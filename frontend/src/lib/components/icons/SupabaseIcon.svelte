@@ -2,13 +2,28 @@
 	interface Props {
 		height?: string
 		width?: string
+		/** Accepting `size` is what makes this usable as a Button `startIcon`. */
+		size?: number
+		class?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props()
+	let {
+		size,
+		height = size ? `${size}px` : '24px',
+		width = size ? `${size}px` : '24px',
+		class: className
+	}: Props = $props()
 </script>
 
 <!-- #3ECF8E per supabase.com/brand-assets. Forbids modifying or recolouring the mark. -->
-<svg {width} {height} viewBox="0 0 168 168" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	class={className}
+	viewBox="0 0 168 168"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		d="M97.4434 164.242C93.2027 169.582 84.6042 166.656 84.502 159.837L83.0078 60.1013H150.07C162.217 60.1013 168.992 74.1309 161.439 83.644L97.4434 164.242Z"
 		fill="url(#paint0_linear_210_201)"

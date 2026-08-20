@@ -214,7 +214,7 @@ pub async fn get_critical_alerts(
     authed: ApiAuthed,
     Query(params): Query<crate::utils::AlertQueryParams>,
 ) -> JsonResult<serde_json::Value> {
-    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, &db).await?;
+    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, authed.job_id.is_some(), &db).await?;
 
     crate::utils::get_critical_alerts(db, params, Some(w_id)).await
 }
@@ -230,7 +230,7 @@ pub async fn acknowledge_critical_alert(
     Path((w_id, id)): Path<(String, i32)>,
     authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, &db).await?;
+    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, authed.job_id.is_some(), &db).await?;
     crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await
 }
 
