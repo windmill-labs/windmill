@@ -147,7 +147,6 @@
 	// How the list is carved into groups. 'none' keeps the family grouping (headers
 	// only when a second family shows up); the others always draw headers.
 	const groupBy = useLocalStorageValue<GroupBy>('windmill_sessions_group_by', 'none', 'string')
-	const activeFilters = $derived(showArchived.val || lastActivityDays.val > 0)
 	let listRoot: HTMLDivElement | undefined = $state()
 
 	// A session's family root: the stored grouping id, else derived live.
@@ -870,7 +869,7 @@
 							startIcon={{ icon: Settings }}
 							title="Session list options"
 							aria-label="Session list options"
-							btnClasses={activeFilters ? 'text-emphasis' : 'text-secondary'}
+							btnClasses="text-secondary"
 						/>
 					{/snippet}
 				</DropdownV2>
