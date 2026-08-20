@@ -343,9 +343,10 @@ import {
 	ResourceService,
 	ScheduleService,
 	ScriptService,
+	UserService,
 	VariableService
 } from '$lib/gen'
-import { userStore } from '$lib/stores'
+import { userStore, usersWorkspaceStore } from '$lib/stores'
 import { clearWorkspaceRoleCache } from '$lib/user'
 import { get } from 'svelte/store'
 import type { Tool, ToolCallbacks } from '../shared'
@@ -5785,14 +5786,17 @@ describe('buildOpenPageUrl compare selection', () => {
 describe('open_page workspace gating', () => {
 	const NAV = 'nav_ws'
 	const SESSION = 'session_ws'
+	// A workspace the user belongs to but whose `whoami` never answers.
+	const FLAKY = 'flaky_ws'
 	const openPage = () => getGlobalTool('open_page')
-	const advertisedPages = () =>
-		((openPage().def.function.parameters as any)?.properties?.page?.enum ?? []) as string[]
+	const pageSchema = () => (openPage().def.function.parameters as any)?.properties?.page ?? {}
+	const advertisedPages = () => (pageSchema().enum ?? []) as string[]
 	const pristineDef = openPage().def
 
 	beforeEach(() => {
 		// Admin of the workspace being browsed, plain member of the one a session operates on.
 		userStore.set({ username: 'bob', workspace_id: NAV, is_admin: true } as any)
+		usersWorkspaceStore.set({ workspaces: [{ id: NAV }, { id: SESSION }, { id: FLAKY }] } as any)
 		whoamiByWorkspace.set(SESSION, {
 			username: 'bob',
 			email: 'bob@windmill.dev',
@@ -5804,6 +5808,7 @@ describe('open_page workspace gating', () => {
 
 	afterEach(() => {
 		userStore.set(undefined)
+		usersWorkspaceStore.set(undefined)
 		whoamiByWorkspace.clear()
 		clearWorkspaceRoleCache()
 		openPage().def = pristineDef
@@ -5827,14 +5832,31 @@ describe('open_page workspace gating', () => {
 
 	// Falling back to a fixed page set instead offers pages the sidebar may well hide —
 	// an operator's, most of all, whose reachable set is a fraction of the default one.
-	// The refusal must not read as a denial either: the role was never established.
-	it('advertises nothing when the role lookup fails', async () => {
-		await openPage().setSchema?.({ operatingWorkspace: 'unreachable_ws' })
+	// Neither layer may read as a denial: the role was never established, and the model
+	// sees the schema before it can ever reach the handler's message.
+	it('advertises nothing and blames no denial when the role lookup fails', async () => {
+		await openPage().setSchema?.({ operatingWorkspace: FLAKY })
 		expect(advertisedPages()).toEqual([])
+		expect(pageSchema().description).toContain("couldn't be checked")
 		const refusal = await callGlobalTool('open_page', { page: 'runs' }, toolCallbacks, {
-			operatingWorkspace: 'unreachable_ws'
+			operatingWorkspace: FLAKY
 		})
 		expect(refusal).toContain("Couldn't check your permissions")
 		expect(refusal).not.toContain("don't have access")
+	})
+
+	// A workspace absent from `userWorkspaces` is settled, not unknown: inviting a retry
+	// would be false, and asking `whoami` at all only earns a 401 on every iteration.
+	it('reports a plain denial for a workspace the user is not a member of', async () => {
+		await openPage().setSchema?.({ operatingWorkspace: 'unreachable_ws' })
+		expect(advertisedPages()).toEqual([])
+		expect(pageSchema().description).not.toContain("couldn't be checked")
+		const refusal = await callGlobalTool('open_page', { page: 'runs' }, toolCallbacks, {
+			operatingWorkspace: 'unreachable_ws'
+		})
+		expect(refusal).toContain("don't have access")
+		expect(UserService.whoami).not.toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: 'unreachable_ws' })
+		)
 	})
 })

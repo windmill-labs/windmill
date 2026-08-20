@@ -2412,10 +2412,17 @@ function restrictedOpenPages(workspaceId: string | undefined): OpenPageName[] {
 // workspace's role while the new whoami is in flight.
 async function roleForWorkspace(
 	workspaceId: string | undefined
-): Promise<RoleLookup | { kind: 'no_workspace_context' }> {
+): Promise<RoleLookup | { kind: 'no_workspace_context' } | { kind: 'not_a_member' }> {
 	if (!workspaceId) return { kind: 'no_workspace_context' }
 	const u = get(userStore)
 	if (u?.workspace_id === workspaceId) return { kind: 'resolved', user: u }
+	// A workspace missing from the user's own list is one they hold no membership in, so
+	// `whoami` would reject it every time. Settle it here: the rejection is a bare 401,
+	// which cannot be told apart from an expired session, and a superadmin resolves on a
+	// workspace they are not a member of, so neither the status nor the list alone decides.
+	if (!get(superadmin) && !get(userWorkspaces).some((w) => w.id === workspaceId)) {
+		return { kind: 'not_a_member' }
+	}
 	return getWorkspaceRole(workspaceId)
 }
 
@@ -2428,9 +2435,11 @@ async function allowedOpenPages(
 ): Promise<{ pages: OpenPageName[]; roleUnverified: boolean }> {
 	const role = await roleForWorkspace(workspaceId)
 	// A failed lookup says nothing about the role, so guessing a page set can offer one the
-	// sidebar hides; advertising none is the only answer that can't. Headless callers have
-	// no workspace to resolve at all and keep the pre-resolution set.
+	// sidebar hides; advertising none is the only answer that can't. A known non-member also
+	// reaches nothing, but that is settled rather than unverified — saying "try again" about
+	// it would be false. Headless callers have no workspace and keep the pre-resolution set.
 	if (role.kind === 'lookup_failed') return { pages: [], roleUnverified: true }
+	if (role.kind === 'not_a_member') return { pages: [], roleUnverified: false }
 	if (role.kind === 'no_workspace_context') {
 		return { pages: restrictedOpenPages(workspaceId), roleUnverified: false }
 	}
@@ -2692,16 +2701,25 @@ function buildOpenPageDefSchema(
 	pages: readonly OpenPageName[],
 	triggerKinds: readonly PageTriggerKind[],
 	chatEditsTracked: boolean,
-	allWorkspacesRuns: boolean
+	allWorkspacesRuns: boolean,
+	roleUnverified = false
 ): z.ZodTypeAny {
 	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
 	// z.enum() rejects an empty list, and a user with no reachable pages (e.g. an operator
 	// with every operator_settings flag off) yields exactly that. Fall back to a plain
 	// string so schema-building can't throw; the handler still fails closed on every page.
+	// The model reads this before it can reach the handler's message, so an unresolved role
+	// must not be described as a denial here either.
 	const shape: Record<string, z.ZodTypeAny> = {
 		page: pages.length
 			? z.enum([...pages] as [OpenPageName, ...OpenPageName[]]).describe('Which page to open')
-			: z.string().describe('No pages are available to you in this workspace')
+			: z
+					.string()
+					.describe(
+						roleUnverified
+							? "Your permissions in this workspace couldn't be checked, so no page can be opened right now"
+							: 'No pages are available to you in this workspace'
+					)
 	}
 	for (const [field, fieldPages] of Object.entries(OPEN_PAGE_FIELD_PAGES)) {
 		if (!fieldPages.some((p) => pages.includes(p))) continue
@@ -2938,12 +2956,14 @@ export const openPageTool: Tool<{}> = {
 	// Re-narrow the advertised `page` enum to this user's permissions each iteration, so
 	// the model never sees (or suggests) a page the user can't reach.
 	setSchema: async function (helpers) {
+		const access = await allowedOpenPages(operatingWorkspaceFromHelpers(helpers))
 		this.def = createToolDef(
 			buildOpenPageDefSchema(
-				(await allowedOpenPages(operatingWorkspaceFromHelpers(helpers))).pages,
+				access.pages,
 				allowedTriggerKinds(),
 				(helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.() !== undefined,
-				allowsAllWorkspacesRuns(operatingWorkspaceFromHelpers(helpers))
+				allowsAllWorkspacesRuns(operatingWorkspaceFromHelpers(helpers)),
+				access.roleUnverified
 			),
 			'open_page',
 			OPEN_PAGE_DESCRIPTION
