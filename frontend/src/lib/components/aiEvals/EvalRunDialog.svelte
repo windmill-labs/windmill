@@ -216,7 +216,7 @@
 						A run measures the agent on a set of cases, and there is no set yet.
 					</span>
 					<Button
-						size="xs"
+						unifiedSize="xs"
 						variant="default"
 						startIcon={{ icon: Plus }}
 						onclick={() => stepAside(onNewDataset)}
@@ -244,7 +244,7 @@
 						{#snippet endSnippet({ item, close })}
 							<Button
 								variant="subtle"
-								size="xs2"
+								unifiedSize="2xs"
 								wrapperClasses="-mr-2 pl-1 -my-2"
 								btnClasses="hover:bg-surface-tertiary"
 								startIcon={{ icon: Pencil }}
@@ -276,7 +276,7 @@
 						<div class="absolute right-10 z-20">
 							<Button
 								variant="subtle"
-								size="xs2"
+								unifiedSize="2xs"
 								wrapperClasses="pl-1"
 								btnClasses="hover:bg-surface-tertiary"
 								startIcon={{ icon: Pencil }}
@@ -298,7 +298,7 @@
 	</div>
 	{#snippet actions()}
 		<Button
-			size="xs"
+			unifiedSize="xs"
 			variant="accent"
 			startIcon={{ icon: Play }}
 			loading={running}
