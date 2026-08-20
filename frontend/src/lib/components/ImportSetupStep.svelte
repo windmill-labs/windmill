@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ResourceService, WorkspaceService } from '$lib/gen'
-	import { ArrowLeft, Check, CheckCircle2, Database, KeyRound, Loader2, X } from 'lucide-svelte'
+	import { ArrowLeft, Check, CheckCircle2, Database, Loader2, X } from 'lucide-svelte'
 	import { fly } from 'svelte/transition'
 	import { tick } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
@@ -11,6 +11,7 @@
 	import { SettingService } from '$lib/gen'
 	import { resource } from 'runed'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
+	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import type { ProjectMigration } from '$lib/components/workspaceSettings/projectBundle'
 	import { sendUserToast } from '$lib/toast'
@@ -289,11 +290,9 @@
 					Data table{rows.length === 1 ? '' : 's'} to set up ({rows.length})
 				</span>
 				<p class="text-xs text-tertiary">
-					A data table is a database this workspace owns — where apps and flows keep the data they
-					read and write. This project ships with {rows.length === 1
-						? 'one it expects to find'
-						: 'ones it expects to find'}; point {rows.length === 1 ? 'it' : 'them'} at a database and
-					the tables get created for you.
+					Where apps and flows keep the data they read and write. Point {rows.length === 1
+						? 'it'
+						: 'them'} at a database and the tables get created for you.
 				</p>
 			</div>
 		{/if}
@@ -350,7 +349,11 @@
 							{#if b.done}
 								<Check size={14} class="shrink-0 text-emerald-600" />
 							{:else}
-								<KeyRound size={14} class="shrink-0 text-secondary" />
+								<!-- The integration's own icon, not a generic key: the row is identified by
+								     which provider it is for. Falls back to a generic box when unknown. -->
+								<span class="shrink-0">
+									<IconedResourceType name={b.resourceType} silent width="14px" height="14px" />
+								</span>
 							{/if}
 							<span class="min-w-0 flex-1">
 								<span class="block truncate font-mono text-emphasis">{b.path}</span>
