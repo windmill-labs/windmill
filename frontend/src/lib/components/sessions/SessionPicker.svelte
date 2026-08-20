@@ -870,7 +870,7 @@
 							startIcon={{ icon: Settings }}
 							title="Session list options"
 							aria-label="Session list options"
-							btnClasses={activeFilters ? 'text-emphasis' : ''}
+							btnClasses={activeFilters ? 'text-emphasis' : 'text-secondary'}
 						/>
 					{/snippet}
 				</DropdownV2>
