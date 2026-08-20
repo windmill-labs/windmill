@@ -299,7 +299,7 @@ async fn create_igroup(
 ) -> Result<String> {
     use uuid::Uuid;
 
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let mut tx = db.begin().await?;
 
     let normalized_name = convert_name(&ng.name);
@@ -464,7 +464,7 @@ async fn update_igroup(
     Path(name): Path<String>,
     Json(igroup_update): Json<IGroupUpdate>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     let exists_opt = sqlx::query("SELECT 1 FROM instance_group WHERE name = $1")
@@ -656,7 +656,7 @@ async fn delete_igroup(
     Extension(db): Extension<DB>,
     Path(name): Path<String>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
     // FOR UPDATE: the group row is the group-level mutex, taken before the workspace
@@ -970,7 +970,7 @@ async fn add_user_igroup(
     Path(name): Path<String>,
     Json(Email { email }): Json<Email>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
 
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
@@ -1189,7 +1189,7 @@ async fn remove_user_igroup(
     Path(name): Path<String>,
     Json(Email { email }): Json<Email>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let mut tx = db.begin().await?;
 
     // FOR UPDATE: the group row is the group-level mutex, taken before the workspace
@@ -1330,7 +1330,7 @@ async fn export_igroups(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<ExportedIGroup>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let mut tx = db.begin().await?;
     let igroups = sqlx::query_as!(
         ExportedIGroup,
@@ -1366,7 +1366,7 @@ async fn overwrite_igroups(
     Extension(db): Extension<DB>,
     Json(igroups): Json<Vec<ExportedIGroup>>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let mut tx = db.begin().await?;
 
     // The import replaces the whole group catalog, so the whole-table lock is its
