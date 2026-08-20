@@ -71,6 +71,8 @@ pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.windows.js");
 
 pub const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
+pub const NODE_CJS_INTEROP: &str = include_str!("../node_cjs_interop.js");
+
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
 pub const BUN_LOCK_SPLIT: &str = "\n//bun.lock\n";
@@ -877,6 +879,8 @@ pub async fn build_loader(
                 r#"
 {loader}
 
+{interop}
+
 import {{ readdir }} from "node:fs/promises";
 
 let fileNames = []
@@ -905,7 +909,18 @@ if (!result?.success || !(result.outputs?.length > 0)) {{
     console.log("Failed to build node bundle: success=" + result?.success + ", outputs=" + (result?.outputs?.length ?? 0));
     process.exit(1);
 }}
-"#
+try {{
+    const bundlePath = "{job_dir_js}/wrapper.js";
+    const bundle = await Bun.file(bundlePath).text();
+    const interoped = wmRewriteExternalImports(bundle, fileNames);
+    if (interoped !== bundle) {{
+        await Bun.write(bundlePath, interoped);
+    }}
+}} catch(err) {{
+    console.log("Failed to apply CommonJS interop to the node bundle: " + err);
+}}
+"#,
+                interop = NODE_CJS_INTEROP
             ),
         )?;
     } else if mode == LoaderMode::Bun {

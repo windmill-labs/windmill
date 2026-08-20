@@ -1279,6 +1279,100 @@ fn test_generate_bun_bundle_propagates_exit_status() {
     );
 }
 
+/// `//nodejs` bundles keep the packages installed under `node_modules` external,
+/// so node — not bun — resolves them at runtime. Node's cjs-module-lexer cannot
+/// see the named exports of a CommonJS package that builds `module.exports`
+/// dynamically (lodash & co.), so a named import fails to instantiate and a
+/// namespace import yields nothing but `default`. The bundle must import such a
+/// package as a namespace and read the names off `default` instead.
+#[test]
+fn test_node_loader_cjs_named_export_interop() {
+    use std::process::Command;
+    use windmill_worker::{build_loader, LoaderMode, BUN_PATH, NODE_BIN_PATH};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let dir_str = dir.to_str().unwrap();
+
+    // A CommonJS package whose exports only exist once it has run, which is
+    // what defeats the lexer.
+    let pkg_dir = dir.join("node_modules").join("dyn-cjs-pkg");
+    std::fs::create_dir_all(&pkg_dir).unwrap();
+    std::fs::write(
+        pkg_dir.join("package.json"),
+        r#"{ "name": "dyn-cjs-pkg", "version": "1.0.0", "main": "index.js" }"#,
+    )
+    .unwrap();
+    std::fs::write(
+        pkg_dir.join("index.js"),
+        r#"
+const api = {};
+["greet"].forEach((k) => { api[k] = (s) => k + " " + s; });
+module.exports = api;
+"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.join("main.ts"),
+        r#"
+import { greet } from "dyn-cjs-pkg";
+import * as pkg from "dyn-cjs-pkg";
+export function main() { return [greet("a"), pkg.greet("b")]; }
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("wrapper.mjs"),
+        r#"
+import * as Main from "./main.ts";
+console.log(JSON.stringify(Main.main()));
+"#,
+    )
+    .unwrap();
+
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(build_loader(
+            dir_str,
+            "http://localhost:8000",
+            "test_token",
+            "test-workspace",
+            "f/test/script",
+            LoaderMode::Node,
+            &None,
+        ))
+        .expect("build_loader failed");
+
+    let build = Command::new(BUN_PATH.as_str())
+        .args(["run", "node_builder.ts"])
+        .current_dir(dir)
+        .output()
+        .expect("Failed to run bun");
+    assert!(
+        build.status.success(),
+        "node_builder.ts failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&build.stdout),
+        String::from_utf8_lossy(&build.stderr)
+    );
+
+    // Same hand-off as generate_wrapper_mjs: the bundle replaces its entrypoint.
+    std::fs::rename(dir.join("wrapper.js"), dir.join("wrapper.mjs")).unwrap();
+
+    let run = Command::new(NODE_BIN_PATH.as_str())
+        .arg("wrapper.mjs")
+        .current_dir(dir)
+        .output()
+        .expect("Failed to run node");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        run.status.success(),
+        "node rejected the bundle:\nstdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(stdout.trim(), r#"["greet a","greet b"]"#);
+}
+
 /// Regression test for the install_bun_lockfile no-DB path: same code shape as
 /// `generate_bun_bundle` (site 3 of the original bug) — `wait().await?` ignored
 /// non-zero bun exits. A `bun install` failure (e.g. malformed package.json)
