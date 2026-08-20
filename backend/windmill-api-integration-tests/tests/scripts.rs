@@ -458,6 +458,44 @@ async fn test_auto_parent_resolves_parent_hash(db: Pool<Postgres>) -> anyhow::Re
     Ok(())
 }
 
+/// A version's hash covers the parent it was deployed onto, so it must be computed
+/// after `auto_parent` resolves that parent. Computed before, every version of a path
+/// hashes as if it were the first, and restoring content the path already held
+/// collides with the older version carrying it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_auto_parent_can_restore_earlier_content(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+    let path = "u/test-user/auto_parent_revert";
+    let first = "export async function main() { return 1; }";
+
+    for content in [first, "export async function main() { return 2; }", first] {
+        let mut script = new_script(path, "v", content);
+        script["auto_parent"] = json!(true);
+        let resp = authed(client().post(format!("{base}/create")))
+            .json(&script)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201, "create: {}", resp.text().await?);
+    }
+
+    let body = authed_get(port, "get/p", path)
+        .await
+        .json::<serde_json::Value>()
+        .await?;
+    assert_eq!(body["content"], first, "the head must carry the restored content");
+    assert_eq!(
+        body["parent_hashes"].as_array().unwrap().len(),
+        2,
+        "the restored version chains onto the two before it"
+    );
+
+    Ok(())
+}
+
 /// Regression test for GHSA-2ppx-66jv-wpw5: a path-scoped token must only see
 /// the scripts within its scope when listing, even though the route-level scope
 /// check only validates `domain:action`. Before the fix, `list_search` (and

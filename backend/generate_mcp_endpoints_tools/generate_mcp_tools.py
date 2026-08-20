@@ -136,6 +136,20 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
                     r for r in body_schema['required'] if r in include_fields
                 ]
 
+        # A constant is never an argument: keep it out of the schema the agent sees,
+        # whatever the include list says.
+        if body_schema and body_constants and 'properties' in body_schema:
+            for field in body_constants:
+                body_schema['properties'].pop(field, None)
+            if 'required' in body_schema:
+                body_schema['required'] = [
+                    r for r in body_schema['required'] if r not in body_constants
+                ]
+            # Constants ride along with the caller's fields; a body made of nothing else
+            # reads as a pass-through body downstream and is sent without them.
+            if not body_schema['properties']:
+                raise ValueError("x-mcp-tool-body-constants cannot cover every exposed body property")
+
         # Apply opaque_fields: simplify listed properties to {"type": "object"}
         if body_schema and opaque_fields and 'properties' in body_schema:
             for field in opaque_fields:

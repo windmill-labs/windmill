@@ -1054,7 +1054,6 @@ async fn create_script_internal<'c>(
     // Caller-intent: CLI / git-sync deploys ask us to preserve any existing
     // user draft at this path instead of wiping it as part of the deploy.
     let skip_draft_deletion = ns.skip_draft_deletion.unwrap_or(false);
-    let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
@@ -1101,21 +1100,6 @@ async fn create_script_internal<'c>(
     let legacy_on_behalf_of_email =
         windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
             .await?;
-    if sqlx::query_scalar!(
-        "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
-        hash.0,
-        &w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .is_some()
-    {
-        return Err(Error::BadRequest(
-            "A script with same hash (hence same path, description, summary, content) already \
-             exists!"
-                .to_owned(),
-        ));
-    };
     // When auto_parent is set, serialize concurrent creates for the same (workspace, path)
     // so the clashing_script query always sees the latest committed head.
     if ns.auto_parent.unwrap_or(false) {
@@ -1150,6 +1134,27 @@ async fn create_script_internal<'c>(
             ns.parent_hash = None;
         }
     }
+
+    // Hashed here, once the request is fully resolved: the parent an `auto_parent`
+    // caller delegated, and any identity a folder default supplied above, both belong
+    // to the version's identity. Hashing before them makes reverting a path to content
+    // it already held collide with that older version.
+    let hash = ScriptHash(hash_script(&ns));
+    if sqlx::query_scalar!(
+        "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash.0,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .is_some()
+    {
+        return Err(Error::BadRequest(
+            "A script with same hash (hence same path, description, summary, content) already \
+             exists!"
+                .to_owned(),
+        ));
+    };
 
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),
