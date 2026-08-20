@@ -562,6 +562,7 @@ async fn create_snapshot_script(
                 user_db.clone(),
                 webhook.clone(),
                 query.skip_if_noop,
+                None,
             )
             .await?;
             let mut nh = new_hash.to_string();
@@ -649,7 +650,17 @@ async fn create_script(
     Query(query): Query<CreateScriptQuery>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
-    deploy_script(authed, user_db, webhook, db, w_id, query.skip_if_noop, ns).await
+    deploy_script(
+        authed,
+        user_db,
+        webhook,
+        db,
+        w_id,
+        query.skip_if_noop,
+        ns,
+        None,
+    )
+    .await
 }
 
 /// Deploy a new version of the script at `path`, which must already hold one.
@@ -669,6 +680,10 @@ async fn update_script(
     Json(mut body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, String)> {
     let path = path.to_path();
+    // Superseding the version at this path is a write to it, checked before anything
+    // reads the row so a path outside the token's scope answers the same whether or
+    // not a script is there.
+    check_scopes(&authed, || format!("scripts:write:{}", path))?;
 
     // `NewScript` cannot express an optional path — the create route needs it — so the
     // default is applied before deserializing rather than after. Null and empty both
@@ -686,25 +701,23 @@ async fn update_script(
     let mut ns: NewScript = serde_json::from_value(body)
         .map_err(|e| Error::BadRequest(format!("could not parse the script: {e}")))?;
 
-    // Read outside the deploying transaction, so a version deployed in between leaves
-    // this one pointing at a superseded parent. `create_script_internal` refuses that
-    // rather than forking the lineage, which is the answer a caller can act on.
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let parent = sqlx::query_scalar::<_, i64>(
-        "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
-    )
-    .bind(path)
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    ns.parent_hash = Some(ScriptHash(not_found_if_none(parent, "Script", path)?));
-    // Lineage comes from the URL; letting a body flag re-derive it from the destination
-    // path would turn a move into a copy.
+    // Lineage comes from the URL, resolved in the deploying transaction; letting a body
+    // field name a parent, or a body flag re-derive one from the destination, would fork
+    // the history or turn a move into a copy.
+    ns.parent_hash = None;
     ns.auto_parent = None;
 
-    deploy_script(authed, user_db, webhook, db, w_id, query.skip_if_noop, ns).await
+    deploy_script(
+        authed,
+        user_db,
+        webhook,
+        db,
+        w_id,
+        query.skip_if_noop,
+        ns,
+        Some(path.to_string()),
+    )
+    .await
 }
 
 async fn deploy_script(
@@ -715,6 +728,7 @@ async fn deploy_script(
     w_id: String,
     skip_if_noop: bool,
     ns: NewScript,
+    supersede_head_at: Option<String>,
 ) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -739,6 +753,7 @@ async fn deploy_script(
         user_db,
         webhook,
         skip_if_noop,
+        supersede_head_at,
     )
     .await?;
     tx.commit().await?;
@@ -1065,6 +1080,11 @@ async fn create_script_internal<'c>(
     user_db: UserDB,
     webhook: WebhookShared,
     skip_if_noop: bool,
+    // When set, the parent is the live head at this path, resolved inside this
+    // transaction. The update route uses it so an archive landing between resolution
+    // and deploy cannot revive the script it archived: the hash of an archived version
+    // still exists, and nothing further down would notice it is no longer the head.
+    supersede_head_at: Option<String>,
 ) -> Result<(
     ScriptHash,
     Transaction<'c, Postgres>,
@@ -1178,6 +1198,16 @@ async fn create_script_internal<'c>(
         )
         .fetch_one(&mut *tx)
         .await?;
+    }
+    if let Some(source) = supersede_head_at.as_deref() {
+        let head = sqlx::query_scalar::<_, i64>(
+            "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
+        )
+        .bind(source)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        ns.parent_hash = Some(ScriptHash(not_found_if_none(head, "Script", source)?));
     }
     let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
         "SELECT {} FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",

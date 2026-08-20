@@ -9474,11 +9474,6 @@ paths:
         - kind
         - tag
         - deployment_message
-      # The URL already names the script, so the destination is the one field a caller
-      # may leave out. Required, an agent has to restate the path on every edit, and a
-      # value that drifts from the URL's silently moves the script instead of editing it.
-      x-mcp-tool-optional-fields:
-        - path
       tags:
         - script
       parameters:

@@ -13522,8 +13522,6 @@ paths:
         - kind
         - tag
         - deployment_message
-      x-mcp-tool-optional-fields:
-        - path
       tags:
         - script
       parameters:

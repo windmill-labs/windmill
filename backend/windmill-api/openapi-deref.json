@@ -12865,10 +12865,7 @@
               }
             }
           }
-        },
-        "x-mcp-tool-optional-fields": [
-          "path"
-        ]
+        }
       }
     },
     "/w/{workspace}/scripts/toggle_workspace_error_handler/p/{path}": {
