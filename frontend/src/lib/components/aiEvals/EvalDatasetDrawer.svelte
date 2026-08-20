@@ -23,7 +23,6 @@
 		dataset,
 		datasets,
 		cases,
-		totalCases = undefined,
 		onCreated,
 		onRenamed,
 		onCasesChanged,
@@ -38,11 +37,9 @@
 		dataset: EvalDataset | undefined
 		/** Every dataset in the workspace, for naming the next one. */
 		datasets: EvalDataset[]
-		/** The dataset's cases, held by the pane that lists them. A page of them: the pane reads a
-		 *  bounded number, and a dataset may hold more than it asked for. */
+		/** The dataset's cases, held by the pane that lists them. All of them: a dataset is capped
+		 *  at what one page returns, so the drawer always holds the whole set. */
 		cases: EvalCase[]
-		/** How many cases the dataset holds, against which `cases` may be a page. */
-		totalCases?: number
 		onCreated: (path: string) => void | Promise<void>
 		onRenamed: (path: string) => void | Promise<void>
 		onCasesChanged: () => void | Promise<void>
@@ -76,12 +73,6 @@
 	let storedIds = $state<Set<string>>(new Set())
 
 	let removingCase = $state<CaseDraft | undefined>(undefined)
-
-	/** Whether the dataset holds cases this drawer was not given. Only while editing: a dataset
-	 *  being created holds exactly what is on screen. */
-	let truncated = $derived(
-		mode === 'edit' && totalCases != undefined && totalCases > storedIds.size
-	)
 
 	/** The next free `<agent>_datasetN`, which is what a dataset is called until it is named. */
 	function nextDatasetIndex(): number {
@@ -337,14 +328,6 @@
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-semibold text-emphasis">Cases</span>
 					<span class="text-2xs text-tertiary">{workingCases.length}</span>
-					{#if truncated}
-						<!-- Said rather than left to be noticed: a drawer that quietly holds part of a set
-						     is one where Save looks like it dropped the rest. It does not; only what is
-						     here is written. -->
-						<span class="text-2xs text-tertiary">
-							showing the first {workingCases.length} of {totalCases}
-						</span>
-					{/if}
 					<div class="grow"></div>
 					<Button
 						size="xs"

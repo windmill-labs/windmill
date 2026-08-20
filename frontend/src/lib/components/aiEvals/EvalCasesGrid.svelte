@@ -4,6 +4,7 @@
 	import 'ag-grid-community/styles/ag-theme-alpine.css'
 	import '$lib/components/apps/components/display/table/theme/windmill-theme.css'
 	import { transformColumnDefs } from '$lib/components/apps/components/display/table/utils'
+	import { multilineCellColDef } from '$lib/components/apps/components/display/table/multilineCellEditor'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { untrack } from 'svelte'
 	import type { CaseDraft } from './evalCaseUtils'
@@ -49,17 +50,16 @@
 				flex: 1,
 				minWidth: 120,
 				editable: true,
-				// The popup editor, because a case is prose: the inline one is a single line, and a
-				// question that does not fit in a cell is exactly the one worth writing carefully.
-				cellEditor: 'agLargeTextCellEditor',
-				cellEditorPopup: true,
-				cellEditorParams: { maxLength: 100000, rows: 10, cols: 60 }
+				// A case is prose, so a cell has to be able to hold a newline. The editor stays the
+				// height of the row until one is added, which is what the rest of this app's grids
+				// look like while you type in them.
+				...multilineCellColDef
 			},
-			// The rows are held here rather than fetched, so the grid virtualises them: a dataset at
-			// the ceiling is thousands of cases, and a row per case in the DOM is what makes a table
-			// that size stop responding.
+			// The rows are held here rather than fetched, so the grid virtualises them: a dataset is
+			// capped at a thousand cases, and a row per case in the DOM is what makes a table that
+			// size stop responding.
 			onCellValueChanged: (e) => {
-				const target = cases.find((c) => c.id === e.data.id)
+				const target = cases.find((c) => c.id === (e.data as Row).id)
 				if (!target) return
 				if (e.colDef.field === 'question') {
 					target.input = { ...target.input, user_message: e.newValue ?? '' }

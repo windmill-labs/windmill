@@ -291,7 +291,10 @@ fn check_path(path: &str) -> Result<()> {
 /// references rather than inline bytes, so nothing here is meant to be large. The caps exist so that one mistake — a whole file pasted into a message, a capture
 /// loop left running — cannot grow a dataset past what a listing can load.
 const MAX_CASE_BYTES: usize = 256 * 1024;
-const MAX_CASES_PER_DATASET: i64 = 10_000;
+/// Also what a listing returns in one page, so a dataset is always read whole: the editor holds
+/// every case at once and writes them together, and half a set on screen is a Save that looks
+/// like it dropped the rest.
+const MAX_CASES_PER_DATASET: i64 = 1_000;
 
 /// Newest first, and only this many: the list feeds a picker, and a dataset that has been run
 /// nightly for a year would otherwise send back every run of it.
@@ -3738,5 +3741,4 @@ mod tests {
         assert_eq!(thresholded.passed(Some(0.69)), Some(false));
         assert_eq!(script("f/e/s", None).passed(Some(0.1)), None);
     }
-
 }
