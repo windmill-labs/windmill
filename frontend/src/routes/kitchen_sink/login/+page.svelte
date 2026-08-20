@@ -46,6 +46,7 @@
 		note: string
 		preview: LoginPreview
 		firstTime?: boolean
+		email?: string
 	}
 
 	const variants: Variant[] = [
@@ -88,6 +89,12 @@
 				saml: true,
 				smtpConfigured: true
 			}
+		},
+		{
+			title: 'Deep link with the email prefilled',
+			note: '/user/login?email=… opens the form even though providers are configured.',
+			preview: { logins: [google, github], smtpConfigured: true },
+			email: 'someone@windmill.dev'
 		},
 		{
 			title: 'SAML only',
@@ -150,6 +157,7 @@
 							<Login
 								preview={variant.preview}
 								firstTime={variant.firstTime ?? false}
+								email={variant.email}
 								autoRedirect={false}
 							/>
 						</div>

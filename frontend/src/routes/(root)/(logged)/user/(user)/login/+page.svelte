@@ -10,7 +10,7 @@
 		enterpriseLicense,
 		whitelabelNameStore
 	} from '$lib/stores'
-	import { classNames, emptyString, parseQueryParams } from '$lib/utils'
+	import { emptyString, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { WindmillIcon } from '$lib/components/icons'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
@@ -37,7 +37,6 @@
 	const sameOriginRd = toSameOriginRelativePath(rawRd)
 	const rd = sameOriginRd ?? rawRd
 
-	let showPassword = false
 	let firstTime = $state(false)
 	// A third-party login creates the account on first use, so the page only offers sign-up
 	// once the instance has one configured. undefined until the card reports what it loaded.
@@ -155,9 +154,7 @@
 		</div>
 	</div>
 
-	<div
-		class={classNames('mt-6 sm:mx-auto sm:w-full sm:max-w-sm', showPassword ? 'mb-16' : 'mb-48')}
-	>
+	<div class="mt-6 sm:mx-auto sm:w-full sm:max-w-sm mb-48">
 		<Login
 			{firstTime}
 			{rd}

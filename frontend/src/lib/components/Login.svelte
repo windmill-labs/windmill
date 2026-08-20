@@ -40,6 +40,7 @@
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 	import InputError from './InputError.svelte'
+	import { loginErrorMessage } from '$lib/loginError'
 
 	interface Props {
 		rd?: string | undefined
@@ -69,7 +70,9 @@
 		onOptionsLoaded = undefined
 	}: Props = $props()
 
-	let cloudHosted = $derived(preview ? !!preview.cloud : isCloudHosted())
+	// The harness never takes effect in a production bundle, whatever a caller passes.
+	let previewConfig = $derived(import.meta.env.DEV ? preview : undefined)
+	let cloudHosted = $derived(previewConfig ? !!previewConfig.cloud : isCloudHosted())
 
 	// Scoped per instance: the kitchen sink mounts every card at once, and a hardcoded id
 	// would point each card's labels and aria-describedby at the first card's fields.
@@ -137,7 +140,13 @@
 	// Errors that belong to the credentials the user just submitted: they stay under the
 	// password field until either field changes, so a stale message can't outlive its attempt.
 	let formError = $state<
-		{ message: string; email: string | undefined; password: string | undefined } | undefined
+		| {
+				message: string
+				fields: 'both' | 'email' | 'password'
+				email: string | undefined
+				password: string | undefined
+		  }
+		| undefined
 	>(undefined)
 	let shake = $state(false)
 	let fieldsEl = $state<HTMLDivElement | undefined>(undefined)
@@ -146,12 +155,14 @@
 			? formError.message
 			: undefined
 	)
+	let emailErrored = $derived(!!credentialsError && formError?.fields !== 'password')
+	let passwordErrored = $derived(!!credentialsError && formError?.fields !== 'email')
 
-	async function failLogin(message: string) {
+	async function failLogin(message: string, fields: 'both' | 'email' | 'password' = 'both') {
 		// The shake is for a retry that fails the same way: on the first failure the message
 		// appearing is the signal, and shaking it in would be noise.
 		const wasAlreadyShown = credentialsError != undefined
-		formError = { message, email, password }
+		formError = { message, fields, email, password }
 		// Drop the class, then force a style recalculation before re-adding it. tick() alone only
 		// writes the DOM: without reading a layout property in between, the browser coalesces the
 		// removal and the re-add into one recalculation, sees the class as never having left, and
@@ -163,29 +174,6 @@
 		shake = true
 	}
 
-	// Only messages the login endpoint is known to produce are shown. Anything else — a SQL
-	// error (which the API also returns as a 400, with the query and a source location), a
-	// proxy's HTML error page — would otherwise be printed verbatim to an unauthenticated
-	// visitor.
-	const KNOWN_LOGIN_ERRORS = ['Password login is disabled on this instance']
-
-	function loginErrorMessage(err: any): string {
-		// The API returns errors as plain text, prefixed by their class
-		// (e.g. "Bad request: Invalid login"); ApiError.message is only the HTTP status text.
-		const body = typeof err?.body === 'string' ? err.body : (err?.body?.error?.message ?? '')
-		const detail = body.replace(/^(Bad request|Internal|Error): /, '').trim()
-		if (detail === 'Invalid login') {
-			return 'Invalid email or password.'
-		}
-		if (err?.status === 429) {
-			return 'Too many login attempts. Please try again later.'
-		}
-		if (KNOWN_LOGIN_ERRORS.includes(detail)) {
-			return detail
-		}
-		return 'Could not sign you in. Please try again.'
-	}
-
 	type OAuthLogin = {
 		type: string
 		displayName: string
@@ -193,11 +181,13 @@
 
 	async function login(): Promise<void> {
 		if (!email || !password) {
-			failLogin('Enter both your email and password.')
+			if (!email && !password) failLogin('Enter both your email and password.')
+			else if (!email) failLogin('Enter your email.', 'email')
+			else failLogin('Enter your password.', 'password')
 			return
 		}
 
-		if (preview) {
+		if (previewConfig) {
 			failLogin('Invalid email or password.')
 			return
 		}
@@ -297,12 +287,14 @@
 	}
 
 	async function loadLogins() {
-		if (preview) {
-			logins = preview.logins ?? []
-			saml = preview.saml ? 'https://idp.example.com/sso' : undefined
-			disablePasswordLogin = preview.disablePasswordLogin ?? false
-			autoRedirecting = preview.autoRedirecting ?? false
-			showPassword = !disablePasswordLogin && logins.length === 0 && !saml
+		if (previewConfig) {
+			logins = previewConfig.logins ?? []
+			saml = previewConfig.saml ? 'https://idp.example.com/sso' : undefined
+			disablePasswordLogin = previewConfig.disablePasswordLogin ?? false
+			autoRedirecting = previewConfig.autoRedirecting ?? false
+			showPassword =
+				!disablePasswordLogin &&
+				((logins.length === 0 && !saml) || (email != undefined && email.length > 0))
 			onOptionsLoaded?.({ hasThirdParty: logins.length > 0 || !!saml })
 			return
 		}
@@ -372,8 +364,8 @@
 	})
 
 	async function checkSmtpConfigured() {
-		if (preview) {
-			smtpConfigured = preview.smtpConfigured ?? false
+		if (previewConfig) {
+			smtpConfigured = previewConfig.smtpConfigured ?? false
 			return
 		}
 		try {
@@ -480,7 +472,7 @@
 
 	function storeRedirect(provider: string): boolean {
 		// The kitchen sink renders real provider buttons; clicking one must not leave the page.
-		if (preview) return true
+		if (previewConfig) return true
 		persistRd()
 		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
 		console.log('storeRedirect', popup, url)
@@ -542,7 +534,7 @@
 			sendUserToast('No SAML login available', true)
 			return false
 		}
-		if (preview) return true
+		if (previewConfig) return true
 		let target = saml
 		let relayStateSet = false
 		// Carry the SP-initiated deep link through the IdP round-trip via SAML
@@ -648,13 +640,13 @@
 						<div>
 							<TextInput
 								size="md"
-								error={!!credentialsError}
+								error={emailErrored}
 								bind:value={email}
 								inputProps={{
 									id: emailId,
 									type: 'email',
 									autocomplete: 'username',
-									'aria-invalid': credentialsError ? 'true' : undefined,
+									'aria-invalid': emailErrored ? 'true' : undefined,
 									'aria-describedby': credentialsError ? errorId : undefined,
 									onkeydown: (e) => {
 										// Only move on once the field holds something: while the browser's
@@ -681,13 +673,13 @@
 								placeholder=""
 								autocomplete="current-password"
 								allowMultiline={false}
-								error={!!credentialsError}
+								error={passwordErrored}
 								describedBy={credentialsError ? errorId : undefined}
 								onKeyDown={handleKeyDown}
 							/>
 						</div>
-						<!-- The message replaced a toast, which screen readers announced; role="alert"
-							keeps a failed attempt audible, since the red borders alone are colour-only. -->
+						<!-- The red borders are colour-only, so role="alert" is what makes a failed
+							attempt reach a screen reader. -->
 						<div id={errorId} role="alert">
 							<InputError error={credentialsError} />
 						</div>
