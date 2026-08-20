@@ -33,3 +33,19 @@ To mark an endpoint as an MCP tool, add `x-mcp-tool: true` to the operation in t
     operationId: listScripts
     # ... rest of endpoint definition
 ```
+
+### Body fields the agent never sees
+
+`x-mcp-tool-body-constants` sets body fields on every call to the tool. They stay out of
+the tool's input schema, so use it for a field whose only correct value over MCP is fixed —
+exposing such a field earns nothing and invites a model to fill it with a placeholder the
+API then rejects. A constant must name a real body property and must not also appear in
+`x-mcp-tool-include-fields`; the generator fails otherwise.
+
+```yaml
+/w/{workspace}/scripts/create:
+  post:
+    x-mcp-tool: true
+    x-mcp-tool-body-constants:
+      auto_parent: true
+```

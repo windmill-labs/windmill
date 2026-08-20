@@ -23,6 +23,12 @@ pub struct EndpointTool {
     pub body_schema: Option<serde_json::Value>,
     pub query_field_renames: Option<serde_json::Value>,
     pub body_field_renames: Option<serde_json::Value>,
+    /// Body fields the MCP layer sends itself, absent from `body_schema` and so
+    /// from the tool's input schema. They exist for a field whose only correct
+    /// value over MCP is fixed: exposing such a field earns nothing and invites a
+    /// model to fill it with a placeholder the API then rejects.
+    #[serde(default)]
+    pub body_constants: Option<serde_json::Value>,
 }
 
 /// True if this endpoint is safe to expose to a read-only token. Mirrors the
@@ -235,6 +241,7 @@ mod tests {
             body_schema: None,
             query_field_renames: None,
             body_field_renames: None,
+            body_constants: None,
         }
     }
 

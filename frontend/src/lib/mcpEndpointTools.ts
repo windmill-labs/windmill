@@ -12,6 +12,7 @@ export interface EndpointTool {
     bodySchema?: object;
     queryFieldRenames?: Record<string, string>;
     bodyFieldRenames?: Record<string, string>;
+    bodyConstants?: Record<string, unknown>;
 }
 
 export const mcpEndpointTools: EndpointTool[] = [
@@ -36,7 +37,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "readDocsPage",
@@ -63,7 +65,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listDataMetrics",
@@ -105,7 +108,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "createVariable",
@@ -175,7 +179,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         "minProperties": 1
 },
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "deleteVariable",
@@ -197,7 +202,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryParamsSchema: undefined,
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "updateVariable",
@@ -260,7 +266,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryFieldRenames: undefined,
         bodyFieldRenames: {
         "path__body": "path"
-}
+},
+        bodyConstants: undefined
     },
     {
         name: "getVariable",
@@ -299,7 +306,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listVariable",
@@ -352,7 +360,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "createResource",
@@ -407,7 +416,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         "minProperties": 1
 },
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "deleteResource",
@@ -429,7 +439,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryParamsSchema: undefined,
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "updateResource",
@@ -482,7 +493,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryFieldRenames: undefined,
         bodyFieldRenames: {
         "path__body": "path"
-}
+},
+        bodyConstants: undefined
     },
     {
         name: "getResource",
@@ -513,7 +525,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listResource",
@@ -574,7 +587,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listResourceType",
@@ -586,7 +600,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryParamsSchema: undefined,
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listScripts",
@@ -683,12 +698,13 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "createScript",
-        description: "create script: Creates a new script when the path does not already exist.\nCreates a new version of an existing script when called with the same path and the current `parent_hash`",
-        instructions: "To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history.",
+        description: "create script: Creates a new script when the path does not already exist.\nCreates a new version of an existing script when called with the same path",
+        instructions: "To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool again with the same path. That creates a new version while preserving the script's history; the parent version is resolved for you, so you never need a script hash.",
         path: "/w/{workspace}/scripts/create",
         method: "POST",
         pathParamsSchema: undefined,
@@ -697,9 +713,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string"
-                },
-                "parent_hash": {
                         "type": "string"
                 },
                 "summary": {
@@ -735,7 +748,10 @@ export const mcpEndpointTools: EndpointTool[] = [
         "minProperties": 1
 },
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: {
+        "auto_parent": true
+}
     },
     {
         name: "deleteScriptByHash",
@@ -757,7 +773,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryParamsSchema: undefined,
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "deleteScriptByPath",
@@ -788,7 +805,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "getScriptByPath",
@@ -822,7 +840,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "runScriptByPath",
@@ -848,7 +867,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         "additionalProperties": true
 },
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listFlows",
@@ -917,7 +937,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "getFlowByPath",
@@ -951,7 +972,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "createFlow",
@@ -997,7 +1019,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         "minProperties": 1
 },
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "updateFlow",
@@ -1055,7 +1078,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryFieldRenames: undefined,
         bodyFieldRenames: {
         "path__body": "path"
-}
+},
+        bodyConstants: undefined
     },
     {
         name: "deleteFlowByPath",
@@ -1086,7 +1110,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listApps",
@@ -1115,7 +1140,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "getAppByPath",
@@ -1137,7 +1163,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryParamsSchema: undefined,
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "createApp",
@@ -1245,7 +1272,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         "minProperties": 1
 },
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "updateApp",
@@ -1363,7 +1391,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryFieldRenames: undefined,
         bodyFieldRenames: {
         "path__body": "path"
-}
+},
+        bodyConstants: undefined
     },
     {
         name: "runFlowByPath",
@@ -1389,7 +1418,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         "additionalProperties": true
 },
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "runScriptPreviewAndWaitResult",
@@ -1484,7 +1514,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         "minProperties": 1
 },
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listQueue",
@@ -1604,7 +1635,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listJobs",
@@ -1774,7 +1806,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "getJob",
@@ -1812,7 +1845,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "getJobLogs",
@@ -1843,7 +1877,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "createSchedule",
@@ -2053,7 +2088,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         "minProperties": 1
 },
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "updateSchedule",
@@ -2256,7 +2292,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         "minProperties": 1
 },
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "deleteSchedule",
@@ -2278,7 +2315,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         queryParamsSchema: undefined,
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "getSchedule",
@@ -2309,7 +2347,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listSchedules",
@@ -2374,7 +2413,8 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     },
     {
         name: "listWorkers",
@@ -2403,6 +2443,7 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         bodySchema: undefined,
         queryFieldRenames: undefined,
-        bodyFieldRenames: undefined
+        bodyFieldRenames: undefined,
+        bodyConstants: undefined
     }
 ];

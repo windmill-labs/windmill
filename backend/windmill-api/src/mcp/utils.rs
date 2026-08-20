@@ -484,6 +484,7 @@ fn assemble_request_body(
         method,
         body_schema,
         body_field_renames,
+        body_constants,
         path_params_schema,
         query_params_schema,
         ..
@@ -531,7 +532,7 @@ fn assemble_request_body(
 
     let props = schema.get("properties")?.as_object()?;
 
-    let body_map: serde_json::Map<String, Value> = props
+    let mut body_map: serde_json::Map<String, Value> = props
         .keys()
         .filter_map(|param_name| {
             args_map.get(param_name).map(|value| {
@@ -543,10 +544,18 @@ fn assemble_request_body(
         .collect();
 
     if body_map.is_empty() {
-        None
-    } else {
-        Some(Value::Object(body_map))
+        // Emptiness is judged on the caller's fields alone, so constants can't paper
+        // over a call that filled nothing (see non_empty_body_fields).
+        return None;
     }
+
+    if let Some(constants) = body_constants.as_ref().and_then(|c| c.as_object()) {
+        for (name, value) in constants {
+            body_map.insert(name.clone(), value.clone());
+        }
+    }
+
+    Some(Value::Object(body_map))
 }
 
 /// Scopes to embed in the JWT minted for a proxied MCP endpoint request. The MCP
@@ -853,6 +862,7 @@ mod tests {
             body_schema,
             query_field_renames: None,
             body_field_renames,
+            body_constants: None,
         }
     }
 
@@ -1004,6 +1014,38 @@ mod tests {
         .unwrap()
         .expect("a call carrying an update must still build a body");
         assert_eq!(body.as_object().unwrap().get("value"), Some(&json!("v")));
+    }
+
+    #[test]
+    fn build_request_body_creates_a_script_without_a_parent_hash() {
+        // An agent has no way to hold a script hash, so createScript exposes none and
+        // delegates parent resolution to the backend. Without `auto_parent` this same
+        // call creates on a fresh path but conflicts with the script already at an
+        // existing one.
+        let tool = generated_tool("createScript");
+        assert!(
+            !tool.body_schema.as_ref().unwrap()["properties"]
+                .as_object()
+                .unwrap()
+                .contains_key("parent_hash"),
+            "parent_hash must stay out of the tool's input schema"
+        );
+
+        let body = build_request_body(
+            &tool,
+            &args_of(json!({
+                "path": "u/admin/new_script",
+                "summary": "s",
+                "content": "export async function main() {}",
+                "language": "bun"
+            })),
+        )
+        .unwrap()
+        .expect("a create call must build a body");
+        assert_eq!(
+            body.as_object().unwrap().get("auto_parent"),
+            Some(&json!(true))
+        );
     }
 
     #[test]

@@ -61,7 +61,7 @@ def flatten_allof_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
     return merged
 
-def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "", include_fields: Optional[List[str]] = None, opaque_fields: Optional[List[str]] = None, include_query_params: Optional[List[str]] = None) -> tuple:
+def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Optional[Dict[str, Any]], spec: Dict[str, Any], required_fields: Optional[List[str]] = None, base_path: str = "", include_fields: Optional[List[str]] = None, opaque_fields: Optional[List[str]] = None, include_query_params: Optional[List[str]] = None, body_constants: Optional[Dict[str, Any]] = None) -> tuple:
     """Extract separate schemas for path parameters, query parameters, and request body."""
     path_params_schema = {
         "type": "object",
@@ -114,8 +114,16 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
         body_schema = extract_request_body_schema(request_body, spec, base_path)
 
         # Flatten allOf schemas into a single object schema for filtering
-        if body_schema and (include_fields is not None or opaque_fields):
+        if body_schema and (include_fields is not None or opaque_fields or body_constants):
             body_schema = flatten_allof_schema(body_schema)
+
+        # A constant is sent under the agent's back, so it must name a real body field
+        # and must not also be exposed as an argument the agent can contradict.
+        for field in (body_constants or {}):
+            if field not in (body_schema or {}).get('properties', {}):
+                raise ValueError(f"x-mcp-tool-body-constants field '{field}' is not a body property")
+            if include_fields is not None and field in include_fields:
+                raise ValueError(f"x-mcp-tool-body-constants field '{field}' is also in x-mcp-tool-include-fields")
 
         # Apply include_fields filter: only keep listed top-level properties
         if body_schema and include_fields is not None and 'properties' in body_schema:
@@ -448,6 +456,10 @@ def find_mcp_tools(spec: Dict[str, Any]) -> List[Dict[str, Any]]:
                     'include_fields': operation.get('x-mcp-tool-include-fields'),
                     'opaque_fields': operation.get('x-mcp-tool-opaque-fields'),
                     'include_query_params': operation.get('x-mcp-tool-include-query-params'),
+                    # Body fields the MCP layer fills in itself, invisible to the agent.
+                    # For a field whose only correct value is fixed, this is what keeps it
+                    # out of the tool schema, where a model would fill it with a placeholder.
+                    'body_constants': operation.get('x-mcp-tool-body-constants'),
                 }
                 tools.append(tool)
 
@@ -494,7 +506,8 @@ export const mcpEndpointTools: EndpointTool[] = [];
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema, query_field_renames, body_field_renames = extract_separate_schemas(
             tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
-            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params')
+            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params'),
+            tool.get('body_constants')
         )
 
         # Convert schemas to TypeScript - use 'as const' for better type inference
@@ -503,6 +516,7 @@ export const mcpEndpointTools: EndpointTool[] = [];
         body_schema_ts = json.dumps(body_schema, indent=8) if body_schema else "undefined"
         query_field_renames_ts = json.dumps(query_field_renames, indent=8) if query_field_renames else "undefined"
         body_field_renames_ts = json.dumps(body_field_renames, indent=8) if body_field_renames else "undefined"
+        body_constants_ts = json.dumps(tool.get('body_constants'), indent=8) if tool.get('body_constants') else "undefined"
 
         # Generate tool definition
         tool_def = f"""    {{
@@ -515,7 +529,8 @@ export const mcpEndpointTools: EndpointTool[] = [];
         queryParamsSchema: {query_params_ts},
         bodySchema: {body_schema_ts},
         queryFieldRenames: {query_field_renames_ts},
-        bodyFieldRenames: {body_field_renames_ts}
+        bodyFieldRenames: {body_field_renames_ts},
+        bodyConstants: {body_constants_ts}
     }}"""
         tool_definitions.append(tool_def)
 
@@ -536,6 +551,7 @@ export interface EndpointTool {{
     bodySchema?: object;
     queryFieldRenames?: Record<string, string>;
     bodyFieldRenames?: Record<string, string>;
+    bodyConstants?: Record<string, unknown>;
 }}
 
 export const mcpEndpointTools: EndpointTool[] = [
@@ -567,7 +583,8 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         # Generate separate schemas
         path_params_schema, query_params_schema, body_schema, query_field_renames, body_field_renames = extract_separate_schemas(
             tool['parameters'], tool['requestBody'], spec, tool['required_fields'], base_path,
-            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params')
+            tool.get('include_fields'), tool.get('opaque_fields'), tool.get('include_query_params'),
+            tool.get('body_constants')
         )
 
         path_params_rust = schema_to_rust_value(path_params_schema)
@@ -575,6 +592,7 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         body_schema_rust = schema_to_rust_value(body_schema)
         query_field_renames_rust = schema_to_rust_value(query_field_renames if query_field_renames else None)
         body_field_renames_rust = schema_to_rust_value(body_field_renames if body_field_renames else None)
+        body_constants_rust = schema_to_rust_value(tool.get('body_constants') or None)
 
         # Generate tool definition
         tool_def = f"""    EndpointTool {{
@@ -588,6 +606,7 @@ pub fn all_tools() -> Vec<EndpointTool> {{
         body_schema: {body_schema_rust},
         query_field_renames: {query_field_renames_rust},
         body_field_renames: {body_field_renames_rust},
+        body_constants: {body_constants_rust},
     }}"""
         tool_definitions.append(tool_def)
 
