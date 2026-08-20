@@ -1005,8 +1005,10 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
 ///   the storage config (`TestConnection.svelte`). The probe acts only on the store the
 ///   request body describes, touching no Windmill state of any workspace.
 /// - `wmill workspace add`, how a job points the CLI at its own instance, checks the
-///   workspace exists before accepting the credentials. It answers with a bare boolean,
-///   under the caller's own row-level security.
+///   workspace exists before accepting the credentials — the git-sync hub scripts run
+///   exactly this. `workspace` carries no row-level security, so the bare boolean it
+///   answers is instance-wide rather than membership-filtered; what it discloses is
+///   only whether a workspace id is taken.
 const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 2] = [
     "/api/settings/test_object_storage_config",
     "/api/workspaces/exists",
@@ -1283,7 +1285,11 @@ mod tests {
 
         // A kind-only scope confines to that kind, at any path.
         let kind_only = job_read_run_confinement(Some(&["jobs:run:scripts".to_string()])).unwrap();
-        assert!(run_confinement_admits(&kind_only, "scripts", "u/admin/anything"));
+        assert!(run_confinement_admits(
+            &kind_only,
+            "scripts",
+            "u/admin/anything"
+        ));
         assert!(!run_confinement_admits(&kind_only, "flows", "f/team/etl"));
 
         // Scopes that grant job reads in their own right leave reads unconfined.

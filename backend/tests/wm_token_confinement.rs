@@ -278,10 +278,10 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
     );
 
     //    The resource editor's object-storage "Test connection" runs as a preview job that
-    //    POSTs its config here. The route only exists under `parquet`; without it the
-    //    status would be a 404 and the assertion would hold for the wrong reason. The body
-    //    is deliberately not a valid `ObjectSettings`, so reaching the handler's own
-    //    extractors is exactly a 422 — anything else means the request never got there.
+    //    POSTs its config here. The body is deliberately not a valid `ObjectSettings`, so
+    //    reaching the handler's own extractors is exactly a 422 — a 403 means confinement
+    //    refused it. The route is only mounted under `parquet`, which would make this a 404,
+    //    so the case is gated on the feature rather than left to fail where it can't run.
     #[cfg(feature = "parquet")]
     {
         let resp = authed(
