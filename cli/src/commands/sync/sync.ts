@@ -9,7 +9,7 @@ import {
   copyFile,
   mkdir,
 } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, type Dirent } from "node:fs";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -204,6 +204,12 @@ async function isLockStillRead(
   json: boolean,
 ): Promise<boolean> {
   const n = lockPath.replaceAll(SEP, "/");
+  // A shared lockfile is read by any number of scripts, so the whole tree
+  // answers rather than one sibling. Only ever reached when one is on its way
+  // out, which is rare enough to pay for a walk.
+  if (isSharedLockPath(n)) {
+    return await anyScriptReferences(n, json);
+  }
   const metaPath = n.endsWith("__mod/script.lock")
     ? n.slice(0, -".lock".length) + (json ? ".json" : ".yaml")
     : n.slice(0, -".script.lock".length) +
@@ -223,6 +229,48 @@ async function isLockStillRead(
     // Unparseable metadata is not proof that nothing reads the lock.
     return true;
   }
+}
+
+/**
+ * Whether any script in the workspace still reads a given lockfile, read from
+ * disk after the pull has applied (or refused) every metadata change.
+ */
+async function anyScriptReferences(
+  lockRef: string,
+  json: boolean,
+): Promise<boolean> {
+  const reference = "!inline " + lockRef;
+  const metaExt = json ? ".script.json" : ".script.yaml";
+  const modMeta = json ? "__mod/script.json" : "__mod/script.yaml";
+  const walk = async (dir: string): Promise<boolean> => {
+    let entries: Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (isNeverWalkedDir(entry.name)) continue;
+        if (await walk(full)) return true;
+        continue;
+      }
+      const rel = full.replaceAll(SEP, "/");
+      if (!rel.endsWith(metaExt) && !rel.endsWith(modMeta)) continue;
+      try {
+        if ((await readTextFile(full)).includes(reference)) return true;
+      } catch {
+        // unreadable: cannot rule it out, so keep the lockfile
+        return true;
+      }
+    }
+    return false;
+  };
+  for (const root of ["f", "u", "g"]) {
+    if (await walk(root)) return true;
+  }
+  return false;
 }
 
 /** Sync maps are keyed with the platform separator; `!inline` refs are not. */
@@ -3792,7 +3840,7 @@ export async function pull(
         // and a conflict resolved as "preserve local" keeps metadata that still
         // reads one. Deleted here, that reference would dangle and the script
         // would deploy with an empty lock.
-        if (isScriptLockPath(change.path)) {
+        if (isScriptLockPath(change.path) || isSharedLockPath(change.path)) {
           deferredLockDeletions.push({ path: change.path, target, stateTarget });
           continue;
         }
@@ -4058,7 +4106,9 @@ export async function dedupeLockfilesOnDisk(args: {
   );
   const plan = computeSharedLockPlan(map, {
     defaultTs: opts.defaultTs,
-    depFiles: Object.keys(await getRawWorkspaceDependencies(false)),
+    depFiles: opts.skipWorkspaceDependencies
+      ? Object.keys(await getRawWorkspaceDependencies(false))
+      : undefined,
   });
   if (isEmptySharedLockPlan(plan)) return;
 
