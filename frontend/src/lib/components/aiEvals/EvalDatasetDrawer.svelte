@@ -174,7 +174,11 @@
 				}))
 			}
 		})
-		workingCases = workingCases.map((c, index) => ({ ...c, id: ids[index] ?? c.id }))
+		// Back onto the rows by the local id each was sent under, not by position: the grid stays
+		// editable while the request is out, and a row added or removed meanwhile would otherwise
+		// shift every id after it onto the wrong case.
+		const assigned = new Map(sent.map((c, index) => [c.id, ids[index]]))
+		workingCases = workingCases.map((c) => ({ ...c, id: assigned.get(c.id) ?? c.id }))
 		storedIds = new Set(ids)
 	}
 

@@ -83,7 +83,7 @@
 	let currentDraftHash = $state<string | undefined>(undefined)
 	/** What the agent hashes to as deployed: a draft run carrying it ran what was then saved. */
 	let deployedHash = $state<string | undefined>(undefined)
-	// A run resolves the agent live, so it executes what is deployed: edits sitting in a draft are
+	// A run of the agent executes what was deployed when it started: edits sitting in a draft are
 	// not what any of these numbers describe.
 	let undeployedChanges = $state(false)
 	let running = $state(false)
@@ -236,7 +236,9 @@
 			renderedResults = undefined
 			return
 		}
-		const key = `${selectedDataset} ${experimentId} ${baselineId ?? ''}`
+		// Joined on a separator neither a path nor an id can contain, spelled as an escape:
+		// a raw NUL in the source makes this file binary to grep.
+		const key = [selectedDataset, experimentId, baselineId ?? ''].join('\u0000')
 		if (key !== renderedResults) {
 			rows = []
 			means = []
@@ -364,14 +366,23 @@
 	 * itself on workers, so closing this pane costs the numbers nothing, and reopening it shows
 	 * where the run got to.
 	 */
+	// One pass at a time. The poller fires every 2s whether or not the last read came back, and
+	// every read supersedes the one before it — so a read slower than the interval would be
+	// discarded by the next one forever, and the table would never advance.
+	let refreshing = false
 	async function refresh() {
-		if (!ws) return
-		// On the list, the run in flight is a row whose scores are still arriving; in a run, it is
-		// the table. Reading both would read every cell of a run nobody is looking at.
-		if (viewingRun) {
-			await loadResults()
-		} else {
-			experiments = await listSubjectExperiments()
+		if (!ws || refreshing) return
+		refreshing = true
+		try {
+			// On the list, the run in flight is a row whose scores are still arriving; in a run, it
+			// is the table. Reading both would read every cell of a run nobody is looking at.
+			if (viewingRun) {
+				await loadResults()
+			} else {
+				experiments = await listSubjectExperiments()
+			}
+		} finally {
+			refreshing = false
 		}
 	}
 
