@@ -1044,16 +1044,22 @@ async fn test_wm_token_gets_no_admin_claim_in_a_foreign_workspace(
     Ok(())
 }
 
-/// `require_devops_role` and `require_instance_admin` gate only workspace-less routes, so
-/// confinement answers every request that would reach them and no HTTP case can tell
-/// whether they still cap job tokens. Call them directly, the way the workspace-scoped
-/// cases above reach `require_super_admin`, so the inner cap cannot be dropped while this
-/// suite stays green (GHSA-hfh4-cx4h-3fcr).
+/// Four of the seven guards keyed on `ApiAuthed::job_id` gate only workspace-less routes,
+/// so confinement answers every request that would reach them and no HTTP case can tell
+/// whether they still cap job tokens. Call those four directly, so the inner cap cannot be
+/// dropped while this suite stays green (GHSA-hfh4-cx4h-3fcr).
+///
+/// The other three keep an observable route and are covered over HTTP above:
+/// `require_super_admin` through `w/{workspace}/users/list_addable`,
+/// `is_super_admin_authed` through the `CUSTOM_INSTANCE_DB` lookup, and
+/// `forbid_job_token_account_destruction` through `w/{workspace}/workspaces/leave`.
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
-async fn test_privilege_gates_reject_a_job_token_directly(db: Pool<Postgres>) -> anyhow::Result<()> {
-    fn authed_with(job_id: Option<uuid::Uuid>) -> ApiAuthed {
+async fn test_privilege_gates_reject_a_job_token_directly(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    fn authed_as(email: &str, job_id: Option<uuid::Uuid>) -> ApiAuthed {
         ApiAuthed {
-            email: "test@windmill.dev".to_string(),
+            email: email.to_string(),
             username: "runner".to_string(),
             is_admin: true,
             is_operator: false,
@@ -1069,11 +1075,13 @@ async fn test_privilege_gates_reject_a_job_token_directly(db: Pool<Postgres>) ->
         }
     }
 
-    let job = authed_with(Some(uuid::Uuid::new_v4()));
-    let not_job = authed_with(None);
+    let job = authed_as("test@windmill.dev", Some(uuid::Uuid::new_v4()));
+    let not_job = authed_as("test@windmill.dev", None);
 
     assert!(
-        windmill_api_auth::require_devops_role(&db, &job).await.is_err(),
+        windmill_api_auth::require_devops_role(&db, &job)
+            .await
+            .is_err(),
         "a job token must not hold the devops role"
     );
     assert!(
@@ -1092,6 +1100,59 @@ async fn test_privilege_gates_reject_a_job_token_directly(db: Pool<Postgres>) ->
     assert!(
         windmill_api_auth::require_instance_admin(&not_job).is_ok(),
         "a superadmin API token must still hold instance admin"
+    );
+
+    // `forbid_superadmin_job_token` guards the same class of route but keys on two things
+    // at once, so all three combinations are worth pinning: it fires only for a job token
+    // whose identity is a superadmin.
+    assert!(
+        windmill_api_auth::forbid_superadmin_job_token(&db, &job.email, job.job_id)
+            .await
+            .is_err(),
+        "a superadmin job token must be forbidden"
+    );
+    assert!(
+        windmill_api_auth::forbid_superadmin_job_token(&db, &not_job.email, None)
+            .await
+            .is_ok(),
+        "a superadmin API token carries no job provenance to forbid"
+    );
+    assert!(
+        windmill_api_auth::forbid_superadmin_job_token(
+            &db,
+            "test2@windmill.dev",
+            Some(uuid::Uuid::new_v4())
+        )
+        .await
+        .is_ok(),
+        "a job token running as a non-superadmin is not what this gate withholds"
+    );
+
+    // `forbid_elevated_job_token` is the same shape one tier wider — `is_devops_email` is
+    // true for superadmins too. Its three call sites (`create_token`,
+    // `update_token_scopes`, `set_password`) are all workspace-less, so it has no
+    // observable path either.
+    assert!(
+        windmill_api_auth::forbid_elevated_job_token(&db, "devops@windmill.dev", job.job_id)
+            .await
+            .is_err(),
+        "a devops job token must not mint a credential"
+    );
+    assert!(
+        windmill_api_auth::forbid_elevated_job_token(&db, &job.email, job.job_id)
+            .await
+            .is_err(),
+        "a superadmin job token must not mint a credential"
+    );
+    assert!(
+        windmill_api_auth::forbid_elevated_job_token(
+            &db,
+            "test2@windmill.dev",
+            Some(uuid::Uuid::new_v4())
+        )
+        .await
+        .is_ok(),
+        "an unelevated job token is left to the confinement check, not refused here"
     );
 
     Ok(())
