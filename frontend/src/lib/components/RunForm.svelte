@@ -24,6 +24,7 @@
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
 	import { processSecretArgs } from './secretArgUtils'
+	import { enforceDisabledDefaults } from './job_args'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 
 	let reloadArgs = $state(0)
@@ -60,11 +61,14 @@
 
 	export async function run(overrideScheduledForStr?: string | undefined | null) {
 		let processedArgs: Record<string, any>
-		try {
-			processedArgs = await processSecretArgs(
-				enforceDisabledDefaults(args ?? {}, true),
-				runnable?.schema
+		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
+		if (resetKeys.length > 0) {
+			sendUserToast(
+				`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
 			)
+		}
+		try {
+			processedArgs = await processSecretArgs(withDefaults, runnable?.schema)
 		} catch (e) {
 			sendUserToast('Failed to process sensitive args: ' + e, true)
 			return
@@ -176,30 +180,6 @@
 		} catch (e) {
 			console.error('Impossible to set hash in args', e)
 		}
-	}
-
-	function enforceDisabledDefaults(
-		args: Record<string, any>,
-		notify: boolean = false
-	): Record<string, any> {
-		const schema = runnable?.schema
-		if (!schema?.properties) return args
-		const result = { ...args }
-		const resetKeys: string[] = []
-		for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
-			if (prop?.disabled && 'default' in prop) {
-				if (notify && result[key] !== prop.default) {
-					resetKeys.push(key)
-				}
-				result[key] = prop.default
-			}
-		}
-		if (resetKeys.length > 0) {
-			sendUserToast(
-				`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
-			)
-		}
-		return result
 	}
 
 	/** Rewrite the open JSON editor from the current args. Only for args replaced from outside
@@ -322,7 +302,7 @@
 					bind:this={jsonEditor}
 					on:select={(e) => {
 						if (e.detail) {
-							args = enforceDisabledDefaults(e.detail)
+							args = enforceDisabledDefaults(e.detail, runnable?.schema).args
 						}
 					}}
 					initialCode={argsToJsonPayload(runnable.schema, args)}

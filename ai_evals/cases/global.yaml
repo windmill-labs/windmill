@@ -1974,6 +1974,40 @@
   judgeChecklist:
     - deletes the deployed script via delete_workspace_item rather than a raw API endpoint
 
+- id: global-test33-run-deployed-script-with-form
+  prompt: |-
+    Run the deployed script `f/evals/global/format_greeting` for me with the name "ada".
+  initial: ai_evals/fixtures/frontend/global/initial/format_greeting_script.json
+  runtime:
+    maxTurns: 8
+    # run_script is offered to session chats only.
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - run_script
+    forbiddenToolsUsed:
+      - test_run_script
+      - call_api_endpoint
+      - write_script
+      - deploy_workspace_item
+      # run_script renders the deployed schema itself, so reading the item first is a
+      # wasted round-trip.
+      - read_workspace_item
+    # An empty form pushes the work back onto the user, so the prefill is part of
+    # what the tool is for.
+    toolCallArgs:
+      - tool: run_script
+        field: args.name
+        stringIncludesAnyOf:
+          - ada
+  # Running produces no draft, and the judge cannot observe runs; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - runs the deployed script through run_script rather than a preview test run or a raw API endpoint
+    - passes the name "ada" so the confirmation form comes up prefilled
+
 - id: global-undo-created-draft
   prompt: |-
     Create a draft Postgres resource at `u/admin/scratch_db` for host db.example.com port 5432, database `orders`, user `app`, and tell me what fields it ended up with.

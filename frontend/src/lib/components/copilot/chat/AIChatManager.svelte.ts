@@ -23,6 +23,7 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayMessage,
 	type UserQuestionDisplay,
+	type RunFormDisplay,
 	type ChatJob,
 	type ChatJobInit,
 	type ChatJobStatus,
@@ -682,6 +683,7 @@ export class AIChatManager {
 		{ resolve: (value: boolean) => void; toolName?: string }
 	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
+	private runFormCallbacks = new Map<string, (args: Record<string, any> | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
@@ -1785,6 +1787,67 @@ export class AIChatManager {
 		callback(choices)
 		this.userQuestionCallbacks.delete(toolId)
 		return true
+	}
+
+	requestRunArgs = (
+		toolId: string,
+		_form: RunFormDisplay
+	): Promise<Record<string, any> | undefined> => {
+		return new Promise((resolve) => {
+			this.runFormCallbacks.set(toolId, resolve)
+		})
+	}
+
+	// A form restored from history has no callback: the loop that opened it is gone.
+	isRunFormPending = (toolId: string): boolean => this.runFormCallbacks.has(toolId)
+
+	/** False when the form is no longer pending, so the caller can say so instead of
+	 * leaving its submit button spinning on a run that will never start. */
+	handleRunFormSubmit = (toolId: string, args: Record<string, any>): boolean => {
+		const callback = this.runFormCallbacks.get(toolId)
+		if (!callback) {
+			return false
+		}
+		// Only the flag: the card's `parameters` already records what ran, and a second
+		// copy of the arguments in the transcript is one more place a file argument's
+		// base64 lands in IndexedDB.
+		this.#patchRunForm(toolId, { submitted: true })
+		callback(args)
+		this.runFormCallbacks.delete(toolId)
+		return true
+	}
+
+	handleRunFormCancel = (toolId: string) => {
+		const callback = this.runFormCallbacks.get(toolId)
+		// Settled here rather than only in the tool's fn, which a form restored from
+		// history no longer has: Cancel is that card's one way out, and while it stays
+		// active the whole session reads as needs-confirmation (getSessionChatStatus
+		// asks pendingUserAction before loading). Clearing isLoading is part of
+		// settling — canceled alone unmounts the form but leaves the card shimmering.
+		this.displayMessages = this.displayMessages.map((message) =>
+			message.role === 'tool' && message.tool_call_id === toolId && message.runForm
+				? {
+						...message,
+						isLoading: false,
+						error: 'Cancelled by user',
+						content: `Run of "${message.runForm.path}" cancelled by user`,
+						runForm: { ...message.runForm, canceled: true }
+					}
+				: message
+		)
+		if (!callback) {
+			return
+		}
+		callback(undefined)
+		this.runFormCallbacks.delete(toolId)
+	}
+
+	#patchRunForm = (toolId: string, patch: Partial<RunFormDisplay>) => {
+		this.displayMessages = this.displayMessages.map((message) =>
+			message.role === 'tool' && message.tool_call_id === toolId && message.runForm
+				? { ...message, runForm: { ...message.runForm, ...patch } }
+				: message
+		)
 	}
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
@@ -3698,6 +3761,7 @@ export class AIChatManager {
 					isPlanModeActive: () => this.planModeActive,
 					onToolBlockedByPlanMode: this.planMode.noteBlockedTool,
 					requestUserQuestion: this.requestUserQuestion,
+					requestRunArgs: this.requestRunArgs,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
 					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),
@@ -3954,6 +4018,10 @@ export class AIChatManager {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
+		for (const resolveRunArgs of this.runFormCallbacks.values()) {
+			resolveRunArgs(undefined)
+		}
+		this.runFormCallbacks.clear()
 		const cancelReason = reason ?? USER_CANCEL_REASON
 		console.log('cancelling request:', {
 			reason: cancelReason,
@@ -4523,6 +4591,9 @@ export class AIChatManager {
 	): DisplayMessage[] =>
 		messages.map((message) => {
 			if (message.role === 'tool' && (message.isLoading || message.isQueued)) {
+				// Stopping the turn does not stop the job: once the form was submitted the
+				// script is running for real, so the card must not claim it was canceled.
+				const ranAlready = message.runForm?.submitted === true
 				return {
 					...message,
 					isLoading: false,
@@ -4532,15 +4603,22 @@ export class AIChatManager {
 					// and a card that hides its result as still-streaming.
 					needsConfirmation: false,
 					isStreamingArguments: false,
-					// A question's card disappears once canceled, so keep the question
-					// itself readable in the collapsed header.
+					// An interactive card disappears once canceled, so keep what it was
+					// asking readable in the collapsed header.
 					content: message.userQuestion
 						? `Asked: ${message.userQuestion.question} — ${messageText}`
-						: messageText,
-					error: messageText,
+						: message.runForm
+							? ranAlready
+								? `Run ${message.runForm.path} — started, stopped tracking before it finished`
+								: `Run ${message.runForm.path} — ${messageText}`
+							: messageText,
+					// A started run keeps whatever the job reported: it is not this turn's
+					// error, and the jobs tray is still following it.
+					...(ranAlready ? {} : { error: messageText }),
 					userQuestion: message.userQuestion
 						? { ...message.userQuestion, canceled: true }
-						: undefined
+						: undefined,
+					runForm: message.runForm ? { ...message.runForm, canceled: !ranAlready } : undefined
 				}
 			}
 			return message

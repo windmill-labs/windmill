@@ -47,6 +47,8 @@ import {
 	STARTER_RUNNABLE_KEY,
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
+import { conformArgsToSchema, redactSecretArgs, stripSecretArgs } from '$lib/components/job_args'
+import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
@@ -120,6 +122,7 @@ import {
 	isHubPath,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
+	type RunFormDisplay,
 	type Tool,
 	type ToolCallbacks,
 	type ToolDisplayAction
@@ -893,6 +896,18 @@ const testRunScriptToolDef = createToolDef(
 	{ strict: false }
 )
 
+const runScriptSchema = z.object({
+	path: z.string().describe('Workspace path of the deployed script to run.'),
+	args: testRunArgsSchema
+})
+
+const runScriptToolDef = createToolDef(
+	runScriptSchema,
+	'run_script',
+	"Run a DEPLOYED script for real, under the user's own permissions. The user always gets an argument form prefilled with `args` and decides what actually runs, so fill in every argument you can infer rather than leaving the form empty. Use this when the user asks to run or execute something; use test_run_script instead to try out a script you are writing.",
+	{ strict: false }
+)
+
 const testRunFlowSchema = z.object({
 	path: z.string().describe('Workspace path of the flow to test.'),
 	args: testRunArgsSchema,
@@ -1322,7 +1337,11 @@ ${pipelineBullet}
 			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
 - For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
-- runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
+- ${
+		previewTools
+			? 'To run a DEPLOYED script for real (the user asks to run/execute something that already exists), use run_script: it shows them an argument form prefilled with what you pass, and they submit it. Fill in every argument you can infer from the conversation — an empty form makes them do the work. runScriptByPath and runFlowByPath from the API catalog also run the deployed item, but without a form: reach for them only for a flow, or when the user explicitly asks for a deployed run you cannot route through run_script — for those, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs)'
+			: 'runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs)'
+	}. To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
@@ -3646,6 +3665,19 @@ export const globalTools: Tool<{}>[] = [
 		autoCollapseDetails: false
 	},
 	{
+		def: runScriptToolDef,
+		fn: async (ctx) => {
+			const parsed = runScriptSchema.parse(ctx.args)
+			return runDeployedScript(parsed, ctx)
+		},
+		// No requiresConfirmation: the argument form is the confirmation, and unlike a
+		// yes/no card it must not be auto-accepted away by YOLO.
+		streamingLabel: 'Preparing the run form...',
+		queuedLabel: (args) => `Run ${args?.path ?? 'a script'}`,
+		showDetails: true,
+		autoCollapseDetails: false
+	},
+	{
 		def: testRunFlowToolDef,
 		fn: async (ctx) => {
 			const parsed = testRunFlowSchema.parse(ctx.args)
@@ -4280,15 +4312,23 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'list_artifact_versions'
 ])
 
+// Withheld from the side-panel chat: the argument form is a blocking card, and
+// sessions are the only surface that renders one.
+const SESSION_ONLY_TOOL_NAMES = new Set(['run_script'])
+
 /**
  * The global tool set for a given chat: the full `globalTools` for a session
- * chat, or `globalTools` minus the session-only preview tools for the regular
- * global side-panel chat.
+ * chat, or `globalTools` minus the session-only tools for the regular global
+ * side-panel chat.
  */
 export function globalToolsFor({ sessionPreview }: { sessionPreview: boolean }): Tool<{}>[] {
 	const tools = sessionPreview
 		? globalTools
-		: globalTools.filter((t) => !SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name))
+		: globalTools.filter(
+				(t) =>
+					!SESSION_PREVIEW_TOOL_NAMES.has(t.def.function.name) &&
+					!SESSION_ONLY_TOOL_NAMES.has(t.def.function.name)
+			)
 	// DOM capture re-renders the app through the engine's SVG-image path, which is
 	// only faithful on Blink — Gecko/WebKit shift text spacing and wrapping (font
 	// fallback, sub-pixel rounding). Elsewhere the tool is withheld entirely and
@@ -5394,6 +5434,102 @@ async function testRunScriptByPath(
 		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 		label: args.path
 	})
+}
+
+/** The "do not call again" half is load-bearing: without it the model re-proposes the
+ * call, which re-opens the form the user just dismissed, and Stop becomes their only
+ * way out. */
+const RUN_FORM_CANCELLED =
+	'The user cancelled the run form. The script did NOT run. Do not call run_script again unless the user asks for it.'
+
+/** The model only needs to see what the user changed, and a form can carry a base64
+ * file argument — unbounded, this would eat the window with one attachment. */
+const MAX_SUBMITTED_ARGS_LENGTH = 4000
+
+async function runDeployedScript(
+	args: z.infer<typeof runScriptSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	if (!toolCallbacks.requestRunArgs) {
+		return 'This chat cannot show a run form, so a deployed script cannot be run from here.'
+	}
+
+	// No getDraft: this runs the script as it is live, so the form has to offer the
+	// inputs the live version accepts and not a draft's.
+	const script = await ScriptService.getScriptByPath({ workspace, path: args.path })
+	const schema = (script.schema as Record<string, any>) ?? {}
+	const conformed = conformArgsToSchema(normalizeTestRunArgs(args.args), schema)
+	// A secret the model picked is not consent, whatever it holds: a literal is a value
+	// the user never chose, a reference names something the card cannot show them.
+	const proposed = stripSecretArgs(conformed.args, schema as any)
+	const form: RunFormDisplay = {
+		path: args.path,
+		summary: script.summary || undefined,
+		schema,
+		args: proposed,
+		droppedKeys: conformed.droppedKeys.length ? conformed.droppedKeys : undefined
+	}
+
+	toolCallbacks.setToolStatus(toolId, {
+		content: `Waiting for you to confirm the arguments of "${args.path}"`,
+		runForm: form,
+		isLoading: true
+	})
+
+	const submitted = await toolCallbacks.requestRunArgs(toolId, form)
+	if (!submitted) {
+		toolCallbacks.setToolStatus(toolId, {
+			content: `Run of "${args.path}" cancelled by user`,
+			isLoading: false,
+			isStreamingArguments: false,
+			error: 'Cancelled by user',
+			declinedByUser: true
+		})
+		return RUN_FORM_CANCELLED
+	}
+
+	// processToolCall re-gates plan mode after a standard confirmation, because it can be
+	// entered while a card is pending. This form is its own confirmation and never reaches
+	// that gate, so it repeats it here.
+	if (toolCallbacks.isPlanModeActive?.()) {
+		toolCallbacks.onToolBlockedByPlanMode?.()
+		toolCallbacks.setToolStatus(toolId, {
+			content: PLAN_MODE_MESSAGES.blockedLabel,
+			isLoading: false,
+			isStreamingArguments: false,
+			error: PLAN_MODE_MESSAGES.blockedResult,
+			blockedByPlanMode: true
+		})
+		return PLAN_MODE_MESSAGES.blockedResult
+	}
+
+	// The card's details pane must show what ran, not what was proposed.
+	toolCallbacks.setToolStatus(toolId, { parameters: submitted })
+
+	const outcome = await executeTestRun({
+		jobStarter: () =>
+			JobService.runScriptByPath({ workspace, path: args.path, requestBody: submitted }),
+		workspace,
+		toolCallbacks,
+		toolId,
+		startMessage: `Running "${args.path}"...`,
+		contextName: 'script',
+		actionNoun: 'run',
+		label: args.path
+	})
+
+	const dropped = conformed.droppedKeys.length
+		? `\nThe deployed schema declares no ${conformed.droppedKeys.join(', ')}, so the form never offered ${conformed.droppedKeys.length > 1 ? 'them' : 'it'} and the run did not carry ${conformed.droppedKeys.length > 1 ? 'them' : 'it'}.`
+		: ''
+	// Redacted: a variable path is enough to run a job on a value the model cannot read,
+	// and one shown a path proposes it back on the next call.
+	const submittedJson = JSON.stringify(redactSecretArgs(submitted, schema as any))
+	const shown =
+		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH
+			? submittedJson.slice(0, MAX_SUBMITTED_ARGS_LENGTH) + '... (truncated)'
+			: submittedJson
+	return `Ran with arguments: ${shown}${dropped}\n${outcome}`
 }
 
 async function testRunFlowByPath(
