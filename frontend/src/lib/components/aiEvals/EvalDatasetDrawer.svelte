@@ -138,11 +138,12 @@
 		creating = true
 		try {
 			const created = path
+			const submittedSummary = summary || undefined
 			await AiEvalsService.createEvalDataset({
 				workspace,
 				requestBody: {
 					path: created,
-					summary: summary || undefined,
+					summary: submittedSummary,
 					// What was written for it while it was being named: the dataset arrives holding it
 					// rather than being created empty and then edited to hold what was already chosen.
 					scorers: pendingScorers,
@@ -192,6 +193,9 @@
 		if (!workspace || !datasetPath || !dataset || !path || pathError) return
 		// Before anything reads the list: a cell still open is an edit that must go in with it.
 		casesGrid?.flush()
+		// Read once, so every step of the save agrees on what was submitted: the fields are locked
+		// while it runs, and the one the drawer navigates to afterwards must be the one written.
+		const submitted = { path, summary: summary || undefined }
 		saving = true
 		try {
 			await saveCases()
@@ -199,13 +203,13 @@
 				workspace,
 				path: datasetPath,
 				requestBody: {
-					path,
-					summary: summary || undefined,
+					path: submitted.path,
+					summary: submitted.summary,
 					scorers: dataset.scorers
 				}
 			})
 			await onCasesChanged()
-			await onRenamed(path)
+			await onRenamed(submitted.path)
 			// Everything the drawer holds is written, so saving is the whole of what it was opened
 			// for and it closes on that, as creating does. The next open seeds it from the dataset
 			// as it now stands rather than from what this one was left holding.
@@ -286,7 +290,11 @@
 			<!-- Keyed so the path field is seeded for the dataset it was opened for, rather than
 			     carrying the one before it. -->
 			{#key formGeneration}
-				<div class="flex flex-col gap-6">
+				<!-- Locked while the dataset is being written, for the same reason the cases are: what
+				     was submitted is what lands, and a name typed after the click would otherwise go
+				     without being saved — or worse, be the one the drawer navigates to. `inert` rather
+				     than each field's `disabled`, which `Path` owns as its own transient state. -->
+				<div class="flex flex-col gap-6" inert={writing}>
 					<Label label="Summary">
 						<TextInput
 							bind:value={summary}

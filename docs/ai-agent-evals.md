@@ -232,7 +232,8 @@ labelled `v24 + edits` executed. It comes from the resource's newest history ent
 resource itself does not carry its version.
 
 Nothing is saved by hand. The expensive artifact is the job, which `v2_job` already stores,
-permissions and retains; what a run adds is rows of scores pointing at jobs.
+permissions and retains; what a run adds is its own rows — one per case, carrying the answer, the
+outcome and each scorer's verdict, so the table survives the jobs' retention.
 
 ## Scoring
 
