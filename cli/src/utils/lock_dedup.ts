@@ -35,9 +35,9 @@ import {
  *
  * The CONTENT is a separate question, because a lock is not always a pure
  * function of its dependency file: a script can pin a Python version or carry an
- * `//npm` annotation, which the worker also locks. Locks say which it is — the
- * worker stamps the dependency inputs it resolved into each one — and
- * `depInputsOf` reads that stamp rather than guessing from head counts.
+ * `//npm` annotation, which the worker also locks. The stamp the worker writes
+ * into each lock says whether the dependency inputs changed, which is most of
+ * that question; scripts agreeing with each other answer the rest.
  *
  * Two cases are not shared at all and keep a `.script.lock` of their own: a
  * script whose annotation is `extra_` or carries inline dependencies (its lock
@@ -484,21 +484,27 @@ export function computeSharedLockPlan(
     const sharedRef = sharedLockPathFor(depFile);
     const sharedKey = toMapKey(sharedRef);
     const held = present[sharedRef];
-    // Whether a disagreement moves the file. The locks say why they differ:
-    // the worker stamps the dependency inputs it resolved into each one.
+    // Whether a disagreement moves the file, for three independent reasons.
     const heldInputs = held === undefined ? undefined : depInputsOf(held);
     const contentInputs = depInputsOf(content);
+    const inputsChanged =
+      heldInputs !== undefined && contentInputs !== undefined
+        ? // The worker stamps the dependency inputs it resolved into each lock:
+          // equal inputs with different bodies mean this script pinned something
+          // and the file is not its to move.
+          heldInputs !== contentInputs
+        : // Unstamped — a worker too old to say — so fall back to what the sync
+          // itself observed about the dependency file.
+          movedDepFiles.has(depFile);
     const moves =
-      held === undefined || content === held
-        ? true
-        : heldInputs !== undefined && contentInputs !== undefined
-          ? // Both stamped: equal inputs mean this script pinned something and
-            // the file is not its to move; different inputs mean the file moved.
-            heldInputs !== contentInputs
-          : // Unstamped, so a worker too old to say. The dependency file having
-            // moved, or two scripts agreeing on something else, is the most that
-            // can be inferred.
-            movedDepFiles.has(depFile) || count >= 2;
+      held === undefined ||
+      content === held ||
+      // Scripts agreeing with each other and not with the file outrank it,
+      // whatever the stamps say: a dependency file can re-resolve without
+      // changing (an unpinned `requirements.in` picking up a new patch), and
+      // this is also what corrects a file some lone variant planted itself on.
+      count >= 2 ||
+      inputsChanged;
     const finalContent = moves ? content : held;
     if (map[sharedKey] !== finalContent) plan.writes[sharedKey] = finalContent;
     for (const entry of group) {

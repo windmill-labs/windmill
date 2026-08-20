@@ -318,6 +318,27 @@ describe("computeSharedLockPlan", () => {
     expect(bumped["f/a.script.lock"]).toBeUndefined();
   });
 
+  test("a dependency file that re-resolves without changing still moves", () => {
+    // An unpinned `requirements.in` picking up a new patch release: same stamp,
+    // new bodies. Read as variants, the whole group would fork to private locks.
+    const stamp = (body: string) =>
+      `# workspace-dependencies: default:aaa\n${body}`;
+    const map = workspace(PY_DEPS);
+    ownLock(map, "f/a", ".py", stamp(PY_LOCK_BUMPED));
+    ownLock(map, "f/b", ".py", stamp(PY_LOCK_BUMPED));
+
+    applySharedLockPlanToMap(
+      map,
+      computeSharedLockPlan(map, {
+        defaultTs: "bun",
+        present: { [SHARED_PY]: stamp(PY_LOCK) },
+      }),
+    );
+
+    expect(map[SHARED_PY]).toEqual(stamp(PY_LOCK_BUMPED));
+    expect(map["f/a.script.lock"]).toBeUndefined();
+  });
+
   test("the many correct a lockfile a lone script planted its variant on", () => {
     const map = workspace(PY_DEPS);
     ownLock(map, "f/a", ".py", PY_LOCK);
