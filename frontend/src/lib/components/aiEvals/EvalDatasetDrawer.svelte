@@ -93,6 +93,9 @@
 	export function openDrawer(next: 'new' | 'edit') {
 		mode = next
 		pathError = ''
+		// The grid is rebuilt per open and reports afresh; a cell left open when the drawer closed
+		// would otherwise leave Save live over a set nothing has changed.
+		casesEditing = false
 		// Cleared per open: what was collected for a dataset that was never created belongs to that
 		// attempt, not to the next one.
 		pendingScorers = []
