@@ -484,7 +484,6 @@ fn assemble_request_body(
         method,
         body_schema,
         body_field_renames,
-        body_fixed_fields,
         path_params_schema,
         query_params_schema,
         ..
@@ -535,7 +534,7 @@ fn assemble_request_body(
     // A null argument is how a client that must fill in every declared argument says
     // "no value". Forwarding it would reach a field the API declares as a bare
     // `String`, which rejects null outright rather than falling back to its default.
-    let mut body_map: serde_json::Map<String, Value> = props
+    let body_map: serde_json::Map<String, Value> = props
         .keys()
         .filter_map(|param_name| {
             args_map
@@ -550,16 +549,10 @@ fn assemble_request_body(
         .collect();
 
     if body_map.is_empty() {
-        return None;
+        None
+    } else {
+        Some(Value::Object(body_map))
     }
-
-    if let Some(Value::Object(fixed)) = body_fixed_fields {
-        for (key, value) in fixed {
-            body_map.insert(key.clone(), value.clone());
-        }
-    }
-
-    Some(Value::Object(body_map))
 }
 
 /// Scopes to embed in the JWT minted for a proxied MCP endpoint request. The MCP
@@ -866,7 +859,6 @@ mod tests {
             body_schema,
             query_field_renames: None,
             body_field_renames,
-            body_fixed_fields: None,
         }
     }
 
@@ -1032,30 +1024,33 @@ mod tests {
         );
     }
 
-    /// createScript must reach the API with `auto_parent`, which is what lets a caller
-    /// deploy to a path without knowing its lineage. Nothing in the tool schema can
-    /// carry it, so a caller can neither supply it nor a `parent_hash` in its place.
+    /// Neither script tool asks for a hash: `createScript` never has a parent, and
+    /// `updateScript` names the version it supersedes in its URL. A caller that must
+    /// fill in every declared argument has none to invent a value for, and the one it
+    /// invents anyway is not a field either tool declares, so it never reaches the API.
     #[test]
-    fn build_request_body_fixes_auto_parent_on_create_script() {
-        let tool = generated_tool("createScript");
-        assert!(
-            !tool.body_schema.as_ref().unwrap()["properties"]
+    fn script_tools_take_no_parent_hash() {
+        for name in ["createScript", "updateScript"] {
+            let tool = generated_tool(name);
+            let props = tool.body_schema.as_ref().unwrap()["properties"]
                 .as_object()
-                .unwrap()
-                .contains_key("parent_hash"),
-            "createScript must not ask for a parent_hash"
-        );
+                .unwrap();
+            assert!(
+                !props.contains_key("parent_hash"),
+                "{name} must not ask for a parent_hash"
+            );
+        }
 
         let body = build_request_body(
-            &tool,
+            &generated_tool("createScript"),
             &args_of(json!({
                 "path": "u/admin/s",
                 "summary": "s",
                 "content": "export async function main() {}",
                 "language": "bun",
-                // A client that must fill in every argument invents these two; both
-                // are rejected by the API when they reach it.
                 "parent_hash": "0000000000000000",
+                // A client that must fill in every argument says "no value" with null;
+                // forwarded, it would reach a field the API declares as a bare String.
                 "description": null,
             })),
         )
@@ -1063,9 +1058,34 @@ mod tests {
         .expect("createScript body should be built");
         let obj = body.as_object().unwrap();
 
-        assert_eq!(obj.get("auto_parent"), Some(&json!(true)));
         assert!(!obj.contains_key("parent_hash"));
         assert!(!obj.contains_key("description"));
+    }
+
+    /// The path an `updateScript` call omits is the one its URL already carries, so the
+    /// tool must not oblige an agent to restate it — a value that drifts from the URL's
+    /// moves the script instead of editing it.
+    #[test]
+    fn update_script_does_not_require_the_destination_path() {
+        let tool = generated_tool("updateScript");
+        let body_schema = tool.body_schema.as_ref().unwrap();
+        // Renamed off the URL's own `path` parameter, and mapped back on the way out.
+        assert!(
+            body_schema["properties"]
+                .as_object()
+                .unwrap()
+                .contains_key("path__body"),
+            "updateScript must still offer a destination path, which is what moves a script"
+        );
+        assert!(
+            !body_schema["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r == "path__body" || r == "path"),
+            "updateScript must not require the destination path, got: {}",
+            body_schema["required"]
+        );
     }
 
     #[test]

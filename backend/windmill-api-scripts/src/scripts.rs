@@ -107,6 +107,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_scripts))
         .route("/list_search", get(list_search_scripts))
         .route("/create", post(create_script))
+        .route("/update/{*path}", post(update_script))
         .route("/create_snapshot", post(create_snapshot_script))
         .route("/archive/p/{*path}", post(archive_script_by_path))
         .route("/get/p/{*path}", get(get_script_by_path))
@@ -648,6 +649,68 @@ async fn create_script(
     Query(query): Query<CreateScriptQuery>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
+    deploy_script(authed, user_db, webhook, db, w_id, query.skip_if_noop, ns).await
+}
+
+/// Deploy a new version of the script at `path`, which must already hold one.
+///
+/// The URL names the version being superseded, so the body needs no `parent_hash`: a
+/// caller that cannot read one (an MCP client, whose tool schema has no hash field)
+/// still gets a version chained onto the history rather than a fork of it. The body's
+/// own `path` is where the script should end up, defaulting to the URL's, and naming a
+/// different one moves the script there.
+async fn update_script(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<CreateScriptQuery>,
+    Json(mut body): Json<serde_json::Value>,
+) -> Result<(StatusCode, String)> {
+    let path = path.to_path();
+
+    // `NewScript` cannot express an optional path — the create route needs it — so the
+    // default is applied before deserializing rather than after.
+    let obj = body
+        .as_object_mut()
+        .ok_or_else(|| Error::BadRequest("the script body must be a JSON object".to_string()))?;
+    if !obj.get("path").is_some_and(|p| !p.is_null()) {
+        obj.insert("path".to_string(), serde_json::json!(path));
+    }
+    let mut ns: NewScript = serde_json::from_value(body)
+        .map_err(|e| Error::BadRequest(format!("could not parse the script: {e}")))?;
+
+    // Read outside the deploying transaction, so a version deployed in between leaves
+    // this one pointing at a superseded parent. `create_script_internal` refuses that
+    // rather than forking the lineage, which is the answer a caller can act on.
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let parent = sqlx::query_scalar::<_, i64>(
+        "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    ns.parent_hash = Some(ScriptHash(not_found_if_none(parent, "Script", path)?));
+    // Lineage comes from the URL; letting a body flag re-derive it from the destination
+    // path would turn a move into a copy.
+    ns.auto_parent = None;
+
+    deploy_script(authed, user_db, webhook, db, w_id, query.skip_if_noop, ns).await
+}
+
+async fn deploy_script(
+    authed: ApiAuthed,
+    user_db: UserDB,
+    webhook: WebhookShared,
+    db: DB,
+    w_id: String,
+    skip_if_noop: bool,
+    ns: NewScript,
+) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -670,7 +733,7 @@ async fn create_script(
         db.clone(),
         user_db,
         webhook,
-        query.skip_if_noop,
+        skip_if_noop,
     )
     .await?;
     tx.commit().await?;

@@ -899,7 +899,6 @@ mod tests {
             body_schema: None,
             query_field_renames: None,
             body_field_renames: None,
-            body_fixed_fields: None,
         }
     }
 

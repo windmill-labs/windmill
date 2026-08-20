@@ -23,18 +23,6 @@ pub struct EndpointTool {
     pub body_schema: Option<serde_json::Value>,
     pub query_field_renames: Option<serde_json::Value>,
     pub body_field_renames: Option<serde_json::Value>,
-    /// Body fields the MCP layer writes itself, absent from the tool schema so a caller
-    /// can neither see nor override them. Merged after the arguments, into a body that
-    /// is being sent anyway — they never make a body of their own, and never reach a
-    /// pass-through body, which is the runnable's own arguments and has no room for a
-    /// key of ours. `generate_mcp_tools.py` only accepts them on an endpoint whose
-    /// request body is required, so the call that would carry none is refused outright
-    /// rather than quietly losing them.
-    ///
-    /// Unserialized: `list_tools` publishes `EndpointTool` as the public tool catalogue,
-    /// which is the caller's view, and this is exactly what the caller has no say over.
-    #[serde(default, skip_serializing)]
-    pub body_fixed_fields: Option<serde_json::Value>,
 }
 
 /// True if this endpoint is safe to expose to a read-only token. Mirrors the
@@ -247,7 +235,6 @@ mod tests {
             body_schema: None,
             query_field_renames: None,
             body_field_renames: None,
-            body_fixed_fields: None,
         }
     }
 

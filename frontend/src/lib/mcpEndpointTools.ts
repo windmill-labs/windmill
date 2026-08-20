@@ -687,8 +687,8 @@ export const mcpEndpointTools: EndpointTool[] = [
     },
     {
         name: "createScript",
-        description: "create script: Creates a new script when the path does not already exist.\nCreates a new version of an existing script when called with the same path and either the current `parent_hash` or `auto_parent`",
-        instructions: "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. If the path is free, this creates the script; if a script already lives there, this deploys a new version of it, preserving the script's history, so do NOT delete and recreate a script to change it. Because an existing path is overwritten, read it first with getScriptByPath when you did not write its current content yourself.",
+        description: "create script: Creates a new script at a path that does not already hold one.\nDeploying a new version of an existing script is `POST /w/{workspace}/scripts/update/{path}`, which names the version being superseded in its URL; this route does it too when given that version's `parent_hash`",
+        instructions: "Creates a script at a path that is free. Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it.",
         path: "/w/{workspace}/scripts/create",
         method: "POST",
         pathParamsSchema: undefined,
@@ -733,6 +733,67 @@ export const mcpEndpointTools: EndpointTool[] = [
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
+    },
+    {
+        name: "updateScript",
+        description: "update script: Deploys a new version of the script at `path`, which must already hold one.\nThe URL names the version being superseded, so no `parent_hash` is needed. The\nbody's `path` is where the script should end up: omit it to keep the script\nwhere it is, or set it to move the script there, which archives the old path",
+        instructions: "Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one.",
+        path: "/w/{workspace}/scripts/update/{path}",
+        method: "POST",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+},
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "content": {
+                        "type": "string"
+                },
+                "language": {
+                        "type": "string",
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
+                },
+                "kind": {
+                        "type": "string",
+                        "description": "Possible values: script, failure, trigger, command, approval, preprocessor"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
+                }
+        },
+        "required": [
+                "summary",
+                "content",
+                "language"
+        ],
+        "minProperties": 1
+},
+        queryFieldRenames: undefined,
+        bodyFieldRenames: {
+        "path__body": "path"
+}
     },
     {
         name: "deleteScriptByHash",

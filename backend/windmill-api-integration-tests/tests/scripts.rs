@@ -479,6 +479,110 @@ async fn test_auto_parent_resolves_parent_hash(db: Pool<Postgres>) -> anyhow::Re
     Ok(())
 }
 
+/// The update route carries the version being superseded in its URL, so a caller that
+/// cannot read a `parent_hash` still chains onto the history instead of forking it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_update_script_chains_moves_and_refuses_a_free_path(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+    let path = "u/test-user/update_test";
+
+    // Nothing deployed there yet: an update has no version to supersede.
+    let resp = authed(client().post(format!("{base}/update/{path}")))
+        .json(&new_script(
+            path,
+            "v1",
+            "export async function main() { return 1; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404, "update of a free path must be refused");
+
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&new_script(
+            path,
+            "v1",
+            "export async function main() { return 1; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create v1: {}", resp.text().await?);
+    let v1_hash = authed_get(port, "get/p", path)
+        .await
+        .json::<serde_json::Value>()
+        .await?["hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // No body path: the script stays where it is, chained onto v1.
+    let mut v2 = new_script(path, "v2", "export async function main() { return 2; }");
+    v2.as_object_mut().unwrap().remove("path");
+    let resp = authed(client().post(format!("{base}/update/{path}")))
+        .json(&v2)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "update in place: {}",
+        resp.text().await?
+    );
+
+    let body = authed_get(port, "get/p", path)
+        .await
+        .json::<serde_json::Value>()
+        .await?;
+    assert_eq!(body["summary"], "v2");
+    let v2_hash = body["hash"].as_str().unwrap().to_string();
+    let parent_hashes = body["parent_hashes"].as_array().unwrap();
+    assert!(
+        parent_hashes.iter().any(|h| h.as_str() == Some(&v1_hash)),
+        "v2 must descend from v1 {v1_hash}, got: {parent_hashes:?}"
+    );
+
+    // A body path that differs moves the script, taking the history with it.
+    let moved_path = "u/test-user/update_test_moved";
+    let resp = authed(client().post(format!("{base}/update/{path}")))
+        .json(&new_script(
+            moved_path,
+            "v3",
+            "export async function main() { return 3; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "move: {}", resp.text().await?);
+
+    let body = authed_get(port, "get/p", moved_path)
+        .await
+        .json::<serde_json::Value>()
+        .await?;
+    assert_eq!(body["summary"], "v3");
+    let parent_hashes = body["parent_hashes"].as_array().unwrap();
+    assert!(
+        parent_hashes.iter().any(|h| h.as_str() == Some(&v2_hash)),
+        "the moved script must descend from v2 {v2_hash}, got: {parent_hashes:?}"
+    );
+    assert_eq!(
+        authed_get(port, "get/p", path)
+            .await
+            .json::<serde_json::Value>()
+            .await?["archived"],
+        json!(true),
+        "the vacated path must be left archived"
+    );
+
+    Ok(())
+}
+
 /// Regression test for GHSA-2ppx-66jv-wpw5: a path-scoped token must only see
 /// the scripts within its scope when listing, even though the route-level scope
 /// check only validates `domain:action`. Before the fix, `list_search` (and

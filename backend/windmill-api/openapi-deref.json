@@ -12768,10 +12768,10 @@
     "/w/{workspace}/scripts/create": {
       "post": {
         "summary": "create script",
-        "description": "Creates a new script when the path does not already exist.\nCreates a new version of an existing script when called with the same path and either the current `parent_hash` or `auto_parent`.\n",
+        "description": "Creates a new script at a path that does not already hold one.\nDeploying a new version of an existing script is `POST /w/{workspace}/scripts/update/{path}`, which names the version being superseded in its URL; this route does it too when given that version's `parent_hash`.\n",
         "operationId": "createScript",
         "x-mcp-tool": true,
-        "x-mcp-instructions": "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. If the path is free, this creates the script; if a script already lives there, this deploys a new version of it, preserving the script's history, so do NOT delete and recreate a script to change it. Because an existing path is overwritten, read it first with getScriptByPath when you did not write its current content yourself.",
+        "x-mcp-instructions": "Creates a script at a path that is free. Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it.",
         "x-mcp-tool-include-fields": [
           "path",
           "content",
@@ -12782,9 +12782,6 @@
           "tag",
           "deployment_message"
         ],
-        "x-mcp-tool-fixed-fields": {
-          "auto_parent": true
-        },
         "tags": [
           "script"
         ],
@@ -12816,6 +12813,62 @@
             }
           }
         }
+      }
+    },
+    "/w/{workspace}/scripts/update/{path}": {
+      "post": {
+        "summary": "update script",
+        "description": "Deploys a new version of the script at `path`, which must already hold one.\nThe URL names the version being superseded, so no `parent_hash` is needed. The\nbody's `path` is where the script should end up: omit it to keep the script\nwhere it is, or set it to move the script there, which archives the old path.\n",
+        "operationId": "updateScript",
+        "x-mcp-tool": true,
+        "x-mcp-instructions": "Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one.",
+        "x-mcp-tool-include-fields": [
+          "path",
+          "content",
+          "language",
+          "summary",
+          "description",
+          "kind",
+          "tag",
+          "deployment_message"
+        ],
+        "tags": [
+          "script"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "requestBody": {
+          "description": "The new version of the script. `path` defaults to the one in the URL.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewScript"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "new script version created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "x-mcp-tool-optional-fields": [
+          "path"
+        ]
       }
     },
     "/w/{workspace}/scripts/toggle_workspace_error_handler/p/{path}": {
