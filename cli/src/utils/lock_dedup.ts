@@ -34,11 +34,11 @@ import {
  * narrowed to a single script (the git-sync deploy callback) computes the same
  * NAME as a full one.
  *
- * The CONTENT is a separate question, because a lock is not always a pure
- * function of its dependency file: a script can pin a Python version or carry an
- * `//npm` annotation, which the worker also locks. The stamp the worker writes
- * into each lock says whether the dependency inputs changed, which is most of
- * that question; scripts agreeing with each other answer the rest.
+ * The CONTENT follows, because a group only ever holds scripts whose lock IS
+ * that file's lock: one carrying an annotation the worker acts on — a pinned
+ * interpreter, `npm`, `nobundling` — never joins, so there is no variant inside
+ * a group to tell apart from a bump. What is left is a script whose committed
+ * lock is simply behind, and the many outvote it.
  *
  * Two cases are not shared at all and keep a `.script.lock` of their own: a
  * script whose annotation is `extra_` or carries inline dependencies (its lock

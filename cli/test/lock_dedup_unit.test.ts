@@ -173,9 +173,12 @@ describe("computeSharedLockPlan", () => {
     ownLock(map, "f/pinned", ".py", OTHER_LOCK, "# py311\nimport requests");
     ownLock(map, "f/plain", ".py", PY_LOCK);
     ownLock(map, "f/plain2", ".py", PY_LOCK);
-    // Prose is not an annotation: a documented script still deduplicates.
-    ownLock(map, "f/doc", ".py", PY_LOCK, "# syncs users nightly\nimport requests");
+    // Only the names the worker matches count, so a documented script — or one
+    // with a `# TODO:` or a `# type: ignore` — still deduplicates.
+    ownLock(map, "f/doc", ".py", PY_LOCK, "# TODO: clean up\n# type: ignore\nimport requests");
+    // Both annotation forms the worker accepts: a bare name and `name=value`.
     ownLock(map, "f/npm", ".ts", "npm-lock", "//npm\nexport async function main() {}");
+    ownLock(map, "f/nb", ".ts", "nb-lock", "//nobundling=true\nexport async function main() {}");
     ownLock(map, "f/ts", ".ts", "bun-lock", "export async function main() {}");
     ownLock(map, "f/ts2", ".ts", "bun-lock", "export async function main() {}");
 
@@ -186,6 +189,7 @@ describe("computeSharedLockPlan", () => {
     expect(lockRefOf(map["f/doc.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
     expect(map[SHARED_BUN]).toEqual("bun-lock");
     expect(map["f/npm.script.lock"]).toEqual("npm-lock");
+    expect(map["f/nb.script.lock"]).toEqual("nb-lock");
   });
 
   test("a script whose lock is its own keeps a private lockfile", () => {

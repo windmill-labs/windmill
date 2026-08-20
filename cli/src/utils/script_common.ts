@@ -157,7 +157,7 @@ export function extractWorkspaceDepsAnnotation(
 }
 
 /** The comment marker each language's annotations are written behind. */
-const LANG_COMMENT_LIT: Partial<Record<ScriptLanguage, string>> = {
+export const LANG_COMMENT_LIT: Partial<Record<ScriptLanguage, string>> = {
   python3: "#",
   ansible: "#",
   powershell: "#",
@@ -170,41 +170,54 @@ const LANG_COMMENT_LIT: Partial<Record<ScriptLanguage, string>> = {
 };
 
 /**
- * Whether a script's leading comment block carries an annotation, i.e. anything
- * that is not prose and not the workspace-dependency selection.
+ * The annotations each language recognises, by the exact names the worker
+ * matches (`#[annotations(..)]` structs in windmill-common/src/worker.rs).
+ * Several change what it locks — a pinned interpreter, `npm`, `nobundling` —
+ * and the rest are cheap to treat the same way, since the only cost is that
+ * such a script keeps a lockfile of its own.
+ * for related places search: ADD_NEW_LANG
+ */
+const LANG_ANNOTATIONS: Partial<Record<ScriptLanguage, string[]>> = {
+  python3: [
+    "no_cache",
+    "no_postinstall",
+    "py_select_latest",
+    "skip_result_postprocessing",
+    "py310",
+    "py311",
+    "py312",
+    "py313",
+    "sandbox",
+  ],
+  bun: ["npm", "nodejs", "native", "nobundling", "sandbox"],
+  nativets: ["npm", "nodejs", "native", "nobundling", "sandbox"],
+  deno: ["npm", "nodejs", "native", "nobundling", "sandbox"],
+  go: ["go1_22_compat"],
+};
+
+/**
+ * Whether a script's leading comment block carries an annotation the worker
+ * acts on, which means its lock may not be its dependency file's.
  *
- * The worker reads that block for flags of its own — `# py311`, `# py: 3.11.11`,
- * `//npm`, `//nobundling`, `//native`, `# go1_22_compat` (the `#[annotations]`
- * structs in windmill-common) — and several of them change what it locks. A
- * script carrying one cannot stand for its dependency file's lock.
- *
- * Recognised by shape rather than by a list of names, so an annotation this CLI
- * has never heard of also disqualifies: a lone bare word, or `word: value`.
- * Prose ("# syncs users nightly") is several words and stays eligible, which is
- * what keeps ordinary documented scripts deduplicating.
+ * Matched the way the worker matches: the key is the line, or what precedes the
+ * first `=`, and it has to BE one of the names above. Unknown keys are ignored
+ * there and so here — which is what keeps `# TODO:` or `# type: ignore` from
+ * quietly dropping an ordinary documented script out of deduplication.
  */
 export function hasLockAffectingAnnotation(
   scriptContent: string,
   language: ScriptLanguage,
 ): boolean {
   const comment = LANG_COMMENT_LIT[language];
-  if (!comment) return true; // unknown language: assume it matters
-  const depsKeyword = LANG_ANNOTATION_CONFIG[language]?.keyword;
+  const names = LANG_ANNOTATIONS[language];
+  if (!comment || !names) return false;
   for (const line of scriptContent.split("\n")) {
     const trimmed = line.trim();
     if (trimmed === "") continue;
     if (!trimmed.startsWith(comment)) break; // past the header block
     const body = trimmed.slice(comment.length).trim();
-    if (body === "") continue;
-    if (
-      depsKeyword &&
-      new RegExp(`^(extra[_-])?${depsKeyword}\\s*:`).test(body)
-    ) {
-      continue; // the dependency selection is what puts it in the group
-    }
-    if (/^[a-z0-9_]+$/i.test(body) || /^[a-z0-9_]+\s*:/i.test(body)) {
-      return true;
-    }
+    const key = body.split("=")[0].trim();
+    if (names.includes(key)) return true;
   }
   return false;
 }

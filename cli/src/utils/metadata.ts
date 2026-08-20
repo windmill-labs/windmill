@@ -17,6 +17,7 @@ import {
   ScriptLanguage,
   workspaceDependenciesLanguages,
   languageNeedsLock,
+  LANG_COMMENT_LIT,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
 // Workspace-dependency vocabulary lives with the languages it describes; these
@@ -520,18 +521,6 @@ export async function updateScriptSchema(
 
 // Mirrors backend ScriptLang::as_comment_lit (windmill-types/src/scripts.rs)
 // for the languages that can reach the lock cache.
-const LANG_COMMENT_LIT: Partial<Record<ScriptLanguage, string>> = {
-  python3: "#",
-  ansible: "#",
-  powershell: "#",
-  bun: "//",
-  nativets: "//",
-  deno: "//",
-  go: "//",
-  php: "//",
-  rust: "//!",
-};
-
 /**
  * Returns the leading comment/blank-line block of the script, verbatim.
  *
