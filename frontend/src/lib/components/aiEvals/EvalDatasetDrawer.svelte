@@ -78,6 +78,9 @@
 	let removingCase = $state<CaseDraft | undefined>(undefined)
 	/** The grid, so an open cell can be committed before the list is read to write it. */
 	let casesGrid: EvalCasesGrid | undefined = $state()
+	/** A cell is open in the grid: an edit the list does not hold yet, so Save stays live for the
+	 *  press that commits it. */
+	let casesEditing = $state(false)
 
 	/** The next free `<agent>_datasetN`, which is what a dataset is called until it is named. */
 	function nextDatasetIndex(): number {
@@ -134,7 +137,7 @@
 	 *  know what is in it, so it is made for you here and renamed from this same drawer. */
 	async function createDataset() {
 		if (!workspace || !path || pathError) return
-		casesGrid?.flush()
+		await casesGrid?.flush()
 		creating = true
 		try {
 			const created = path
@@ -192,7 +195,7 @@
 	async function saveDataset() {
 		if (!workspace || !datasetPath || !dataset || !path || pathError) return
 		// Before anything reads the list: a cell still open is an edit that must go in with it.
-		casesGrid?.flush()
+		await casesGrid?.flush()
 		// Read once, so every step of the save agrees on what was submitted: the fields are locked
 		// while it runs, and the one the drawer navigates to afterwards must be the one written.
 		const submitted = { path, summary: summary || undefined }
@@ -361,6 +364,7 @@
 						bind:cases={workingCases}
 						onRemove={removeCase}
 						locked={writing}
+						bind:editing={casesEditing}
 					/>
 				</div>
 			</div>
@@ -371,7 +375,7 @@
 					unifiedSize="xs"
 					variant="accent"
 					loading={saving}
-					disabled={saving || !path || !!pathError || nothingToSave}
+					disabled={saving || !path || !!pathError || (nothingToSave && !casesEditing)}
 					onclick={saveDataset}
 				>
 					Save

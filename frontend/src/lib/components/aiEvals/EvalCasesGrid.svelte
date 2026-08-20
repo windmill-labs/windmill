@@ -12,7 +12,8 @@
 	let {
 		cases = $bindable(),
 		onRemove,
-		locked = false
+		locked = false,
+		editing = $bindable(false)
 	}: {
 		/** The drawer's working copy. Edits land here as they are made; the drawer writes them. */
 		cases: CaseDraft[]
@@ -21,6 +22,9 @@
 		/** The cases are being written. An edit made now would be one the request already left
 		 *  behind, and the drawer closes on the response, so it would go without being saved. */
 		locked?: boolean
+		/** A cell is open, holding an edit the list does not have yet. Reported up so Save can be
+		 *  pressed for it: the press is what commits the cell, so it has to reach a live button. */
+		editing?: boolean
 	} = $props()
 
 	type Row = { id: string; question: string; expected: string }
@@ -72,6 +76,8 @@
 					setExpected(target, e.newValue ?? '')
 				}
 			},
+			onCellEditingStarted: () => (editing = true),
+			onCellEditingStopped: () => (editing = false),
 			suppressColumnMoveAnimation: true,
 			suppressDragLeaveHidesColumns: true,
 			onGridReady: (e) => (api = e.api)
@@ -131,8 +137,12 @@
 	 * which is the whole point: a cell someone is still typing in when they press Save is an edit
 	 * they made, and an effect reacting to the save would run a microtask too late to catch it.
 	 */
-	export function flush() {
+	export async function flush() {
 		api?.stopEditing()
+		// The commit reaches `cases` through the grid's own event queue, which is a macrotask away:
+		// reading the list in the same turn — or after a microtask — reads it as it was before the
+		// cell was typed in, which is exactly the edit being saved.
+		await new Promise((resolve) => setTimeout(resolve, 0))
 	}
 </script>
 
