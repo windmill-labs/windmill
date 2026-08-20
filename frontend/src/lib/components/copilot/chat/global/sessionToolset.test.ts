@@ -98,6 +98,7 @@ describe('session tool policies', () => {
 		expect(sessionToolAllowed('write_script', readOnly)).toBe(false)
 		expect(sessionToolAllowed('write_variable', readOnly)).toBe(false)
 		expect(sessionToolAllowed('deploy_workspace_item', readOnly)).toBe(false)
+		expect(sessionToolAllowed('delete_workspace_item', readOnly)).toBe(true)
 		expect(sessionToolAllowed('test_run_script', readOnly)).toBe(false)
 		expect(sessionToolAllowed('exec_datatable_sql', readOnly)).toBe(false)
 		expect(sessionToolAllowed('list_workspace_items', readOnly)).toBe(true)
@@ -108,7 +109,7 @@ describe('session tool policies', () => {
 	// Relevance is the second axis: these need no capability, so `requires` alone
 	// would keep advertising them to a session that can never author anything.
 	it('drops authoring aids when drafts cannot be written', () => {
-		const readOnly = accessWith(['deploy', 'deploy_gated_kinds'])
+		const readOnly = accessWith(['deploy'])
 		expect(sessionToolAllowed('get_instructions', readOnly)).toBe(false)
 		expect(sessionToolAllowed('search_npm_packages', readOnly)).toBe(false)
 		expect(sessionToolAllowed('search_docs', readOnly)).toBe(true)
@@ -120,19 +121,18 @@ describe('session tool policies', () => {
 		expect(sessionToolAllowed('create_folder', accessWith(['write_draft', 'run_preview']))).toBe(
 			false
 		)
-		expect(
-			sessionToolAllowed('create_folder', accessWith(['write_draft', 'deploy_gated_kinds']))
-		).toBe(true)
-		expect(sessionToolAllowed('create_folder', accessWith(['deploy_gated_kinds']))).toBe(false)
+		expect(sessionToolAllowed('create_folder', accessWith(['write_draft', 'deploy']))).toBe(true)
+		expect(sessionToolAllowed('create_folder', accessWith(['deploy']))).toBe(false)
 	})
 
-	// Collapsing the two deploy capabilities back into one would silently block the
-	// schedule and trigger deploys the server accepts.
-	it('keeps the deploy tools but not create_folder under a direct-deployment lock', () => {
-		const locked = accessWith(['write_draft', 'run_preview', 'deploy'])
-		expect(sessionToolAllowed('deploy_workspace_item', locked)).toBe(true)
-		expect(sessionToolAllowed('delete_workspace_item', locked)).toBe(true)
-		expect(sessionToolAllowed('create_folder', locked)).toBe(false)
+	// Schedules and triggers reach no deploy rule, so a workspace that refuses this user's
+	// deploys still accepts those two kinds. Gating the kind-taking tools on `deploy` would
+	// withhold operations the server performs.
+	it('keeps the deploy tools when only the gated kinds are refused', () => {
+		const noDeploy = accessWith(['write_draft', 'run_preview'])
+		expect(sessionToolAllowed('deploy_workspace_item', noDeploy)).toBe(true)
+		expect(sessionToolAllowed('delete_workspace_item', noDeploy)).toBe(true)
+		expect(sessionToolAllowed('create_folder', noDeploy)).toBe(false)
 	})
 
 	// Drafts must stay cleanable after a role change.
@@ -160,9 +160,8 @@ describe('session tool policies', () => {
 		['read-only', [], true],
 		['drafts, no deploy', ['write_draft', 'run_preview'], true],
 		['drafts only', ['write_draft'], true],
-		['direct-deployment lock', ['write_draft', 'run_preview', 'deploy'], true],
-		['drafts, no preview', ['write_draft', 'deploy', 'deploy_gated_kinds'], false],
-		['deploy, no drafts', ['deploy', 'deploy_gated_kinds'], false]
+		['drafts, no preview', ['write_draft', 'deploy'], false],
+		['deploy, no drafts', ['deploy'], false]
 	] as [string, SessionCapability[], boolean][])(
 		'never names a withheld tool in the assembled prompt (%s)',
 		(_label, capabilities, reachable) => {
@@ -215,10 +214,10 @@ describe('session tool policies', () => {
 	it('treats write_draft and deploy as independent', () => {
 		const draftsOnly = accessWith(['write_draft'])
 		expect(sessionToolAllowed('write_script', draftsOnly)).toBe(true)
-		expect(sessionToolAllowed('deploy_workspace_item', draftsOnly)).toBe(false)
+		expect(sessionToolAllowed('create_folder', draftsOnly)).toBe(false)
 
-		const deployOnly = accessWith(['deploy', 'deploy_gated_kinds'])
+		const deployOnly = accessWith(['deploy'])
 		expect(sessionToolAllowed('write_script', deployOnly)).toBe(false)
-		expect(sessionToolAllowed('deploy_workspace_item', deployOnly)).toBe(true)
+		expect(sessionToolAllowed('create_folder', deployOnly)).toBe(false)
 	})
 })

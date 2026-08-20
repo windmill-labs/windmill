@@ -11,11 +11,10 @@ import { checkDeployPermission } from '$lib/utils_workspace_deploy'
 export type SessionCapability =
 	| 'write_draft'
 	| 'run_preview'
-	/** May deploy at least something. */
+	/** May deploy the kinds `check_deploy_rules` gates. There is no capability for the
+	 * rest — schedules and triggers reach no rule (`kindGatedByDeployRules`), so every
+	 * user may deploy those and a capability for them would always be present. */
 	| 'deploy'
-	/** May also deploy the kinds `check_deploy_rules` gates — everything but schedules
-	 * and triggers (`kindGatedByDeployRules`), which no rule covers. */
-	| 'deploy_gated_kinds'
 
 export type SessionAccess = {
 	/** The workspace these capabilities were resolved against — a session targets its
@@ -24,12 +23,7 @@ export type SessionAccess = {
 	capabilities: ReadonlySet<SessionCapability>
 }
 
-const ALL_CAPABILITIES: SessionCapability[] = [
-	'write_draft',
-	'run_preview',
-	'deploy',
-	'deploy_gated_kinds'
-]
+const ALL_CAPABILITIES: SessionCapability[] = ['write_draft', 'run_preview', 'deploy']
 
 /** Fail open, here and at every resolution failure below: blanking a toolset on a
  * transient error tells a developer mid-session that they cannot author anything,
@@ -68,14 +62,11 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 		capabilities.add('run_preview')
 	}
 
-	// `checkDeployPermission` is the whole gate; its verdict splits the way
-	// `deployPermissionForKind` does — a direct-deployment lock refuses only the gated
-	// kinds, every other refusal covers all of them.
-	const deploy = await checkDeployPermission(workspace, me)
-	if (deploy.ok) {
-		capabilities.add('deploy')
-		capabilities.add('deploy_gated_kinds')
-	} else if (deploy.refusedBy === 'DisableDirectDeployment') {
+	// `checkDeployPermission` is the whole gate for the gated kinds. Its refusals are
+	// per-workspace, but every one of them — operator included — is enforced server-side
+	// only where `check_deploy_rules` or the item handler runs, so none of them reaches a
+	// schedule or a trigger. Hence one capability, covering the gated kinds alone.
+	if ((await checkDeployPermission(workspace, me)).ok) {
 		capabilities.add('deploy')
 	}
 

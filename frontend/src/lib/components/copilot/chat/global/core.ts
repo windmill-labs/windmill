@@ -1222,10 +1222,11 @@ const buildGlobalSystemPrompt = (
 	// SESSION_TOOL_POLICIES, so a rule cannot outlive the tool it describes. An
 	// unresolved profile keeps every block.
 	const canWriteDraft = !access || access.capabilities.has('write_draft')
-	const canDeploy = !access || access.capabilities.has('deploy')
 	const canRunPreview = !access || access.capabilities.has('run_preview')
-	// `create_folder` needs the stronger half — see SESSION_TOOL_POLICIES.
-	const canCreateFolder = !access || access.capabilities.has('deploy_gated_kinds')
+	// `deploy` covers only the kinds `check_deploy_rules` gates, and `create_folder` is
+	// the one tool here that names such a kind — the deploy tools take theirs as an
+	// argument, so they ship with the drafts they act on.
+	const canCreateFolder = !access || access.capabilities.has('deploy')
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
 	// line behind and a full-access prompt is byte-for-byte the ungated text.
 	const when = (cond: boolean, block: string) => (cond ? block : '')
@@ -1252,7 +1253,7 @@ The current user's workspace username is "${username}".
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: "Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create, edit or deploy anything here — this user's role does not allow it — so when they ask for a change, say plainly that you cannot make it rather than describing steps as if you had."
+		: "Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit anything here — this user's role does not allow it — so when they ask for a change, say plainly that you cannot make it rather than describing steps as if you had."
 }${when(
 		// Every line here is about choosing a path for something NEW, down to the folder
 		// guidance; with nothing to create, the whole block is context tax.
@@ -1277,20 +1278,17 @@ Rules:${when(
 	)}
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${when(
-		canDeploy,
+		canWriteDraft,
 		`
 - Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.`
 	)}${when(
 		canWriteDraft,
 		`
-- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft).${when(
-			canDeploy,
-			' Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.'
-		)}`
+- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.`
 	)}${when(
 		!canWriteDraft,
 		`
-- Discarding your OWN draft is the one change you can still make: if the user asks to drop or clean up a draft they left behind, use discard_local_draft. You cannot write or deploy one.`
+- Two changes are still open to you where the server allows them: discard_local_draft drops a draft this user left behind, and delete_workspace_item removes an item already deployed in the workspace. You cannot create or edit one.`
 	)}
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.${when(
 		canWriteDraft,
@@ -1311,7 +1309,7 @@ ${pipelineBullet}`
 - To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.${when(
-		canDeploy,
+		canWriteDraft,
 		`
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
 			previewTools
@@ -1319,12 +1317,9 @@ ${pipelineBullet}`
 				: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
 		}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.`
 	)}
-- For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools${when(
-		canWriteDraft || canDeploy,
-		` — use ${[canWriteDraft && 'the draft tools', canDeploy && 'delete_workspace_item']
-			.filter(Boolean)
-			.join(' and ')} instead`
-	)}.
+- For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools${` — use ${[canWriteDraft && 'the draft tools', 'delete_workspace_item']
+		.filter(Boolean)
+		.join(' and ')} instead`}.
 - runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs).${when(
 		canRunPreview && canWriteDraft,
 		' To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.'
@@ -1376,7 +1371,7 @@ Raw apps:
 - Use write_app_runnable and delete_app_runnable for backend runnables.
 - Use init_app only after confirming framework, path, and summary with the user.`
 	)}${when(
-		canDeploy,
+		canWriteDraft,
 		`
 - Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.`
 	)}
@@ -2290,14 +2285,15 @@ export function getSessionContextPromptSection(
 	// profile rather than assume the gating happened upstream. Each branch keeps its
 	// "where work lands" fact either way.
 	const canDeploy = !access || access.capabilities.has('deploy')
-	const canDeployGatedKinds = !access || access.capabilities.has('deploy_gated_kinds')
 	const canWriteDraft = !access || access.capabilities.has('write_draft')
 	const canRunPreview = !access || access.capabilities.has('run_preview')
 	const targets = [
 		'reads',
 		canWriteDraft && 'drafts',
 		canRunPreview && 'test runs',
-		canDeploy && 'deploys'
+		// `deploy_workspace_item` ships with the draft tools: it deploys a draft, so a
+		// session that cannot write one has nothing to deploy.
+		canWriteDraft && 'deploys'
 	]
 		.filter(Boolean)
 		.join(', ')
@@ -2313,19 +2309,19 @@ export function getSessionContextPromptSection(
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". ${canDeploy ? 'deploy_workspace_item publishes' : 'Changes land'} into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". ${canWriteDraft ? 'deploy_workspace_item publishes' : 'Changes land'} into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.parentWorkspaceId) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. ${canDeploy ? 'deploy_workspace_item publishes' : 'Changes land'} into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. ${canWriteDraft ? 'deploy_workspace_item publishes' : 'Changes land'} into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.forkParentUnknown) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. ${canDeploy ? 'deploy_workspace_item publishes' : 'Changes land'} into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
+			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. ${canWriteDraft ? 'deploy_workspace_item publishes' : 'Changes land'} into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
 		)
 	} else if (ctx.workspaceId) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork.${canDeploy ? ' deploy_workspace_item publishes directly to everyone in it.' : ''}`
+			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork.${canWriteDraft ? ' deploy_workspace_item publishes directly to everyone in it.' : ''}`
 		)
 	} else {
 		lines.push(
@@ -2334,9 +2330,9 @@ export function getSessionContextPromptSection(
 	}
 	// Without this the model reads "deploys" among its targets with no way to know which
 	// kinds are refused, and keeps proposing script deploys that come back 403.
-	if (canDeploy && !canDeployGatedKinds) {
+	if (canWriteDraft && !canDeploy) {
 		lines.push(
-			'- Direct deployment is disabled in this workspace: only schedules and triggers can be deployed with deploy_workspace_item. Scripts, flows, apps, resources, variables and folders must be promoted from the session\'s deploy panel (fork or pull request) — do not offer to deploy them.'
+			"- This workspace refuses direct deployment for this user, except for schedules and triggers — those are the only kinds deploy_workspace_item and delete_workspace_item can still act on. Scripts, flows, apps, resources and variables must be promoted from the session's deploy panel (fork or pull request); do not offer to deploy or delete them directly."
 		)
 	}
 	return lines.join('\n')

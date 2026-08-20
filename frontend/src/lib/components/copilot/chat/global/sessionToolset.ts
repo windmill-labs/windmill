@@ -17,7 +17,6 @@ export type SessionToolPolicy = {
 const NONE: SessionToolPolicy = { requires: [] }
 const AUTHORING_AID: SessionToolPolicy = { requires: [], relevance: 'authoring' }
 const WRITE_DRAFT: SessionToolPolicy = { requires: ['write_draft'] }
-const DEPLOY: SessionToolPolicy = { requires: ['deploy'] }
 const RUN_PREVIEW: SessionToolPolicy = { requires: ['run_preview'] }
 
 /**
@@ -94,7 +93,7 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	get_db_schema: AUTHORING_AID,
 	// `folder` is one of the gated kinds (folders.rs `create_folder` runs
 	// `check_deploy_rules`), and a folder is useless without something to put in it.
-	create_folder: { requires: ['deploy_gated_kinds'], relevance: 'authoring' },
+	create_folder: { requires: ['deploy'], relevance: 'authoring' },
 	// Ungated on purpose, for two reasons. Plan mode's deliverable is a plan artifact,
 	// which is worth producing for someone else to execute even when this user can
 	// change nothing themselves. And it is a posture the USER selects, so withholding
@@ -130,10 +129,11 @@ export const SESSION_TOOL_POLICIES: Record<string, SessionToolPolicy> = {
 	rebase_draft: WRITE_DRAFT,
 
 	// ── Deployed-object mutations ───────────────────────────────────────────
-	// The weaker capability on purpose: both take the kind as an argument, so a session
-	// that may deploy only the ungated kinds can still use them.
-	deploy_workspace_item: DEPLOY,
-	delete_workspace_item: DEPLOY,
+	// Neither requires `deploy`: both take the kind as an argument, and schedules and
+	// triggers reach no deploy rule, so no workspace refuses these outright. Deploying
+	// still needs a draft to deploy, which deleting does not.
+	deploy_workspace_item: AUTHORING_AID,
+	delete_workspace_item: NONE,
 
 	// ── Preview execution ───────────────────────────────────────────────────
 	test_run_script: RUN_PREVIEW,
