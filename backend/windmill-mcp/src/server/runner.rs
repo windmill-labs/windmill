@@ -607,12 +607,13 @@ impl<B: McpBackend> Runner<B> {
                 // including the run-by-path path check (shared with multi mode).
                 authorize_endpoint_call(scope_config, endpoint_tool, &args, read_only)?;
 
-                // This is an endpoint tool, call via backend
+                // This is an endpoint tool, call via backend. The backend's own error
+                // code is kept: a client that retries an internal error would loop on
+                // arguments the endpoint rejected.
                 let result = self
                     .backend
                     .call_endpoint(auth, workspace_id, endpoint_tool, args)
-                    .await
-                    .map_err(|e| ErrorData::internal_error(e.message, None))?;
+                    .await?;
 
                 return Ok(CallToolResult::success(vec![ContentBlock::text(
                     truncate_tool_result(
@@ -865,8 +866,7 @@ impl<B: McpBackend> Runner<B> {
         let result = self
             .backend
             .call_endpoint(&resolved_auth, &workspace_id, endpoint_tool, args)
-            .await
-            .map_err(|e| ErrorData::internal_error(e.message, None))?;
+            .await?;
 
         Ok(CallToolResult::success(vec![ContentBlock::text(
             truncate_tool_result(
