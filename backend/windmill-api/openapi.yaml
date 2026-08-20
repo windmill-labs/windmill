@@ -26102,6 +26102,10 @@ components:
           type: object
           description: JSON schema for request body
           nullable: true
+        body_constants:
+          type: object
+          description: Body fields the caller must send on top of the ones it assembles from body_schema, which does not describe them
+          nullable: true
 
     AIProvider:
       type: string

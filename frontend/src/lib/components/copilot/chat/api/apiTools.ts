@@ -4,6 +4,7 @@ import { get } from 'svelte/store'
 import { workspaceStore } from '$lib/stores'
 import type { EndpointTool } from '$lib/gen/types.gen'
 import { McpService } from '$lib/gen/services.gen'
+import { withBodyConstants } from './bodyConstants'
 
 function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionFunctionTool {
 	// Build the parameters schema for OpenAI function calling
@@ -74,20 +75,17 @@ function buildApiCallTool(endpointTool: EndpointTool): ChatCompletionFunctionToo
 
 function buildToolsFromEndpoints(endpointTools: EndpointTool[]): {
 	tools: ChatCompletionFunctionTool[]
-	endpointMap: Record<string, { method: string; path: string }>
+	endpointMap: Record<string, EndpointTool>
 } {
 	const tools: ChatCompletionFunctionTool[] = []
-	const endpointMap: Record<string, { method: string; path: string }> = {}
+	const endpointMap: Record<string, EndpointTool> = {}
 
 	for (const endpointTool of endpointTools) {
 		const tool = buildApiCallTool(endpointTool)
 		tools.push(tool)
 
 		// Store the endpoint info in the map
-		endpointMap[endpointTool.name] = {
-			method: endpointTool.method,
-			path: endpointTool.path
-		}
+		endpointMap[endpointTool.name] = endpointTool
 	}
 
 	return { tools, endpointMap }
@@ -95,7 +93,7 @@ function buildToolsFromEndpoints(endpointTools: EndpointTool[]): {
 
 export function createApiTools(
 	chatTools: ChatCompletionFunctionTool[],
-	endpointMap: Record<string, { method: string; path: string }> = {}
+	endpointMap: Record<string, EndpointTool> = {}
 ): Tool<{}>[] {
 	return chatTools.map((chatTool) => {
 		const toolName = chatTool.function.name
@@ -167,7 +165,7 @@ export function createApiTools(
 						fetchOptions.headers = {
 							'Content-Type': 'application/json'
 						}
-						fetchOptions.body = JSON.stringify(requestBody)
+						fetchOptions.body = JSON.stringify(withBodyConstants(endpoint, requestBody))
 					}
 
 					const response = await fetch(url, fetchOptions)

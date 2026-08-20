@@ -109,6 +109,9 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
             if param_required:
                 query_params_schema['required'].append(param_name)
     
+    if body_constants and not request_body:
+        raise ValueError("x-mcp-tool-body-constants needs a request body to set them on")
+
     # Process request body if present
     if request_body:
         body_schema = extract_request_body_schema(request_body, spec, base_path)

@@ -103,6 +103,23 @@ const CATALOG = [
 			type: 'object',
 			properties: { args: { type: 'object' } }
 		}
+	},
+	{
+		name: 'runScriptByPath',
+		description: 'Run script by path',
+		instructions: '',
+		path: '/w/{workspace}/jobs/run/p/{path}',
+		method: 'POST',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, path: { type: 'string' } },
+			required: ['workspace', 'path']
+		},
+		body_schema: {
+			type: 'object',
+			properties: { args: { type: 'object' } }
+		},
+		body_constants: { invisible_flag: true }
 	}
 ]
 
@@ -243,6 +260,24 @@ describe('call_api_endpoint', () => {
 			body: JSON.stringify({ args: { n: 1 } })
 		})
 		expect(result).toEqual({ success: true, data: 'job-id-1' })
+	})
+
+	it('sends the body fields the endpoint keeps out of its schema', async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			headers: new Headers({ 'content-type': 'text/plain' }),
+			text: async () => 'job-id-2'
+		})
+		vi.stubGlobal('fetch', fetchMock)
+		await run('call_api_endpoint', {
+			name: 'runScriptByPath',
+			params: { path: 'u/me/myscript' },
+			body: { args: { n: 1 } }
+		})
+		expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+			args: { n: 1 },
+			invisible_flag: true
+		})
 	})
 
 	it('redirects GET endpoints to call_api_get', async () => {

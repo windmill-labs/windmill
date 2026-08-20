@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { McpService, type EndpointTool } from '$lib/gen'
 import { createToolDef, type Tool } from '../shared'
+import { withBodyConstants } from '../api/bodyConstants'
 
 /**
  * Generic access to the backend's MCP endpoint catalog (the endpoints marked
@@ -195,7 +196,7 @@ async function executeEndpoint(
 	const fetchOptions: RequestInit = { method }
 	if (body !== undefined && method !== 'GET') {
 		fetchOptions.headers = { 'Content-Type': 'application/json' }
-		fetchOptions.body = JSON.stringify(body)
+		fetchOptions.body = JSON.stringify(withBodyConstants(endpoint, body))
 	}
 
 	const response = await fetch(url, fetchOptions)
