@@ -9,9 +9,12 @@
 	import { AiEvalsService, type EvalCase, type EvalDataset, type Scorer } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { summaryToName } from '$lib/utils'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
 	import { Plus, Trash2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
-	import EvalCaseEditor from './EvalCaseEditor.svelte'
 	import EvalScorers from './EvalScorers.svelte'
 	import { caseLabel, emptyCase, fromStoredCase, type CaseDraft } from './evalCaseUtils'
 	import { randomUUID } from '$lib/utils/uuid'
@@ -71,13 +74,35 @@
 	let workingCases = $state<CaseDraft[]>([])
 	let storedIds = $state<Set<string>>(new Set())
 
-	let selectedCaseId = $state<string | undefined>(undefined)
-	let caseDraft = $state<CaseDraft | undefined>(undefined)
-	// Bumped whenever `caseDraft` is replaced wholesale: the editor seeds local state from the
-	// draft, so it is keyed on this and remounts rather than carrying one case's edits into the
-	// next.
-	let draftGeneration = $state(0)
 	let removingCase = $state<CaseDraft | undefined>(undefined)
+
+	/** What is in an Expected cell while it is being typed, keyed by case. Held apart from the case
+	 *  because the text and the value are not the same thing: a half-written object parses as
+	 *  nothing, and reading the cell back off the value would rewrite it under the cursor. Only the
+	 *  cells that were touched are in here; the rest render from the case. */
+	let expectedDrafts = $state<Record<string, string>>({})
+
+	function expectedText(c: CaseDraft): string {
+		if (c.id != undefined && c.id in expectedDrafts) return expectedDrafts[c.id]
+		if (c.expected == undefined) return ''
+		return typeof c.expected === 'string' ? c.expected : JSON.stringify(c.expected, null, 2)
+	}
+
+	/** Text that parses as JSON is stored as JSON, so a structured answer can be written by hand
+	 *  rather than only produced by a run. */
+	function setExpected(c: CaseDraft, text: string) {
+		if (c.id != undefined) expectedDrafts[c.id] = text
+		const trimmed = text.trim()
+		if (!trimmed) {
+			c.expected = undefined
+			return
+		}
+		try {
+			c.expected = JSON.parse(text)
+		} catch {
+			c.expected = text
+		}
+	}
 
 	/** The next free `<agent>_datasetN`, which is what a dataset is called until it is named. */
 	function nextDatasetIndex(): number {
@@ -87,16 +112,13 @@
 		return index
 	}
 
-	/**
-	 * @param opts.caseId the case to open on, for an edit reached from a row of the table
-	 * @param opts.addCase start on a new, empty case
-	 */
-	export function openDrawer(next: 'new' | 'edit', opts?: { caseId?: string; addCase?: boolean }) {
+	export function openDrawer(next: 'new' | 'edit') {
 		mode = next
 		pathError = ''
 		// Cleared per open: what was collected for a dataset that was never created belongs to that
 		// attempt, not to the next one.
 		pendingScorers = []
+		expectedDrafts = {}
 		workingCases = next === 'edit' ? cases.map((c) => fromStoredCase(c) as CaseDraft) : []
 		storedIds = new Set(next === 'edit' ? cases.map((c) => c.id) : [])
 		if (next === 'edit') {
@@ -117,28 +139,8 @@
 			pathDirty = false
 		}
 		formGeneration += 1
-		selectCase(opts?.caseId)
 		drawer?.openDrawer()
-		if (opts?.addCase) addCase()
 	}
-
-	function selectCase(id: string | undefined) {
-		const found = id ? workingCases.find((c) => c.id === id) : undefined
-		selectedCaseId = found?.id
-		caseDraft = found
-		draftGeneration += 1
-	}
-
-	/** Edits land in the list as they are typed, so switching cases keeps them and Save writes
-	 *  them. In the list rather than on the server: nothing here has been asked for yet. */
-	$effect(() => {
-		const draft = caseDraft
-		if (!draft?.id) return
-		const id = draft.id
-		untrack(() => {
-			workingCases = workingCases.map((c) => (c.id === id ? draft : c))
-		})
-	})
 
 	/** The summary names the dataset, as it does a script: what it is for is the thing you know
 	 *  first, and a path derived from it beats one you have to invent. Until the path is typed in,
@@ -245,16 +247,23 @@
 	/** Adding a case puts a row in the list the drawer is holding. It reaches the dataset when the
 	 *  drawer is saved, like every other edit made here. */
 	function addCase() {
-		const draft = { ...emptyCase(), id: randomUUID() }
-		workingCases = [...workingCases, draft]
-		selectedCaseId = draft.id
-		caseDraft = draft
-		draftGeneration += 1
+		workingCases = [...workingCases, { ...emptyCase(), id: randomUUID() }]
 	}
 
 	function deleteCase(id: string) {
 		workingCases = workingCases.filter((c) => c.id !== id)
-		if (selectedCaseId === id) selectCase(undefined)
+		delete expectedDrafts[id]
+	}
+
+	/** A row the dataset has never been told about goes without being asked about: what the
+	 *  confirmation warns of is the runs that executed the case, and nothing has executed one that
+	 *  was added a moment ago. */
+	function removeCase(c: CaseDraft) {
+		if (c.id != undefined && !storedIds.has(c.id)) {
+			deleteCase(c.id)
+			return
+		}
+		removingCase = c
 	}
 
 	let metadataUnchanged = $derived(
@@ -345,85 +354,100 @@
 				bind:pending={pendingScorers}
 				onChanged={onScorersChanged}
 			/>
-			<!-- The list picks, the editor to its right fills in: a case is a handful of fields, and
-			     a list that expanded one of them in place would move every case under the reader.
-			     Written while naming a new dataset too: a case cannot be stored without one, so these
+			<!-- Written while naming a new dataset too: a case cannot be stored without one, so these
 			     are held in the drawer and created with it. -->
 			<div class="flex flex-col gap-2 grow min-h-0">
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-semibold text-emphasis">Cases</span>
 					<span class="text-2xs text-tertiary">{workingCases.length}</span>
 				</div>
-				<div class="flex gap-3 grow min-h-0">
-					<!-- Adding a case belongs to the list it lands in, so it is the last row of it: an
-					     empty list has nothing to append to and one thing to do, which goes where the
-					     rows would be. -->
-					<div class="w-60 shrink-0 overflow-auto border rounded-md flex flex-col">
-						{#if workingCases.length === 0}
-							<div
-								class="grow flex flex-col items-center justify-center gap-3 p-3 text-center text-2xs text-tertiary"
-							>
-								<span>
-									A case is a question this agent is asked, and what a good answer to it looks like.
-								</span>
-								<Button
-									size="xs"
-									variant="default"
-									startIcon={{ icon: Plus }}
-									disabled={mode === 'edit' && !datasetPath}
-									onclick={addCase}
-								>
-									Add a case
-								</Button>
-							</div>
-						{:else}
-							<div class="divide-y">
-								{#each workingCases as stored (stored.id)}
-									<div
-										class={`flex items-center gap-1 pr-1 ${stored.id === selectedCaseId ? 'bg-blue-50 dark:bg-blue-900/50' : 'hover:bg-surface-hover'}`}
-									>
-										<button
-											type="button"
-											class="grow min-w-0 text-left truncate px-2 py-1.5 text-xs text-emphasis"
-											onclick={() => selectCase(stored.id)}
-										>
-											{caseLabel(stored)}
-										</button>
+				<!-- The whole set on screen, edited where it is read: curating a dataset is comparing
+				     cases against each other, which a pane showing one at a time cannot be asked to do.
+				     The cells grow with what is typed, so a long question is not hidden behind a click.
+
+				     Adding a case belongs to the list it lands in, so it is the last row of it. -->
+				<div class="grow min-h-0 overflow-auto">
+					<DataTable size="sm" tableFixed>
+						<colgroup>
+							<col style="width: 50%" />
+							<col />
+							<col style="width: 2.5rem" />
+						</colgroup>
+						<Head>
+							<tr>
+								<Cell head first>Question</Cell>
+								<Cell head>Expected</Cell>
+								<Cell head last></Cell>
+							</tr>
+						</Head>
+						<tbody class="divide-y">
+							{#each workingCases as stored (stored.id)}
+								<tr>
+									<Cell first>
+										<TextInput
+											underlyingInputEl="textarea"
+											size="xs"
+											unifiedHeight={false}
+											class="min-h-7 max-h-40"
+											bind:value={
+												() => stored.input?.user_message ?? '',
+												(next) => (stored.input = { ...stored.input, user_message: next })
+											}
+											inputProps={{ placeholder: 'What the agent is asked' }}
+										/>
+										{#if (stored.input?.user_attachments ?? []).length > 0}
+											<div class="flex flex-wrap gap-1 mt-1">
+												{#each (stored.input?.user_attachments ?? []) as { s3?: string }[] as attachment, index (index)}
+													<Badge color="gray">{attachment.s3 ?? JSON.stringify(attachment)}</Badge>
+												{/each}
+											</div>
+										{/if}
+									</Cell>
+									<Cell>
+										<TextInput
+											underlyingInputEl="textarea"
+											size="xs"
+											unifiedHeight={false}
+											class="min-h-7 max-h-40"
+											bind:value={() => expectedText(stored), (next) => setExpected(stored, next)}
+											inputProps={{ placeholder: 'Optional' }}
+										/>
+									</Cell>
+									<Cell last>
 										<Button
 											size="xs2"
 											variant="subtle"
 											startIcon={{ icon: Trash2 }}
 											iconOnly
 											title="Delete this case"
-											on:click={() => (removingCase = stored)}
+											on:click={() => removeCase(stored)}
 										/>
-									</div>
-								{/each}
-							</div>
-							<button
-								type="button"
-								class="flex items-center gap-1.5 border-t px-2 py-1.5 text-xs text-secondary hover:bg-surface-hover disabled:opacity-50"
-								disabled={mode === 'edit' && !datasetPath}
-								onclick={addCase}
-							>
-								<Plus size={13} />
-								Add a case
-							</button>
-						{/if}
-					</div>
-					<div class="grow min-w-0 overflow-auto">
-						{#if caseDraft}
-							{#key draftGeneration}
-								<EvalCaseEditor bind:draft={caseDraft} />
-							{/key}
-						{:else}
-							<span class="text-xs text-tertiary">
-								{workingCases.length === 0
-									? 'Add a case to fill it in here.'
-									: 'Pick a case to edit it.'}
-							</span>
-						{/if}
-					</div>
+									</Cell>
+								</tr>
+							{/each}
+							{#if workingCases.length === 0}
+								<tr>
+									<td colspan="3" class="px-2 pt-3 text-center text-2xs text-tertiary">
+										A case is a question this agent is asked, and what a good answer to it looks
+										like.
+									</td>
+								</tr>
+							{/if}
+							<tr>
+								<td colspan="3" class="p-1">
+									<Button
+										size="xs"
+										variant="subtle"
+										startIcon={{ icon: Plus }}
+										disabled={mode === 'edit' && !datasetPath}
+										onclick={addCase}
+									>
+										Add a case
+									</Button>
+								</td>
+							</tr>
+						</tbody>
+					</DataTable>
 				</div>
 			</div>
 		</div>
