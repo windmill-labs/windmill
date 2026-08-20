@@ -82,6 +82,7 @@ vi.mock('$lib/gen', async () => {
 			runScriptPreview: vi.fn(async () => 'job-script-preview'),
 			runFlowPreview: vi.fn(async () => 'job-flow-preview'),
 			runFlowByPath: vi.fn(async () => 'job-flow-by-path'),
+			runScriptByPath: vi.fn(async () => 'job-script-by-path'),
 			getJob: vi.fn(async () => ({
 				type: 'CompletedJob',
 				success: true,
@@ -4633,6 +4634,187 @@ describe('global AI tools', () => {
 		})
 	})
 
+	// The form IS the consent, so a dismissed one must leave the script unrun.
+	it('run_script starts no job when the user cancels the form', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/deployed',
+			summary: 'Deployed',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const result = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/deployed', args: { name: 'Ada' } },
+			{ ...toolCallbacks, requestRunArgs: async () => undefined }
+		)
+
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(result).toContain('The user cancelled the run form')
+		expect(result).toContain('Do not call run_script again')
+	})
+
+	// The card is a consent surface: an argument it cannot show is an argument the user
+	// never approved, so the prefill is conformed to the schema before the form opens.
+	it('run_script drops a proposed argument the schema does not declare', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/noargs',
+			summary: 'Takes nothing',
+			schema: { properties: {} }
+		} as any)
+
+		let shown: Record<string, any> | undefined
+		let dropped: string[] | undefined
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/noargs', args: { force_delete: true } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						shown = form.args
+						dropped = form.droppedKeys
+						return form.args
+					}
+				}
+			)
+		)
+
+		expect(shown).toEqual({})
+		// Named on the card and to the model: a silent drop makes the user approve a run
+		// they think carries force_delete.
+		expect(dropped).toEqual(['force_delete'])
+		expect(result).toContain('force_delete')
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/noargs',
+			requestBody: {}
+		})
+	})
+
+	// A secret the model picked is not consent, and a result that echoed one back would let
+	// it propose the same value again on the next call.
+	it('run_script opens password fields empty and hides secrets from the model', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/rotate',
+			schema: {
+				properties: {
+					token: { type: 'string', password: true },
+					nested: {
+						type: 'object',
+						properties: { inner: { type: 'string', password: true } }
+					},
+					name: { type: 'string' }
+				}
+			}
+		} as any)
+
+		let shown: Record<string, any> | undefined
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{
+					path: 'f/scripts/rotate',
+					args: {
+						token: 'hunter2',
+						nested: { inner: '$var:u/ada/prod_api_key' },
+						name: 'ada'
+					}
+				},
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						shown = form.args
+						return { ...form.args, token: '$var:u/ada/secret_arg/typed' }
+					}
+				}
+			)
+		)
+
+		expect(shown).toEqual({ nested: {}, name: 'ada' })
+		expect(result).not.toContain('hunter2')
+		expect(result).not.toContain('secret_arg')
+		expect(result).not.toContain('prod_api_key')
+		expect(result).toContain('ada')
+	})
+
+	// The form is its own confirmation, so it never reaches processToolCall's second gate.
+	// Plan mode can be switched on while it sits open, and the job must not start.
+	it('run_script starts no job when plan mode is entered while the form is open', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/noargs',
+			schema: { properties: {} }
+		} as any)
+
+		let planning = false
+		const result = await callGlobalTool(
+			'run_script',
+			{ path: 'f/scripts/noargs', args: {} },
+			{
+				...toolCallbacks,
+				isPlanModeActive: () => planning,
+				requestRunArgs: async (_toolId, form) => {
+					planning = true
+					return form.args
+				}
+			}
+		)
+
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(result).toContain('plan mode is active')
+	})
+
+	it('run_script prefills a locked field with its default, not the proposed value', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/locked',
+			schema: {
+				properties: {
+					locked: { type: 'string', default: 'fixed', disabled: true },
+					other: { type: 'string' }
+				}
+			}
+		} as any)
+
+		let shown: Record<string, any> | undefined
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/locked', args: { locked: 'tampered', other: 'hello' } },
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => {
+						shown = form.args
+						return form.args
+					}
+				}
+			)
+		)
+
+		expect(shown).toEqual({ locked: 'fixed', other: 'hello' })
+	})
+
+	it('run_script runs the arguments the user submitted, not the ones proposed', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/greet',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/greet', args: { name: 'Ada' } },
+				{ ...toolCallbacks, requestRunArgs: async () => ({ name: 'Grace' }) }
+			)
+		)
+
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/greet',
+			requestBody: { name: 'Grace' }
+		})
+		// The model must not assume its proposal is what ran.
+		expect(result).toContain('Ran with arguments: {"name":"Grace"}')
+	})
+
 	it('test_run_step lists nested step ids when a step is not found', async () => {
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/nested-step-error',
@@ -5323,6 +5505,9 @@ describe('session-only preview tools gating', () => {
 		expect(names).not.toContain('list_app_runs')
 		expect(names).not.toContain('search_dom')
 		expect(names).not.toContain('read_dom')
+		// Withheld for its own reason: the side-panel chat cannot render the argument
+		// form the tool blocks on.
+		expect(names).not.toContain('run_script')
 		// other tools are still present
 		expect(names).toContain('write_script')
 	})
@@ -5335,6 +5520,7 @@ describe('session-only preview tools gating', () => {
 		expect(names).toContain('list_app_runs')
 		expect(names).toContain('search_dom')
 		expect(names).toContain('read_dom')
+		expect(names).toContain('run_script')
 		// The session set is the full globalTools minus capability-gated tools:
 		// this environment is not Chromium, so take_screenshot is withheld (DOM
 		// capture is only faithful on Blink). search_dom / read_dom are not gated.

@@ -24,7 +24,7 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()
-	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
+	import { isActiveRunForm, isActiveUserQuestion, type ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
@@ -37,6 +37,7 @@
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
+	import RunArgsFormDisplay from './RunArgsFormDisplay.svelte'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 
@@ -117,6 +118,8 @@
 		isActiveUserQuestion(message) ? message.userQuestion : undefined
 	)
 
+	const activeRunForm = $derived(isActiveRunForm(message) ? message.runForm : undefined)
+
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
 	const showPreviewChip = $derived(
@@ -128,6 +131,8 @@
 
 {#if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
+{:else if activeRunForm}
+	<RunArgsFormDisplay toolCallId={message.tool_call_id} runForm={activeRunForm} />
 {:else if message.blockedByPlanMode}
 	<!-- Not an error card: the call did what plan mode says it should. One flat row
 	     naming the refused tool, so "why can't it edit" is answered where it is asked. -->

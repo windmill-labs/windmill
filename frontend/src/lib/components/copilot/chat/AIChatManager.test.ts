@@ -226,6 +226,56 @@ describe('AIChatManager unmounted-chat guard', () => {
 	})
 })
 
+describe('AIChatManager run form', () => {
+	// A transcript can be persisted mid-turn (a background job's status write) and
+	// restored into a fresh manager, which has none of the turn's callbacks. Cancel is
+	// then the card's only exit, and until it settles pendingUserAction keeps the whole
+	// session reading as needs-confirmation.
+	it('settles a restored form whose callback is gone', async () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_r',
+				content: 'Waiting for you to confirm the arguments of "f/a/b"',
+				isLoading: true,
+				runForm: { path: 'f/a/b', schema: {}, args: {} }
+			}
+		]
+		expect(manager.isRunFormPending('call_r')).toBe(false)
+
+		manager.handleRunFormCancel('call_r')
+
+		const { pendingUserAction } = await import('./shared')
+		const settled = manager.displayMessages[0]
+		expect(settled.runForm?.canceled).toBe(true)
+		expect(settled.isLoading).toBe(false)
+		expect(pendingUserAction(manager.displayMessages)).toBe(undefined)
+	})
+
+	// Stop ends the turn, not the job: the deployed script is already running with all
+	// its side effects, so the transcript must not record it as cancelled.
+	it('does not mark a submitted run cancelled when the turn is stopped', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_s',
+				content: 'Running "f/a/b"...',
+				isLoading: true,
+				runForm: { path: 'f/a/b', schema: {}, args: {}, submitted: true }
+			}
+		]
+
+		manager.cancelLoadingTools()
+
+		const settled = manager.displayMessages[0]
+		expect(settled.runForm?.canceled).toBe(false)
+		expect(settled.error).toBe(undefined)
+		expect(settled.isLoading).toBe(false)
+	})
+})
+
 describe('AIChatManager.sendOrQueue', () => {
 	// The programmatic senders (an editor's "AI Fix", an arriving hand-off) have no
 	// composer to enforce the composer's rule for them: a second loop on one manager

@@ -945,6 +945,16 @@ describe('processToolCall', () => {
 				{ requestConfirmation: vi.fn().mockResolvedValue(false) }
 			)
 		).toEqual([['ai_chat', 'tool', 'run_script:declined']])
+		// A tool that runs its own consent surface (the run form) declines by settling
+		// the card, then returns normally — that must not read as a successful run.
+		expect(
+			await outcomeKeys({
+				fn: vi.fn(async ({ toolCallbacks, toolId }: any) => {
+					toolCallbacks.setToolStatus(toolId, { declinedByUser: true })
+					return 'cancelled'
+				})
+			})
+		).toEqual([['ai_chat', 'tool', 'run_script:declined']])
 		expect(await outcomeKeys({}, { isPlanModeActive: () => true })).toEqual([
 			['ai_chat', 'tool', 'run_script:blocked_plan_mode']
 		])
@@ -1272,6 +1282,28 @@ describe('isActiveUserQuestion', () => {
 	})
 })
 
+describe('isActiveRunForm', () => {
+	const runForm = { path: 'f/a/b', schema: {}, args: { name: 'ada' } }
+	function toolMessage(overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage {
+		return {
+			role: 'tool',
+			tool_call_id: 'call_r',
+			content: 'waiting for arguments',
+			isLoading: true,
+			runForm,
+			...overrides
+		}
+	}
+
+	// Either flag unmounts the card, so the loop must stop waiting on it.
+	it('is false once submitted or cancelled', async () => {
+		const { isActiveRunForm } = await import('./shared')
+		expect(isActiveRunForm(toolMessage())).toBe(true)
+		expect(isActiveRunForm(toolMessage({ runForm: { ...runForm, submitted: true } }))).toBe(false)
+		expect(isActiveRunForm(toolMessage({ runForm: { ...runForm, canceled: true } }))).toBe(false)
+	})
+})
+
 describe('pendingUserAction', () => {
 	const toolMessage = (overrides: Partial<ToolDisplayMessage> = {}): ToolDisplayMessage => ({
 		role: 'tool',
@@ -1287,6 +1319,15 @@ describe('pendingUserAction', () => {
 		const { pendingUserAction } = await import('./shared')
 		expect(pendingUserAction([question])).toBe('question')
 		expect(pendingUserAction([toolMessage({ needsConfirmation: true })])).toBe('confirmation')
+	})
+
+	// A run form asks for arguments rather than a yes/no, but it blocks the loop the
+	// same way, so the chat reports it as a confirmation.
+	it('reports an unsubmitted run form as a confirmation', async () => {
+		const { pendingUserAction } = await import('./shared')
+		expect(
+			pendingUserAction([toolMessage({ runForm: { path: 'f/a/b', schema: {}, args: {} } })])
+		).toBe('confirmation')
 	})
 
 	it('is undefined for a tool the AI is running on its own', async () => {
