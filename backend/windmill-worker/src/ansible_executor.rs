@@ -1599,7 +1599,7 @@ pub async fn handle_ansible_job(
                 ));
             };
 
-            let mut secret_url = git_repo_resource.get("url").and_then(|s| s.as_str()).map(|s| s.to_string())
+            let secret_url = git_repo_resource.get("url").and_then(|s| s.as_str()).map(|s| s.to_string())
                 .ok_or(anyhow!("Failed to get url from git repo resource, please check that the resource has the correct type (git_repository)"))?;
 
             #[cfg(feature = "enterprise")]
