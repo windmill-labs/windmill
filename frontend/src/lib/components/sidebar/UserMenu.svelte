@@ -104,7 +104,9 @@
 			</MenuItem>
 		</div>
 
-		{#if isCloudHosted()}
+		<!-- Both branches below assert a plan, so neither may render for an unresolved or
+		failed tier: `{:else}` would read `undefined` as paid and claim "Premium plan". -->
+		{#if isCloudHosted() && $isPremiumStore !== undefined}
 			<div class="border-t">
 				{#if $isPremiumStore === false}
 					<span class="text-secondary block w-full text-left px-4 py-2 text-xs">
