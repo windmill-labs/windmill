@@ -255,6 +255,12 @@ place would make a permanent run editable, and cells replaced one at a time unti
 are not evidence. The one thing read through the present is the pass line — `pass_if` is applied
 when a score is read, so moving it re-reads every run with no model call.
 
+The columns themselves are the dataset's current scorers, so the table stays comparable across the
+runs it lists rather than growing a column per run. Removing a scorer therefore takes its column
+off the runs already recorded as well: the rows it produced are not deleted, but nothing renders
+them, and adding the scorer back mints a new column that fills from the next run on. The removal
+asks first, and says that.
+
 **Not built, and worth building:**
 
 - **Rescoring stored answers.** A judge is edited far more often than an agent, and re-running the
