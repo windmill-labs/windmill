@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
 	collectAiAgentProviderRefs,
+	selectAiAgentProviderCandidates,
 	formatAiAgentProvidersPrompt,
 	validateAiAgentProviders,
 	type AiAgentProviderCatalog,
@@ -146,5 +147,60 @@ describe('collectAiAgentProviderRefs', () => {
 		expect(
 			collectAiAgentProviderRefs([{ id: 'a', value: { type: 'rawscript', content: '' } }])
 		).toEqual({ needsCatalog: false, resourceRefs: [] })
+	})
+})
+
+describe('an authoritative empty catalog', () => {
+	const NO_RESOURCES: AiAgentProviderCatalog = { options: [], resourcesAreComplete: true }
+
+	it('tells the model the workspace has none instead of staying silent', () => {
+		expect(formatAiAgentProvidersPrompt(NO_RESOURCES, { canAskUser: true })).toContain(
+			'This workspace has none'
+		)
+		// Not knowing the resources is not the same as knowing there are none.
+		expect(
+			formatAiAgentProvidersPrompt({ options: [], resourcesAreComplete: false }, { canAskUser: true })
+		).toBe('')
+	})
+
+	it('reports a provider that cannot resolve, without blocking the write', () => {
+		const warnings: string[] = []
+		expect(() =>
+			validateAiAgentProviders(anthropicProvider('claude-sonnet-5'), NO_RESOURCES, warnings)
+		).not.toThrow()
+		expect(warnings[0]).toMatch(/no AI provider resources/)
+	})
+})
+
+describe('selectAiAgentProviderCandidates', () => {
+	const isAi = (t: string) => t === 'anthropic' || t === 'openai'
+
+	it('keeps only resources the workspace itself lists', () => {
+		// getCopilotInfo falls back to the instance settings, whose resources live in `admins`; a
+		// $res: reference to one resolves in the flow's workspace and fails at run time.
+		expect(
+			selectAiAgentProviderCandidates(
+				[{ path: 'u/admin/anthropic', resource_type: 'anthropic' }],
+				new Set(['f/instance/shared_anthropic']),
+				'anthropic',
+				isAi
+			)
+		).toEqual([{ kind: 'anthropic', resourcePath: 'u/admin/anthropic' }])
+	})
+
+	it('offers the default provider first, then the configured ones', () => {
+		expect(
+			selectAiAgentProviderCandidates(
+				[
+					{ path: 'u/admin/zz_openai', resource_type: 'openai' },
+					{ path: 'u/admin/unconfigured', resource_type: 'anthropic' },
+					{ path: 'u/admin/aa_anthropic', resource_type: 'anthropic' },
+					{ path: 'u/admin/notes', resource_type: 'postgresql' }
+				],
+				new Set(['u/admin/zz_openai', 'u/admin/aa_anthropic']),
+				'anthropic',
+				isAi
+			).map((c) => c.resourcePath)
+		).toEqual(['u/admin/aa_anthropic', 'u/admin/zz_openai', 'u/admin/unconfigured'])
 	})
 })

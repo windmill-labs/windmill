@@ -62,7 +62,17 @@ export function formatAiAgentProvidersPrompt(
 	{ canAskUser }: { canAskUser: boolean }
 ): string {
 	if (catalog.options.length === 0) {
-		return ''
+		// "None listed" and "none exist" are different facts, and only the second is worth a line:
+		// an AI agent step cannot be written at all until someone creates a provider resource.
+		return catalog.resourcesAreComplete
+			? `## AI provider resources in this workspace
+
+This workspace has none, so an AI agent step has no model to run on. ${
+					canAskUser
+						? 'Ask the user to create an AI provider resource (Anthropic, OpenAI, ...) before writing one'
+						: 'Tell the user to create an AI provider resource (Anthropic, OpenAI, ...) before writing one'
+				}, rather than referencing a resource path that does not exist.`
+			: ''
 	}
 	// One resource plus a workspace default leaves nothing to decide. Anything else — several
 	// resources to choose between, or no default model — is the user's call, so it is put to them
@@ -82,6 +92,31 @@ An AI agent step's \`model\` must be one of the ids listed below for the resourc
 
 ${catalog.options.map(describeOption).join('\n')}${truncationLine}
 ${choiceLine}`
+}
+
+/**
+ * The workspace resources an AI agent step may reference, in the order the prompt should offer
+ * them: the workspace default's provider first, then the rest of what the AI settings configured.
+ *
+ * Only resources the workspace itself lists are candidates. `getCopilotInfo` falls back to the
+ * *instance* AI settings when a workspace configures none, and those resource paths live in the
+ * `admins` workspace — a `$res:` reference to one resolves against the flow's own workspace at run
+ * time and fails with "Resource not found", so offering it would be worse than offering nothing.
+ */
+export function selectAiAgentProviderCandidates(
+	listed: readonly { path: string; resource_type: string }[],
+	configuredPaths: ReadonlySet<string>,
+	defaultProviderKind: string | undefined,
+	isAiResourceType: (resourceType: string) => boolean
+): { kind: string; resourcePath: string }[] {
+	const candidates = listed
+		.filter((resource) => isAiResourceType(resource.resource_type))
+		.map((resource) => ({ kind: resource.resource_type, resourcePath: resource.path }))
+	const rank = (candidate: { kind: string; resourcePath: string }) => {
+		if (!configuredPaths.has(candidate.resourcePath)) return 2
+		return candidate.kind === defaultProviderKind ? 0 : 1
+	}
+	return candidates.sort((a, b) => rank(a) - rank(b) || a.resourcePath.localeCompare(b.resourcePath))
 }
 
 /** What a set of modules needs from the catalog: `needsCatalog` is false when no AI agent step
@@ -150,7 +185,12 @@ function checkProviderValue(
 		return blocking(`provider.model is missing. Expected ${PROVIDER_SHAPE}`)
 	}
 	if (catalog.options.length === 0) {
-		return undefined
+		return catalog.resourcesAreComplete
+			? {
+					message: `this workspace has no AI provider resources, so "${resource}" cannot resolve at run time`,
+					blocking: false
+				}
+			: undefined
 	}
 	const match = catalog.options.find((option) => option.resourceRef === resource)
 	if (!match) {

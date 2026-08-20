@@ -2,6 +2,7 @@ import { ResourceService, WorkspaceService, type AIConfig, type AIProvider } fro
 import { AI_PROVIDERS, fetchAvailableModels } from '../../lib'
 import {
 	collectAiAgentProviderRefs,
+	selectAiAgentProviderCandidates,
 	type AiAgentProviderCatalog,
 	type AiAgentProviderOption
 } from './aiAgentProviders'
@@ -23,11 +24,22 @@ const FILTERED_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set([
  * long tail of AI resources would otherwise stall every flow write. */
 const MAX_PROVIDER_RESOURCES = 8
 const MODELS_TIMEOUT_MS = 10_000
+
+/** Anthropic's model listing pages at 20 and `fetchAvailableModels` ignores `has_more`; the AI
+ * proxy routes on the path alone, so no caller can ask for more. A listing that fills a page may
+ * therefore be truncated, and only a shorter one is provably the whole set. */
+const SINGLE_PAGE_MODEL_COUNT = 20
 const CACHE_TTL_MS = 5 * 60_000
 
 const cache = new Map<string, { at: number; promise: Promise<AiAgentProviderCatalog> }>()
 
 const EMPTY_CATALOG: AiAgentProviderCatalog = { options: [], resourcesAreComplete: false }
+
+/** A reference the catalog does not know is either a resource created since it was built or an
+ * invented path. Only the first is worth a rebuild, and nothing distinguishes them up front, so
+ * the bypass is rate-limited: a model retrying an invented path re-reads at most this often. */
+const BYPASS_MIN_INTERVAL_MS = 30_000
+const lastBypassAt = new Map<string, number>()
 
 /**
  * AI provider resources of a workspace with the models each one serves, for
@@ -79,6 +91,11 @@ export async function getAiAgentProviderCatalogFor(
 	if (!unknown || !catalog.resourcesAreComplete || !workspace) {
 		return catalog
 	}
+	const bypassedAt = lastBypassAt.get(workspace)
+	if (bypassedAt !== undefined && Date.now() - bypassedAt < BYPASS_MIN_INTERVAL_MS) {
+		return catalog
+	}
+	lastBypassAt.set(workspace, Date.now())
 	cache.delete(workspace)
 	return getAiAgentProviderCatalog(workspace)
 }
@@ -109,31 +126,12 @@ async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
 		})
 	}
 
-	const candidates = resources
-		.filter((resource) => AI_RESOURCE_TYPES.includes(resource.resource_type as AIProvider))
-		.map((resource) => ({
-			kind: resource.resource_type as AIProvider,
-			resourcePath: resource.path
-		}))
-	// A resource selected in the AI settings but not readable through the list (another
-	// workspace's shared folder, a permission edge) still belongs in the catalog.
-	for (const [resourcePath, configured] of configuredByPath) {
-		if (!candidates.some((candidate) => candidate.resourcePath === resourcePath)) {
-			candidates.push({ kind: configured.kind, resourcePath })
-		}
-	}
-
-	const defaultProviderKind = aiConfig.default_model?.provider
-	const rank = (candidate: { kind: AIProvider; resourcePath: string }) => {
-		if (
-			defaultProviderKind &&
-			configuredByPath.get(candidate.resourcePath)?.kind === defaultProviderKind
-		) {
-			return 0
-		}
-		return configuredByPath.has(candidate.resourcePath) ? 1 : 2
-	}
-	candidates.sort((a, b) => rank(a) - rank(b) || a.resourcePath.localeCompare(b.resourcePath))
+	const candidates = selectAiAgentProviderCandidates(
+		resources,
+		new Set(configuredByPath.keys()),
+		aiConfig.default_model?.provider,
+		(resourceType) => AI_RESOURCE_TYPES.includes(resourceType as AIProvider)
+	) as { kind: AIProvider; resourcePath: string }[]
 
 	const kept = candidates.slice(0, MAX_PROVIDER_RESOURCES)
 	if (kept.length < candidates.length) {
@@ -217,7 +215,10 @@ async function loadOption(
 			...base,
 			models: listed,
 			modelsAreLive: true,
-			modelsRuleOutOthers: !customEndpoint && !FILTERED_MODEL_LISTING_KINDS.has(candidate.kind)
+			modelsRuleOutOthers:
+				!customEndpoint &&
+				!FILTERED_MODEL_LISTING_KINDS.has(candidate.kind) &&
+				listed.length < SINGLE_PAGE_MODEL_COUNT
 		}
 	}
 	// Without a live listing, a model id cannot be ruled out: offer the configured

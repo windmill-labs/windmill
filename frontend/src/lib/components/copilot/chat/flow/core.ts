@@ -556,22 +556,24 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				'current flow JSON'
 			)
 
-			const patchedValue = JSON.parse(updatedFlowJson)
+			let patchedValue: unknown
+			try {
+				patchedValue = JSON.parse(updatedFlowJson)
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error)
+				throw new Error(`Invalid JSON after replacement: ${message}`)
+			}
 			const aiProviders = await getAiAgentProviderCatalogFor(
 				workspace,
 				(patchedValue as { modules?: unknown } | null)?.modules
 			)
 			const aiProviderWarnings: string[] = []
-			let parsedFlow: EditableFlowJson
-			try {
-				parsedFlow = validateEditableFlowJson(patchedValue, {
-					aiProviders,
-					aiProviderWarnings
-				})
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error)
-				throw new Error(`Invalid JSON after replacement: ${message}`)
-			}
+			// Validation errors carry their own diagnosis (a bad module, a provider the workspace
+			// does not have); only a parse failure is about the replacement's JSON.
+			const parsedFlow: EditableFlowJson = validateEditableFlowJson(patchedValue, {
+				aiProviders,
+				aiProviderWarnings
+			})
 
 			for (const [moduleId, content] of Object.entries(inlineScriptSession.getAll())) {
 				helpers.inlineScriptSession.set(moduleId, content)
