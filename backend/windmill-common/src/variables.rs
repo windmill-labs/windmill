@@ -466,9 +466,10 @@ pub async fn get_reserved_variables(
     ContextualVariable {
         name: "WM_ROOT_WORKSPACE".to_string(),
         value: root_workspace,
-        description: "Workspace id of the closest dev or prod workspace: WM_WORKSPACE itself \
-                      unless the script runs in a fork, in which case the workspace that fork \
-                      descends from".to_string(),
+        description: "Workspace id of the nearest dev or prod workspace at or above the current \
+                      one. Equal to WM_WORKSPACE unless the script runs in a fork, in which case \
+                      it is the closest dev or prod workspace the fork descends from - not \
+                      necessarily its direct parent, since a fork of a fork skips past it".to_string(),
         is_custom: false,
     },
     ContextualVariable {

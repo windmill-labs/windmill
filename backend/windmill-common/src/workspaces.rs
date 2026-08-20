@@ -1498,12 +1498,17 @@ lazy_static::lazy_static! {
     /// workspace id -> (root workspace id, expiry ts). Read once per job start, so correctness
     /// rests on the invalidation rather than on the TTL: every mutation that can change the answer
     /// sweeps the ids it touches through `windmill_queue::tags::invalidate_fork_parent_cache` and
-    /// broadcasts on `FORK_LINEAGE_CHANGE_CHANNEL`. The TTL is the backstop for a process that
-    /// receives no broadcast — an agent worker polls no notify events.
+    /// broadcasts on `FORK_LINEAGE_CHANGE_CHANNEL`. A process that receives no broadcast — an agent
+    /// worker polls no notify events — has only the TTL, and takes the shorter one.
     static ref ROOT_WORKSPACE_CACHE: Cache<String, (String, i64)> = Cache::new(5000);
 }
 
 const ROOT_WORKSPACE_CACHE_TTL_S: i64 = 300;
+/// An agent worker consumes no `notify_event`, so no sweep ever reaches its cache and the TTL is
+/// the whole invalidation story there. Hold its entries for the same 60s the other lineage caches
+/// (`FORK_ANCESTOR_CHAIN_CACHE`, `BILLING_WORKSPACE_CACHE`) accept as their staleness bound,
+/// rather than the long TTL that only a broadcast-fed process has earned.
+const ROOT_WORKSPACE_AGENT_CACHE_TTL_S: i64 = 60;
 /// An id the walk finds nothing for is cached far more briefly than a resolved one: it becomes
 /// resolvable the moment its workspace row lands, and creating a workspace is not a lineage change,
 /// so no sweep would drop the entry.
@@ -1536,29 +1541,41 @@ pub fn clear_root_workspace_cache() {
 /// authorized for that workspace (or run in trusted server-side code).
 pub async fn root_workspace_id(conn: &crate::worker::Connection, w_id: &str) -> String {
     let now = chrono::Utc::now().timestamp();
-    if let Some((root, expiry)) = ROOT_WORKSPACE_CACHE.get(w_id) {
-        if expiry > now {
-            return root;
+    let cached = ROOT_WORKSPACE_CACHE.get(w_id);
+    if let Some((root, expiry)) = &cached {
+        if *expiry > now {
+            return root.clone();
         }
     }
 
-    let resolved = match conn {
-        crate::worker::Connection::Sql(db) => lookup_root_workspace_id(db, w_id).await,
-        crate::worker::Connection::Http(client) => client
-            .get::<Option<String>>(&format!("/api/w/{w_id}/agent_workers/root_workspace"))
-            .await
-            .map_err(Error::from),
+    let (resolved, fresh_ttl) = match conn {
+        crate::worker::Connection::Sql(db) => (
+            lookup_root_workspace_id(db, w_id).await,
+            ROOT_WORKSPACE_CACHE_TTL_S,
+        ),
+        crate::worker::Connection::Http(client) => (
+            client
+                .get::<Option<String>>(&format!("/api/w/{w_id}/agent_workers/root_workspace"))
+                .await
+                .map_err(Error::from),
+            ROOT_WORKSPACE_AGENT_CACHE_TTL_S,
+        ),
     };
 
     let (root, ttl) = match resolved {
-        Ok(Some(root)) => (root, ROOT_WORKSPACE_CACHE_TTL_S),
+        Ok(Some(root)) => (root, fresh_ttl),
         Ok(None) => (w_id.to_string(), ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S),
         // A failed lookup is NOT cached, for the reason `lookup_tag_workspace` gives: the fallback
         // is indistinguishable from a legitimate answer, so pinning one failure would make every
-        // job in a fork report the fork as its own environment until the entry expired.
+        // job in a fork report the fork as its own environment until the entry expired. The expired
+        // entry is still the last answer this process actually resolved, so prefer it to that
+        // fallback — an agent talking to a server too old to serve the route would otherwise
+        // demote every fork to itself for the whole rolling upgrade.
         Err(e) => {
             tracing::warn!("failed to resolve root workspace of {w_id}: {e:#}");
-            return w_id.to_string();
+            return cached
+                .map(|(root, _)| root)
+                .unwrap_or_else(|| w_id.to_string());
         }
     };
     ROOT_WORKSPACE_CACHE.insert(w_id.to_string(), (root.clone(), now + ttl));
