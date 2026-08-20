@@ -26608,8 +26608,10 @@ components:
       properties:
         path:
           type: string
+          maxLength: 255
         summary:
           type: string
+          maxLength: 1000
         scorers:
           type: array
           description: The columns of the results table, in display order.
@@ -26642,6 +26644,7 @@ components:
       properties:
         name:
           type: string
+          maxLength: 255
         input:
           $ref: "#/components/schemas/EvalCaseInput"
         expected:

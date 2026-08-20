@@ -161,6 +161,7 @@ pub async fn create_dataset(
     Json(payload): Json<CreateDataset>,
 ) -> Result<String> {
     check_path(&payload.path)?;
+    check_summary(payload.summary.as_deref())?;
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot create eval datasets".to_string(),
@@ -249,6 +250,7 @@ pub async fn update_dataset(
     Json(payload): Json<EditDataset>,
 ) -> Result<String> {
     check_path(&path)?;
+    check_summary(payload.summary.as_deref())?;
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot modify eval datasets".to_string(),

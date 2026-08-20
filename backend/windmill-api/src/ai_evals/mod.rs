@@ -78,8 +78,34 @@ pub fn workspaced_service() -> Router {
         .route("/experiments/results/{*path}", get(experiment_results))
 }
 
+/// What `eval_dataset.path` and `.summary` hold. Checked here rather than left to the columns: a
+/// value the column refuses comes back as an internal database error, which tells the caller
+/// nothing about which field was too long.
+const MAX_DATASET_PATH_CHARS: usize = 255;
+const MAX_DATASET_SUMMARY_CHARS: usize = 1000;
+
+fn check_summary(summary: Option<&str>) -> Result<()> {
+    match summary {
+        Some(summary) if summary.chars().count() > MAX_DATASET_SUMMARY_CHARS => {
+            Err(Error::BadRequest(format!(
+                "This dataset's summary is {} characters, over the {} the column holds.",
+                summary.chars().count(),
+                MAX_DATASET_SUMMARY_CHARS
+            )))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Dataset paths are Windmill paths, so the folder they live in is what grants access to them.
 fn check_path(path: &str) -> Result<()> {
+    if path.chars().count() > MAX_DATASET_PATH_CHARS {
+        return Err(Error::BadRequest(format!(
+            "This dataset's path is {} characters, over the {} the column holds.",
+            path.chars().count(),
+            MAX_DATASET_PATH_CHARS
+        )));
+    }
     let segments = path.split('/').collect::<Vec<_>>();
     if segments.len() < 3
         || !matches!(segments[0], "u" | "f")
