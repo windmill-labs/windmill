@@ -1,6 +1,8 @@
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
+import { getAiAgentProviderCatalog } from './flow/aiAgentProviderCatalog'
+import { formatAiAgentProvidersPrompt } from './flow/aiAgentProviders'
 import {
 	flowTools,
 	prepareFlowSystemMessage,
@@ -1929,6 +1931,7 @@ export class AIChatManager {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.systemMessage.content
+			this.appendFlowAiAgentProviders(this.systemMessage)
 			this.tools = [...flowTools]
 			this.helpers = {
 				...(this.flowAiChatHelpers ?? {}),
@@ -2057,6 +2060,19 @@ export class AIChatManager {
 		if (this.mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
 		}
+	}
+
+	// The workspace's AI provider resources and their models exist only at run time, so they are
+	// appended once the catalog resolves. The chat loop re-reads this.systemMessage on every
+	// iteration, so a send that beats the fetch still picks them up on the next one.
+	private appendFlowAiAgentProviders = async (target: ChatCompletionSystemMessageParam) => {
+		const catalog = await getAiAgentProviderCatalog(this.operatingWorkspace)
+		const section = formatAiAgentProvidersPrompt(catalog)
+		// A mode switch or a rebuild since the fetch started owns the message now.
+		if (section === '' || this.systemMessage !== target) {
+			return
+		}
+		this.systemMessage = { ...target, content: `${target.content}\n\n${section}` }
 	}
 
 	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by

@@ -5,7 +5,7 @@ import {
 	collectInvalidAgentToolNames,
 	collectProviderlessAgentIds
 } from '$lib/components/flows/agentToolTree'
-import { validateAiAgentProviders, type AiAgentProviderOption } from './aiAgentProviders'
+import { validateAiAgentProviders, type AiAgentProviderCatalog } from './aiAgentProviders'
 import { SPECIAL_MODULE_IDS } from '../shared'
 import { findUnresolvedInlineScriptRefs, type InlineScriptSession } from './inlineScriptsUtils'
 import {
@@ -49,11 +49,11 @@ export type EditableFlowJson = {
 type FlowValidationContext = {
 	/** Custom modules schema to validate against (defaults to flowModulesSchema). */
 	modulesSchema?: z.ZodTypeAny
-	/** Workspace AI provider resources, to check the provider config of AI agent
-	 * modules against. Omitted, only the shape of a provider config is checked. */
-	aiProviders?: AiAgentProviderOption[]
-	/** Sink for non-blocking provider findings, e.g. a model a proxy resource does not
-	 * list but may still accept. Callers surface these in the tool result. */
+	/** Workspace AI provider resources, to check the provider config of AI agent steps
+	 * against. Omitted, only the shape of a provider config is checked. */
+	aiProviders?: AiAgentProviderCatalog
+	/** Sink for provider findings that did not block the write. Callers surface these in the
+	 * tool result. */
 	aiProviderWarnings?: string[]
 }
 

@@ -556,7 +556,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				'current flow JSON'
 			)
 
-			const { options: aiProviders } = await getAiAgentProviderCatalog(workspace)
+			const aiProviders = await getAiAgentProviderCatalog(workspace)
 			const aiProviderWarnings: string[] = []
 			let parsedFlow: EditableFlowJson
 			try {
@@ -717,7 +717,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			const aiProviderWarnings: string[] = []
 			if (parsedModules !== undefined) {
-				const { options: aiProviders } = await getAiAgentProviderCatalog(workspace)
+				const aiProviders = await getAiAgentProviderCatalog(workspace)
 				parsedModules = validateFlowModules(parsedModules, { aiProviders, aiProviderWarnings })
 				const reservedIds = collectAllFlowModuleIdsFromModules(parsedModules).filter(
 					(id) => id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE

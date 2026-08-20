@@ -2103,8 +2103,6 @@ ${getScriptPrompt(selected)}`
 }
 
 async function getFlowInstructions(workspace: string | undefined): Promise<string> {
-	// The provider list is fetched here, not baked into the static reference, so an
-	// aiagent step is written against the models this workspace's resources serve.
 	const aiAgentProviders = formatAiAgentProvidersPrompt(await getAiAgentProviderCatalog(workspace))
 	return `# Global draft flow instructions
 
@@ -3302,7 +3300,7 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeFlowSchema.parse(ctx.args)
-			const { options: aiProviders } = await getAiAgentProviderCatalog(ctx.workspace)
+			const aiProviders = await getAiAgentProviderCatalog(ctx.workspace)
 			const aiProviderWarnings: string[] = []
 			const editable = validateEditableFlowJson(
 				{
@@ -5039,7 +5037,7 @@ async function patchFlowJson(
 		throw new Error(`Invalid JSON after replacement: ${message}`)
 	}
 
-	const { options: aiProviders } = await getAiAgentProviderCatalog(ctx.workspace)
+	const aiProviders = await getAiAgentProviderCatalog(ctx.workspace)
 	const aiProviderWarnings: string[] = []
 	const patchedEditable = validateEditableFlowJson(parsedValue, { aiProviders, aiProviderWarnings })
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)

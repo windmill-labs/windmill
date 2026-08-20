@@ -12,6 +12,8 @@ const CACHE_TTL_MS = 5 * 60_000
 
 const cache = new Map<string, { at: number; promise: Promise<AiAgentProviderCatalog> }>()
 
+const EMPTY_CATALOG: AiAgentProviderCatalog = { options: [], resourcesAreComplete: false }
+
 /**
  * AI provider resources of a workspace with the models each one serves, for
  * grounding and validating the provider config of `aiagent` flow modules.
@@ -23,7 +25,7 @@ export function getAiAgentProviderCatalog(
 	workspace: string | undefined
 ): Promise<AiAgentProviderCatalog> {
 	if (!workspace) {
-		return Promise.resolve({ options: [] })
+		return Promise.resolve(EMPTY_CATALOG)
 	}
 	const cached = cache.get(workspace)
 	if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
@@ -33,28 +35,23 @@ export function getAiAgentProviderCatalog(
 		console.error('Could not load AI provider catalog', err)
 		// Not cached: a transient failure must not blind validation for the whole TTL.
 		cache.delete(workspace)
-		return { options: [] }
+		return EMPTY_CATALOG
 	})
 	cache.set(workspace, { at: Date.now(), promise })
 	return promise
 }
 
-/** Drop a workspace's cached catalog so the next flow write re-reads it (AI settings changed). */
-export function clearAiAgentProviderCatalog(workspace?: string): void {
-	if (workspace) {
-		cache.delete(workspace)
-	} else {
-		cache.clear()
-	}
-}
-
 async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
+	let listedAllResources = true
 	const [resources, aiConfig] = await Promise.all([
 		ResourceService.listResource({
 			workspace,
 			resourceType: AI_RESOURCE_TYPES.join(',')
 		}).catch((err) => {
 			console.error('Could not list AI provider resources', err)
+			// Whatever the AI settings name still gets a catalog entry below, but the catalog no
+			// longer knows the workspace's resources, so nothing may be rejected for being absent.
+			listedAllResources = false
 			return []
 		}),
 		// Read the config for this workspace rather than the copilotInfo store, which
@@ -96,15 +93,20 @@ async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
 	}
 	candidates.sort((a, b) => rank(a) - rank(b) || a.resourcePath.localeCompare(b.resourcePath))
 
+	const kept = candidates.slice(0, MAX_PROVIDER_RESOURCES)
+	if (kept.length < candidates.length) {
+		console.warn(
+			`Listing models for the first ${MAX_PROVIDER_RESOURCES} of ${candidates.length} AI provider resources of ${workspace}`
+		)
+	}
 	const options = await Promise.all(
-		candidates
-			.slice(0, MAX_PROVIDER_RESOURCES)
-			.map((candidate) => loadOption(workspace, candidate, configuredByPath))
+		kept.map((candidate) => loadOption(workspace, candidate, configuredByPath))
 	)
 
 	const defaultModel = aiConfig.default_model
 	return {
 		options,
+		resourcesAreComplete: listedAllResources && kept.length === candidates.length,
 		defaultModel:
 			defaultModel && options.some((option) => option.kind === defaultModel.provider)
 				? { kind: defaultModel.provider, model: defaultModel.model }
@@ -166,7 +168,6 @@ async function loadOption(
 		kind: candidate.kind,
 		resourcePath: candidate.resourcePath,
 		resourceRef: `$res:${candidate.resourcePath}`,
-		configuredModels,
 		customEndpoint
 	}
 	if (listed.length > 0) {
