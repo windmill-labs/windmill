@@ -220,7 +220,7 @@ function parseMetadata(
  * `!inline` decides where a lock is written, so it is read from the parsed field
  * and nowhere else.
  */
-function sharedLockRefOf(
+export function sharedLockRefOf(
   metaPath: string,
   metaContent: string,
   isJson: boolean,

@@ -180,6 +180,7 @@ import { isSharedLockPath, SHARED_LOCK_DIR } from "../../utils/script_common.ts"
 import {
   applySharedLockPlanToDisk,
   applySharedLockPlanToMap,
+  sharedLockRefOf,
   computeSharedLockPlan,
   isEmptySharedLockPlan,
   scriptsReferencingSharedLock,
@@ -239,15 +240,17 @@ async function anyScriptReferences(
   lockRef: string,
   json: boolean,
 ): Promise<boolean> {
-  const reference = "!inline " + lockRef;
   const metaExt = json ? ".script.json" : ".script.yaml";
   const modMeta = json ? "__mod/script.json" : "__mod/script.yaml";
   const walk = async (dir: string): Promise<boolean> => {
     let entries: Dirent[];
     try {
       entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return false;
+    } catch (e) {
+      // A directory that is not there holds no reader. Anything else hides
+      // scripts, and a lockfile deleted out from under one resolves to nothing.
+      if ((e as { code?: string })?.code === "ENOENT") return false;
+      throw e;
     }
     for (const entry of entries) {
       const full = path.join(dir, entry.name);
@@ -258,10 +261,9 @@ async function anyScriptReferences(
       }
       const rel = full.replaceAll(SEP, "/");
       if (!rel.endsWith(metaExt) && !rel.endsWith(modMeta)) continue;
-      try {
-        if ((await readTextFile(full)).includes(reference)) return true;
-      } catch {
-        // unreadable: cannot rule it out, so keep the lockfile
+      // The `lock` field, not the raw text: a folded line, a summary quoting the
+      // path, or a stale twin of the other format would each answer wrongly.
+      if (sharedLockRefOf(rel, await readTextFile(full), json) === lockRef) {
         return true;
       }
     }
