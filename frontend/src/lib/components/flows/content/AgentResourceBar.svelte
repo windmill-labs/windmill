@@ -5,7 +5,7 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ResourceService, type InputTransform } from '$lib/gen'
+	import { DraftService, ResourceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -365,7 +365,10 @@
 	// saved agent). Unlink folds this flow's tool_inputs into the tools and clears them, so the
 	// standalone step keeps its bindings; Edit must not fold, or those overrides would be promoted
 	// into the shared agent instead of surviving the re-link.
-	async function forkFromResource(foldOverrides: boolean): Promise<string | undefined> {
+	async function forkFromResource(
+		foldOverrides: boolean,
+		resumeDraft = false
+	): Promise<string | undefined> {
 		if (!ws || !agent) {
 			return undefined
 		}
@@ -380,7 +383,6 @@
 			return undefined
 		}
 		const cfg = (res.value ?? {}) as AIAgentConfig
-		const brain = agentConfigToInputTransforms(cfg)
 		// Preserve the flow-local inputs already wired in the step.
 		const local: Record<string, InputTransform> = {}
 		for (const key of AGENT_FLOW_LOCAL_KEYS) {
@@ -388,12 +390,48 @@
 				local[key] = inputTransforms[key]
 			}
 		}
-		inputTransforms = { ...brain, ...local }
-		const forkedTools = cfg.tools ?? []
 		// What the agent holds, as the same round trip the mirror below writes: opening the editor
 		// normalises the configuration, and a normalisation is not an edit. Comparing against the
 		// resource's own JSON would compare key order too.
-		deployedConfig = JSON.stringify(inputTransformsToAgentConfig(inputTransforms, forkedTools))
+		deployedConfig = JSON.stringify(
+			inputTransformsToAgentConfig({ ...agentConfigToInputTransforms(cfg), ...local }, cfg.tools ?? [])
+		)
+
+		// Editing resumes this user's own unsaved work when there is any. Opening on the deployed
+		// value would show them something other than what they last wrote, and then write over it
+		// on the first keystroke.
+		let source = cfg
+		let resumed = false
+		if (resumeDraft) {
+			const own = await DraftService.getOwnDraft({ workspace: ws, kind: 'resource', path }).catch(
+				() => null
+			)
+			if (agent !== path || tools !== stepMarker) {
+				return undefined
+			}
+			// A resource draft wraps the value it is a draft of, the way the resource editor files it.
+			const wrapper = (own?.value ?? undefined) as Record<string, unknown> | undefined
+			const inner = ['args', 'value'].reduce<Record<string, unknown> | undefined>(
+				(found, key) =>
+					found ??
+					(wrapper?.[key] && typeof wrapper[key] === 'object'
+						? (wrapper[key] as Record<string, unknown>)
+						: undefined),
+				undefined
+			)
+			const draftCfg = inner ?? wrapper
+			if (draftCfg) {
+				source = draftCfg as AIAgentConfig
+				resumed = true
+			}
+		}
+		const brain = agentConfigToInputTransforms(source)
+		inputTransforms = { ...brain, ...local }
+		const forkedTools = source.tools ?? []
+		// What was written into the step, which is what the mirror waits to see before it treats a
+		// difference as an edit. Not the same as `deployedConfig` once a draft has been resumed.
+		forkedConfig = JSON.stringify(inputTransformsToAgentConfig(inputTransforms, forkedTools))
+		openedWithDraft = resumed
 		if (foldOverrides) {
 			for (const tool of forkedTools) {
 				const overrides = toolInputs?.[tool.id]
@@ -427,7 +465,7 @@
 	// "Save changes" writes back to it (updating every flow that links to it).
 	async function editAgent() {
 		try {
-			const path = await forkFromResource(false)
+			const path = await forkFromResource(false, true)
 			if (path) {
 				setAgentEditingPath(tools, path)
 				sendUserToast(`Editing ${path}. Make changes, then Save changes to update it`)
@@ -481,7 +519,11 @@
 			// anything anyone edited. It has landed once what the step holds is what was forked
 			// into it, and only from there is a difference an edit.
 			if (!forkSettled) {
-				forkSettled = config === deployedConfig
+				if (config !== forkedConfig) return
+				forkSettled = true
+				// The baseline every later difference is measured against, so a resumed draft is not
+				// immediately rewritten with the same content it was read from.
+				mirrored = config
 				return
 			}
 			if (config === mirrored) return
@@ -499,6 +541,12 @@
 	/** The agent as deployed, and the last state compared against it. */
 	let deployedConfig: string | undefined = $state(undefined)
 	let mirrored: string | undefined = $state(undefined)
+	/** What was written into the step when the editor opened — the draft when one was resumed,
+	 *  otherwise the deployed value. What the settle gate waits to see. */
+	let forkedConfig: string | undefined = $state(undefined)
+	/** The editor opened on unsaved work that was already there, rather than on the deployed value.
+	 *  Said on the bar, and it is what stops Cancel from throwing that work away. */
+	let openedWithDraft = $state(false)
 	/** The step is holding the configuration that was forked into it, so what it holds from here is
 	 *  what someone did to it. */
 	let forkSettled = $state(false)
@@ -511,6 +559,8 @@
 			untrack(() => {
 				deployedConfig = undefined
 				mirrored = undefined
+				forkedConfig = undefined
+				openedWithDraft = false
 				forkSettled = false
 			})
 		}
@@ -526,9 +576,9 @@
 		if (!path) {
 			return
 		}
-		// Only what this editor wrote. Edit opens on the deployed value, so a draft it never
-		// diverged from is someone's unsaved work and cancelling is not a decision about it.
-		if (edited) {
+		// Only a draft this editor created. One that was already there is unsaved work it resumed,
+		// and abandoning the fork is not a decision to throw that away.
+		if (edited && !openedWithDraft) {
 			clearDraft(path)
 		}
 		agent = path
@@ -666,15 +716,20 @@
 							</Badge>
 						{/if}
 						{#if edited}
-							<Badge color="yellow">unsaved changes</Badge>
+							<!-- Which unsaved changes these are: opening Edit continues the ones already on
+							     the agent, and a badge that read the same either way would leave someone
+							     wondering whether their earlier work was still there. -->
+							<Badge color="yellow" title={openedWithDraft ? 'Editing continues the unsaved changes you already had on this agent' : undefined}>
+								{openedWithDraft ? 'unsaved changes resumed' : 'unsaved changes'}
+							</Badge>
 						{/if}
 					</div>
 					<div class="text-2xs text-secondary flex items-center gap-0.5">
 						saving updates every flow using it<Tooltip small>
 							{#snippet text()}
-								Edits are kept on the agent as a draft, so they survive leaving this flow. Save
-								changes writes them back to the agent and re-links this step. Cancel discards them
-								and re-links it unchanged.
+								Edits are kept on the agent as a draft, so they survive leaving this flow, and
+								opening Edit again continues them. Save changes writes them back to the agent and
+								re-links this step. Cancel re-links it and leaves any draft it found as it was.
 							{/snippet}
 						</Tooltip>
 					</div>
