@@ -146,6 +146,7 @@ import {
 	userWorkspaces,
 	workspaceStore
 } from '$lib/stores'
+import { getWorkspaceRole, type RoleLookup } from '$lib/user'
 import { get } from 'svelte/store'
 import {
 	canonicalDraftSideValue,
@@ -2369,43 +2370,86 @@ function allowedTriggerKinds(): PageTriggerKind[] {
 	return (Object.keys(TRIGGER_PAGES) as PageTriggerKind[]).filter((k) => ee || !TRIGGER_PAGES[k].ee)
 }
 
-// Which pages the current user can actually reach — mirrors the sidebar's gating.
-// Operators see exactly the pages enabled in the operating workspace's operator_settings
-// (the same source OperatorMenu gates on); a missing/false flag means no access, and
-// operators are never admins so workspace_settings is always excluded. Non-operators
-// get every page except workspace_settings, which is admin/superadmin only. `workspaceId`
-// is the chat's operating workspace (a session targets its own, possibly forked workspace);
-// it defaults to the navigation workspace for the global side-panel chat. The tool only
-// ever advertises, and only ever acts on, pages in this set.
-function allowedOpenPages(workspaceId: string | undefined = get(workspaceStore)): OpenPageName[] {
-	const u = get(userStore)
-	const isAdmin = !!u?.is_admin || !!get(superadmin)
-	if (u?.operator) {
-		const settings = get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings
-		return OPEN_PAGE_NAMES.filter(
-			(p) =>
-				p !== 'workspace_settings' && settings?.[p as keyof NonNullable<typeof settings>] === true
-		)
+// Pages an operator may reach: exactly the ones enabled in the workspace's
+// operator_settings, the same source OperatorMenu gates on. Operators are never admins, so
+// workspace_settings is excluded whatever the settings say.
+function operatorOpenPages(workspaceId: string | undefined): OpenPageName[] {
+	const settings = get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings
+	return OPEN_PAGE_NAMES.filter(
+		(p) =>
+			p !== 'workspace_settings' && settings?.[p as keyof NonNullable<typeof settings>] === true
+	)
+}
+
+// workspace_settings is admin/superadmin only; the rest are open to any non-operator member.
+const NON_ADMIN_OPEN_PAGES = new Set<OpenPageName>([
+	'runs',
+	'assets',
+	'schedules',
+	'variables',
+	'resources',
+	'audit_logs',
+	'folders',
+	'groups',
+	'triggers',
+	'compare'
+])
+
+// What to advertise before the role in `workspaceId` has been resolved.
+// `user_workspaces` nulls operator_settings for a workspace the user is not an operator
+// in, so a non-null value narrows an operator correctly; the converse does not hold,
+// which is why the real role is still fetched.
+function restrictedOpenPages(workspaceId: string | undefined): OpenPageName[] {
+	if (get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings) {
+		return operatorOpenPages(workspaceId)
 	}
-	const allowed = new Set<OpenPageName>([
-		'runs',
-		'assets',
-		'schedules',
-		'variables',
-		'resources',
-		'audit_logs',
-		'folders',
-		'groups',
-		'triggers',
-		'compare'
-	])
-	if (isAdmin) allowed.add('workspace_settings')
-	return OPEN_PAGE_NAMES.filter((p) => allowed.has(p))
+	return OPEN_PAGE_NAMES.filter((p) => NON_ADMIN_OPEN_PAGES.has(p))
+}
+
+// The role to gate `workspaceId` on. `userStore` answers only when it describes that same
+// workspace: a session operates on its own, possibly forked workspace where the user's
+// role can differ, and right after a switch the store still carries the previous
+// workspace's role while the new whoami is in flight.
+async function roleForWorkspace(
+	workspaceId: string | undefined
+): Promise<RoleLookup | { kind: 'no_workspace_context' }> {
+	if (!workspaceId) return { kind: 'no_workspace_context' }
+	const u = get(userStore)
+	if (u?.workspace_id === workspaceId) return { kind: 'resolved', user: u }
+	return getWorkspaceRole(workspaceId)
+}
+
+// Which pages the user can actually reach in `workspaceId` — mirrors the sidebar's gating.
+// `workspaceId` is the chat's operating workspace, defaulting to the navigation workspace
+// for the global side-panel chat. The tool only ever advertises, and only ever acts on,
+// `pages`.
+async function allowedOpenPages(
+	workspaceId: string | undefined = get(workspaceStore)
+): Promise<{ pages: OpenPageName[]; roleUnverified: boolean }> {
+	const role = await roleForWorkspace(workspaceId)
+	// A failed lookup says nothing about the role, so guessing a page set can offer one the
+	// sidebar hides; advertising none is the only answer that can't. Headless callers have
+	// no workspace to resolve at all and keep the pre-resolution set.
+	if (role.kind === 'lookup_failed') return { pages: [], roleUnverified: true }
+	if (role.kind === 'no_workspace_context') {
+		return { pages: restrictedOpenPages(workspaceId), roleUnverified: false }
+	}
+	const u = role.user
+	if (u.operator) return { pages: operatorOpenPages(workspaceId), roleUnverified: false }
+	const isAdmin = !!u.is_admin || !!u.is_super_admin || !!get(superadmin)
+	return {
+		pages: OPEN_PAGE_NAMES.filter(
+			(p) => NON_ADMIN_OPEN_PAGES.has(p) || (isAdmin && p === 'workspace_settings')
+		),
+		roleUnverified: false
+	}
 }
 
 // The Runs page only offers its cross-workspace filter to a superadmin or devops user in
 // the admins workspace (RunsPage builds its filter schema with the same condition, and
 // without the key the page ignores the query param), so the tool mirrors that gate.
+// superadmin and devops are instance-level: they hold in whichever workspace the chat
+// operates on, so this gate needs no per-workspace role lookup.
 function allowsAllWorkspacesRuns(workspaceId: string | undefined = get(workspaceStore)): boolean {
 	return (!!get(superadmin) || !!get(devopsRole)) && workspaceId === 'admins'
 }
@@ -2874,11 +2918,11 @@ function summarizeOpenPage(url: string, page: OpenPageName): string {
 }
 
 export const openPageTool: Tool<{}> = {
-	// The initial def assumes an untracked chat; setSchema below rebuilds it with the
-	// caller's real surface before each iteration.
+	// The initial def assumes an untracked chat and no resolved role; setSchema below
+	// rebuilds it with the caller's real surface before each iteration.
 	def: createToolDef(
 		buildOpenPageDefSchema(
-			allowedOpenPages(),
+			restrictedOpenPages(get(workspaceStore)),
 			allowedTriggerKinds(),
 			false,
 			allowsAllWorkspacesRuns()
@@ -2892,12 +2936,11 @@ export const openPageTool: Tool<{}> = {
 	showDetails: true,
 	autoCollapseDetails: false,
 	// Re-narrow the advertised `page` enum to this user's permissions each iteration, so
-	// the model never sees (or suggests) a page the user can't reach. Gates on the chat's
-	// operating workspace (the session's, when different from the navigation workspace).
+	// the model never sees (or suggests) a page the user can't reach.
 	setSchema: async function (helpers) {
 		this.def = createToolDef(
 			buildOpenPageDefSchema(
-				allowedOpenPages(operatingWorkspaceFromHelpers(helpers)),
+				(await allowedOpenPages(operatingWorkspaceFromHelpers(helpers))).pages,
 				allowedTriggerKinds(),
 				(helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.() !== undefined,
 				allowsAllWorkspacesRuns(operatingWorkspaceFromHelpers(helpers))
@@ -2912,9 +2955,15 @@ export const openPageTool: Tool<{}> = {
 		const page = parsed.page as OpenPageName
 		const workspaceId = operatingWorkspaceFromHelpers(ctx.helpers)
 		// Defense in depth: never act on a page the user can't reach, even if the model
-		// requests one outside the advertised enum.
-		if (!allowedOpenPages(workspaceId).includes(page)) {
-			return `You don't have access to the ${OPEN_PAGE_LABELS[page] ?? page} page in this workspace.`
+		// requests one outside the advertised enum. An unverified role means the lookup
+		// failed, not that access was denied — reporting it as denied states a falsehood
+		// about the user's permissions.
+		const access = await allowedOpenPages(workspaceId)
+		if (!access.pages.includes(page)) {
+			const label = OPEN_PAGE_LABELS[page] ?? page
+			return access.roleUnverified
+				? `Couldn't check your permissions in this workspace, so the ${label} page can't be opened right now. Try again in a moment.`
+				: `You don't have access to the ${label} page in this workspace.`
 		}
 		// Same fail-closed check for trigger_kind, which is narrowed to license-available
 		// kinds in the advertised schema: a model ignoring that narrowing must not get an

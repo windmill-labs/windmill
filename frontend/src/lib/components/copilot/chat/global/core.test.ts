@@ -30,17 +30,21 @@ vi.mock('$lib/components/vscode', () => ({}))
 // drafts through DraftService (no in-tab cell in unit tests), so this Map is the
 // source of truth the write/read tools round-trip against. `vi.hoisted` makes it
 // available inside the hoisted `vi.mock` factory and the test body alike.
-const { backendDrafts, serverTimestamps, failingWrites, failingReads } = vi.hoisted(() => ({
-	backendDrafts: new Map<string, unknown>(),
-	// Per-row server timestamp, only set by tests that want to simulate a
-	// concurrent writer advancing the row; otherwise empty, so the conflict
-	// branch in `updateDraft` stays inert for every pre-existing test.
-	serverTimestamps: new Map<string, string>(),
-	// Keys whose `updateDraft` / draft reads throw a non-404 (network/5xx);
-	// only set by the error-handling tests, empty otherwise.
-	failingWrites: new Set<string>(),
-	failingReads: new Set<string>()
-}))
+const { backendDrafts, serverTimestamps, failingWrites, failingReads, whoamiByWorkspace } =
+	vi.hoisted(() => ({
+		backendDrafts: new Map<string, unknown>(),
+		// What `whoami` answers with, per workspace; a workspace absent from it throws, as
+		// the API does for a non-member. Empty outside the tests that seed it.
+		whoamiByWorkspace: new Map<string, Record<string, unknown>>(),
+		// Per-row server timestamp, only set by tests that want to simulate a
+		// concurrent writer advancing the row; otherwise empty, so the conflict
+		// branch in `updateDraft` stays inert for every pre-existing test.
+		serverTimestamps: new Map<string, string>(),
+		// Keys whose `updateDraft` / draft reads throw a non-404 (network/5xx);
+		// only set by the error-handling tests, empty otherwise.
+		failingWrites: new Set<string>(),
+		failingReads: new Set<string>()
+	}))
 
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
@@ -219,6 +223,13 @@ vi.mock('$lib/gen', async () => {
 		FolderService: wrapService(actual.FolderService, {
 			createFolder: vi.fn(async () => 'created')
 		}),
+		UserService: wrapService(actual.UserService, {
+			whoami: vi.fn(async ({ workspace }: any) => {
+				const user = whoamiByWorkspace.get(workspace)
+				if (!user) throw new Error(`not a member of ${workspace}`)
+				return user
+			})
+		}),
 		DraftService: wrapService(actual.DraftService, {
 			updateDraft: vi.fn(async ({ kind, path, requestBody }: any) => {
 				const key = `${kind}:${path}`
@@ -335,6 +346,7 @@ import {
 	VariableService
 } from '$lib/gen'
 import { userStore } from '$lib/stores'
+import { clearWorkspaceRoleCache } from '$lib/user'
 import { get } from 'svelte/store'
 import type { Tool, ToolCallbacks } from '../shared'
 
@@ -1966,7 +1978,7 @@ describe('global AI tools', () => {
 
 	// A hybrid runnable — inline code plus a leftover runType/path — contradicts its own
 	// kind, and convertPersistedToBackendRunnable is what reports it back to the model.
-	it('drops the other kind\'s fields when a runnable changes type', async () => {
+	it("drops the other kind's fields when a runnable changes type", async () => {
 		seedBackendDraft(
 			'raw_app',
 			'u/admin/converted_app',
@@ -5767,5 +5779,62 @@ describe('buildOpenPageUrl compare selection', () => {
 		expect(
 			itemsOf(buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws' }))
 		).toBeNull()
+	})
+})
+
+describe('open_page workspace gating', () => {
+	const NAV = 'nav_ws'
+	const SESSION = 'session_ws'
+	const openPage = () => getGlobalTool('open_page')
+	const advertisedPages = () =>
+		((openPage().def.function.parameters as any)?.properties?.page?.enum ?? []) as string[]
+	const pristineDef = openPage().def
+
+	beforeEach(() => {
+		// Admin of the workspace being browsed, plain member of the one a session operates on.
+		userStore.set({ username: 'bob', workspace_id: NAV, is_admin: true } as any)
+		whoamiByWorkspace.set(SESSION, {
+			username: 'bob',
+			email: 'bob@windmill.dev',
+			is_admin: false,
+			operator: false,
+			groups: []
+		})
+	})
+
+	afterEach(() => {
+		userStore.set(undefined)
+		whoamiByWorkspace.clear()
+		clearWorkspaceRoleCache()
+		openPage().def = pristineDef
+	})
+
+	// Reading the ambient `userStore` instead offers a session the pages of the workspace
+	// the user happens to be browsing.
+	it('gates on the operating workspace, not the one userStore describes', async () => {
+		await openPage().setSchema?.({ operatingWorkspace: NAV })
+		expect(advertisedPages()).toContain('workspace_settings')
+
+		await openPage().setSchema?.({ operatingWorkspace: SESSION })
+		expect(advertisedPages()).toContain('runs')
+		expect(advertisedPages()).not.toContain('workspace_settings')
+		await expect(
+			callGlobalTool('open_page', { page: 'workspace_settings' }, toolCallbacks, {
+				operatingWorkspace: SESSION
+			})
+		).resolves.toContain("don't have access")
+	})
+
+	// Falling back to a fixed page set instead offers pages the sidebar may well hide —
+	// an operator's, most of all, whose reachable set is a fraction of the default one.
+	// The refusal must not read as a denial either: the role was never established.
+	it('advertises nothing when the role lookup fails', async () => {
+		await openPage().setSchema?.({ operatingWorkspace: 'unreachable_ws' })
+		expect(advertisedPages()).toEqual([])
+		const refusal = await callGlobalTool('open_page', { page: 'runs' }, toolCallbacks, {
+			operatingWorkspace: 'unreachable_ws'
+		})
+		expect(refusal).toContain("Couldn't check your permissions")
+		expect(refusal).not.toContain("don't have access")
 	})
 })
