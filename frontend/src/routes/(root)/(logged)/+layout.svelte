@@ -65,6 +65,7 @@
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { PanelLeftClose, PanelLeftOpen, Home, Play, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
+	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
@@ -307,6 +308,9 @@
 				}
 			}
 			const user = await getUserExt(workspace)
+			// A session exists, so whatever OAuth/SAML redirect was in flight is the method that
+			// worked; the login card reads it back to lead with it next time.
+			confirmPendingLoginMethod()
 			// Every workspace change starts a fetch without cancelling the one before it,
 			// so a slow response can land after a faster one for the workspace the user
 			// has since moved to. The store must describe the active workspace: letting a
