@@ -1044,17 +1044,10 @@ async fn test_wm_token_gets_no_admin_claim_in_a_foreign_workspace(
     Ok(())
 }
 
-/// Three of the seven guards keyed on `ApiAuthed::job_id` gate only workspace-less routes,
-/// so confinement answers every request that would reach them and no HTTP case can tell
-/// whether they still cap job tokens: `require_devops_role`, `require_instance_admin` and
-/// `forbid_superadmin_job_token`. Call those directly, so the inner cap cannot be dropped
-/// while this suite stays green (GHSA-hfh4-cx4h-3fcr).
-///
-/// The other four keep a workspace-scoped route and are exercised over HTTP above:
-/// `require_super_admin` through `w/{workspace}/users/list_addable`,
-/// `is_super_admin_authed` through the `CUSTOM_INSTANCE_DB` lookup,
-/// `forbid_job_token_account_destruction` through `w/{workspace}/workspaces/leave`, and
-/// `forbid_elevated_job_token` through `w/{workspace}/apps/embed_token`.
+/// The guards below cap a job token on routes that name no workspace, which confinement
+/// now answers first — so no request can reach them and no HTTP case would notice if they
+/// stopped capping. They are called directly for that reason; deleting them because the
+/// suite is green elsewhere would leave the inner cap unpinned (GHSA-hfh4-cx4h-3fcr).
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
 async fn test_privilege_gates_reject_a_job_token_directly(
     db: Pool<Postgres>,
@@ -1102,6 +1095,18 @@ async fn test_privilege_gates_reject_a_job_token_directly(
     assert!(
         windmill_api_auth::require_instance_admin(&not_job).is_ok(),
         "a superadmin API token must still hold instance admin"
+    );
+
+    // The boolean sibling decides whether `list_worker_groups` and the concurrency-group
+    // listing obfuscate their rows rather than refusing, so a job token reading `true`
+    // leaks rather than 403s.
+    assert!(
+        !windmill_api_auth::is_instance_admin(&job),
+        "a job token must not read as instance admin"
+    );
+    assert!(
+        windmill_api_auth::is_instance_admin(&not_job),
+        "an admin API token must still read as instance admin"
     );
 
     // `forbid_superadmin_job_token` guards the same class of route but keys on two things
