@@ -58,3 +58,30 @@ async fn root_workspace_is_the_nearest_dev_or_prod_ancestor(db: Pool<Postgres>) 
     // An id with no lineage to resolve is its own environment.
     assert_eq!(root_workspace_id(&conn, "rwt-missing").await, "rwt-missing");
 }
+
+/// The resolver's TTL is long because correctness rests on the sweep instead: every lineage
+/// mutation reaches this cache through `windmill_queue::tags::invalidate_fork_parent_cache`. Pin
+/// that the sweep is what actually refreshes the answer, so the wiring cannot be dropped and leave
+/// a stale environment reported for minutes.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn attaching_a_dev_workspace_takes_effect_on_invalidation(db: Pool<Postgres>) {
+    let conn = Connection::Sql(db.clone());
+    insert_ws(&db, "rwi-prod", None, false).await;
+    insert_ws(&db, "rwi-mid", Some("rwi-prod"), false).await;
+    insert_ws(&db, "wm-fork-rwi", Some("rwi-mid"), false).await;
+
+    // Warm the entry the way a job start would.
+    assert_eq!(root_workspace_id(&conn, "wm-fork-rwi").await, "rwi-prod");
+
+    sqlx::query("UPDATE workspace SET is_dev_workspace = true WHERE id = 'rwi-mid'")
+        .execute(&db)
+        .await
+        .expect("promote to dev workspace");
+
+    // Until the sweep lands the fork still reports the old environment; that staleness is exactly
+    // what the invalidation exists to close.
+    assert_eq!(root_workspace_id(&conn, "wm-fork-rwi").await, "rwi-prod");
+
+    invalidate_root_workspace_cache("wm-fork-rwi");
+    assert_eq!(root_workspace_id(&conn, "wm-fork-rwi").await, "rwi-mid");
+}

@@ -1504,10 +1504,10 @@ lazy_static::lazy_static! {
 }
 
 const ROOT_WORKSPACE_CACHE_TTL_S: i64 = 300;
-/// An unresolvable chain is cached far more briefly than a resolved one: it is either transient or
-/// an agent worker talking to a server too old to serve the route, and without a negative entry
-/// that second case costs a failed round-trip on every job the agent runs.
-const ROOT_WORKSPACE_NEGATIVE_CACHE_TTL_S: i64 = 30;
+/// An id the walk finds nothing for is cached far more briefly than a resolved one: it becomes
+/// resolvable the moment its workspace row lands, and creating a workspace is not a lineage change,
+/// so no sweep would drop the entry.
+const ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S: i64 = 30;
 
 /// Drop the cached root workspace of one id. Called for every id whose lineage-derived caches are
 /// swept, so it needs no call site of its own — see
@@ -1529,6 +1529,9 @@ pub fn clear_root_workspace_cache() {
 /// Falls back to `w_id` when the chain cannot be resolved (unknown id, broken or cyclic chain,
 /// failed lookup).
 ///
+/// Not the same question as `get_billing_workspace_id`, which walks all the way to the parentless
+/// root: a fork under a dev workspace bills to prod but belongs to the dev environment.
+///
 /// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
 /// authorized for that workspace (or run in trusted server-side code).
 pub async fn root_workspace_id(conn: &crate::worker::Connection, w_id: &str) -> String {
@@ -1549,10 +1552,13 @@ pub async fn root_workspace_id(conn: &crate::worker::Connection, w_id: &str) -> 
 
     let (root, ttl) = match resolved {
         Ok(Some(root)) => (root, ROOT_WORKSPACE_CACHE_TTL_S),
-        Ok(None) => (w_id.to_string(), ROOT_WORKSPACE_NEGATIVE_CACHE_TTL_S),
+        Ok(None) => (w_id.to_string(), ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S),
+        // A failed lookup is NOT cached, for the reason `lookup_tag_workspace` gives: the fallback
+        // is indistinguishable from a legitimate answer, so pinning one failure would make every
+        // job in a fork report the fork as its own environment until the entry expired.
         Err(e) => {
             tracing::warn!("failed to resolve root workspace of {w_id}: {e:#}");
-            (w_id.to_string(), ROOT_WORKSPACE_NEGATIVE_CACHE_TTL_S)
+            return w_id.to_string();
         }
     };
     ROOT_WORKSPACE_CACHE.insert(w_id.to_string(), (root.clone(), now + ttl));
@@ -1562,6 +1568,10 @@ pub async fn root_workspace_id(conn: &crate::worker::Connection, w_id: &str) -> 
 /// Uncached lookup behind [`root_workspace_id`]. `None` when the chain resolves to nothing: an
 /// unknown id, or a (malformed) cycle that saturates the depth bound — the same cycle-safety
 /// backstop convention as [`fork_ancestor_chain`].
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code). Answering for an arbitrary
+/// id discloses that the workspace exists and which environment it belongs to.
 pub async fn lookup_root_workspace_id(db: &crate::DB, w_id: &str) -> Result<Option<String>> {
     sqlx::query_scalar!(
         r#"
