@@ -536,10 +536,11 @@ async fn fetch_repo_archive(
 /// `{owner}-{repo}-{sha}` directory that gets dropped.
 ///
 /// Entry paths must be plain relative ones, and no entry may be written at or
-/// underneath a link the archive created. Link *targets* are preserved
+/// underneath a symlink the archive created. Symlink *targets* are preserved
 /// verbatim, as a git checkout preserves them, so `docs/x -> ../README.md`
 /// survives; what would let one escape is a later entry descending through it,
-/// and that is what the refusal covers.
+/// and that is what the refusal covers. Hard links are refused outright, since
+/// they resolve at unpack time and no git tree contains one.
 ///
 /// `aborted` is polled per entry: a `spawn_blocking` task keeps running after
 /// its join handle is dropped, so cancelling the job has to reach the loop
@@ -589,11 +590,21 @@ fn unpack_repo_archive(
                 path.display()
             )));
         }
-        if matches!(
-            entry.header().entry_type(),
-            tar::EntryType::Symlink | tar::EntryType::Link
-        ) {
-            links.insert(relative.clone());
+        match entry.header().entry_type() {
+            // Unpacking a hard link creates it immediately, against a target
+            // resolved outside this loop's reach, so an escaping one needs no
+            // second entry to be useful. A git tree has no way to express one,
+            // so an archive carrying one did not come from a repository.
+            tar::EntryType::Link => {
+                return Err(error::Error::BadRequest(format!(
+                    "Repository archive contains a hard link: {}",
+                    path.display()
+                )))
+            }
+            tar::EntryType::Symlink => {
+                links.insert(relative.clone());
+            }
+            _ => {}
         }
 
         // A tar is not required to carry an entry for each directory, so the
@@ -2421,6 +2432,34 @@ mod tests {
         std::fs::create_dir(&target).unwrap();
 
         assert!(unpack_repo_archive(&path, &target, &no_abort()).is_err());
+    }
+
+    #[test]
+    fn unpack_refuses_a_hard_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("archive.tar.gz");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            file,
+            flate2::Compression::fast(),
+        ));
+        let mut header = tar::Header::new_gnu();
+        header.set_size(0);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Link);
+        let name = b"acme-repo-abc123/hard";
+        let link = b"../../../etc/passwd";
+        header.as_old_mut().name[..name.len()].copy_from_slice(name);
+        header.as_old_mut().linkname[..link.len()].copy_from_slice(link);
+        header.set_cksum();
+        builder.append(&header, &[][..]).unwrap();
+        builder.into_inner().unwrap().finish().unwrap();
+
+        let target = dir.path().join("out");
+        std::fs::create_dir(&target).unwrap();
+
+        assert!(unpack_repo_archive(&path, &target, &no_abort()).is_err());
+        assert!(!target.join("hard").exists());
     }
 
     #[test]
