@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT 1 FROM draft\n                     WHERE workspace_id = $1 AND path = $2 AND typ = 'resource')",
+  "query": "SELECT EXISTS(SELECT 1 FROM draft\n                     WHERE workspace_id = $1 AND path = $2 AND typ = 'resource'\n                           AND (email = $3 OR email IS NULL))",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,7 @@
     "parameters": {
       "Left": [
         "Text",
+        "Text",
         "Text"
       ]
     },
@@ -19,5 +20,5 @@
       null
     ]
   },
-  "hash": "62647c3882a96a8838dbe87172a4c2aa6e875ad4f89412383b856a6c91c39b6a"
+  "hash": "04961245a919b287ffc5b31c78426db0c69ae8ff665611e275e9656ac4c1ae0d"
 }
