@@ -171,7 +171,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "value",
                 "is_secret",
                 "description"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -253,7 +254,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "The path to the variable (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -401,7 +403,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "path",
                 "value",
                 "resource_type"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -473,7 +476,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "The path to the resource (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -727,7 +731,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "summary",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -988,7 +993,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "value",
                 "path"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -1043,7 +1049,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "summary",
                 "value"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -1234,7 +1241,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "value",
                 "summary",
                 "policy"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -1349,7 +1357,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": [
                 "value"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -1471,7 +1480,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "args",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -2039,7 +2049,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "script_path",
                 "is_flow",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -2241,7 +2252,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "schedule",
                 "timezone",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined

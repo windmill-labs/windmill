@@ -117,6 +117,8 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     section: "Sync behavior", commented: true, templateValue: "4" },
   { name: "locksRequired", type: "boolean", default: "false", description: "Require lock files for all scripts",
     commented: true, templateValue: "true" },
+  { name: "dedupeLockfiles", type: "boolean", default: "false", description: "Share one lockfile per workspace dependency file (locks/<depfile>.lock), instead of an identical .script.lock per script",
+    commented: true, templateValue: "true" },
   { name: "lint", type: "boolean", default: "false", description: "Run linting before push",
     commented: true, templateValue: "true" },
   { name: "plainSecrets", type: "boolean", default: "false", description: "Handle secrets as plain text (not recommended)",
