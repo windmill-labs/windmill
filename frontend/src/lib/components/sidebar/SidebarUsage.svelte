@@ -203,6 +203,7 @@
 				{EXECUTIONS_HINT}
 			{/snippet}
 			<button
+				type="button"
 				class="w-full rounded p-1.5 hover:bg-surface-hover flex {isCollapsed
 					? 'justify-center'
 					: 'flex-col gap-1'}"

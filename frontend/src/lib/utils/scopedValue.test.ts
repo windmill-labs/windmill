@@ -45,6 +45,17 @@ describe('scopedValue', () => {
 		expect(held('a', undefined)).toBe(undefined)
 	})
 
+	it('orders a late answer against the read issued on returning to its key', () => {
+		const held = scopedValue<number>()
+		// A's first read is still in flight when we leave for B, so nothing for A is held.
+		expect(held('b', { key: 'b', seq: 2, value: 2 })).toBe(2)
+		// Back on A, that late answer is the only value describing A, so it stands...
+		expect(held('a', { key: 'a', seq: 1, value: 10 })).toBe(10)
+		// ...until the read issued on returning lands, and cannot come back afterwards.
+		expect(held('a', { key: 'a', seq: 3, value: 30 })).toBe(30)
+		expect(held('a', { key: 'a', seq: 1, value: 10 })).toBe(30)
+	})
+
 	it('stamps issue order even when responses resolve inverted', async () => {
 		const settle: Array<(v: number) => void> = []
 		const fetch = tagged((_key: string) => new Promise<number>((r) => settle.push(r)))
