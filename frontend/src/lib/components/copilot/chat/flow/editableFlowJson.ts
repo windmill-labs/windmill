@@ -5,6 +5,7 @@ import {
 	collectInvalidAgentToolNames,
 	collectProviderlessAgentIds
 } from '$lib/components/flows/agentToolTree'
+import { validateAiAgentProviders, type AiAgentProviderOption } from './aiAgentProviders'
 import { SPECIAL_MODULE_IDS } from '../shared'
 import { findUnresolvedInlineScriptRefs, type InlineScriptSession } from './inlineScriptsUtils'
 import {
@@ -44,10 +45,16 @@ export type EditableFlowJson = {
 	notes: FlowNote[] | null
 } & FlowValueSettings
 
-/** Optional input to the rich-error path of `validateEditableFlowJson`. */
-type SchemaErrorContext = {
+/** Optional input to `validateEditableFlowJson` and `validateFlowModules`. */
+type FlowValidationContext = {
 	/** Custom modules schema to validate against (defaults to flowModulesSchema). */
 	modulesSchema?: z.ZodTypeAny
+	/** Workspace AI provider resources, to check the provider config of AI agent
+	 * modules against. Omitted, only the shape of a provider config is checked. */
+	aiProviders?: AiAgentProviderOption[]
+	/** Sink for non-blocking provider findings, e.g. a model a proxy resource does not
+	 * list but may still accept. Callers surface these in the tool result. */
+	aiProviderWarnings?: string[]
 }
 
 /**
@@ -204,7 +211,7 @@ function getExpectedFormat(schema: z.ZodType): string | null {
 
 export function validateFlowModules(
 	rawModules: unknown,
-	ctx: SchemaErrorContext = {}
+	ctx: FlowValidationContext = {}
 ): FlowModule[] {
 	if (!Array.isArray(rawModules)) {
 		throw new Error('Flow modules must be an array')
@@ -287,9 +294,10 @@ export function validateFlowModules(
 		)
 	}
 
+	validateAiAgentProviders(parsedModules, ctx.aiProviders, ctx.aiProviderWarnings)
+
 	return parsedModules
 }
-
 
 export function validateFlowSchema(rawSchema: unknown): Record<string, any> | null {
 	if (rawSchema == null) return null
@@ -326,7 +334,7 @@ export const EDITABLE_FLOW_STRUCTURAL_KEYS = [
  */
 export function validateEditableFlowJson(
 	rawFlow: unknown,
-	ctx: SchemaErrorContext = {}
+	ctx: FlowValidationContext = {}
 ): EditableFlowJson {
 	if (!rawFlow || typeof rawFlow !== 'object' || Array.isArray(rawFlow)) {
 		throw new Error('Flow JSON must be an object')

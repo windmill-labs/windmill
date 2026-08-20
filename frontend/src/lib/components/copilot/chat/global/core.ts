@@ -69,6 +69,11 @@ import {
 	restoreSpecialRawscriptModule,
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
+import { getAiAgentProviderCatalog } from '../flow/aiAgentProviderCatalog'
+import {
+	formatAiAgentProviderWarnings,
+	formatAiAgentProvidersPrompt
+} from '../flow/aiAgentProviders'
 import {
 	createInlineScriptSession,
 	findUnresolvedInlineScriptRefs
@@ -2097,7 +2102,10 @@ function getScriptInstructions(language: ScriptLang | undefined): string {
 ${getScriptPrompt(selected)}`
 }
 
-function getFlowInstructions(): string {
+async function getFlowInstructions(workspace: string | undefined): Promise<string> {
+	// The provider list is fetched here, not baked into the static reference, so an
+	// aiagent step is written against the models this workspace's resources serve.
+	const aiAgentProviders = formatAiAgentProvidersPrompt(await getAiAgentProviderCatalog(workspace))
 	return `# Global draft flow instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
@@ -2135,6 +2143,7 @@ function getFlowInstructions(): string {
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments are **non-compact** flow modules: inline each rawscript body directly in \`content\` by default. But if a body is long or quote/backslash-heavy enough that escaping it into the JSON string is error-prone — or if a \`write_flow\` call comes back with a JSON parse error — create that module with **empty content** (\`"content": ""\`) and fill it with \`set_flow_module_code(path, module_id, code)\`, whose \`code\` is a plain argument with no nested escaping. \`write_flow\` reports which modules still have empty bodies so you know what to fill.
   - When overwriting an **existing** flow, set \`"content": "inline_script.<moduleId>"\` on any rawscript module whose code you are not changing — the placeholder resolves to that module's current body, so you never re-send (or re-read) unchanged code. Placeholders that match no existing rawscript module and are not the module's own id are rejected.
 
+${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
 # Windmill flow authoring reference
 
 ${getFlowPrompt()}`
@@ -2207,12 +2216,16 @@ function getPipelineInstructions(): string {
 	return getPipelinePrompt()
 }
 
-function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
+function getInstructions(
+	subject: InstructionSubject,
+	language: ScriptLang | undefined,
+	workspace: string | undefined
+): string | Promise<string> {
 	switch (subject) {
 		case 'script':
 			return getScriptInstructions(language)
 		case 'flow':
-			return getFlowInstructions()
+			return getFlowInstructions(workspace)
 		case 'resource':
 			return getResourceInstructions()
 		case 'app':
@@ -2989,7 +3002,7 @@ export const globalTools: Tool<{}>[] = [
 					? `${parsed.subject} (${parsed.language})`
 					: parsed.subject
 			toolCallbacks.setToolStatus(toolId, { content: `Loaded ${label} instructions` })
-			return getInstructions(parsed.subject, parsed.language)
+			return getInstructions(parsed.subject, parsed.language, ctx.workspace)
 		}
 	},
 	createSearchHubScriptsTool(false),
@@ -3289,17 +3302,22 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeFlowSchema.parse(ctx.args)
-			const editable = validateEditableFlowJson({
-				modules: parseOptionalJsonArg(parsed.modules, 'modules'),
-				schema: parseOptionalJsonArg(parsed.schema, 'schema'),
-				preprocessor_module: parseOptionalJsonArg(
-					parsed.preprocessor_module,
-					'preprocessor_module'
-				),
-				failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
-				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
-				notes: parseOptionalJsonArg(parsed.notes, 'notes')
-			})
+			const { options: aiProviders } = await getAiAgentProviderCatalog(ctx.workspace)
+			const aiProviderWarnings: string[] = []
+			const editable = validateEditableFlowJson(
+				{
+					modules: parseOptionalJsonArg(parsed.modules, 'modules'),
+					schema: parseOptionalJsonArg(parsed.schema, 'schema'),
+					preprocessor_module: parseOptionalJsonArg(
+						parsed.preprocessor_module,
+						'preprocessor_module'
+					),
+					failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
+					groups: parseOptionalJsonArg(parsed.groups, 'groups'),
+					notes: parseOptionalJsonArg(parsed.notes, 'notes')
+				},
+				{ aiProviders, aiProviderWarnings }
+			)
 			const resolved = await resolveWriteFlowInlineScripts(parsed.path, editable, ctx.workspace)
 			const result = await writeFlowDraft(
 				{
@@ -3311,7 +3329,10 @@ export const globalTools: Tool<{}>[] = [
 				},
 				ctx
 			)
-			return appendEmptyInlineScriptWarning(result, resolved)
+			return (
+				appendEmptyInlineScriptWarning(result, resolved) +
+				formatAiAgentProviderWarnings(aiProviderWarnings)
+			)
 		}
 	},
 	{
@@ -5018,7 +5039,9 @@ async function patchFlowJson(
 		throw new Error(`Invalid JSON after replacement: ${message}`)
 	}
 
-	const patchedEditable = validateEditableFlowJson(parsedValue)
+	const { options: aiProviders } = await getAiAgentProviderCatalog(ctx.workspace)
+	const aiProviderWarnings: string[] = []
+	const patchedEditable = validateEditableFlowJson(parsedValue, { aiProviders, aiProviderWarnings })
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
 	finalizeUnresolvedInlineScripts(newFlowValue)
 
@@ -5038,12 +5061,14 @@ async function patchFlowJson(
 	// Warn from the restored value, not patchedEditable — the compact view holds
 	// placeholders for every rawscript, so only post-restore content shows which
 	// modules still need bodies filled via set_flow_module_code.
-	return appendEmptyInlineScriptWarning(result, {
-		...patchedEditable,
-		modules: newFlowValue.modules,
-		preprocessor_module: newFlowValue.preprocessor_module ?? null,
-		failure_module: newFlowValue.failure_module ?? null
-	})
+	return (
+		appendEmptyInlineScriptWarning(result, {
+			...patchedEditable,
+			modules: newFlowValue.modules,
+			preprocessor_module: newFlowValue.preprocessor_module ?? null,
+			failure_module: newFlowValue.failure_module ?? null
+		}) + formatAiAgentProviderWarnings(aiProviderWarnings)
+	)
 }
 
 async function readFlowModuleCode(
