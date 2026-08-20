@@ -408,6 +408,16 @@ pub fn create_empty_dir(path: &PathBuf) -> std::io::Result<()> {
     }
 }
 
+/// Signals a detached `spawn_blocking` task that the future awaiting it is
+/// gone, so it can stop instead of running to completion in the background.
+struct AbortOnDrop(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Lay down the tree of an app-backed repository, which git can't clone
 /// because its URL carries no credential.
 ///
@@ -476,10 +486,17 @@ async fn fetch_repo_archive(
         file.flush().await?;
         drop(file);
 
+        // Dropping the join handle detaches the blocking task rather than
+        // stopping it, so the flag is what a cancelled job uses to reach the
+        // extraction loop. The guard sets it when this future is dropped.
+        let aborted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let _abort_on_drop = AbortOnDrop(aborted.clone());
         let unpack_archive = download_archive.clone();
-        tokio::task::spawn_blocking(move || unpack_repo_archive(&unpack_archive, &download_target))
-            .await
-            .map_err(|e| anyhow!("Failed to extract repository archive: {e}"))??;
+        tokio::task::spawn_blocking(move || {
+            unpack_repo_archive(&unpack_archive, &download_target, &aborted)
+        })
+        .await
+        .map_err(|e| anyhow!("Failed to extract repository archive: {e}"))??;
 
         Ok(commit)
     };
@@ -518,21 +535,34 @@ async fn fetch_repo_archive(
 /// Unpack a GitHub archive, whose entries all sit under one
 /// `{owner}-{repo}-{sha}` directory that gets dropped.
 ///
-/// Every entry's path, and every link's target, is required to be a plain
-/// relative one, so nothing the archive names resolves outside `target`. Link
-/// targets need checking separately: `Entry::unpack` writes the link verbatim,
-/// so a later entry descending through it would write wherever it points.
-fn unpack_repo_archive(archive_path: &PathBuf, target: &PathBuf) -> error::Result<()> {
+/// Entry paths must be plain relative ones, and no entry may be written at or
+/// underneath a link the archive created. Link *targets* are preserved
+/// verbatim, as a git checkout preserves them, so `docs/x -> ../README.md`
+/// survives; what would let one escape is a later entry descending through it,
+/// and that is what the refusal covers.
+///
+/// `aborted` is polled per entry: a `spawn_blocking` task keeps running after
+/// its join handle is dropped, so cancelling the job has to reach the loop
+/// itself.
+fn unpack_repo_archive(
+    archive_path: &PathBuf,
+    target: &PathBuf,
+    aborted: &std::sync::atomic::AtomicBool,
+) -> error::Result<()> {
+    use std::collections::HashSet;
     use std::path::Component;
-
-    fn is_contained(p: &std::path::Path) -> bool {
-        !p.as_os_str().is_empty() && p.components().all(|c| matches!(c, Component::Normal(_)))
-    }
 
     let file = std::fs::File::open(archive_path)?;
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+    let mut links: HashSet<PathBuf> = HashSet::new();
 
     for entry in archive.entries()? {
+        if aborted.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err(error::Error::ExecutionErr(
+                "Repository extraction cancelled".to_string(),
+            ));
+        }
+
         let mut entry = entry?;
         let path = entry.path()?.into_owned();
 
@@ -542,33 +572,28 @@ fn unpack_repo_archive(archive_path: &PathBuf, target: &PathBuf) -> error::Resul
         if relative.as_os_str().is_empty() {
             continue;
         }
-        if !is_contained(&relative) {
+        if relative
+            .components()
+            .any(|c| !matches!(c, Component::Normal(_)))
+        {
             return Err(error::Error::BadRequest(format!(
                 "Repository archive contains an unsafe path: {}",
                 path.display()
             )));
         }
-
+        // `ancestors` yields the path itself first, so this also refuses an
+        // entry that would overwrite a link and be followed through it.
+        if relative.ancestors().any(|a| links.contains(a)) {
+            return Err(error::Error::BadRequest(format!(
+                "Repository archive writes through a link: {}",
+                path.display()
+            )));
+        }
         if matches!(
             entry.header().entry_type(),
             tar::EntryType::Symlink | tar::EntryType::Link
         ) {
-            let link = entry
-                .link_name()?
-                .ok_or_else(|| {
-                    error::Error::BadRequest(format!(
-                        "Repository archive has a link with no target: {}",
-                        path.display()
-                    ))
-                })?
-                .into_owned();
-            if !is_contained(&link) {
-                return Err(error::Error::BadRequest(format!(
-                    "Repository archive contains a link pointing outside it: {} -> {}",
-                    path.display(),
-                    link.display()
-                )));
-            }
+            links.insert(relative.clone());
         }
 
         // A tar is not required to carry an entry for each directory, so the
@@ -2313,6 +2338,10 @@ mod tests {
             .collect()
     }
 
+    fn no_abort() -> std::sync::atomic::AtomicBool {
+        std::sync::atomic::AtomicBool::new(false)
+    }
+
     /// Build a gzipped tar whose entries are `(path, contents)`, laid out the
     /// way GitHub does it: everything under one top-level directory.
     fn tar_gz_with(dir: &std::path::Path, entries: &[(&str, &str)]) -> PathBuf {
@@ -2346,7 +2375,7 @@ mod tests {
         let target = dir.path().join("out");
         std::fs::create_dir(&target).unwrap();
 
-        unpack_repo_archive(&archive, &target).unwrap();
+        unpack_repo_archive(&archive, &target, &no_abort()).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(target.join("playbooks/site.yml")).unwrap(),
@@ -2354,8 +2383,48 @@ mod tests {
         );
     }
 
+    /// Append a symlink entry. The name and target are written into the header
+    /// directly because `set_path`/`set_link_name` reject `..`, which is what
+    /// these tests are made of.
+    fn append_symlink(builder: &mut tar::Builder<impl std::io::Write>, name: &str, link: &str) {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(0);
+        header.set_mode(0o777);
+        header.set_entry_type(tar::EntryType::Symlink);
+        header.as_old_mut().name[..name.len()].copy_from_slice(name.as_bytes());
+        header.as_old_mut().linkname[..link.len()].copy_from_slice(link.as_bytes());
+        header.set_cksum();
+        builder.append(&header, &[][..]).unwrap();
+    }
+
     #[test]
-    fn unpack_refuses_a_link_pointing_outside_the_target() {
+    fn unpack_refuses_to_write_through_a_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("archive.tar.gz");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            file,
+            flate2::Compression::fast(),
+        ));
+        append_symlink(&mut builder, "acme-repo-abc123/escape", "../../../tmp");
+        // The link alone is harmless; descending through it is the escape.
+        let mut header = tar::Header::new_gnu();
+        header.set_size(5);
+        header.set_mode(0o644);
+        let name = b"acme-repo-abc123/escape/pwned";
+        header.as_old_mut().name[..name.len()].copy_from_slice(name);
+        header.set_cksum();
+        builder.append(&header, &b"pwned"[..]).unwrap();
+        builder.into_inner().unwrap().finish().unwrap();
+
+        let target = dir.path().join("out");
+        std::fs::create_dir(&target).unwrap();
+
+        assert!(unpack_repo_archive(&path, &target, &no_abort()).is_err());
+    }
+
+    #[test]
+    fn unpack_keeps_a_link_that_stays_in_the_repo() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("archive.tar.gz");
         let file = std::fs::File::create(&path).unwrap();
@@ -2364,22 +2433,24 @@ mod tests {
             flate2::Compression::fast(),
         ));
         let mut header = tar::Header::new_gnu();
-        header.set_size(0);
-        header.set_mode(0o777);
-        header.set_entry_type(tar::EntryType::Symlink);
-        let name = b"acme-repo-abc123/link";
-        let link = b"../../../etc";
+        header.set_size(3);
+        header.set_mode(0o644);
+        let name = b"acme-repo-abc123/README.md";
         header.as_old_mut().name[..name.len()].copy_from_slice(name);
-        header.as_old_mut().linkname[..link.len()].copy_from_slice(link);
         header.set_cksum();
-        builder.append(&header, &[][..]).unwrap();
+        builder.append(&header, &b"hi\n"[..]).unwrap();
+        // Ordinary in a repository, and a git checkout keeps it as-is.
+        append_symlink(&mut builder, "acme-repo-abc123/docs/link", "../README.md");
         builder.into_inner().unwrap().finish().unwrap();
 
         let target = dir.path().join("out");
         std::fs::create_dir(&target).unwrap();
 
-        assert!(unpack_repo_archive(&path, &target).is_err());
-        assert!(!target.join("link").exists());
+        unpack_repo_archive(&path, &target, &no_abort()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(target.join("docs/link")).unwrap(),
+            "hi\n"
+        );
     }
 
     #[test]
@@ -2389,7 +2460,7 @@ mod tests {
         let target = dir.path().join("out");
         std::fs::create_dir(&target).unwrap();
 
-        assert!(unpack_repo_archive(&archive, &target).is_err());
+        assert!(unpack_repo_archive(&archive, &target, &no_abort()).is_err());
         // The entry named a path two levels above the target; nothing there.
         assert!(!dir.path().parent().unwrap().join("escaped").exists());
         assert!(!dir.path().join("escaped").exists());
