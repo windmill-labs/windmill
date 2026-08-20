@@ -175,8 +175,8 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['ruby', 'Ruby'],
 	['rlang', 'R'],
 	['dbt', 'dbt'],
-	// Deno is de-emphasized: keep it last so the picker stops surfacing it as an
-	// early option for new scripts.
+	// This array's order is the picker order. Deno is de-emphasized ahead of
+	// deprecation, so it stays last.
 	['deno', 'Deno']
 	// for related places search: ADD_NEW_LANG
 ]
