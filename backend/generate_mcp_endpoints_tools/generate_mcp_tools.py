@@ -61,28 +61,37 @@ def flatten_allof_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
     return merged
 
-def validate_fixed_fields(fixed_fields: Optional[Dict[str, Any]], body_schema: Optional[Dict[str, Any]], request_body: Dict[str, Any], tool_name: str) -> None:
-    """Check the invariants `x-mcp-tool-fixed-fields` relies on to mean anything.
+def validate_fixed_fields(fixed_fields: Optional[Dict[str, Any]], body_schema: Optional[Dict[str, Any]], request_body: Optional[Dict[str, Any]], tool_name: str) -> None:
+    """Reject a `x-mcp-tool-fixed-fields` the MCP layer would not honour.
 
-    A fixed field is written into the body by the MCP layer, after the caller's
-    arguments and only when a body is being sent at all.
+    It writes the fields into the request body after the caller's arguments, so an
+    endpoint only earns the extension if it always sends a body with declared
+    properties. Every shape that fails to is an error here rather than a tool that
+    quietly drops the fields at call time.
     """
     if not fixed_fields:
         return
     if not isinstance(fixed_fields, dict):
         raise ValueError(f"{tool_name}: x-mcp-tool-fixed-fields must be a mapping")
 
+    # A pass-through body (no declared properties) carries the runnable's own
+    # arguments verbatim and has no room for a key of ours; no body at all, less still.
+    if not (body_schema or {}).get('properties'):
+        raise ValueError(
+            f"{tool_name}: x-mcp-tool-fixed-fields needs a request body with declared "
+            "properties to be written into"
+        )
+
     # Exposing a fixed field as an argument too would advertise a choice the tool
     # does not honour, since the fixed value overwrites whatever the caller sent.
-    exposed = set((body_schema or {}).get('properties') or {})
-    clash = sorted(set(fixed_fields) & exposed)
+    clash = sorted(set(fixed_fields) & set(body_schema['properties']))
     if clash:
         raise ValueError(f"{tool_name}: field(s) both fixed and exposed: {', '.join(clash)}")
 
     # A caller who fills in no body field at all gets no body, and so no fixed fields
     # either. `requestBody: required: true` is what makes the MCP layer reject that
     # call outright (via minProperties), leaving no path on which the fields go missing.
-    if not request_body.get('required'):
+    if not (request_body or {}).get('required'):
         raise ValueError(
             f"{tool_name}: x-mcp-tool-fixed-fields needs requestBody.required, "
             "otherwise a bodyless call drops them silently"
@@ -183,7 +192,7 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
         if body_schema and request_body.get('required') and body_schema.get('properties'):
             body_schema['minProperties'] = 1
 
-        validate_fixed_fields(fixed_fields, body_schema, request_body, tool_name)
+    validate_fixed_fields(fixed_fields, body_schema, request_body, tool_name)
 
     # Sanitize empty schemas for JSON Schema draft 2020-12 compliance
     path_params_schema = sanitize_empty_schemas(path_params_schema)

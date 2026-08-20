@@ -1135,11 +1135,12 @@ async fn create_script_internal<'c>(
         }
     }
 
-    // Hashed only once every field the hash covers is settled — keep this below anything
-    // that still writes to `ns`. `parent_hash` is why: hashing an auto_parent deploy
-    // before the resolution above gives every version at a path the lineage of a first
-    // deploy, so redeploying content the path has held before collides with that
-    // archived version instead of becoming a new version of it.
+    // Hashed only once every field the hash covers is settled — below both writers to
+    // `ns`: the parent resolved just above, and the folder-derived `on_behalf_of` set
+    // further up. `parent_hash` is why it moved here, since hashing an auto_parent
+    // deploy any earlier gives every version at a path the lineage of a first deploy,
+    // so redeploying content the path has held before collides with that archived
+    // version instead of becoming a new version of it.
     let hash = ScriptHash(hash_script(&ns));
     if sqlx::query_scalar!(
         "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
