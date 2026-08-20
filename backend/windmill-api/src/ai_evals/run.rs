@@ -592,9 +592,9 @@ async fn agent_version_config(
     })
 }
 
-/// The configuration is never taken from the client: a saved agent runs by reference and its
-/// draft is read from the workspace, so a request carrying one would run something other than the
-/// resource it names.
+/// The configuration is never taken from the client: every kind of subject is read from the
+/// workspace by the path it names, so a request carrying one would run something other than the
+/// agent it claims to be a run of.
 fn validate_subject(subject: &EvalSubject) -> Result<()> {
     if subject.draft.is_some() {
         return Err(Error::BadRequest(

@@ -226,6 +226,14 @@ being edited run the edits and the question they answer is whether the edit is a
 While an agent is being edited the card says on the line — not under an icon — that saving updates
 every flow using the agent, and carries an unsaved-changes badge once there is something to save.
 
+The draft is the agent's, not the step's, so it outlives both. Save changes writes it to the agent
+and re-links the step; Cancel re-links the step and leaves the draft, which the next Edit resumes
+from — in this flow or in the resource editor, which writes the same draft; Discard, on the banner,
+is the one control that drops it. A linked step whose agent has a draft waiting says so with the
+same badge, because that is what its Evals button offers to run. Two editors on one draft means it
+can advance underneath you, so the card carries the shared conflict dialog, and an autosave that
+was rejected is reported rather than left to look like a save.
+
 The card also names the version, because that is what a run is recorded against: `v24` beside the
 agent, and `v24` beside an unsaved-changes badge for edits sitting on top of it, which is what a run
 labelled `v24 + edits` executed. It comes from the resource's newest history entry, since the
