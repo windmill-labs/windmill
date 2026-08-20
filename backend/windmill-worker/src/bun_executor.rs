@@ -586,13 +586,23 @@ pub async fn gen_bun_lockfile(
                         // dependencies cannot be expressed in one. Storing it anyway would not
                         // fail on an older worker — it would install from package.json alone and
                         // silently resolve different versions.
-                        if let Some(v) = bun_lockfile_version(&buf).filter(|v| *v > 1) {
-                            return Err(error::Error::ExecutionErr(format!(
-                                "bun produced a v{v} lockfile, which workers older than {} \
-                                 cannot read. Finish upgrading every worker before deploying \
-                                 dependencies that need it (overrides, catalogs).",
-                                MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.version()
-                            )));
+                        match bun_lockfile_version(&buf) {
+                            Some(1) => {}
+                            Some(v) => {
+                                return Err(error::Error::ExecutionErr(format!(
+                                    "bun produced a v{v} lockfile, which workers older than {} \
+                                     cannot read. Finish upgrading every worker before deploying \
+                                     dependencies that need it (overrides, catalogs).",
+                                    MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.version()
+                                )));
+                            }
+                            // The guard cannot classify this one, so it must not pass silently:
+                            // a bun that stops writing the header would reopen the drift hole
+                            // with nothing in the logs.
+                            None => tracing::warn!(
+                                "bun wrote a lockfile with no readable lockfileVersion; storing \
+                                 it unchecked for job {job_id}"
+                            ),
                         }
                     }
                     content.push_str(&buf);
@@ -2952,8 +2962,9 @@ pub async fn handle_wac_v2_output(
                                     version: flow_info.version,
                                     labels: flow_info.labels.clone(),
                                 };
-                                let on_behalf_of =
-                                    flow_info.on_behalf_of(&job.workspace_id, db).await?;
+                                let on_behalf_of = flow_info
+                                    .on_behalf_of(&job.workspace_id, db)
+                                    .await?;
                                 let step_args: HashMap<String, Box<RawValue>> = step
                                     .args
                                     .iter()
@@ -4187,8 +4198,7 @@ mod tests {
             bun_lockfile_version("{\n  \"lockfileVersion\": 2,\n  \"packages\": {}\n}"),
             Some(2)
         );
-        // bun raises the version on its own for overrides/catalogs; anything above 1 has to be
-        // recognised, not just the version that happened to exist when this was written
+        // bun raises the version on its own for overrides/catalogs, so any version has to parse
         assert_eq!(bun_lockfile_version("{\"lockfileVersion\":3}"), Some(3));
         assert_eq!(
             bun_lockfile_version("{ \"lockfileVersion\" : 42 }"),
