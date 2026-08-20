@@ -1012,8 +1012,15 @@ export async function main() {
 fn payload_module() -> serde_json::Value {
     serde_json::json!({
         "id": PAYLOAD_NODE_ID,
+        // Named, because it is a step of a flow someone reads: an eval run is opened as a job, and
+        // an unnamed inline script there is the one box that does not say what it is.
+        "summary": "Assemble the run the scorers read",
         "value": {
             "type": "rawscript",
+            // `bun`, not the `//native` this step is otherwise shaped for. A `//native` script is
+            // tagged `nativets`, which the seeded `default` worker group does not serve — only the
+            // `native` group does. An instance running the default group alone would queue every
+            // iteration of every run forever, so the cheaper runtime is not one this can assume.
             "language": "bun",
             "content": PAYLOAD_SCRIPT,
             // The script imports nothing, so its lockfile is the empty one, spelled the way the
