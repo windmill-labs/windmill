@@ -26,6 +26,7 @@
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
+use windmill_api_auth::ApiAuthed;
 use windmill_common::auth::create_jwt_token;
 use windmill_common::db::Authed;
 use windmill_test_utils::*;
@@ -1038,6 +1039,59 @@ async fn test_wm_token_gets_no_admin_claim_in_a_foreign_workspace(
         200,
         "a real superadmin token must still diff across workspaces: {}",
         resp.text().await?
+    );
+
+    Ok(())
+}
+
+/// `require_devops_role` and `require_instance_admin` gate only workspace-less routes, so
+/// confinement answers every request that would reach them and no HTTP case can tell
+/// whether they still cap job tokens. Call them directly, the way the workspace-scoped
+/// cases above reach `require_super_admin`, so the inner cap cannot be dropped while this
+/// suite stays green (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_privilege_gates_reject_a_job_token_directly(db: Pool<Postgres>) -> anyhow::Result<()> {
+    fn authed_with(job_id: Option<uuid::Uuid>) -> ApiAuthed {
+        ApiAuthed {
+            email: "test@windmill.dev".to_string(),
+            username: "runner".to_string(),
+            is_admin: true,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            scopes: None,
+            username_override: None,
+            username_override_is_token_label: false,
+            is_session_token: false,
+            token_prefix: None,
+            read_only: false,
+            job_id,
+        }
+    }
+
+    let job = authed_with(Some(uuid::Uuid::new_v4()));
+    let not_job = authed_with(None);
+
+    assert!(
+        windmill_api_auth::require_devops_role(&db, &job).await.is_err(),
+        "a job token must not hold the devops role"
+    );
+    assert!(
+        windmill_api_auth::require_instance_admin(&job).is_err(),
+        "a job token must not hold instance admin"
+    );
+
+    // The identity is a real superadmin, so without the job provenance both gates pass —
+    // proving the rejections above key off `job_id` and not the fixture's user.
+    assert!(
+        windmill_api_auth::require_devops_role(&db, &not_job)
+            .await
+            .is_ok(),
+        "a superadmin API token must still hold the devops role"
+    );
+    assert!(
+        windmill_api_auth::require_instance_admin(&not_job).is_ok(),
+        "a superadmin API token must still hold instance admin"
     );
 
     Ok(())
