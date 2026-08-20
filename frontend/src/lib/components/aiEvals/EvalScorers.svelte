@@ -388,6 +388,7 @@
 	}}
 >
 	<span class="text-sm">
-		The column goes; the scores it already produced stay on the runs that carry them.
+		The column goes from every run of this dataset, the ones already recorded included. Adding it
+		again starts a new column, which fills from the next run on.
 	</span>
 </ConfirmationModal>

@@ -335,14 +335,14 @@
 			<!-- Locked while the dataset is written, like the cases and the name: a scorer added after
 			     the click is not in the request the click built, and the drawer closes on it. -->
 			<div inert={writing}>
-			<EvalScorers
-				{workspace}
-				datasetPath={mode === 'edit' ? datasetPath : path}
-				dataset={mode === 'edit' ? dataset : undefined}
-				{datasets}
-				bind:pending={pendingScorers}
-				onChanged={onScorersChanged}
-			/>
+				<EvalScorers
+					{workspace}
+					datasetPath={mode === 'edit' ? datasetPath : path}
+					dataset={mode === 'edit' ? dataset : undefined}
+					{datasets}
+					bind:pending={pendingScorers}
+					onChanged={onScorersChanged}
+				/>
 			</div>
 			<!-- Written while naming a new dataset too: a case cannot be stored without one, so these
 			     are held in the drawer and created with it. -->
