@@ -37,7 +37,7 @@ use crate::{
         resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
         transform_json, validate_relative_path, OccupancyMetrics,
     },
-    handle_child::handle_child,
+    handle_child::{handle_child, run_future_with_polling_update_job_poller},
     is_sandboxing_enabled,
     python_executor::{create_dependencies_dir, handle_python_reqs, uv_pip_compile},
     DISABLE_NUSER, GIT_PATH, HOME_ENV, NSJAIL_ANSIBLE_RLIMIT_AS_MB, NSJAIL_PATH, PATH_ENV,
@@ -419,14 +419,22 @@ async fn fetch_repo_archive(
     client: &AuthedClient,
     resource_path: &str,
     git_ref: Option<&str>,
+    job: &MiniPulledJob,
     job_dir: &str,
     target_path: &str,
-    job_id: &Uuid,
-    w_id: &str,
+    worker_name: &str,
     conn: &Connection,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<()> {
     let target_path = is_allowed_file_location(job_dir, target_path)?;
     create_empty_dir(&target_path)?;
+
+    // Not in the job directory under a fixed name: `create_file_resources` has
+    // already written the run's own files there, from paths the playbook
+    // chooses, so a predictable name here could truncate one of them.
+    let archive_path = std::env::temp_dir().join(format!("wmill-repo-archive-{}.tar.gz", job.id));
 
     let url = format!(
         "{}/api/w/{}/github_app/repo_archive/{}",
@@ -435,45 +443,70 @@ async fn fetch_repo_archive(
     let query = git_ref
         .map(|r| vec![("ref", r.to_string())])
         .unwrap_or_default();
-    let response = client.get_streaming(&url, query).await?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        return Err(error::Error::BadRequest(format!(
-            "Failed to download `{}` ({}): {}",
-            resource_path, status, body
-        )));
-    }
 
-    let commit = response
-        .headers()
-        .get("x-commit-sha")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown")
-        .to_string();
+    let download_target = target_path.clone();
+    let download_archive = archive_path.clone();
+    let resource = resource_path.to_string();
+    let fetch = async move {
+        let response = client.get_streaming(&url, query).await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(error::Error::BadRequest(format!(
+                "Failed to download `{}` ({}): {}",
+                resource, status, body
+            )));
+        }
 
-    // Written out chunk by chunk: a repository is arbitrarily large, and
-    // holding one in the worker's memory would take every job on it down.
-    let archive_path = PathBuf::from(job_dir).join("repo_archive.tar.gz");
-    let mut file = tokio::fs::File::create(&archive_path).await?;
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| anyhow!("Failed to read repository archive: {e}"))?;
-        file.write_all(&chunk).await?;
-    }
-    file.flush().await?;
-    drop(file);
+        let commit = response
+            .headers()
+            .get("x-commit-sha")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("unknown")
+            .to_string();
 
-    let unpack_target = target_path.clone();
-    let unpack_archive = archive_path.clone();
-    tokio::task::spawn_blocking(move || unpack_repo_archive(&unpack_archive, &unpack_target))
-        .await
-        .map_err(|e| anyhow!("Failed to extract repository archive: {e}"))??;
+        // Written out chunk by chunk: a repository is arbitrarily large, and
+        // holding one in the worker's memory would take every job on it down.
+        let mut file = tokio::fs::File::create(&download_archive).await?;
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| anyhow!("Failed to read repository archive: {e}"))?;
+            file.write_all(&chunk).await?;
+        }
+        file.flush().await?;
+        drop(file);
+
+        let unpack_archive = download_archive.clone();
+        tokio::task::spawn_blocking(move || unpack_repo_archive(&unpack_archive, &download_target))
+            .await
+            .map_err(|e| anyhow!("Failed to extract repository archive: {e}"))??;
+
+        Ok(commit)
+    };
+
+    // Through the job poller, like the git clone paths: the download has no
+    // wall-clock bound of its own, so this is what makes a cancelled or
+    // timed-out run stop occupying the worker.
+    let commit = run_future_with_polling_update_job_poller(
+        job.id,
+        job.timeout,
+        conn,
+        mem_peak,
+        canceled_by,
+        fetch,
+        worker_name,
+        &job.workspace_id,
+        &mut Some(occupancy_metrics),
+        Box::pin(futures::stream::once(async { 0 })),
+    )
+    .await;
+
     let _ = tokio::fs::remove_file(&archive_path).await;
+    let commit = commit?;
 
     append_logs(
-        job_id,
-        w_id,
+        &job.id,
+        &job.workspace_id,
         format!("Fetched {} at {}\n", resource_path, commit),
         conn,
     )
@@ -485,12 +518,16 @@ async fn fetch_repo_archive(
 /// Unpack a GitHub archive, whose entries all sit under one
 /// `{owner}-{repo}-{sha}` directory that gets dropped.
 ///
-/// Each entry's path is required to be a plain relative one, so a `..` or
-/// absolute entry can't land a file outside `target`. Symlinks are left to
-/// `tar`'s own unpack, which keeps a link from escaping the directory it
-/// unpacks into.
+/// Every entry's path, and every link's target, is required to be a plain
+/// relative one, so nothing the archive names resolves outside `target`. Link
+/// targets need checking separately: `Entry::unpack` writes the link verbatim,
+/// so a later entry descending through it would write wherever it points.
 fn unpack_repo_archive(archive_path: &PathBuf, target: &PathBuf) -> error::Result<()> {
     use std::path::Component;
+
+    fn is_contained(p: &std::path::Path) -> bool {
+        !p.as_os_str().is_empty() && p.components().all(|c| matches!(c, Component::Normal(_)))
+    }
 
     let file = std::fs::File::open(archive_path)?;
     let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
@@ -505,14 +542,33 @@ fn unpack_repo_archive(archive_path: &PathBuf, target: &PathBuf) -> error::Resul
         if relative.as_os_str().is_empty() {
             continue;
         }
-        if relative
-            .components()
-            .any(|c| !matches!(c, Component::Normal(_)))
-        {
+        if !is_contained(&relative) {
             return Err(error::Error::BadRequest(format!(
                 "Repository archive contains an unsafe path: {}",
                 path.display()
             )));
+        }
+
+        if matches!(
+            entry.header().entry_type(),
+            tar::EntryType::Symlink | tar::EntryType::Link
+        ) {
+            let link = entry
+                .link_name()?
+                .ok_or_else(|| {
+                    error::Error::BadRequest(format!(
+                        "Repository archive has a link with no target: {}",
+                        path.display()
+                    ))
+                })?
+                .into_owned();
+            if !is_contained(&link) {
+                return Err(error::Error::BadRequest(format!(
+                    "Repository archive contains a link pointing outside it: {} -> {}",
+                    path.display(),
+                    link.display()
+                )));
+            }
         }
 
         // A tar is not required to carry an entry for each directory, so the
@@ -1669,11 +1725,14 @@ pub async fn handle_ansible_job(
                     &client,
                     &delegated_git_repo.resource,
                     interpolated_commit.as_deref().or(repo.branch.as_deref()),
+                    job,
                     job_dir,
                     &repo.target_path,
-                    &job.id,
-                    &job.workspace_id,
+                    worker_name,
                     conn,
+                    mem_peak,
+                    canceled_by,
+                    occupancy_metrics,
                 )
                 .await?;
             } else if let Some(commit) = interpolated_commit.as_ref() {
@@ -2293,6 +2352,34 @@ mod tests {
             std::fs::read_to_string(target.join("playbooks/site.yml")).unwrap(),
             "- hosts: all\n"
         );
+    }
+
+    #[test]
+    fn unpack_refuses_a_link_pointing_outside_the_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("archive.tar.gz");
+        let file = std::fs::File::create(&path).unwrap();
+        let mut builder = tar::Builder::new(flate2::write::GzEncoder::new(
+            file,
+            flate2::Compression::fast(),
+        ));
+        let mut header = tar::Header::new_gnu();
+        header.set_size(0);
+        header.set_mode(0o777);
+        header.set_entry_type(tar::EntryType::Symlink);
+        let name = b"acme-repo-abc123/link";
+        let link = b"../../../etc";
+        header.as_old_mut().name[..name.len()].copy_from_slice(name);
+        header.as_old_mut().linkname[..link.len()].copy_from_slice(link);
+        header.set_cksum();
+        builder.append(&header, &[][..]).unwrap();
+        builder.into_inner().unwrap().finish().unwrap();
+
+        let target = dir.path().join("out");
+        std::fs::create_dir(&target).unwrap();
+
+        assert!(unpack_repo_archive(&path, &target).is_err());
+        assert!(!target.join("link").exists());
     }
 
     #[test]
