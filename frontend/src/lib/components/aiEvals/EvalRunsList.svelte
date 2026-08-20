@@ -83,12 +83,14 @@
 				<Cell>
 					<!-- The dataset a run is of, and the way into it: what a run measured and what the
 					     next one will are the same question asked a day apart. -->
-					<button
-						type="button"
-						class="flex flex-col min-w-0 max-w-full text-left hover:underline"
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
 						title={`Edit ${experiment.dataset}`}
-						onclick={(e) => {
-							e.stopPropagation()
+						wrapperClasses="min-w-0 max-w-full"
+						btnClasses="!px-0 !font-normal flex-col items-start text-left hover:underline hover:!bg-transparent min-w-0 max-w-full"
+						onClick={(e) => {
+							e?.stopPropagation()
 							onEditDataset(experiment.dataset)
 						}}
 					>
@@ -100,7 +102,7 @@
 								{experiment.dataset}
 							</span>
 						{/if}
-					</button>
+					</Button>
 				</Cell>
 				<Cell numeric>
 					<span class="tabular-nums text-secondary">{experiment.case_count}</span>

@@ -153,11 +153,13 @@
      path: both would point at the same place, and the way back is a level of the path, not a
      second thing to find. -->
 {#snippet crumb(segment: ModalTrailSegment, isBack: boolean)}
-	<button
-		type="button"
-		class="group inline-flex items-center gap-0.5 min-w-0 text-secondary hover:text-emphasis"
+	<Button
+		variant="subtle"
+		unifiedSize="sm"
 		title={isBack ? `Back to ${segment.label}` : undefined}
-		onclick={segment.onclick}
+		onClick={segment.onclick}
+		wrapperClasses="min-w-0"
+		btnClasses="group !px-0 !font-normal text-secondary hover:text-emphasis hover:!bg-transparent gap-0.5 min-w-0"
 	>
 		{#if isBack}
 			<!-- Pulled left so the label sits about where it would without it: the header is read as
@@ -165,7 +167,7 @@
 			<ChevronLeft size={18} class="shrink-0 -ml-1" />
 		{/if}
 		<span class="truncate group-hover:underline">{segment.label}</span>
-	</button>
+	</Button>
 {/snippet}
 
 <Disposable bind:open bind:this={disposable} preventEscape {minZIndex}>
