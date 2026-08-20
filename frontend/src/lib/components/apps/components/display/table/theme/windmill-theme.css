@@ -655,29 +655,3 @@
 	padding: var(--ag-grid-size);
 	font-weight: 600;
 }
-
-/* MultilineCellEditor: a popup positioned over the cell, so it has to paint the cell's own frame
-   rather than inherit it. Sized and bordered like the inline editor the other columns use, and
-   grown by the editor itself as lines are added. */
-.ag-theme-alpine .wm-multiline-cell-editor,
-.ag-theme-alpine-dark .wm-multiline-cell-editor {
-	background-color: var(--ag-background-color);
-}
-.ag-theme-alpine .wm-multiline-cell-editor textarea,
-.ag-theme-alpine-dark .wm-multiline-cell-editor textarea {
-	display: block;
-	box-sizing: border-box;
-	/* Horizontal only: the vertical padding is set by the editor, which knows the height of the row
-	   it is replacing. `line-height` here is what it computes against. */
-	padding: 0 calc(var(--ag-cell-horizontal-padding) - 1px);
-	border: 1px solid var(--ag-input-focus-border-color);
-	border-radius: 3px;
-	outline: none;
-	resize: none;
-	overflow: hidden;
-	background-color: var(--ag-background-color);
-	color: var(--ag-foreground-color);
-	font: inherit;
-	line-height: 20px;
-	white-space: pre-wrap;
-}

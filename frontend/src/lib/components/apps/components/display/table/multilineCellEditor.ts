@@ -1,4 +1,7 @@
 import type { ColDef, ICellEditorComp, ICellEditorParams } from 'ag-grid-community'
+// Beside the editor rather than in the AgGrid theme: that file is the vendored theme, and a rule
+// added to it is one the next copy of it drops.
+import './multilineCellEditor.css'
 
 /** Kept in step with the `line-height` the stylesheet gives the textarea. */
 const LINE_HEIGHT = 20
