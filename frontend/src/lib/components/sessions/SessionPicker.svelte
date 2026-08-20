@@ -316,10 +316,14 @@
 		return [...byWorkspace.entries()]
 			.map(([wsId, sessions]) => {
 				sessions.sort(byActivity)
+				// Sessions on a deleted fork keep its id; only a workspace the user
+				// still has can host a new session (putSession drops the rest), so
+				// `workspaceId` — which drives the header `+` — stays unset for those.
+				const known = $userWorkspaces.find((w) => w.id === wsId)
 				return {
 					key: wsId,
-					label: $userWorkspaces.find((w) => w.id === wsId)?.name || wsId || 'No workspace yet',
-					workspaceId: wsId || undefined,
+					label: known?.name || wsId || 'No workspace yet',
+					workspaceId: known ? wsId : undefined,
 					sessions,
 					showHeader: headed
 				}
@@ -327,13 +331,19 @@
 			.sort((a, b) => sessionLastActivityAt(b.sessions[0]) - sessionLastActivityAt(a.sessions[0]))
 	})
 
+	// What "Show archived" would actually reveal: every filter the list applies
+	// except the archive one, so the count never promises rows the activity
+	// cutoff would then hide.
 	const archivedCount = $derived(
 		sessionState.sessions.filter((s) => {
 			if (!s.archived || s.transient) return false
+			if (s.id === sessionState.currentSessionId) return true
+			if (lastActivityDays.val > 0) {
+				const cutoff = Date.now() - lastActivityDays.val * 24 * 60 * 60 * 1000
+				if (sessionLastActivityAt(s) < cutoff) return false
+			}
 			const currentRoot = $currentWorkspaceRootId
-			return (
-				!currentRoot || sessionRootOf(s) === currentRoot || s.id === sessionState.currentSessionId
-			)
+			return !currentRoot || sessionRootOf(s) === currentRoot
 		}).length
 	)
 
@@ -776,13 +786,14 @@
 					class="shrink-0 !w-4 !h-4 !p-0"
 					title="Select all sessions"
 				/>
-				<button
-					type="button"
-					onclick={toggleSelectAll}
-					class="text-xs text-secondary hover:text-primary whitespace-nowrap"
+				<Button
+					unifiedSize="2xs"
+					variant="subtle"
+					on:click={toggleSelectAll}
+					btnClasses="!text-xs !h-5 w-auto !px-0 text-secondary whitespace-nowrap"
 				>
 					Select all
-				</button>
+				</Button>
 				<span class="ml-auto text-2xs text-tertiary whitespace-nowrap">
 					{selectedIds.length} selected
 				</span>
@@ -1148,8 +1159,8 @@
 							{@const groupWs = groupWsId
 								? $userWorkspaces.find((w) => w.id === groupWsId)
 								: undefined}
-							<!-- Same styling as the "AI sessions" title: a group header is the
-							     section title for the rows under it. -->
+							<!-- A group header is the section title for the rows under it:
+							     plain text, no workspace icon or chip. -->
 							<div
 								class={twMerge(
 									'group flex flex-row items-center gap-1 pl-1 pr-0.5 pt-2 pb-1 min-w-0',
@@ -1167,15 +1178,17 @@
 									</Badge>
 								{/if}
 								{#if groupWsId}
-									<button
-										type="button"
-										onclick={() => createAndOpenIn(groupWsId)}
+									<Button
+										unifiedSize="xs"
+										variant="subtle"
+										iconOnly
+										startIcon={{ icon: Plus }}
+										on:click={() => createAndOpenIn(groupWsId)}
 										title="New session in {group.label}"
 										aria-label="New session in {group.label}"
-										class="ml-auto shrink-0 inline-flex items-center justify-center w-5 h-5 rounded text-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity hover:bg-surface-hover hover:text-primary"
-									>
-										<Plus size={14} />
-									</button>
+										wrapperClasses="ml-auto shrink-0"
+										btnClasses="text-tertiary opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+									/>
 								{/if}
 							</div>
 						{/if}
