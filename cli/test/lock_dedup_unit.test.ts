@@ -171,9 +171,7 @@ describe("computeSharedLockPlan", () => {
     // change what it locks, so such a script cannot stand for the file's lock.
     const map = workspace(PY_DEPS, BUN_DEPS);
     ownLock(map, "f/pinned", ".py", OTHER_LOCK, "# py311\nimport requests");
-    // The interpreter pin the python import parser reads, which the annotations
-    // macro does not cover.
-    ownLock(map, "f/pyspec", ".py", OTHER_LOCK, "# py: 3.11\nimport requests");
+
     ownLock(map, "f/plain", ".py", PY_LOCK);
     ownLock(map, "f/plain2", ".py", PY_LOCK);
     // Only the names the worker matches count, so a documented script — or one
@@ -189,11 +187,28 @@ describe("computeSharedLockPlan", () => {
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
     expect(map["f/pinned.script.lock"]).toEqual(OTHER_LOCK);
-    expect(map["f/pyspec.script.lock"]).toEqual(OTHER_LOCK);
     expect(lockRefOf(map["f/doc.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
     expect(map[SHARED_BUN]).toEqual("bun-lock");
     expect(map["f/npm.script.lock"]).toEqual("npm-lock");
     expect(map["f/nb.script.lock"]).toEqual("nb-lock");
+  });
+
+  test("an annotated script alone in its group creates no shared lockfile", () => {
+    // Alone, so nothing outvotes it: without the gate its variant would BECOME
+    // the dependency file's lock. `# py: <spec>` is the interpreter pin the
+    // python import parser reads, which the annotations macro does not cover.
+    for (const header of ["# py: 3.11", "#py:3.11.4", "# py311"]) {
+      const map = workspace(PY_DEPS);
+      ownLock(map, "f/only", ".py", OTHER_LOCK, `${header}\nimport requests`);
+
+      applySharedLockPlanToMap(map, plan(map));
+
+      expect(map[SHARED_PY]).toBeUndefined();
+      expect(map["f/only.script.lock"]).toEqual(OTHER_LOCK);
+      expect(lockRefOf(map["f/only.script.yaml"])).toEqual(
+        "!inline f/only.script.lock",
+      );
+    }
   });
 
   test("a script whose lock is its own keeps a private lockfile", () => {

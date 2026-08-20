@@ -2581,10 +2581,13 @@ async function compareDynFSElement(
       remoteMap,
       computeSharedLockPlan(remoteMap, {
         defaultTs: skips.defaultTs,
-        // From disk as well: `--skip-workspace-dependencies` keeps dependency
-        // files out of both maps, and absent is not the same as gone.
-        depFiles: Object.keys(await getRawWorkspaceDependencies(false)),
         present,
+        // Only when the map cannot speak for them: with dependency files in the
+        // map, its absences are real deletions, and reading disk here would keep
+        // a lockfile alive one sync past the file it is named after.
+        depFiles: skips.skipWorkspaceDependencies
+          ? Object.keys(await getRawWorkspaceDependencies(false))
+          : undefined,
       }),
     );
   }
