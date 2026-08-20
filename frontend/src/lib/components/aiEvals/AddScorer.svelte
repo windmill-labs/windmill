@@ -274,8 +274,10 @@ Expected: the case's expected value`
 		{:else}
 			<span class="text-xs text-secondary">
 				A script handed the same run, returning a number, a boolean or {'{ score, reason, checks }'}.
-				The template puts the assertions in main and the helpers below it: exact match, tool called
-				and not called, arguments against each tool's schema, repeated calls, step errors, latency.
+				The template scores the answer against the case's expected one, reports how the agent got
+				there as checks beside it, and leaves a case with no expected answer unmeasured. Helpers
+				below it cover exact and structural matches, which tools were called, arguments against each
+				tool's schema, repeated calls, step errors, latency and cost.
 			</span>
 		{/if}
 

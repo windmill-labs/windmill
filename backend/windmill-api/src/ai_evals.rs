@@ -3554,6 +3554,9 @@ pub const SCORER_SCRIPT_TEMPLATE: &str = r#"// A scorer receives one run and ret
 // { score, reason, checks } — checks show up in the case detail.
 // Return { score: null } for a case this scorer has nothing to measure on: the cell
 // is left out of the column's mean and pass rate rather than counted as a zero.
+//
+// The run is also handed to you spelled out, so a short scorer can skip the type below
+// entirely: export async function main(output: unknown, expected: unknown) { ... }
 type ToolCall = {
   name: string
   args?: Record<string, unknown>
@@ -3575,16 +3578,39 @@ type EvalRun = {
 }
 
 export async function main(run: EvalRun) {
+  // How the agent got to its answer. Reported rather than scored: checks render in the case
+  // detail either way, so they explain the number without being averaged into it.
+  //
+  // tool_called(run, ['search']) and tool_not_called(run, ['refund']) assert which tools a case
+  // should and should not reach for. under_tokens(run, 20_000) and cost_under(run, 0.05, rate)
+  // bound what a run may spend.
   const checks = [
-    check('resolves the request', contains(run.output, String(run.expected ?? ''))),
     check('arguments match the schema', args_schema_valid(run)),
     check('no repeated calls', no_repeated_calls(run)),
-    check('no step errors', no_step_errors(run)),
-    check('under 6 steps', run.metrics.steps <= 6),
-    check('under 30 seconds', under_ms(run, 30_000))
+    check('no failed tool calls', no_step_errors(run)),
+    check('under 6 steps', run.metrics.steps <= 6, `${run.metrics.steps} steps`),
+    check('under 30 seconds', under_ms(run, 30_000), `${run.metrics.duration_ms ?? '?'} ms`)
   ]
-  const passed = checks.filter((c) => c.passed).length
-  return { score: passed / checks.length, checks }
+
+  // Nothing to compare the answer against, so this column has no verdict on this case rather
+  // than a failing one. The cell reads n/a and the column's mean is of the cases it measured.
+  if (run.expected == undefined) {
+    return { score: null, reason: 'this case has no expected answer', checks }
+  }
+
+  // One question per column, and this column's question is whether the answer is right.
+  // Deliberately not the share of checks above that passed: a right answer that was slow and a
+  // wrong answer that was fast would score the same, and the column could not say which it was.
+  //
+  // Other ways to judge an answer: exact_match(run.output, run.expected) where it must match
+  // exactly, json_equals for a structured answer whose key order does not matter, and
+  // matches(run.output, /^ORD-\d+$/) for a shape rather than a value.
+  const correct = contains(run.output, text(run.expected))
+  return {
+    score: correct ? 1 : 0,
+    reason: correct ? undefined : `expected ${text(run.expected)}`,
+    checks
+  }
 }
 
 // Helpers. Edit or delete freely.
@@ -3671,8 +3697,11 @@ function no_step_errors(run: EvalRun): boolean {
   return run.status === 'success' && run.tool_calls.every((call) => !call.error)
 }
 
+// A run with no recorded duration is not under the limit: a check that could not be evaluated
+// should not report as one that passed.
 function under_ms(run: EvalRun, max: number): boolean {
-  return (run.metrics.duration_ms ?? 0) <= max
+  const ms = run.metrics.duration_ms
+  return ms != undefined && ms <= max
 }
 
 function under_tokens(run: EvalRun, max: number): boolean {
