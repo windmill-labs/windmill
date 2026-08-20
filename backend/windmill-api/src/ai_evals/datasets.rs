@@ -1,6 +1,5 @@
 use super::*;
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EvalDataset {
     pub path: String,
@@ -15,7 +14,6 @@ pub struct EvalDataset {
     pub edited_by: String,
 }
 
-
 /// The agent-facing half of a case: exactly the inputs a standalone run feeds the agent.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct EvalCaseInput {
@@ -24,7 +22,6 @@ pub struct EvalCaseInput {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_attachments: Option<Box<RawValue>>,
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EvalCase {
@@ -38,7 +35,6 @@ pub struct EvalCase {
     pub created_by: String,
 }
 
-
 /// The case fields a caller may set. `id`/`created_at`/`created_by` are assigned server-side so
 /// a client cannot forge provenance or collide with an existing case.
 #[derive(Deserialize, Debug)]
@@ -50,7 +46,6 @@ pub struct NewEvalCase {
     #[serde(default)]
     pub expected: Option<Box<RawValue>>,
 }
-
 
 #[derive(Deserialize)]
 pub struct CreateDataset {
@@ -67,7 +62,6 @@ pub struct CreateDataset {
     pub cases: Vec<NewEvalCase>,
 }
 
-
 #[derive(Deserialize)]
 pub struct EditDataset {
     /// Renames the dataset. Its cases and experiments follow through the foreign keys, so a
@@ -81,12 +75,30 @@ pub struct EditDataset {
     pub scorers: Option<Vec<Scorer>>,
 }
 
-
 #[derive(Deserialize)]
 pub struct CaseId {
     pub id: Uuid,
 }
 
+/// A dataset's cases as the editor holds them, which is how the editor writes them: all of them,
+/// at once. A case carrying an `id` is one the dataset already has; one without is new, and the
+/// id it is given comes back so a save that is retried updates it rather than adding it twice.
+#[derive(Deserialize)]
+pub struct SaveCases {
+    pub cases: Vec<SaveCase>,
+}
+
+#[derive(Deserialize)]
+pub struct SaveCase {
+    #[serde(default)]
+    pub id: Option<Uuid>,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub input: EvalCaseInput,
+    #[serde(default)]
+    pub expected: Option<Box<RawValue>>,
+}
 
 #[derive(Deserialize)]
 /// The edit fields are spelled out rather than `#[serde(flatten)]`-ing `NewEvalCase`: flatten
@@ -102,7 +114,6 @@ pub struct UpdateCase {
     pub expected: Option<Box<RawValue>>,
 }
 
-
 #[derive(Serialize)]
 pub struct ListCasesResponse {
     pub cases: Vec<EvalCase>,
@@ -111,7 +122,6 @@ pub struct ListCasesResponse {
 // -----------------------------------------------------------------------------------------------
 // Paths and permissions
 // -----------------------------------------------------------------------------------------------
-
 
 pub async fn list_datasets(
     authed: ApiAuthed,
@@ -142,7 +152,6 @@ pub async fn list_datasets(
             .collect(),
     ))
 }
-
 
 pub async fn create_dataset(
     authed: ApiAuthed,
@@ -225,7 +234,6 @@ pub async fn create_dataset(
     Ok(format!("Created eval dataset {}", payload.path))
 }
 
-
 pub async fn get_dataset(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -233,7 +241,6 @@ pub async fn get_dataset(
 ) -> JsonResult<EvalDataset> {
     Ok(Json(read_dataset(&authed, &user_db, &w_id, &path).await?))
 }
-
 
 pub async fn update_dataset(
     authed: ApiAuthed,
@@ -294,7 +301,6 @@ pub async fn update_dataset(
     Ok(format!("Updated eval dataset {}", updated))
 }
 
-
 /// The cases, the experiments and their recorded case sets go with the dataset, through the
 /// foreign keys. The jobs those experiments produced are not touched: they are jobs, with their
 /// own retention, and a run that happened is not undone by curating the dataset away.
@@ -327,7 +333,6 @@ pub async fn delete_dataset(
 // -----------------------------------------------------------------------------------------------
 // Cases
 // -----------------------------------------------------------------------------------------------
-
 
 pub(crate) async fn read_cases(
     authed: &ApiAuthed,
@@ -369,7 +374,6 @@ pub(crate) async fn read_cases(
         .collect()
 }
 
-
 pub async fn list_cases(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -392,7 +396,6 @@ pub async fn list_cases(
     tx.commit().await?;
     Ok(Json(ListCasesResponse { cases, total: total as usize }))
 }
-
 
 pub async fn add_case(
     authed: ApiAuthed,
@@ -442,6 +445,88 @@ pub async fn add_case(
     Ok(id.to_string())
 }
 
+/// Replace a dataset's cases with the list sent, in one transaction.
+///
+/// The editor holds every case at once and saves them together, so this is one write rather than
+/// one per case: a save that wrote a prefix would leave the dataset in a state nobody asked for,
+/// and the cases it had already written would arrive again as new ones when the save was retried.
+pub async fn save_cases(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, String)>,
+    Json(payload): Json<SaveCases>,
+) -> JsonResult<Vec<Uuid>> {
+    require_dataset_writable(&authed, &user_db, &w_id, &path).await?;
+    // The list is what the dataset holds afterwards, so its own length is the count to weigh.
+    if payload.cases.len() as i64 > MAX_CASES_PER_DATASET {
+        return Err(Error::BadRequest(format!(
+            "An eval dataset holds at most {} cases. Split them into several datasets.",
+            MAX_CASES_PER_DATASET
+        )));
+    }
+    for case in &payload.cases {
+        check_case_size(&case.input, case.expected.as_ref())?;
+    }
+
+    let mut tx = db.begin().await?;
+    let kept: Vec<Uuid> = payload.cases.iter().filter_map(|c| c.id).collect();
+    sqlx::query!(
+        "DELETE FROM eval_case
+         WHERE workspace_id = $1 AND dataset_path = $2 AND NOT (id = ANY($3))",
+        w_id,
+        path,
+        &kept
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    let mut ids = Vec::with_capacity(payload.cases.len());
+    for case in &payload.cases {
+        let input = serde_json::to_value(&case.input)?;
+        let expected = opt_from_raw(case.expected.as_ref())?;
+        let id = match case.id {
+            Some(id) => sqlx::query_scalar!(
+                "UPDATE eval_case SET name = $4, input = $5, expected = $6
+                 WHERE workspace_id = $1 AND dataset_path = $2 AND id = $3
+                 RETURNING id",
+                w_id,
+                path,
+                id,
+                case.name,
+                input,
+                expected,
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| Error::NotFound(format!("Eval case {} not found in {}", id, path)))?,
+            None => sqlx::query_scalar!(
+                "INSERT INTO eval_case
+                    (workspace_id, dataset_path, name, input, expected, created_by)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 RETURNING id",
+                w_id,
+                path,
+                case.name,
+                input,
+                expected,
+                authed.username,
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| {
+                if is_missing_dataset(&e) {
+                    Error::NotFound(format!("Eval dataset {} not found", path))
+                } else {
+                    e.into()
+                }
+            })?,
+        };
+        ids.push(id);
+    }
+    tx.commit().await?;
+    Ok(Json(ids))
+}
 
 pub async fn update_case(
     authed: ApiAuthed,
@@ -474,7 +559,6 @@ pub async fn update_case(
     }
     Ok(format!("Updated eval case {}", payload.id))
 }
-
 
 pub async fn delete_case(
     authed: ApiAuthed,

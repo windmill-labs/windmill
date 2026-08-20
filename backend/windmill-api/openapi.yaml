@@ -11750,6 +11750,42 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/ai_evals/cases/save/{path}:
+    post:
+      summary: replace the cases of an eval dataset
+      operationId: saveEvalCases
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: >
+          The dataset's cases as they should stand, written in one transaction. A case carrying an
+          `id` is updated; one without is created; a case the dataset holds and the list does not
+          is deleted.
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cases]
+              properties:
+                cases:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/SaveEvalCase"
+      responses:
+        "200":
+          description: the id of every case, in the order they were sent
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+                  format: uuid
+
   /w/{workspace}/ai_evals/cases/update/{path}:
     post:
       summary: update a case of an eval dataset
@@ -26362,6 +26398,16 @@ components:
           $ref: "#/components/schemas/EvalCaseInput"
         expected:
           description: Reference output a scorer compares a rerun against.
+
+    SaveEvalCase:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: Absent for a case the dataset does not hold yet.
+              type: string
+              format: uuid
+        - $ref: "#/components/schemas/NewEvalCase"
 
     EvalCase:
       allOf:

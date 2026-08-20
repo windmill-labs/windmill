@@ -154,35 +154,28 @@
 		}
 	}
 
-	/** Writes the cases as the drawer now holds them: the ones it added, the ones it changed and
-	 *  the ones it dropped, in that order so a rename below moves a set that is already right. */
+	/** Writes the cases as the drawer now holds them, in one request: what it added, what it
+	 *  changed and what it dropped land together or not at all. The ids come back so that a save
+	 *  which failed further on — the rename below — is retried as the same cases rather than
+	 *  adding the new ones a second time. */
 	async function saveCases() {
 		if (!workspace || !datasetPath) return
-		const stored = new Map(cases.map((c) => [c.id, c]))
-		const kept = new Set<string>()
-		for (const working of workingCases) {
-			const id = working.id
-			if (!id || !storedIds.has(id)) {
-				const { id: _local, ...rest } = working
-				await AiEvalsService.addEvalCase({ workspace, path: datasetPath, requestBody: rest })
-				continue
+		const sent = $state.snapshot(workingCases)
+		const ids = await AiEvalsService.saveEvalCases({
+			workspace,
+			path: datasetPath,
+			requestBody: {
+				cases: sent.map((c) => ({
+					// A local id is the drawer's own, for a row the dataset has never been told about.
+					id: c.id != undefined && storedIds.has(c.id) ? c.id : undefined,
+					name: c.name,
+					input: c.input,
+					expected: c.expected
+				}))
 			}
-			kept.add(id)
-			const before = stored.get(id)
-			const unchanged =
-				before != undefined &&
-				JSON.stringify(fromStoredCase(before)) === JSON.stringify($state.snapshot(working))
-			if (unchanged) continue
-			await AiEvalsService.updateEvalCase({
-				workspace,
-				path: datasetPath,
-				requestBody: { ...$state.snapshot(working), id }
-			})
-		}
-		for (const id of storedIds) {
-			if (kept.has(id)) continue
-			await AiEvalsService.deleteEvalCase({ workspace, path: datasetPath, requestBody: { id } })
-		}
+		})
+		workingCases = workingCases.map((c, index) => ({ ...c, id: ids[index] ?? c.id }))
+		storedIds = new Set(ids)
 	}
 
 	/** Renaming moves the dataset: its cases and experiments follow it through the foreign keys. */
