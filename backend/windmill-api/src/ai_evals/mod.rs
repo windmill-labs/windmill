@@ -15,6 +15,10 @@
 //! who may see or change a dataset. Cases and experiments carry a read policy derived from their
 //! dataset and no write policy at all: they are written on the unrestricted pool, after
 //! `require_dataset_writable` has asked the dataset row itself whether this caller may write it.
+//!
+//! The harvest is the one exception, and a deliberate one: copying what a run produced onto its own
+//! rows is gated on *reading* that run, because it writes nothing a reader could not already cause
+//! — see `collect_experiment`. Every write a caller authors goes through the rule above.
 
 use axum::{
     extract::{Path, Query},

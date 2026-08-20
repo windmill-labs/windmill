@@ -670,6 +670,17 @@ pub struct ExperimentId {
     pub id: Uuid,
 }
 
+/// Collect a run for a reader, without letting the collection decide whether the read succeeds.
+///
+/// `collect_experiment` propagates instead: it is the run reporting on itself, and a failure there
+/// is worth surfacing to the step that called it. Displaying a run is the opposite case — whatever
+/// is already recorded is what the table is of.
+async fn collect_quietly(db: &DB, w_id: &str, experiment_id: Uuid, run_job_id: Uuid) {
+    if let Err(e) = sync_run(db, w_id, experiment_id, run_job_id, true).await {
+        tracing::warn!("could not collect eval run {}: {e:#}", experiment_id);
+    }
+}
+
 /// The rows a results table is built from. The job ids come out of `eval_experiment_case`, which
 /// only this module writes, so they can be read on the unrestricted pool: the caller's access was
 /// established by the dataset read below, and the ids are not caller-supplied.
@@ -691,13 +702,17 @@ pub async fn experiment_results(
     // What the run has produced so far is read into its rows here, so an answer and a score
     // outlive the jobs that produced them rather than being recomputed from jobs that may have
     // been retained away.
-    sync_run(&db, &w_id, query.id, experiment.run_job_id, true).await?;
+    //
+    // Best-effort on this path: collecting is what the run's own step is for, and a cell that
+    // could not be read — a job retained away between the iteration and its children — must not
+    // take the whole table down with it. The rows already recorded are still the run.
+    collect_quietly(&db, &w_id, query.id, experiment.run_job_id).await;
     let scores = load_scores(&db, query.id).await?;
 
     let baseline = match query.baseline.filter(|id| *id != query.id) {
         Some(id) => {
             let baseline = read_experiment(&db, &w_id, &dataset, id).await?;
-            sync_run(&db, &w_id, id, baseline.run_job_id, true).await?;
+            collect_quietly(&db, &w_id, id, baseline.run_job_id).await;
             Some((baseline, load_scores(&db, id).await?))
         }
         None => None,
