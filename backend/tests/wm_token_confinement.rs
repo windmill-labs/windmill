@@ -299,6 +299,59 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
         );
     }
 
+    // 10. The rest of the allowlist: routes that answer from the caller's own account or
+    //     from the request body alone.
+    for route in [
+        "users/email",
+        "users/usage",
+        "users/tutorial_progress",
+        "workspaces/allowed_domain_auto_invite",
+    ] {
+        let resp = authed(client().get(format!("{api}/{route}")), &user_wm)
+            .send()
+            .await?;
+        assert_eq!(
+            resp.status(),
+            200,
+            "WM_TOKEN must still read its own {route}: {}",
+            resp.text().await?
+        );
+    }
+    let resp = authed(client().post(format!("{api}/schedules/preview")), &user_wm)
+        .json(&json!({ "schedule": "0 0 12 * * *", "timezone": "UTC" }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still preview a cron expression: {}",
+        resp.text().await?
+    );
+    let resp = authed(client().post(format!("{base}/tutorial_progress")), &user_wm)
+        .json(&json!({ "progress": 1, "skipped_all": false }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still record its own tutorial progress: {}",
+        resp.text().await?
+    );
+
+    // 11. ...and the caller-scoped reads deliberately left out of it, each because it
+    //     names another workspace or the identity's credentials.
+    for route in ["users/list_invites", "users/tokens/list", "workspaces/list"] {
+        let resp = authed(client().get(format!("{api}/{route}")), &user_wm)
+            .send()
+            .await?;
+        assert_eq!(
+            resp.status(),
+            403,
+            "{route} must stay confined: {}",
+            resp.text().await?
+        );
+    }
+
     Ok(())
 }
 

@@ -982,14 +982,28 @@ fn scope_grants_access(
     Ok(true)
 }
 
-/// The workspace-less routes a job token (`$WM_TOKEN`) may still read: each returns
-/// only the caller's own identity or content identical for every workspace (the Hub
-/// proxy, the documentation). Read methods only — a mutating handler added on one of
-/// these paths must be reconsidered rather than inherit the grant.
+/// The workspace-less routes a job token (`$WM_TOKEN`) may still read. A route qualifies
+/// only when it answers from the caller's own account, from the request body, or with
+/// content identical for every workspace (the Hub proxy, the documentation) — never
+/// naming another workspace, and never disclosing instance configuration. `usage` reads
+/// the caller's own row; `email` and `allowed_domain_auto_invite` are derived from the
+/// token itself and touch no table.
+///
+/// Deliberately absent, as each crosses that line: `users/list_invites` (returns the
+/// workspace ids the identity was invited to), `users/tokens/list` (credential metadata
+/// of the borrowed identity), `users/exists/{email}` (an oracle over arbitrary
+/// addresses, not the caller's own), and `workspaces/list` / `workspaces/users`.
+///
+/// Read methods only — a mutating handler added on one of these paths must be
+/// reconsidered rather than inherit the grant.
 fn is_global_read_open_to_job_token(route_path: &str) -> bool {
     matches!(
         route_path,
         "/api/users/whoami"
+            | "/api/users/email"
+            | "/api/users/usage"
+            | "/api/users/tutorial_progress"
+            | "/api/workspaces/allowed_domain_auto_invite"
             | "/api/docs/search"
             | "/api/docs/page"
             | "/api/integrations/hub/list"
@@ -999,8 +1013,9 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
         || route_path.starts_with("/api/apps/hub/")
 }
 
-/// The workspace-less writes a job token keeps, each because an in-product flow performs it
-/// from a job:
+/// The workspace-less POSTs a job token keeps. These are `POST` for the sake of a request
+/// body, not because they commit anything of consequence, and none of them can name a
+/// workspace other than through the caller's own account:
 /// - a resource editor's object-storage "Test connection" runs as a preview job that POSTs
 ///   the storage config (`TestConnection.svelte`). The probe acts only on the store the
 ///   request body describes, touching no Windmill state of any workspace.
@@ -1009,9 +1024,16 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
 ///   exactly this. `workspace` carries no row-level security, so the bare boolean it
 ///   answers is instance-wide rather than membership-filtered; what it discloses is
 ///   only whether a workspace id is taken.
-const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 2] = [
+/// - the cron preview computes the next occurrences of the expression in the body. It
+///   takes no `ApiAuthed` and opens no transaction, so it returns nothing the caller did
+///   not send.
+/// - tutorial progress upserts a UI bitfield keyed on the caller's own email. Its path
+///   serves a `GET` too, which the read list above carries.
+const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 4] = [
     "/api/settings/test_object_storage_config",
     "/api/workspaces/exists",
+    "/api/schedules/preview",
+    "/api/users/tutorial_progress",
 ];
 
 /// Confines a job token (`$WM_TOKEN`) to routes that name a workspace. It is minted
