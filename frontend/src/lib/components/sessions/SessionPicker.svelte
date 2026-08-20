@@ -17,7 +17,6 @@
 		PencilLine,
 		Plus,
 		Rows3,
-		Settings,
 		Trash2
 	} from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -866,7 +865,7 @@
 							unifiedSize="md"
 							variant="subtle"
 							iconOnly
-							startIcon={{ icon: Settings }}
+							startIcon={{ icon: EllipsisVertical }}
 							title="Session list options"
 							aria-label="Session list options"
 							btnClasses="text-secondary"
