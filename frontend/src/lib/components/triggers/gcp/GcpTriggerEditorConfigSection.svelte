@@ -86,10 +86,14 @@
 		loadingSubscription = false
 	}
 
-	/** Subscriptions come back fully qualified so cross-project ones survive the round trip;
-	 * the project prefix is noise in the picker, so only the id is shown. */
+	/** Subscriptions come back fully qualified so cross-project ones survive the round trip. The
+	 * project is what tells two same-named subscriptions apart, which is exactly the case a
+	 * cross-project topic creates, so it stays in the label rather than being trimmed away. */
 	function subscriptionLabel(name: string): string {
-		return name.split('/').pop() ?? name
+		const parts = name.split('/')
+		const id = parts.pop() ?? name
+		const project = parts.length >= 2 ? parts[1] : undefined
+		return project ? `${id} (${project})` : id
 	}
 
 	interface Props {
@@ -142,6 +146,11 @@
 	const usesDefaultCredentials = $derived(use_default_credentials ?? false)
 	const canUseDefaultCredentials = $derived($userStore?.is_admin === true || usesDefaultCredentials)
 	const hasCredentials = $derived(usesDefaultCredentials || !emptyStringTrimmed(gcp_resource_path))
+	/** Saving re-provisions the subscription with the instance's credentials, so the backend runs
+	 * the admin check on every write, not only when the mode is switched. A non-admin who inherits
+	 * such a trigger can open it, so say why saving is unavailable instead of letting them hit a
+	 * bare 403. */
+	const blockedByAdminGate = $derived(usesDefaultCredentials && $userStore?.is_admin !== true)
 
 	// One-shot on mount, so read the props rather than the derived: referencing `$derived` state
 	// here captures its initial value anyway, and Svelte warns about it.
@@ -168,7 +177,10 @@
 
 	$effect(() => {
 		isValid =
-			hasCredentials && !emptyStringTrimmed(topic_id) && !emptyStringTrimmed(subscription_id)
+			hasCredentials &&
+			!blockedByAdminGate &&
+			!emptyStringTrimmed(topic_id) &&
+			!emptyStringTrimmed(subscription_id)
 	})
 	$effect(() => {
 		if (!delivery_type) {
@@ -249,8 +261,10 @@
 							<!-- Typing does not refetch: every keystroke would be a Pub/Sub call for a
 							     project id that is not finished being typed. The refresh button next to
 							     the topic picker is what reloads the lists. -->
+							<!-- `|| undefined` so clearing the field means "unset" rather than an empty
+							     string that would travel as `?project_id=` and dirty the config. -->
 							<TextInput
-								bind:value={() => project_id ?? '', (v) => (project_id = v)}
+								bind:value={() => project_id ?? '', (v) => (project_id = v || undefined)}
 								inputProps={{
 									placeholder: 'my-gcp-project',
 									disabled: !can_write,
@@ -259,6 +273,13 @@
 							/>
 						</div>
 					</Subsection>
+
+					{#if blockedByAdminGate}
+						<Alert title="Workspace admin required" type="info" size="xs">
+							This trigger authenticates as the Windmill server. Saving changes to it needs
+							workspace admin, because saving re-provisions the subscription with those credentials.
+						</Alert>
+					{/if}
 
 					{#if hasCredentials}
 						<TestTriggerConnection kind="gcp" args={{ gcp_resource_path, project_id }} />

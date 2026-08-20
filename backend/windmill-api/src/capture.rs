@@ -200,8 +200,11 @@ pub struct AzureTriggerConfig {
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
-    /// `None` selects application default credentials.
-    #[serde(default, deserialize_with = "empty_as_none")]
+    /// `None` selects application default credentials. Deliberately not `empty_as_none`: unlike
+    /// every other field here, absent does not mean "unset" but "use the instance's own identity",
+    /// so a blank string left behind by a half-filled form must stay distinguishable and be
+    /// rejected rather than silently selecting the privileged mode.
+    #[serde(default)]
     pub gcp_resource_path: Option<String>,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub project_id: Option<String>,
@@ -427,6 +430,18 @@ async fn set_gcp_trigger_config(
     let Some(TriggerConfig::Gcp(mut gcp_config)) = capture_config.trigger_config else {
         return Err(Error::BadRequest("Invalid GCP Pub/Sub config".to_string()));
     };
+
+    if gcp_config
+        .gcp_resource_path
+        .as_deref()
+        .is_some_and(|path| path.trim().is_empty())
+    {
+        return Err(Error::BadRequest(
+            "GCP resource path cannot be empty. Remove the field entirely to use application \
+             default credentials."
+                .to_string(),
+        ));
+    }
 
     let config = manage_google_subscription(
         authed,
