@@ -429,24 +429,6 @@ async fn readable_agent_config(
     Ok(value.map(config_to_draft).transpose().ok().flatten())
 }
 
-/// The agent's deployed value, in the shape a step runs.
-pub(crate) async fn deployed_agent_config(
-    db: &DB,
-    w_id: &str,
-    path: &str,
-) -> Result<Option<AgentDraft>> {
-    let value = sqlx::query_scalar!(
-        "SELECT value FROM resource
-         WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
-        w_id,
-        path
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten();
-    value.map(config_to_draft).transpose()
-}
-
 /// What the agent is deployed as, and which version that is, from one read.
 ///
 /// Together rather than separately, because `resolve_deployed_draft` permanently converts a draft
@@ -457,7 +439,7 @@ pub(crate) async fn deployed_agent_state(
     db: &DB,
     w_id: &str,
     path: &str,
-) -> Result<(Option<String>, Option<i64>)> {
+) -> Result<(Option<AgentDraft>, Option<i64>)> {
     let row = sqlx::query!(
         "SELECT r.value AS \"value: sqlx::types::Json<serde_json::Value>\",
                 (SELECT version FROM resource_version v
@@ -473,13 +455,7 @@ pub(crate) async fn deployed_agent_state(
     let Some(row) = row else {
         return Ok((None, None));
     };
-    let hash = row
-        .value
-        .map(|v| config_to_draft(v.0))
-        .transpose()?
-        .as_ref()
-        .map(draft_hash);
-    Ok((hash, row.version))
+    Ok((row.value.map(|v| config_to_draft(v.0)).transpose()?, row.version))
 }
 
 pub(crate) async fn agent_draft_config(
@@ -546,10 +522,12 @@ async fn resolve_subject(
     Ok(match subject.kind {
         EvalSubjectKind::Agent => {
             require_agent(authed, user_db, w_id, &subject.path).await?;
-            // The version that configuration is, recorded so the run stays attributable to a
-            // prompt state later.
-            subject.version = current_resource_version(db, w_id, &subject.path).await?;
-            deployed_agent_config(db, w_id, &subject.path).await?
+            // The configuration and the number that names it, from one read: the stamp this
+            // writes is permanent, and a deploy landing between two reads would file every case
+            // under a version whose configuration never ran.
+            let (config, version) = deployed_agent_state(db, w_id, &subject.path).await?;
+            subject.version = version;
+            config
         }
         EvalSubjectKind::AgentDraft => {
             subject.draft = Some(agent_draft_config(authed, user_db, w_id, &subject.path).await?);

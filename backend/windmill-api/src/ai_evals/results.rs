@@ -174,7 +174,8 @@ async fn resolve_listed_drafts(
     }
     let mut deployed = std::collections::HashMap::new();
     for path in drafted {
-        deployed.insert(path.clone(), deployed_agent_state(db, w_id, &path).await?);
+        let (config, version) = deployed_agent_state(db, w_id, &path).await?;
+        deployed.insert(path.clone(), (config.as_ref().map(draft_hash), version));
     }
     for experiment in experiments.iter_mut() {
         let Some((hash, version)) = deployed.get(&experiment.subject.path) else {
@@ -859,8 +860,9 @@ pub async fn experiment_results(
     // draft — what those edits hash to, so a row that ran an earlier draft can say so.
     let mut subject_current_draft_hash = None;
     // One read, so the hash and the version it belongs to cannot come from either side of a deploy.
-    let (subject_deployed_hash, deployed_version) =
+    let (deployed_config, deployed_version) =
         deployed_agent_state(&db, &w_id, &experiment.subject.path).await?;
+    let subject_deployed_hash = deployed_config.as_ref().map(draft_hash);
     let (subject_current_version, subject_has_undeployed_changes) = match experiment.subject.kind {
         // A pinned version is what it is: nothing about the agent as it is now can make a run of
         // v18 stale, which is the reason to pin one.
