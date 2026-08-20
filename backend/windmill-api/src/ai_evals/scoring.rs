@@ -186,7 +186,7 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
         // done, and waiting for the iteration to end would hold every column of a case back until
         // the last of them finished.
         "SELECT s.ordinal, s.scorer_id, c.job_id AS \"job_id!\", d.status::text AS status,
-                (j.id IS NOT NULL) AS \"job_exists!\"
+                c.answered, (j.id IS NOT NULL) AS \"job_exists!\"
          FROM eval_score s
          JOIN eval_experiment_case c
               ON c.experiment_id = s.experiment_id AND c.ordinal = s.ordinal
@@ -214,13 +214,21 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
                 )),
             ));
         }
+        // What to say when the job is over and this scorer left nothing: the two are different
+        // states, and a cell reading "no answer to score" beside an Answer column that plainly
+        // shows one is the report being wrong rather than the run.
+        let missing = if row.answered == Some(true) {
+            "This scorer did not run for the case"
+        } else {
+            "The case produced no answer to score"
+        };
         let verdict = read_verdict(
             db,
             w_id,
             row.job_id,
             &row.scorer_id,
             row.status.as_deref(),
-            "The case produced no answer to score",
+            missing,
         )
         .await?;
         Ok::<_, Error>((row.ordinal, row.scorer_id, verdict))
