@@ -19,11 +19,13 @@ export function forEachAiAgentModule(
 				visit(v.tools)
 			} else if (v.type === 'forloopflow' || v.type === 'whileloopflow') {
 				visit(v.modules)
-			} else if (v.type === 'branchone') {
-				visit(v.default)
-				for (const b of v.branches ?? []) visit(b.modules)
-			} else if (v.type === 'branchall') {
-				for (const b of v.branches ?? []) visit(b.modules)
+			} else if (v.type === 'branchone' || v.type === 'branchall') {
+				if (v.type === 'branchone') visit(v.default)
+				// Model-produced JSON reaches this before any schema check, so a `branches` that
+				// is not an array must fall through to the schema error, not throw here.
+				if (Array.isArray(v.branches)) {
+					for (const b of v.branches) visit(b?.modules)
+				}
 			}
 		}
 	}

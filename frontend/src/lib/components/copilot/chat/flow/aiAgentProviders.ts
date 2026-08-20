@@ -7,18 +7,13 @@ export type AiAgentProviderOption = {
 	resourcePath: string
 	/** `$res:<path>`, the form an AI agent step's provider config references. */
 	resourceRef: string
-	models: string[]
+	models: ModelListing
 	/** `models` came from the endpoint's own listing. False when that listing failed and the
 	 * models are a fallback, which cannot rule an id out. */
 	modelsAreLive: boolean
-	/** An id outside `models` is provably wrong for this resource. Requires a live listing that
-	 * is exhaustive for the kind and an endpoint that serves what it lists: a filtered listing
-	 * (`fetchAvailableModels` drops OpenAI ids outside `gpt-`/`o`/`codex`, so fine-tunes never
-	 * appear) or a gateway (which may accept aliases it omits) can only warn. */
-	modelsRuleOutOthers: boolean
 	/** The resource points at a gateway rather than the provider's own API (custom `base_url`,
-	 * a non-standard platform, or the `customai` kind). Unknown endpoints count as custom, never
-	 * the other way round. */
+	 * a non-standard platform, or the `customai` kind). Such an endpoint may accept aliases its
+	 * listing omits. Unknown endpoints count as custom, never the other way round. */
 	customEndpoint: boolean
 }
 
@@ -39,35 +34,68 @@ export type AiAgentProviderCatalog = {
  * own context. Length-bounded for the same reason. */
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:+@/-]{0,79}$/
 
+/** Whether a string is usable as a model id at all. */
+export function isModelId(value: unknown): value is string {
+	return typeof value === 'string' && MODEL_ID.test(value)
+}
+
+/**
+ * A resource's models, carrying whether they are the whole set.
+ *
+ * `complete` is the single fact validation may reject an id on, and it is set here rather than
+ * derived per call site: every way this list can fall short of what the endpoint serves — a
+ * filtered listing, a paginated one, the entry cap below, an unusable entry dropped, or no
+ * listing at all — has to flow through `sanitizeModelListing`, so a new truncation cannot quietly
+ * leave the list looking exhaustive.
+ */
+export type ModelListing = { ids: string[]; complete: boolean }
+
 /** Models kept per resource, before the prompt's own display cap. Bounds what a hostile or broken
  * listing can hold in memory and match against. */
 const MAX_MODELS_PER_RESOURCE = 200
 
-/** Keep only the entries of a provider's model listing that are usable as an id. */
-export function sanitizeModelIds(ids: readonly unknown[]): string[] {
+/** Keep the entries of a provider's model listing that are usable as an id, and record whether
+ * what is left is still the endpoint's whole set. `sourceIsWhole` is the caller's claim about the
+ * response itself: false for a listing the caller filtered, paginated, or did not make. */
+export function sanitizeModelListing(
+	ids: readonly unknown[],
+	sourceIsWhole: boolean
+): ModelListing {
 	const kept: string[] = []
+	let dropped = false
 	for (const id of ids) {
-		if (typeof id === 'string' && MODEL_ID.test(id)) {
-			kept.push(id)
+		if (kept.length === MAX_MODELS_PER_RESOURCE) {
+			dropped = true
+			break
 		}
-		if (kept.length === MAX_MODELS_PER_RESOURCE) break
+		if (isModelId(id)) {
+			kept.push(id)
+		} else {
+			dropped = true
+		}
 	}
-	return kept
+	return { ids: kept, complete: sourceIsWhole && !dropped }
 }
 
 /** Models listed per resource in the prompt. Providers expose hundreds of ids (OpenRouter,
  * Bedrock); the whole list would crowd out the flow instructions. */
 const MAX_PROMPTED_MODELS = 25
 
+/** An id outside `models.ids` is provably wrong for this resource: the listing is live, whole,
+ * and from an endpoint that serves what it lists. Anything short of that can only be reported. */
+function rulesOutOtherModels(option: AiAgentProviderOption): boolean {
+	return option.modelsAreLive && option.models.complete && !option.customEndpoint
+}
+
 function describeOption(option: AiAgentProviderOption): string {
-	const models = option.models.slice(0, MAX_PROMPTED_MODELS)
+	const models = option.models.ids.slice(0, MAX_PROMPTED_MODELS)
 	const more =
-		option.models.length > models.length
-			? `, ... (${option.models.length - models.length} more)`
+		option.models.ids.length > models.length
+			? `, ... (${option.models.ids.length - models.length} more)`
 			: ''
 	const caveat = !option.modelsAreLive
 		? ' (the endpoint would not list its models, so these are a guess — confirm the id with the user)'
-		: !option.modelsRuleOutOthers
+		: !rulesOutOtherModels(option)
 			? ' (the endpoint may also serve model names this list does not show)'
 			: ''
 	const modelList = models.length > 0 ? `${models.join(', ')}${more}${caveat}` : 'none listed'
@@ -232,10 +260,10 @@ function checkProviderValue(
 			`provider.kind "${kind}" does not match "${resource}", which is a \`${match.kind}\` resource`
 		)
 	}
-	if (match.modelsAreLive && !match.models.includes(model)) {
+	if (match.modelsAreLive && !match.models.ids.includes(model)) {
 		return {
 			message: `model "${model}" is not in the model listing of "${resource}"`,
-			blocking: match.modelsRuleOutOthers
+			blocking: rulesOutOtherModels(match)
 		}
 	}
 	return undefined

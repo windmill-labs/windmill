@@ -2,7 +2,8 @@ import { ResourceService, WorkspaceService, type AIConfig, type AIProvider } fro
 import { AI_PROVIDERS, fetchAvailableModels } from '../../lib'
 import {
 	collectAiAgentProviderRefs,
-	sanitizeModelIds,
+	isModelId,
+	sanitizeModelListing,
 	selectAiAgentProviderCandidates,
 	type AiAgentProviderCatalog,
 	type AiAgentProviderOption
@@ -157,8 +158,12 @@ async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
 	return {
 		options,
 		resourcesAreComplete: listedAllResources && kept.length === candidates.length,
+		// The default is named in the prompt like any listed model, so it is held to the same
+		// shape — it comes from the AI settings, which a workspace admin fills in by hand.
 		defaultModel:
-			defaultModel && options.some((option) => option.resourcePath === defaultResourcePath)
+			defaultModel &&
+			isModelId(defaultModel.model) &&
+			options.some((option) => option.resourcePath === defaultResourcePath)
 				? { kind: defaultModel.provider, model: defaultModel.model }
 				: undefined
 	}
@@ -220,17 +225,13 @@ async function loadOption(
 		resourceRef: `$res:${candidate.resourcePath}`,
 		customEndpoint
 	}
-	const safeListed = sanitizeModelIds(listed)
-	if (safeListed.length > 0) {
-		return {
-			...base,
-			models: safeListed,
-			modelsAreLive: true,
-			modelsRuleOutOthers:
-				!customEndpoint &&
-				!FILTERED_MODEL_LISTING_KINDS.has(candidate.kind) &&
-				safeListed.length < SINGLE_PAGE_MODEL_COUNT(candidate.kind)
-		}
+	// Everything known about how short of the truth this response may be, stated once.
+	const sourceIsWhole =
+		!FILTERED_MODEL_LISTING_KINDS.has(candidate.kind) &&
+		listed.length < SINGLE_PAGE_MODEL_COUNT(candidate.kind)
+	const models = sanitizeModelListing(listed, sourceIsWhole)
+	if (models.ids.length > 0) {
+		return { ...base, models, modelsAreLive: true }
 	}
 	// Without a live listing, a model id cannot be ruled out: offer the configured
 	// models (then the curated defaults) as a hint, but leave the check off.
@@ -238,10 +239,5 @@ async function loadOption(
 		configuredModels.length > 0
 			? configuredModels
 			: (AI_PROVIDERS[candidate.kind]?.defaultModels ?? [])
-	return {
-		...base,
-		models: sanitizeModelIds(fallback),
-		modelsAreLive: false,
-		modelsRuleOutOthers: false
-	}
+	return { ...base, models: sanitizeModelListing(fallback, false), modelsAreLive: false }
 }
