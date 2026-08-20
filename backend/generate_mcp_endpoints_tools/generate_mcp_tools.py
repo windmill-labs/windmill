@@ -61,18 +61,19 @@ def flatten_allof_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
     return merged
 
-def validate_fixed_fields(fixed_fields: Optional[Dict[str, Any]], body_schema: Optional[Dict[str, Any]], request_body: Optional[Dict[str, Any]], tool_name: str) -> None:
+def validate_fixed_fields(fixed_fields: Any, body_schema: Optional[Dict[str, Any]], request_body: Optional[Dict[str, Any]], all_body_props: set, tool_name: str) -> None:
     """Reject a `x-mcp-tool-fixed-fields` the MCP layer would not honour.
 
     It writes the fields into the request body after the caller's arguments, so an
     endpoint only earns the extension if it always sends a body with declared
-    properties. Every shape that fails to is an error here rather than a tool that
-    quietly drops the fields at call time.
+    properties, and a fixed key only means something if the API declares it. Every
+    shape that fails either test is an error here rather than a tool that drops the
+    fields at call time, or sends a key the API's request struct ignores.
     """
-    if not fixed_fields:
+    if fixed_fields is None:
         return
-    if not isinstance(fixed_fields, dict):
-        raise ValueError(f"{tool_name}: x-mcp-tool-fixed-fields must be a mapping")
+    if not isinstance(fixed_fields, dict) or not fixed_fields:
+        raise ValueError(f"{tool_name}: x-mcp-tool-fixed-fields must be a non-empty mapping")
 
     # A pass-through body (no declared properties) carries the runnable's own
     # arguments verbatim and has no room for a key of ours; no body at all, less still.
@@ -80,6 +81,17 @@ def validate_fixed_fields(fixed_fields: Optional[Dict[str, Any]], body_schema: O
         raise ValueError(
             f"{tool_name}: x-mcp-tool-fixed-fields needs a request body with declared "
             "properties to be written into"
+        )
+
+    # Checked against the whole request schema, not the exposed subset: a fixed field is
+    # normally one that x-mcp-tool-include-fields deliberately leaves out, so the exposed
+    # subset cannot tell a deliberate omission from a misspelling. Serde drops an unknown
+    # key without complaint, which would make the misspelling a silent no-op at runtime.
+    unknown = sorted(set(fixed_fields) - all_body_props)
+    if unknown:
+        raise ValueError(
+            f"{tool_name}: fixed field(s) absent from the request body schema: "
+            f"{', '.join(unknown)}"
         )
 
     # Exposing a fixed field as an argument too would advertise a choice the tool
@@ -113,6 +125,7 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
     }
     
     body_schema = None
+    all_body_props: set = set()
     
     # Process parameters
     for param in parameters:
@@ -149,6 +162,8 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
     # Process request body if present
     if request_body:
         body_schema = extract_request_body_schema(request_body, spec, base_path)
+        if body_schema:
+            all_body_props = set(flatten_allof_schema(body_schema).get('properties') or {})
 
         # Flatten allOf schemas into a single object schema for filtering
         if body_schema and (include_fields is not None or opaque_fields):
@@ -192,7 +207,7 @@ def extract_separate_schemas(parameters: List[Dict[str, Any]], request_body: Opt
         if body_schema and request_body.get('required') and body_schema.get('properties'):
             body_schema['minProperties'] = 1
 
-    validate_fixed_fields(fixed_fields, body_schema, request_body, tool_name)
+    validate_fixed_fields(fixed_fields, body_schema, request_body, all_body_props, tool_name)
 
     # Sanitize empty schemas for JSON Schema draft 2020-12 compliance
     path_params_schema = sanitize_empty_schemas(path_params_schema)

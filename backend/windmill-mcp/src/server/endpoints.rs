@@ -30,7 +30,10 @@ pub struct EndpointTool {
     /// key of ours. `generate_mcp_tools.py` only accepts them on an endpoint whose
     /// request body is required, so the call that would carry none is refused outright
     /// rather than quietly losing them.
-    #[serde(default)]
+    ///
+    /// Unserialized: `list_tools` publishes `EndpointTool` as the public tool catalogue,
+    /// which is the caller's view, and this is exactly what the caller has no say over.
+    #[serde(default, skip_serializing)]
     pub body_fixed_fields: Option<serde_json::Value>,
 }
 
