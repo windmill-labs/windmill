@@ -46,6 +46,12 @@ const RUNNING_JOB: &str = "77777777-7777-7777-7777-777777777777";
 const EMBED_OWN_JOB: &str = "12121212-1212-1212-1212-121212121212";
 // A QUEUED job launched by the embed viewer (created_by test-user) — cancelable by it.
 const EMBED_OWN_QUEUED: &str = "13131313-1313-1313-1313-131313131313";
+// `singlestepflow` wrappers (as native retry / scheduled runs produce), one around a
+// SCRIPT and one around a FLOW.
+const WRAPPED_JOB: &str = "14141414-1414-1414-1414-141414141414";
+const WRAPPED_FLOW_JOB: &str = "15151515-1515-1515-1515-151515151515";
+// An inline-script component run of app `u/test-user-2/dash` (`trigger_kind = 'app'`).
+const APP_INLINE_JOB: &str = "16161616-1616-1616-1616-161616161616";
 // Queued sub-flow test-user-3 can see (folder `shared`), whose parent top flow they
 // cannot. Force cancel walks up to that parent.
 const QUEUED_VISIBLE_MID: &str = "55555555-5555-5555-5555-555555555555";
@@ -379,6 +385,160 @@ async fn test_single_job_read_authorization(db: Pool<Postgres>) -> anyhow::Resul
             );
         }
     }
+
+    // ---- PATH-SCOPED RUN TOKEN: confined to jobs of the runnable it may start.
+    //      RUN_SCOPED_TOKEN is test-user-2's `jobs:run:flows:f/shared/flow1` webhook
+    //      token, and test-user-2 created every job asserted on below — so `created_by`
+    //      alone would hand it all of them.
+    // Its own flow run reads, and so do the steps beneath it: a step's `runnable_path`
+    // is the inner script's, so the scope has to be satisfied through the ancestor.
+    for (path, expected) in [
+        (
+            format!("completed/get_result/{FLOW_JOB}"),
+            r#""flow": "done""#,
+        ),
+        (
+            format!("completed/get_result/{STEP_JOB}"),
+            "STEP_RESULT_INHERITED",
+        ),
+    ] {
+        let (status, body) = get(&base, &path, Some("RUN_SCOPED_TOKEN")).await;
+        assert!(
+            status.is_success(),
+            "run-scoped token must read its own flow run ({path}, got {status}): {body}"
+        );
+        assert!(
+            body.contains(expected),
+            "run-scoped token should get {expected} for {path}: {body}"
+        );
+    }
+    // A job of any other runnable is out of scope, even though the same user created it.
+    for path in [
+        format!("completed/get_result/{VICTIM}"),
+        format!("get_args/{VICTIM}"),
+        format!("get_logs/{VICTIM}"),
+        format!("getupdate/{VICTIM}?only_result=true"),
+    ] {
+        let (status, body) = get(&base, &path, Some("RUN_SCOPED_TOKEN")).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::NOT_FOUND,
+            "run-scoped token must not read a job outside its scope ({path}, got {status}): {body}"
+        );
+        for secret in [RESULT_SECRET, ARGS_SECRET, LOGS_SECRET] {
+            assert!(
+                !body.contains(secret),
+                "run-scoped token response for {path} leaked `{secret}`: {body}"
+            );
+        }
+    }
+    // A `singlestepflow` wrapper (native retry / scheduled run) belongs to the runnable
+    // it wraps, not to the flow domain its `kind` suggests. Each wrapper is readable by
+    // the token scoped to the wrapped kind, and only by that one.
+    for (job, reader, denied) in [
+        (WRAPPED_JOB, "RUN_SCOPED_SCRIPT_TOKEN", "RUN_SCOPED_TOKEN"),
+        (
+            WRAPPED_FLOW_JOB,
+            "RUN_SCOPED_TOKEN",
+            "RUN_SCOPED_SCRIPT_TOKEN",
+        ),
+    ] {
+        let (status, body) = get(&base, &format!("completed/get_result/{job}"), Some(reader)).await;
+        assert!(
+            status.is_success() && body.contains("WRAPPED"),
+            "{reader} must read the singlestepflow wrapping its runnable (got {status}): {body}"
+        );
+        let (status, body) = get(&base, &format!("completed/get_result/{job}"), Some(denied)).await;
+        assert_eq!(
+            status,
+            reqwest::StatusCode::NOT_FOUND,
+            "{denied} must not read a wrapper around the other kind (got {status}): {body}"
+        );
+    }
+
+    // An `apps:run:<app>` scope is a start grant too: the inline-script component run it
+    // launched — a kind no `jobs:run` scope can name — stays readable to a token scoped
+    // to that app, and stays out of reach for one that is only scoped to run jobs.
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{APP_INLINE_JOB}"),
+        Some("APP_RUNNER_TOKEN"),
+    )
+    .await;
+    assert!(
+        status.is_success() && body.contains("APP_INLINE_RESULT"),
+        "app-scoped token must read the component run its app launched (got {status}): {body}"
+    );
+    let (status, body) = get(
+        &base,
+        &format!("completed/get_result/{APP_INLINE_JOB}"),
+        Some("RUN_SCOPED_SCRIPT_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "a token with no scope on the app must not read its component run (got {status}): {body}"
+    );
+
+    // An approval link is a bypass of the read gate, so the confinement is re-applied on
+    // top of it: it must not become a way for a scoped token to read an out-of-scope job.
+    // The link itself is untouched — a logged-out approver still reads the same job.
+    let approval_token =
+        windmill_common::variables::generate_approval_token("test-workspace", VICTIM.parse()?, &db)
+            .await?;
+    let (status, body) = get(
+        &base,
+        &format!("get/{VICTIM}?approval_token={approval_token}"),
+        None,
+    )
+    .await;
+    assert!(
+        status.is_success(),
+        "an approval link must still authorize a logged-out read (got {status}): {body}"
+    );
+    let (status, body) = get(
+        &base,
+        &format!("get/{VICTIM}?approval_token={approval_token}"),
+        Some("RUN_SCOPED_TOKEN"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "an approval link must not lift the run-scope confinement (got {status}): {body}"
+    );
+
+    // Same for the resume-secret bypass on the result route, which the approval page uses.
+    let (status, secret) = get(
+        &authed_base,
+        &format!("job_signature/{STEP_JOB}/0"),
+        Some("SECRET_TOKEN_2"),
+    )
+    .await;
+    assert!(status.is_success(), "owner must mint a resume secret: {secret}");
+    let secret = secret.trim().trim_matches('"').to_string();
+    let approval_result =
+        format!("completed/get_result/{STEP_JOB}?suspended_job={STEP_JOB}&resume_id=0&secret={secret}");
+    let (status, body) = get(&base, &approval_result, None).await;
+    assert!(
+        status.is_success(),
+        "a resume secret must still authorize a logged-out result read (got {status}): {body}"
+    );
+    let (status, body) = get(&base, &approval_result, Some("RUN_SCOPED_SCRIPT_TOKEN")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::NOT_FOUND,
+        "a resume secret must not lift the run-scope confinement (got {status}): {body}"
+    );
+
+    // And a run grant is not an enumeration grant: the whole listing surface is denied.
+    let (status, body) = get(&authed_base, "list", Some("RUN_SCOPED_TOKEN")).await;
+    assert_eq!(
+        status,
+        reqwest::StatusCode::FORBIDDEN,
+        "run-scoped token must not enumerate jobs (got {status}): {body}"
+    );
 
     // ---- APP EMBED TOKEN: cancellation confined to the app's own jobs. The token
     //      may cancel a job it launched (created_by == viewer), but `cancel_job_api`

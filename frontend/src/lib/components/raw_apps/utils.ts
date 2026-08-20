@@ -3,7 +3,7 @@ import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
 import type { InlineScript } from '../apps/sharedTypes'
-import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+import { stateSnapshot } from '$lib/stateSnapshot.svelte'
 import { appSourceToDraftValue, normalizeRawAppData } from './rawAppDraftValue'
 
 // export type RunnableWithFields = any
@@ -261,10 +261,10 @@ export type Job = {
 };
 
 /**
- * Execute a job and wait for it to complete and return the completed job
+ * Wait for a job to complete and return its result. Rejects if the job failed.
  * @param id
  */
-export declare function waitJob(id: string): Promise<Job>;
+export declare function waitJob(id: string): Promise<any>;
 
 /**
  * Get a job by id and return immediately with the current state of the job

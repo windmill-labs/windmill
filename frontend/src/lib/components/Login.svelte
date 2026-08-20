@@ -17,9 +17,11 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, tick } from 'svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
+	import Password from './Password.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
 
@@ -91,6 +93,7 @@
 	const providersType = providers.map((p) => p.type as string)
 
 	let showPassword = $state(false)
+	let passwordField = $state<Password | undefined>(undefined)
 	// Type argument rather than annotation: annotating narrows the declaration to the
 	// initializer's `undefined`, so a top-level read sees `never` instead of the array.
 	let logins = $state<OAuthLogin[] | undefined>(undefined)
@@ -115,6 +118,11 @@
 			email,
 			password
 		}
+
+		// Await the DOM update: the field must be back to type="password" before the
+		// request goes out, or the browser may not offer to save the credential
+		passwordField?.conceal()
+		await tick()
 
 		try {
 			await UserService.login({ requestBody })
@@ -272,10 +280,12 @@
 
 	checkSmtpConfigured()
 
-	function handleKeyUp(event: KeyboardEvent) {
+	function handleKeyDown(event: KeyboardEvent) {
 		const key = event.key
 
-		if (key === 'Enter') {
+		// keydown auto-repeats while held, and Enter also confirms an IME candidate —
+		// either would submit the form more than once per keypress
+		if (key === 'Enter' && !event.isComposing && !event.repeat) {
 			event.preventDefault()
 			login()
 		}
@@ -525,19 +535,37 @@
 				<div class="space-y-1">
 					<label for="email" class="block text-xs font-semibold text-emphasis"> Email </label>
 					<div>
-						<input type="email" bind:value={email} id="email" autocomplete="email" />
+						<TextInput
+							size="md"
+							bind:value={email}
+							inputProps={{
+								id: 'email',
+								type: 'email',
+								autocomplete: 'username',
+								onkeydown: (e) => {
+									// Only move on once the field holds something: while the browser's
+									// credential dropdown is open, Enter belongs to the dropdown
+									if (e.key === 'Enter' && !e.isComposing && !e.repeat && e.currentTarget.value) {
+										e.preventDefault()
+										passwordField?.focus()
+									}
+								}
+							}}
+						/>
 					</div>
 				</div>
 
 				<div class="space-y-1">
 					<label for="password" class="block text-xs font-semibold text-emphasis"> Password </label>
 					<div>
-						<input
-							onkeyup={handleKeyUp}
-							bind:value={password}
+						<Password
+							bind:this={passwordField}
+							bind:password
 							id="password"
-							type="password"
+							placeholder=""
 							autocomplete="current-password"
+							allowMultiline={false}
+							onKeyDown={handleKeyDown}
 						/>
 					</div>
 					{#if smtpConfigured}

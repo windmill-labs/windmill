@@ -6,6 +6,7 @@
 //! - Stream event parsing
 //! - Helper utilities
 
+use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_bedrock::{
         bedrock_model_supports_prompt_caching, bedrock_stream_event_is_block_stop,
@@ -357,12 +358,11 @@ async fn handle_bedrock_sdk_streaming(
     let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
-    // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-    let temperature = openai_req
-        .reasoning_effort
-        .is_none()
-        .then_some(openai_req.temperature)
-        .flatten();
+    let temperature = bedrock_temperature(
+        model,
+        openai_req.reasoning_effort.as_deref(),
+        openai_req.temperature,
+    );
     let inference_config = create_inference_config(temperature, openai_req.max_tokens);
     let tool_config = build_tool_config_from_request(
         openai_req.tools.as_deref(),
@@ -410,11 +410,35 @@ async fn handle_bedrock_sdk_streaming(
     })
 }
 
-/// Build the Converse `additionalModelRequestFields` enabling Claude adaptive
-/// thinking at the given effort. `display: summarized` is billing-neutral on
-/// Anthropic models and matches the direct-Anthropic chat path, which renders
-/// summarized thinking in the UI.
+/// Whether an effort token turns adaptive thinking on. `"none"` is the disable
+/// sentinel rather than a level.
+fn effort_enables_thinking(effort: Option<&str>) -> bool {
+    matches!(effort, Some(effort) if effort != REASONING_OFF_SENTINEL)
+}
+
+/// Temperature survives only when thinking is not adaptive — which rejects
+/// sampling params — and the model still accepts them at all. Non-Anthropic
+/// Bedrock models (Nova, Llama) are unaffected by the second check.
+fn bedrock_temperature(model: &str, effort: Option<&str>, temperature: Option<f32>) -> Option<f32> {
+    if effort_enables_thinking(effort) || anthropic_model_rejects_sampling_params(model) {
+        return None;
+    }
+    temperature
+}
+
+/// Build the Converse `additionalModelRequestFields` carrying Claude's thinking
+/// config. `display: summarized` is billing-neutral on Anthropic models and
+/// matches the direct-Anthropic chat path, which renders summarized thinking in
+/// the UI.
 fn bedrock_thinking_fields(effort: &str) -> aws_smithy_types::Document {
+    if effort == REASONING_OFF_SENTINEL {
+        // The disable carries no effort: pairing it with xhigh or max is a 400
+        // on Opus 5, and omitting it leaves the model at the effort where the
+        // disable is accepted.
+        return json_to_document(serde_json::json!({
+            "thinking": { "type": "disabled" }
+        }));
+    }
     json_to_document(serde_json::json!({
         "thinking": { "type": "adaptive", "display": "summarized" },
         "output_config": { "effort": effort }
@@ -663,12 +687,11 @@ async fn handle_bedrock_sdk_non_streaming(
     let enable_prompt_caching = bedrock_model_supports_prompt_caching(model);
     let (bedrock_messages, system_prompts) =
         openai_messages_to_bedrock(&openai_req.messages, enable_prompt_caching)?;
-    // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-    let temperature = openai_req
-        .reasoning_effort
-        .is_none()
-        .then_some(openai_req.temperature)
-        .flatten();
+    let temperature = bedrock_temperature(
+        model,
+        openai_req.reasoning_effort.as_deref(),
+        openai_req.temperature,
+    );
     let inference_config = create_inference_config(temperature, openai_req.max_tokens);
     let tool_config = build_tool_config_from_request(
         openai_req.tools.as_deref(),
@@ -934,8 +957,7 @@ impl BedrockQueryBuilder {
         let (bedrock_messages, system_prompts) =
             openai_messages_to_bedrock(&prepared_messages, enable_prompt_caching)?;
 
-        // Adaptive thinking rejects sampling params; drop temperature when reasoning is on.
-        let temperature = reasoning_effort.is_none().then_some(temperature).flatten();
+        let temperature = bedrock_temperature(model, reasoning_effort, temperature);
 
         // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
@@ -1283,6 +1305,37 @@ mod tests {
             delta_json["choices"][0]["delta"]["tool_calls"][0]["index"],
             0
         );
+    }
+
+    #[test]
+    fn bedrock_thinking_fields_translate_the_off_sentinel_to_a_disable() {
+        let fields = document_to_json(&bedrock_thinking_fields("none"));
+        assert_eq!(fields["thinking"]["type"], "disabled");
+        // An effort alongside the disable is a 400 on Opus 5.
+        assert!(fields.get("output_config").is_none());
+        assert!(effort_enables_thinking(Some("xhigh")));
+        assert!(!effort_enables_thinking(Some("none")));
+        assert!(!effort_enables_thinking(None));
+    }
+
+    #[test]
+    fn bedrock_temperature_drops_sampling_params_per_thinking_mode_and_model() {
+        // Adaptive thinking rejects sampling params on every model...
+        let adaptive = bedrock_temperature("anthropic.claude-sonnet-4-6", Some("xhigh"), Some(0.5));
+        assert!(adaptive.is_none());
+        // ...while a model that still accepts them keeps them when off.
+        let off = bedrock_temperature("anthropic.claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(off, Some(0.5));
+        // The models that removed them drop them on every mode.
+        for (model, effort) in [
+            ("global.anthropic.claude-opus-5", Some("none")),
+            ("anthropic.claude-opus-4-8", None),
+        ] {
+            assert!(bedrock_temperature(model, effort, Some(0.5)).is_none());
+        }
+        // A non-Anthropic Bedrock model keeps its sampling params.
+        let nova = bedrock_temperature("amazon.nova-pro-v1:0", None, Some(0.5));
+        assert_eq!(nova, Some(0.5));
     }
 
     #[test]

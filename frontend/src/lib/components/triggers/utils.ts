@@ -18,6 +18,16 @@ import AmqpIcon from '$lib/components/icons/AmqpIcon.svelte'
 import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 import GoogleCloudIcon from '$lib/components/icons/GoogleCloudIcon.svelte'
 import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
+import KafkaMonoIcon from '$lib/components/icons/triggers/KafkaIcon.svelte'
+import NatsMonoIcon from '$lib/components/icons/triggers/NatsIcon.svelte'
+import MqttMonoIcon from '$lib/components/icons/triggers/MqttIcon.svelte'
+import AmqpMonoIcon from '$lib/components/icons/triggers/AmqpIcon.svelte'
+import AwsMonoIcon from '$lib/components/icons/triggers/AwsIcon.svelte'
+import GoogleCloudMonoIcon from '$lib/components/icons/triggers/GoogleCloudIcon.svelte'
+import AzureMonoIcon from '$lib/components/icons/triggers/AzureIcon.svelte'
+import NextcloudMonoIcon from '$lib/components/icons/triggers/NextcloudIcon.svelte'
+import GoogleMonoIcon from '$lib/components/icons/triggers/GoogleIcon.svelte'
+import GithubMonoIcon from '$lib/components/icons/triggers/GithubIcon.svelte'
 import type {
 	CaptureTriggerKind,
 	ErrorHandler,
@@ -149,6 +159,26 @@ export const triggerIconMap = {
 	freshness: Timer,
 	app: LayoutDashboard,
 	ui: MousePointerClick
+}
+
+/**
+ * Same map with the desaturated variants swapped in, for dropdowns and the sidebar --
+ * dense lists where a brand mark sits next to lucide glyphs and a coloured one reads as
+ * a different kind of thing. Everything else (tables, panels, job detail, the flow-graph
+ * badge itself) uses triggerIconMap. See icons/index.ts for the rule.
+ */
+export const triggerIconMapMono = {
+	...triggerIconMap,
+	kafka: KafkaMonoIcon,
+	nats: NatsMonoIcon,
+	mqtt: MqttMonoIcon,
+	amqp: AmqpMonoIcon,
+	sqs: AwsMonoIcon,
+	gcp: GoogleCloudMonoIcon,
+	azure: AzureMonoIcon,
+	nextcloud: NextcloudMonoIcon,
+	google: GoogleMonoIcon,
+	github: GithubMonoIcon
 }
 
 export const triggerDisplayNamesMap = {

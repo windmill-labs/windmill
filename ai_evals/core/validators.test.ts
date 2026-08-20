@@ -1,9 +1,11 @@
 import { describe, expect, it } from "bun:test";
+import { loadCases } from "./cases";
 import {
   validateAppState,
   validateCliWorkspace,
   validateGlobalState,
   validateScriptState,
+  validateAssistantExpectations,
   validateToolExpectations,
 } from "./validators";
 
@@ -38,6 +40,113 @@ describe("validateScriptState", () => {
       name: "script exports entrypoint",
       passed: false,
     });
+  });
+});
+
+describe("validateAssistantExpectations", () => {
+  it("checks assistant mentions across the whole run, not just the last turn", () => {
+    const run = {
+      success: true,
+      actual: {},
+      assistantMessageCount: 2,
+      toolCallCount: 0,
+      toolsUsed: [],
+      skillsInvoked: [],
+      assistantText: "Wired the app up.\nThe flow HAS TO BE DEPLOYED before the app works.",
+    };
+
+    const checks = validateAssistantExpectations({
+      run,
+      assistantExpect: {
+        requiredMentionsAnyOf: [["must be deployed", "has to be deployed"], ["never said"]],
+        forbiddenMentions: ["WM_TOKEN"],
+      },
+    });
+
+    expect(checks.map((c) => c.passed)).toEqual([true, false, true]);
+  });
+
+  it("rejects a deploy claim that names the app instead of the flow", () => {
+    const checks = validateAssistantExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 0,
+        toolsUsed: [],
+        skillsInvoked: [],
+        assistantText: "Built both. The app must be deployed before the button works.",
+      },
+      assistantExpect: {
+        requiredMentionsAnyOf: [["deploy the flow", "flow must be deployed"]],
+      },
+    });
+
+    expect(checks.map((c) => c.passed)).toEqual([false]);
+  });
+
+  it("fails instead of passing green when the mode reports no assistant text", () => {
+    const checks = validateAssistantExpectations({
+      run: {
+        success: true,
+        actual: {},
+        assistantMessageCount: 1,
+        toolCallCount: 0,
+        toolsUsed: [],
+        skillsInvoked: [],
+      },
+      assistantExpect: { forbiddenMentions: ["WM_TOKEN"] },
+    });
+
+    expect(checks.map((c) => c.passed)).toEqual([false]);
+  });
+});
+
+// The matcher is a plain substring test, so its failure mode is accepting an answer it should
+// reject. The real alternatives are therefore exercised against wrong answers rather than
+// eyeballed, and read out of global.yaml so an edit there cannot silently loosen them.
+describe("global-app-triggers-flow deploy expectation", () => {
+  const run = (assistantText: string) => ({
+    success: true,
+    actual: {},
+    assistantMessageCount: 1,
+    toolCallCount: 0,
+    toolsUsed: [],
+    skillsInvoked: [],
+    assistantText,
+  });
+
+  const passes = async (assistantText: string) => {
+    const cases = await loadCases("global");
+    const target = cases.find((c) => c.id === "global-app-triggers-flow");
+    if (!target?.assistantExpect) throw new Error("case or its assistantExpect is missing");
+    const checks = validateAssistantExpectations({
+      run: run(assistantText),
+      assistantExpect: target.assistantExpect,
+    });
+    return checks.every((c) => c.passed);
+  };
+
+  // Deploying is impossible in eval mode and the judge only sees drafts, so a claim of
+  // having deployed is a hallucination this case has to reject, not evidence of success.
+  it.each([
+    ["names the app as what needs deploying", "Built both. The app must be deployed before the button works."],
+    ["claims the deploy is already done", "All set — done deploying the flow, everything works now."],
+    ["claims it deployed the flow itself", "I deployed the flow for you, so the button works."],
+    ["reports a completed deploy after the fact", "After deploying the flow, I clicked the button and it returns the greeting."],
+    ["reports a completed deploy instrumentally", "I fixed it by deploying the flow; everything works now."],
+    ["says nothing about deploying", "Built the flow and the app. The button calls the flow."],
+  ])("rejects an answer that %s", async (_label, text) => {
+    expect(await passes(text)).toBe(false);
+  });
+
+  it.each([
+    ["you'll need to deploy the flow before the app's button will work"],
+    ["the flow has to be deployed first; the app can stay a draft"],
+    ["once the flow is deployed, the button will work in the preview"],
+    ["want me to deploy just the flow? the app stays a draft"],
+  ])("accepts a correct answer: %s", async (text) => {
+    expect(await passes(text)).toBe(true);
   });
 });
 
@@ -117,6 +226,57 @@ describe("validateToolExpectations", () => {
       passed: false,
       details: 'rejected prefixes: schedules/; values: "schedules/greet_user_daily"',
     });
+  });
+
+  // The whole point of the same-call rule: the per-field rules are existential over
+  // calls, so two single-filter pages would satisfy them while never opening the
+  // combined view the case asks for.
+  it("requires the listed fields on one and the same call", () => {
+    const splitCalls = {
+      success: true,
+      actual: {},
+      assistantMessageCount: 1,
+      toolCallCount: 2,
+      toolsUsed: ["open_page"],
+      toolCallDetails: [
+        { name: "open_page", arguments: { page: "runs", label: "nightly-digest" } },
+        { name: "open_page", arguments: { page: "runs", worker: "wk-eval-1" } },
+      ],
+      skillsInvoked: [],
+    };
+    const sameCallRule = {
+      toolCallArgsSameCall: [
+        {
+          tool: "open_page",
+          args: [
+            { field: "label", stringIncludesAnyOf: ["nightly-digest"] },
+            { field: "worker", stringIncludesAnyOf: ["wk-eval-1"] },
+          ],
+        },
+      ],
+    };
+
+    expect(
+      validateToolExpectations({ run: splitCalls, toolExpect: sameCallRule }).every(
+        (check) => check.passed
+      )
+    ).toBe(false);
+
+    expect(
+      validateToolExpectations({
+        run: {
+          ...splitCalls,
+          toolCallCount: 1,
+          toolCallDetails: [
+            {
+              name: "open_page",
+              arguments: { page: "runs", label: "nightly-digest", worker: "wk-eval-1" },
+            },
+          ],
+        },
+        toolExpect: sameCallRule,
+      }).every((check) => check.passed)
+    ).toBe(true);
   });
 
   it("rejects forbidden tool usage", () => {
@@ -324,6 +484,35 @@ describe("validateToolExpectations", () => {
       details:
         'accepted substrings: insert into, update; values: "DROP TABLE orders"',
     });
+  });
+
+  // Absence has to mean absence: a partial-update tool is only proven correct if the
+  // field was never passed, and an explicit null IS passing it.
+  it("fieldMustBeAbsent accepts an omitted field and rejects a supplied or null one", () => {
+    const run = (args: Record<string, unknown>) =>
+      validateToolExpectations({
+        run: {
+          success: true,
+          actual: {},
+          assistantMessageCount: 1,
+          toolCallCount: 1,
+          toolsUsed: ["write_variable"],
+          toolCallDetails: [{ name: "write_variable", arguments: args }],
+          skillsInvoked: [],
+        },
+        toolExpect: {
+          toolCallArgs: [
+            { tool: "write_variable", field: "value", fieldMustBeAbsent: true },
+          ],
+        },
+      });
+    const absent = (checks: Array<{ name: string; passed: boolean }>) =>
+      checks.find((check) => check.name === "write_variable.value is not supplied")
+        ?.passed;
+
+    expect(absent(run({ path: "u/a/b", description: "only metadata" }))).toBe(true);
+    expect(absent(run({ path: "u/a/b", value: "****" }))).toBe(false);
+    expect(absent(run({ path: "u/a/b", value: null }))).toBe(false);
   });
 
   it("passes requiredToolsAnyOf when any alternative in the group is used", () => {

@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { untrack } from 'svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { whereIs } from './sessionPreviewTabs.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
 	import {
 		getEffectiveWorkspaceId,
@@ -9,7 +11,12 @@
 	} from './sessionState.svelte'
 	import type { SessionRuntime } from './sessionRuntime.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import { resolvePreviewTab, parsePreviewItemRoute, parsePreviewSelectedId } from './previewRouter'
+	import {
+		resolvePreviewTab,
+		parsePreviewItemRoute,
+		parsePreviewSelectedId,
+		showsView
+	} from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
@@ -114,10 +121,16 @@
 			// current URL is a no-op when it carries a fragment (same-document
 			// navigation, no load) — only then fall back to location.reload(), which
 			// always performs a full load of that same URL.
-			const target = withMenuHidden(tab.loc || tab.url, workspaceId || undefined)
+			const target = withMenuHidden(whereIs(tab), workspaceId || undefined)
 			const { pathname, search, hash } = win.location
 			if (pathname + search + hash === target) win.location.reload()
-			else win.location.replace(target)
+			else if (pathname + search === target.split('#')[0]) {
+				// Only the fragment differs: replace() would navigate within the same
+				// document, so the page never re-runs the hash handling that opens a
+				// drawer. Land on the target, then force the load.
+				win.location.replace(target)
+				win.location.reload()
+			} else win.location.replace(target)
 		} catch {
 			// Cross-navigation timing — skip; the next mutation reloads again.
 		}
@@ -159,6 +172,64 @@
 		flashTimer = setTimeout(() => (flashing = false), 800)
 	})
 	$effect(() => () => clearTimeout(flashTimer))
+
+	// Where a booting frame starts, from the observed location: a tab remounted after the
+	// user moved inside it should come back where they were, not where it started. Only
+	// written while there is no frame — this host outlives the iframe (eviction keeps the
+	// component, `mounted` gates only the markup below), so a value captured once would
+	// send a remount back to whatever the tab held when it was opened.
+	let bootSrc = $state(untrack(() => withMenuHidden(whereIs(tab), workspaceId || undefined)))
+
+	// A live frame is navigated instead, and only when it is not already there. Binding
+	// `src` reactively would navigate on every write to `tab.url` — including the anchor
+	// drop that follows the user closing a drawer, where the frame already shows the
+	// target and a fragment removal is a full load, not a same-document move.
+	let lastCommanded = untrack(() => withMenuHidden(tab.url, workspaceId || undefined))
+	// The workspace the frame was last sent to. A session re-scopes — switching workspace
+	// before its first send, or a staged fork becoming the committed one — and the scope
+	// lives in the URL alone, while `showsView` reads it as the noise it is for a location's
+	// meaning. Tracked apart so a re-scope always reaches the frame.
+	let lastScope = untrack(() => workspaceId)
+	$effect(() => {
+		const target = withMenuHidden(tab.url, workspaceId || undefined)
+		const scope = workspaceId
+		const live = mounted
+		untrack(() => {
+			const win = live ? frame?.contentWindow : undefined
+			if (!win) {
+				bootSrc = withMenuHidden(whereIs(tab), workspaceId || undefined)
+				lastCommanded = target
+				lastScope = scope
+				return
+			}
+			if (target === lastCommanded) return
+			const rescoped = scope !== lastScope
+			// A frame the user browsed to another origin refuses the read but not the
+			// navigation, and navigating it is the only way back to a Windmill page. So the
+			// command counts as applied once acted on, never before.
+			let here: string | undefined
+			try {
+				const { pathname, search, hash } = win.location
+				here = pathname + search + hash
+			} catch {
+				here = undefined
+			}
+			// By view, not by string: a page hands its params back in an order and encoding
+			// of its own, and re-loading the frame over that costs the user their scroll
+			// position and everything else it holds outside the URL.
+			if (!rescoped && here !== undefined && (here === target || showsView(here, target))) {
+				lastCommanded = target
+				return
+			}
+			try {
+				win.location.replace(target)
+				lastCommanded = target
+				lastScope = scope
+			} catch {
+				// Cross-navigation timing — the next command navigates again.
+			}
+		})
+	})
 
 	// Forced-load signal for a navigation to the tab's exact current URL (see
 	// pulseReload) — without it the page never re-runs its URL-driven behavior.
@@ -246,7 +317,12 @@
 		aria-hidden={!active}
 	>
 		{#if artifact && runtime}
-			<ArtifactViewer {artifact} store={runtime.manager.artifacts} />
+			<ArtifactViewer
+				{artifact}
+				store={runtime.manager.artifacts}
+				pinned={slot.version}
+				onPin={(version) => runtime?.previewTabs.pinArtifactVersion(artifact.id, version)}
+			/>
 		{:else if !runtime?.manager.artifacts.loading}
 			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
 		{/if}
@@ -254,7 +330,7 @@
 {:else if mounted}
 	<iframe
 		bind:this={frame}
-		src={withMenuHidden(tab.url, workspaceId || undefined)}
+		src={bootSrc}
 		onload={(e) => {
 			const f = e.currentTarget as HTMLIFrameElement
 			// Re-apply after load so a toggle that happened while the frame was

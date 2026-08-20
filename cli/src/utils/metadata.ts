@@ -4,7 +4,7 @@ import { colors } from "@cliffy/ansi/colors";
 import * as log from "../core/log.ts";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "./yaml.ts";
-import { writeFile, stat, rm, readdir } from "node:fs/promises";
+import { writeFile, stat, rm, readdir, mkdir } from "node:fs/promises";
 import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { createRequire } from "node:module";
@@ -17,8 +17,20 @@ import {
   ScriptLanguage,
   workspaceDependenciesLanguages,
   languageNeedsLock,
+  LANG_COMMENT_LIT,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
+// Workspace-dependency vocabulary lives with the languages it describes; these
+// re-exports keep the CLI's existing import sites working.
+export {
+  workspaceDependenciesPathToLanguageAndFilename,
+  extractWorkspaceDepsAnnotation,
+  type WorkspaceDepsAnnotation,
+} from "./script_common.ts";
+import {
+  workspaceDependenciesPathToLanguageAndFilename,
+  extractWorkspaceDepsAnnotation,
+} from "./script_common.ts";
 import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
@@ -31,6 +43,7 @@ import { getIsWin } from "./utils.ts";
 import { extractRelativeImports } from "./relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "./dependency_tree.ts";
 import { pollJobWithQueueLogging } from "./job_polling.ts";
+import { sharedLockRefIn, sharedLockTargetFor } from "./lock_dedup.ts";
 
 const _require = createRequire(import.meta.url);
 const _parserCache = new Map<string, Promise<any>>();
@@ -106,17 +119,6 @@ export async function getRawWorkspaceDependencies(legacyBehaviour: boolean): Pro
   return rawWorkspaceDeps;
 }
 
-export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
-  const relativePath = path.replace("dependencies/", "");
-  for (const { filename, language } of workspaceDependenciesLanguages) {
-    if (relativePath.endsWith(filename)) {
-      return {
-        name: relativePath === filename ? undefined : relativePath.replace("." + filename, ""),
-        language
-      };
-    }
-  }
-}
 
 /**
  * Filters raw workspace dependencies to only include those that:
@@ -203,6 +205,7 @@ export async function generateScriptMetadataInternal(
     schemaOnly?: boolean | undefined;
     defaultTs?: "bun" | "deno";
     rehashOnly?: boolean | undefined;
+    dedupeLockfiles?: boolean | undefined;
   },
   dryRun: boolean,
   noStaleMessage: boolean,
@@ -375,6 +378,15 @@ export async function generateScriptMetadataInternal(
         filteredRawWorkspaceDependencies,
         tempScriptRefs,
         lockPathOverride,
+        // The lockfile of the workspace dependency file this script resolves
+        // against, if any: joining it is a matter of resolving to its content.
+        opts.dedupeLockfiles
+          ? sharedLockTargetFor(
+              scriptContent,
+              language,
+              Object.keys(rawWorkspaceDependencies),
+            )
+          : undefined,
       );
     } else {
       metadataParsedContent.lock = "";
@@ -406,7 +418,14 @@ export async function generateScriptMetadataInternal(
       );
     }
   } else {
-    if (metadataInFolder) {
+    // `parseMetadataFile` resolved `lock` to the lockfile's CONTENT, so the
+    // reference has to be restored from the raw text — including a shared one
+    // (`dedupeLockfiles`), which `--schema-only` would otherwise replace with a
+    // per-script path whose file deduplication removed.
+    const sharedRef = sharedLockRefIn(metadataContent, metadataWithType.isJson);
+    if (sharedRef) {
+      metadataParsedContent.lock = "!inline " + sharedRef;
+    } else if (metadataInFolder) {
       metadataParsedContent.lock =
         "!inline " + remotePath.replaceAll(SEP, "/") + getModuleFolderSuffix() + "/script.lock";
     } else {
@@ -493,119 +512,6 @@ export async function updateScriptSchema(
   delete metadataContent.no_main_func;
 }
 
-// ---------------------------------------------------------------------------
-// Annotation parser — mirrors backend's WorkspaceDependenciesAnnotatedRefs::parse
-// (windmill-common/src/workspace_dependencies.rs) so the cache key captures
-// exactly the parts of scriptContent that affect lockfile generation.
-// ---------------------------------------------------------------------------
-
-type AnnotationMode = "manual" | "extra";
-
-interface WorkspaceDepsAnnotation {
-  mode: AnnotationMode;
-  external: string[];
-  inline: string | null;
-}
-
-const LANG_ANNOTATION_CONFIG: Partial<
-  Record<ScriptLanguage, { comment: string; keyword: string; validityRe?: RegExp }>
-> = {
-  python3: { comment: "#", keyword: "requirements", validityRe: /^#\s?(\S+)\s*$/ },
-  bun: { comment: "//", keyword: "package_json" },
-  nativets: { comment: "//", keyword: "package_json" },
-  go: { comment: "//", keyword: "go_mod" },
-  php: { comment: "//", keyword: "composer_json" },
-  powershell: { comment: "#", keyword: "modules_json" },
-};
-
-export function extractWorkspaceDepsAnnotation(
-  scriptContent: string,
-  language: ScriptLanguage,
-): WorkspaceDepsAnnotation | null {
-  const config = LANG_ANNOTATION_CONFIG[language];
-  if (!config) return null;
-
-  const { comment, keyword, validityRe } = config;
-  const extraMarkerUnderscore = `extra_${keyword}:`;
-  const extraMarkerHyphen = `extra-${keyword}:`;
-  const manualMarker = `${keyword}:`;
-
-  const stripComment = (l: string): string | null => {
-    if (!l.startsWith(comment)) return null;
-    return l.substring(comment.length).trimStart();
-  };
-  const isExtra = (l: string): boolean => {
-    const s = stripComment(l);
-    return s !== null && (s.startsWith(extraMarkerUnderscore) || s.startsWith(extraMarkerHyphen));
-  };
-  const isManual = (l: string): boolean => {
-    const s = stripComment(l);
-    return s !== null && s.startsWith(manualMarker);
-  };
-
-  const lines = scriptContent.split("\n");
-
-  // Find first annotation line (mirrors Rust find_position)
-  let pos = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (isExtra(lines[i]) || isManual(lines[i])) {
-      pos = i;
-      break;
-    }
-  }
-  if (pos === -1) return null;
-
-  const annotationLine = lines[pos];
-  const mode: AnnotationMode = isExtra(annotationLine) ? "extra" : "manual";
-
-  // Parse external references from the annotation line
-  const marker = mode === "extra"
-    ? (annotationLine.includes(extraMarkerUnderscore) ? extraMarkerUnderscore : extraMarkerHyphen)
-    : manualMarker;
-  const unparsed = annotationLine.replaceAll(marker, "").replaceAll(comment, "");
-  const external = unparsed
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-
-  // Parse inline deps from subsequent lines
-  const inlineParts: string[] = [];
-  for (let i = pos + 1; i < lines.length; i++) {
-    const l = lines[i];
-    if (validityRe) {
-      const match = validityRe.exec(l);
-      if (match && match[1]) {
-        inlineParts.push(match[1]);
-      } else {
-        break;
-      }
-    } else {
-      if (!l.startsWith(comment)) {
-        break;
-      }
-      inlineParts.push(l.substring(comment.length));
-    }
-  }
-
-  const inlineStr = inlineParts.join("\n");
-  const inline = inlineStr.trim().length > 0 ? inlineStr : null;
-
-  return { mode, external, inline };
-}
-
-// Mirrors backend ScriptLang::as_comment_lit (windmill-types/src/scripts.rs)
-// for the languages that can reach the lock cache.
-const LANG_COMMENT_LIT: Partial<Record<ScriptLanguage, string>> = {
-  python3: "#",
-  ansible: "#",
-  powershell: "#",
-  bun: "//",
-  nativets: "//",
-  deno: "//",
-  go: "//",
-  php: "//",
-  rust: "//!",
-};
 
 /**
  * Returns the leading comment/blank-line block of the script, verbatim.
@@ -783,6 +689,7 @@ async function updateScriptLock(
   rawWorkspaceDependencies: Record<string, string>,
   tempScriptRefs?: Record<string, string>,
   lockPathOverride?: string,
+  sharedLockRef?: string,
 ): Promise<void> {
   if (!languageNeedsLock(language)) {
     // A dbt lock is written by the dependency job on a worker, from a real
@@ -816,6 +723,23 @@ async function updateScriptLock(
 
   const lockPath = lockPathOverride ?? remotePath + ".script.lock";
   if (lock != "") {
+    // Joins an agreeing shared lockfile, and never creates or moves one: this
+    // runs per script and in parallel, so two scripts that resolve differently
+    // — a pinned Python version, an `//npm` annotation — would both find the
+    // file absent, both write it, and one would lose its lock with no copy left
+    // anywhere. Deciding a shared lockfile's content is the whole-tree pass's
+    // job, which sees every script at once.
+    if (
+      sharedLockRef &&
+      existsSync(sharedLockRef) &&
+      readTextFileSync(sharedLockRef) === lock
+    ) {
+      if (existsSync(lockPath)) {
+        await rm(lockPath);
+      }
+      metadataContent.lock = "!inline " + sharedLockRef;
+      return;
+    }
     await writeFile(lockPath, lock, "utf-8");
     metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
   } else {

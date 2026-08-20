@@ -1,11 +1,10 @@
 <script lang="ts">
-	
 	interface Props {
 		// You can pass props for flexibility (e.g., size, color)
-		size?: number;
+		size?: number
 	}
 
-	let { size = 24 }: Props = $props();
+	let { size = 24 }: Props = $props()
 </script>
 
 <svg

@@ -1063,8 +1063,12 @@
 						<li>job usage (language, total duration, count)</li>
 						<li>git sync repo count (sync vs promotion mode)</li>
 						<li
-							>feature usage telemetry: aggregated AI chat and AI session usage counts, including AI
-							provider and model identifiers (last 30 days)</li
+							>feature usage (counts of which product features are used, including AI provider and
+							model identifiers and the names of public hub scripts used, last 30 days)</li
+						>
+						<li
+							>feature adoption (counts of which flow, script, trigger and worker features your
+							deployed items use)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1110,8 +1114,12 @@
 						<li>user usage (author count, operator count)</li>
 						<li>development instance status</li>
 						<li
-							>feature usage telemetry: aggregated AI chat and AI session usage counts, including AI
-							provider and model identifiers (last 30 days)</li
+							>feature usage (counts of which product features are used, including AI provider and
+							model identifiers and the names of public hub scripts used, last 30 days)</li
+						>
+						<li
+							>feature adoption (counts of which flow, script, trigger and worker features your
+							deployed items use)</li
 						>
 						<li
 							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
@@ -1144,10 +1152,11 @@
 				description="Configure where secrets (secret variables) are stored."
 				link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
 			/>
-		{:else if category == 'GitHub Enterprise App'}
+		{:else if category == 'GitHub App'}
 			<SettingsPageHeader
-				title="GitHub Enterprise App"
-				description="Configure a self-managed GitHub App for GitHub Enterprise Server git sync."
+				title="GitHub App"
+				description="Configure a self-managed GitHub App for git sync on GitHub.com, GHE Cloud or GitHub Enterprise Server."
+				link="https://www.windmill.dev/docs/integrations/git_repository#self-managed-github-app"
 			/>
 		{:else if category == 'DB Health'}
 			<SettingsPageHeader

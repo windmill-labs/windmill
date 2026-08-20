@@ -2,6 +2,7 @@ import path from "node:path";
 import ts from "typescript";
 import type {
   AppValidationSpec,
+  AssistantValidationSpec,
   BenchmarkCheck,
   CliTrace,
   CliValidationSpec,
@@ -147,6 +148,65 @@ export function validateFlowState(input: {
   return checks;
 }
 
+// Array-valued fields (e.g. open_page.items) match on any element.
+function valueIncludesAnyOf(value: unknown, lowercaseNeedles: string[]): boolean {
+  const haystacks =
+    typeof value === "string"
+      ? [value]
+      : Array.isArray(value)
+        ? value.filter((v): v is string => typeof v === "string")
+        : [];
+  return haystacks.some((hay) =>
+    lowercaseNeedles.some((needle) => hay.toLowerCase().includes(needle))
+  );
+}
+
+export function validateAssistantExpectations(input: {
+  run: ModeRunOutput<unknown>;
+  assistantExpect?: AssistantValidationSpec;
+}): BenchmarkCheck[] {
+  const expect = input.assistantExpect;
+  if (!expect) {
+    return [];
+  }
+  // Only some mode runners report assistantText. Defaulting a missing one to "" would pass
+  // every forbiddenMentions entry forever, so a case that expects to inspect what the
+  // assistant said fails on the mode that cannot show it.
+  if (input.run.assistantText === undefined) {
+    return [
+      check(
+        "assistant text is available to check",
+        false,
+        "this mode's runner does not report assistantText, so assistantExpect cannot be evaluated"
+      ),
+    ];
+  }
+  const text = input.run.assistantText;
+  const checks: BenchmarkCheck[] = [];
+
+  for (const phrases of expect.requiredMentionsAnyOf ?? []) {
+    checks.push(
+      check(
+        `assistant mentions one of: ${phrases.join(" / ")}`,
+        phrases.some((phrase) => assistantMentions(text, phrase)),
+        truncateForDetails(text)
+      )
+    );
+  }
+
+  for (const phrase of expect.forbiddenMentions ?? []) {
+    checks.push(
+      check(
+        `assistant does not mention '${phrase}'`,
+        !assistantMentions(text, phrase),
+        truncateForDetails(text)
+      )
+    );
+  }
+
+  return checks;
+}
+
 export function validateToolExpectations(input: {
   run: ModeRunOutput<unknown>;
   toolExpect?: ToolValidationSpec;
@@ -246,22 +306,26 @@ export function validateToolExpectations(input: {
       );
     }
 
+    if (rule.fieldMustBeAbsent) {
+      // Anything other than `undefined` was supplied — an explicit `null` is the
+      // model passing the field, not omitting it.
+      const suppliedValues = values.filter((value) => value !== undefined);
+      checks.push(
+        check(
+          `${rule.tool}.${rule.field} is not supplied`,
+          suppliedValues.length === 0,
+          `values: ${summarizeToolValues(values)}`
+        )
+      );
+    }
+
     if (rule.stringIncludesAnyOf && rule.stringIncludesAnyOf.length > 0) {
       // Existential: at least one call must contain one of the substrings.
       // Other calls to the same tool may do anything — this suits SQL, where a
       // model mixes the requested statement (e.g. an UPDATE) with verification
       // SELECTs that would otherwise fail an "all calls" check.
       const needles = rule.stringIncludesAnyOf.map((needle) => needle.toLowerCase());
-      // Array-valued fields (e.g. open_page.items) match on any element.
-      const haystacks = (value: unknown): string[] =>
-        typeof value === "string"
-          ? [value]
-          : Array.isArray(value)
-            ? value.filter((v): v is string => typeof v === "string")
-            : [];
-      const hasMatch = values.some((value) =>
-        haystacks(value).some((hay) => needles.some((needle) => hay.toLowerCase().includes(needle)))
-      );
+      const hasMatch = values.some((value) => valueIncludesAnyOf(value, needles));
       checks.push(
         check(
           `${rule.tool}.${rule.field} includes a required substring`,
@@ -270,6 +334,35 @@ export function validateToolExpectations(input: {
         )
       );
     }
+  }
+
+  for (const rule of expect.toolCallArgsSameCall ?? []) {
+    const fields = rule.args.map((arg) => arg.field).join(" + ");
+    const matchingCall = toolCallDetails.find(
+      (call) =>
+        call.name === rule.tool &&
+        rule.args.every((arg) =>
+          valueIncludesAnyOf(
+            getToolArgumentValue(call.arguments, arg.field),
+            arg.stringIncludesAnyOf.map((needle) => needle.toLowerCase())
+          )
+        )
+    );
+    checks.push(
+      check(
+        `one ${rule.tool} call carries ${fields} together`,
+        matchingCall !== undefined,
+        toolCallDetails
+          .filter((call) => call.name === rule.tool)
+          .map(
+            (call) =>
+              `{${rule.args
+                .map((arg) => `${arg.field}=${summarizeToolValues([getToolArgumentValue(call.arguments, arg.field)])}`)
+                .join(", ")}}`
+          )
+          .join(" | ") || `no ${rule.tool} calls`
+      )
+    );
   }
 
   return checks;

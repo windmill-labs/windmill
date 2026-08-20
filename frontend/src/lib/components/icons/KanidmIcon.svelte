@@ -1,12 +1,13 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #FF6600 per artwork/logo-square.svg in github.com/kanidm/kanidm (full palette: #FF6600 #803300 #D45500 #2A3455 #B1B3B8 #CCCCCC). Kanidm's artwork is CC-BY-NC-ND — no recolouring or other derivatives. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 150" x="0px" y="0px" {width} {height}
 	><defs
 		><radialGradient id="a" gradientUnits="userSpaceOnUse" cx="420.208" cy="346.897" r="21.1"
