@@ -171,6 +171,9 @@ describe("computeSharedLockPlan", () => {
     // change what it locks, so such a script cannot stand for the file's lock.
     const map = workspace(PY_DEPS, BUN_DEPS);
     ownLock(map, "f/pinned", ".py", OTHER_LOCK, "# py311\nimport requests");
+    // The interpreter pin the python import parser reads, which the annotations
+    // macro does not cover.
+    ownLock(map, "f/pyspec", ".py", OTHER_LOCK, "# py: 3.11\nimport requests");
     ownLock(map, "f/plain", ".py", PY_LOCK);
     ownLock(map, "f/plain2", ".py", PY_LOCK);
     // Only the names the worker matches count, so a documented script — or one
@@ -186,6 +189,7 @@ describe("computeSharedLockPlan", () => {
 
     expect(map[SHARED_PY]).toEqual(PY_LOCK);
     expect(map["f/pinned.script.lock"]).toEqual(OTHER_LOCK);
+    expect(map["f/pyspec.script.lock"]).toEqual(OTHER_LOCK);
     expect(lockRefOf(map["f/doc.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
     expect(map[SHARED_BUN]).toEqual("bun-lock");
     expect(map["f/npm.script.lock"]).toEqual("npm-lock");

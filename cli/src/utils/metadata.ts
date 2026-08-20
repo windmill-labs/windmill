@@ -512,15 +512,7 @@ export async function updateScriptSchema(
   delete metadataContent.no_main_func;
 }
 
-// ---------------------------------------------------------------------------
-// Annotation parser — mirrors backend's WorkspaceDependenciesAnnotatedRefs::parse
-// (windmill-common/src/workspace_dependencies.rs) so the cache key captures
-// exactly the parts of scriptContent that affect lockfile generation.
-// ---------------------------------------------------------------------------
 
-
-// Mirrors backend ScriptLang::as_comment_lit (windmill-types/src/scripts.rs)
-// for the languages that can reach the lock cache.
 /**
  * Returns the leading comment/blank-line block of the script, verbatim.
  *

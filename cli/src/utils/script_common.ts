@@ -203,6 +203,10 @@ const LANG_ANNOTATIONS: Partial<Record<ScriptLanguage, string[]>> = {
  * first `=`, and it has to BE one of the names above. Unknown keys are ignored
  * there and so here — which is what keeps `# TODO:` or `# type: ignore` from
  * quietly dropping an ordinary documented script out of deduplication.
+ *
+ * `# py: <specifier>` is the exception the macro does not cover: the python
+ * import parser reads it directly (`windmill-parser-py-imports`, alongside the
+ * `py310`..`py313` flags) to pick the interpreter, which changes what resolves.
  */
 export function hasLockAffectingAnnotation(
   scriptContent: string,
@@ -215,6 +219,8 @@ export function hasLockAffectingAnnotation(
     const trimmed = line.trim();
     if (trimmed === "") continue;
     if (!trimmed.startsWith(comment)) break; // past the header block
+    // Matched on the raw line: the parser tests `# py:`/`#py:` before trimming.
+    if (language === "python3" && /^#\s?py:/.test(line)) return true;
     const body = trimmed.slice(comment.length).trim();
     const key = body.split("=")[0].trim();
     if (names.includes(key)) return true;
