@@ -49,6 +49,8 @@
 	 *  when it is the reason the dialog was opened. */
 	let hasDraft = $state(false)
 	let dataset = $state<string | undefined>(undefined)
+	/** Whether the chosen dataset has columns to fill, which is what a run does beyond answering. */
+	let scored = $derived((datasets.find((d) => d.path === dataset)?.scorers?.length ?? 0) > 0)
 	let hoveringDataset = $state(false)
 	/** Set while the dialog is standing aside for the dataset drawer, which it is brought back
 	 *  from: naming a dataset is a detour on the way to a run, and what was already chosen for that
@@ -292,8 +294,11 @@
 
 		<!-- Said here rather than discovered from a run that never starts: the step that assembles
 		     each iteration for the scorers is a native job, and that tag belongs to the `native`
-		     worker group. Nothing serving it means the run queues rather than fails. -->
-		<MissingWorkerTagAlert tag="nativets" subject="Eval runs" {workspace} />
+		     worker group. Nothing serving it means the run queues rather than fails. Only for a
+		     dataset that has scorers, since that step is only in the flow when there are any. -->
+		{#if scored}
+			<MissingWorkerTagAlert tag="nativets" subject="Eval runs" {workspace} />
+		{/if}
 	</div>
 	{#snippet actions()}
 		<Button

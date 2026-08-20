@@ -216,27 +216,58 @@
 		storedCases = Object.fromEntries(cases.cases.map((c) => [c.id, c]))
 	}
 
+	/**
+	 * What is on screen, and which request may write it.
+	 *
+	 * The run picker, the baseline picker and the 2s poller all call this, so responses overlap:
+	 * the generation drops a superseded one, and the key — which run, against which baseline —
+	 * empties the table when it changes, since one run's cells under another run's name is the one
+	 * thing a table of comparisons must never show.
+	 */
+	let resultsGeneration = 0
+	let renderedResults: string | undefined = undefined
+	let reportedResultsFailure: string | undefined = undefined
+
 	async function loadResults() {
+		const generation = ++resultsGeneration
 		if (!ws || !selectedDataset || !experimentId) {
 			rows = []
 			means = []
+			renderedResults = undefined
 			return
 		}
-		const generation = loadGeneration
-		const results = await AiEvalsService.experimentResults({
-			workspace: ws,
-			path: selectedDataset,
-			id: experimentId,
-			baseline: baselineId
-		})
-		if (generation !== loadGeneration) return
-		rows = results.rows
-		means = results.means
-		currentVersion = results.subject_current_version
-		currentDraftHash = results.subject_current_draft_hash
-		deployedHash = results.subject_deployed_hash
-		undeployedChanges = results.subject_has_undeployed_changes
-		if (dataset) dataset = { ...dataset, scorers: results.scorers }
+		const key = `${selectedDataset} ${experimentId} ${baselineId ?? ''}`
+		if (key !== renderedResults) {
+			rows = []
+			means = []
+			renderedResults = undefined
+		}
+		try {
+			const results = await AiEvalsService.experimentResults({
+				workspace: ws,
+				path: selectedDataset,
+				id: experimentId,
+				baseline: baselineId
+			})
+			if (generation !== resultsGeneration) return
+			rows = results.rows
+			means = results.means
+			currentVersion = results.subject_current_version
+			currentDraftHash = results.subject_current_draft_hash
+			deployedHash = results.subject_deployed_hash
+			undeployedChanges = results.subject_has_undeployed_changes
+			if (dataset) dataset = { ...dataset, scorers: results.scorers }
+			renderedResults = key
+			reportedResultsFailure = undefined
+		} catch (e) {
+			if (generation !== resultsGeneration) return
+			// Said once per run: the poller comes back every 2s, and a run that cannot be read is a
+			// run that cannot be read again.
+			if (reportedResultsFailure !== key) {
+				reportedResultsFailure = key
+				sendUserToast(`Failed to read the run: ${e}`, true)
+			}
+		}
 	}
 
 	/**
@@ -435,7 +466,16 @@
 		// a comparison. Both are a different table.
 		experimentId
 		baselineId
-		untrack(() => loadResults())
+		untrack(() => {
+			// Opening the run that was being compared against: a run is not a comparison with itself,
+			// and the picker offers every run but this one, so it would be left holding an id it has
+			// no entry for.
+			if (baselineId != undefined && baselineId === experimentId) {
+				baselineId = undefined
+				return
+			}
+			loadResults()
+		})
 	})
 
 	/**
@@ -481,7 +521,9 @@
 		canceled: { icon: Ban, class: 'text-yellow-500', label: 'Canceled' },
 		skipped: { icon: FastForward, class: 'text-tertiary', label: 'Skipped' },
 		running: { icon: Loader2, class: 'text-blue-500 animate-spin', label: 'Running' },
-		not_run: { icon: Minus, class: 'text-tertiary', label: 'Not run in this run' }
+		not_run: { icon: Minus, class: 'text-tertiary', label: 'Not run in this run' },
+		// The case ran, but its job was cleaned up before anything read what it produced.
+		unavailable: { icon: Minus, class: 'text-tertiary', label: 'Not recorded' }
 	} as const
 
 	/**
