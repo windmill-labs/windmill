@@ -285,6 +285,23 @@ describe("computeSharedLockPlan", () => {
     expect(lockRefOf(bumped["f/a.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
   });
 
+  test("the many correct a lockfile a lone script planted its variant on", () => {
+    const map = workspace(PY_DEPS);
+    ownLock(map, "f/a", ".py", PY_LOCK);
+    ownLock(map, "f/b", ".py", PY_LOCK);
+    applySharedLockPlanToMap(
+      map,
+      // The file holds a variant, and its dependency file has not moved.
+      computeSharedLockPlan(map, {
+        defaultTs: "bun",
+        present: { [SHARED_PY]: OTHER_LOCK },
+      }),
+    );
+
+    expect(map[SHARED_PY]).toEqual(PY_LOCK);
+    expect(map["f/a.script.lock"]).toBeUndefined();
+  });
+
   test("a dependency file with a single script can still take a bump", () => {
     const map = workspace(PY_DEPS);
     ownLock(map, "f/only", ".py", PY_LOCK_BUMPED);

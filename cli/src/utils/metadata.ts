@@ -742,22 +742,12 @@ async function updateScriptLock(
 
   const lockPath = lockPathOverride ?? remotePath + ".script.lock";
   if (lock != "") {
-    // Under `dedupeLockfiles`, a lock that resolves to what the dependency
-    // file's scripts share stays in the one shared file; writing a copy beside
-    // the script is what would put the 1900-file diff back, one regenerated
-    // script at a time.
-    //
-    // Only when it agrees, though: two scripts on one dependency file can still
-    // resolve differently — a pinned Python version or an `//npm` annotation is
-    // part of what the worker locks — and overwriting the shared file would
-    // hand that variant to every other script reading it. A disagreeing script
-    // takes a private lock, and the whole-tree pass decides which content the
-    // shared file keeps.
-    // Joins, never creates: this runs once per script and in parallel, so two
-    // scripts that resolve differently — a pinned Python version, an `//npm`
-    // annotation — would both find the file absent, both write, and one would
-    // lose its lock with no copy left anywhere. Creating and moving a shared
-    // lockfile is the whole-tree pass's job, which sees every script at once.
+    // Joins an agreeing shared lockfile, and never creates or moves one: this
+    // runs per script and in parallel, so two scripts that resolve differently
+    // — a pinned Python version, an `//npm` annotation — would both find the
+    // file absent, both write it, and one would lose its lock with no copy left
+    // anywhere. Deciding a shared lockfile's content is the whole-tree pass's
+    // job, which sees every script at once.
     if (
       sharedLockRef &&
       existsSync(sharedLockRef) &&

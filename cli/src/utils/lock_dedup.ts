@@ -445,11 +445,18 @@ export function computeSharedLockPlan(
     const sharedRef = sharedLockPathFor(depFile);
     const sharedKey = toMapKey(sharedRef);
     const held = present[sharedRef];
-    // A disagreement moves the file only when the file itself moved. Counting
-    // scripts instead would leave a one-script dependency file — or any bump a
-    // narrowed sync sees one script at a time — stuck on a stale lock forever.
+    // When a disagreement is allowed to move the file. Both clauses are needed:
+    // the dependency file moving is what lets a bump through a sync that sees
+    // one script at a time (a one-script dependency file has no second opinion
+    // to offer), and two agreeing scripts are what corrects a file some lone
+    // script planted its variant on. What neither admits is a single script
+    // disagreeing for its own reasons — a pinned Python version, an `//npm`
+    // annotation — while its dependency file sits still.
     const moves =
-      held === undefined || content === held || movedDepFiles.has(depFile);
+      held === undefined ||
+      content === held ||
+      movedDepFiles.has(depFile) ||
+      count >= 2;
     const finalContent = moves ? content : held;
     if (map[sharedKey] !== finalContent) plan.writes[sharedKey] = finalContent;
     for (const entry of group) {
