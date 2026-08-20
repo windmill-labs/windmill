@@ -12,6 +12,7 @@
 	import { Bot, ChevronDown, ChevronUp, FlaskConical, Save, Unlink, Pencil } from 'lucide-svelte'
 	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
+	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
@@ -77,6 +78,7 @@
 		tools: AgentTool[]
 		providerPath?: string
 		providerOk: boolean
+		hasDraft: boolean
 	}
 
 	// A linked agent is rigid and read-only: its brain and tools come from the resource. We
@@ -86,9 +88,16 @@
 		() => ({ ws, path: agent }),
 		async ({ ws, path }): Promise<LinkedInfo> => {
 			if (!ws || !path) {
-				return { ws, path, config: {}, tools: [], providerOk: true }
+				return { ws, path, config: {}, tools: [], providerOk: true, hasDraft: false }
 			}
-			const res = await ResourceService.getResource({ workspace: ws, path })
+			// `getDraft` for the overlay, not for the value: the card is about the deployed agent, and
+			// `value` stays deployed either way. Cancel leaves a draft behind on purpose, and a card
+			// that never mentions it is a card whose Evals button offers to run edits nothing named.
+			const res = (await ResourceService.getResource({
+				workspace: ws,
+				path,
+				getDraft: true
+			})) as Resource & { draft_saved_at?: string }
 			const cfg = (res.value ?? {}) as AIAgentConfig & { provider?: { resource?: string } }
 			const tools = (cfg.tools ?? []) as AgentTool[]
 			const providerRef = cfg.provider?.resource
@@ -104,7 +113,15 @@
 					providerOk = false
 				}
 			}
-			return { ws, path, config: cfg, tools, providerPath, providerOk }
+			return {
+				ws,
+				path,
+				config: cfg,
+				tools,
+				providerPath,
+				providerOk,
+				hasDraft: res.draft_saved_at != undefined
+			}
 		}
 	)
 	// Retain the last result that matched the current link. Discarding a superseded one outright
@@ -124,6 +141,18 @@
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
 	let providerPath = $derived(linkedInfo?.providerPath)
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
+	/** The last thing this card did to an agent's draft, and to which agent. Writes and deletes are
+	 *  queued, so the card can re-read the resource while one is still on its way: what was done
+	 *  here is the more current answer until the card links elsewhere, when it stops being about
+	 *  this agent at all. */
+	let draftLeftHere = $state<{ path: string; has: boolean } | undefined>(undefined)
+	/** The agent has edits nobody has deployed — left by Cancel here, or written in the resource
+	 *  editor. Named on the card because it is what the Evals button offers to run. */
+	let linkedHasDraft = $derived(
+		draftLeftHere != undefined && agent != undefined && draftLeftHere.path === agent
+			? draftLeftHere.has
+			: (linkedInfo?.hasDraft ?? false)
+	)
 
 	/** The agent the card is about: the one this step links to, or the one being edited. */
 	let cardPath = $derived(agent ?? editingPath)
@@ -404,7 +433,10 @@
 		// normalises the configuration, and a normalisation is not an edit. Comparing against the
 		// resource's own JSON would compare key order too.
 		deployedConfig = JSON.stringify(
-			inputTransformsToAgentConfig({ ...agentConfigToInputTransforms(cfg), ...local }, cfg.tools ?? [])
+			inputTransformsToAgentConfig(
+				{ ...agentConfigToInputTransforms(cfg), ...local },
+				cfg.tools ?? []
+			)
 		)
 
 		// Editing resumes this user's own unsaved work when there is any. Opening on the deployed
@@ -484,25 +516,28 @@
 	 */
 	function mirrorEditToDraft(path: string) {
 		if (!ws) return
-		UserDraftDbSyncer.save({
-			workspace: ws,
-			itemKind: 'resource',
-			path,
-			value: {
-				path,
-				description: '',
-				args: inputTransformsToAgentConfig(inputTransforms, tools),
-				labels: undefined,
-				wsSpecific: false
-			}
-		})
+		UserDraftDbSyncer.save({ workspace: ws, itemKind: 'resource', path, value: draftValue(path) })
+		draftLeftHere = { path, has: true }
 	}
 
-	/** Drop it: the edit was saved, so the draft describes nothing that is not deployed, or it was
-	 *  abandoned, so it describes nothing at all. */
+	/** What is filed as the draft: the configuration under `args`, wrapped the way the resource
+	 *  editor wraps it, which is the shape both editors and the run path read it back from. */
+	function draftValue(path: string) {
+		return {
+			path,
+			description: '',
+			args: inputTransformsToAgentConfig(inputTransforms, tools),
+			labels: undefined,
+			wsSpecific: false
+		}
+	}
+
+	/** Drop it: deployed, undone or discarded, the draft describes nothing the agent does not
+	 *  already hold. */
 	function clearDraft(path: string) {
 		if (!ws) return
 		UserDraftDbSyncer.save({ workspace: ws, itemKind: 'resource', path, value: null })
+		draftLeftHere = { path, has: false }
 	}
 
 	$effect(() => {
@@ -529,8 +564,9 @@
 			if (config !== deployedConfig) {
 				mirrorEditToDraft(path)
 			} else if (had) {
-				// The edits were undone. Only what was written here is dropped: a draft that was already
-				// there is someone's unsaved work, and this opened on the deployed value, not on it.
+				// Back at the deployed value, so there is nothing unsaved left to keep — including a
+				// draft this editor resumed rather than wrote, which is the rule the resource editor
+				// applies to its own.
 				clearDraft(path)
 			}
 		})
@@ -558,6 +594,39 @@
 			})
 		}
 	})
+
+	/** The draft the editor is on, as the syncer keys it. */
+	let draftQuery = $derived(
+		ws && editingPath
+			? { workspace: ws, itemKind: 'resource' as const, path: editingPath }
+			: undefined
+	)
+	/** Why the edits are not on the agent yet, when they are not. The mirror is what makes Cancel
+	 *  safe to press, so a mirror that is failing has to be on screen: a rejected save otherwise
+	 *  leaves the card claiming the work is kept while the next Cancel drops it. A conflict is the
+	 *  other way it stops, and the modal below owns that one. */
+	let draftSync = $derived(draftQuery ? UserDraftDbSyncer.getState(draftQuery) : undefined)
+	let draftSyncFailure = $derived(
+		draftSync?.state === 'failed' ? (draftSync.failureMessage ?? 'Unknown error') : undefined
+	)
+
+	/**
+	 * Take the draft as the server has it, discarding what this editor holds — the conflict modal's
+	 * "Load from server". Re-enters the editor rather than writing the values into the open one,
+	 * whose panes are mounted on the fork and would keep painting what was replaced.
+	 */
+	async function reloadFromServer() {
+		if (!editingPath) return
+		cancelEdit()
+		try {
+			const path = await forkFromResource(false, true)
+			if (path) {
+				setAgentEditingPath(tools, path)
+			}
+		} catch (e) {
+			sendUserToast(`Failed to reload the agent: ${e}`, true)
+		}
+	}
 
 	/**
 	 * Drop the draft and put the editor back on what is deployed, which is what the banner's
@@ -623,6 +692,15 @@
 					{#if version != undefined}
 						<Badge color="gray" class="shrink-0" title="The version runs are recorded against">
 							v{version}
+						</Badge>
+					{/if}
+					{#if linkedHasDraft}
+						<Badge
+							color="yellow"
+							class="shrink-0"
+							title="This agent has undeployed edits. Edit continues them, and Evals offers to run them."
+						>
+							unsaved changes
 						</Badge>
 					{/if}
 				</div>
@@ -729,8 +807,8 @@
 							{#snippet text()}
 								Edits are kept on the agent as a draft, so they survive leaving this flow, and
 								opening Edit again continues them. Save changes writes them back to the agent and
-								re-links this step; Cancel re-links it and leaves the draft for next time.
-								Discard, on the banner, is what drops the draft.
+								re-links this step; Cancel re-links it and leaves the draft for next time. Discard,
+								on the banner, is what drops the draft.
 							{/snippet}
 						</Tooltip>
 					</div>
@@ -759,6 +837,12 @@
 				onDiscard={discardDraft}
 				title="Deployed <> Unsaved agent changes"
 			/>
+			{#if draftSyncFailure}
+				<Alert type="error" size="xs" title="These edits are not on the agent">
+					They could not be written to its draft: {draftSyncFailure}. Editing again retries. Cancel
+					would drop them, and Save changes writes them to the agent.
+				</Alert>
+			{/if}
 			<!-- Deciding the edits' fate gets a row of its own: at this width it was wrapping into
 			     the line that names them, and the two are not the same question. -->
 			<div class="flex items-center justify-end gap-1">
@@ -837,3 +921,14 @@
 </Drawer>
 
 <AgentEvalModal agentPath={cardPath} {opWorkspace} bind:open={evalsOpen} />
+
+<!-- The agent's draft is shared with the resource editor, so it can advance under this one. The
+     modal is the shared answer to that: it holds the screen until the two are reconciled, rather
+     than letting the mirror stall behind a card that still reads as saved. -->
+{#if draftQuery}
+	<DraftSyncConflictModal
+		query={draftQuery}
+		onLoadFromServer={reloadFromServer}
+		getLocalDraft={() => (editingPath ? draftValue(editingPath) : undefined)}
+	/>
+{/if}
