@@ -2569,9 +2569,23 @@ async function compareDynFSElement(
   // keep.
   if (skips.dedupeLockfiles) {
     const remoteMap = isEls1Remote === true ? m1 : m2;
+    const localMapForLocks = isEls1Remote === true ? m2 : m1;
+    // The local side supplies what the remote never serializes: the shared
+    // lockfiles already on disk, so one whose scripts are out of this sync's
+    // scope is carried forward rather than read as a deletion.
+    const present: Record<string, string> = {};
+    for (const [key, content] of Object.entries(localMapForLocks)) {
+      if (isSharedLockPath(key)) present[key.replaceAll(SEP, "/")] = content;
+    }
     applySharedLockPlanToMap(
       remoteMap,
-      computeSharedLockPlan(remoteMap, { defaultTs: skips.defaultTs }),
+      computeSharedLockPlan(remoteMap, {
+        defaultTs: skips.defaultTs,
+        // From disk as well: `--skip-workspace-dependencies` keeps dependency
+        // files out of both maps, and absent is not the same as gone.
+        depFiles: Object.keys(await getRawWorkspaceDependencies(false)),
+        present,
+      }),
     );
   }
 
@@ -4039,7 +4053,10 @@ export async function dedupeLockfilesOnDisk(args: {
     opts.json ?? false,
     opts,
   );
-  const plan = computeSharedLockPlan(map, { defaultTs: opts.defaultTs });
+  const plan = computeSharedLockPlan(map, {
+    defaultTs: opts.defaultTs,
+    depFiles: Object.keys(await getRawWorkspaceDependencies(false)),
+  });
   if (isEmptySharedLockPlan(plan)) return;
 
   const summary = `${Object.keys(plan.writes).length} file(s) written, ${plan.deletes.length} removed`;

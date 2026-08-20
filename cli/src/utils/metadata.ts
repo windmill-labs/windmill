@@ -742,19 +742,29 @@ async function updateScriptLock(
 
   const lockPath = lockPathOverride ?? remotePath + ".script.lock";
   if (lock != "") {
-    // Under `dedupeLockfiles` this lock IS the workspace dependency file's lock
-    // — the worker resolved it from that file alone — so it belongs in the file
-    // named after it, whether or not the content moved. Writing a copy beside
+    // Under `dedupeLockfiles`, a lock that resolves to what the dependency
+    // file's scripts share stays in the one shared file; writing a copy beside
     // the script is what would put the 1900-file diff back, one regenerated
     // script at a time.
+    //
+    // Only when it agrees, though: two scripts on one dependency file can still
+    // resolve differently — a pinned Python version or an `//npm` annotation is
+    // part of what the worker locks — and overwriting the shared file would
+    // hand that variant to every other script reading it. A disagreeing script
+    // takes a private lock, and the whole-tree pass decides which content the
+    // shared file keeps.
     if (sharedLockRef) {
-      await mkdir(path.dirname(sharedLockRef), { recursive: true });
-      await writeFile(sharedLockRef, lock, "utf-8");
-      if (existsSync(lockPath)) {
-        await rm(lockPath);
+      if (!existsSync(sharedLockRef)) {
+        await mkdir(path.dirname(sharedLockRef), { recursive: true });
+        await writeFile(sharedLockRef, lock, "utf-8");
       }
-      metadataContent.lock = "!inline " + sharedLockRef;
-      return;
+      if (readTextFileSync(sharedLockRef) === lock) {
+        if (existsSync(lockPath)) {
+          await rm(lockPath);
+        }
+        metadataContent.lock = "!inline " + sharedLockRef;
+        return;
+      }
     }
     await writeFile(lockPath, lock, "utf-8");
     metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");

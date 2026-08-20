@@ -217,6 +217,69 @@ describe("computeSharedLockPlan", () => {
     expect(plan(withoutDep).deletes).toContain(SHARED_PY);
   });
 
+  // The git-sync deploy callback narrows to one item, so a dependency file with
+  // no script in view is routine — and its lockfile is read by scripts this sync
+  // cannot see.
+  test("a dependency file with no script in view keeps its lockfile", () => {
+    const map = workspace(PY_DEPS, BUN_DEPS);
+    ownLock(map, "f/a", ".py", PY_LOCK);
+    ownLock(map, "f/b", ".py", PY_LOCK);
+    const present = { [SHARED_BUN]: "bun-lock" };
+
+    const result = computeSharedLockPlan(map, { defaultTs: "bun", present });
+    applySharedLockPlanToMap(map, result);
+
+    expect(result.deletes).not.toContain(SHARED_BUN);
+    // Carried into the map, or the diff reads it as a local-only deletion.
+    expect(map[SHARED_BUN]).toEqual("bun-lock");
+  });
+
+  test("dependency files absent from the map are not gone", () => {
+    // `--skip-workspace-dependencies` keeps them out of both maps; taking that
+    // as "deleted" would un-deduplicate the tree and sweep the lockfiles.
+    const map: Record<string, string> = {};
+    ownLock(map, "f/a", ".py", PY_LOCK);
+    ownLock(map, "f/b", ".py", PY_LOCK);
+
+    const result = computeSharedLockPlan(map, {
+      defaultTs: "bun",
+      depFiles: [PY_DEPS],
+      present: { [SHARED_PY]: PY_LOCK },
+    });
+    applySharedLockPlanToMap(map, result);
+
+    expect(result.deletes).not.toContain(SHARED_PY);
+    expect(lockRefOf(map["f/a.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
+  });
+
+  test("a lone script does not move a lockfile others read", () => {
+    // It may be the one pinning a Python version rather than the first of a
+    // bump everyone took — two agreeing scripts settle it.
+    const alone = workspace(PY_DEPS);
+    ownLock(alone, "f/pinned", ".py", OTHER_LOCK);
+    applySharedLockPlanToMap(
+      alone,
+      computeSharedLockPlan(alone, {
+        defaultTs: "bun",
+        present: { [SHARED_PY]: PY_LOCK },
+      }),
+    );
+    expect(alone[SHARED_PY]).toEqual(PY_LOCK);
+    expect(alone["f/pinned.script.lock"]).toEqual(OTHER_LOCK);
+
+    const bumped = workspace(PY_DEPS);
+    ownLock(bumped, "f/a", ".py", PY_LOCK_BUMPED);
+    ownLock(bumped, "f/b", ".py", PY_LOCK_BUMPED);
+    applySharedLockPlanToMap(
+      bumped,
+      computeSharedLockPlan(bumped, {
+        defaultTs: "bun",
+        present: { [SHARED_PY]: PY_LOCK },
+      }),
+    );
+    expect(bumped[SHARED_PY]).toEqual(PY_LOCK_BUMPED);
+  });
+
   test("a language that needs no lock is never deduplicated", () => {
     const map = workspace("dependencies/modules.json");
     ownLock(map, "f/a", ".ps1", "some-lock", "echo hi");

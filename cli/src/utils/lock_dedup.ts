@@ -242,15 +242,22 @@ export function sharedLockRefIn(
   return ref && existsSync(path.resolve(root, ref)) ? ref : undefined;
 }
 
+/** The key a dependency file answers to, i.e. what a script names it by. */
+function depKeyOf(depFilePath: string): string | undefined {
+  const info = workspaceDependenciesPathToLanguageAndFilename(depFilePath);
+  return info && languageNeedsLock(info.language)
+    ? `${info.language} ${info.name ?? "default"}`
+    : undefined;
+}
+
 /** Workspace dependency files keyed by the language and name a script names. */
 function depFilesByKey(paths: Iterable<string>): Map<string, string> {
   const byKey = new Map<string, string>();
   for (const key of paths) {
     const ref = toRefPath(key);
     if (!ref.startsWith("dependencies/")) continue;
-    const info = workspaceDependenciesPathToLanguageAndFilename(ref);
-    if (!info || !languageNeedsLock(info.language)) continue;
-    byKey.set(`${info.language} ${info.name ?? "default"}`, ref);
+    const depKey = depKeyOf(ref);
+    if (depKey) byKey.set(depKey, ref);
   }
   return byKey;
 }
@@ -294,9 +301,9 @@ export function sharedLockTargetFor(
 function collectScripts(
   map: Record<string, string>,
   defaultTs: "bun" | "deno" | undefined,
+  depFiles: Map<string, string>,
 ): ScriptEntry[] {
   const byDirectory = indexByDirectory(map);
-  const depFiles = depFilesByKey(Object.keys(map));
   const entries: ScriptEntry[] = [];
   for (const [metaKey, metaContent] of Object.entries(map)) {
     const meta = scriptMetaBase(metaKey);
@@ -345,14 +352,39 @@ function serializeMetadata(entry: ScriptEntry): string {
  * What a sync map (path -> content) has to change for the scripts of a workspace
  * dependency file to share one lockfile. Pure: the map is not touched.
  */
+export type SharedLockPlanContext = {
+  defaultTs?: "bun" | "deno" | undefined;
+  /**
+   * Workspace dependency files this sync knows of beyond the ones in `map`.
+   * The map is not the whole truth: `--skip-workspace-dependencies` drops them
+   * from it, and a dependency file missing from the map is not a dependency
+   * file that is gone.
+   */
+  depFiles?: Iterable<string>;
+  /**
+   * Shared lockfiles the working tree already holds. The remote never
+   * serializes one, so without this a sync that has no script for a dependency
+   * file reads its lockfile as deleted — and every script still pointing at it
+   * is left with an `!inline` that resolves to nothing.
+   */
+  present?: Record<string, string>;
+};
+
 export function computeSharedLockPlan(
   map: Record<string, string>,
-  ctx: { defaultTs?: "bun" | "deno" | undefined } = {},
+  ctx: SharedLockPlanContext = {},
 ): SharedLockPlan {
   const plan: SharedLockPlan = { writes: {}, deletes: [] };
+  const depFiles = depFilesByKey([...Object.keys(map), ...(ctx.depFiles ?? [])]);
+  // Every shared lockfile this sync can see, from either side.
+  const present: Record<string, string> = { ...ctx.present };
+  for (const [key, content] of Object.entries(map)) {
+    if (isSharedLockPath(toRefPath(key))) present[toRefPath(key)] = content;
+  }
+
   const byDepFile = new Map<string, ScriptEntry[]>();
   const ownLock: ScriptEntry[] = [];
-  for (const entry of collectScripts(map, ctx.defaultTs)) {
+  for (const entry of collectScripts(map, ctx.defaultTs, depFiles)) {
     if (entry.depFile === undefined) {
       ownLock.push(entry);
       continue;
@@ -380,9 +412,9 @@ export function computeSharedLockPlan(
   };
 
   for (const [depFile, group] of byDepFile) {
-    // Every one of these scripts resolves against the same file in the same
-    // mode, so their locks are identical by construction. A stale committed lock
-    // is the exception, and the many outvote the one; ties break on the content
+    // These scripts resolve against the same file, so their locks agree unless
+    // one of them pins something the worker also locks (a Python version, an
+    // `//npm` annotation). The many outvote the one; ties break on the content
     // itself so the outcome never depends on map ordering.
     const byContent = new Map<string, ScriptEntry[]>();
     for (const entry of group) {
@@ -400,10 +432,17 @@ export function computeSharedLockPlan(
       }
     }
 
-    const sharedKey = toMapKey(sharedLockPathFor(depFile));
-    if (map[sharedKey] !== content) plan.writes[sharedKey] = content;
+    const sharedRef = sharedLockPathFor(depFile);
+    const sharedKey = toMapKey(sharedRef);
+    const held = present[sharedRef];
+    // One script is not enough to move a lockfile others read: it may be the
+    // one that pins something, rather than the first of a bump everyone took.
+    // Two agreeing scripts settle it, and a full sync heals what one deferred.
+    const moved = held === undefined || content === held || count >= 2;
+    const finalContent = moved ? content : held;
+    if (map[sharedKey] !== finalContent) plan.writes[sharedKey] = finalContent;
     for (const entry of group) {
-      if (entry.lock === content) point(entry, sharedKey);
+      if (entry.lock === finalContent) point(entry, sharedKey);
       else takeOwnLock(entry);
     }
   }
@@ -416,13 +455,18 @@ export function computeSharedLockPlan(
 
   // A shared lockfile lives exactly as long as the dependency file it is named
   // after. Asking that, rather than "does any script still read it", is what
-  // lets a sync narrowed to one item leave the rest of the workspace alone.
-  for (const key of Object.keys(map)) {
-    const depFile = depFileOfSharedLock(toRefPath(key));
+  // lets a sync narrowed to one item leave the rest of the workspace alone: a
+  // lockfile with no script in view is carried forward, not deleted.
+  for (const [sharedRef, content] of Object.entries(present)) {
+    const depFile = depFileOfSharedLock(sharedRef);
     if (depFile === undefined) continue;
-    const stillThere =
-      map[toMapKey(depFile)] !== undefined || map[depFile] !== undefined;
-    if (!stillThere && plan.writes[key] === undefined) plan.deletes.push(key);
+    const key = toMapKey(sharedRef);
+    if (plan.writes[key] !== undefined) continue;
+    if (depFiles.has(depKeyOf(depFile) ?? "")) {
+      if (map[key] === undefined) plan.writes[key] = content;
+    } else {
+      plan.deletes.push(key);
+    }
   }
 
   // Deletes are applied after writes, so a path some script still writes must
