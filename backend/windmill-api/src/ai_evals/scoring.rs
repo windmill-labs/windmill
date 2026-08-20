@@ -221,17 +221,16 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
         // What to say when the job is over and this scorer left nothing: the two are different
         // states, and a cell reading "no answer to score" beside an Answer column that plainly
         // shows one is the report being wrong rather than the run. Only `record_case_answers`
-        // knows which happened, and the listing syncs without it — so until it has run there is
-        // nothing to settle on, and the cell waits rather than freezing the wrong half of the
-        // distinction into a score row no later read revisits.
-        let Some(answered) = row.answered else {
-            return Ok((row.ordinal, row.scorer_id, None));
-        };
-        let missing = if answered {
-            "This scorer did not run for the case"
-        } else {
-            "The case produced no answer to score"
-        };
+        // tells them apart and the listing syncs without it, so there is a wording to settle on
+        // only once it has run. `None` withholds the sentence, not the harvest: a scorer that
+        // returned a number is read and recorded either way.
+        let missing = row.answered.map(|answered| {
+            if answered {
+                "This scorer did not run for the case"
+            } else {
+                "The case produced no answer to score"
+            }
+        });
         let verdict = read_verdict(
             db,
             w_id,
@@ -308,8 +307,9 @@ async fn read_verdict(
     job_status: Option<&str>,
     // What to record when the job is over and this scorer produced nothing. A different statement
     // depending on where the scorer ran: its own job failed, or the case it was to score never
-    // produced an answer.
-    missing_error: &str,
+    // produced an answer. `None` when the caller cannot yet tell those apart, which leaves the
+    // cell pending for a read that can, rather than settling it on the wrong one of the two.
+    missing_error: Option<&str>,
 ) -> Result<Option<(Verdict, Option<String>)>> {
     let module = scorer_module_id(scorer_id);
     let result = match windmill_queue::get_result_and_success_by_id_from_flow(
@@ -341,14 +341,20 @@ async fn read_verdict(
                     verdict,
                     Some("The scorer returned no number to plot".to_string()),
                 ),
-                _ => (verdict, Some(missing_error.to_string())),
+                _ => match missing_error {
+                    Some(missing) => (verdict, Some(missing.to_string())),
+                    None => return Ok(None),
+                },
             }
         }
         None if job_status == Some("success") => return Ok(None),
         // The job holding this scorer has not finished, so a module with nothing in it yet is a
         // step that has not run rather than one that produced nothing.
         None if job_status.is_none() => return Ok(None),
-        None => (Verdict::default(), Some(missing_error.to_string())),
+        None => match missing_error {
+            Some(missing) => (Verdict::default(), Some(missing.to_string())),
+            None => return Ok(None),
+        },
     }))
 }
 
