@@ -156,9 +156,11 @@ async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
 	)
 
 	// `getCopilotInfo` returns the *effective* config, which may be the instance's, and resource
-	// paths are workspace-scoped — so a path match proves nothing on its own. The default is only
-	// offered when the resource's own listing confirms it serves that model, which holds whichever
-	// config the path came from.
+	// paths are workspace-scoped — so a path match proves nothing on its own. The default is
+	// offered only when the resource's own live listing names that model, which settles it
+	// whichever config the path came from. Completeness is not part of it: a listing rules an
+	// absent id out only when it is whole, but a present id is served either way — and the
+	// filtered kinds are never whole, so requiring it would deny them a default forever.
 	const defaultModel = aiConfig.default_model
 	const defaultResourcePath = defaultModel
 		? aiConfig.providers?.[defaultModel.provider]?.resource_path
@@ -170,7 +172,6 @@ async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
 			(option) =>
 				option.resourcePath === defaultResourcePath &&
 				option.modelsAreLive &&
-				option.models.complete &&
 				option.models.ids.includes(defaultModel.model)
 		)
 	return {

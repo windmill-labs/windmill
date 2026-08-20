@@ -205,6 +205,27 @@ describe('selectAiAgentProviderCandidates', () => {
 	})
 })
 
+describe('the workspace default in the prompt', () => {
+	it('is taken from a filtered listing too, which is never marked whole', () => {
+		// OpenAI, Azure, Google and Bedrock listings are filtered by fetchAvailableModels, so they
+		// are always incomplete. A model the listing names is still served by that resource.
+		const filtered: AiAgentProviderOption = {
+			...ANTHROPIC,
+			models: { ids: ['claude-sonnet-5'], complete: false }
+		}
+		expect(
+			formatAiAgentProvidersPrompt(
+				{
+					options: [filtered],
+					resourcesAreComplete: true,
+					defaultModel: { kind: 'anthropic', model: 'claude-sonnet-5' }
+				},
+				{ canAskUser: true }
+			)
+		).toContain('the workspace default')
+	})
+})
+
 describe('sanitizeModelListing', () => {
 	it('keeps the id shapes providers actually use, and stays whole', () => {
 		const ids = [

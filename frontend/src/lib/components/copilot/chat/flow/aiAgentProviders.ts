@@ -23,7 +23,9 @@ export type AiAgentProviderCatalog = {
 	 * or hit the per-workspace cap, in which case a resource missing from `options` may still be
 	 * a real one and must not be rejected. */
 	resourcesAreComplete: boolean
-	/** Workspace default model, when its provider is one of `options`. */
+	/** The workspace default, when one of `options` is the resource its provider is configured
+	 * with and that resource's live listing names the model. Absent otherwise, which puts the
+	 * choice back to the user. */
 	defaultModel?: { kind: AIProvider; model: string }
 }
 
