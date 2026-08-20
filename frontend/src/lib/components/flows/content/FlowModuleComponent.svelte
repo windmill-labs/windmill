@@ -109,7 +109,7 @@
 		preprocessorModule?: boolean
 		parentModule?: FlowModule | undefined
 		previousModule: FlowModule | undefined
-		scriptKind?: 'script' | 'trigger' | 'approval'
+		scriptKind?: 'script' | 'trigger' | 'approval' | 'preprocessor'
 		scriptTemplate?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
 		noEditor: boolean
 		enableAi: boolean
