@@ -149,6 +149,25 @@
 
 <svelte:window onkeydowncapture={onKeyDown} />
 
+<!-- The level you would return to wears the chevron rather than a control of its own beside the
+     path: both would point at the same place, and the way back is a level of the path, not a
+     second thing to find. -->
+{#snippet crumb(segment: ModalTrailSegment, isBack: boolean)}
+	<button
+		type="button"
+		class="group inline-flex items-center gap-0.5 min-w-0 text-secondary hover:text-emphasis"
+		title={isBack ? `Back to ${segment.label}` : undefined}
+		onclick={segment.onclick}
+	>
+		{#if isBack}
+			<!-- Pulled left so the label sits about where it would without it: the header is read as
+			     a title, and a title that steps sideways as you navigate reads as a different one. -->
+			<ChevronLeft size={18} class="shrink-0 -ml-1" />
+		{/if}
+		<span class="truncate group-hover:underline">{segment.label}</span>
+	</button>
+{/snippet}
+
 <Disposable bind:open bind:this={disposable} preventEscape {minZIndex}>
 	{#snippet children({ zIndex })}
 		<!-- Always portalled, as Drawer is: to the enclosing pane when one claims it, to `body`
@@ -212,70 +231,48 @@
 												? 'pr-8'
 												: ''}"
 										>
-											<div class="flex flex-row items-center gap-1.5 min-w-0">
-												{#if back?.onclick}
-													<!-- Beside the path rather than in it: the breadcrumb says where you are,
-													     and one level back is a move rather than a place. The way out of a
-													     level someone navigated into is worth a control of its own, not only
-													     a word in a path they have to read to find. -->
-													<Button
-														size="xs2"
-														variant="subtle"
-														startIcon={{ icon: ChevronLeft }}
-														iconOnly
-														title="Back to {back.label}"
-														onclick={back.onclick}
-													/>
-												{/if}
-												<!-- leading-7 throughout, the heading included: an h3 carries a line-height
-												     of its own, so without it the row is six pixels shorter at the root than
-												     it is one level in, and the whole header steps as you navigate. -->
-												<nav
-													aria-label="Breadcrumb"
-													class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold leading-7"
-												>
-													{#each segments as segment, i (i)}
-														{#if i === 1}
-															{@render titleBadge?.()}
-														{/if}
-														{#if i > 0}
-															<ChevronRight size={18} class="text-tertiary shrink-0" />
-														{/if}
-														{#if i === 0}
-															<h3
-																class="shrink-0 leading-7 {segment.onclick ? '' : 'text-emphasis'}"
-															>
-																{#if segment.onclick}
-																	<button
-																		type="button"
-																		class="text-secondary hover:text-emphasis hover:underline"
-																		onclick={segment.onclick}
-																	>
-																		{segment.label}
-																	</button>
-																{:else}
-																	{segment.label}
-																{/if}
-															</h3>
-														{:else if segment.onclick}
-															<button
-																type="button"
-																class="text-secondary hover:text-emphasis hover:underline truncate"
-																onclick={segment.onclick}
-															>
-																{segment.label}
-															</button>
-														{:else}
-															<span class="text-emphasis truncate" aria-current="page">
-																{segment.label}
-															</span>
-														{/if}
-													{/each}
-													{#if segments.length === 1}
+											<!-- leading-7 throughout, the heading included: an h3 carries a line-height
+											     of its own, so without it the row is six pixels shorter at the root than
+											     it is one level in, and the whole header steps as you navigate. -->
+											<nav
+												aria-label="Breadcrumb"
+												class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold leading-7"
+											>
+												{#each segments as segment, i (i)}
+													{#if i === 1}
 														{@render titleBadge?.()}
 													{/if}
-												</nav>
-											</div>
+													{#if i > 0}
+														<ChevronRight size={18} class="text-tertiary shrink-0" />
+													{/if}
+													{#if i === 0}
+														<!-- flex, so the link inside is laid out rather than placed on a line: an
+													     inline child with an icon in it sits on the baseline and leaves room
+													     under it for a descender, which makes the row three pixels taller one
+													     level in than it is at the root. -->
+														<h3
+															class="shrink-0 leading-7 flex items-center {segment.onclick
+																? ''
+																: 'text-emphasis'}"
+														>
+															{#if segment.onclick}
+																{@render crumb(segment, i === segments.length - 2)}
+															{:else}
+																{segment.label}
+															{/if}
+														</h3>
+													{:else if segment.onclick}
+														{@render crumb(segment, i === segments.length - 2)}
+													{:else}
+														<span class="text-emphasis truncate" aria-current="page">
+															{segment.label}
+														</span>
+													{/if}
+												{/each}
+												{#if segments.length === 1}
+													{@render titleBadge?.()}
+												{/if}
+											</nav>
 											{@render settings?.()}
 										</div>
 
