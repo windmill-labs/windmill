@@ -35,6 +35,7 @@ use windmill_common::{
     cache,
     client::AuthedClient,
     jobs::JobKind,
+    min_version::MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptHash, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
@@ -377,6 +378,27 @@ pub(crate) fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool)
     }
 }
 
+/// Stamp a bun 1.4 text lockfile back to `lockfileVersion: 1`.
+///
+/// Only the header distinguishes the two for the flat `{"dependencies": {...}}` the dependency
+/// job writes: no overrides, catalogs or workspaces, so nothing needs v2 syntax. Both bun
+/// versions honour the result. Gated on [`MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2`] so the fleet
+/// stops paying for this once every worker can read v2.
+fn downgrade_bun_lockfile_v2(lockfile: String) -> String {
+    const V2: &str = "\"lockfileVersion\": 2";
+    const V1: &str = "\"lockfileVersion\": 1";
+    match lockfile.find(V2) {
+        Some(i) => {
+            let mut out = String::with_capacity(lockfile.len());
+            out.push_str(&lockfile[..i]);
+            out.push_str(V1);
+            out.push_str(&lockfile[i + V2.len()..]);
+            out
+        }
+        None => lockfile,
+    }
+}
+
 pub async fn gen_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -539,6 +561,9 @@ pub async fn gen_bun_lockfile(
                     let mut file = File::open(&file).await?;
                     let mut buf = String::default();
                     file.read_to_string(&mut buf).await?;
+                    if !MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.met_conservatively() {
+                        buf = downgrade_bun_lockfile_v2(buf);
+                    }
                     content.push_str(&buf);
                 } else {
                     content.push_str(&EMPTY_FILE);
@@ -2896,9 +2921,8 @@ pub async fn handle_wac_v2_output(
                                     version: flow_info.version,
                                     labels: flow_info.labels.clone(),
                                 };
-                                let on_behalf_of = flow_info
-                                    .on_behalf_of(&job.workspace_id, db)
-                                    .await?;
+                                let on_behalf_of =
+                                    flow_info.on_behalf_of(&job.workspace_id, db).await?;
                                 let step_args: HashMap<String, Box<RawValue>> = step
                                     .args
                                     .iter()
@@ -4124,6 +4148,20 @@ pub async fn start_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_downgrade_bun_lockfile_v2() {
+        let v2 = "{\n  \"lockfileVersion\": 2,\n  \"packages\": { \"a\": [\"a@1.0.0\"] }\n}";
+        let downgraded = downgrade_bun_lockfile_v2(v2.to_string());
+        assert!(downgraded.contains("\"lockfileVersion\": 1,"));
+        // everything but the header survives verbatim: the pins are the whole point
+        assert!(downgraded.contains("\"a@1.0.0\""));
+        assert_eq!(downgraded.len(), v2.len());
+
+        // a lockfile bun already wrote as v1 is left exactly as-is
+        let v1 = "{\n  \"lockfileVersion\": 1,\n  \"packages\": {}\n}";
+        assert_eq!(downgrade_bun_lockfile_v2(v1.to_string()), v1);
+    }
 
     #[test]
     fn test_split_lockfile_text_unix() {

@@ -12,6 +12,12 @@ pub const MIN_VERSION_SUPPORTS_ON_BEHALF_OF_PRINCIPAL: VC = vc(1, 776, 0, "On-be
 // already-deployed hash (duplicate git-sync commit, duplicate fork tally, a re-triggered
 // relative-import cascade). Must name the release this ships in.
 pub const MIN_VERSION_SUPPORTS_BINARY_PREBUILD: VC = vc(1, 789, 0, "Auto-build binary on deploy");
+// The release that ships bun 1.4, which writes `bun.lock` v2. Bun 1.3 reports
+// `error: Unknown lockfile version`, then installs anyway from `package.json` alone — and the
+// dependency job writes every dependency as `"latest"`, so the lockfile is the only pin and an
+// older worker resolves whatever is newest instead. Below this version the stored lockfile is
+// stamped back to v1, which bun 1.3 and 1.4 both honour. Must name the release this ships in.
+pub const MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2: VC = vc(1, 794, 0, "Bun v2 lockfiles");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");
