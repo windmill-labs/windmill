@@ -180,7 +180,7 @@ import { isSharedLockPath, SHARED_LOCK_DIR } from "../../utils/script_common.ts"
 import {
   applySharedLockPlanToDisk,
   applySharedLockPlanToMap,
-  sharedLockRefOf,
+  metadataReadsSharedLock,
   computeSharedLockPlan,
   isEmptySharedLockPlan,
   scriptsReferencingSharedLock,
@@ -263,7 +263,7 @@ async function anyScriptReferences(
       if (!rel.endsWith(metaExt) && !rel.endsWith(modMeta)) continue;
       // The `lock` field, not the raw text: a folded line, a summary quoting the
       // path, or a stale twin of the other format would each answer wrongly.
-      if (sharedLockRefOf(rel, await readTextFile(full), json) === lockRef) {
+      if (metadataReadsSharedLock(rel, await readTextFile(full), json, lockRef)) {
         return true;
       }
     }

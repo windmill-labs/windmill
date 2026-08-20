@@ -25,6 +25,7 @@ import {
   applySharedLockPlanToMap,
   computeSharedLockPlan,
   isEmptySharedLockPlan,
+  metadataReadsSharedLock,
   scriptsReferencingSharedLock,
   sharedLockRefIn,
 } from "../src/utils/lock_dedup.ts";
@@ -430,5 +431,33 @@ describe("sharedLockRefIn", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("metadataReadsSharedLock", () => {
+  test("a folded reference is still a reference", () => {
+    // A long enough dependency-set name pushes `lock:` past the serializer's
+    // 80-column default, which breaks the line at the space inside the value.
+    const ref = "locks/" + "very_long_set_name_".repeat(4) + "requirements.in.lock";
+    const folded = yamlStringify({ lock: `!inline ${ref}`, summary: "" }, yamlOptions);
+    expect(folded).not.toContain("!inline " + ref);
+
+    expect(metadataReadsSharedLock("f/a.script.yaml", folded, false, ref)).toBe(
+      true,
+    );
+    expect(
+      metadataReadsSharedLock("f/a.script.yaml", folded, false, SHARED_PY),
+    ).toBe(false);
+  });
+
+  test("unparseable metadata counts as a reader", () => {
+    const conflicted = `summary: ''\n<<<<<<< HEAD\nlock: '!inline ${SHARED_PY}'\n=======\nlock: '!inline ${SHARED_BUN}'\n>>>>>>> other\n`;
+    expect(
+      metadataReadsSharedLock("f/a.script.yaml", conflicted, false, SHARED_PY),
+    ).toBe(true);
+    // Nothing to read: no reference of any kind in the file.
+    expect(
+      metadataReadsSharedLock("f/a.script.yaml", "summary: ''\n", false, SHARED_PY),
+    ).toBe(false);
   });
 });
