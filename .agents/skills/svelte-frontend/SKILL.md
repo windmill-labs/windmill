@@ -61,7 +61,13 @@ else, go back to the barrel and grep.
 <Button startIcon={{ icon: ChevronLeft }} iconOnly onclick={prev} />
 ```
 
-Props: `variant?: 'accent' | 'accent-secondary' | 'default' | 'subtle'`, `unifiedSize?: 'sm' | 'md' | 'lg'`, `startIcon?: { icon: SvelteComponent }`, `iconOnly?: boolean`, `disabled?: boolean`
+Props: `variant?: 'accent' | 'accent-secondary' | 'default' | 'subtle'`, `unifiedSize?: '2xs' | 'xs' | 'sm' | 'md' | 'lg'`, `startIcon?: { icon: SvelteComponent }`, `iconOnly?: boolean`, `disabled?: boolean`
+
+**`size` on `<Button>` is banned** — it, `spacingSize` and `extendedSize` are the legacy sizing
+system (`xs3`/`xs2`/`xs`/…, marked `@deprecated` in `Button.svelte`). Size every button with
+`unifiedSize`, the small ones included: `2xs` and `xs` are `h-5`, `sm` is `h-7`, `md` is `h-8`,
+`lg` is `h-10`. Existing `size="xs2"` call sites are legacy, not a precedent to copy. Same for
+`variant`: `contained`/`border`/`divider` are deprecated — use the four listed above.
 
 ### Text inputs — `<TextInput>`
 

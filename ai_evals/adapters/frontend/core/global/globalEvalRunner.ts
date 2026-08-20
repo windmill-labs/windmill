@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
 import type { AIProvider } from "$lib/gen/types.gen";
 import {
   globalToolsFor,
@@ -75,11 +76,35 @@ export interface GlobalUserFixture {
   folders_read?: string[];
 }
 
+/**
+ * Flatten every assistant turn's text. Tool calls are excluded — only what the
+ * user would actually read counts as having been said to them.
+ */
+function assistantTextOf(messages: ChatCompletionMessageParam[]): string {
+  const parts: string[] = [];
+  for (const message of messages) {
+    if (message.role !== "assistant") continue;
+    const content = message.content;
+    if (typeof content === "string") {
+      parts.push(content);
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (part && typeof part === "object" && "text" in part) {
+          parts.push(String((part as { text?: unknown }).text ?? ""));
+        }
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
 export interface GlobalEvalResult {
   success: boolean;
   state: GlobalDraftState;
   error?: string;
   assistantMessageCount: number;
+  /** Everything the assistant said to the user, for `assistantExpect` checks. */
+  assistantText: string;
   toolCallCount: number;
   toolsUsed: string[];
   toolCallDetails: ToolCallDetail[];
@@ -209,6 +234,7 @@ export async function runGlobalEval(
       success: rawResult.success,
       error: rawResult.error,
       assistantMessageCount: rawResult.iterations,
+      assistantText: assistantTextOf(rawResult.messages),
       toolCallCount: rawResult.toolCallsCount,
       toolsUsed: rawResult.toolsCalled,
       toolCallDetails: rawResult.toolCallDetails,

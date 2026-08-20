@@ -1113,6 +1113,12 @@ await backend.myFunction()
 
 When you are using the windmill-client, do not forget that as id for variables or resources, those are path that are of the form \'u/<user>/<name>\' or \'f/<folder>/<name>\'.
 
+Besides \`backend\`, the generated \`./wmill\` module exports \`backendAsync.<key>(args)\` (resolves the job id as a string), \`waitJob(jobId)\` (resolves that job's result, rejects if it failed), \`getJob(jobId)\` (the current job state, for rendering progress) and \`streamJob(jobId, onUpdate)\`. Use \`backendAsync\` + \`waitJob\`/\`getJob\` for long-running work — never hand-write a runnable that polls job status, and never \`fetch\` the Windmill API from frontend code, which holds no token.
+
+A \`script\`/\`flow\` runnable runs the DEPLOYED item at that path, and so do \`wmill.runFlowAsync\`/\`wmill.runScriptByPath\` called inside a runnable — a draft is invisible to them, so an app pointed at an undeployed flow fails at runtime. The app itself does not need deploying — the preview runs its draft — so the fix is to deploy that one referenced item, not the whole change set. Say so instead of working around it, and never reimplement the flow inline to dodge the deployment. An \`inline\` runnable runs the app's own code and needs nothing deployed.
+
+Inside an inline runnable the \`wmill\` client configures itself from the job environment: don't read \`WM_TOKEN\` or \`BASE_INTERNAL_URL\` and build an API URL by hand — the client already does that, plus the credentials mode a raw app needs. Only call \`wmill\` functions that actually exist; \`getBaseUrl\` and \`getWorkspaceToken\` are inventions.
+
 ## Instructions
 
 1. Use the smallest context needed. If the target file or runnable is clear, inspect only that item with \`get_frontend_file(path)\` or \`get_backend_runnable(key)\`.

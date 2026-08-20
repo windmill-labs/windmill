@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.792.2](https://github.com/windmill-labs/windmill/compare/v1.792.1...v1.792.2) (2026-08-19)
+
+
+### Bug Fixes
+
+* check direct-deployment lock and superadmin in the deploy preflight ([#10748](https://github.com/windmill-labs/windmill/issues/10748)) ([ef8a8e8](https://github.com/windmill-labs/windmill/commit/ef8a8e821ca3a5f4a308c49226292565680bf90c))
+* make the listScripts parent_hash filter valid SQL ([#10752](https://github.com/windmill-labs/windmill/issues/10752)) ([f34b7fb](https://github.com/windmill-labs/windmill/commit/f34b7fbcfa104bdc00abbfc59ab4a3dd8cafe0e0))
+* **security:** validate ansible git repository URLs before invoking git ([#10759](https://github.com/windmill-labs/windmill/issues/10759)) ([fa7fbd3](https://github.com/windmill-labs/windmill/commit/fa7fbd348d4b184ea95cfc953ded7c72b6f04e5e))
+
 ## [1.792.1](https://github.com/windmill-labs/windmill/compare/v1.792.0...v1.792.1) (2026-08-18)
 
 
