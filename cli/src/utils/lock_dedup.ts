@@ -31,10 +31,15 @@ import {
  * Identity comes from the dependency file, never from the content or from which
  * scripts happen to be in view. That is what makes the pass stateless: a sync
  * narrowed to a single script (the git-sync deploy callback) computes the same
- * name as a full one, because the lock that script holds IS that dependency
- * file's lock — the worker resolves it from the file alone, ignoring the body.
+ * NAME as a full one.
  *
- * Two cases are therefore NOT shared and keep a `.script.lock` of their own: a
+ * The CONTENT is a separate question, because a lock is not always a pure
+ * function of its dependency file: a script can pin a Python version or carry an
+ * `//npm` annotation, which the worker also locks. Locks say which it is — the
+ * worker stamps the dependency inputs it resolved into each one — and
+ * `depInputsOf` reads that stamp rather than guessing from head counts.
+ *
+ * Two cases are not shared at all and keep a `.script.lock` of their own: a
  * script whose annotation is `extra_` or carries inline dependencies (its lock
  * folds in its own imports), and one naming several dependency files at once
  * (its lock is no single file's).
@@ -250,6 +255,40 @@ function depKeyOf(depFilePath: string): string | undefined {
     : undefined;
 }
 
+/**
+ * The dependency inputs a lock was generated from, as the worker recorded them
+ * in the lock itself (`WorkspaceDependenciesPrefetched::to_lock_header`):
+ *
+ *     # workspace-dependencies-mode: manual
+ *     # workspace-dependencies: default:<sha of the dependency file's content>
+ *
+ * This is what separates the two reasons a lock can differ from the one its
+ * dependency file's scripts share. Same inputs, different body: the script
+ * pinned something the worker also locks, and the file is not its to move.
+ * Different inputs: the file moved, and one script is evidence enough.
+ *
+ * Undefined when the header is absent — old workers do not write one
+ * (`min_version_supports_v0_workspace_dependencies`), and the caller falls back
+ * to what it can infer.
+ */
+function depInputsOf(lock: string): string | undefined {
+  const inputs: string[] = [];
+  for (const line of lock.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    const match = /^(?:#|\/\/)\s*workspace-dependencies(-mode)?:\s*(.+)$/.exec(
+      trimmed,
+    );
+    if (match) {
+      inputs.push(match[2].trim());
+      continue;
+    }
+    if (trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
+    break; // past the header block
+  }
+  return inputs.length > 0 ? inputs.sort().join("|") : undefined;
+}
+
 /** Workspace dependency files keyed by the language and name a script names. */
 function depFilesByKey(paths: Iterable<string>): Map<string, string> {
   const byKey = new Map<string, string>();
@@ -445,18 +484,21 @@ export function computeSharedLockPlan(
     const sharedRef = sharedLockPathFor(depFile);
     const sharedKey = toMapKey(sharedRef);
     const held = present[sharedRef];
-    // When a disagreement is allowed to move the file. Both clauses are needed:
-    // the dependency file moving is what lets a bump through a sync that sees
-    // one script at a time (a one-script dependency file has no second opinion
-    // to offer), and two agreeing scripts are what corrects a file some lone
-    // script planted its variant on. What neither admits is a single script
-    // disagreeing for its own reasons — a pinned Python version, an `//npm`
-    // annotation — while its dependency file sits still.
+    // Whether a disagreement moves the file. The locks say why they differ:
+    // the worker stamps the dependency inputs it resolved into each one.
+    const heldInputs = held === undefined ? undefined : depInputsOf(held);
+    const contentInputs = depInputsOf(content);
     const moves =
-      held === undefined ||
-      content === held ||
-      movedDepFiles.has(depFile) ||
-      count >= 2;
+      held === undefined || content === held
+        ? true
+        : heldInputs !== undefined && contentInputs !== undefined
+          ? // Both stamped: equal inputs mean this script pinned something and
+            // the file is not its to move; different inputs mean the file moved.
+            heldInputs !== contentInputs
+          : // Unstamped, so a worker too old to say. The dependency file having
+            // moved, or two scripts agreeing on something else, is the most that
+            // can be inferred.
+            movedDepFiles.has(depFile) || count >= 2;
     const finalContent = moves ? content : held;
     if (map[sharedKey] !== finalContent) plan.writes[sharedKey] = finalContent;
     for (const entry of group) {

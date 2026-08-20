@@ -285,6 +285,39 @@ describe("computeSharedLockPlan", () => {
     expect(lockRefOf(bumped["f/a.script.yaml"])).toEqual(`!inline ${SHARED_PY}`);
   });
 
+  test("a lock's own dependency stamp says whether it may move the file", () => {
+    const stamp = (dep: string, body: string) =>
+      `# workspace-dependencies-mode: manual\n# workspace-dependencies: default:${dep}\n${body}`;
+
+    // Same dependency inputs, different body: this script pinned something, and
+    // the file is not its to move — even alone, and even mid-bump.
+    const pinned = workspace(PY_DEPS);
+    ownLock(pinned, "f/pinned", ".py", stamp("aaa", OTHER_LOCK));
+    applySharedLockPlanToMap(
+      pinned,
+      computeSharedLockPlan(pinned, {
+        defaultTs: "bun",
+        present: { [SHARED_PY]: stamp("aaa", PY_LOCK) },
+        movedDepFiles: [PY_DEPS],
+      }),
+    );
+    expect(pinned[SHARED_PY]).toEqual(stamp("aaa", PY_LOCK));
+    expect(pinned["f/pinned.script.lock"]).toEqual(stamp("aaa", OTHER_LOCK));
+
+    // Different dependency inputs: the file moved, and one script is enough.
+    const bumped = workspace(PY_DEPS);
+    ownLock(bumped, "f/a", ".py", stamp("bbb", PY_LOCK_BUMPED));
+    applySharedLockPlanToMap(
+      bumped,
+      computeSharedLockPlan(bumped, {
+        defaultTs: "bun",
+        present: { [SHARED_PY]: stamp("aaa", PY_LOCK) },
+      }),
+    );
+    expect(bumped[SHARED_PY]).toEqual(stamp("bbb", PY_LOCK_BUMPED));
+    expect(bumped["f/a.script.lock"]).toBeUndefined();
+  });
+
   test("the many correct a lockfile a lone script planted its variant on", () => {
     const map = workspace(PY_DEPS);
     ownLock(map, "f/a", ".py", PY_LOCK);
