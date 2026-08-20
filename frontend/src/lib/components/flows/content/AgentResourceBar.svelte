@@ -160,6 +160,17 @@
 			? (cardDraftSync.failureMessage ?? 'Unknown error')
 			: undefined
 	)
+	/** A save the server refused because the draft had moved on. Read here as well as in the modal:
+	 *  a conflict is reported as a snapshot rather than as a sync state, so watching the state alone
+	 *  misses it — and it can be raised by a write still in flight when the editor closes, which is
+	 *  the case that would otherwise pass in silence. */
+	let cardDraftConflict = $derived(
+		cardDraftQuery ? UserDraftDbSyncer.getConflict(cardDraftQuery) : undefined
+	)
+	/** The edits never reached the agent's draft, whichever way it stopped. */
+	let draftNotWritten = $derived(
+		draftSyncFailure !== undefined || cardDraftConflict?.conflict !== undefined
+	)
 	/** The last thing this card did to an agent's draft, and to which agent. Writes and deletes are
 	 *  queued, so the card can re-read the resource while one is still on its way: what was done
 	 *  here is the more current answer until the card links elsewhere, when it stops being about
@@ -167,13 +178,13 @@
 	let draftLeftHere = $state<{ path: string; has: boolean } | undefined>(undefined)
 	/** The agent has edits nobody has deployed — left by Cancel here, or written in the resource
 	 *  editor. Named on the card because it is what the Evals button offers to run. A write this
-	 *  card queued and then lost is not a draft: once it has failed, the server's answer is the
-	 *  true one again, or the badge would claim work that never left the browser. */
+	 *  card queued and then lost is not a draft: once it has failed or been refused, the server's
+	 *  answer is the true one again, or the badge would claim edits the agent never received. */
 	let linkedHasDraft = $derived(
 		draftLeftHere != undefined &&
 			agent != undefined &&
 			draftLeftHere.path === agent &&
-			draftSyncFailure === undefined
+			!draftNotWritten
 			? draftLeftHere.has
 			: (linkedInfo?.hasDraft ?? false)
 	)
@@ -883,11 +894,16 @@
 	{/if}
 	<!-- Outside the editing card on purpose: the write outlives the editor, and Cancel unmounting
 	     the only account of a failed one is what leaves the step claiming work it lost. -->
-	{#if draftSyncFailure}
+	{#if draftNotWritten}
 		<div class="mt-1">
 			<Alert type="error" size="xs" title="These edits are not on the agent">
-				They could not be written to its draft: {draftSyncFailure}. Editing the agent again retries,
-				and Save changes writes them straight to it.
+				{#if draftSyncFailure}
+					They could not be written to its draft: {draftSyncFailure}. Editing the agent again
+					retries, and Save changes writes them straight to it.
+				{:else}
+					A newer draft of this agent was saved elsewhere, so these were not written over it. The
+					agent's draft, and anything run against it, is that other one.
+				{/if}
 			</Alert>
 		</div>
 	{/if}
