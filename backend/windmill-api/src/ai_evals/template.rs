@@ -1,6 +1,5 @@
 use super::*;
 
-
 /// What a script scorer starts from. The assertions are in `main` and the helpers below it, so
 /// the file reads as the checks that were chosen rather than as a library to learn.
 
@@ -174,7 +173,6 @@ function cost_under(run: EvalRun, usd: number, rate: { input: number; output: nu
 }
 "#;
 
-
 #[derive(Serialize)]
 pub struct ScorerDefaults {
     /// The system prompt a judge agent is created with. It lives on that agent afterwards.
@@ -183,7 +181,6 @@ pub struct ScorerDefaults {
     /// template that reads it cannot drift apart.
     pub script_template: String,
 }
-
 
 pub async fn scorer_defaults() -> JsonResult<ScorerDefaults> {
     Ok(Json(ScorerDefaults {

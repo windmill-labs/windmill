@@ -1,6 +1,5 @@
 use super::*;
 
-
 /// What a run is executed against. Kept as `(kind, path, version)` rather than a bare agent
 /// path so flow-scoped evaluation is a later superset instead of a rewrite.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -24,7 +23,6 @@ pub struct EvalSubject {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft_hash: Option<String>,
 }
-
 
 /// Key order is not meaningful and `serde_json` preserves insertion order here, so it is sorted
 /// away before hashing: the same configuration must hash the same however it was assembled.
@@ -58,7 +56,6 @@ fn canonical_json(value: &serde_json::Value) -> String {
     }
 }
 
-
 pub(crate) fn draft_hash(draft: &AgentDraft) -> String {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
@@ -68,11 +65,9 @@ pub(crate) fn draft_hash(draft: &AgentDraft) -> String {
     hex::encode(hasher.finalize())[..32].to_string()
 }
 
-
 fn default_subject_kind() -> EvalSubjectKind {
     EvalSubjectKind::Agent
 }
-
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -89,7 +84,6 @@ pub enum EvalSubjectKind {
     AgentVersion,
 }
 
-
 /// The brain and tools of an agent, as the flow editor holds them.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AgentDraft {
@@ -100,7 +94,6 @@ pub struct AgentDraft {
     #[serde(default)]
     pub tools: Vec<serde_json::Value>,
 }
-
 
 impl EvalSubject {
     /// What is recorded of a subject: enough to say what ran, without the configuration itself,
@@ -122,12 +115,10 @@ impl EvalSubject {
     }
 }
 
-
 #[derive(Deserialize)]
 pub struct SubjectStateQuery {
     pub path: String,
 }
-
 
 #[derive(Serialize)]
 pub struct SubjectState {
@@ -139,7 +130,6 @@ pub struct SubjectState {
     pub draft_hash: Option<String>,
     pub has_undeployed_changes: bool,
 }
-
 
 /// What the agent is right now: the version it is deployed at, and what its draft hashes to.
 ///

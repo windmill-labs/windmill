@@ -1,6 +1,5 @@
 use super::*;
 
-
 /// The version of a scorer's runnable that would run now. Part of what a score records, so a
 /// script edited between two experiments is visible as a change of scorer rather than of agent.
 pub(crate) async fn resolve_definition(db: &DB, w_id: &str, scorer: &Scorer) -> Result<String> {
@@ -21,19 +20,95 @@ pub(crate) async fn resolve_definition(db: &DB, w_id: &str, scorer: &Scorer) -> 
     Ok(scorer.definition(resolved.as_deref()))
 }
 
-
 /// Bring a run's record up to date with the flow that is executing it: which iteration answered
 /// which case, and what its scorers returned.
 ///
 /// Read-driven because there is nothing to drive it: the flow runs on workers that know nothing
 /// about these tables. A run therefore holds its answers and its scores whether or not anyone is
 /// watching, and this is what copies them into rows that outlive the jobs' retention.
-pub(crate) async fn sync_run(db: &DB, w_id: &str, experiment_id: Uuid, run_job_id: Uuid) -> Result<()> {
+pub(crate) async fn sync_run(
+    db: &DB,
+    w_id: &str,
+    experiment_id: Uuid,
+    run_job_id: Uuid,
+) -> Result<()> {
     backfill_case_jobs(db, w_id, experiment_id, run_job_id).await?;
+    record_case_answers(db, w_id, experiment_id).await?;
     harvest_flow_scores(db, w_id, experiment_id).await?;
     Ok(())
 }
 
+/// Copy what each iteration produced into its row: the agent's answer, whether producing it
+/// succeeded, and how the iteration ended.
+///
+/// Written once, when it becomes readable, rather than read back out of the jobs whenever the
+/// table is displayed — jobs have their own retention, and a run whose rows are kept has to still
+/// read as the run it was after they have aged out.
+async fn record_case_answers(db: &DB, w_id: &str, experiment_id: Uuid) -> Result<()> {
+    let unrecorded = sqlx::query!(
+        "SELECT c.ordinal, c.job_id AS \"job_id!\", d.status::text AS status,
+                (j.id IS NOT NULL) AS \"job_exists!\"
+         FROM eval_experiment_case c
+         LEFT JOIN v2_job j ON j.id = c.job_id AND j.workspace_id = $2
+         LEFT JOIN v2_job_completed d ON d.id = c.job_id AND d.workspace_id = $2
+         WHERE c.experiment_id = $1 AND c.job_id IS NOT NULL AND c.status IS NULL",
+        experiment_id,
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+    for row in unrecorded {
+        // The job was retained away before anything read it. Recorded as such rather than left
+        // looking like a case still being answered, and rather than re-read on every request for
+        // as long as the run is kept.
+        if !row.job_exists {
+            sqlx::query!(
+                "UPDATE eval_experiment_case SET status = 'unavailable'
+                 WHERE experiment_id = $1 AND ordinal = $2",
+                experiment_id,
+                row.ordinal
+            )
+            .execute(db)
+            .await?;
+            continue;
+        }
+        // The agent step's own result, never the iteration's: the iteration goes on to score the
+        // answer, so the answer is settled long before the iteration is.
+        let agent = windmill_queue::get_result_and_success_by_id_from_flow(
+            db,
+            w_id,
+            &row.job_id,
+            AGENT_NODE_ID,
+            None,
+        )
+        .await
+        .ok();
+        // Nothing to record yet, and the iteration may still produce it.
+        if agent.is_none() && row.status.is_none() {
+            continue;
+        }
+        // An iteration that ended without an answer — skipped, cancelled, or an agent that
+        // failed outright — produced none, and saying so is what stops this re-reading it.
+        let answered = agent
+            .as_ref()
+            .map(|(_, success)| *success)
+            .or_else(|| row.status.is_some().then_some(false));
+        sqlx::query!(
+            "UPDATE eval_experiment_case
+             SET output = COALESCE(output, $3), answered = COALESCE(answered, $4),
+                 status = COALESCE(status, $5)
+             WHERE experiment_id = $1 AND ordinal = $2",
+            experiment_id,
+            row.ordinal,
+            agent.as_ref().and_then(|(result, _)| agent_answer(result)),
+            answered,
+            row.status,
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
 
 /// Match each case to the iteration that ran it. The flow engine mints those job ids, so the case
 /// they belong to is read back from the iteration's own arguments — the case is what the loop
@@ -60,7 +135,6 @@ async fn backfill_case_jobs(
     Ok(())
 }
 
-
 /// Read the scores a run's own flow produced into `eval_score`, so a score outlives the flow
 /// that produced it and the retention on its jobs.
 async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result<()> {
@@ -69,11 +143,13 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
         // within that iteration, so its verdict is there to be read as soon as its own step is
         // done, and waiting for the iteration to end would hold every column of a case back until
         // the last of them finished.
-        "SELECT s.ordinal, s.scorer_id, c.job_id AS \"job_id!\", j.status::text AS status
+        "SELECT s.ordinal, s.scorer_id, c.job_id AS \"job_id!\", d.status::text AS status,
+                (j.id IS NOT NULL) AS \"job_exists!\"
          FROM eval_score s
          JOIN eval_experiment_case c
               ON c.experiment_id = s.experiment_id AND c.ordinal = s.ordinal
-         LEFT JOIN v2_job_completed j ON j.id = c.job_id AND j.workspace_id = $2
+         LEFT JOIN v2_job j ON j.id = c.job_id AND j.workspace_id = $2
+         LEFT JOIN v2_job_completed d ON d.id = c.job_id AND d.workspace_id = $2
          WHERE s.experiment_id = $1 AND s.score IS NULL AND s.error IS NULL
                AND NOT s.not_applicable AND c.job_id IS NOT NULL",
         experiment_id,
@@ -82,6 +158,20 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
     .fetch_all(db)
     .await?;
     for row in pending {
+        // Nothing left to read the verdict out of. Settled here, since a cell left pending is one
+        // every later listing would go back to this same absent job for.
+        if !row.job_exists {
+            sqlx::query!(
+                "UPDATE eval_score SET error = 'The run that produced this score is no longer available'
+                 WHERE experiment_id = $1 AND ordinal = $2 AND scorer_id = $3",
+                experiment_id,
+                row.ordinal,
+                row.scorer_id,
+            )
+            .execute(db)
+            .await?;
+            continue;
+        }
         let Some((verdict, error)) = read_verdict(
             db,
             w_id,
@@ -112,7 +202,6 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
     }
     Ok(())
 }
-
 
 /// One scorer's verdict, read out of the job that produced it, which may still be running: a
 /// scorer's own step can be done while the iteration around it is not. `None` while the result is
@@ -165,7 +254,6 @@ async fn read_verdict(
     })
 }
 
-
 /// The score and reason read straight out of text that failed to parse as JSON. Deliberately not a
 /// second JSON parser: it looks for the two keys and takes what follows, which is what survives a
 /// model writing an unescaped quote in the middle of a sentence.
@@ -204,10 +292,6 @@ fn salvage_verdict(text: &str) -> (Option<f64>, Option<String>, Option<serde_jso
     (score, reason, None)
 }
 
-
-/// A scorer may return a bare number, a boolean, or `{score, reason, checks}`; an agent wraps its
-/// answer in `output`, sometimes as a string holding any of those. Anything with no number in it
-/// is left empty rather than guessed at.
 /// A fenced code block as the model wrote it, reduced to what is inside the fence. The opening
 /// fence carries a language tag often enough that the first line goes with it.
 fn unfence(text: &str) -> &str {
@@ -222,7 +306,6 @@ fn unfence(text: &str) -> &str {
     inner.trim_end().trim_end_matches("```").trim()
 }
 
-
 /// What a scorer said about one run. `not_applicable` is the scorer declining to measure this
 /// case rather than failing to: an explicit `{"score": null}`, which is what Braintrust's scorers
 /// return for the same thing. A bare `null` stays an error, since a scorer that forgot to return
@@ -235,14 +318,15 @@ struct Verdict {
     not_applicable: bool,
 }
 
-
 impl Verdict {
     fn scored(score: f64) -> Self {
         Verdict { score: Some(score), ..Default::default() }
     }
 }
 
-
+/// A scorer may return a bare number, a boolean, or `{score, reason, checks}`; an agent wraps its
+/// answer in `output`, sometimes as a string holding any of those. Anything with no number in it
+/// is left empty rather than guessed at.
 fn extract_verdict(value: &RawValue) -> Verdict {
     let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value.get()) else {
         return Verdict::default();
@@ -360,7 +444,10 @@ mod tests {
         let full = extract_verdict(&raw(
             r#"{"score": 0.5, "reason": "half", "checks": [{"name": "a"}]}"#,
         ));
-        assert_eq!((full.score, full.reason), (Some(0.5), Some("half".to_string())));
+        assert_eq!(
+            (full.score, full.reason),
+            (Some(0.5), Some("half".to_string()))
+        );
         assert!(full.checks.is_some());
         assert!(!full.not_applicable);
 

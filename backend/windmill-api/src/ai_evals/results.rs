@@ -1,6 +1,5 @@
 use super::*;
 
-
 /// One run of a dataset: written once when the dataset is run, and only ever read afterwards.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EvalExperiment {
@@ -27,7 +26,6 @@ pub struct EvalExperiment {
     pub created_by: String,
 }
 
-
 /// One scorer's headline for one run: the two numbers a column reports, over that run's cells.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ExperimentScore {
@@ -50,7 +48,6 @@ pub struct ExperimentScore {
     pub failed: i64,
 }
 
-
 #[derive(Deserialize)]
 pub struct ListExperimentsQuery {
     /// Restrict to one agent's runs, which is what a pane opened on an agent shows: the dataset
@@ -60,7 +57,6 @@ pub struct ListExperimentsQuery {
     #[serde(default)]
     pub subject_path: Option<String>,
 }
-
 
 /// Every run of this agent, across every dataset it has been measured on.
 ///
@@ -116,7 +112,6 @@ pub async fn list_all_experiments(
     Ok(Json(experiments))
 }
 
-
 /// What a listed run carries beyond its own row: whether it is still going, the scores it has
 /// produced, and — for those not collected yet — a read of the flow that holds them.
 async fn enrich_listed_runs(
@@ -134,15 +129,19 @@ async fn enrich_listed_runs(
     Ok(())
 }
 
-
 /// Which listed runs are still going, read from the flows executing them.
+///
+/// A run whose flow is no longer there at all is over: jobs have their own retention, and reading
+/// a missing one as unfinished would leave every run older than it spinning.
 async fn mark_running(db: &DB, w_id: &str, experiments: &mut [EvalExperiment]) -> Result<()> {
     let job_ids: Vec<Uuid> = experiments.iter().map(|e| e.run_job_id).collect();
     if job_ids.is_empty() {
         return Ok(());
     }
-    let finished: std::collections::HashSet<Uuid> = sqlx::query_scalar!(
-        "SELECT id FROM v2_job_completed WHERE id = ANY($1) AND workspace_id = $2",
+    let unfinished: std::collections::HashSet<Uuid> = sqlx::query_scalar!(
+        "SELECT j.id AS \"id!\" FROM v2_job j
+         LEFT JOIN v2_job_completed c ON c.id = j.id AND c.workspace_id = $2
+         WHERE j.id = ANY($1) AND j.workspace_id = $2 AND c.id IS NULL",
         &job_ids,
         w_id
     )
@@ -151,11 +150,10 @@ async fn mark_running(db: &DB, w_id: &str, experiments: &mut [EvalExperiment]) -
     .into_iter()
     .collect();
     for experiment in experiments.iter_mut() {
-        experiment.running = !finished.contains(&experiment.run_job_id);
+        experiment.running = unfinished.contains(&experiment.run_job_id);
     }
     Ok(())
 }
-
 
 /// A run of a draft whose edits have since been deployed is a run of that version, and the list
 /// is where it is most visible: two runs both labelled as edits, one of them long since shipped,
@@ -191,14 +189,12 @@ async fn resolve_listed_drafts(
     Ok(())
 }
 
-
 /// How many of the listed runs a single list call will read out of their flows. A run's scores
 /// live in its flow until something reads them into `eval_score`, so a run nobody has opened has
 /// nothing to report — this is what makes the list report it anyway, and the cap is what keeps a
 /// long history from turning one list call into a hundred flow reads. Newest first, because a run
 /// worth waiting for is the one just started.
 const MAX_RUNS_SYNCED_PER_LIST: usize = 10;
-
 
 /// Read the flows of listed runs that still have scores to collect. Runs already collected are
 /// skipped, so the steady-state cost of listing is one query rather than one read per run.
@@ -226,7 +222,6 @@ async fn sync_listed_runs(db: &DB, w_id: &str, experiments: &[EvalExperiment]) -
     }
     Ok(())
 }
-
 
 /// Every listed run's per-scorer headline, in one grouped query.
 ///
@@ -329,7 +324,6 @@ async fn experiment_scores(
     Ok(by_experiment)
 }
 
-
 /// The scorers of every dataset named by a listed run, read through `user_db` so a run of a
 /// dataset the caller cannot read contributes nothing.
 async fn scorers_of_listed(
@@ -367,7 +361,6 @@ async fn scorers_of_listed(
         .collect())
 }
 
-
 #[derive(Deserialize)]
 pub struct ExperimentRef {
     pub id: Uuid,
@@ -376,7 +369,6 @@ pub struct ExperimentRef {
     #[serde(default)]
     pub baseline: Option<Uuid>,
 }
-
 
 /// One scorer's verdict on one run, and how it compares with the baseline.
 #[derive(Serialize)]
@@ -405,7 +397,6 @@ pub struct CellScore {
     /// delta is a change of scorer as much as a change of agent.
     pub definition_changed: bool,
 }
-
 
 /// One row per case: what it was asked, what the agent answered, and each scorer's cell.
 #[derive(Serialize)]
@@ -441,7 +432,6 @@ pub struct ExperimentRow {
     pub scores: Vec<CellScore>,
 }
 
-
 /// A column's summary. There is no single number for a dataset: averaging a judge with an exact
 /// match would invent one.
 #[derive(Serialize)]
@@ -463,7 +453,6 @@ pub struct ScorerMean {
     pub missing_in_baseline: usize,
     pub definition_changed: bool,
 }
-
 
 #[derive(Serialize)]
 pub struct ExperimentResults {
@@ -496,9 +485,8 @@ pub struct ExperimentResults {
     pub subject_deployed_hash: Option<String>,
 }
 
-
 /// The agent's own result is `{output, messages}`; the answer is its `output`.
-fn agent_answer(result: &RawValue) -> Option<String> {
+pub(crate) fn agent_answer(result: &RawValue) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(result.get()).ok()?;
     match parsed.get("output") {
         Some(serde_json::Value::String(s)) => Some(s.clone()),
@@ -506,7 +494,6 @@ fn agent_answer(result: &RawValue) -> Option<String> {
         None => None,
     }
 }
-
 
 struct ScoreRow {
     score: Option<f64>,
@@ -516,7 +503,6 @@ struct ScoreRow {
     not_applicable: bool,
     definition: String,
 }
-
 
 /// Every score of one experiment, keyed by the cell and the scorer that produced it.
 async fn load_scores(
@@ -546,7 +532,6 @@ async fn load_scores(
     })
     .collect())
 }
-
 
 async fn read_experiment(db: &DB, w_id: &str, dataset: &str, id: Uuid) -> Result<EvalExperiment> {
     let row = sqlx::query!(
@@ -579,7 +564,6 @@ async fn read_experiment(db: &DB, w_id: &str, dataset: &str, id: Uuid) -> Result
         row.created_by,
     )
 }
-
 
 /// Recognise a draft run that has since been deployed, and record it as the version it became.
 ///
@@ -639,7 +623,6 @@ async fn resolve_deployed_draft(
     Ok(())
 }
 
-
 /// The rows a results table is built from. The job ids come out of `eval_experiment_case`, which
 /// only this module writes, so they can be read on the unrestricted pool: the caller's access was
 /// established by the dataset read below, and the ids are not caller-supplied.
@@ -650,6 +633,10 @@ pub async fn experiment_results(
     Path((w_id, dataset)): Path<(String, String)>,
     Query(query): Query<ExperimentRef>,
 ) -> JsonResult<ExperimentResults> {
+    // The rows carry what the run's jobs produced, which `jobs:read` is what gates. `UserDB`
+    // settles who may see the dataset; a token's scopes are a separate question, and `run_payload`
+    // asks it of the same class of data.
+    check_scopes(&authed, || "jobs:read".to_string())?;
     let dataset_row = read_dataset(&authed, &user_db, &w_id, &dataset).await?;
     let scorers = dataset_row.scorers;
 
@@ -684,56 +671,13 @@ pub async fn experiment_results(
 
     let case_rows = sqlx::query!(
         "SELECT ordinal, case_id, name, input, expected, job_id, subject_version,
-                subject_draft_hash
+                subject_draft_hash, output, answered, status
          FROM eval_experiment_case
          WHERE experiment_id = $1 ORDER BY ordinal",
         query.id
     )
     .fetch_all(&db)
     .await?;
-
-    // One query for every case job's own status, rather than inferring it from the answer.
-    let job_ids: Vec<Uuid> = case_rows.iter().filter_map(|c| c.job_id).collect();
-    let statuses = sqlx::query!(
-        "SELECT id, status::text AS \"status!\" FROM v2_job_completed
-         WHERE id = ANY($1) AND workspace_id = $2",
-        &job_ids,
-        &w_id
-    )
-    .fetch_all(&db)
-    .await?
-    .into_iter()
-    .map(|r| (r.id, r.status))
-    .collect::<std::collections::HashMap<_, _>>();
-
-    // Bounded concurrency rather than one await after another: a 100-case experiment is 100
-    // lookups, and each is itself several queries.
-    use futures::StreamExt;
-    let answers = futures::stream::iter(job_ids.iter().copied().map(|job_id| {
-        let db = db.clone();
-        let w_id = w_id.clone();
-        async move {
-            let output = windmill_queue::get_result_and_success_by_id_from_flow(
-                &db,
-                &w_id,
-                &job_id,
-                AGENT_NODE_ID,
-                None,
-            )
-            .await
-            .ok();
-            // The answer and whether producing it succeeded, which is what the Answer column is
-            // about. The iteration goes on to score the answer, so its own status is not available
-            // until the scorers are done and would report an answer as still being written.
-            let answered = output.as_ref().map(|(_, success)| *success);
-            (job_id, (output.and_then(|(r, _)| agent_answer(&r)), answered))
-        }
-    }))
-    .buffered(8)
-    .collect::<Vec<_>>()
-    .await
-    .into_iter()
-    .collect::<std::collections::HashMap<_, _>>();
 
     let mut sums = vec![(0.0f64, 0usize); scorers.len()];
     let mut baseline_sums = vec![(0.0f64, 0usize); scorers.len()];
@@ -815,19 +759,13 @@ pub async fn experiment_results(
             // the scorers read it, and a spinner beside an answer that is already there reads as
             // an answer still being written.
             status: case
-                .job_id
-                .and_then(|id| statuses.get(&id).cloned())
+                .status
                 .or_else(|| {
-                    case.job_id
-                        .and_then(|id| answers.get(&id))
-                        .and_then(|(_, answered)| *answered)
+                    case.answered
                         .map(|ok| if ok { "success" } else { "failure" }.to_string())
                 })
                 .unwrap_or_else(|| "running".to_string()),
-            output: case
-                .job_id
-                .and_then(|id| answers.get(&id))
-                .and_then(|(output, _)| output.clone()),
+            output: case.output,
             subject_version: case.subject_version,
             subject_draft_hash: case.subject_draft_hash,
             job_id: case.job_id,

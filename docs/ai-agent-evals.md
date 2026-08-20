@@ -91,9 +91,14 @@ until someone is curating cases from chat traffic.
 
 ## Where results live
 
-Results are jobs. A run's output, logs, trajectory, tool-call child jobs, permissions and
-retention are already `v2_job` / `v2_job_completed` and the flow status's `agent_actions`. Nothing
-is stored a second time.
+Results are jobs. A run's logs, trajectory, tool-call child jobs, permissions and retention are
+already `v2_job` / `v2_job_completed` and the flow status's `agent_actions`, and none of that is
+stored a second time.
+
+What the table itself is made of is the exception: each cell's answer, its outcome and every
+scorer's verdict are copied into the run's own rows the first time they can be read. Jobs have
+their own retention, and a recorded run is meant to still read as the run it was long after the
+jobs that produced it are gone.
 
 The pane shows the **answer** and nothing else of a job. A trajectory is what the run page renders
 in full, and a second copy of it in a side panel is a worse version of a page that already exists;
@@ -542,7 +547,7 @@ own retention, and a run that happened is not undone by curating the dataset awa
 
 A case is text: a message and an expected answer. Attachments are S3 references rather than inline
 bytes, so nothing in a case is meant to be large, and two
-caps keep it that way — 256 KiB per case and 10 000 cases per dataset, both refused at the API
+caps keep it that way — 256 KiB per case and 1 000 cases per dataset, both refused at the API
 rather than truncated.
 
 ### Permissions
@@ -579,9 +584,15 @@ fill the gap, both on read:
 - **Which iteration ran which case.** The case is what the loop iterates over, so it is in the
   iteration's own arguments by construction: `args -> 'iter' -> 'value' ->> 'case_id'` matches the
   cell, whatever order the iterations finish in.
+- **What the agent answered.** The agent step's result and outcome, copied onto the cell as soon
+  as that step is done — which is well before the iteration around it, since the scorers are still
+  reading it.
 - **What the scorers returned.** Each scorer step's result is read out of the iteration's flow
-  status into the pending row that was written for it at launch; the row is what outlives the
-  job's retention.
+  status into the pending row that was written for it at launch.
+
+All three are written once, when they first become readable, and every later read is of the rows.
+A job that was retained away before anything read it leaves the cell saying so, rather than
+looking like a case still being answered.
 
 Read-driven because there is nothing to drive it: the flow runs on workers that know nothing about
 these tables. The run holds its answers and its scores whether or not anyone is watching, and this

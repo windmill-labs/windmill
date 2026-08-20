@@ -1,6 +1,5 @@
 use super::*;
 
-
 /// A scorer is a column of the results table.
 ///
 /// `id` is assigned when the scorer is added to a dataset and never reused: it is what makes a
@@ -25,7 +24,6 @@ pub struct Scorer {
     pub def: ScorerDef,
 }
 
-
 /// Two kinds, both runnables, so every column is the same sort of thing: something with a path, a
 /// version, and code you can open. A judge is an `ai_agent` resource sent the run to grade; a
 /// script receives the run as an argument. Both are created in one click from a template, which is
@@ -36,7 +34,6 @@ pub enum ScorerDef {
     Script { path: String },
     Agent { path: String },
 }
-
 
 impl ScorerDef {
     pub fn path(&self) -> &str {
@@ -60,7 +57,6 @@ impl ScorerDef {
         }
     }
 }
-
 
 impl Scorer {
     /// Whether a score counts as a pass. `None` when the column has no threshold, which is what
@@ -88,7 +84,6 @@ impl Scorer {
         hex::encode(hasher.finalize())[..32].to_string()
     }
 }
-
 
 /// Ids are assigned here rather than trusted from the client: two columns sharing one id would
 /// silently merge two scorers' history into one, and an id that is not a valid flow module
@@ -123,7 +118,6 @@ pub(crate) fn assign_scorer_ids(scorers: &mut Vec<Scorer>) -> Result<()> {
     Ok(())
 }
 
-
 /// What a column is called: the dataset's own name for it, or the last segment of what it points
 /// at. The same fallback the column header uses.
 pub(crate) fn scorer_name(scorer: &Scorer) -> String {
@@ -137,7 +131,6 @@ pub(crate) fn scorer_name(scorer: &Scorer) -> String {
         })
 }
 
-
 #[derive(Serialize)]
 pub struct RecentScorer {
     #[serde(flatten)]
@@ -146,14 +139,12 @@ pub struct RecentScorer {
     pub dataset: String,
 }
 
-
 #[derive(Deserialize)]
 pub struct RecentScorersQuery {
     /// Only scorers of this kind, which is the one the add form was opened for.
     #[serde(default)]
     pub kind: Option<String>,
 }
-
 
 /// The scorers already in use in this workspace, most recently edited dataset first, for picking
 /// one rather than retyping its path.

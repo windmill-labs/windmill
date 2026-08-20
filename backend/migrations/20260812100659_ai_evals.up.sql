@@ -152,6 +152,13 @@ CREATE TABLE eval_experiment_case (
     -- The iteration of the run's flow that answered this case. Minted by the flow engine, so the
     -- case is recorded before it has one and the id is filled in once the iterations exist.
     job_id UUID NULL,
+    -- What the run produced, copied out of the jobs once they have produced it. Jobs have their
+    -- own retention, and a recorded run has to still read as the run it was once they are gone.
+    -- `answered` is the agent step's own outcome, which is settled while the iteration around it
+    -- is still scoring; `status` is the iteration's, once it has one.
+    output TEXT NULL,
+    answered BOOLEAN NULL,
+    status VARCHAR(30) NULL,
     -- The resource version the agent was at for this cell, and — for a draft, which has no
     -- version to move — the hash of the configuration that actually ran: the only thing that can
     -- say a row describes an agent that has since been edited.

@@ -5,10 +5,11 @@
 //! `eval_experiment`, `eval_experiment_case`), so a dataset is permissioned, cascaded and queried
 //! like any other workspace object.
 //!
-//! What a run *produced* is deliberately not stored here. The answer, the trajectory and every
-//! scorer's return value belong to the job that produced them, and are read back out of
-//! `v2_job_completed` when results are displayed, so there is one copy of them and one permission
-//! model over them.
+//! A run's trajectory is not stored here: the tool calls, their arguments and their results belong
+//! to the jobs that made them, and `job_id` is the way to them. What the results table is made of
+//! is — each cell's answer, its outcome and every scorer's verdict are copied onto the run's rows
+//! the first time they can be read, since jobs have their own retention and a recorded run has to
+//! outlive the jobs that produced it.
 //!
 //! Reads and dataset writes go through `user_db`, which makes row-level security the authority on
 //! who may see or change a dataset. Cases and experiments carry a read policy derived from their
@@ -33,24 +34,23 @@ use windmill_common::{
 use crate::db::{ApiAuthed, DB};
 use windmill_api_auth::check_scopes;
 
-pub(crate) mod subject;
 pub(crate) mod datasets;
-pub(crate) mod scorers;
-pub(crate) mod run;
 pub(crate) mod payload;
-pub(crate) mod scoring;
 pub(crate) mod results;
+pub(crate) mod run;
+pub(crate) mod scorers;
+pub(crate) mod scoring;
+pub(crate) mod subject;
 pub(crate) mod template;
 
-pub(crate) use subject::*;
 pub(crate) use datasets::*;
-pub(crate) use scorers::*;
-pub(crate) use run::*;
 pub(crate) use payload::*;
-pub(crate) use scoring::*;
 pub(crate) use results::*;
+pub(crate) use run::*;
+pub(crate) use scorers::*;
+pub(crate) use scoring::*;
+pub(crate) use subject::*;
 pub(crate) use template::*;
-
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -61,6 +61,7 @@ pub fn workspaced_service() -> Router {
         .route("/datasets/delete/{*path}", post(delete_dataset))
         .route("/cases/list/{*path}", get(list_cases))
         .route("/cases/add/{*path}", post(add_case))
+        .route("/cases/save/{*path}", post(save_cases))
         .route("/cases/update/{*path}", post(update_case))
         .route("/cases/delete/{*path}", post(delete_case))
         .route("/scorer_defaults", get(scorer_defaults))
@@ -71,7 +72,6 @@ pub fn workspaced_service() -> Router {
         .route("/experiments/list_all", get(list_all_experiments))
         .route("/experiments/results/{*path}", get(experiment_results))
 }
-
 
 /// Dataset paths are Windmill paths, so the folder they live in is what grants access to them.
 fn check_path(path: &str) -> Result<()> {
@@ -89,7 +89,6 @@ fn check_path(path: &str) -> Result<()> {
     Ok(())
 }
 
-
 /// A case is text: a message and the answer it was expected to produce. Attachments are S3
 /// references rather than inline bytes, so nothing here is meant to be large. The caps exist so that one mistake — a whole file pasted into a message, a capture
 /// loop left running — cannot grow a dataset past what a listing can load.
@@ -100,21 +99,17 @@ const MAX_CASE_BYTES: usize = 256 * 1024;
 /// like it dropped the rest.
 const MAX_CASES_PER_DATASET: i64 = 1_000;
 
-
 /// Newest first, and only this many: the list feeds a picker, and a dataset that has been run
 /// nightly for a year would otherwise send back every run of it.
 const MAX_EXPERIMENTS_LISTED: i64 = 100;
-
 
 /// Enough to cover the scorers a workspace actually reuses, few enough to stay a list you read
 /// rather than one you search.
 const MAX_RECENT_SCORERS: usize = 12;
 
-
 /// A run answers every case of its dataset in one flow; more cases than this is a dataset to
 /// split, not a run to start.
 const MAX_CASES_PER_RUN: usize = 1_000;
-
 
 /// A refused write surfaces as SQLSTATE 42501 with a message naming the table and the policy,
 /// which is neither actionable nor meaningful to whoever made the request.
@@ -128,13 +123,11 @@ fn map_write_denied(authed: &ApiAuthed, path: &str, e: sqlx::Error) -> Error {
     e.into()
 }
 
-
 /// The dataset a write was aimed at is gone. Raised from the foreign key rather than from a
 /// preceding existence check, so a dataset deleted mid-request cannot slip between the two.
 fn is_missing_dataset(e: &sqlx::Error) -> bool {
     e.as_database_error().and_then(|d| d.code()).as_deref() == Some("23503")
 }
-
 
 /// A write that matched no row is either a dataset that does not exist or one the caller can read
 /// but not write. Row-level security cannot distinguish them — both are simply invisible to the
@@ -162,7 +155,6 @@ async fn write_refused(authed: &ApiAuthed, user_db: &UserDB, w_id: &str, path: &
         Err(e) => e,
     }
 }
-
 
 /// Read the dataset the request names, through `user_db` so that a caller who cannot see it gets
 /// the same answer as one asking for a dataset that does not exist.
@@ -195,7 +187,6 @@ async fn read_dataset(
         edited_by: row.edited_by,
     })
 }
-
 
 /// Whether this caller may write a dataset's contents: its cases, and the experiments that run
 /// them.
@@ -231,7 +222,6 @@ async fn require_dataset_writable(
     }
 }
 
-
 /// jsonb columns are read as `serde_json::Value` and handed on as `RawValue`, which is what the
 /// case shape stores: a case's `expected` is arbitrary user JSON that this module never looks
 /// inside.
@@ -239,21 +229,17 @@ fn to_raw(value: serde_json::Value) -> Result<Box<RawValue>> {
     Ok(serde_json::value::to_raw_value(&value)?)
 }
 
-
 fn from_raw(value: &RawValue) -> Result<serde_json::Value> {
     Ok(serde_json::from_str(value.get())?)
 }
-
 
 fn opt_to_raw(value: Option<serde_json::Value>) -> Result<Option<Box<RawValue>>> {
     value.map(to_raw).transpose()
 }
 
-
 fn opt_from_raw(value: Option<&Box<RawValue>>) -> Result<Option<serde_json::Value>> {
     value.map(|v| from_raw(v)).transpose()
 }
-
 
 /// Everything a case carries that a caller supplied, weighed against `MAX_CASE_BYTES`.
 fn check_case_size(input: &EvalCaseInput, expected: Option<&Box<RawValue>>) -> Result<()> {
