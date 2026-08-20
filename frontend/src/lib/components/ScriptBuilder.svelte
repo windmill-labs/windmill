@@ -1466,13 +1466,20 @@
 													corresponding action.
 												</Tooltip>
 											{/snippet}
+											<!-- A script with no kind yet runs as an action, so the group is fed 'script'
+											     rather than undefined: the toggle group reports no change out of
+											     undefined, which would swallow the first pick. Two-way so the
+											     highlight can never claim a kind the script does not have. -->
 											<ToggleButtonGroup
-												selected={script.kind}
-												on:selected={({ detail }) => {
-													template = 'script'
-													script.kind = detail
-													initContent(script.language, detail, template)
-												}}
+												bind:selected={
+													() => script.kind ?? 'script',
+													(kind) => {
+														if (kind === (script.kind ?? 'script')) return
+														template = 'script'
+														script.kind = kind as Script['kind']
+														initContent(script.language, script.kind, template)
+													}
+												}
 											>
 												{#snippet children({ item })}
 													{#each scriptKindOptions as { value, title, desc, documentationLink, Icon }}
