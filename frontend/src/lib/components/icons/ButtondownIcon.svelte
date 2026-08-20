@@ -8,7 +8,7 @@
 </script>
 
 <!-- #0069FF (Buttondown Blue) per https://buttondown.com/brand. Brand forbids recolouring the logo, so no per-theme variant. -->
-<svg {width} {height} viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-13.636 -13.929 327.273 327.273" xmlns="http://www.w3.org/2000/svg">
 	<g fill="#0069ff" fill-rule="nonzero" transform="matrix(.100402 0 0 -.100402 -.60241 299.996)"
 		><path
 			d="m1940 2982c-114 12-809 3-872-2-536-44-907-357-1023-864-28-126-39-297-39-616 0-418 16-570 81-760 105-309 344-548 653-653 190-65 342-81 760-81s570 16 760 81c309 105 548 344 653 653 65 190 81 342 81 760 0 492-29 684-139 900-171 335-489 538-915 582zm215-617c101.38 0 210-118.62 210-220v-1290c0-103.709-116.29-220-220-220h-1280c-102.364 0-209 122.636-209 225 0 247.96-24 1200 0 1280 33 110 108 188 214 221 14 4 1121.6 4 1285 4z"

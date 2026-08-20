@@ -8,7 +8,12 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg {width} {height} viewBox="0 0 1000 1000" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-45.455 -45.455 1090.909 1090.909"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<linearGradient id="telegram-a" x1="50%" y1="0%" x2="50%" y2="99.2583404%">
 		<stop offset="0%" stop-color="#2AABEE" />
 		<stop offset="100%" stop-color="#229ED9" />

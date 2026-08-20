@@ -12,7 +12,7 @@
 	(outlined)" marks are separate artworks to be swapped per background, never inverted. -->
 <svg
 	class="dark:hidden"
-	viewBox="0 0 401 401"
+	viewBox="-18.192 -34.639 436.6 436.6"
 	width={`${width}px`}
 	height={`${height}px`}
 	fill-rule="evenodd"
@@ -27,7 +27,7 @@
 </svg>
 <svg
 	class="hidden dark:block"
-	viewBox="0 0 441 441"
+	viewBox="-20.006 -20.006 480.151 480.151"
 	width={`${width}px`}
 	height={`${height}px`}
 	fill-rule="evenodd"

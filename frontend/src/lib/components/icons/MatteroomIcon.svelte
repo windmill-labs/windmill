@@ -12,7 +12,7 @@
 <svg
 	{width}
 	{height}
-	viewBox="0 0 44 44"
+	viewBox="-2.0 -2.0 48.0 48.0"
 	xmlns="http://www.w3.org/2000/svg"
 	role="img"
 	aria-label="MATTEROOM"

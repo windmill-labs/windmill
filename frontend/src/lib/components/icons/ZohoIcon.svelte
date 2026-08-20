@@ -15,7 +15,7 @@
 	{width}
 	{height}
 	version="1.1"
-	viewBox="0 0 1024 450"
+	viewBox="-40.0 -327.0 1104.0 1104.0"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<path

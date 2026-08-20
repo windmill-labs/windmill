@@ -67,6 +67,7 @@
 	let classOverride = $state('')
 	let onlyMapped = $state(false)
 	let showDark = $state(true)
+	let showBox = $state(false)
 
 	// The theme's color variables live on `html.dark`, so only that class puts the page
 	// chrome itself in dark mode. Seeded from the app's current theme so mounting the
@@ -109,6 +110,21 @@
 	const sizeItems = [16, 20, 24, 32, 48, 64].map((v) => ({ label: `${v}px`, value: v }))
 </script>
 
+<!-- Outlines the icon's nominal size box, so the gap between the artwork and the box it is
+	 given can be read off the page. Lucide leaves ~4% of the box as margin on its tightest side. -->
+{#snippet mark(Icon: any)}
+	{#if showBox}
+		<div
+			class="flex items-center justify-center outline outline-1 outline-border-accent"
+			style="width: {size}px; height: {size}px"
+		>
+			<Icon {...iconProps} />
+		</div>
+	{:else}
+		<Icon {...iconProps} />
+	{/if}
+{/snippet}
+
 <div class="h-full overflow-auto bg-surface">
 	<div class="max-w-[1400px] mx-auto flex flex-col gap-4 p-6">
 		<div class="flex flex-col gap-1">
@@ -144,6 +160,7 @@
 				</Label>
 			</div>
 			<Toggle bind:checked={showDark} options={{ right: 'Dark surface' }} />
+			<Toggle bind:checked={showBox} options={{ right: 'Icon box' }} />
 			<Toggle bind:checked={onlyMapped} options={{ right: 'Mapped to a resource type' }} />
 			<Toggle bind:checked={pageDark} options={{ right: 'Dark page' }} />
 		</div>
@@ -169,14 +186,14 @@
 							class="flex-1 flex items-center justify-center py-5 bg-surface text-secondary min-h-[72px]"
 							style={lightVars}
 						>
-							<Icon {...iconProps} />
+							{@render mark(Icon)}
 						</div>
 						{#if showDark}
 							<div
 								class="dark flex-1 flex items-center justify-center py-5 bg-surface text-secondary min-h-[72px]"
 								style={darkVars}
 							>
-								<Icon {...iconProps} />
+								{@render mark(Icon)}
 							</div>
 						{/if}
 					</div>

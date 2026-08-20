@@ -11,7 +11,7 @@
 <svg
 	{width}
 	{height}
-	viewBox="0 0 77.5931 64"
+	viewBox="-3.527 -10.324 84.647 84.647"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 	aria-hidden="true"

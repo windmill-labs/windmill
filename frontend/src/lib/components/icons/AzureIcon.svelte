@@ -18,7 +18,7 @@
 <svg
 	width={`${size}px`}
 	height={`${size}px`}
-	viewBox="0 0 256 256"
+	viewBox="0.341 0.591 255.818 255.818"
 	xmlns="http://www.w3.org/2000/svg"
 	role="img"
 	aria-label="Azure"

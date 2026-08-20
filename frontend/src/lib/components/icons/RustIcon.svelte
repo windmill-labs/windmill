@@ -15,7 +15,7 @@
 	{width}
 	id="svg3430"
 	version="1.1"
-	viewBox="0 0 106 106"
+	viewBox="-4.366 -4.366 114.733 114.733"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<g id="logo" transform="translate(53, 53)" fill="currentColor">

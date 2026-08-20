@@ -17,7 +17,7 @@
 	width={width ?? size}
 	height={height ?? size}
 	class={clazz}
-	viewBox="0 0 512 512"
+	viewBox="-28.273 -23.273 558.545 558.545"
 	fill="currentColor"
 	xmlns="http://www.w3.org/2000/svg"
 >

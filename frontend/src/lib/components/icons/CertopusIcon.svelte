@@ -9,7 +9,7 @@
 
 <!-- #FF6E30 per https://certopus.com/images/logo/logo_circle.svg. Verbatim copy of the brand's own
 	circle mark: #2C353D and the white disc are its other fixed tones, not a dark-theme variant. -->
-<svg {width} {height} viewBox="0 0 300 300" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-13.636 -13.636 327.273 327.273" xmlns="http://www.w3.org/2000/svg">
 	<circle cx="150" cy="150" r="150" fill="white" />
 	<path
 		fill-rule="evenodd"

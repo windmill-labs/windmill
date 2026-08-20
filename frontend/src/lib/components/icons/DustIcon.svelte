@@ -9,7 +9,7 @@
 
 <!-- #3B82F6 per dust.tt/home/brand-resources (Dust_LogoSquare.svg from their brand kit).
 	Dust's guidelines forbid recolouring the logo. -->
-<svg {width} {height} viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-2.182 -2.182 52.364 52.364" xmlns="http://www.w3.org/2000/svg">
 	<path d="M36 24H24V48H36V24Z" fill="#FE9C1A" />
 	<path
 		fill-rule="evenodd"

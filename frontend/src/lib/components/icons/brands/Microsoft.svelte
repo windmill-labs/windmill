@@ -11,7 +11,7 @@
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	height={`${size}px`}
-	viewBox="0 0 448 512"
+	viewBox="-20.364 11.636 488.727 488.727"
 	class={clazz}
 	{style}
 >

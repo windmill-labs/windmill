@@ -11,7 +11,7 @@
 <svg
 	{width}
 	{height}
-	viewBox="93.97 97.52 192.05 184.99"
+	viewBox="85.24 85.26 209.509 209.509"
 	fill="currentColor"
 	xmlns="http://www.w3.org/2000/svg"
 >

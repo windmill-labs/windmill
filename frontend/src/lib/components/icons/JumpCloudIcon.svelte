@@ -12,7 +12,7 @@
 	xmlns="http://www.w3.org/2000/svg"
 	{width}
 	{height}
-	viewBox="0.716 0.096 166.911 81.066"
+	viewBox="-6.871 -50.414 182.085 182.085"
 	fill="currentColor"
 	class="text-[#002B49] dark:text-[#F7F7FB]"
 >

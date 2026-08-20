@@ -8,7 +8,13 @@
 </script>
 
 <!-- #217BFE → #BD99FE per Google's standard Gemini product icon (gstatic.com/images/branding/productlogos/gemini/v1/192px.svg). Google ships no reversed variant; the same gradient is used on light and dark. -->
-<svg {width} {height} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-0.963 -0.94 25.926 25.926"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<defs>
 		<linearGradient
 			id="googleai-gemini-gradient"
