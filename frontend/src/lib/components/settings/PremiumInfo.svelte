@@ -132,8 +132,9 @@
 	const formatNumber = (value: number) => value.toLocaleString('en-US')
 	run(() => {
 		if ($workspaceStore) {
-			loadPremiumInfo()
-			listUsers()
+			// The seat rows are computed from the member list and nothing recomputes them
+			// when it lands, so a fast `premium_info` would render zero seats and keep them.
+			listUsers().catch(console.warn).then(loadPremiumInfo)
 			getThresholdAlert()
 		}
 	});
