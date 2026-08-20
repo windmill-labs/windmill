@@ -94,7 +94,7 @@
 		// editor). `undefined` = not applicable; `false` makes the badge red
 		// even if the main function parses.
 		validAssets?: boolean | undefined
-		kind?: 'script' | 'trigger' | 'approval'
+		kind?: 'script' | 'trigger' | 'approval' | 'preprocessor'
 		template?:
 			| 'pgsql'
 			| 'mysql'
@@ -580,7 +580,13 @@
 <Drawer bind:this={scriptPicker} size="900px">
 	<DrawerContent title="Code" on:close={scriptPicker.closeDrawer}>
 		{#if pick_existing == 'hub'}
-			<PickHubScript bind:filter {kind} on:pick={onScriptPick}>
+			<!-- The hub publishes no preprocessor script, so that kind falls back to the action list
+			     rather than showing an empty hub. -->
+			<PickHubScript
+				bind:filter
+				kind={kind == 'preprocessor' ? 'script' : kind}
+				on:pick={onScriptPick}
+			>
 				<ToggleHubWorkspace bind:selected={pick_existing} />
 			</PickHubScript>
 		{:else}
