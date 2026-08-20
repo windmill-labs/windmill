@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_experiment_case\n             SET output = COALESCE(output, $3), answered = COALESCE(answered, $4),\n                 status = COALESCE(status, $5)\n             WHERE experiment_id = $1 AND ordinal = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Text",
+        "Bool",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0a387d27c9491cf1281a34e7df950480f8bac9adafb237633b878bbc21cd70f8"
+}

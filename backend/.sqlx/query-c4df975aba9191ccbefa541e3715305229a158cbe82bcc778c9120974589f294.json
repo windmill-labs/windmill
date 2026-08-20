@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_score SET error = 'The run that produced this score is no longer available'\n                 WHERE experiment_id = $1 AND ordinal = $2 AND scorer_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c4df975aba9191ccbefa541e3715305229a158cbe82bcc778c9120974589f294"
+}
