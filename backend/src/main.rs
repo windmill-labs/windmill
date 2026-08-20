@@ -568,6 +568,7 @@ fn print_help() {
     println!();
     println!("Environment variables (name = default):");
     println!("  DATABASE_URL = <required>              The Postgres database url.");
+    println!("  DATABASE_URL_FILE = None               Read the database url from a file instead, e.g. a mounted secret (takes precedence over DATABASE_URL)");
     println!("  MODE = standalone                      Mode: standalone | worker | server | agent");
     println!("  BASE_URL = http://localhost:8000       Public base URL of your instance (overridden by instance settings)");
     println!(
@@ -1735,7 +1736,9 @@ async fn process_notify_event(
             windmill_common::variables::WORKSPACE_CRYPT_CACHE.remove(payload);
         }
         c if c == windmill_queue::tags::FORK_LINEAGE_CHANGE_CHANNEL => {
-            tracing::info!("Fork lineage change detected ({payload}), dropping tag workspace cache");
+            tracing::info!(
+                "Fork lineage change detected ({payload}), dropping lineage-derived caches"
+            );
             windmill_queue::tags::apply_fork_lineage_change(payload);
         }
         "notify_workspace_premium_change" => {

@@ -7445,8 +7445,11 @@ async fn create_workspace_fork(
     tx.commit().await?;
 
     // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
-    // would bypass ducklake fork isolation for the TTL.
+    // would bypass ducklake fork isolation for the TTL. The same lookup could have cached the id
+    // as its own root workspace, which would make the fork's first jobs report themselves as their
+    // own environment instead of the parent.
     windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&forked_id);
+    windmill_queue::tags::invalidate_fork_parent_cache(&forked_id);
 
     if locked_prod {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);

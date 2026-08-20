@@ -726,10 +726,34 @@ viewer when the run was triggered from an app and empty otherwise (both variable
 defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username."""
 
 
+# `setClient` reads BASE_INTERNAL_URL/BASE_URL and WM_TOKEN itself; agents that miss this rebuild
+# that logic by hand and get it wrong.
+PRECONFIGURED_CLIENT = """The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs."""
+
+# The listing is the helper surface, not the whole API, so each language needs its own escape
+# hatch: a flat "not listed means it does not exist" is false and leaves an uncovered endpoint
+# with no legal move.
+UNLISTED_ENDPOINTS_TS = """The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it."""
+
+UNLISTED_ENDPOINTS_PY = """The functions below are the surface to prefer. For an endpoint none of them covers,
+wmill.Windmill().get(endpoint) and .post(endpoint) issue an authenticated request against this
+instance. What does not exist is a function name you guessed at: if it is not listed below, do
+not call it."""
+
+
 def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:
     """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
     md += "Import: import * as wmill from 'windmill-client'\n\n"
+    md += PRECONFIGURED_CLIENT + "\n\n"
+    md += UNLISTED_ENDPOINTS_TS + "\n\n"
     md += IDENTITY_OF_THE_RUN_TS + "\n\n"
 
     for i, func in enumerate(functions):
@@ -753,6 +777,8 @@ def generate_py_sdk_markdown(functions: list[dict], _classes: list[dict]) -> str
     """Generate compact documentation for Python SDK."""
     md = "# Python SDK (wmill)\n\n"
     md += "Import: import wmill\n\n"
+    md += PRECONFIGURED_CLIENT + "\n\n"
+    md += UNLISTED_ENDPOINTS_PY + "\n\n"
     md += IDENTITY_OF_THE_RUN_PY + "\n\n"
 
     for func in functions:
@@ -2644,9 +2670,19 @@ export function getResourcePrompt(): string {
   return prompts.RESOURCES_BASE;
 }
 
-// Helper for raw app authoring (chat consumers)
-export function getRawAppPrompt(): string {
-  return prompts.RAW_APP_BASE;
+// Helper for raw app authoring (chat consumers). Inline backend runnables are
+// ordinary Windmill jobs, so the reference has to carry the SDK the runnable
+// calls — without it an agent invents client functions and hand-rolls HTTP.
+// Only one SDK is returned: both would double an already large tool result.
+export function getRawAppPrompt(language?: string): string {
+  const sdkPrompt = PY_SDK_LANGUAGES.includes(language ?? '')
+    ? prompts.SDK_PYTHON
+    : prompts.SDK_TYPESCRIPT;
+
+  return [
+    prompts.RAW_APP_BASE,
+    sdkPrompt
+  ].filter(Boolean).join('\\n\\n');
 }
 
 // Helper for data pipeline authoring (chat consumers)
@@ -2705,7 +2741,7 @@ export function getWorkflowAsCodePrompt(language?: string): string {
 export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
-export declare function getRawAppPrompt(): string;
+export declare function getRawAppPrompt(language?: string): string;
 export declare function getPipelinePrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
