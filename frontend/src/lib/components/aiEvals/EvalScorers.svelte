@@ -81,8 +81,6 @@
 			path: datasetPath,
 			requestBody: {
 				summary: dataset.summary,
-				description: dataset.description,
-				default_subject: dataset.default_subject,
 				scorers: next
 			}
 		})

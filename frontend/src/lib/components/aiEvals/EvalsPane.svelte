@@ -38,7 +38,7 @@
 	import EvalRunsList from './EvalRunsList.svelte'
 	import EvalRunDialog from './EvalRunDialog.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
-	import { caseLabel, type CaseDraft } from './evalCaseUtils'
+	import { caseLabel } from './evalCaseUtils'
 	import type { EvalsLocation } from './evalRuns'
 	import { experimentName, subjectLabel } from './evalRuns'
 	import { formatDelta, formatScore, scorerLabel } from './evalScorers'
@@ -46,7 +46,6 @@
 	let {
 		agentPath,
 		opWorkspace = undefined,
-		capture = undefined,
 		location = $bindable()
 	}: {
 		/** The agent under test. A dataset and its runs belong to an agent, so an agent that has
@@ -55,8 +54,6 @@
 		/** The workspace the opening editor operates on, which differs from the nav workspace in
 		 * fork and session editors. Every read and write targets it. */
 		opWorkspace?: string
-		/** A case captured from an AI agent run, opened for review before saving. */
-		capture?: CaseDraft
 		/** The level the pane is on and the way out of it, reported up so the surface holding it
 		 * can put both in its header. Undefined at the root, which that surface already names.
 		 * The pane navigates; where that shows belongs to whoever owns the frame. */
@@ -64,24 +61,6 @@
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $workspaceStore)
-	// Running the agent's draft is a subject of its own: the server inlines the draft's value, so
-	// the run executes what is being edited rather than what is deployed, and its history stays
-	// separate from the deployed agent's.
-	let runDraft = $state(false)
-	let subject = $derived({
-		kind: (runDraft ? 'agent_draft' : 'agent') as 'agent' | 'agent_draft',
-		path: agentPath
-	})
-	// An agent with edits waiting is tested on the edits. Running what they replace would answer a
-	// question nobody asked, and the deployed value's numbers are already in the history from before
-	// the editing started. Held as state rather than derived so the reload below has one thing to
-	// watch.
-	$effect(() => {
-		const drafted = undeployedChanges
-		untrack(() => {
-			if (runDraft !== drafted) runDraft = drafted
-		})
-	})
 	let datasets = $state<EvalDataset[]>([])
 	let dataset = $state<EvalDataset | undefined>(undefined)
 	let selectedDataset = $state<string | undefined>(undefined)
@@ -293,7 +272,7 @@
 	const SUBJECT_WATCH_MS = 5000
 	let subjectWatch: ReturnType<typeof setInterval> | undefined = undefined
 	async function readSubjectState() {
-		if (!ws || !subject.path || document.hidden) return
+		if (!ws || !agentPath || document.hidden) return
 		try {
 			const state = await AiEvalsService.evalSubjectState({ workspace: ws, path: agentPath })
 			currentVersion = state.version
@@ -349,7 +328,7 @@
 	 * where the run got to.
 	 */
 	async function refresh() {
-		if (!ws || !selectedDataset) return
+		if (!ws) return
 		// On the list, the run in flight is a row whose scores are still arriving; in a run, it is
 		// the table. Reading both would read every cell of a run nobody is looking at.
 		if (viewingRun) {
@@ -436,20 +415,6 @@
 
 	let selectedRow = $derived(displayRows.find((row) => row.case_id === selectedCaseId))
 
-	/** A capture is the one case that exists before the dataset has it: it opens in the dataset it
-	 *  would join, for review, and saving is what puts it in. Once a dataset is selected — a
-	 *  capture reaching an agent that has never had one waits for the first to be created. */
-	let captureOpened = false
-	$effect(() => {
-		const draft = capture
-		const path = selectedDataset
-		untrack(() => {
-			if (!draft || !path || captureOpened) return
-			captureOpened = true
-			datasetDrawer?.openDrawer('edit', { capture: draft })
-		})
-	})
-
 	$effect(() => {
 		if (!ws) return
 		untrack(() => {
@@ -472,12 +437,7 @@
 	 * What ran is named rather than marked, because a sigil beside a version is a legend nobody has.
 	 */
 	function experimentTitle(e: EvalExperiment): string {
-		// A run that only scored says so, or it reads as the agent having answered again.
-		const parent = e.scored_from ? experiments.find((p) => p.id === e.scored_from) : undefined
-		const scored = e.scored_from
-			? ` · scored from ${parent ? experimentName(parent).toLowerCase() : 'an earlier run'}`
-			: ''
-		return `${experimentName(e)} · ${subjectLabelOf(e)} · ${e.case_count}${scored}`
+		return `${experimentName(e)} · ${subjectLabelOf(e)} · ${e.case_count}`
 	}
 
 	let subjectLabelOf = $derived((e: EvalExperiment) =>

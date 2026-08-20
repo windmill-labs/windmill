@@ -2,29 +2,21 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { EvalsLocation } from './evalRuns'
-	import type { EvalCaseDraft } from '$lib/gen'
 	import EvalsPane from './EvalsPane.svelte'
-	import { fromCaptureDraft } from './evalCaseUtils'
 
 	let {
 		agentPath = undefined,
 		open = $bindable(false),
-		capture = undefined,
 		opWorkspace = undefined
 	}: {
-		/** The agent under test. Absent when opened from a capture, which names the agent it ran
-		 * against. */
+		/** The agent under test. A dataset and its runs belong to a saved agent, so without one
+		 * the dialog can only say so. */
 		agentPath?: string
 		open?: boolean
-		/** A case captured from a run or a conversation, opened for review before saving. */
-		capture?: EvalCaseDraft
 		/** The workspace the opening editor operates on, which differs from the nav workspace in
 		 * fork and session editors. Every read and write targets it. */
 		opWorkspace?: string
 	} = $props()
-
-	// A capture names the agent it ran against, which is the agent whose dataset it belongs in.
-	let path = $derived(agentPath ?? capture?.agent_path)
 
 	// The dialog is what the breadcrumb's first segment names, so the path is composed here from
 	// the dialog's own title and whatever level the pane reports being on.
@@ -54,20 +46,15 @@
 		<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
 	{/snippet}
 	<div class="h-full min-h-0">
-		{#if path}
-			<EvalsPane
-				agentPath={path}
-				{opWorkspace}
-				capture={capture ? fromCaptureDraft(capture) : undefined}
-				bind:location
-			/>
+		{#if agentPath}
+			<EvalsPane {agentPath} {opWorkspace} bind:location />
 		{:else}
 			<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
 				<span class="text-sm text-emphasis">Evals run against a saved agent</span>
 				<span class="text-xs text-secondary max-w-md">
-					This run's agent is written into the flow step rather than saved as its own agent, so
-					there is nothing for a dataset and its runs to belong to. Save it as a reusable agent from
-					the step, and its evals start there.
+					This agent is written into the flow step rather than saved as its own agent, so there is
+					nothing for a dataset and its runs to belong to. Save it as a reusable agent from the
+					step, and its evals start there.
 				</span>
 			</div>
 		{/if}

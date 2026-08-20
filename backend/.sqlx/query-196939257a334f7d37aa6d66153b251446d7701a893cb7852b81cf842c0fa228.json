@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, summary, description, default_subject, scorers, created_at, created_by,\n                edited_at, edited_by\n         FROM eval_dataset WHERE workspace_id = $1 ORDER BY path",
+  "query": "SELECT path, summary, scorers, created_at, created_by,\n                edited_at, edited_by\n         FROM eval_dataset WHERE workspace_id = $1 AND path = $2",
   "describe": {
     "columns": [
       {
@@ -15,49 +15,38 @@
       },
       {
         "ordinal": 2,
-        "name": "description",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 3,
-        "name": "default_subject",
-        "type_info": "Jsonb"
-      },
-      {
-        "ordinal": 4,
         "name": "scorers",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 5,
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 6,
+        "ordinal": 4,
         "name": "created_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 7,
+        "ordinal": 5,
         "name": "edited_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 8,
+        "ordinal": 6,
         "name": "edited_by",
         "type_info": "Varchar"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text"
       ]
     },
     "nullable": [
       false,
-      true,
-      true,
       true,
       false,
       false,
@@ -66,5 +55,5 @@
       false
     ]
   },
-  "hash": "00d5c83b920b999454a4e0f70be879e958892c14494f0b1271fa482d902679f1"
+  "hash": "196939257a334f7d37aa6d66153b251446d7701a893cb7852b81cf842c0fa228"
 }

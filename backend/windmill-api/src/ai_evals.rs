@@ -44,19 +44,13 @@ pub fn workspaced_service() -> Router {
         .route("/cases/add/{*path}", post(add_case))
         .route("/cases/update/{*path}", post(update_case))
         .route("/cases/delete/{*path}", post(delete_case))
-        .route("/run", post(run_eval))
         .route("/scorer_defaults", get(scorer_defaults))
         .route("/run_payload", get(run_payload))
         .route("/experiments/run", post(run_experiment))
-        .route("/experiments/score_again", post(score_again))
         .route("/scorers/recent", get(recent_scorers))
-        .route("/runs/score_case", post(score_case_run))
-        .route("/runs/score_result", get(score_case_result))
         .route("/subject_state", get(subject_state))
         .route("/experiments/list_all", get(list_all_experiments))
-        .route("/experiments/list/{*path}", get(list_experiments))
         .route("/experiments/results/{*path}", get(experiment_results))
-        .route("/case_draft/from_job/{job_id}", get(case_draft_from_job))
 }
 
 /// What a run is executed against. Kept as `(kind, path, version)` rather than a bare agent
@@ -179,11 +173,6 @@ pub struct EvalDataset {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// The subject the pane offers by default when this dataset is opened without one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_subject: Option<EvalSubject>,
     /// The columns of the results table, in display order.
     #[serde(default)]
     pub scorers: Vec<Scorer>,
@@ -208,31 +197,10 @@ pub struct EvalCase {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub input: EvalCaseInput,
-    /// A linked agent's runtime behaviour depends on its host flow's `tool_inputs` overrides.
-    /// A case defaults to the agent's own authored defaults; naming a host flow here resolves
-    /// that flow's overrides at run time instead, for when someone hits the discrepancy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host_flow_path: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool_inputs: Option<Box<RawValue>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected: Option<Box<RawValue>>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub tags: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub source: Option<EvalCaseSource>,
     pub created_at: DateTime<Utc>,
     pub created_by: String,
-}
-
-/// Where a case was captured from, when it came from real traffic rather than being typed.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct EvalCaseSource {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub job_id: Option<Uuid>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_path: Option<String>,
-    pub captured_at: DateTime<Utc>,
 }
 
 /// The case fields a caller may set. `id`/`created_at`/`created_by` are assigned server-side so
@@ -244,15 +212,7 @@ pub struct NewEvalCase {
     #[serde(default)]
     pub input: EvalCaseInput,
     #[serde(default)]
-    pub host_flow_path: Option<String>,
-    #[serde(default)]
-    pub tool_inputs: Option<Box<RawValue>>,
-    #[serde(default)]
     pub expected: Option<Box<RawValue>>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default)]
-    pub source: Option<EvalCaseSource>,
 }
 
 #[derive(Deserialize)]
@@ -260,10 +220,6 @@ pub struct CreateDataset {
     pub path: String,
     #[serde(default)]
     pub summary: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub default_subject: Option<EvalSubject>,
     #[serde(default)]
     pub scorers: Vec<Scorer>,
     /// The cases to create it holding. A case is a row of the dataset, so unlike a scorer it
@@ -282,10 +238,6 @@ pub struct EditDataset {
     pub path: Option<String>,
     #[serde(default)]
     pub summary: Option<String>,
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub default_subject: Option<EvalSubject>,
     /// Left out to keep the dataset's columns as they are; sent to replace them wholesale.
     #[serde(default)]
     pub scorers: Option<Vec<Scorer>>,
@@ -299,7 +251,7 @@ pub struct CaseId {
 #[derive(Deserialize)]
 /// The edit fields are spelled out rather than `#[serde(flatten)]`-ing `NewEvalCase`: flatten
 /// deserializes through a buffered representation, which silently yields `None` for the
-/// `Box<RawValue>` fields — an edited case would lose its attachments and tool inputs.
+/// `Box<RawValue>` fields — an edited case would lose its attachments.
 pub struct UpdateCase {
     pub id: Uuid,
     #[serde(default)]
@@ -307,13 +259,7 @@ pub struct UpdateCase {
     #[serde(default)]
     pub input: EvalCaseInput,
     #[serde(default)]
-    pub host_flow_path: Option<String>,
-    #[serde(default)]
-    pub tool_inputs: Option<Box<RawValue>>,
-    #[serde(default)]
     pub expected: Option<Box<RawValue>>,
-    #[serde(default)]
-    pub tags: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -355,8 +301,8 @@ const MAX_EXPERIMENTS_LISTED: i64 = 100;
 /// rather than one you search.
 const MAX_RECENT_SCORERS: usize = 12;
 
-/// A saved run is assembled from case runs the user has just made; more than a dataset's worth of
-/// them is not a partial rerun, it is a mistake.
+/// A run answers every case of its dataset in one flow; more cases than this is a dataset to
+/// split, not a run to start.
 const MAX_CASES_PER_RUN: usize = 1_000;
 
 /// A refused write surfaces as SQLSTATE 42501 with a message naming the table and the policy,
@@ -415,7 +361,7 @@ async fn read_dataset(
     check_path(path)?;
     let mut tx = user_db.clone().begin(authed).await?;
     let row = sqlx::query!(
-        "SELECT path, summary, description, default_subject, scorers, created_at, created_by,
+        "SELECT path, summary, scorers, created_at, created_by,
                 edited_at, edited_by
          FROM eval_dataset WHERE workspace_id = $1 AND path = $2",
         w_id,
@@ -428,10 +374,6 @@ async fn read_dataset(
     Ok(EvalDataset {
         path: row.path,
         summary: row.summary,
-        description: row.description,
-        default_subject: row
-            .default_subject
-            .and_then(|v| serde_json::from_value(v).ok()),
         scorers: serde_json::from_value(row.scorers).unwrap_or_default(),
         created_at: row.created_at,
         created_by: row.created_by,
@@ -476,8 +418,8 @@ async fn require_dataset_writable(
 }
 
 /// jsonb columns are read as `serde_json::Value` and handed on as `RawValue`, which is what the
-/// case shape stores: a case's `expected` and `tool_inputs` are arbitrary user JSON that this
-/// module never looks inside.
+/// case shape stores: a case's `expected` is arbitrary user JSON that this module never looks
+/// inside.
 fn to_raw(value: serde_json::Value) -> Result<Box<RawValue>> {
     Ok(serde_json::value::to_raw_value(&value)?)
 }
@@ -522,7 +464,7 @@ pub async fn list_datasets(
 ) -> JsonResult<Vec<EvalDataset>> {
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query!(
-        "SELECT path, summary, description, default_subject, scorers, created_at, created_by,
+        "SELECT path, summary, scorers, created_at, created_by,
                 edited_at, edited_by
          FROM eval_dataset WHERE workspace_id = $1 ORDER BY path",
         w_id
@@ -535,10 +477,6 @@ pub async fn list_datasets(
             .map(|row| EvalDataset {
                 path: row.path,
                 summary: row.summary,
-                description: row.description,
-                default_subject: row
-                    .default_subject
-                    .and_then(|v| serde_json::from_value(v).ok()),
                 scorers: serde_json::from_value(row.scorers).unwrap_or_default(),
                 created_at: row.created_at,
                 created_by: row.created_by,
@@ -575,10 +513,6 @@ pub async fn create_dataset(
     for case in &payload.cases {
         check_case_size(&case.input, case.expected.as_ref())?;
     }
-    let default_subject = payload
-        .default_subject
-        .map(|s| serde_json::to_value(s))
-        .transpose()?;
     let mut scorers = payload.scorers;
     assign_scorer_ids(&mut scorers)?;
     let scorers = serde_json::to_value(&scorers)?;
@@ -587,16 +521,13 @@ pub async fn create_dataset(
     // error `map_write_denied` translates. The two are distinct answers and must stay so.
     let created = sqlx::query_scalar!(
         "INSERT INTO eval_dataset
-            (workspace_id, path, summary, description, default_subject, scorers, created_by,
-             edited_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+            (workspace_id, path, summary, scorers, created_by, edited_by)
+         VALUES ($1, $2, $3, $4, $5, $5)
          ON CONFLICT (workspace_id, path) DO NOTHING
          RETURNING path",
         w_id,
         payload.path,
         payload.summary,
-        payload.description,
-        default_subject,
         scorers,
         authed.username,
     )
@@ -619,18 +550,13 @@ pub async fn create_dataset(
         for case in payload.cases {
             sqlx::query!(
                 "INSERT INTO eval_case
-                    (workspace_id, dataset_path, name, input, host_flow_path, tool_inputs, expected,
-                     tags, source, created_by)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+                    (workspace_id, dataset_path, name, input, expected, created_by)
+                 VALUES ($1, $2, $3, $4, $5, $6)",
                 w_id,
                 payload.path,
                 case.name,
                 serde_json::to_value(&case.input)?,
-                case.host_flow_path,
-                opt_from_raw(case.tool_inputs.as_ref())?,
                 opt_from_raw(case.expected.as_ref())?,
-                &case.tags,
-                case.source.map(|s| serde_json::to_value(s)).transpose()?,
                 authed.username,
             )
             .execute(&mut *tx)
@@ -662,10 +588,6 @@ pub async fn update_dataset(
             "Operators cannot modify eval datasets".to_string(),
         ));
     }
-    let default_subject = payload
-        .default_subject
-        .map(|s| serde_json::to_value(s))
-        .transpose()?;
     let scorers = match payload.scorers {
         Some(mut scorers) => {
             assign_scorer_ids(&mut scorers)?;
@@ -683,15 +605,13 @@ pub async fn update_dataset(
     let mut tx = user_db.clone().begin(&authed).await?;
     let updated = sqlx::query_scalar!(
         "UPDATE eval_dataset
-         SET path = COALESCE($8, path), summary = $3, description = $4, default_subject = $5,
-             scorers = COALESCE($6, scorers), edited_at = now(), edited_by = $7
+         SET path = COALESCE($6, path), summary = $3,
+             scorers = COALESCE($4, scorers), edited_at = now(), edited_by = $5
          WHERE workspace_id = $1 AND path = $2
          RETURNING path",
         w_id,
         path,
         payload.summary,
-        payload.description,
-        default_subject,
         scorers,
         authed.username,
         new_path.as_deref(),
@@ -761,8 +681,7 @@ async fn read_cases(
     };
     let mut tx = user_db.clone().begin(authed).await?;
     let rows = sqlx::query!(
-        "SELECT id, name, input, host_flow_path, tool_inputs, expected, tags, source, created_at,
-                created_by
+        "SELECT id, name, input, expected, created_at, created_by
          FROM eval_case
          WHERE workspace_id = $1 AND dataset_path = $2
          ORDER BY created_at, id
@@ -781,11 +700,7 @@ async fn read_cases(
                 id: row.id,
                 name: row.name,
                 input: serde_json::from_value(row.input)?,
-                host_flow_path: row.host_flow_path,
-                tool_inputs: opt_to_raw(row.tool_inputs)?,
                 expected: opt_to_raw(row.expected)?,
-                tags: row.tags,
-                source: row.source.and_then(|v| serde_json::from_value(v).ok()),
                 created_at: row.created_at,
                 created_by: row.created_by,
             })
@@ -842,22 +757,14 @@ pub async fn add_case(
 
     let id = sqlx::query_scalar!(
         "INSERT INTO eval_case
-            (workspace_id, dataset_path, name, input, host_flow_path, tool_inputs, expected, tags,
-             source, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            (workspace_id, dataset_path, name, input, expected, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id",
         w_id,
         path,
         payload.name,
         serde_json::to_value(&payload.input)?,
-        payload.host_flow_path,
-        opt_from_raw(payload.tool_inputs.as_ref())?,
         opt_from_raw(payload.expected.as_ref())?,
-        &payload.tags,
-        payload
-            .source
-            .map(|s| serde_json::to_value(s))
-            .transpose()?,
         authed.username,
     )
     .fetch_one(&db)
@@ -883,7 +790,7 @@ pub async fn update_case(
     check_case_size(&payload.input, payload.expected.as_ref())?;
     let updated = sqlx::query_scalar!(
         "UPDATE eval_case
-         SET name = $4, input = $5, host_flow_path = $6, tool_inputs = $7, expected = $8, tags = $9
+         SET name = $4, input = $5, expected = $6
          WHERE workspace_id = $1 AND dataset_path = $2 AND id = $3
          RETURNING id",
         w_id,
@@ -891,10 +798,7 @@ pub async fn update_case(
         payload.id,
         payload.name,
         serde_json::to_value(&payload.input)?,
-        payload.host_flow_path,
-        opt_from_raw(payload.tool_inputs.as_ref())?,
         opt_from_raw(payload.expected.as_ref())?,
-        &payload.tags,
     )
     .fetch_optional(&db)
     .await?;
@@ -1023,16 +927,19 @@ impl Scorer {
 }
 
 /// Ids are assigned here rather than trusted from the client: two columns sharing one id would
-/// silently merge two scorers' history into one.
+/// silently merge two scorers' history into one, and an id that is not a valid flow module
+/// identifier would break the scoring flows it is baked into (see `scorer_module_id`).
 fn assign_scorer_ids(scorers: &mut Vec<Scorer>) -> Result<()> {
+    fn valid_id(id: &str) -> bool {
+        !id.is_empty()
+            && id.len() <= 64
+            && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    }
     let mut seen = std::collections::HashSet::new();
     for scorer in scorers.iter_mut() {
-        if scorer.id.is_empty() || !seen.insert(scorer.id.clone()) {
+        if !valid_id(&scorer.id) || !seen.insert(scorer.id.clone()) {
             scorer.id = Uuid::new_v4().simple().to_string();
             seen.insert(scorer.id.clone());
-        }
-        if scorer.id.len() > 64 {
-            return Err(Error::BadRequest("Scorer id is too long".to_string()));
         }
         if let Some(name) = &scorer.name {
             if name.len() > 120 {
@@ -1070,8 +977,6 @@ const SCORERS_NODE_ID: &str = "scores";
 const RUN_PARALLELISM: u16 = 8;
 
 /// What each iteration is handed: the case, small enough to sit in every iteration's arguments.
-/// `job_id` names the run whose answer is being scored, and is set only when scoring a run that
-/// already happened. For a fresh run the iteration answers first and reads its own.
 #[derive(Serialize)]
 struct CaseIteration {
     case_id: Uuid,
@@ -1079,8 +984,6 @@ struct CaseIteration {
     input: EvalCaseInput,
     #[serde(skip_serializing_if = "Option::is_none")]
     expected: Option<Box<RawValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    job_id: Option<Uuid>,
 }
 
 /// Assembles the payload the scorers read, for the run this iteration is about.
@@ -1089,8 +992,8 @@ struct CaseIteration {
 /// every tool call is enriched with the arguments, result, status and duration of the job that
 /// ran it, and with the schema of the script version it ran — none of which the flow can see.
 const PAYLOAD_SCRIPT: &str = r#"// Generated by Windmill: reads the run this iteration answered.
-export async function main(job_id?: string) {
-  const id = job_id || process.env.WM_FLOW_JOB_ID
+export async function main() {
+  const id = process.env.WM_FLOW_JOB_ID
   const base = process.env.BASE_URL || process.env.BASE_INTERNAL_URL
   const res = await fetch(
     `${base}/api/w/${process.env.WM_WORKSPACE}/ai_evals/run_payload?job_id=${id}`,
@@ -1114,10 +1017,7 @@ fn payload_module() -> serde_json::Value {
             // bun executor splits it. Without a lock the step would resolve dependencies on every
             // case of every run.
             "lock": "{\n  \"dependencies\": {}\n}\n//bun.lock\n<empty>",
-            "input_transforms": {
-                // Absent for a fresh run, where the iteration reads the answer it just produced.
-                "job_id": { "type": "javascript", "expr": "flow_input.iter.value.job_id" },
-            }
+            "input_transforms": {}
         }
     })
 }
@@ -1182,16 +1082,11 @@ fn scorer_modules(scorers: &[&Scorer]) -> Vec<serde_json::Value> {
 /// Iterating a static list keeps the cases in the flow's own value, which is stored once, rather
 /// than in its arguments, which every iteration inherits a copy of.
 fn build_run_flow(
-    subject: Option<&EvalSubject>,
+    subject: &EvalSubject,
     cases: &[CaseIteration],
-    tool_inputs: Option<Box<RawValue>>,
     scorers: &[&Scorer],
 ) -> Result<windmill_common::flows::FlowValue> {
-    let mut modules: Vec<serde_json::Value> = vec![];
-    // Absent when the answers already exist: scoring a run that happened calls no agent.
-    if let Some(subject) = subject {
-        modules.push(agent_module(subject, tool_inputs)?);
-    }
+    let mut modules: Vec<serde_json::Value> = vec![agent_module(subject)?];
     if !scorers.is_empty() {
         modules.push(payload_module());
         // One branch each, run together: scorers read the answer and never each other, so measuring
@@ -1234,11 +1129,8 @@ fn build_run_flow(
 }
 
 /// The agent step, reading its case from the iteration rather than from the flow's arguments.
-fn agent_module(
-    subject: &EvalSubject,
-    tool_inputs: Option<Box<RawValue>>,
-) -> Result<serde_json::Value> {
-    let flow = build_case_flow(subject, tool_inputs)?;
+fn agent_module(subject: &EvalSubject) -> Result<serde_json::Value> {
+    let flow = build_case_flow(subject)?;
     let mut value = serde_json::to_value(&flow.modules[0].value)?;
     if let Some(map) = value.as_object_mut() {
         let transforms = map
@@ -1259,13 +1151,9 @@ fn agent_module(
     Ok(serde_json::json!({ "id": AGENT_NODE_ID, "value": value }))
 }
 
-/// The flow one case runs as: a single agent step. Scoring is not part of it — a score is
-/// produced from the answer this job stored, which is what lets a scorer added later score an
-/// experiment that already ran without calling the agent again.
-fn build_case_flow(
-    subject: &EvalSubject,
-    tool_inputs: Option<Box<RawValue>>,
-) -> Result<windmill_common::flows::FlowValue> {
+/// The agent step as a one-module flow, so the module shape is validated by deserializing
+/// through `FlowValue` rather than trusted as raw JSON.
+fn build_case_flow(subject: &EvalSubject) -> Result<windmill_common::flows::FlowValue> {
     // A draft runs the step exactly as authored: its own brain transforms are the module's, and
     // the case supplies the message and the attachments over the top.
     let mut input_transforms = match subject.draft.as_ref().map(|d| &d.input_transforms) {
@@ -1294,48 +1182,9 @@ fn build_case_flow(
         "input_transforms".to_string(),
         serde_json::Value::Object(input_transforms),
     );
-    if let Some(tool_inputs) = tool_inputs {
-        agent_value.insert(
-            "tool_inputs".to_string(),
-            serde_json::from_str(tool_inputs.get())?,
-        );
-    }
-
     Ok(serde_json::from_value(serde_json::json!({
         "modules": [{ "id": AGENT_NODE_ID, "value": serde_json::Value::Object(agent_value) }]
     }))?)
-}
-
-#[derive(Deserialize)]
-pub struct RunEval {
-    pub subject: EvalSubject,
-    /// The case to run. Either supplied inline (the playground) or loaded from `dataset` +
-    /// `case_id`, which additionally stamps the run so it can be found again.
-    #[serde(default)]
-    pub case: Option<NewEvalCase>,
-    #[serde(default)]
-    pub dataset: Option<String>,
-    #[serde(default)]
-    pub case_id: Option<Uuid>,
-}
-
-/// `v2_job.runnable_path` is varchar(255); paths that long are pathological but must not fail
-/// the run, so an oversized stamp degrades to the agent path and the `_eval` args carry the
-/// rest.
-const MAX_RUNNABLE_PATH: usize = 255;
-
-fn run_path(agent_path: &str, dataset: Option<&str>, case_id: Option<Uuid>) -> String {
-    match (dataset, case_id) {
-        (Some(dataset), Some(case_id)) => {
-            let full = format!("{}/{}/{}", agent_path, dataset, case_id);
-            if full.len() <= MAX_RUNNABLE_PATH {
-                full
-            } else {
-                agent_path.to_string()
-            }
-        }
-        _ => agent_path.to_string(),
-    }
 }
 
 /// The number the agent is on: how many times it has been saved, not the identity of the row
@@ -1351,153 +1200,6 @@ async fn current_resource_version(db: &DB, w_id: &str, path: &str) -> Result<Opt
     .fetch_optional(db)
     .await?;
     Ok(version)
-}
-
-/// A linked agent's tools bind to their host flow through that flow's `tool_inputs`, so a case
-/// that names a host flow reproduces the flow's wiring rather than the agent's own defaults.
-/// Read through `user_db` so naming a flow the caller cannot read does not leak its wiring.
-async fn tool_inputs_from_host_flow(
-    authed: &ApiAuthed,
-    user_db: &UserDB,
-    w_id: &str,
-    flow_path: &str,
-    agent_path: &str,
-) -> Result<Option<Box<RawValue>>> {
-    let mut tx = user_db.clone().begin(authed).await?;
-    let value = sqlx::query_scalar!(
-        "SELECT flow_version.value AS \"value!\" FROM flow
-         LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
-         WHERE flow.workspace_id = $1 AND flow.path = $2",
-        w_id,
-        flow_path
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    let value =
-        value.ok_or_else(|| Error::NotFound(format!("Host flow {} not found", flow_path)))?;
-    Ok(find_tool_inputs(&value, agent_path))
-}
-
-/// Depth-first search for the `tool_inputs` of the step linked to `agent_path`. Nested agent
-/// tools are searched too, so a case can reproduce an agent used as another agent's tool.
-fn find_tool_inputs(value: &serde_json::Value, agent_path: &str) -> Option<Box<RawValue>> {
-    match value {
-        serde_json::Value::Object(map) => {
-            if map.get("type").and_then(|t| t.as_str()) == Some("aiagent")
-                && map
-                    .get("agent")
-                    .and_then(|a| a.as_str())
-                    .map(strip_res_prefix)
-                    == Some(agent_path)
-            {
-                if let Some(tool_inputs) = map.get("tool_inputs") {
-                    return serde_json::value::to_raw_value(tool_inputs).ok();
-                }
-            }
-            map.values().find_map(|v| find_tool_inputs(v, agent_path))
-        }
-        serde_json::Value::Array(items) => {
-            items.iter().find_map(|v| find_tool_inputs(v, agent_path))
-        }
-        _ => None,
-    }
-}
-
-fn strip_res_prefix(path: &str) -> &str {
-    path.trim_start_matches("$res:")
-        .trim_start_matches("res://")
-}
-
-/// Push one case as its own job. Shared by a single run and by every case of an experiment,
-/// so both produce the same stamped, self-describing job.
-async fn push_case_run(
-    authed: &ApiAuthed,
-    db: &DB,
-    user_db: &UserDB,
-    w_id: &str,
-    subject: &EvalSubject,
-    case: &NewEvalCase,
-    tool_inputs: Option<Box<RawValue>>,
-    dataset: Option<&str>,
-    case_id: Option<Uuid>,
-    experiment_id: Option<Uuid>,
-    // Chosen before anything is queued, so the record of a run cannot be missing the job it
-    // names. A scratch run with nothing to record lets `push` assign one.
-    job_id: Option<Uuid>,
-) -> Result<Uuid> {
-    use windmill_common::{jobs::JobPayload, users::username_to_permissioned_as};
-    use windmill_queue::{push, PushArgs, PushIsolationLevel};
-
-    let flow_value = build_case_flow(subject, tool_inputs)?;
-
-    let mut args = std::collections::HashMap::new();
-    if let Some(user_message) = &case.input.user_message {
-        args.insert(
-            "user_message".to_string(),
-            serde_json::value::to_raw_value(user_message)?,
-        );
-    }
-    if let Some(user_attachments) = &case.input.user_attachments {
-        args.insert("user_attachments".to_string(), user_attachments.clone());
-    }
-    if let Some(expected) = &case.expected {
-        args.insert("expected".to_string(), expected.clone());
-    }
-    // The whole case input, for scoring: the message alone cannot explain an answer that came
-    // from an attachment, and a scratch run has no experiment row to read it back from.
-    args.insert(
-        "_eval_input".to_string(),
-        serde_json::value::to_raw_value(&case.input)?,
-    );
-    // Self-describing run: opened cold from the runs page, the job says what it was evaluating.
-    // Extra flow inputs are inert — the agent step reads only user_message/user_attachments.
-    args.insert(
-        "_eval".to_string(),
-        serde_json::value::to_raw_value(&serde_json::json!({
-            "subject": subject.stamp(),
-            "dataset": dataset,
-            "case_id": case_id,
-            "experiment_id": experiment_id,
-        }))?,
-    );
-
-    let path = run_path(&subject.path, dataset, case_id);
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
-    let (uuid, tx) = push(
-        db,
-        tx,
-        w_id,
-        JobPayload::RawFlow { value: flow_value, path: Some(path), restarted_from: None },
-        PushArgs::from(&args),
-        authed.display_username(),
-        &authed.email,
-        username_to_permissioned_as(&authed.username),
-        authed.token_prefix.as_deref(),
-        authed.username_override.as_deref(),
-        None,
-        None,
-        None,
-        None,
-        None,
-        job_id,
-        false,
-        false,
-        None,
-        true,
-        None,
-        None,
-        None,
-        None,
-        Some(&authed.clone().into()),
-        false,
-        None,
-        authed.trigger_or_fallback(None),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(uuid)
 }
 
 /// Read the agent through `user_db` so a caller who cannot read the resource cannot run it.
@@ -1610,114 +1312,6 @@ async fn agent_draft_config(
     })
 }
 
-/// One stored case, read through `user_db`: the case rows inherit their dataset's read policy, so
-/// a caller who cannot see the dataset cannot run one of its cases either.
-async fn read_case(
-    authed: &ApiAuthed,
-    user_db: &UserDB,
-    w_id: &str,
-    dataset: &str,
-    case_id: Uuid,
-) -> Result<NewEvalCase> {
-    let mut tx = user_db.clone().begin(authed).await?;
-    let row = sqlx::query!(
-        "SELECT name, input, host_flow_path, tool_inputs, expected, tags, source
-         FROM eval_case
-         WHERE workspace_id = $1 AND dataset_path = $2 AND id = $3",
-        w_id,
-        dataset,
-        case_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    let row = row.ok_or_else(|| {
-        Error::NotFound(format!("Eval case {} not found in {}", case_id, dataset))
-    })?;
-    Ok(NewEvalCase {
-        name: row.name,
-        input: serde_json::from_value(row.input)?,
-        host_flow_path: row.host_flow_path,
-        tool_inputs: opt_to_raw(row.tool_inputs)?,
-        expected: opt_to_raw(row.expected)?,
-        tags: row.tags,
-        source: row.source.and_then(|v| serde_json::from_value(v).ok()),
-    })
-}
-
-#[derive(Serialize)]
-pub struct RunEvalResponse {
-    pub job_id: Uuid,
-}
-
-pub async fn run_eval(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(payload): Json<RunEval>,
-) -> JsonResult<RunEvalResponse> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot run eval jobs".to_string(),
-        ));
-    }
-    check_scopes(&authed, || "jobs:run".to_string())?;
-
-    let mut subject = payload.subject;
-    validate_subject(&subject)?;
-
-    // Resolve the case before anything else: a stored case is the source of truth for what ran,
-    // so an inline body must not be able to override one.
-    let case = match (&payload.dataset, payload.case_id) {
-        (Some(dataset), Some(case_id)) => {
-            read_case(&authed, &user_db, &w_id, dataset, case_id).await?
-        }
-        (None, None) => payload.case.ok_or_else(|| {
-            Error::BadRequest("Either a case or a dataset and case_id must be supplied".to_string())
-        })?,
-        _ => {
-            return Err(Error::BadRequest(
-                "dataset and case_id must be supplied together".to_string(),
-            ))
-        }
-    };
-
-    resolve_subject(&authed, &db, &user_db, &w_id, &mut subject).await?;
-
-    let tool_inputs = match (&case.tool_inputs, &case.host_flow_path) {
-        (Some(explicit), _) => Some(explicit.clone()),
-        (None, Some(flow_path)) => {
-            tool_inputs_from_host_flow(&authed, &user_db, &w_id, flow_path, &subject.path).await?
-        }
-        (None, None) => None,
-    };
-
-    // Nothing is recorded here. One case is run to see what it does, and what it does is a job;
-    // whether it becomes part of the dataset's history is a decision taken afterwards, by saving
-    // it as a run. The job carries `_eval`, which is what that save reads it back from.
-    let (dataset, case_id) = (payload.dataset.as_deref(), payload.case_id);
-    if let Some(dataset) = dataset {
-        require_dataset_writable(&authed, &user_db, &w_id, dataset).await?;
-    }
-
-    let job_id = push_case_run(
-        &authed,
-        &db,
-        &user_db,
-        &w_id,
-        &subject,
-        &case,
-        tool_inputs,
-        dataset,
-        case_id,
-        None,
-        None,
-    )
-    .await?;
-    Ok(Json(RunEvalResponse { job_id }))
-}
-
 /// Fill in what the client cannot: the version a saved agent is at, or the configuration sitting
 /// in its draft. Both run paths do this identically, and a subject that skipped it would run the
 /// wrong definition or record no version.
@@ -1821,18 +1415,8 @@ pub struct EvalExperiment {
     /// experiment is called: "Run 7" survives history being pruned, which a position computed
     /// when the list is read would not.
     pub run_number: i32,
-    /// A name for the run, beside the number it already carries. Nothing sets one yet: naming
-    /// runs is not part of the surface, and this is what a future one would fill.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
-    /// The run whose answers this one measured again. Set exactly when nothing was run: the cells
-    /// are that run's, and so is the version they are attributed to.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scored_from: Option<Uuid>,
-    /// The flow executing the run: one job holding every case and its scores. Absent on runs
-    /// recorded when a run was a job per case.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_job_id: Option<Uuid>,
+    /// The flow executing the run: one job holding every case and its scores.
+    pub run_job_id: Uuid,
     pub case_count: i64,
     /// What the run scored, one entry per scorer that produced a number. Carried on the run
     /// itself so a list of runs can say what each one scored without reading every cell of every
@@ -1873,11 +1457,6 @@ pub struct ExperimentScore {
 pub struct RunExperiment {
     pub dataset: String,
     pub subject: EvalSubject,
-    /// Applies one host flow's tool bindings to every case. Per-case `host_flow_path` is only
-    /// honoured by a single run: one experiment runs one wiring, or its rows would not be
-    /// comparable with each other.
-    #[serde(default)]
-    pub host_flow_path: Option<String>,
 }
 
 /// Open a run of this dataset. A run is a fixed point: it is written once and then only ever
@@ -1892,7 +1471,7 @@ async fn new_run(
     dataset: &str,
     subject: &EvalSubject,
     username: &str,
-    scored_from: Option<Uuid>,
+    run_job_id: Uuid,
 ) -> Result<Uuid> {
     // Two runs starting together would otherwise read the same run number. Held for the rest of
     // this transaction, which pushes no jobs.
@@ -1917,7 +1496,7 @@ async fn new_run(
     let id = Uuid::new_v4();
     sqlx::query!(
         "INSERT INTO eval_experiment
-            (id, workspace_id, dataset_path, subject, run_number, created_by, scored_from)
+            (id, workspace_id, dataset_path, subject, run_number, created_by, run_job_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7)",
         id,
         w_id,
@@ -1925,7 +1504,7 @@ async fn new_run(
         serde_json::to_value(subject.stamp())?,
         run_number,
         username,
-        scored_from,
+        run_job_id,
     )
     .execute(&mut **tx)
     .await
@@ -1968,13 +1547,6 @@ pub async fn run_experiment(
         )));
     }
 
-    let tool_inputs = match &payload.host_flow_path {
-        Some(flow_path) => {
-            tool_inputs_from_host_flow(&authed, &user_db, &w_id, flow_path, &subject.path).await?
-        }
-        None => None,
-    };
-
     let case_count = cases.len();
     let dataset = read_dataset(&authed, &user_db, &w_id, &payload.dataset).await?;
     let scorers: Vec<&Scorer> = dataset.scorers.iter().collect();
@@ -1994,10 +1566,9 @@ pub async fn run_experiment(
             ordinal: index as i32,
             input: case.input.clone(),
             expected: case.expected.clone(),
-            job_id: None,
         })
         .collect::<Vec<_>>();
-    let flow_value = build_run_flow(Some(&subject), &iterations, tool_inputs, &scorers)?;
+    let flow_value = build_run_flow(&subject, &iterations, &scorers)?;
 
     // The whole run is recorded, with the id of the job that will hold it, before that job is
     // queued. A launch that dies partway therefore leaves an experiment naming a job that never
@@ -2011,15 +1582,8 @@ pub async fn run_experiment(
         &payload.dataset,
         &subject,
         &authed.username,
-        None,
+        run_job_id,
     )
-    .await?;
-    sqlx::query!(
-        "UPDATE eval_experiment SET run_job_id = $2 WHERE id = $1",
-        experiment_id,
-        run_job_id
-    )
-    .execute(&mut *tx)
     .await?;
 
     let ordinals = (0..case_count as i32).collect::<Vec<_>>();
@@ -2111,7 +1675,7 @@ async fn insert_pending_scores(
          FROM UNNEST($2::int[], $3::text[], $4::text[]) AS t(ordinal, scorer_id, definition)
          ON CONFLICT (experiment_id, ordinal, scorer_id)
          DO UPDATE SET definition = EXCLUDED.definition, score = NULL, reason = NULL,
-                       checks = NULL, error = NULL, job_id = NULL",
+                       checks = NULL, error = NULL",
         experiment_id,
         &rows_ordinal,
         &rows_scorer,
@@ -2150,7 +1714,7 @@ async fn push_run_flow(
         }))?,
     );
 
-    let path = run_path(&subject.path, Some(dataset), None);
+    let path = subject.path.clone();
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
     let (uuid, tx) = push(
         db,
@@ -2188,143 +1752,12 @@ async fn push_run_flow(
     Ok(uuid)
 }
 
-#[derive(Deserialize)]
-pub struct ScoreAgain {
-    pub dataset: String,
-    /// The run whose answers are measured again.
-    pub experiment_id: Uuid,
-}
-
-/// Open a run that reuses another run's answers.
-///
-/// Scoring is separate from running, so a scorer edited or added after a run should be able to
-/// measure what that run already answered. A run is permanent, so it cannot be measured in place:
-/// this makes a run of its own, holding the same answers and one new set of scores. Nothing calls
-/// the agent.
-///
-/// The answers and their provenance are copied whole rather than mixed, which is what makes the
-/// new run readable: every cell of it was produced by the version the parent recorded, so it is
-/// attributed to that version and goes stale against the current agent exactly as the parent does.
-/// Scoring it is the caller's next step, on the same route any run is scored by.
-pub async fn score_again(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(payload): Json<ScoreAgain>,
-) -> JsonResult<Uuid> {
-    check_scopes(&authed, || "jobs:run".to_string())?;
-    // A write: it persists a run into the dataset.
-    require_dataset_writable(&authed, &user_db, &w_id, &payload.dataset).await?;
-    // Reading it validates that it is a run of this dataset, and 404s rather than copying from one
-    // the caller made up.
-    let parent = read_experiment(&db, &w_id, &payload.dataset, payload.experiment_id).await?;
-
-    let dataset = read_dataset(&authed, &user_db, &w_id, &payload.dataset).await?;
-    let scorers: Vec<&Scorer> = dataset.scorers.iter().collect();
-    if scorers.is_empty() {
-        return Err(Error::BadRequest(format!(
-            "Eval dataset {} has no scorer to measure with",
-            payload.dataset
-        )));
-    }
-    let mut definitions = Vec::with_capacity(scorers.len());
-    for scorer in &scorers {
-        definitions.push(resolve_definition(&db, &w_id, scorer).await?);
-    }
-
-    // The answers to measure: the parent's cells, each naming the job that produced it.
-    let cells = sqlx::query!(
-        "SELECT ordinal, case_id, input, expected, job_id FROM eval_experiment_case
-         WHERE experiment_id = $1 AND job_id IS NOT NULL ORDER BY ordinal",
-        payload.experiment_id
-    )
-    .fetch_all(&db)
-    .await?;
-    if cells.is_empty() {
-        return Err(Error::BadRequest(format!(
-            "Run {} has no result to measure again",
-            payload.experiment_id
-        )));
-    }
-    let iterations = cells
-        .iter()
-        .map(|cell| {
-            Ok(CaseIteration {
-                case_id: cell.case_id,
-                ordinal: cell.ordinal,
-                input: serde_json::from_value(cell.input.clone())?,
-                expected: opt_to_raw(cell.expected.clone())?,
-                job_id: cell.job_id,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    // No agent step: the answers exist, and calling the agent again would produce different ones.
-    let flow_value = build_run_flow(None, &iterations, None, &scorers)?;
-
-    let run_job_id = Uuid::new_v4();
-    let mut tx = db.begin().await?;
-    let id = new_run(
-        &mut tx,
-        &w_id,
-        &payload.dataset,
-        &parent.subject,
-        &authed.username,
-        Some(payload.experiment_id),
-    )
-    .await?;
-    sqlx::query!(
-        "UPDATE eval_experiment SET run_job_id = $2 WHERE id = $1",
-        id,
-        run_job_id
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        "INSERT INTO eval_experiment_case
-            (experiment_id, ordinal, case_id, name, input, expected, job_id, subject_version,
-             subject_draft_hash, started_at)
-         SELECT $1, ordinal, case_id, name, input, expected, job_id, subject_version,
-                subject_draft_hash, started_at
-         FROM eval_experiment_case WHERE experiment_id = $2",
-        id,
-        payload.experiment_id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    let ordinals = cells.iter().map(|c| c.ordinal).collect::<Vec<_>>();
-    insert_pending_scores(&mut tx, id, &ordinals, &scorers, &definitions).await?;
-    tx.commit().await?;
-
-    if let Err(e) = push_run_flow(
-        &authed,
-        &db,
-        &user_db,
-        &w_id,
-        &payload.dataset,
-        &parent.subject,
-        id,
-        run_job_id,
-        flow_value,
-    )
-    .await
-    {
-        sqlx::query!("DELETE FROM eval_experiment WHERE id = $1", id)
-            .execute(&db)
-            .await?;
-        return Err(e);
-    }
-    Ok(Json(id))
-}
-
 fn experiment_from_row(
     id: Uuid,
     dataset: String,
     subject: serde_json::Value,
     run_number: i32,
-    label: Option<String>,
-    scored_from: Option<Uuid>,
-    run_job_id: Option<Uuid>,
+    run_job_id: Uuid,
     case_count: i64,
     created_at: DateTime<Utc>,
     created_by: String,
@@ -2334,8 +1767,6 @@ fn experiment_from_row(
         dataset,
         subject: serde_json::from_value(subject)?,
         run_number,
-        label,
-        scored_from,
         run_job_id,
         case_count,
         // Filled in by the list, which reads every listed run's scores in one query.
@@ -2356,57 +1787,6 @@ pub struct ListExperimentsQuery {
     pub subject_path: Option<String>,
 }
 
-pub async fn list_experiments(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, dataset)): Path<(String, String)>,
-    Query(query): Query<ListExperimentsQuery>,
-) -> JsonResult<Vec<EvalExperiment>> {
-    let dataset_row = read_dataset(&authed, &user_db, &w_id, &dataset).await?;
-    let mut tx = user_db.begin(&authed).await?;
-    let rows = sqlx::query!(
-        "SELECT e.id, e.subject, e.run_number, e.label, e.scored_from, e.run_job_id,
-                e.created_at, e.created_by,
-                (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)
-                    AS \"case_count!\"
-         FROM eval_experiment e
-         WHERE e.workspace_id = $1 AND e.dataset_path = $2
-               AND ($4::text IS NULL OR e.subject ->> 'path' = $4)
-         ORDER BY e.created_at DESC
-         LIMIT $3",
-        w_id,
-        dataset,
-        MAX_EXPERIMENTS_LISTED,
-        query.subject_path,
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    let mut experiments = rows
-        .into_iter()
-        .map(|row| {
-            experiment_from_row(
-                row.id,
-                dataset.clone(),
-                row.subject,
-                row.run_number,
-                row.label,
-                row.scored_from,
-                row.run_job_id,
-                row.case_count,
-                row.created_at,
-                row.created_by,
-            )
-        })
-        .collect::<Result<Vec<_>>>()?;
-
-    resolve_listed_drafts(&db, &w_id, &mut experiments).await?;
-    let scorers = std::collections::HashMap::from([(dataset, dataset_row.scorers)]);
-    enrich_listed_runs(&db, &w_id, &mut experiments, &scorers).await?;
-    Ok(Json(experiments))
-}
-
 /// Every run of this agent, across every dataset it has been measured on.
 ///
 /// The list is one agent's history rather than one dataset's, because "has this agent got better"
@@ -2422,8 +1802,8 @@ pub async fn list_all_experiments(
 ) -> JsonResult<Vec<EvalExperiment>> {
     let mut tx = user_db.clone().begin(&authed).await?;
     let rows = sqlx::query!(
-        "SELECT e.id, e.dataset_path, e.subject, e.run_number, e.label, e.scored_from,
-                e.run_job_id, e.created_at, e.created_by,
+        "SELECT e.id, e.dataset_path, e.subject, e.run_number, e.run_job_id, e.created_at,
+                e.created_by,
                 (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)
                     AS \"case_count!\"
          FROM eval_experiment e
@@ -2447,8 +1827,6 @@ pub async fn list_all_experiments(
                 row.dataset_path,
                 row.subject,
                 row.run_number,
-                row.label,
-                row.scored_from,
                 row.run_job_id,
                 row.case_count,
                 row.created_at,
@@ -2480,10 +1858,9 @@ async fn enrich_listed_runs(
     Ok(())
 }
 
-/// Which listed runs are still going, read from the flows executing them. A run recorded before a
-/// run was one flow has no flow to ask, and is over by construction: nothing is left watching it.
+/// Which listed runs are still going, read from the flows executing them.
 async fn mark_running(db: &DB, w_id: &str, experiments: &mut [EvalExperiment]) -> Result<()> {
-    let job_ids: Vec<Uuid> = experiments.iter().filter_map(|e| e.run_job_id).collect();
+    let job_ids: Vec<Uuid> = experiments.iter().map(|e| e.run_job_id).collect();
     if job_ids.is_empty() {
         return Ok(());
     }
@@ -2497,9 +1874,7 @@ async fn mark_running(db: &DB, w_id: &str, experiments: &mut [EvalExperiment]) -
     .into_iter()
     .collect();
     for experiment in experiments.iter_mut() {
-        experiment.running = experiment
-            .run_job_id
-            .is_some_and(|id| !finished.contains(&id));
+        experiment.running = !finished.contains(&experiment.run_job_id);
     }
     Ok(())
 }
@@ -2817,166 +2192,6 @@ pub async fn recent_scorers(
 }
 
 #[derive(Deserialize)]
-pub struct ScoreCaseRun {
-    pub dataset: String,
-    pub case_id: Uuid,
-    /// The case run to score, which is not recorded anywhere yet.
-    pub job_id: Uuid,
-}
-
-/// Score a case run that is not part of any run yet. Rerunning one case is worth looking at only
-/// with its numbers beside it, and waiting for a save to see them would mean deciding blind — so
-/// the scorers run here, and the scoring jobs are carried into the run when it is saved rather
-/// than recomputed, because a judge asked twice does not answer twice the same.
-pub async fn score_case_run(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Json(payload): Json<ScoreCaseRun>,
-) -> JsonResult<Uuid> {
-    check_scopes(&authed, || "jobs:run".to_string())?;
-    let dataset = read_dataset(&authed, &user_db, &w_id, &payload.dataset).await?;
-    let scorers = dataset.scorers.iter().collect::<Vec<_>>();
-    if scorers.is_empty() {
-        return Err(Error::BadRequest(format!(
-            "Eval dataset {} has no scorer",
-            payload.dataset
-        )));
-    }
-    let case = read_case(&authed, &user_db, &w_id, &payload.dataset, payload.case_id).await?;
-
-    let completed = sqlx::query!(
-        "SELECT status::text AS \"status!\", duration_ms FROM v2_job_completed
-         WHERE id = $1 AND workspace_id = $2",
-        payload.job_id,
-        w_id
-    )
-    .fetch_optional(&db)
-    .await?
-    .ok_or_else(|| Error::BadRequest("That run has not finished".to_string()))?;
-    if completed.status != "success" {
-        return Err(Error::BadRequest(
-            "That run produced no answer to score".to_string(),
-        ));
-    }
-
-    let run = build_run_payload(
-        &db,
-        &w_id,
-        payload.job_id,
-        case.input,
-        case.expected,
-        completed.status,
-        Some(completed.duration_ms),
-    )
-    .await?;
-    let mut args = std::collections::HashMap::new();
-    args.insert("run".to_string(), serde_json::value::to_raw_value(&run)?);
-    args.insert(
-        "rendered".to_string(),
-        serde_json::value::to_raw_value(&render_run(&run))?,
-    );
-    let job_id = push_scoring_job(
-        &authed,
-        &db,
-        &user_db,
-        &w_id,
-        &payload.dataset,
-        &scorers,
-        args,
-    )
-    .await?;
-    Ok(Json(job_id))
-}
-
-#[derive(Deserialize)]
-pub struct ScoreResultQuery {
-    pub dataset: String,
-    pub job_id: Uuid,
-}
-
-#[derive(Serialize)]
-pub struct TrialScore {
-    pub scorer_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub score: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub checks: Option<Box<RawValue>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<String>,
-    /// The scoring job has not finished, or its result is not readable yet.
-    pub pending: bool,
-}
-
-/// The verdicts of a scoring job on a trial run. Computed on read and stored nowhere: a trial
-/// belongs to no run, so there is no row to store it in.
-pub async fn score_case_result(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
-    Path(w_id): Path<String>,
-    Query(query): Query<ScoreResultQuery>,
-) -> JsonResult<Vec<TrialScore>> {
-    let dataset = read_dataset(&authed, &user_db, &w_id, &query.dataset).await?;
-    let status = sqlx::query_scalar!(
-        "SELECT status::text FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
-        query.job_id,
-        w_id
-    )
-    .fetch_optional(&db)
-    .await?
-    .flatten();
-
-    let mut scores = vec![];
-    for scorer in &dataset.scorers {
-        if status.is_none() {
-            scores.push(TrialScore {
-                scorer_id: scorer.id.clone(),
-                score: None,
-                reason: None,
-                checks: None,
-                error: None,
-                pending: true,
-            });
-            continue;
-        }
-        match read_verdict(
-            &db,
-            &w_id,
-            query.job_id,
-            &scorer.id,
-            status.as_deref(),
-            "The scoring job failed",
-        )
-        .await
-        {
-            Some((score, reason, checks, error)) => scores.push(TrialScore {
-                scorer_id: scorer.id.clone(),
-                score,
-                reason,
-                checks: checks
-                    .map(|c| serde_json::value::to_raw_value(&c))
-                    .transpose()?,
-                error,
-                pending: false,
-            }),
-            None => scores.push(TrialScore {
-                scorer_id: scorer.id.clone(),
-                score: None,
-                reason: None,
-                checks: None,
-                error: None,
-                pending: true,
-            }),
-        }
-    }
-    Ok(Json(scores))
-}
-
-#[derive(Deserialize)]
 pub struct SubjectStateQuery {
     pub path: String,
 }
@@ -3263,8 +2478,7 @@ pub struct RunPayloadResponse {
 /// Exists because the scorers run inside the run's own flow, where the tool calls are jobs the
 /// flow cannot read: their arguments, results, statuses, durations and schemas are what turns an
 /// answer into a trajectory to grade. The case itself is read from the job's arguments rather
-/// than from the experiment, so this works for an iteration whose row has not been filled in yet
-/// and for a run recorded before runs were flows.
+/// than from the experiment, so this works for an iteration whose row has not been filled in yet.
 pub async fn run_payload(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -3272,6 +2486,10 @@ pub async fn run_payload(
     Path(w_id): Path<String>,
     Query(query): Query<RunPayloadQuery>,
 ) -> JsonResult<RunPayloadResponse> {
+    // `UserDB` enforces row permissions but not a token's scopes, so without this an
+    // `ai_evals:read` token would read job arguments, results and tool calls that `jobs:read`
+    // is what actually gates. Job tokens are unscoped, so the run flow's payload step passes.
+    check_scopes(&authed, || "jobs:read".to_string())?;
     // Through `user_db`: the caller is a job token, and it reads what its runner can read.
     let mut tx = user_db.begin(&authed).await?;
     let args = sqlx::query_scalar!(
@@ -3423,45 +2641,10 @@ fn render_run(run: &EvalRunPayload) -> String {
     )
 }
 
-/// Module id of a scorer inside a scoring job. Scorer ids are hex, so this is a valid identifier.
+/// Module id of a scorer inside a scoring job. `assign_scorer_ids` keeps ids to
+/// `[A-Za-z0-9_]`, so this is a valid identifier.
 fn scorer_module_id(scorer_id: &str) -> String {
     format!("s_{}", scorer_id)
-}
-
-/// One job per run, one module per scorer being scored. Every module reads the same `run` from the
-/// flow input, so a judge and a script see exactly the same evidence.
-fn build_scoring_flow(scorers: &[&Scorer]) -> Result<windmill_common::flows::FlowValue> {
-    let mut modules = vec![];
-    for scorer in scorers {
-        let value = match &scorer.def {
-            // A judge is an agent handed the run as its message; its own system prompt is the
-            // grading contract, which is why editing a judge means editing that agent.
-            ScorerDef::Agent { path } => serde_json::json!({
-                "type": "aiagent",
-                "agent": path,
-                "tools": [],
-                "input_transforms": {
-                    "user_message": { "type": "javascript", "expr": "flow_input.rendered" },
-                }
-            }),
-            // `run` is the whole payload; `input`, `output` and `expected` are the same values
-            // spelled out, so a three-line scorer does not have to reach into it.
-            ScorerDef::Script { path } => serde_json::json!({
-                "type": "script",
-                "path": path,
-                "input_transforms": {
-                    "run": { "type": "javascript", "expr": "flow_input.run" },
-                    "input": { "type": "javascript", "expr": "flow_input.run.input" },
-                    "output": { "type": "javascript", "expr": "flow_input.run.output" },
-                    "expected": { "type": "javascript", "expr": "flow_input.run.expected" },
-                }
-            }),
-        };
-        modules.push(serde_json::json!({ "id": scorer_module_id(&scorer.id), "value": value }));
-    }
-    Ok(serde_json::from_value(
-        serde_json::json!({ "modules": modules }),
-    )?)
 }
 
 /// The version of a scorer's runnable that would run now. Part of what a score records, so a
@@ -3484,82 +2667,14 @@ async fn resolve_definition(db: &DB, w_id: &str, scorer: &Scorer) -> Result<Stri
     Ok(scorer.definition(resolved.as_deref()))
 }
 
-async fn push_scoring_job(
-    authed: &ApiAuthed,
-    db: &DB,
-    user_db: &UserDB,
-    w_id: &str,
-    dataset: &str,
-    scorers: &[&Scorer],
-    args: std::collections::HashMap<String, Box<RawValue>>,
-) -> Result<Uuid> {
-    use windmill_common::{jobs::JobPayload, users::username_to_permissioned_as};
-    use windmill_queue::{push, PushArgs, PushIsolationLevel};
-
-    let flow_value = build_scoring_flow(scorers)?;
-    let path = {
-        let full = format!("{}/scoring", dataset);
-        if full.len() <= MAX_RUNNABLE_PATH {
-            full
-        } else {
-            dataset.to_string()
-        }
-    };
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
-    let (uuid, tx) = push(
-        db,
-        tx,
-        w_id,
-        JobPayload::RawFlow { value: flow_value, path: Some(path), restarted_from: None },
-        PushArgs::from(&args),
-        authed.display_username(),
-        &authed.email,
-        username_to_permissioned_as(&authed.username),
-        authed.token_prefix.as_deref(),
-        authed.username_override.as_deref(),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        false,
-        false,
-        None,
-        true,
-        None,
-        None,
-        None,
-        None,
-        Some(&authed.clone().into()),
-        false,
-        None,
-        authed.trigger_or_fallback(None),
-        None,
-    )
-    .await?;
-    tx.commit().await?;
-    Ok(uuid)
-}
-
-/// Read finished scoring jobs into the scores they produced. Called before results are served, so
-/// a score outlives the job that produced it and the retention on that job.
 /// Bring a run's record up to date with the flow that is executing it: which iteration answered
 /// which case, and what its scorers returned.
 ///
 /// Read-driven because there is nothing to drive it: the flow runs on workers that know nothing
 /// about these tables. A run therefore holds its answers and its scores whether or not anyone is
 /// watching, and this is what copies them into rows that outlive the jobs' retention.
-async fn sync_run(
-    db: &DB,
-    w_id: &str,
-    experiment_id: Uuid,
-    run_job_id: Option<Uuid>,
-) -> Result<()> {
-    if let Some(run_job_id) = run_job_id {
-        backfill_case_jobs(db, w_id, experiment_id, run_job_id).await?;
-    }
-    harvest_scores(db, w_id, experiment_id).await?;
+async fn sync_run(db: &DB, w_id: &str, experiment_id: Uuid, run_job_id: Uuid) -> Result<()> {
+    backfill_case_jobs(db, w_id, experiment_id, run_job_id).await?;
     harvest_flow_scores(db, w_id, experiment_id).await?;
     Ok(())
 }
@@ -3589,8 +2704,8 @@ async fn backfill_case_jobs(
     Ok(())
 }
 
-/// Read the scores a run's own flow produced. A cell whose scorer ran inside the run has no
-/// scoring job of its own, which is what tells the two shapes apart.
+/// Read the scores a run's own flow produced into `eval_score`, so a score outlives the flow
+/// that produced it and the retention on its jobs.
 async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result<()> {
     let pending = sqlx::query!(
         // Left-joined, so an iteration still running is read too: a scorer runs after the agent
@@ -3602,7 +2717,7 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
          JOIN eval_experiment_case c
               ON c.experiment_id = s.experiment_id AND c.ordinal = s.ordinal
          LEFT JOIN v2_job_completed j ON j.id = c.job_id AND j.workspace_id = $2
-         WHERE s.experiment_id = $1 AND s.job_id IS NULL AND s.score IS NULL AND s.error IS NULL
+         WHERE s.experiment_id = $1 AND s.score IS NULL AND s.error IS NULL
                AND c.job_id IS NOT NULL",
         experiment_id,
         w_id
@@ -3617,48 +2732,6 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
             &row.scorer_id,
             row.status.as_deref(),
             "The case produced no answer to score",
-        )
-        .await
-        else {
-            continue;
-        };
-        sqlx::query!(
-            "UPDATE eval_score SET score = $4, reason = $5, checks = $6, error = $7
-             WHERE experiment_id = $1 AND ordinal = $2 AND scorer_id = $3",
-            experiment_id,
-            row.ordinal,
-            row.scorer_id,
-            score,
-            reason,
-            checks,
-            error,
-        )
-        .execute(db)
-        .await?;
-    }
-    Ok(())
-}
-
-async fn harvest_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result<()> {
-    let pending = sqlx::query!(
-        "SELECT s.ordinal, s.scorer_id, s.job_id AS \"job_id!\", j.status::text AS status
-         FROM eval_score s
-         JOIN v2_job_completed j ON j.id = s.job_id AND j.workspace_id = $2
-         WHERE s.experiment_id = $1 AND s.job_id IS NOT NULL AND s.score IS NULL
-               AND s.error IS NULL",
-        experiment_id,
-        w_id
-    )
-    .fetch_all(db)
-    .await?;
-    for row in pending {
-        let Some((score, reason, checks, error)) = read_verdict(
-            db,
-            w_id,
-            row.job_id,
-            &row.scorer_id,
-            row.status.as_deref(),
-            "The scoring job failed",
         )
         .await
         else {
@@ -4007,7 +3080,7 @@ async fn load_scores(
 
 async fn read_experiment(db: &DB, w_id: &str, dataset: &str, id: Uuid) -> Result<EvalExperiment> {
     let row = sqlx::query!(
-        "SELECT e.subject, e.run_number, e.label, e.scored_from, e.run_job_id, e.created_at,
+        "SELECT e.subject, e.run_number, e.run_job_id, e.created_at,
                 e.created_by,
                 (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)
                     AS \"case_count!\"
@@ -4030,8 +3103,6 @@ async fn read_experiment(db: &DB, w_id: &str, dataset: &str, id: Uuid) -> Result
         dataset.to_string(),
         row.subject,
         row.run_number,
-        row.label,
-        row.scored_from,
         row.run_job_id,
         row.case_count,
         row.created_at,
@@ -4568,202 +3639,6 @@ pub async fn scorer_defaults() -> JsonResult<ScorerDefaults> {
 // Capturing a case from real traffic
 // -----------------------------------------------------------------------------------------------
 
-/// A case pre-filled from something that already ran, for the user to review before saving.
-/// Nothing is written here — the client posts it back to `cases/add` once it looks right.
-#[derive(Serialize)]
-pub struct EvalCaseDraft {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    pub input: EvalCaseInput,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub host_flow_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_inputs: Option<Box<RawValue>>,
-    /// What the captured run actually answered, kept as the reference a rerun is compared
-    /// against, and what a scorer compares a rerun to. Capture time is the only moment it
-    /// exists.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expected: Option<Box<RawValue>>,
-    pub source: EvalCaseSource,
-    /// The agent the capture ran against, so the drawer can preselect the subject.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent_path: Option<String>,
-}
-
-/// Capture the inputs of a past AI agent run. Reads through `user_db` so a caller who cannot
-/// see the job cannot lift its user message out of it.
-pub async fn case_draft_from_job(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, job_id)): Path<(String, Uuid)>,
-) -> JsonResult<EvalCaseDraft> {
-    // `UserDB` enforces row permissions but not a token's scopes, so without this an
-    // `ai_evals:read` token would read job arguments — and any attachment they name — that
-    // `jobs:read` is what actually gates.
-    check_scopes(&authed, || "jobs:read".to_string())?;
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let job = sqlx::query!(
-        "SELECT kind::text AS \"kind!\", args as \"args: sqlx::types::Json<serde_json::Value>\", parent_job, flow_step_id
-         FROM v2_job WHERE id = $1 AND workspace_id = $2",
-        job_id,
-        &w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    let job = job.ok_or_else(|| Error::NotFound(format!("Job {} not found", job_id)))?;
-    if job.kind != "aiagent" {
-        return Err(Error::BadRequest(format!(
-            "Job {} is a {} job, only AI agent runs can be captured as a case",
-            job_id, job.kind
-        )));
-    }
-
-    let args = job.args.map(|a| a.0).unwrap_or(serde_json::Value::Null);
-    let input = EvalCaseInput {
-        user_message: args
-            .get("user_message")
-            .and_then(|v| v.as_str())
-            .map(str::to_string),
-        user_attachments: args
-            .get("user_attachments")
-            .and_then(|v| serde_json::value::to_raw_value(v).ok()),
-    };
-
-    // The agent step's own definition lives in its parent flow, which is also where the host
-    // flow's `tool_inputs` are: capturing them is what lets the case reproduce the wiring the
-    // run actually used rather than the agent's authored defaults.
-    let mut host_flow_path = None;
-    let mut agent_path = None;
-    let mut tool_inputs = None;
-    if let (Some(parent_job), Some(step_id)) = (job.parent_job, job.flow_step_id.as_deref()) {
-        let parent = sqlx::query!(
-            "SELECT runnable_path, raw_flow as \"raw_flow: sqlx::types::Json<serde_json::Value>\", runnable_id, kind::text AS \"kind!\"
-             FROM v2_job WHERE id = $1 AND workspace_id = $2",
-            parent_job,
-            &w_id
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-        if let Some(parent) = parent {
-            // Only a path that resolves to a flow is a host flow. A preview parent may
-            // carry either: the flow editor's step test uses the real flow path, while an
-            // eval run uses a synthetic stamp that would fail to rerun.
-            host_flow_path = match parent.runnable_path.clone() {
-                Some(path) => {
-                    let exists = sqlx::query_scalar!(
-                        "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2) AS \"exists!\"",
-                        &w_id,
-                        &path
-                    )
-                    .fetch_one(&mut *tx)
-                    .await?;
-                    exists.then_some(path)
-                }
-                None => None,
-            };
-            let value = match parent.raw_flow {
-                Some(raw_flow) => Some(raw_flow.0),
-                None => match (parent.kind.as_str(), parent.runnable_id) {
-                    ("flow", Some(id)) => {
-                        sqlx::query_scalar!(
-                            "SELECT value AS \"value!\" FROM flow_version WHERE id = $1",
-                            id
-                        )
-                        .fetch_optional(&mut *tx)
-                        .await?
-                    }
-                    // A branch or loop body runs under a `flownode` parent, which carries
-                    // no raw_flow: its definition lives in flow_node.
-                    ("flownode", Some(id)) => {
-                        sqlx::query_scalar!(
-                            "SELECT flow AS \"flow!\" FROM flow_node WHERE id = $1",
-                            id
-                        )
-                        .fetch_optional(&mut *tx)
-                        .await?
-                    }
-                    _ => None,
-                },
-            };
-            if let Some(value) = value {
-                if let Some(module) = find_module(&value, step_id) {
-                    agent_path = module
-                        .get("agent")
-                        .and_then(|a| a.as_str())
-                        .map(|a| strip_res_prefix(a).to_string());
-                    tool_inputs = module
-                        .get("tool_inputs")
-                        .and_then(|t| serde_json::value::to_raw_value(t).ok());
-                }
-            }
-        }
-    }
-    // What the run answered becomes the case's expected value: capture time is the only moment a
-    // reference answer exists for free, and every scorer is handed one. A run that failed or is
-    // still going has nothing to offer, and the caller can always write their own.
-    let expected = sqlx::query!(
-        "SELECT result AS \"result: sqlx::types::Json<Box<RawValue>>\", status::text AS \"status!\"
-         FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
-        job_id,
-        &w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .filter(|r| r.status == "success")
-    .and_then(|r| r.result)
-    .and_then(|r| agent_answer(&r.0))
-    .map(|answer| serde_json::value::to_raw_value(&answer))
-    .transpose()?;
-
-    tx.commit().await?;
-
-    // A host flow only matters when it can actually be reapplied, which needs both the flow
-    // and the link back to the agent it overrides.
-    if agent_path.is_none() {
-        host_flow_path = None;
-        tool_inputs = None;
-    }
-
-    Ok(Json(EvalCaseDraft {
-        name: input
-            .user_message
-            .as_deref()
-            .map(|m| windmill_common::utils::truncate_with_ellipsis(m, 40)),
-        input,
-        host_flow_path,
-        tool_inputs,
-        expected,
-        source: EvalCaseSource {
-            job_id: Some(job_id),
-            agent_path: agent_path.clone(),
-            captured_at: Utc::now(),
-        },
-        agent_path,
-    }))
-}
-
-/// Find the `aiagent` module with the given id anywhere in a flow value, including inside
-/// loops, branches and the tool set of another agent.
-fn find_module<'a>(
-    value: &'a serde_json::Value,
-    module_id: &str,
-) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
-    match value {
-        serde_json::Value::Object(map) => {
-            if map.get("id").and_then(|i| i.as_str()) == Some(module_id) {
-                if let Some(serde_json::Value::Object(inner)) = map.get("value") {
-                    if inner.get("type").and_then(|t| t.as_str()) == Some("aiagent") {
-                        return Some(inner);
-                    }
-                }
-            }
-            map.values().find_map(|v| find_module(v, module_id))
-        }
-        serde_json::Value::Array(items) => items.iter().find_map(|v| find_module(v, module_id)),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4864,24 +3739,4 @@ mod tests {
         assert_eq!(script("f/e/s", None).passed(Some(0.1)), None);
     }
 
-    /// The stamp is what makes a run findable again, and overflowing `runnable_path`'s
-    /// varchar(255) would truncate it into a path that matches nothing.
-    #[test]
-    fn run_path_falls_back_to_the_agent_when_the_stamp_would_overflow() {
-        let case_id = Uuid::nil();
-        assert_eq!(
-            run_path("f/a/agent", Some("f/e/ds"), Some(case_id)),
-            format!("f/a/agent/f/e/ds/{}", case_id)
-        );
-
-        let long_dataset = format!("f/e/{}", "d".repeat(240));
-        assert_eq!(
-            run_path("f/a/agent", Some(&long_dataset), Some(case_id)),
-            "f/a/agent"
-        );
-
-        // No case to point at: the run is a one-off and stamps only its subject.
-        assert_eq!(run_path("f/a/agent", None, None), "f/a/agent");
-        assert_eq!(run_path("f/a/agent", Some("f/e/ds"), None), "f/a/agent");
-    }
 }

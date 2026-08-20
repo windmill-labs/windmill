@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_dataset\n         SET path = COALESCE($6, path), summary = $3,\n             scorers = COALESCE($4, scorers), edited_at = now(), edited_by = $5\n         WHERE workspace_id = $1 AND path = $2\n         RETURNING path",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Varchar",
+        "Jsonb",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c278480734ffd4cbece6c2a774471ed2e0ef239f91ce845ea94f27928c79f8ad"
+}

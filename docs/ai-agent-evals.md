@@ -19,11 +19,11 @@ Three words, and no fourth:
 - a **run** is one case executed once, which is a job;
 - an **experiment** is the set of runs over a dataset.
 
-It is reachable from everywhere an agent already is, and always over what you were doing rather
-than instead of it: the agent card at the top of an AI agent step's inputs in the flow editor, the `ai_agent`
-row on `/resources`, and an AI agent run's detail page. In the flow editor it is a button on the
-card rather than a tab of the step, because what it opens is the agent's history rather than a
-setting of the step, and the card is the one thing on screen that is about the agent.
+It is reachable from where an agent already is, and always over what you were doing rather
+than instead of it: the agent card at the top of an AI agent step's inputs in the flow editor, and
+the `ai_agent` row on `/resources`. In the flow editor it is a button on the card rather than a tab
+of the step, because what it opens is the agent's history rather than a setting of the step, and
+the card is the one thing on screen that is about the agent.
 
 **Evals belong to a saved agent.** A dataset and its runs hang off an `ai_agent` resource, so they
 outlive the step being renamed, copied or deleted, and two runs are comparable because they name
@@ -72,24 +72,20 @@ one argument is the iteration's own job id, and hands the scorers exactly what a
 anywhere else. A scorer therefore measures the agent's latency and not its own: the payload
 reports the *agent step's* duration, never the iteration's.
 
-Scoring stays separable even so. Its steps read a run that already exists, which is what lets a
-scorer added next week score a run from today without calling the agent again — that is
-`score_again`, the same flow with the agent step left out and each iteration pointed at the answer
-the earlier run recorded.
-
 A draft is the transforms as authored, expressions included. One that reads `results.<step>.x` or
 a `flow_input` the case does not supply resolves to nothing here, the same way it would in any run
 of that step outside its flow.
 
-One case field exists because a linked agent is not self-contained: **host flow**. A linked
-agent's tools bind to their host flow through that flow's `tool_inputs`. A case defaults to the
-agent's own authored defaults; naming a host flow resolves that flow's overrides at run time
-instead, for when someone hits the discrepancy.
+A linked agent is not fully self-contained: a host flow can override its tools' inputs through
+the step's `tool_inputs`. A run does not reproduce that wiring — the agent runs with its own
+authored defaults, the same configuration every flow starts from. An agent whose behaviour depends
+on one flow's overrides is measured here without them, which is worth knowing when a score and a
+production incident disagree.
 
 A case carries **no conversation**. It is one question and the answer it should produce, so a run
 starts from the agent's own memory configuration and nothing is replayed into it. Replaying a
-recorded conversation is a real thing to want — it is how a case captured from production
-reproduces the state its answer depended on — but it needs a message list in the case, an override
+recorded conversation is a real thing to want — it is how a case taken from production would
+reproduce the state its answer depended on — but it needs a message list in the case, an override
 of the agent's memory in the executor, and an editor for both, and none of that is worth carrying
 until someone is curating cases from chat traffic.
 
@@ -106,14 +102,12 @@ in full, and a second copy of it in a side panel is a worse version of a page th
 For a recorded row the answer is read off the row rather than out of the job, because `job_id` is
 the whole iteration — the agent and then the scorers that measured it — and its result is the last
 scorer's verdict, not the answer. The link is still the iteration, which is the run of that case.
-A trial has no scorers after it, so its own result is its answer and it is rendered as one.
 
 What makes a job findable again is stamped on it at push:
 
-- `runnable_path` is `<agent>/<dataset>` on the run's flow (`<agent>/<dataset>/<case>` on a
-  single-case trial, just `<agent>` for an unsaved one), so the existing `script_path_start` job
-  filter answers "every run of this agent" with no new state. `v2_job.runnable_path` is
-  `varchar(255)`, so a stamp that would overflow degrades to the agent path alone.
+- `runnable_path` is the agent's own path, so the existing `script_path_start` job filter
+  answers "every run of this agent" with no new state. Which dataset and which experiment are in
+  the stamp below rather than the path.
 - `_eval` in the flow's args records `{subject: {kind, path, version}, dataset, experiment_id}`,
   and every iteration inherits it, so a job opened cold from the runs page explains itself. Which
   case an iteration ran is in its own `iter.value`, which is also how a cell finds its job again.
@@ -144,19 +138,6 @@ A version captures the resource, not its transitive closure. Two byte-identical 
 behave differently because a `$var:`/`$res:` they reference changed underneath them, so a
 recorded version is necessary for attribution but not sufficient.
 
-## Capturing a case from real traffic
-
-Manufactured cases miss the edge cases that actually break agents, so capture builds a draft for
-review rather than writing anything. **From an AI agent run**: the job's
-`user_message`/`user_attachments`, the host flow and the `tool_inputs` that run actually used
-(lifted from the parent flow's step), and what the run answered as `expected`. That is the only
-capture path: a test of the step is not one, because a step test is a thing you do while writing the
-step rather than a run worth keeping.
-
-`expected` is what a scorer compares a rerun against. Capture is the moment it exists for free,
-but it is an ordinary field: it can be typed as plain text, or as JSON when the answer has
-structure.
-
 ## Experiments
 
 Running a dataset produces an experiment: every case executed against one subject, with a row per
@@ -168,40 +149,24 @@ case's run stamp and history query identical to a single run, and lets an answer
 node id (`get_result_and_success_by_id_from_flow`) instead of walking a nested
 loop's status.
 
-An experiment applies one tool binding to every case: `host_flow_path` is set per experiment, and
-a case's own `host_flow_path` is honoured only by a single run. Rows of one experiment would not
-otherwise be comparable with each other.
-
 ### What a run is called
 
 An experiment is `Run N`: `run_number` is allocated per `(dataset, agent path)` when the run is
 opened, once, and never reused. Stored rather than counted at read time, so a run keeps the name it
-was given as history is pruned around it. That is the whole of naming a run — there is no
-user-given label, and `eval_experiment.label` is the column a future one would fill.
+was given as history is pruned around it. That is the whole of naming a run: there is no
+user-given label.
 
 Numbering is per agent and not per subject kind, so runs of what is deployed and runs of the edits
 on top of it share one sequence. They are the same agent's history, and "Run 7" should mean one
 thing; which of the two ran it is what the run says beside its number.
 
-### A run is permanent, and one case is a trial
+### A run is permanent
 
 Every run is written once and then only ever read. Nothing is written over: there is no writable
-experiment, no partial rerun, and no cell that can be edited after the fact.
-
-**Running one case records nothing.** It is a trial: you run it to see what the agent does with
-that case, and looking at that is not a claim that it belongs in the dataset's history. Its answer
-and its scores show in the case panel, beside the recorded result they leave alone — the table goes
-on showing exactly what the selected run recorded, which is the point of a run being permanent.
-Running the dataset is what produces numbers worth comparing, and a run in which some cells came
-from one version and some from another would not be one of them.
-
-A trial is scored where it stands. A run whose numbers you cannot see is a run you have to eyeball,
-which is the thing scorers exist to replace, and the trial's scoring reads the answer it already
-stored — no second agent call. Leaving the pane loses the trial, not the job: that is a job like
-any other, with its own retention and its own `_eval` stamp saying which agent, version and case it
-ran.
-
-**Running the dataset** is the only way a run appears, and every cell in it is its own.
+experiment, no partial rerun, and no cell that can be edited after the fact. Running the dataset
+is what produces numbers worth comparing — a run in which some cells came from one version and
+some from another would not be one of them — and it is the only way a run appears; every cell in
+it is its own.
 
 - **One experiment holds one subject, and one agent keeps one history.** The experiment list is
   filtered to the agent the pane was opened on, across both kinds, so a dataset shared by two
@@ -263,48 +228,28 @@ permissions and retains; what a run adds is rows of scores pointing at jobs.
 
 ## Scoring
 
-Scoring is separate from running, and only one of the two needs a button. **Run** produces an
-answer and then scores it, because the score is the point of pressing it. **Rescore** re-runs the
-scorers over answers already recorded and never touches the agent.
+Scoring is not a second act with a button of its own: **Run** produces an answer and then scores
+it, because the score is the point of pressing it. Each iteration of the run's flow scores its own
+answer as a step, and the numbers are harvested into rows when results are read.
 
-That split is not a convenience. A judge is edited far more often than an agent, and re-running the
-agent to test a judge change mixes two variables and pays the model twice for an answer that is
-already stored. It is also what makes an honest comparison possible: a baseline that predates a
-scorer can be scored *from its stored answers*, so the column stops reading "not scored" without
-anyone re-running last week's agent.
+A run's cells are therefore measured by the scorers as they stood when it ran, and never again.
+A scorer edited or added afterwards has no cell in the runs that predate it: rescoring a run in
+place would make a permanent run editable, and cells replaced one at a time until they read well
+are not evidence. The one thing read through the present is the pass line — `pass_if` is applied
+when a score is read, so moving it re-reads every run with no model call.
 
-`POST /ai_evals/score` is one route at four grains — one run, one column of one experiment, a whole
-experiment, or a column across history — and none of them runs on its own. Scoring history is an
-action a user takes, never a background job spending a provider budget while a table is open.
+**Not built, and worth building:**
 
-### Measuring a run again
-
-A run is permanent, so a scorer edited or added after it cannot be applied to it: there is no cell
-to overwrite. **Run scorers only** opens a run of its own that reuses that run's answers, and scores
-them with the scorers as they are now. It calls the agent for nothing.
-
-What makes the result readable is that the answers and their provenance are copied **whole** rather
-than mixed: every cell keeps the parent's `job_id`, `subject_version` and draft hash, so the new run
-is attributed to the version that produced those answers, goes stale against the current agent
-exactly as its parent does, and tells you nothing about the agent as it is now. `scored_from` records
-where the answers came from, and both the list of runs and the run picker say so, because a run
-that reads like any other would be read as the agent having answered again.
-
-It is deliberately all of the dataset's scorers rather than the one you edited. A run holding one
-column could not be compared with any other run on the rest of them, and re-running a deterministic
-scorer only reproduces its number.
-
-There is no other way to score an existing run, on purpose. Rescoring a run in place would make a
-permanent run editable, and an action in a column's menu that scored *other* runs read as acting on
-the one on screen. Trying an edited scorer on a single case is a click away in the panel, which runs
-that case against the current agent and scores the answer.
-
-**Not built, and worth building:** a cache. If a cell's agent configuration, case input and scorer
-definition are all unchanged, its number could be reused instead of recomputed, which would make
-running a dataset cheap and make measuring-again unnecessary. It is deliberately absent rather than
-deferred by omission: reusing a cell asserts the agent is deterministic, and it is not, so it has to
-be an explicit choice with its own answer to what a run means when half of it was computed last
-week.
+- **Rescoring stored answers.** A judge is edited far more often than an agent, and re-running the
+  agent to test a judge change mixes two variables and pays the model twice for answers that are
+  already stored. The honest shape is a run of its own that reuses a parent run's answers and
+  scores them with the columns as they are now — attributed to the version that produced the
+  answers, and saying where they came from, so it never reads as the agent having answered again.
+- **A cache.** If a cell's agent configuration, case input and scorer definition are all unchanged,
+  its number could be reused instead of recomputed, which would make running a dataset cheap. It is
+  deliberately absent rather than deferred by omission: reusing a cell asserts the agent is
+  deterministic, and it is not, so it has to be an explicit choice with its own answer to what a
+  run means when half of it was computed last week.
 
 ### A score is a number, and optionally a line through it
 
@@ -378,12 +323,6 @@ script in the script editor, a judge in the resource editor.
 
 A `reason` is worth returning: it is what the cell shows on hover, together with the per-assertion
 `checks`, so a number that looks wrong can be read rather than re-derived from the trajectory.
-
-Rescoring is one grain and one act: **Run scorers only**, which measures a whole run again with
-the columns as they are now and records the result as a run of its own (see *Measuring a run
-again*). Nothing rescores a single cell or a single column in place. A run whose numbers can be
-replaced one at a time until they read well is not evidence, and a column rescored on its own
-would leave a run whose cells were measured by two different sets of scorers.
 
 A scorer may return a bare number, a boolean, or `{score, reason, checks}`; a judge's answer arrives
 under `output`, sometimes as a string holding one of those, and often as a markdown code fence
@@ -485,33 +424,30 @@ which of the two you are doing is the first thing the form needs to know. A new 
 opens with its summary already filled in — the summary names the column *and* derives the path, so
 an empty one is two decisions before the first score. Creating a dataset is the same drawer with the same two fields and no
 cases yet, so there is one place a dataset is written and one shape to learn. It is reached from
-**Edit dataset** above the table, from the pencil on an open row, and from **Add a case** under the
-last row; **New dataset** is in the dataset picker, which is where choosing which dataset you are in
-belongs. Renaming moves the dataset, and its cases and its runs follow through the foreign keys.
+the dataset named on a row of the runs list, and from the run dialog — the pencil on the dataset
+you are about to run, and **New dataset** beside it — which are the two places a dataset is what
+you are looking at. Renaming moves the dataset, and its cases and its runs follow through the
+foreign keys.
 
 Curating and reading are kept apart because they answer different questions and a table that did
 both invited editing a case while looking at what an earlier version of it scored. So the row keeps
 no Delete — deleting is in the drawer's case list, and it asks first — and a row's panel is
 read-only, showing the case *as the run executed it* rather than as the dataset holds it now.
 
-A case has no save button, and nothing reports that it saved: edits are written on a short
-debounce, and the list following what you type is the confirmation. A write that fails says so in a
-toast. **Add a case** writes an empty case and opens it, and nothing is filled in for you: a dataset
+The drawer edits a working copy and writes it when **Save** is pressed: added, changed and
+dropped cases land together, so a half-finished edit is never what the next run executes. **Add a
+case** puts an empty row in the list and opens it, and nothing is filled in for you: a dataset
 whose first case is one nobody wrote starts with noise in it.
 
 A case is its message, what it expects, and nothing else. It carries no name: the message is what
-identifies it in a table read left to right.
-
-A case captured from a run arrives in the same drawer, in the dataset it would join, with an
-explicit **Add to dataset** rather than the debounce the other cases have: it was written by a run
-rather than by the reader, and one that is merely being looked at must not save itself.
+identifies it in a table read left to right. `expected` is what a scorer compares an answer
+against, and it is an ordinary field: plain text, or JSON when the answer has structure.
 
 ### What the list of runs shows
 
 One row per run of this agent, newest first, whichever dataset it was of: the run's number and what
 executed it (`v24`, `v24 + edits`, or a pinned `v18`), how many cases it holds, what it scored, the
-dataset, and when. A run that only scored an earlier one says so under its number instead of naming
-who started it.
+dataset, and when.
 
 One list across datasets rather than one per dataset, because "has this agent got better" is not a
 question about a dataset. Each row names the dataset it is of — summary first, path under it — and
@@ -583,7 +519,7 @@ Datasets, cases and experiments are rows:
 | table | holds |
 |---|---|
 | `eval_dataset` | one dataset, addressed by a workspace path, and the scorers that are its columns |
-| `eval_case` | one case: its inputs, the answer it was expected to produce, where it was captured from |
+| `eval_case` | one case: its inputs and the answer it was expected to produce |
 | `eval_experiment` | one run over a dataset, against one subject; written once, then only read |
 | `eval_experiment_case` | the case set it executed, the job each case became, and the version or draft hash each ran against |
 | `eval_score` | one scorer's verdict on one run, with the definition that produced it |
@@ -637,8 +573,8 @@ fill the gap, both on read:
   iteration's own arguments by construction: `args -> 'iter' -> 'value' ->> 'case_id'` matches the
   cell, whatever order the iterations finish in.
 - **What the scorers returned.** Each scorer step's result is read out of the iteration's flow
-  status into the pending row that was written for it. A cell scored inside the run has no scoring
-  job of its own, which is what tells it apart from one scored by the older per-case path.
+  status into the pending row that was written for it at launch; the row is what outlives the
+  job's retention.
 
 Read-driven because there is nothing to drive it: the flow runs on workers that know nothing about
 these tables. The run holds its answers and its scores whether or not anyone is watching, and this

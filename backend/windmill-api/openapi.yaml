@@ -11608,10 +11608,6 @@ paths:
                   type: string
                 summary:
                   type: string
-                description:
-                  type: string
-                default_subject:
-                  $ref: "#/components/schemas/EvalSubject"
                 scorers:
                   type: array
                   items:
@@ -11670,10 +11666,6 @@ paths:
                     keys, so a rename keeps the history it already has.
                 summary:
                   type: string
-                description:
-                  type: string
-                default_subject:
-                  $ref: "#/components/schemas/EvalSubject"
                 scorers:
                   type: array
                   description: >
@@ -11785,15 +11777,7 @@ paths:
                   type: string
                 input:
                   $ref: "#/components/schemas/EvalCaseInput"
-                host_flow_path:
-                  type: string
-                tool_inputs:
-                  type: object
                 expected: {}
-                tags:
-                  type: array
-                  items:
-                    type: string
       responses:
         "200":
           description: eval case updated
@@ -11831,49 +11815,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/ai_evals/run:
-    post:
-      summary: run an agent standalone on one case
-      operationId: runEval
-      tags:
-        - ai_evals
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: what to run, and on which case
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [subject]
-              properties:
-                subject:
-                  $ref: "#/components/schemas/EvalSubject"
-                case:
-                  $ref: "#/components/schemas/NewEvalCase"
-                dataset:
-                  type: string
-                  description: dataset holding the case to run, instead of an inline case
-                case_id:
-                  type: string
-                  format: uuid
-      responses:
-        "200":
-          description: >
-            The job, and the experiment it was recorded in. A run against a dataset case lands in
-            Nothing is recorded: one case is run to see what it does, and whether that becomes part
-            of the dataset's history is decided afterwards, by saving it as a run.
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [job_id]
-                properties:
-                  job_id:
-                    type: string
-                    format: uuid
-
   /w/{workspace}/ai_evals/subject_state:
     get:
       summary: what the agent under test is right now
@@ -11908,86 +11849,6 @@ paths:
                     type: string
                   has_undeployed_changes:
                     type: boolean
-
-  /w/{workspace}/ai_evals/runs/score_case:
-    post:
-      summary: score a case run that is not part of a run yet
-      description: >
-        Rerunning one case is worth looking at only with its numbers beside it, and waiting for a
-        save to see them would mean deciding blind. The scoring job is carried into the run when
-        it is saved rather than recomputed.
-      operationId: scoreCaseRun
-      tags:
-        - ai_evals
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [dataset, case_id, job_id]
-              properties:
-                dataset:
-                  type: string
-                case_id:
-                  type: string
-                  format: uuid
-                job_id:
-                  type: string
-                  format: uuid
-      responses:
-        "200":
-          description: the scoring job
-          content:
-            application/json:
-              schema:
-                type: string
-                format: uuid
-
-  /w/{workspace}/ai_evals/runs/score_result:
-    get:
-      summary: the verdicts of a scoring job on a trial run
-      description: Computed on read and stored nowhere — a trial belongs to no run, so there is no row to hold it.
-      operationId: scoreCaseResult
-      tags:
-        - ai_evals
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: dataset
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: job_id
-          in: query
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: one verdict per scorer of the dataset
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  required: [scorer_id, pending]
-                  properties:
-                    scorer_id:
-                      type: string
-                    score:
-                      type: number
-                    reason:
-                      type: string
-                    checks: {}
-                    error:
-                      type: string
-                    pending:
-                      type: boolean
 
   /w/{workspace}/ai_evals/run_payload:
     get:
@@ -12082,29 +11943,6 @@ paths:
                           type: string
                           description: The dataset it is a column of.
 
-  /w/{workspace}/ai_evals/case_draft/from_job/{job_id}:
-    get:
-      summary: build a case draft from a past AI agent run
-      operationId: evalCaseDraftFromJob
-      tags:
-        - ai_evals
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: job_id
-          description: id of an AI agent job
-          in: path
-          required: true
-          schema:
-            type: string
-            format: uuid
-      responses:
-        "200":
-          description: eval case draft
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/EvalCaseDraft"
-
   /w/{workspace}/ai_evals/experiments/run:
     post:
       summary: run every case of a dataset, closing the writable experiment and opening the next
@@ -12126,11 +11964,6 @@ paths:
                   type: string
                 subject:
                   $ref: "#/components/schemas/EvalSubject"
-                host_flow_path:
-                  type: string
-                  description: >
-                    Applies one host flow's tool bindings to every case; per-case host_flow_path is
-                    only honoured by a single run, so an experiment's rows stay comparable.
       responses:
         "200":
           description: id of the created experiment
@@ -12138,43 +11971,6 @@ paths:
             text/plain:
               schema:
                 type: string
-
-  /w/{workspace}/ai_evals/experiments/score_again:
-    post:
-      summary: open a run that reuses another run's answers
-      description: >
-        Scoring is separate from running, so a scorer edited or added after a run should be able to
-        measure what that run already answered. A run is permanent, so it cannot be measured in
-        place: this opens a run of its own holding the same answers, which the score route then
-        scores. Nothing calls the agent. The answers and their provenance are copied whole rather
-        than mixed, so the new run is attributed to the version its parent recorded and goes stale
-        against the current agent exactly as the parent does.
-      operationId: scoreAgain
-      tags:
-        - ai_evals
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [dataset, experiment_id]
-              properties:
-                dataset:
-                  type: string
-                experiment_id:
-                  type: string
-                  format: uuid
-      responses:
-        "200":
-          description: the run that was opened
-          content:
-            application/json:
-              schema:
-                type: string
-                format: uuid
 
   /w/{workspace}/ai_evals/experiments/list_all:
     get:
@@ -12198,37 +11994,6 @@ paths:
           description: >
             The 100 newest experiments, each naming the dataset it is of. Restricted to datasets
             the caller can read.
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/EvalExperiment"
-
-  /w/{workspace}/ai_evals/experiments/list/{path}:
-    get:
-      summary: list a dataset's experiments
-      operationId: listExperiments
-      tags:
-        - ai_evals
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-        - name: subject_path
-          description: >
-            Restrict to one agent's runs. A dataset can be run against several agents, and another
-            agent's numbers are not this one's history. Runs of what is deployed and runs of the
-            edits waiting on top of it are both that agent's history, so this does not
-            discriminate by kind.
-          in: query
-          required: false
-          schema:
-            type: string
-      responses:
-        "200":
-          description: >
-            The 100 newest experiments of that subject. The list is for picking a run; read an
-            experiment's results to get the cases it executed.
           content:
             application/json:
               schema:
@@ -26516,7 +26281,8 @@ components:
           format: int64
           nullable: true
           description: >
-            resource_version id the agent was at when the run was enqueued. For `agent` and
+            The agent's per-path version number when the run was enqueued: how many times the
+            resource had been saved, not a resource_version row id. For `agent` and
             `agent_draft` it is recorded so a run stays attributable to a prompt state, and does
             not pin execution — a run that waits in the queue across an edit runs a later version
             than this. For `agent_version` it is the request's own, says which version to inline,
@@ -26545,7 +26311,7 @@ components:
           additionalProperties: true
           description: >
             The agent's input transforms: provider, system prompt, output type and the rest. The
-            message, attachments and memory come from the case and override anything named here.
+            message and attachments come from the case and override anything named here.
         tools:
           type: array
           items:
@@ -26560,10 +26326,6 @@ components:
           type: string
         summary:
           type: string
-        description:
-          type: string
-        default_subject:
-          $ref: "#/components/schemas/EvalSubject"
         scorers:
           type: array
           description: The columns of the results table, in display order.
@@ -26591,20 +26353,6 @@ components:
           items:
             type: object
 
-    EvalCaseSource:
-      type: object
-      description: Where a case was captured from, when it came from real traffic.
-      required: [captured_at]
-      properties:
-        job_id:
-          type: string
-          format: uuid
-        agent_path:
-          type: string
-        captured_at:
-          type: string
-          format: date-time
-
     NewEvalCase:
       type: object
       properties:
@@ -26612,21 +26360,8 @@ components:
           type: string
         input:
           $ref: "#/components/schemas/EvalCaseInput"
-        host_flow_path:
-          type: string
-          description: >
-            Resolve the tool inputs from this flow's step instead of the agent's own authored
-            defaults, for when a linked agent behaves differently under its host flow.
-        tool_inputs:
-          type: object
         expected:
           description: Reference output a scorer compares a rerun against.
-        tags:
-          type: array
-          items:
-            type: string
-        source:
-          $ref: "#/components/schemas/EvalCaseSource"
 
     EvalCase:
       allOf:
@@ -26642,27 +26377,6 @@ components:
             created_by:
               type: string
         - $ref: "#/components/schemas/NewEvalCase"
-
-    EvalCaseDraft:
-      type: object
-      description: A case pre-filled from something that already ran, for review before saving.
-      required: [input, source]
-      properties:
-        name:
-          type: string
-        input:
-          $ref: "#/components/schemas/EvalCaseInput"
-        host_flow_path:
-          type: string
-        tool_inputs:
-          type: object
-        expected:
-          description: What the captured run answered, kept as the reference to score against.
-        source:
-          $ref: "#/components/schemas/EvalCaseSource"
-        agent_path:
-          type: string
-          description: The agent the capture ran against, to preselect the subject.
 
     Scorer:
       type: object
@@ -26698,7 +26412,7 @@ components:
         One run of a dataset: written once when the dataset is run, and only ever read afterwards.
         The case set it executed is returned by the results endpoint, not here: a listing would
         otherwise send the whole dataset back once per experiment.
-      required: [id, dataset, subject, run_number, case_count, created_at, created_by]
+      required: [id, dataset, subject, run_number, run_job_id, case_count, created_at, created_by]
       properties:
         id:
           type: string
@@ -26713,23 +26427,11 @@ components:
             This agent's nth run of this dataset, allocated once and never reused. What a run is
             called. Numbered per agent rather than per subject kind: runs of what is deployed and
             runs of its draft are the same agent's history.
-        label:
-          type: string
-          description: >
-            A name for the run, beside the number it already carries. Nothing sets one yet: naming
-            runs is not part of the surface, and the field is what a future one would fill.
-        scored_from:
-          type: string
-          format: uuid
-          description: >
-            The run whose answers this one measured again. Set exactly when nothing was run: the
-            cells are that run's, and so is the version they are attributed to.
         run_job_id:
           type: string
           format: uuid
           description: >
-            The flow executing the run: one job holding every case and its scores. Absent on runs
-            recorded when a run was a job per case.
+            The flow executing the run: one job holding every case and its scores.
         case_count:
           type: integer
         scores:

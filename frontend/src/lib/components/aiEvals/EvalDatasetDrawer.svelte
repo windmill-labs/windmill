@@ -90,12 +90,8 @@
 	/**
 	 * @param opts.caseId the case to open on, for an edit reached from a row of the table
 	 * @param opts.addCase start on a new, empty case
-	 * @param opts.capture a case captured from a run, opened for review before it is saved
 	 */
-	export function openDrawer(
-		next: 'new' | 'edit',
-		opts?: { caseId?: string; addCase?: boolean; capture?: CaseDraft }
-	) {
+	export function openDrawer(next: 'new' | 'edit', opts?: { caseId?: string; addCase?: boolean }) {
 		mode = next
 		pathError = ''
 		// Cleared per open: what was collected for a dataset that was never created belongs to that
@@ -122,11 +118,6 @@
 		}
 		formGeneration += 1
 		selectCase(opts?.caseId)
-		if (opts?.capture) {
-			selectedCaseId = undefined
-			caseDraft = structuredClone($state.snapshot(opts.capture)) as CaseDraft
-			draftGeneration += 1
-		}
 		drawer?.openDrawer()
 		if (opts?.addCase) addCase()
 	}
@@ -175,7 +166,6 @@
 				requestBody: {
 					path: created,
 					summary: summary || undefined,
-					default_subject: { kind: 'agent', path: agentPath },
 					// What was written for it while it was being named: the dataset arrives holding it
 					// rather than being created empty and then edited to hold what was already chosen.
 					scorers: pendingScorers,
@@ -236,8 +226,6 @@
 				requestBody: {
 					path,
 					summary: summary || undefined,
-					description: dataset.description,
-					default_subject: dataset.default_subject,
 					scorers: dataset.scorers
 				}
 			})
@@ -259,17 +247,6 @@
 	 *  drawer is saved, like every other edit made here. */
 	function addCase() {
 		const draft = { ...emptyCase(), id: randomUUID() }
-		workingCases = [...workingCases, draft]
-		selectedCaseId = draft.id
-		caseDraft = draft
-		draftGeneration += 1
-	}
-
-	/** Puts a case captured from a run into the list, which is what the button over the fields
-	 *  offers: until then it is a draft the drawer is showing, not one of the set. */
-	function keepCapturedCase() {
-		if (!caseDraft || caseDraft.id) return
-		const draft = { ...$state.snapshot(caseDraft), id: randomUUID() } as CaseDraft
 		workingCases = [...workingCases, draft]
 		selectedCaseId = draft.id
 		caseDraft = draft
@@ -437,24 +414,6 @@
 					</div>
 					<div class="grow min-w-0 overflow-auto">
 						{#if caseDraft}
-							{#if !caseDraft.id}
-								<!-- A captured case is in the dataset only once it is put there. Above the fields
-									     rather than under them: an expected answer runs to any length, and the way to
-									     keep the case must not sit at the bottom of it. -->
-								<div class="flex items-center gap-2 pb-3">
-									<span class="text-2xs text-tertiary grow">
-										Captured from a run, and not in the dataset yet.
-									</span>
-									<Button
-										size="xs"
-										variant="accent"
-										startIcon={{ icon: Plus }}
-										onclick={keepCapturedCase}
-									>
-										Add to dataset
-									</Button>
-								</div>
-							{/if}
 							{#key draftGeneration}
 								<EvalCaseEditor bind:draft={caseDraft} />
 							{/key}

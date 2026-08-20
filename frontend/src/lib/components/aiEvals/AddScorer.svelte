@@ -100,7 +100,6 @@
 
 	/** The run as the judge reads it, mirroring what the API renders into the user message. */
 	const RUN_SHAPE = `Request: the case's user message
-Prior turns: the replayed conversation, when the case has one
 Tool calls, in order:
 1. tool_name({"arg": ...}) -> result (123ms)
 Answer: what the run produced

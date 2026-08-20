@@ -37,14 +37,6 @@
 		return datasets.find((d) => d.path === path)?.summary || undefined
 	}
 
-	/** A run that only scored an earlier one says so, or it reads as the agent having answered
-	 *  again. Named by the run it measured, which is a number the list also shows. */
-	function scoredFrom(experiment: EvalExperiment): string | undefined {
-		if (!experiment.scored_from) return undefined
-		const parent = experiments.find((e) => e.id === experiment.scored_from)
-		return parent ? `scored from run ${parent.run_number}` : 'scored from an earlier run'
-	}
-
 	/** The one number a column reports: a pass rate where it has a line to pass, the mean where it
 	 *  does not. The same headline the column shows over the table of that run. */
 	function headline(score: ExperimentScore): string | undefined {
@@ -74,7 +66,6 @@
 	</Head>
 	<tbody class="divide-y">
 		{#each experiments as experiment (experiment.id)}
-			{@const scored = scoredFrom(experiment)}
 			<!-- Hoverable because it is: the row opens the run, and a row that reacts to the pointer
 			     is the only thing that says so. -->
 			<Row hoverable on:click={() => onOpen(experiment)}>
@@ -86,9 +77,7 @@
 							<span class="truncate text-emphasis font-medium">{experimentName(experiment)}</span>
 							<Badge color="gray" class="shrink-0">{subjectLabel(experiment)}</Badge>
 						</div>
-						<span class="text-2xs text-tertiary truncate">
-							{#if scored}{scored}{:else}{experiment.created_by}{/if}
-						</span>
+						<span class="text-2xs text-tertiary truncate">{experiment.created_by}</span>
 					</div>
 				</Cell>
 				<Cell>

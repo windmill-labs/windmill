@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT e.id, e.dataset_path, e.subject, e.run_number, e.label, e.scored_from,\n                e.run_job_id, e.created_at, e.created_by,\n                (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)\n                    AS \"case_count!\"\n         FROM eval_experiment e\n         JOIN eval_dataset d ON d.workspace_id = e.workspace_id AND d.path = e.dataset_path\n         WHERE e.workspace_id = $1\n               AND ($3::text IS NULL OR e.subject ->> 'path' = $3)\n         ORDER BY e.created_at DESC\n         LIMIT $2",
+  "query": "SELECT e.id, e.dataset_path, e.subject, e.run_number, e.run_job_id, e.created_at,\n                e.created_by,\n                (SELECT count(*) FROM eval_experiment_case c WHERE c.experiment_id = e.id)\n                    AS \"case_count!\"\n         FROM eval_experiment e\n         JOIN eval_dataset d ON d.workspace_id = e.workspace_id AND d.path = e.dataset_path\n         WHERE e.workspace_id = $1\n               AND ($3::text IS NULL OR e.subject ->> 'path' = $3)\n         ORDER BY e.created_at DESC\n         LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -25,31 +25,21 @@
       },
       {
         "ordinal": 4,
-        "name": "label",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 5,
-        "name": "scored_from",
-        "type_info": "Uuid"
-      },
-      {
-        "ordinal": 6,
         "name": "run_job_id",
         "type_info": "Uuid"
       },
       {
-        "ordinal": 7,
+        "ordinal": 5,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 8,
+        "ordinal": 6,
         "name": "created_by",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 9,
+        "ordinal": 7,
         "name": "case_count!",
         "type_info": "Int8"
       }
@@ -66,13 +56,11 @@
       false,
       false,
       false,
-      true,
-      true,
-      true,
+      false,
       false,
       false,
       null
     ]
   },
-  "hash": "afbe04e04859ac6ddb3a256099fe3e950036aade989b4a876a569285e9f46250"
+  "hash": "bdb7185233941d1472a55c8ade3f61c82248f3f2c9a69c458bff3978ffd17379"
 }

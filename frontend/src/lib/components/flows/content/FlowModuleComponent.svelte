@@ -183,7 +183,6 @@
 	let validCode = $state(true)
 	let width = $state(1200)
 	let testJob: Job | undefined = $state(undefined)
-
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
 
@@ -1079,338 +1078,335 @@
 					{/snippet}
 
 					{#snippet bottomPaneContent()}
-						<div class="flex flex-col h-full min-h-0">
-							<div class="grow min-h-0">
-								<Splitpanes>
-									<Pane minSize={36} bind:size={leftPanelSize}>
-										<div class="flex flex-col relative h-[99.99%]">
-											<Tabs
-												selected={visibleSelected}
-												on:selected={(event) => {
-													selected = event.detail
-												}}
-												wrapperClass="shrink-0"
+						<Splitpanes>
+							<Pane minSize={36} bind:size={leftPanelSize}>
+								<div class="flex flex-col relative h-[99.99%]">
+									<Tabs
+										selected={visibleSelected}
+										on:selected={(event) => {
+											selected = event.detail
+										}}
+										wrapperClass="shrink-0"
+									>
+										{#if !preprocessorModule}
+											<Tab value="inputs" label="Step Input" />
+										{/if}
+										<Tab value="test" label="Test this step" />
+										{#if canShowChatTab && flowModule.value.type === 'aiagent'}
+											<Tab
+												value="chat"
+												active={Boolean(flowModule.value.omit_output_from_conversation)}
+												label="Chat"
+											/>
+										{/if}
+										{#if !preprocessorModule && !isAgentTool}
+											<Tab value="advanced" label="Run settings">
+												{#snippet extra()}
+													<StepSettingsBadges {flowModule} />
+												{/snippet}
+											</Tab>
+										{/if}
+									</Tabs>
+									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
+										<div class="flex-1 overflow-auto" id="flow-editor-step-input">
+											<PropPickerWrapper
+												pickableProperties={stepPropPicker.pickableProperties}
+												error={failureModule}
+												noPadding
 											>
-												{#if !preprocessorModule}
-													<Tab value="inputs" label="Step Input" />
+												{#if reloadError}
+													<div
+														title={reloadError}
+														class="absolute left-2 top-2 rounded-full w-2 h-2 bg-red-300"
+													></div>
 												{/if}
-												<Tab value="test" label="Test this step" />
-												{#if canShowChatTab && flowModule.value.type === 'aiagent'}
-													<Tab
-														value="chat"
-														active={Boolean(flowModule.value.omit_output_from_conversation)}
-														label="Chat"
-													/>
-												{/if}
-												{#if !preprocessorModule && !isAgentTool}
-													<Tab value="advanced" label="Run settings">
-														{#snippet extra()}
-															<StepSettingsBadges {flowModule} />
-														{/snippet}
-													</Tab>
-												{/if}
-											</Tabs>
-											{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
-												<div class="flex-1 overflow-auto" id="flow-editor-step-input">
-													<PropPickerWrapper
-														pickableProperties={stepPropPicker.pickableProperties}
-														error={failureModule}
-														noPadding
-													>
-														{#if reloadError}
-															<div
-																title={reloadError}
-																class="absolute left-2 top-2 rounded-full w-2 h-2 bg-red-300"
-															></div>
-														{/if}
-														{#if flowModule.value.type === 'aiagent'}
-															<!-- Inside the wrapper so the card scrolls with the inputs (a single scroll
-															     region) instead of stacking a second scrollbar above it. -->
-															<AgentResourceBar
-																moduleId={linkedToolsModuleId}
-																opWorkspace={opWs}
-																flowPath={$pathStore}
-																bind:agent={
-																	() =>
-																		flowModule.value.type === 'aiagent' ? flowModule.value.agent : undefined,
-																	(v) => {
-																		if (flowModule.value.type === 'aiagent') {
-																			flowModule.value.agent = v
-																		}
-																	}
-																}
-																bind:inputTransforms={
-																	() => (flowModule.value as any).input_transforms,
-																	(v) => {
-																		if (flowModule.value.type === 'aiagent') {
-																			;(flowModule.value as any).input_transforms = v
-																		}
-																	}
-																}
-																bind:tools={
-																	() =>
-																		flowModule.value.type === 'aiagent'
-																			? (flowModule.value.tools ?? noTools(flowModule.value))
-																			: noTools(flowModule),
-																	(v) => {
-																		if (flowModule.value.type === 'aiagent') {
-																			flowModule.value.tools = v
-																		}
-																	}
-																}
-																bind:toolInputs={
-																	() =>
-																		flowModule.value.type === 'aiagent'
-																			? (flowModule.value.tool_inputs ?? {})
-																			: {},
-																	(v) => {
-																		if (flowModule.value.type === 'aiagent') {
-																			// An emptied map reverts to absent so the doc matches its pre-override state.
-																			flowModule.value.tool_inputs = Object.keys(v).length > 0 ? v : undefined
-																		}
-																	}
-																}
-															/>
-														{/if}
-														<InputTransformSchemaForm
-															class="px-2 xl:px-4 pb-8"
-															bind:this={inputTransformSchemaForm}
-															pickableProperties={stepPropPicker.pickableProperties}
-															schema={agentLinked
-																? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
-																: (flowStateStore.val[selectedId]?.schema ?? {})}
-															previousModuleId={previousModule?.id}
-															bind:args={
-																() => {
-																	// @ts-ignore
-																	return flowModule?.value?.input_transforms
-																},
-																(v) => {
-																	if (
-																		typeof flowModule?.value === 'object' &&
-																		flowModule?.value !== null
-																	) {
-																		// @ts-ignore
-																		flowModule.value.input_transforms = v
-																	}
+												{#if flowModule.value.type === 'aiagent'}
+													<!-- Inside the wrapper so the card scrolls with the inputs (a single
+													scroll region) instead of stacking a second scrollbar above it. -->
+													<AgentResourceBar
+														moduleId={linkedToolsModuleId}
+														opWorkspace={opWs}
+														flowPath={$pathStore}
+														bind:agent={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? flowModule.value.agent
+																	: undefined,
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.agent = v
 																}
 															}
-															extraLib={stepPropPicker.extraLib}
-															{enableAi}
-															{isAgentTool}
-															allowedAiTransforms={isAgentTool &&
-															flowModule.value.type === 'aiagent'
-																? ['user_message']
-																: undefined}
-															helperScript={retrieveDynCodeAndLang(flowModule.value)}
-															chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
-														/>
-														{#if agentLinked}
-															<!-- Linked agent: the resource's tools with their inputs rebindable to this
-													flow; overrides persist on the step as tool_inputs (diff from the resource). -->
-															<AgentToolBindings
-																tools={getLinkedAgentTools(
-																	linkedToolsScope(opWs, $pathStore),
-																	linkedToolsModuleId
-																)}
-																pickableProperties={stepPropPicker.pickableProperties}
-																extraLib={stepPropPicker.extraLib}
-																workspace={opWs}
-																bind:toolInputs={
-																	() =>
-																		flowModule.value.type === 'aiagent'
-																			? (flowModule.value.tool_inputs ?? {})
-																			: {},
-																	(v) => {
-																		if (flowModule.value.type === 'aiagent') {
-																			// An emptied map reverts to absent so the doc matches its pre-override state.
-																			flowModule.value.tool_inputs =
-																				Object.keys(v).length > 0 ? v : undefined
-																		}
-																	}
+														}
+														bind:inputTransforms={
+															() => (flowModule.value as any).input_transforms,
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	;(flowModule.value as any).input_transforms = v
 																}
-															/>
-														{/if}
-													</PropPickerWrapper>
-												</div>
-											{:else if visibleSelected === 'test'}
-												{#if debugMode && isDebuggableScript}
-													<div transition:slide={{ duration: 200 }}>
-														<DebugToolbar
-															connected={$debugState.connected}
-															running={$debugState.running}
-															stopped={$debugState.stopped}
-															breakpointCount={debugBreakpoints.size}
-															onStart={startDebugging}
-															onStop={stopDebugging}
-															onContinue={continueExecution}
-															onStepOver={stepOver}
-															onStepIn={stepIn}
-															onStepOut={stepOut}
-															onClearBreakpoints={clearAllBreakpoints}
-															onExitDebug={toggleDebugMode}
-														/>
-													</div>
+															}
+														}
+														bind:tools={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tools ?? noTools(flowModule.value))
+																	: noTools(flowModule),
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	flowModule.value.tools = v
+																}
+															}
+														}
+														bind:toolInputs={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tool_inputs ?? {})
+																	: {},
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	// An emptied map reverts to absent so the doc matches its pre-override state.
+																	flowModule.value.tool_inputs =
+																		Object.keys(v).length > 0 ? v : undefined
+																}
+															}
+														}
+													/>
 												{/if}
-												<ModulePreview
-													class="flex-1"
+												<InputTransformSchemaForm
+													class="px-2 xl:px-4 pb-8"
+													bind:this={inputTransformSchemaForm}
 													pickableProperties={stepPropPicker.pickableProperties}
-													bind:this={modulePreview}
-													mod={flowModule}
-													{noEditor}
 													schema={agentLinked
 														? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
 														: (flowStateStore.val[selectedId]?.schema ?? {})}
-													bind:testJob
-													bind:testIsLoading
-													bind:scriptProgress
-													focusArg={highlightArg}
-													{onJobDone}
-													hideRunButton={debugMode && isDebuggableScript}
-												/>
-											{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
-												<div class="flex-1 overflow-auto p-4">
-													<Section label="Conversation output">
-														<Toggle
-															size="xs"
-															checked={Boolean(flowModule.value.omit_output_from_conversation)}
-															on:change={(event) => {
-																setOmitOutputFromConversation(event.detail)
-															}}
-															options={{
-																right:
-																	'Omit assistant and tool messages from the flow conversation',
-																rightTooltip:
-																	'When enabled, this AI agent still runs normally, but its assistant response and tool-use messages are not stored in chat-mode conversation history.'
-															}}
-														/>
-													</Section>
-												</div>
-											{:else if visibleSelected === 'advanced'}
-												<FlowRunSettings
-													bind:this={runSettings}
-													onApplyS3Snippet={(code) => editor?.setCode(code)}
-													bind:flowModule
+													previousModuleId={previousModule?.id}
+													bind:args={
+														() => {
+															// @ts-ignore
+															return flowModule?.value?.input_transforms
+														},
+														(v) => {
+															if (
+																typeof flowModule?.value === 'object' &&
+																flowModule?.value !== null
+															) {
+																// @ts-ignore
+																flowModule.value.input_transforms = v
+															}
+														}
+													}
+													extraLib={stepPropPicker.extraLib}
+													{enableAi}
 													{isAgentTool}
-													{parentModule}
-													{previousModule}
-													{selectedId}
-													{referencedConcurrentLimit}
-													referencedConcurrencyTimeWindowS={referencedScriptSettings.settings
-														?.concurrency_time_window_s}
-													workspaceScriptCacheTtl={referencedCacheTtl}
-													loadingWorkspaceScript={referencedScriptSettings.loading}
-													workspaceScriptError={referencedScriptSettings.error}
-													canEditWorkspaceScript={canEditWorkspaceScriptSettings}
-													{workspaceScriptNoEditReason}
-													onEditWorkspaceScript={openWorkspaceScriptSettings}
+													allowedAiTransforms={isAgentTool && flowModule.value.type === 'aiagent'
+														? ['user_message']
+														: undefined}
+													helperScript={retrieveDynCodeAndLang(flowModule.value)}
+													chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 												/>
-											{/if}
+												{#if agentLinked}
+													<!-- Linked agent: the resource's tools with their inputs rebindable to this
+													flow; overrides persist on the step as tool_inputs (diff from the resource). -->
+													<AgentToolBindings
+														tools={getLinkedAgentTools(
+															linkedToolsScope(opWs, $pathStore),
+															linkedToolsModuleId
+														)}
+														pickableProperties={stepPropPicker.pickableProperties}
+														extraLib={stepPropPicker.extraLib}
+														workspace={opWs}
+														bind:toolInputs={
+															() =>
+																flowModule.value.type === 'aiagent'
+																	? (flowModule.value.tool_inputs ?? {})
+																	: {},
+															(v) => {
+																if (flowModule.value.type === 'aiagent') {
+																	// An emptied map reverts to absent so the doc matches its pre-override state.
+																	flowModule.value.tool_inputs =
+																		Object.keys(v).length > 0 ? v : undefined
+																}
+															}
+														}
+													/>
+												{/if}
+											</PropPickerWrapper>
 										</div>
-									</Pane>
-									{#if selected === 'test'}
-										<Pane minSize={20} class="relative">
-											{#if stepHistoryLoader?.stepStates[flowModule.id]?.initial && !flowModule.mock?.enabled}
-												<!-- svelte-ignore a11y_no_static_element_interactions -->
-												<!-- svelte-ignore a11y_click_events_have_key_events -->
-												<div
-													onclick={() => {
-														stepHistoryLoader?.resetInitial(flowModule.id)
+									{:else if visibleSelected === 'test'}
+										{#if debugMode && isDebuggableScript}
+											<div transition:slide={{ duration: 200 }}>
+												<DebugToolbar
+													connected={$debugState.connected}
+													running={$debugState.running}
+													stopped={$debugState.stopped}
+													breakpointCount={debugBreakpoints.size}
+													onStart={startDebugging}
+													onStop={stopDebugging}
+													onContinue={continueExecution}
+													onStepOver={stepOver}
+													onStepIn={stepIn}
+													onStepOut={stepOut}
+													onClearBreakpoints={clearAllBreakpoints}
+													onExitDebug={toggleDebugMode}
+												/>
+											</div>
+										{/if}
+										<ModulePreview
+											class="flex-1"
+											pickableProperties={stepPropPicker.pickableProperties}
+											bind:this={modulePreview}
+											mod={flowModule}
+											{noEditor}
+											schema={agentLinked
+												? flowLocalAgentSchema(flowStateStore.val[selectedId]?.schema ?? {})
+												: (flowStateStore.val[selectedId]?.schema ?? {})}
+											bind:testJob
+											bind:testIsLoading
+											bind:scriptProgress
+											focusArg={highlightArg}
+											{onJobDone}
+											hideRunButton={debugMode && isDebuggableScript}
+										/>
+									{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
+										<div class="flex-1 overflow-auto p-4">
+											<Section label="Conversation output">
+												<Toggle
+													size="xs"
+													checked={Boolean(flowModule.value.omit_output_from_conversation)}
+													on:change={(event) => {
+														setOmitOutputFromConversation(event.detail)
 													}}
-													class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 bg-gray-500/40 absolute top-0 left-0 w-full z-50"
-												>
-													<div class="text-center text-primary text-sm py-2 pt-20"
-														><span class="font-bold border p-2 bg-surface-secondary rounded-md"
-															>Run loaded from history</span
-														></div
-													>
-												</div>
-											{/if}
-											{#if showDebugPanel || hasDebugResult}
+													options={{
+														right: 'Omit assistant and tool messages from the flow conversation',
+														rightTooltip:
+															'When enabled, this AI agent still runs normally, but its assistant response and tool-use messages are not stored in chat-mode conversation history.'
+													}}
+												/>
+											</Section>
+										</div>
+									{:else if visibleSelected === 'advanced'}
+										<FlowRunSettings
+											bind:this={runSettings}
+											onApplyS3Snippet={(code) => editor?.setCode(code)}
+											bind:flowModule
+											{isAgentTool}
+											{parentModule}
+											{previousModule}
+											{selectedId}
+											{referencedConcurrentLimit}
+											referencedConcurrencyTimeWindowS={referencedScriptSettings.settings
+												?.concurrency_time_window_s}
+											workspaceScriptCacheTtl={referencedCacheTtl}
+											loadingWorkspaceScript={referencedScriptSettings.loading}
+											workspaceScriptError={referencedScriptSettings.error}
+											canEditWorkspaceScript={canEditWorkspaceScriptSettings}
+											{workspaceScriptNoEditReason}
+											onEditWorkspaceScript={openWorkspaceScriptSettings}
+										/>
+									{/if}
+								</div>
+							</Pane>
+							{#if selected === 'test'}
+								<Pane minSize={20} class="relative">
+									{#if stepHistoryLoader?.stepStates[flowModule.id]?.initial && !flowModule.mock?.enabled}
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<div
+											onclick={() => {
+												stepHistoryLoader?.resetInitial(flowModule.id)
+											}}
+											class="cursor-pointer h-full hover:bg-gray-500/20 dark:hover:bg-gray-500/20 dark:bg-gray-500/80 bg-gray-500/40 absolute top-0 left-0 w-full z-50"
+										>
+											<div class="text-center text-primary text-sm py-2 pt-20"
+												><span class="font-bold border p-2 bg-surface-secondary rounded-md"
+													>Run loaded from history</span
+												></div
+											>
+										</div>
+									{/if}
+									{#if showDebugPanel || hasDebugResult}
+										<Splitpanes horizontal class="h-full">
+											<Pane size={50} minSize={15}>
 												<Splitpanes horizontal class="h-full">
-													<Pane size={50} minSize={15}>
-														<Splitpanes horizontal class="h-full">
-															<Pane size={50} minSize={10}>
-																<LogViewer
-																	small
-																	content={$debugState.logs}
-																	isLoading={$debugState.running && !$debugState.stopped}
-																	tag={undefined}
-																/>
-															</Pane>
-															<Pane size={50} minSize={10}>
-																{#if hasDebugResult}
-																	<div class="h-full p-2 overflow-auto">
-																		<DisplayResult
-																			result={$debugState.result}
-																			language={rawScriptLang}
-																		/>
-																	</div>
-																{:else}
-																	<div
-																		class="h-full flex items-center justify-center text-sm text-tertiary"
-																	>
-																		{#if $debugState.running && !$debugState.stopped}
-																			Running...
-																		{:else if $debugState.stopped}
-																			Paused at breakpoint
-																		{:else}
-																			Waiting for debug session
-																		{/if}
-																	</div>
-																{/if}
-															</Pane>
-														</Splitpanes>
-													</Pane>
-													<Pane size={50} minSize={15}>
-														<DebugPanel
-															stackFrames={$debugState.stackFrames}
-															scopes={$debugState.scopes}
-															variables={$debugState.variables}
-															client={dapClient}
-															bind:selectedFrameId={selectedDebugFrameId}
+													<Pane size={50} minSize={10}>
+														<LogViewer
+															small
+															content={$debugState.logs}
+															isLoading={$debugState.running && !$debugState.stopped}
+															tag={undefined}
 														/>
+													</Pane>
+													<Pane size={50} minSize={10}>
+														{#if hasDebugResult}
+															<div class="h-full p-2 overflow-auto">
+																<DisplayResult
+																	result={$debugState.result}
+																	language={rawScriptLang}
+																/>
+															</div>
+														{:else}
+															<div
+																class="h-full flex items-center justify-center text-sm text-tertiary"
+															>
+																{#if $debugState.running && !$debugState.stopped}
+																	Running...
+																{:else if $debugState.stopped}
+																	Paused at breakpoint
+																{:else}
+																	Waiting for debug session
+																{/if}
+															</div>
+														{/if}
 													</Pane>
 												</Splitpanes>
-											{:else if debugMode && isDebuggableScript}
-												<div class="h-full flex items-center justify-center text-sm text-tertiary">
-													Click "Debug" in the toolbar to start debugging
-												</div>
-											{:else}
-												<ModulePreviewResultViewer
-													lang={flowModule.value['language'] ?? 'deno'}
-													{editor}
-													{diffEditor}
-													loopStatus={parentLoop
-														? { type: 'inside', flow: parentLoop.type }
-														: undefined}
-													onUpdateMock={(detail) => {
-														flowModule.mock = detail
-														flowModule = flowModule
-														refreshFlowStateStore(flowStore)
-													}}
-													{testJob}
-													{scriptProgress}
-													mod={flowModule}
-													linkedAgentTools={agentLinked
-														? getLinkedAgentTools(
-																linkedToolsScope(opWs, $pathStore),
-																linkedToolsModuleId
-															)
-														: undefined}
-													{testIsLoading}
-													disableMock={preprocessorModule || failureModule}
-													disableHistory={failureModule}
-													loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
-													tagLabel={customUi?.tagLabel}
-													bind:this={modulePreviewResultViewer}
+											</Pane>
+											<Pane size={50} minSize={15}>
+												<DebugPanel
+													stackFrames={$debugState.stackFrames}
+													scopes={$debugState.scopes}
+													variables={$debugState.variables}
+													client={dapClient}
+													bind:selectedFrameId={selectedDebugFrameId}
 												/>
-											{/if}
-										</Pane>
+											</Pane>
+										</Splitpanes>
+									{:else if debugMode && isDebuggableScript}
+										<div class="h-full flex items-center justify-center text-sm text-tertiary">
+											Click "Debug" in the toolbar to start debugging
+										</div>
+									{:else}
+										<ModulePreviewResultViewer
+											lang={flowModule.value['language'] ?? 'deno'}
+											{editor}
+											{diffEditor}
+											loopStatus={parentLoop
+												? { type: 'inside', flow: parentLoop.type }
+												: undefined}
+											onUpdateMock={(detail) => {
+												flowModule.mock = detail
+												flowModule = flowModule
+												refreshFlowStateStore(flowStore)
+											}}
+											{testJob}
+											{scriptProgress}
+											mod={flowModule}
+											linkedAgentTools={agentLinked
+												? getLinkedAgentTools(
+														linkedToolsScope(opWs, $pathStore),
+														linkedToolsModuleId
+													)
+												: undefined}
+											{testIsLoading}
+											disableMock={preprocessorModule || failureModule}
+											disableHistory={failureModule}
+											loadingJob={stepHistoryLoader?.stepStates[flowModule.id]?.loadingJobs}
+											tagLabel={customUi?.tagLabel}
+											bind:this={modulePreviewResultViewer}
+										/>
 									{/if}
-								</Splitpanes>
-							</div>
-						</div>
+								</Pane>
+							{/if}
+						</Splitpanes>
 					{/snippet}
 
 					{#if flowModule.value.type === 'aiagent' || (noEditor && flowModule.value.type !== 'flow')}
