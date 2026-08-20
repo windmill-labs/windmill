@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { bashRunsInCustomImage } from './script_helpers'
+import { bashRunsInCustomImage, getResetCode } from './script_helpers'
 
 // bashRunsInCustomImage decides whether the +Variable/+Resource pickers insert a
 // curl/wget snippet (custom image, no wmill CLI) or the wmill CLI snippet. It must
@@ -39,5 +39,28 @@ describe('bashRunsInCustomImage', () => {
 
 	it('false for a plain script with no annotations', () => {
 		expect(bashRunsInCustomImage('# shellcheck shell=bash\necho hi')).toBe(false)
+	})
+})
+
+// getResetCode short-circuits to a per-language `main` stub before it ever looks at `kind`.
+// A preprocessor step resets through the same button, and a `main` body cannot run under the
+// preprocessor entrypoint, so every preprocessor-capable language must keep its entrypoint.
+describe('getResetCode for preprocessors', () => {
+	// The concrete `language` values a preprocessor step can carry. PREPROCESSOR_SUPPORTED_LANGUAGES
+	// also holds the 'typescript'/'python' aliases, which no script is ever stored with.
+	const langs = ['deno', 'bun', 'python3', 'php'] as const
+
+	it('keeps the preprocessor entrypoint in every language that can have one', () => {
+		for (const lang of langs) {
+			const code = getResetCode(lang, 'preprocessor', undefined)
+			expect(code, lang).toContain('preprocessor')
+			expect(code, lang).not.toContain('function main')
+			expect(code, lang).not.toContain('def main')
+		}
+	})
+
+	it('still resets action scripts to a main stub', () => {
+		expect(getResetCode('python3', 'script', undefined)).toContain('def main')
+		expect(getResetCode('bun', 'script', undefined)).toContain('function main')
 	})
 })
