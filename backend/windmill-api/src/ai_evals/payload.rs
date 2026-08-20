@@ -83,16 +83,9 @@ async fn build_run_payload(
     status: String,
     duration_ms: Option<i64>,
 ) -> Result<EvalRunPayload> {
-    let agent_result = windmill_queue::get_result_and_success_by_id_from_flow(
-        db,
-        w_id,
-        &job_id,
-        AGENT_NODE_ID,
-        None,
-    )
-    .await
-    .ok()
-    .map(|(r, _)| r);
+    // A read that failed is not a run with no answer: handing the scorers an empty payload would
+    // have them grade the absence of evidence and record that verdict permanently.
+    let agent_result = agent_result(db, w_id, job_id).await?.map(|(r, _)| r);
 
     let parsed: Option<serde_json::Value> = agent_result
         .as_ref()

@@ -136,7 +136,7 @@ async fn record_case_answers(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
 /// The distinction is what makes settling a row safe: a lookup that failed for any other reason —
 /// a database error, a malformed flow status — must not be recorded as a case that produced no
 /// answer, because nothing reads that row again.
-async fn agent_result(db: &DB, w_id: &str, job_id: Uuid) -> Result<Option<(Box<RawValue>, bool)>> {
+pub(crate) async fn agent_result(db: &DB, w_id: &str, job_id: Uuid) -> Result<Option<(Box<RawValue>, bool)>> {
     match windmill_queue::get_result_and_success_by_id_from_flow(
         db,
         w_id,
