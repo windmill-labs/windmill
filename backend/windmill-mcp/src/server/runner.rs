@@ -165,11 +165,28 @@ enum EndpointPathPolicy {
     /// Reads/writes the script/flow named by the listed path arguments. The
     /// endpoint scope grants the capability; when the token also carries path
     /// patterns for `kind`, every listed argument must match them.
-    PathArgs { kind: &'static str, fields: &'static [&'static str] },
+    ///
+    /// `optional_fields` is for a destination path the tool lets the caller omit,
+    /// where absent means "leave it where it is": requiring it would refuse every
+    /// call that does not move anything. Names are the ones the tool exposes, so a
+    /// body path colliding with the URL's is `path__body` — the URL path keeps the
+    /// plain name (see the rename in `generate_mcp_tools.py`).
+    PathArgs {
+        kind: &'static str,
+        fields: &'static [&'static str],
+        optional_fields: &'static [&'static str],
+    },
     /// Affects scripts without taking a checkable path (delete-by-hash) or
     /// executes arbitrary code (preview). Unavailable to path-confined tokens —
     /// allowing these would bypass the path patterns entirely.
     Unconfinable(&'static str),
+}
+
+/// Whether `endpoint_path_policy` confines this tool's paths. Public so the crate that
+/// owns the generated endpoint catalogue can assert every path-addressed script/flow
+/// tool is covered: one that is not falls through to no confinement at all.
+pub fn has_endpoint_path_policy(endpoint_name: &str) -> bool {
+    endpoint_path_policy(endpoint_name).is_some()
 }
 
 fn endpoint_path_policy(endpoint_name: &str) -> Option<EndpointPathPolicy> {
@@ -178,14 +195,20 @@ fn endpoint_path_policy(endpoint_name: &str) -> Option<EndpointPathPolicy> {
         "runScriptByPath" => Some(RunByPath("script")),
         "runFlowByPath" => Some(RunByPath("flow")),
         "getScriptByPath" | "deleteScriptByPath" | "createScript" => {
-            Some(PathArgs { kind: "script", fields: &["path"] })
+            Some(PathArgs { kind: "script", fields: &["path"], optional_fields: &[] })
         }
         "getFlowByPath" | "deleteFlowByPath" | "createFlow" => {
-            Some(PathArgs { kind: "flow", fields: &["path"] })
+            Some(PathArgs { kind: "flow", fields: &["path"], optional_fields: &[] })
         }
-        // updateFlow addresses the flow via the URL path and can move it to the
-        // path given in the body — both must stay within scope.
-        "updateFlow" => Some(PathArgs { kind: "flow", fields: &["path__path", "path__body"] }),
+        // These address the item via the URL path and can move it to the path given
+        // in the body — both must stay within scope, and the body one only binds
+        // when supplied, since omitting it is how a caller updates in place.
+        "updateScript" => {
+            Some(PathArgs { kind: "script", fields: &["path"], optional_fields: &["path__body"] })
+        }
+        "updateFlow" => {
+            Some(PathArgs { kind: "flow", fields: &["path"], optional_fields: &["path__body"] })
+        }
         "deleteScriptByHash" | "runScriptPreviewAndWaitResult" => Some(Unconfinable("script")),
         _ => None,
     }
@@ -284,11 +307,23 @@ fn authorize_endpoint_call(
                 ));
             }
             match policy {
-                Some(EndpointPathPolicy::PathArgs { kind, fields })
+                Some(EndpointPathPolicy::PathArgs { kind, fields, optional_fields })
                     if path_confined(scope_config, kind) =>
                 {
-                    for field in fields {
-                        let path = require_path_arg(endpoint_tool, args, field)?;
+                    let supplied = optional_fields.iter().filter_map(|field| {
+                        // Empty reads as absent here because the handler reads it that
+                        // way too: neither moves the item, so neither needs a pattern.
+                        args.get(field)
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(Ok)
+                    });
+                    for path in fields
+                        .iter()
+                        .map(|field| require_path_arg(endpoint_tool, args, field))
+                        .chain(supplied)
+                    {
+                        let path = path?;
                         if !scope_config.is_allowed(kind, path) {
                             return Err(ErrorData::internal_error(
                                 format!("Access denied: {} '{}' not in token scope", kind, path),
@@ -1091,7 +1126,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &tool,
-            &json!({"path__path": "f/team/a", "path__body": "f/team/b"}),
+            &json!({"path": "f/team/a", "path__body": "f/team/b"}),
             false
         )
         .is_ok());
@@ -1099,7 +1134,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &tool,
-            &json!({"path__path": "f/team/a", "path__body": "f/secret/a"}),
+            &json!({"path": "f/team/a", "path__body": "f/secret/a"}),
             false
         )
         .is_err());
@@ -1107,11 +1142,43 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &tool,
-            &json!({"path__path": "f/secret/a", "path__body": "f/team/a"}),
+            &json!({"path": "f/secret/a", "path__body": "f/team/a"}),
             false
         )
         .is_err());
     }
+
+    // updateScript has updateFlow's shape, and the destination it can move a script
+    // to is optional: omitting it updates in place, so requiring it would refuse
+    // every call that moves nothing.
+    #[test]
+    fn update_script_confines_target_and_optional_destination() {
+        let config = cfg(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]);
+        let tool = ep("updateScript", "POST");
+        for args in [
+            json!({"path": "f/team/a"}),
+            json!({"path": "f/team/a", "path__body": "f/team/b"}),
+            // Empty destination reads as absent, the same way the handler reads it.
+            json!({"path": "f/team/a", "path__body": ""}),
+        ] {
+            assert!(
+                authorize_endpoint_call(&config, &tool, &args, false).is_ok(),
+                "in-scope update should be allowed: {args}"
+            );
+        }
+        for args in [
+            // Deploying over a script outside the allowed folder.
+            json!({"path": "f/secret/a"}),
+            // Moving one out of it.
+            json!({"path": "f/team/a", "path__body": "f/secret/a"}),
+        ] {
+            assert!(
+                authorize_endpoint_call(&config, &tool, &args, false).is_err(),
+                "out-of-scope update should be denied: {args}"
+            );
+        }
+    }
+
 
     // Tools that can't be path-checked (delete-by-hash) or execute arbitrary
     // code (preview) would bypass path confinement, so a path-confined token is

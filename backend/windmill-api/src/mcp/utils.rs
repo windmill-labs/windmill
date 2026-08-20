@@ -881,6 +881,28 @@ mod tests {
             .unwrap_or_else(|| panic!("{name} must be a generated endpoint tool"))
     }
 
+    /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does
+    /// not name, falls through to no policy — which is no path confinement at all, so
+    /// a token scoped to `mcp:scripts:f/team/*` reaches every script through it. The
+    /// catalogue lives here and the policy in windmill-mcp, so neither crate notices
+    /// a tool added on one side and forgotten on the other; this is where they meet.
+    #[test]
+    fn every_path_addressed_script_or_flow_tool_is_path_confined() {
+        let unpoliced: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()
+            .into_iter()
+            .filter(|t| {
+                (t.path.contains("/scripts/") || t.path.contains("/flows/"))
+                    && t.path.contains("{path}")
+                    && !windmill_mcp::server::has_endpoint_path_policy(&t.name)
+            })
+            .map(|t| t.name.to_string())
+            .collect();
+        assert!(
+            unpoliced.is_empty(),
+            "path-addressed script/flow tools with no path policy: {unpoliced:?}"
+        );
+    }
+
     #[test]
     fn build_request_body_passthrough_forwards_script_args_minus_path() {
         // runScriptByPath-shaped body: additionalProperties, no declared props.

@@ -671,11 +671,16 @@ async fn update_script(
     let path = path.to_path();
 
     // `NewScript` cannot express an optional path — the create route needs it — so the
-    // default is applied before deserializing rather than after.
+    // default is applied before deserializing rather than after. Null and empty both
+    // read as "keep it where it is": they are what a caller obliged to fill in every
+    // field sends, and taking either literally would move the script to the empty path.
     let obj = body
         .as_object_mut()
         .ok_or_else(|| Error::BadRequest("the script body must be a JSON object".to_string()))?;
-    if !obj.get("path").is_some_and(|p| !p.is_null()) {
+    if !obj
+        .get("path")
+        .is_some_and(|p| p.as_str().is_some_and(|s| !s.is_empty()))
+    {
         obj.insert("path".to_string(), serde_json::json!(path));
     }
     let mut ns: NewScript = serde_json::from_value(body)
