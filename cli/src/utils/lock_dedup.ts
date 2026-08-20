@@ -281,6 +281,11 @@ function depFilesByKey(paths: Iterable<string>): Map<string, string> {
   for (const key of paths) {
     const ref = toRefPath(key);
     if (!ref.startsWith("dependencies/")) continue;
+    // A set named `team/python` exports as `dependencies/team/python.<file>`,
+    // which has no distinct name under `locks/`: flattened it collides with the
+    // top-level file, and the sweep would then retire a lockfile whose scripts
+    // still read it. Such a set shares nothing and its scripts keep own locks.
+    if (ref.slice("dependencies/".length).includes("/")) continue;
     const depKey = depKeyOf(ref);
     if (depKey) byKey.set(depKey, ref);
   }

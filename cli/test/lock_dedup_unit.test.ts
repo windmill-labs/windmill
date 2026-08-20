@@ -354,6 +354,21 @@ describe("computeSharedLockPlan", () => {
       before.replace("f/a.script.lock", SHARED_PY),
     );
   });
+
+  test("a dependency set named with a slash shares nothing", () => {
+    // `dependencies/team/python.requirements.in` has no distinct name under
+    // `locks/`: flattened to `locks/python.requirements.in.lock` it names a
+    // different (top-level) dependency file, and every later sweep would then
+    // read the lockfile as orphaned and retire it.
+    const map = workspace("dependencies/team/python.requirements.in");
+    const body = "# requirements: team/python\ndef main(): ...";
+    ownLock(map, "f/a", ".py", PY_LOCK, body);
+    ownLock(map, "f/b", ".py", PY_LOCK, body);
+
+    const p = plan(map);
+    expect(p.writes).toEqual({});
+    expect(p.deletes).toEqual([]);
+  });
 });
 
 describe("isSharedLockPath", () => {

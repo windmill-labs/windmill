@@ -4689,7 +4689,13 @@ export async function push(
   let unconvertedTree = false;
   // The whole tree, not `localMap`: `includes`/`excludes` have already filtered
   // that, and a shared lockfile's readers are exactly what the filter hides.
-  // Built once, on the first shared-lock change and never otherwise.
+  // Nothing to hide when nothing filters, so the walk is for narrowed pushes
+  // only, once, on the first shared-lock change.
+  const scopeIsNarrowed = [
+    opts.includes,
+    opts.excludes,
+    opts.extraIncludes,
+  ].some((p) => (p?.length ?? 0) > 0);
   let treeReaders: SharedLockReaders | undefined;
   for (let i = changes.length - 1; i >= 0; i--) {
     const change = changes[i];
@@ -4703,9 +4709,19 @@ export async function push(
       continue;
     }
     const referrers = scriptsReferencingSharedLock(localMap, change.path);
-    treeReaders ??= await collectSharedLockReaders(opts.json ?? false);
+    if (scopeIsNarrowed && treeReaders === undefined) {
+      try {
+        treeReaders = await collectSharedLockReaders(opts.json ?? false);
+      } catch (e) {
+        // The walk is fail-loud because a deletion hangs on it. Nothing hangs
+        // on an advisory, so an unreadable directory costs the advisory, not
+        // the push.
+        log.debug(`Could not scan for shared-lock readers: ${e}`);
+        treeReaders = { byRef: new Map(), unreadable: [] };
+      }
+    }
     const outOfScope =
-      (treeReaders.byRef.get(change.path.replaceAll(SEP, "/"))?.length ?? 0) -
+      (treeReaders?.byRef.get(change.path.replaceAll(SEP, "/"))?.length ?? 0) -
       referrers.length;
     // Out of `changes` either way: a shared lockfile has no object on the
     // remote, so the apply loop skips it. Left in, the preview and the "N
