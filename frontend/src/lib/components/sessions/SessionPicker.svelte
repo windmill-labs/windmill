@@ -101,6 +101,16 @@
 	// user opted out, the sidebar section is hidden entirely.
 	const globalEnabled = isGlobalAiEnabled()
 
+	// The activity cutoff and the date buckets are wall-clock reads, which Svelte
+	// cannot track: without this the list would keep a session past its cutoff, and
+	// keep yesterday's header on today's rows, until some unrelated write forced a
+	// re-derive. Ticking a tracked timestamp bounds that staleness to a minute.
+	let clock = $state(Date.now())
+	$effect(() => {
+		const handle = setInterval(() => (clock = Date.now()), 60_000)
+		return () => clearInterval(handle)
+	})
+
 	// Only highlight the active session while the sessions page is open — elsewhere
 	// `currentSessionId` lingers but no row should appear selected.
 	const onSessionsPage = $derived(page.url.pathname.startsWith(`${base}/sessions`))
@@ -167,7 +177,7 @@
 			if (s.id === sessionState.currentSessionId) return true
 			if (s.archived && !showArchived.val) return false
 			if (lastActivityDays.val > 0) {
-				const cutoff = Date.now() - lastActivityDays.val * 24 * 60 * 60 * 1000
+				const cutoff = clock - lastActivityDays.val * 24 * 60 * 60 * 1000
 				if (sessionLastActivityAt(s) < cutoff) return false
 			}
 			// Scope to the current workspace family only.
@@ -285,7 +295,7 @@
 		const byActivity = (a: Session, b: Session) =>
 			sessionLastActivityAt(b) - sessionLastActivityAt(a)
 		if (groupBy.val === 'date') {
-			const now = Date.now()
+			const now = clock
 			const buckets = new Map<string, { label: string; rank: number; sessions: Session[] }>()
 			for (const s of visibleSessions) {
 				const b = dateBucket(sessionLastActivityAt(s), now)
@@ -339,7 +349,7 @@
 			if (!s.archived || s.transient) return false
 			if (s.id === sessionState.currentSessionId) return true
 			if (lastActivityDays.val > 0) {
-				const cutoff = Date.now() - lastActivityDays.val * 24 * 60 * 60 * 1000
+				const cutoff = clock - lastActivityDays.val * 24 * 60 * 60 * 1000
 				if (sessionLastActivityAt(s) < cutoff) return false
 			}
 			const currentRoot = $currentWorkspaceRootId
@@ -866,7 +876,11 @@
 							icon: ListChecks,
 							action: enterSelectionMode,
 							separatorTop: true,
-							hide: visibleSessions.length === 0
+							// Selection is built from `visibleSessions`, which the tree render
+							// path doesn't follow — it drops workspace-less sessions and hides
+							// rows under a collapsed workspace, so "Select all" there would
+							// reach rows that never showed a checkbox.
+							hide: visibleSessions.length === 0 || workspaceTree
 						}
 					]}
 				>

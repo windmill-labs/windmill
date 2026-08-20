@@ -23,6 +23,24 @@ describe('dateBucket', () => {
 		expect(dateBucket(startOfToday - 30 * day - 1, now).key).toBe('older')
 	})
 
+	// A local day is 23h long across the spring-forward transition, so boundaries
+	// derived by subtracting a fixed 24h land an hour before midnight and pull the
+	// first hour of a day into the older bucket.
+	it('keeps boundaries on local midnight across a DST change', () => {
+		const original = process.env.TZ
+		process.env.TZ = 'Europe/Paris'
+		try {
+			// Paris springs forward at 02:00 on 2026-03-29, so from the 30th a naive
+			// -24h lands at 23:00 on the 28th instead of midnight on the 29th.
+			const dstNow = new Date(2026, 2, 30, 12, 0).getTime()
+			const startOfYesterday = new Date(2026, 2, 29, 0, 0, 0, 0).getTime()
+			expect(dateBucket(startOfYesterday, dstNow).key).toBe('yesterday')
+			expect(dateBucket(startOfYesterday - 1, dstNow).key).toBe('week')
+		} finally {
+			process.env.TZ = original
+		}
+	})
+
 	it('ranks buckets newest-first', () => {
 		const ranks = [
 			dateBucket(now, now),
