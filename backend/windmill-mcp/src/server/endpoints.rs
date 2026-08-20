@@ -23,6 +23,12 @@ pub struct EndpointTool {
     pub body_schema: Option<serde_json::Value>,
     pub query_field_renames: Option<serde_json::Value>,
     pub body_field_renames: Option<serde_json::Value>,
+    /// Body fields the MCP layer sets on every call, absent from the tool schema so
+    /// a caller can neither see nor override them. Merged last, after the arguments,
+    /// and only into a body with declared properties: a pass-through body is the
+    /// runnable's own arguments, where an injected key would be a bogus argument.
+    #[serde(default)]
+    pub body_fixed_fields: Option<serde_json::Value>,
 }
 
 /// True if this endpoint is safe to expose to a read-only token. Mirrors the
@@ -235,6 +241,7 @@ mod tests {
             body_schema: None,
             query_field_renames: None,
             body_field_renames: None,
+            body_fixed_fields: None,
         }
     }
 

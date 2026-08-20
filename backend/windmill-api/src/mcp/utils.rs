@@ -484,6 +484,7 @@ fn assemble_request_body(
         method,
         body_schema,
         body_field_renames,
+        body_fixed_fields,
         path_params_schema,
         query_params_schema,
         ..
@@ -531,22 +532,34 @@ fn assemble_request_body(
 
     let props = schema.get("properties")?.as_object()?;
 
-    let body_map: serde_json::Map<String, Value> = props
+    // A null argument is how a client that must fill in every declared argument says
+    // "no value". Forwarding it would reach a field the API declares as a bare
+    // `String`, which rejects null outright rather than falling back to its default.
+    let mut body_map: serde_json::Map<String, Value> = props
         .keys()
         .filter_map(|param_name| {
-            args_map.get(param_name).map(|value| {
-                // Use the original name as the key in the request body
-                let original_name = get_original_name(param_name, body_field_renames);
-                (original_name, value.clone())
-            })
+            args_map
+                .get(param_name)
+                .filter(|value| !value.is_null())
+                .map(|value| {
+                    // Use the original name as the key in the request body
+                    let original_name = get_original_name(param_name, body_field_renames);
+                    (original_name, value.clone())
+                })
         })
         .collect();
 
     if body_map.is_empty() {
-        None
-    } else {
-        Some(Value::Object(body_map))
+        return None;
     }
+
+    if let Some(Value::Object(fixed)) = body_fixed_fields {
+        for (key, value) in fixed {
+            body_map.insert(key.clone(), value.clone());
+        }
+    }
+
+    Some(Value::Object(body_map))
 }
 
 /// Scopes to embed in the JWT minted for a proxied MCP endpoint request. The MCP
@@ -853,6 +866,7 @@ mod tests {
             body_schema,
             query_field_renames: None,
             body_field_renames,
+            body_fixed_fields: None,
         }
     }
 
@@ -1016,6 +1030,42 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    /// createScript must reach the API with `auto_parent`, which is what lets a caller
+    /// deploy to a path without knowing its lineage. Nothing in the tool schema can
+    /// carry it, so a caller can neither supply it nor a `parent_hash` in its place.
+    #[test]
+    fn build_request_body_fixes_auto_parent_on_create_script() {
+        let tool = generated_tool("createScript");
+        assert!(
+            !tool.body_schema.as_ref().unwrap()["properties"]
+                .as_object()
+                .unwrap()
+                .contains_key("parent_hash"),
+            "createScript must not ask for a parent_hash"
+        );
+
+        let body = build_request_body(
+            &tool,
+            &args_of(json!({
+                "path": "u/admin/s",
+                "summary": "s",
+                "content": "export async function main() {}",
+                "language": "bun",
+                // A client that must fill in every argument invents these two; both
+                // are rejected by the API when they reach it.
+                "parent_hash": "0000000000000000",
+                "description": null,
+            })),
+        )
+        .unwrap()
+        .expect("createScript body should be built");
+        let obj = body.as_object().unwrap();
+
+        assert_eq!(obj.get("auto_parent"), Some(&json!(true)));
+        assert!(!obj.contains_key("parent_hash"));
+        assert!(!obj.contains_key("description"));
     }
 
     #[test]

@@ -28,6 +28,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("readDocsPage"),
@@ -55,6 +56,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listDataMetrics"),
@@ -97,6 +99,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createVariable"),
@@ -167,6 +170,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteVariable"),
@@ -189,6 +193,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateVariable"),
@@ -252,6 +257,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_field_renames: Some(serde_json::json!({
         "path__body": "path"
 })),
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getVariable"),
@@ -291,6 +297,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listVariable"),
@@ -344,6 +351,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createResource"),
@@ -399,6 +407,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
 })),
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteResource"),
@@ -421,6 +430,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateResource"),
@@ -474,6 +484,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_field_renames: Some(serde_json::json!({
         "path__body": "path"
 })),
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getResource"),
@@ -505,6 +516,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listResource"),
@@ -566,6 +578,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listResourceType"),
@@ -578,6 +591,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listScripts"),
@@ -675,12 +689,13 @@ pub fn all_tools() -> Vec<EndpointTool> {
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createScript"),
         description: Cow::Borrowed("create script: Creates a new script when the path does not already exist.
-Creates a new version of an existing script when called with the same path and the current `parent_hash`"),
-        instructions: Cow::Borrowed("To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history."),
+Creates a new version of an existing script when called with the same path and either the current `parent_hash` or `auto_parent`"),
+        instructions: Cow::Borrowed("Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. If the path is free, this creates the script; if a script already lives there, this deploys a new version of it, preserving the script's history, so do NOT delete and recreate a script to change it. Because an existing path is overwritten, read it first with getScriptByPath when you did not write its current content yourself."),
         path: Cow::Borrowed("/w/{workspace}/scripts/create"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,
@@ -689,9 +704,6 @@ Creates a new version of an existing script when called with the same path and t
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string"
-                },
-                "parent_hash": {
                         "type": "string"
                 },
                 "summary": {
@@ -728,6 +740,9 @@ Creates a new version of an existing script when called with the same path and t
 })),
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: Some(serde_json::json!({
+        "auto_parent": true
+})),
     },
     EndpointTool {
         name: Cow::Borrowed("deleteScriptByHash"),
@@ -750,6 +765,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteScriptByPath"),
@@ -781,6 +797,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getScriptByPath"),
@@ -815,6 +832,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("runScriptByPath"),
@@ -841,6 +859,7 @@ Creates a new version of an existing script when called with the same path and t
 })),
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listFlows"),
@@ -910,6 +929,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getFlowByPath"),
@@ -944,6 +964,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createFlow"),
@@ -990,6 +1011,7 @@ Creates a new version of an existing script when called with the same path and t
 })),
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateFlow"),
@@ -1048,6 +1070,7 @@ Creates a new version of an existing script when called with the same path and t
         body_field_renames: Some(serde_json::json!({
         "path__body": "path"
 })),
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteFlowByPath"),
@@ -1079,6 +1102,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listApps"),
@@ -1108,6 +1132,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getAppByPath"),
@@ -1130,6 +1155,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createApp"),
@@ -1238,6 +1264,7 @@ Creates a new version of an existing script when called with the same path and t
 })),
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateApp"),
@@ -1356,6 +1383,7 @@ Creates a new version of an existing script when called with the same path and t
         body_field_renames: Some(serde_json::json!({
         "path__body": "path"
 })),
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("runFlowByPath"),
@@ -1382,6 +1410,7 @@ Creates a new version of an existing script when called with the same path and t
 })),
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("runScriptPreviewAndWaitResult"),
@@ -1477,6 +1506,7 @@ Creates a new version of an existing script when called with the same path and t
 })),
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listQueue"),
@@ -1597,6 +1627,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listJobs"),
@@ -1767,6 +1798,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getJob"),
@@ -1805,6 +1837,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getJobLogs"),
@@ -1836,6 +1869,7 @@ Creates a new version of an existing script when called with the same path and t
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("createSchedule"),
@@ -2049,6 +2083,7 @@ You should get the schema of the script or flow before creating the schedule to 
 })),
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateSchedule"),
@@ -2255,6 +2290,7 @@ You should get the schema of the script or flow before updating the schedule to 
 })),
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("deleteSchedule"),
@@ -2277,6 +2313,7 @@ You should get the schema of the script or flow before updating the schedule to 
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("getSchedule"),
@@ -2308,6 +2345,7 @@ You should get the schema of the script or flow before updating the schedule to 
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listSchedules"),
@@ -2373,6 +2411,7 @@ You should get the schema of the script or flow before updating the schedule to 
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     },
     EndpointTool {
         name: Cow::Borrowed("listWorkers"),
@@ -2402,6 +2441,7 @@ You should get the schema of the script or flow before updating the schedule to 
         body_schema: None,
         query_field_renames: None,
         body_field_renames: None,
+        body_fixed_fields: None,
     }
     ]
 }
