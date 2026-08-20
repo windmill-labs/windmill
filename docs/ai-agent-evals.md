@@ -149,10 +149,12 @@ Running a dataset produces an experiment: every case executed against one subjec
 case. The experiment records the **exact case set it ran**, by value — a dataset keeps changing,
 and a result set that cannot say which inputs produced it is not reproducible.
 
-Each case runs as its own job rather than the whole dataset running as one loop. That keeps a
-case's run stamp and history query identical to a single run, and lets an answer be read back by
-node id (`get_result_and_success_by_id_from_flow`) instead of walking a nested
-loop's status.
+The whole dataset runs as **one flow**: a parallel `forloopflow` over the cases, each iteration
+answering its case and then scoring the answer, with a final step that records what the run
+produced. One job rather than one per case, because a run outlives the tab that started it and only
+a worker can notice that the last case finished. Each iteration is still read back by node id
+(`get_result_and_success_by_id_from_flow`), so an answer is fetched without walking the loop's
+status.
 
 ### What a run is called
 
@@ -184,9 +186,10 @@ it is its own.
 
 The table watches the agent while it is open — a small `subject_state` read every few seconds,
 paused while the tab is hidden and repeated when it regains focus. The results endpoint reports the
-same version and hash, but it harvests scores and reads every job to do it, so it is not something
-to poll; without the watch, an agent edited while the table is open goes on looking current until
-the pane is reopened, which is exactly when it is most misleading.
+same version and hash, but it is the expensive read — it collects the run as it goes — so it is
+polled only while a run is actually in flight, and one pass at a time. Without the cheap watch, an
+agent edited while the table is open goes on looking current until the pane is reopened, which is
+exactly when it is most misleading.
 
 - **A draft is dated by its hash**, not by a version, because editing a draft moves nothing a
   version could record. Each cell carries `subject_draft_hash`, the hash of the configuration it
