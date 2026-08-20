@@ -57,8 +57,11 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
+		getBenchmarkAiConfig,
+		getBenchmarkResourceValue,
 		getBenchmarkVariableByPath,
 		hasBenchmarkWorkspace,
+		listBenchmarkAiProviderResources,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
 		listBenchmarkDrafts,
@@ -301,6 +304,10 @@ vi.mock('$lib/gen', async () => {
 					: actual.JobService.getJobLogs(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
+			getCopilotInfo: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (getBenchmarkAiConfig(data.workspace) ?? {})
+					: actual.WorkspaceService.getCopilotInfo(data),
 			listDataTableTables: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? (listBenchmarkDatatables(data.workspace) ?? [])
@@ -340,14 +347,33 @@ vi.mock('$lib/gen', async () => {
 		}),
 		ResourceService: wrapService(actual.ResourceService, {
 			existsResource: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.ResourceService.existsResource(data),
-			listResource: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.listResource(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? Boolean(getBenchmarkResourceValue(data.workspace, data.path))
+					: actual.ResourceService.existsResource(data),
+			// Only AI provider resources are modelled: they are what an AI agent step references.
+			listResource: async (data: { workspace: string; resourceType?: string }) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) {
+					return actual.ResourceService.listResource(data)
+				}
+				const seeded = listBenchmarkAiProviderResources(data.workspace) ?? []
+				const wanted = data.resourceType?.split(',')
+				return wanted ? seeded.filter((r) => wanted.includes(r.resource_type)) : seeded
+			},
 			getResource: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					throw new Error(`Resource "${data.path}" not found in benchmark workspace`)
 				}
 				return actual.ResourceService.getResource(data)
+			},
+			getResourceValue: async (data: { workspace: string; path: string }) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) {
+					return actual.ResourceService.getResourceValue(data)
+				}
+				const value = getBenchmarkResourceValue(data.workspace, data.path)
+				if (!value) {
+					throw new Error(`Resource "${data.path}" not found in benchmark workspace`)
+				}
+				return value
 			},
 			queryResourceTypes: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)

@@ -2272,3 +2272,66 @@
         - workflow must be deployed
         - workflow needs to be deployed
         - workflow has to be deployed
+
+# --- AI agent steps: the provider config must name a model the referenced resource serves ---
+# The workspace AI settings are not a runtime gate, so the model id can only come from the
+# resources themselves. Both cases seed AI provider resources; without them the assistant has
+# nothing to write but a guessed id, which is the defect these pin.
+
+- id: global-ai-agent-step-uses-workspace-model
+  prompt: |-
+    Create a draft flow at `f/evals/global/support_answer` with a single AI agent step that answers
+    the user's question. The question comes in as a flow input called `query`. No tools.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/ai_provider_anthropic.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/support_answer
+        valueIncludes:
+          - aiagent
+          - $res:f/evals/global/anthropic_main
+          - claude-sonnet-5
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a draft flow at f/evals/global/support_answer with one AI agent step
+    - the step's provider is an object carrying kind, resource and model, not a bare resource string
+    - the provider references the workspace's own AI provider resource f/evals/global/anthropic_main
+    - the model is one the workspace configured for that resource, not an id invented from memory
+    - the user's question reaches the agent from the query flow input
+    - the result stays as an AI draft and is not deployed
+
+- id: global-ai-agent-step-asks-which-provider
+  prompt: |-
+    Create a draft flow at `f/evals/global/triage_ticket` with a single AI agent step that summarises
+    an incoming ticket. The ticket text comes in as a flow input called `ticket`. No tools.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/ai_providers_two.json
+  runtime:
+    maxTurns: 10
+  toolExpect:
+    requiredToolsUsed:
+      - askUserQuestion
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  # Two configured providers make the choice the user's: the step may only be written once the
+  # question is answered, and it must use one of the workspace's own resources. Which one depends
+  # on the answer, so the assertion covers the shared path prefix rather than a fixed resource.
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/triage_ticket
+        valueIncludes:
+          - aiagent
+          - $res:f/evals/global/
+  # Whether the assistant asked before writing lives in the tool record, not in the draft the
+  # global judge sees.
+  skipJudge: true

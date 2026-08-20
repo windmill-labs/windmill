@@ -5,6 +5,7 @@ import type {
 	Flow,
 	Job,
 	ListableApp,
+	ListableResource,
 	ListableVariable,
 	Script
 } from '../../../frontend/src/lib/gen'
@@ -64,6 +65,21 @@ export interface BenchmarkWorkspaceVariable {
 	ws_specific?: boolean
 }
 
+/** An AI provider resource of the benchmark workspace, as an AI agent step would reference it.
+ * `models` stands in for the provider's model listing, which no eval run can reach. */
+export interface BenchmarkWorkspaceAiProvider {
+	path: string
+	/** Resource type, which for AI resources is the provider kind (`anthropic`, `openai`, ...). */
+	kind: string
+	models?: string[]
+	/** Set to point the resource at a gateway rather than the provider's own API. */
+	base_url?: string
+	/** Models the workspace AI settings selected for this provider. */
+	configuredModels?: string[]
+	/** Marks this provider's first configured model as the workspace default. */
+	isDefault?: boolean
+}
+
 export interface BenchmarkWorkspaceJob {
 	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
 	id?: string
@@ -80,6 +96,7 @@ export interface BenchmarkWorkspaceRunnables {
 	flows?: BenchmarkWorkspaceFlow[]
 	apps?: BenchmarkWorkspaceApp[]
 	variables?: BenchmarkWorkspaceVariable[]
+	aiProviders?: BenchmarkWorkspaceAiProvider[]
 	datatables?: BenchmarkDatatableSeed[]
 	jobs?: BenchmarkWorkspaceJob[]
 }
@@ -244,6 +261,59 @@ export function listBenchmarkVariables(workspace: string): ListableVariable[] | 
 	}
 	// The list route never decrypts.
 	return (runnables.variables ?? []).map((seed) => buildBenchmarkVariable(workspace, seed, false))
+}
+
+/** AI provider resources of a benchmark workspace, shaped like `ResourceService.listResource`
+ * rows (which carry no value). Null when the workspace is not a benchmark one. */
+export function listBenchmarkAiProviderResources(workspace: string): ListableResource[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		return null
+	}
+	return (runnables.aiProviders ?? []).map((seed) => ({
+		workspace_id: workspace,
+		path: seed.path,
+		resource_type: seed.kind,
+		value: null,
+		is_oauth: false,
+		is_linked: false,
+		is_refreshed: false,
+		extra_perms: {},
+		edited_at: BENCHMARK_TIMESTAMP
+	}))
+}
+
+/** The value of a seeded AI provider resource. Only the endpoint fields are modelled — a key is
+ * never needed, because no eval run calls the provider through this resource. */
+export function getBenchmarkResourceValue(
+	workspace: string,
+	path: string
+): Record<string, unknown> | null {
+	const seed = benchmarkWorkspaceRunnables
+		.get(workspace)
+		?.aiProviders?.find((entry) => entry.path === path)
+	if (!seed) {
+		return null
+	}
+	return seed.base_url ? { base_url: seed.base_url } : {}
+}
+
+/** The AI settings of a benchmark workspace, as `WorkspaceService.getCopilotInfo` returns them. */
+export function getBenchmarkAiConfig(workspace: string): Record<string, unknown> | null {
+	const seeds = benchmarkWorkspaceRunnables.get(workspace)?.aiProviders
+	if (!seeds) {
+		return null
+	}
+	const providers: Record<string, unknown> = {}
+	let defaultModel: { model: string; provider: string } | undefined
+	for (const seed of seeds) {
+		const models = seed.configuredModels ?? seed.models ?? []
+		providers[seed.kind] = { resource_path: seed.path, models }
+		if (seed.isDefault && models[0]) {
+			defaultModel = { model: models[0], provider: seed.kind }
+		}
+	}
+	return { providers, ...(defaultModel ? { default_model: defaultModel } : {}) }
 }
 
 export function getBenchmarkVariableByPath(
