@@ -641,6 +641,97 @@ async fn test_update_script_does_not_revive_an_archived_path(
     Ok(())
 }
 
+/// Stages the interleaving the sequential test above cannot: the update resolves its
+/// parent while an archive is mid-flight. Holding the head row locked from another
+/// connection parks the update on that row, so the archive lands first by construction
+/// — the ordering that, unlocked, hands the deploy an archived hash to chain onto.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_update_script_loses_a_race_with_archive(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+    let path = "u/test-user/raced_update_test";
+
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&new_script(
+            path,
+            "v1",
+            "export async function main() { return 1; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create v1: {}", resp.text().await?);
+
+    // Take the head row before the update can, so it blocks where it resolves.
+    let mut blocker = db.begin().await?;
+    let head: i64 = sqlx::query_scalar(
+        "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2 \
+         FOR UPDATE",
+    )
+    .bind(path)
+    .bind("test-workspace")
+    .fetch_one(&mut *blocker)
+    .await?;
+
+    let update = tokio::spawn({
+        let base = base.clone();
+        let body = new_script(path, "v2", "export async function main() { return 2; }");
+        async move {
+            authed(client().post(format!("{base}/update/{path}")))
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+        }
+    });
+
+    // Order the archive after whatever the update has already read: wait until it is
+    // parked on the row lock. Without this the update can lose to a local UPDATE and
+    // never reach its resolution, which is the sequential case the test above covers.
+    let mut parked = false;
+    for _ in 0..400 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' \
+             AND datname = current_database() AND pid <> pg_backend_pid()",
+        )
+        .fetch_one(&db)
+        .await?;
+        if waiting > 0 {
+            parked = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(parked, "the update never parked on the head row lock");
+
+    // Archive under the lock the update is waiting on, then release it.
+    sqlx::query("UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2")
+        .bind(head)
+        .bind("test-workspace")
+        .execute(&mut *blocker)
+        .await?;
+    blocker.commit().await?;
+
+    let resp = tokio::time::timeout(std::time::Duration::from_secs(20), update).await??;
+    assert_eq!(
+        resp.status(),
+        404,
+        "an update that lost the race must not revive the archived script"
+    );
+    assert_eq!(
+        authed_get(port, "get/p", path)
+            .await
+            .json::<serde_json::Value>()
+            .await?["archived"],
+        json!(true),
+        "the path must be left archived"
+    );
+
+    Ok(())
+}
+
 /// Regression test for GHSA-2ppx-66jv-wpw5: a path-scoped token must only see
 /// the scripts within its scope when listing, even though the route-level scope
 /// check only validates `domain:action`. Before the fix, `list_search` (and

@@ -1080,10 +1080,10 @@ async fn create_script_internal<'c>(
     user_db: UserDB,
     webhook: WebhookShared,
     skip_if_noop: bool,
-    // When set, the parent is the live head at this path, resolved inside this
-    // transaction. The update route uses it so an archive landing between resolution
-    // and deploy cannot revive the script it archived: the hash of an archived version
-    // still exists, and nothing further down would notice it is no longer the head.
+    // When set, the parent is the live head at this path, resolved and locked inside
+    // this transaction. The update route uses it because nothing further down would
+    // notice a parent that is no longer the head: the hash of an archived version still
+    // resolves, and the deploy would revive the script the archive just retired.
     supersede_head_at: Option<String>,
 ) -> Result<(
     ScriptHash,
@@ -1200,8 +1200,14 @@ async fn create_script_internal<'c>(
         .await?;
     }
     if let Some(source) = supersede_head_at.as_deref() {
+        // `FOR UPDATE` is what makes this the head rather than a head it once was: an
+        // archive racing this deploy either waits for it, or wins and leaves the row
+        // failing the `archived` qualifier on re-check, so no version is found and
+        // nothing chains onto it. Without the lock the archived hash still resolves,
+        // and the deploy below revives the script the archive just retired.
         let head = sqlx::query_scalar::<_, i64>(
-            "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
+            "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2 \
+             FOR UPDATE",
         )
         .bind(source)
         .bind(&w_id)
