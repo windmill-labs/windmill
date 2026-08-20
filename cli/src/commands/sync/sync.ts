@@ -198,24 +198,34 @@ function isScriptLockPath(p: string): boolean {
 /**
  * Whether the metadata beside a script lockfile still points at it. Read from
  * disk, after the pull has applied (or refused) every metadata change, because
- * that is the only moment the answer is settled.
+ * that is the only moment the answer is settled — and from the `lock` field of
+ * the twin this sync reads, not the raw text: a folded line, a summary quoting
+ * the path, or a stale twin of the other format would each answer wrongly.
  */
-async function isLockStillRead(lockPath: string): Promise<boolean> {
+async function isLockStillRead(
+  lockPath: string,
+  json: boolean,
+): Promise<boolean> {
   const n = lockPath.replaceAll(SEP, "/");
-  const base = n.endsWith("__mod/script.lock")
-    ? n.slice(0, -".lock".length)
-    : n.slice(0, -".script.lock".length);
-  const reference = "!inline " + n;
-  for (const meta of [base + ".script.yaml", base + ".script.json", base + ".yaml", base + ".json"]) {
-    try {
-      if ((await readTextFile(meta.replaceAll("/", SEP))).includes(reference)) {
-        return true;
-      }
-    } catch {
-      // no such metadata twin
-    }
+  const metaPath = n.endsWith("__mod/script.lock")
+    ? n.slice(0, -".lock".length) + (json ? ".json" : ".yaml")
+    : n.slice(0, -".script.lock".length) +
+      (json ? ".script.json" : ".script.yaml");
+  let content: string;
+  try {
+    content = await readTextFile(metaPath.replaceAll("/", SEP));
+  } catch {
+    return false; // no metadata: nothing reads it
   }
-  return false;
+  try {
+    const parsed = json
+      ? JSON.parse(content)
+      : yamlParseContent(metaPath, content);
+    return parsed?.["lock"] === "!inline " + n;
+  } catch {
+    // Unparseable metadata is not proof that nothing reads the lock.
+    return true;
+  }
 }
 
 /** Sync maps are keyed with the platform separator; `!inline` refs are not. */
@@ -1767,9 +1777,9 @@ function ZipFSElement(
 
 /**
  * Directories no walk over a workspace ever descends, whatever the sync scope:
- * dependency trees and tool state, never Windmill content. Exported because a
- * second walk that disagrees with this one reads files sync will never see, and
- * draws conclusions from them.
+ * dependency trees, and the dot-directories that hold tooling state and
+ * fixtures. Exported because a second walk that disagrees with this one reads
+ * files sync will never see, and draws conclusions from them.
  */
 export function isNeverWalkedDir(dirName: string | undefined): boolean {
   return (
@@ -3797,7 +3807,7 @@ export async function pull(
     }
 
     for (const deferred of deferredLockDeletions) {
-      if (await isLockStillRead(deferred.path)) {
+      if (await isLockStillRead(deferred.path, opts.json ?? false)) {
         log.info(
           colors.yellow(
             `Keeping ${deferred.path}: metadata on disk still references it.`,

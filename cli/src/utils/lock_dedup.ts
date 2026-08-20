@@ -606,6 +606,7 @@ export async function collectExistingSharedLocks(
   // Traversal first, reads second: recursing inside a batch would multiply the
   // fan-out at every level, and the reads below are deliberately unguarded.
   const toRead: { rel: string; isJson: boolean; shared: boolean }[] = [];
+  let walkedRoot = "";
   const walk = async (dir: string): Promise<void> => {
     let entries: Dirent[];
     try {
@@ -631,13 +632,19 @@ export async function collectExistingSharedLocks(
         toRead.push({ rel, isJson: false, shared: true });
         continue;
       }
-      const meta = scriptMetaBase(rel);
+      // `locks/` is walked for the shared files themselves; a metadata file
+      // sitting there is not a script sync will ever see, and counting it would
+      // pin the planner in conserve-only mode for good.
+      const meta = walkedRoot === SHARED_LOCK_DIR ? undefined : scriptMetaBase(rel);
       if (meta === undefined) continue;
       existing.scripts.add(rel);
       if (anyShared) toRead.push({ rel, isJson: meta.isJson, shared: false });
     }
   };
-  for (const root_ of roots) await walk(root_);
+  for (const r of roots) {
+    walkedRoot = r;
+    await walk(r);
+  }
 
   await inBatches(toRead, 32, async ({ rel, isJson, shared }) => {
     // Deliberately unguarded: a metadata file this cannot read is a script whose
