@@ -177,7 +177,7 @@ pub async fn create_dataset(
         )));
     }
     for case in &payload.cases {
-        check_case_size(&case.input, case.expected.as_ref())?;
+        check_case(case.name.as_deref(), &case.input, case.expected.as_ref())?;
     }
     let mut scorers = payload.scorers;
     assign_scorer_ids(&mut scorers)?;
@@ -397,6 +397,27 @@ pub async fn list_cases(
     Ok(Json(ListCasesResponse { cases, total: total as usize }))
 }
 
+/// Serializes everything that writes a dataset's case set, held for the rest of the transaction.
+///
+/// Two whole-set replacements would otherwise each delete what its own list does not hold before
+/// either inserts, leaving the union of both rather than either. An addition takes the same lock so
+/// that counting the set and adding to it is one step: two additions at the cap would otherwise
+/// both read one under it and both insert.
+async fn lock_dataset_cases(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtext('ai_eval_cases:' || $1 || '/' || $2))",
+        w_id,
+        path
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 pub async fn add_case(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -405,14 +426,16 @@ pub async fn add_case(
     Json(payload): Json<NewEvalCase>,
 ) -> Result<String> {
     require_dataset_writable(&authed, &user_db, &w_id, &path).await?;
-    check_case_size(&payload.input, payload.expected.as_ref())?;
+    check_case(payload.name.as_deref(), &payload.input, payload.expected.as_ref())?;
 
+    let mut tx = db.begin().await?;
+    lock_dataset_cases(&mut tx, &w_id, &path).await?;
     let count = sqlx::query_scalar!(
         "SELECT count(*) AS \"count!\" FROM eval_case WHERE workspace_id = $1 AND dataset_path = $2",
         w_id,
         path
     )
-    .fetch_one(&db)
+    .fetch_one(&mut *tx)
     .await?;
     if count >= MAX_CASES_PER_DATASET {
         return Err(Error::BadRequest(format!(
@@ -433,7 +456,7 @@ pub async fn add_case(
         opt_from_raw(payload.expected.as_ref())?,
         authed.username,
     )
-    .fetch_one(&db)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
         if is_missing_dataset(&e) {
@@ -442,6 +465,7 @@ pub async fn add_case(
             e.into()
         }
     })?;
+    tx.commit().await?;
     Ok(id.to_string())
 }
 
@@ -466,20 +490,11 @@ pub async fn save_cases(
         )));
     }
     for case in &payload.cases {
-        check_case_size(&case.input, case.expected.as_ref())?;
+        check_case(case.name.as_deref(), &case.input, case.expected.as_ref())?;
     }
 
     let mut tx = db.begin().await?;
-    // One replacement at a time per dataset. Two of them would otherwise each delete what its own
-    // list does not hold before either inserts, and both would commit — leaving the union of the
-    // two sets rather than either of the two the callers asked for.
-    sqlx::query!(
-        "SELECT pg_advisory_xact_lock(hashtext('ai_eval_cases:' || $1 || '/' || $2))",
-        w_id,
-        path
-    )
-    .execute(&mut *tx)
-    .await?;
+    lock_dataset_cases(&mut tx, &w_id, &path).await?;
     let kept: Vec<Uuid> = payload.cases.iter().filter_map(|c| c.id).collect();
     sqlx::query!(
         "DELETE FROM eval_case
@@ -546,7 +561,7 @@ pub async fn update_case(
     Json(payload): Json<UpdateCase>,
 ) -> Result<String> {
     require_dataset_writable(&authed, &user_db, &w_id, &path).await?;
-    check_case_size(&payload.input, payload.expected.as_ref())?;
+    check_case(payload.name.as_deref(), &payload.input, payload.expected.as_ref())?;
     let updated = sqlx::query_scalar!(
         "UPDATE eval_case
          SET name = $4, input = $5, expected = $6

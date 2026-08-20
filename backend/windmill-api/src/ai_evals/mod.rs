@@ -246,7 +246,29 @@ fn opt_from_raw(value: Option<&Box<RawValue>>) -> Result<Option<serde_json::Valu
     value.map(|v| from_raw(v)).transpose()
 }
 
-/// Everything a case carries that a caller supplied, weighed against `MAX_CASE_BYTES`.
+/// What `eval_case.name` holds. Checked here rather than left to the column, because a case is
+/// written after the dataset it belongs to: a name the column refuses would commit the dataset and
+/// then fail its cases, leaving an empty dataset that a retry says already exists.
+const MAX_CASE_NAME_CHARS: usize = 255;
+
+/// Everything a case carries that a caller supplied, weighed against what the row can hold.
+fn check_case(
+    name: Option<&str>,
+    input: &EvalCaseInput,
+    expected: Option<&Box<RawValue>>,
+) -> Result<()> {
+    if let Some(name) = name {
+        if name.chars().count() > MAX_CASE_NAME_CHARS {
+            return Err(Error::BadRequest(format!(
+                "This eval case's name is {} characters, over the {} the column holds.",
+                name.chars().count(),
+                MAX_CASE_NAME_CHARS
+            )));
+        }
+    }
+    check_case_size(input, expected)
+}
+
 fn check_case_size(input: &EvalCaseInput, expected: Option<&Box<RawValue>>) -> Result<()> {
     let mut bytes = serde_json::to_vec(input)?.len();
     if let Some(expected) = expected {
