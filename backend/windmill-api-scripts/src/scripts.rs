@@ -1064,10 +1064,8 @@ async fn create_script_internal<'c>(
     user_db: UserDB,
     webhook: WebhookShared,
     skip_if_noop: bool,
-    // When set, the parent is the live head at this path, resolved and locked inside
-    // this transaction. The update route uses it because nothing further down would
-    // notice a parent that is no longer the head: the hash of an archived version still
-    // resolves, and the deploy would revive the script the archive just retired.
+    // When set, the parent is the live head at this path rather than anything the body
+    // named, resolved against the deploying transaction.
     supersede_head_at: Option<String>,
 ) -> Result<(
     ScriptHash,
@@ -1184,11 +1182,9 @@ async fn create_script_internal<'c>(
         .await?;
     }
     if let Some(source) = supersede_head_at.as_deref() {
-        // `FOR UPDATE` is what makes this the head rather than a head it once was: an
-        // archive racing this deploy either waits for it, or wins and leaves the row
-        // failing the `archived` qualifier on re-check, so no version is found and
-        // nothing chains onto it. Without the lock the archived hash still resolves,
-        // and the deploy below revives the script the archive just retired.
+        // Locked, or this is a head it once was: nothing below re-checks `archived`, so
+        // an archive slipping in leaves the deploy chaining onto the version it retired
+        // and reviving it.
         let head = sqlx::query_scalar::<_, i64>(
             "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2 \
              FOR UPDATE",
@@ -1197,7 +1193,30 @@ async fn create_script_internal<'c>(
         .bind(&w_id)
         .fetch_optional(&mut *tx)
         .await?;
-        ns.parent_hash = Some(ScriptHash(not_found_if_none(head, "Script", source)?));
+        let Some(head) = head else {
+            // A live version here now means this deploy lost the lock to one that
+            // superseded the version it set out to supersede. Calling that "not found",
+            // of a path the caller can see holds a script, sends them after the wrong
+            // problem — the answer is to read it again and redeploy.
+            let superseded = sqlx::query_scalar::<_, i64>(
+                "SELECT hash FROM script WHERE path = $1 AND archived = false \
+                 AND workspace_id = $2",
+            )
+            .bind(source)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some();
+            return Err(if superseded {
+                Error::BadRequest(format!(
+                    "The script at {source} was deployed to concurrently; read it again \
+                     and redeploy"
+                ))
+            } else {
+                Error::NotFound(format!("Script not found at path {source}"))
+            });
+        };
+        ns.parent_hash = Some(ScriptHash(head));
     }
     let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
         "SELECT {} FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
