@@ -12,5 +12,5 @@
 	"discordReport": "hub/9085/discord",
 	"smtpReport": "hub/28242/smtp",
 	"appReport": "hub/28243/app-report",
-	"cloneRepoToS3forGitRepoViewer": "hub/28216/clone_repo_and_upload_to_instance_storage"
+	"cloneRepoToS3forGitRepoViewer": "hub/28905/clone_repo_and_upload_to_instance_storage"
 }
