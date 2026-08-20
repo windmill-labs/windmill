@@ -223,14 +223,13 @@ fn scorer_modules(
 /// can notice that the last case finished. The cases live in the flow's value, stored once,
 /// rather than in its arguments, which every iteration inherits a copy of.
 fn build_run_flow(
-    subject: &EvalSubject,
-    config: Option<&AgentDraft>,
+    config: &AgentDraft,
     cases: &[CaseIteration],
     scorers: &[&Scorer],
     judges: &std::collections::HashMap<String, AgentDraft>,
     experiment_id: Uuid,
 ) -> Result<windmill_common::flows::FlowValue> {
-    let mut modules: Vec<serde_json::Value> = vec![agent_module(subject, config)?];
+    let mut modules: Vec<serde_json::Value> = vec![agent_module(config)?];
     if !scorers.is_empty() {
         modules.push(payload_module());
         // One branch each, run together: scorers read the answer and never each other, so measuring
@@ -277,8 +276,8 @@ fn build_run_flow(
 }
 
 /// The agent step, reading its case from the iteration rather than from the flow's arguments.
-fn agent_module(subject: &EvalSubject, config: Option<&AgentDraft>) -> Result<serde_json::Value> {
-    let flow = build_case_flow(subject, config)?;
+fn agent_module(config: &AgentDraft) -> Result<serde_json::Value> {
+    let flow = build_case_flow(config)?;
     let mut value = serde_json::to_value(&flow.modules[0].value)?;
     if let Some(map) = value.as_object_mut() {
         let transforms = map
@@ -301,14 +300,11 @@ fn agent_module(subject: &EvalSubject, config: Option<&AgentDraft>) -> Result<se
 
 /// The agent step as a one-module flow, so the module shape is validated by deserializing
 /// through `FlowValue` rather than trusted as raw JSON.
-fn build_case_flow(
-    subject: &EvalSubject,
-    config: Option<&AgentDraft>,
-) -> Result<windmill_common::flows::FlowValue> {
+fn build_case_flow(config: &AgentDraft) -> Result<windmill_common::flows::FlowValue> {
     // The configuration runs exactly as authored: its own brain transforms are the module's, and
     // the case supplies the message and the attachments over the top.
-    let mut input_transforms = match config.map(|c| &c.input_transforms) {
-        Some(serde_json::Value::Object(map)) => map.clone(),
+    let mut input_transforms = match &config.input_transforms {
+        serde_json::Value::Object(map) => map.clone(),
         _ => serde_json::Map::new(),
     };
     for key in ["user_message", "user_attachments"] {
@@ -318,19 +314,11 @@ fn build_case_flow(
         );
     }
 
+    // Always inlined, never a link to the resource: a linked step would resolve the agent when
+    // each case runs, which is the one thing a run of a named version must not do.
     let mut agent_value = serde_json::Map::new();
     agent_value.insert("type".to_string(), serde_json::json!("aiagent"));
-    match config {
-        Some(config) => {
-            agent_value.insert("tools".to_string(), serde_json::json!(config.tools));
-        }
-        // Only when the agent has no readable configuration to inline: a linked step resolves the
-        // resource when the case runs, which is what the run is otherwise pinned against.
-        None => {
-            agent_value.insert("agent".to_string(), serde_json::json!(subject.path));
-            agent_value.insert("tools".to_string(), serde_json::json!([]));
-        }
-    }
+    agent_value.insert("tools".to_string(), serde_json::json!(config.tools));
     agent_value.insert(
         "input_transforms".to_string(),
         serde_json::Value::Object(input_transforms),
@@ -455,7 +443,10 @@ pub(crate) async fn deployed_agent_state(
     let Some(row) = row else {
         return Ok((None, None));
     };
-    Ok((row.value.map(|v| config_to_draft(v.0)).transpose()?, row.version))
+    Ok((
+        row.value.map(|v| config_to_draft(v.0)).transpose()?,
+        row.version,
+    ))
 }
 
 pub(crate) async fn agent_draft_config(
@@ -490,12 +481,19 @@ pub(crate) async fn agent_draft_config(
         )));
     };
     // A resource draft wraps the value it is a draft of, alongside the path and description the
-    // save form carries. The resource editor files that value under `args`; older drafts and
-    // hand-written ones use `value`.
-    let inner = ["args", "value"]
-        .iter()
-        .find_map(|key| value.get(*key).filter(|v| v.is_object()).cloned())
-        .unwrap_or(value);
+    // save form carries. Every writer files that value under `args` — the resource editor and the
+    // flow editor's agent step alike — and both read it back from there, so a draft shaped any
+    // other way is refused rather than run as though the wrapper were a configuration.
+    let inner = value
+        .get("args")
+        .filter(|v| v.is_object())
+        .cloned()
+        .ok_or_else(|| {
+            Error::BadRequest(format!(
+                "The draft of agent {} does not hold a configuration",
+                agent_path
+            ))
+        })?;
     config_to_draft(inner).map_err(|_| {
         Error::BadRequest(format!(
             "The draft of agent {} is not an object",
@@ -518,7 +516,7 @@ async fn resolve_subject(
     user_db: &UserDB,
     w_id: &str,
     subject: &mut EvalSubject,
-) -> Result<Option<AgentDraft>> {
+) -> Result<AgentDraft> {
     Ok(match subject.kind {
         EvalSubjectKind::Agent => {
             require_agent(authed, user_db, w_id, &subject.path).await?;
@@ -527,14 +525,24 @@ async fn resolve_subject(
             // under a version whose configuration never ran.
             let (config, version) = deployed_agent_state(db, w_id, &subject.path).await?;
             subject.version = version;
-            config
+            // The agent was there a statement ago, so it was deleted while this was being read.
+            // A run has to hold the configuration it ran; there is nothing to hold, and going
+            // ahead against the path would execute whatever is recreated there later.
+            config.ok_or_else(|| {
+                Error::BadRequest(format!(
+                    "Agent {} was deleted while starting the run",
+                    subject.path
+                ))
+            })?
         }
         EvalSubjectKind::AgentDraft => {
-            subject.draft = Some(agent_draft_config(authed, user_db, w_id, &subject.path).await?);
-            // The version the draft is an edit of. It is not a version of its own, but a run
-            // of "v15 plus unsaved edits" is not attributable without knowing which v15.
+            let config = agent_draft_config(authed, user_db, w_id, &subject.path).await?;
+            subject.draft = Some(config.clone());
+            // The version the draft is an edit of, as of now: a draft records no version of its
+            // own, so "v15 plus unsaved edits" means the edits and whatever was deployed when the
+            // run started. Reading it alongside the draft would not make it any more exact.
             subject.version = current_resource_version(db, w_id, &subject.path).await?;
-            subject.draft.clone()
+            config
         }
         EvalSubjectKind::AgentVersion => {
             let Some(version) = subject.version else {
@@ -542,10 +550,10 @@ async fn resolve_subject(
                     "A run of a past version must say which version".to_string(),
                 ));
             };
-            subject.draft = Some(
-                agent_version_config(authed, user_db, db, w_id, &subject.path, version).await?,
-            );
-            subject.draft.clone()
+            let config =
+                agent_version_config(authed, user_db, db, w_id, &subject.path, version).await?;
+            subject.draft = Some(config.clone());
+            config
         }
     })
 }
@@ -736,14 +744,7 @@ pub async fn run_experiment(
     // job before it exists.
     let experiment_id = Uuid::new_v4();
     let run_job_id = Uuid::new_v4();
-    let flow_value = build_run_flow(
-        &subject,
-        config.as_ref(),
-        &iterations,
-        &scorers,
-        &judges,
-        experiment_id,
-    )?;
+    let flow_value = build_run_flow(&config, &iterations, &scorers, &judges, experiment_id)?;
 
     // The whole run is recorded, with the id of the job that will hold it, before that job is
     // queued. A launch that dies partway therefore leaves an experiment naming a job that never
@@ -956,14 +957,8 @@ pub(crate) fn experiment_from_row(
 mod tests {
     use super::*;
 
-    fn subject() -> EvalSubject {
-        EvalSubject {
-            kind: EvalSubjectKind::Agent,
-            path: "f/e/agent".to_string(),
-            version: Some(3),
-            draft: None,
-            draft_hash: None,
-        }
+    fn agent_config() -> AgentDraft {
+        AgentDraft { input_transforms: serde_json::json!({}), tools: vec![] }
     }
 
     fn scorer(kind: ScorerDef) -> Scorer {
@@ -977,8 +972,7 @@ mod tests {
     fn the_collect_step_runs_once_after_the_loop() {
         let experiment = Uuid::new_v4();
         let flow = build_run_flow(
-            &subject(),
-            None,
+            &agent_config(),
             &[],
             &[],
             &std::collections::HashMap::new(),
@@ -988,7 +982,10 @@ mod tests {
         let value = serde_json::to_value(&flow).unwrap();
         let modules = value["modules"].as_array().unwrap();
         assert_eq!(
-            modules.iter().map(|m| m["id"].as_str().unwrap()).collect::<Vec<_>>(),
+            modules
+                .iter()
+                .map(|m| m["id"].as_str().unwrap())
+                .collect::<Vec<_>>(),
             vec![CASES_NODE_ID, COLLECT_NODE_ID]
         );
         let collect = &modules[1];
