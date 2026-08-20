@@ -141,21 +141,42 @@
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
 	let providerPath = $derived(linkedInfo?.providerPath)
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
+	/** The agent the card is about: the one this step links to, or the one being edited. */
+	let cardPath = $derived(agent ?? editingPath)
+	/** That agent's draft as the syncer keys it. Keyed on the card's agent rather than the editor's,
+	 *  so a write that only fails once the editor is gone is still answered for. */
+	let cardDraftQuery = $derived(
+		ws && cardPath ? { workspace: ws, itemKind: 'resource' as const, path: cardPath } : undefined
+	)
+	let cardDraftSync = $derived(
+		cardDraftQuery ? UserDraftDbSyncer.getState(cardDraftQuery) : undefined
+	)
+	/** Why the edits are not on the agent, when they are not. Cancel is only safe to press because
+	 *  the draft is holding them, so a mirror that failed has to say so — and go on saying so after
+	 *  Cancel, which is the point at which the work is gone for good. A conflict is the other way it
+	 *  stops, and the modal below owns that one. */
+	let draftSyncFailure = $derived(
+		cardDraftSync?.state === 'failed'
+			? (cardDraftSync.failureMessage ?? 'Unknown error')
+			: undefined
+	)
 	/** The last thing this card did to an agent's draft, and to which agent. Writes and deletes are
 	 *  queued, so the card can re-read the resource while one is still on its way: what was done
 	 *  here is the more current answer until the card links elsewhere, when it stops being about
 	 *  this agent at all. */
 	let draftLeftHere = $state<{ path: string; has: boolean } | undefined>(undefined)
 	/** The agent has edits nobody has deployed — left by Cancel here, or written in the resource
-	 *  editor. Named on the card because it is what the Evals button offers to run. */
+	 *  editor. Named on the card because it is what the Evals button offers to run. A write this
+	 *  card queued and then lost is not a draft: once it has failed, the server's answer is the
+	 *  true one again, or the badge would claim work that never left the browser. */
 	let linkedHasDraft = $derived(
-		draftLeftHere != undefined && agent != undefined && draftLeftHere.path === agent
+		draftLeftHere != undefined &&
+			agent != undefined &&
+			draftLeftHere.path === agent &&
+			draftSyncFailure === undefined
 			? draftLeftHere.has
 			: (linkedInfo?.hasDraft ?? false)
 	)
-
-	/** The agent the card is about: the one this step links to, or the one being edited. */
-	let cardPath = $derived(agent ?? editingPath)
 	// Evals belong to the agent, not to the step, so they open over the flow rather than as one of
 	// the step's tabs: what you go there to read is a history of runs, not a setting of this step.
 	let evalsOpen = $state(false)
@@ -601,15 +622,6 @@
 			? { workspace: ws, itemKind: 'resource' as const, path: editingPath }
 			: undefined
 	)
-	/** Why the edits are not on the agent yet, when they are not. The mirror is what makes Cancel
-	 *  safe to press, so a mirror that is failing has to be on screen: a rejected save otherwise
-	 *  leaves the card claiming the work is kept while the next Cancel drops it. A conflict is the
-	 *  other way it stops, and the modal below owns that one. */
-	let draftSync = $derived(draftQuery ? UserDraftDbSyncer.getState(draftQuery) : undefined)
-	let draftSyncFailure = $derived(
-		draftSync?.state === 'failed' ? (draftSync.failureMessage ?? 'Unknown error') : undefined
-	)
-
 	/**
 	 * Take the draft as the server has it, discarding what this editor holds — the conflict modal's
 	 * "Load from server". Re-enters the editor rather than writing the values into the open one,
@@ -837,12 +849,6 @@
 				onDiscard={discardDraft}
 				title="Deployed <> Unsaved agent changes"
 			/>
-			{#if draftSyncFailure}
-				<Alert type="error" size="xs" title="These edits are not on the agent">
-					They could not be written to its draft: {draftSyncFailure}. Editing again retries. Cancel
-					would drop them, and Save changes writes them to the agent.
-				</Alert>
-			{/if}
 			<!-- Deciding the edits' fate gets a row of its own: at this width it was wrapping into
 			     the line that names them, and the two are not the same question. -->
 			<div class="flex items-center justify-end gap-1">
@@ -874,6 +880,16 @@
 		>
 			Save as reusable agent
 		</Button>
+	{/if}
+	<!-- Outside the editing card on purpose: the write outlives the editor, and Cancel unmounting
+	     the only account of a failed one is what leaves the step claiming work it lost. -->
+	{#if draftSyncFailure}
+		<div class="mt-1">
+			<Alert type="error" size="xs" title="These edits are not on the agent">
+				They could not be written to its draft: {draftSyncFailure}. Editing the agent again retries,
+				and Save changes writes them straight to it.
+			</Alert>
+		</div>
 	{/if}
 </div>
 
