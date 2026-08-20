@@ -27,6 +27,11 @@ const FILTERED_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set([
 const MAX_PROVIDER_RESOURCES = 8
 const MODELS_TIMEOUT_MS = 10_000
 
+/** The catalog lists models without anyone asking — opening a chat is enough — so the response of
+ * an endpoint the workspace may not control is capped before it is parsed. Real listings are a few
+ * tens of KB; OpenRouter's, the largest, is well under this. */
+const MODELS_MAX_BYTES = 2_000_000
+
 /** Anthropic's model listing pages at 20 and `fetchAvailableModels` ignores `has_more`; the AI
  * proxy routes on the path alone, so no caller can ask for more. A listing that fills that page
  * may be truncated, and only a shorter one is provably the whole set. Providers that return every
@@ -150,24 +155,30 @@ async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
 		kept.map((candidate) => loadOption(workspace, candidate, configuredByPath))
 	)
 
-	// The default belongs to the resource its provider is configured with. Matching on kind alone
-	// would pin the instance fallback's default model onto a workspace-local resource of the same
-	// kind, whose endpoint serves something else entirely.
+	// `getCopilotInfo` returns the *effective* config, which may be the instance's, and resource
+	// paths are workspace-scoped — so a path match proves nothing on its own. The default is only
+	// offered when the resource's own listing confirms it serves that model, which holds whichever
+	// config the path came from.
 	const defaultModel = aiConfig.default_model
 	const defaultResourcePath = defaultModel
 		? aiConfig.providers?.[defaultModel.provider]?.resource_path
 		: undefined
+	const servesDefault =
+		defaultModel !== undefined &&
+		isModelId(defaultModel.model) &&
+		options.some(
+			(option) =>
+				option.resourcePath === defaultResourcePath &&
+				option.modelsAreLive &&
+				option.models.complete &&
+				option.models.ids.includes(defaultModel.model)
+		)
 	return {
 		options,
 		resourcesAreComplete: listedAllResources && kept.length === candidates.length,
-		// The default is named in the prompt like any listed model, so it is held to the same
-		// shape — it comes from the AI settings, which a workspace admin fills in by hand.
-		defaultModel:
-			defaultModel &&
-			isModelId(defaultModel.model) &&
-			options.some((option) => option.resourcePath === defaultResourcePath)
-				? { kind: defaultModel.provider, model: defaultModel.model }
-				: undefined
+		defaultModel: servesDefault
+			? { kind: defaultModel!.provider, model: defaultModel!.model }
+			: undefined
 	}
 }
 
@@ -215,7 +226,8 @@ async function loadOption(
 			candidate.resourcePath,
 			workspace,
 			candidate.kind,
-			AbortSignal.timeout(MODELS_TIMEOUT_MS)
+			AbortSignal.timeout(MODELS_TIMEOUT_MS),
+			MODELS_MAX_BYTES
 		).catch((err) => {
 			console.error(`Could not list models of AI resource ${candidate.resourcePath}`, err)
 			return [] as string[]
