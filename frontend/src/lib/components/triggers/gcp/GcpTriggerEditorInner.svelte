@@ -59,7 +59,11 @@
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
 	let topic_id: string = $state('')
-	let gcp_resource_path: string = $state('')
+	let gcp_resource_path: string | undefined = $state('')
+	// `undefined` rather than `''` is what marks application default credentials, and the two
+	// survive a round trip through the deployed config and the draft as `null` vs `''`.
+	let use_default_credentials = $state(false)
+	let project_id: string | undefined = $state(undefined)
 	let subscription_id: string = $state('')
 	let isValid = $state(false)
 	let delivery_config: PushConfig | undefined = $state(undefined)
@@ -178,6 +182,8 @@
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
 			gcp_resource_path = defaultValues?.gcp_resource_path ?? ''
+			use_default_credentials = false
+			project_id = defaultValues?.project_id ?? undefined
 			delivery_type = defaultValues?.delivery_type ?? 'pull'
 			delivery_config = defaultValues?.delivery_config ?? undefined
 			subscription_id = ''
@@ -234,7 +240,9 @@
 	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
 		script_path = cfg?.script_path
 		initialScriptPath = cfg?.script_path
-		gcp_resource_path = cfg?.gcp_resource_path
+		gcp_resource_path = cfg?.gcp_resource_path ?? undefined
+		use_default_credentials = cfg?.gcp_resource_path == null
+		project_id = cfg?.project_id ?? undefined
 		delivery_type = cfg?.delivery_type
 		subscription_id = cfg?.subscription_id
 		delivery_config = cfg?.delivery_config
@@ -277,7 +285,8 @@
 
 	function getGcpConfig() {
 		return {
-			gcp_resource_path,
+			gcp_resource_path: gcp_resource_path ?? null,
+			project_id,
 			subscription_mode,
 			subscription_id,
 			delivery_type,
@@ -300,7 +309,8 @@
 
 	function getGcpCaptureConfig() {
 		return {
-			gcp_resource_path,
+			gcp_resource_path: gcp_resource_path ?? null,
+			project_id,
 			subscription_mode,
 			subscription_id,
 			delivery_type,
@@ -516,6 +526,8 @@
 			<GcpTriggerEditorConfigSection
 				bind:isValid
 				bind:gcp_resource_path
+				bind:use_default_credentials
+				bind:project_id
 				bind:subscription_id
 				bind:delivery_type
 				bind:delivery_config

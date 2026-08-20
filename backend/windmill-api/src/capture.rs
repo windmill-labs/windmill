@@ -200,7 +200,11 @@ pub struct AzureTriggerConfig {
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
-    pub gcp_resource_path: String,
+    /// `None` selects application default credentials.
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub gcp_resource_path: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub project_id: Option<String>,
     pub subscription_mode: GcpSubscriptionMode,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
@@ -428,7 +432,8 @@ async fn set_gcp_trigger_config(
         authed,
         db,
         w_id,
-        &gcp_config.gcp_resource_path,
+        gcp_config.gcp_resource_path.as_deref(),
+        gcp_config.project_id.as_deref(),
         &capture_config.path,
         &gcp_config.topic_id,
         &mut gcp_config.subscription_id,
@@ -1047,7 +1052,7 @@ async fn gcp_payload(
         user_db.clone(),
         authed.clone(),
         &headers,
-        &gcp_trigger_config.gcp_resource_path,
+        gcp_trigger_config.gcp_resource_path.as_deref(),
         &w_id,
         config.delivery_config.as_ref().unwrap(),
     )

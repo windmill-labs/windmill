@@ -285,6 +285,7 @@ On self-hosted instances, you might want to import all the approved resource typ
 | MIN_FREE_DISK_SPACE_MB              | 15000                            | Minimum amount of free space on worker. Sends critical alert if worker has less free space.                                                                                                        | Worker                |
 | RUN_UPDATE_CA_CERTIFICATE_AT_START  | false                            | If true, runs CA certificate update command at startup before other initialization                                                                                                                 | All                   |
 | RUN_UPDATE_CA_CERTIFICATE_PATH      | /usr/sbin/update-ca-certificates | Path to the CA certificate update command/script to run when RUN_UPDATE_CA_CERTIFICATE_AT_START is true                                                                                            | All                   |
+| GOOGLE_APPLICATION_CREDENTIALS      | None                             | (ee only) Credentials file for GCP Pub/Sub triggers that authenticate as the instance rather than through a `gcloud` resource (workspace admins only). Application default credentials also resolve the gcloud well-known file and the GCE metadata server. Workload Identity Federation files work with the `file`, `url` and `aws` credential sources; the `executable` source is not supported. | Server                |
 
 ## Run a local dev setup
 
