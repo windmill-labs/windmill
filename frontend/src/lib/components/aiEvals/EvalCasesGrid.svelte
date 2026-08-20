@@ -11,12 +11,16 @@
 
 	let {
 		cases = $bindable(),
-		onRemove
+		onRemove,
+		locked = false
 	}: {
 		/** The drawer's working copy. Edits land here as they are made; the drawer writes them. */
 		cases: CaseDraft[]
 		/** Asked before a row goes, since a stored case has runs that executed it. */
 		onRemove: (c: CaseDraft) => void
+		/** The cases are being written. An edit made now would be one the request already left
+		 *  behind, and the drawer closes on the response, so it would go without being saved. */
+		locked?: boolean
 	} = $props()
 
 	type Row = { id: string; question: string; expected: string }
@@ -40,21 +44,22 @@
 	let eGui: HTMLDivElement | undefined = $state()
 	let darkMode = $state(false)
 
+	const defaultColDef = {
+		flex: 1,
+		minWidth: 120,
+		// A case is prose, so a cell has to be able to hold a newline. The editor stays the height
+		// of the row until one is added, which is what the rest of this app's grids look like while
+		// you type in them.
+		...multilineCellColDef
+	}
+
 	$effect(() => eGui && untrack(() => mountGrid()))
 	function mountGrid() {
 		if (!eGui || api) return
 		createGrid(eGui, {
 			rowData: untrack(() => cases.map(toRow)),
 			columnDefs: columnDefs(),
-			defaultColDef: {
-				flex: 1,
-				minWidth: 120,
-				editable: true,
-				// A case is prose, so a cell has to be able to hold a newline. The editor stays the
-				// height of the row until one is added, which is what the rest of this app's grids
-				// look like while you type in them.
-				...multilineCellColDef
-			},
+			defaultColDef: { ...defaultColDef, editable: untrack(() => !locked) },
 			// The rows are held here rather than fetched, so the grid virtualises them: a dataset is
 			// capped at a thousand cases, and a row per case in the DOM is what makes a table that
 			// size stop responding.
@@ -108,6 +113,16 @@
 	$effect(() => {
 		rowKey
 		untrack(() => api?.updateGridOptions({ rowData: cases.map(toRow) }))
+	})
+
+	$effect(() => {
+		const editable = !locked
+		untrack(() => {
+			if (!api) return
+			// Whatever cell is open goes in with the save rather than being abandoned by it.
+			if (!editable) api.stopEditing()
+			api.updateGridOptions({ defaultColDef: { ...defaultColDef, editable } })
+		})
 	})
 </script>
 

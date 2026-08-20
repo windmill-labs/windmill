@@ -174,9 +174,8 @@
 				}))
 			}
 		})
-		// Back onto the rows by the local id each was sent under, not by position: the grid stays
-		// editable while the request is out, and a row added or removed meanwhile would otherwise
-		// shift every id after it onto the wrong case.
+		// Back onto the rows by the local id each was sent under rather than by position, which is
+		// what keeps this correct however the list moved while the request was out.
 		const assigned = new Map(sent.map((c, index) => [c.id, ids[index]]))
 		workingCases = workingCases.map((c) => ({ ...c, id: assigned.get(c.id) ?? c.id }))
 		storedIds = new Set(ids)
@@ -330,7 +329,7 @@
 						size="xs"
 						variant="default"
 						startIcon={{ icon: Plus }}
-						disabled={mode === 'edit' && !datasetPath}
+						disabled={(mode === 'edit' && !datasetPath) || saving}
 						onclick={addCase}
 					>
 						Add a case
@@ -341,7 +340,7 @@
 				     The same grid the data tables are edited in, so a set of rows is edited the one way
 				     this app edits rows. -->
 				<div class="grow min-h-0">
-					<EvalCasesGrid bind:cases={workingCases} onRemove={removeCase} />
+					<EvalCasesGrid bind:cases={workingCases} onRemove={removeCase} locked={saving} />
 				</div>
 			</div>
 		</div>
