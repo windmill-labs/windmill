@@ -2,19 +2,17 @@
 	import { ResourceService, WorkspaceService } from '$lib/gen'
 	import { ArrowLeft, Check, CheckCircle2, Database, KeyRound, Loader2, X } from 'lucide-svelte'
 	import { fly } from 'svelte/transition'
+	import { tick } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { Button } from '$lib/components/common'
-	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
+	import AddDataTableWizard from '$lib/components/workspaceSettings/AddDataTableWizard.svelte'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
+	import { SettingService } from '$lib/gen'
+	import { resource } from 'runed'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
-	import {
-		convertDataTableSettingsFromBackend,
-		convertDataTableSettingsToBackend,
-		type DataTableSettingsType
-	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import type { ProjectMigration } from '$lib/components/workspaceSettings/projectBundle'
-	import { isCustomInstanceDbEnabled } from '$lib/components/workspaceSettings/utils.svelte'
-	import { randomUUID } from '$lib/utils/uuid'
 	import { sendUserToast } from '$lib/toast'
 
 	// The last step, and the only optional one: it exists when the project's data
@@ -39,9 +37,7 @@
 	type Row = {
 		name: string
 		migrations: ProjectMigration[]
-		/** Postgres resource backing it, or an instance database when that is enabled. */
-		resourcePath: string | undefined
-		status: 'unconfigured' | 'saving' | 'running' | 'done' | 'failed'
+		status: 'unconfigured' | 'running' | 'done' | 'failed'
 		error?: string
 	}
 
@@ -67,9 +63,32 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 
 	const pendingTables = $derived(rows.filter((r) => r.status !== 'done'))
-	const canRun = $derived(
-		!working && pendingTables.length > 0 && pendingTables.every((r) => !!r.resourcePath)
-	)
+	/** Rows the user has not dealt with, of either kind. */
+	const outstanding = $derived(pendingTables.length + blanks.filter((b) => !b.done).length)
+
+	// The wizard needs the instance-database pool and a confirmation host; the settings
+	// page owns them there, so this step owns them here.
+	const customInstanceDbs = resource([() => workspace], SettingService.listCustomInstanceDbs)
+	const confirmationModal = createAsyncConfirmationModal()
+	let wizardOpen = $state(false)
+	let wizard = $state<AddDataTableWizard | undefined>(undefined)
+	let wizardFor = $state<string | undefined>(undefined)
+	let configuredNames = $state<{ name: string; resourcePath: string | undefined }[]>([])
+
+	function openWizard(name: string) {
+		wizardFor = name
+		// `open()`, not `opened = true`: only the method runs the wizard's own reset, which
+		// is what applies `initialName` and clears whatever a previous run left behind.
+		wizardOpen = true
+		void tick().then(() => wizard?.open())
+	}
+
+	function defaultInstanceDbName(): string {
+		const used = Object.keys(customInstanceDbs.current ?? {})
+		let n = 1
+		while (used.includes(`dt${n}`)) n++
+		return `dt${n}`
+	}
 
 	/** Which data tables the project needs that the destination does not have yet. */
 	async function load() {
@@ -93,12 +112,18 @@
 			const missing = [...new Set(enabled.map((m) => m.datatable_name))].filter(
 				(n) => !present.has(n)
 			)
-			rows = missing.map((name) => ({
-				name,
-				migrations: enabled.filter((m) => m.datatable_name === name),
-				resourcePath: undefined,
-				status: 'unconfigured' as const
-			}))
+			// Rows already configured in an earlier pass keep their state; the wizard only
+			// ever adds data tables, so a name that has left `missing` is done.
+			const previous = new Map(rows.map((r) => [r.name, r]))
+			rows = [...new Set(enabled.map((m) => m.datatable_name))].map((name) => {
+				const prev = previous.get(name)
+				if (prev && !missing.includes(name)) return { ...prev, status: 'done' as const }
+				return {
+					name,
+					migrations: enabled.filter((m) => m.datatable_name === name),
+					status: (missing.includes(name) ? 'unconfigured' : 'done') as Row['status']
+				}
+			})
 			projectResources = exportData.resources ?? []
 			await refreshBlanks()
 		} catch (e: any) {
@@ -193,50 +218,47 @@
 	 * takes the whole settings object, so sending only ours would delete any the
 	 * workspace already has.
 	 */
-	async function configureAndRun() {
+	/**
+	 * The data table now exists — run the migrations that were skipped for it during the
+	 * import, which is the whole reason this step waits for the configuration.
+	 */
+	async function runMigrationsFor(name: string): Promise<void> {
+		const row = rows.find((r) => r.name === name)
+		if (!row) return
 		working = true
+		row.status = 'running'
 		try {
-			const current = await WorkspaceService.getSettings({ workspace })
-			const settings: DataTableSettingsType = convertDataTableSettingsFromBackend(current.datatable)
-			for (const row of rows) {
-				if (row.status === 'done') continue
-				settings.dataTables.push({
-					id: randomUUID(),
-					name: row.name,
-					database: {
-						resource_type: $isCustomInstanceDbEnabled ? 'instance' : 'postgresql',
-						resource_path: row.resourcePath
-					}
-				})
-				row.status = 'saving'
-			}
-			await WorkspaceService.editDataTableConfig({
-				workspace,
-				requestBody: {
-					settings: convertDataTableSettingsToBackend(settings),
-					renames: [],
-					deleted_datatables: []
-				}
-			})
-
-			for (const row of rows) {
-				if (row.status === 'done') continue
-				row.status = 'running'
-				try {
-					for (const m of row.migrations) await applyOneMigration(workspace, slug, m)
-					row.status = 'done'
-					row.error = undefined
-				} catch (e: any) {
-					row.status = 'failed'
-					row.error = e?.body ?? e?.message ?? String(e)
-				}
-			}
+			for (const m of row.migrations) await applyOneMigration(workspace, slug, m)
+			row.status = 'done'
+			row.error = undefined
 		} catch (e: any) {
-			const detail = e?.body ?? e?.message ?? String(e)
-			for (const row of rows) if (row.status === 'saving') row.status = 'failed'
-			sendUserToast(`Could not save the data table settings: ${detail}`, true)
+			row.status = 'failed'
+			row.error = e?.body ?? e?.message ?? String(e)
+			sendUserToast(`Could not run the migrations for ${name}: ${row.error}`, true)
 		} finally {
 			working = false
+		}
+	}
+
+	/**
+	 * After the wizard closes. The migrations already ran inside its checklist, via
+	 * `onFinishAlso`, so this only re-reads what exists now — including the case where
+	 * the wizard was cancelled, or made a table under a different name than the row
+	 * asked for, which leaves the row outstanding rather than falsely done.
+	 */
+	async function afterWizard(): Promise<void> {
+		const name = wizardFor
+		wizardFor = undefined
+		try {
+			const tables = await WorkspaceService.listDataTables({ workspace })
+			configuredNames = tables.map((t) => ({ name: t.name, resourcePath: t.resource_path }))
+			const present = new Set(tables.map((t) => t.name))
+			const row = name ? rows.find((r) => r.name === name) : undefined
+			if (row && row.status !== 'done' && row.status !== 'failed' && !present.has(name!)) {
+				row.status = 'unconfigured'
+			}
+		} catch {
+			// Nothing to correct with; the row keeps whatever the run left it saying.
 		}
 	}
 </script>
@@ -259,43 +281,59 @@
 			{loadError}. You can finish and configure them later in Workspace settings → Data tables.
 		</Alert>
 	{:else}
+		{#if rows.length > 0}
+			<!-- Named and explained: the row underneath is a table called `main`, which
+			     says nothing to someone meeting the concept for the first time. -->
+			<div class="flex flex-col gap-1">
+				<span class="text-xs font-normal text-secondary">
+					Data table{rows.length === 1 ? '' : 's'} to set up ({rows.length})
+				</span>
+				<p class="text-xs text-tertiary">
+					A data table is a database this workspace owns — where apps and flows keep the data they
+					read and write. This project ships with {rows.length === 1
+						? 'one it expects to find'
+						: 'ones it expects to find'}; point {rows.length === 1 ? 'it' : 'them'} at a database and
+					the tables get created for you.
+				</p>
+			</div>
+		{/if}
 		<ul class="flex flex-col gap-3">
 			{#each rows as row (row.name)}
-				<li class="rounded-md border border-border-light p-3">
-					<div class="flex items-center gap-2">
+				<li class="flex items-center gap-2 rounded-md border border-border-light px-3 py-2 text-xs">
+					{#if row.status === 'done'}
+						<Check size={14} class="shrink-0 text-emerald-600" />
+					{:else if row.status === 'running'}
+						<Loader2 size={14} class="shrink-0 animate-spin text-blue-500" />
+					{:else if row.status === 'failed'}
+						<X size={14} class="shrink-0 text-red-500" />
+					{:else}
 						<Database size={14} class="shrink-0 text-secondary" />
-						<span class="font-mono text-xs text-emphasis">{row.name}</span>
-						{#if row.status === 'done'}
-							<Check size={13} class="text-emerald-600" />
-							<span class="text-xs text-secondary">
-								configured · {row.migrations.length} migration{row.migrations.length === 1
-									? ''
-									: 's'} run
-							</span>
-						{:else if row.status === 'saving' || row.status === 'running'}
-							<Loader2 size={13} class="animate-spin text-blue-500" />
-							<span class="text-xs text-secondary">
-								{row.status === 'saving' ? 'saving settings…' : 'running migrations…'}
-							</span>
-						{:else if row.status === 'failed'}
-							<X size={13} class="text-red-500" />
-							<span class="text-xs text-red-500">{row.error}</span>
-						{:else}
-							<span class="text-xs text-tertiary">not configured</span>
-						{/if}
-					</div>
-
-					{#if row.status !== 'done'}
-						<div class="mt-2">
-							<span class="mb-1 block text-xs font-normal text-secondary">Database</span>
-							<ResourcePicker
-								bind:value={row.resourcePath}
-								resourceType="postgresql"
-								disabled={working}
-								placeholder="Pick a Postgres resource"
-							/>
-						</div>
 					{/if}
+					<span class="min-w-0 flex-1">
+						<span class="block truncate font-mono text-emphasis">{row.name}</span>
+						<span class="block truncate text-tertiary">
+							{#if row.status === 'done'}
+								{row.migrations.length} migration{row.migrations.length === 1 ? '' : 's'} run
+							{:else if row.status === 'running'}
+								running migrations…
+							{:else if row.status === 'failed'}
+								<span class="text-red-500">{row.error}</span>
+							{:else}
+								not configured yet
+							{/if}
+						</span>
+					</span>
+					<!-- The wizard owns creating a data table: picking or provisioning the
+					     database, writing the config, and reporting the connection. This step
+					     only says which name it needs and runs the migrations afterwards. -->
+					<Button
+						variant={row.status === 'done' ? 'subtle' : 'accent'}
+						unifiedSize="sm"
+						disabled={working}
+						onClick={() => openWizard(row.name)}
+					>
+						{row.status === 'done' ? 'Configured' : 'Set up'}
+					</Button>
 				</li>
 			{/each}
 		</ul>
@@ -351,11 +389,21 @@
 			</div>
 		{/if}
 
-		<Alert type="warning" title="You can skip this" size="xs" collapsible>
-			The project's apps and flows will fail wherever they read something that is still
-			unconfigured. Everything else it imported works either way, and you can come back to this from
-			the workspace at any time.
-		</Alert>
+		<!-- The same slot says two different things. While work is outstanding: info, not
+		     warning — skipping is a supported choice with a consequence, not a problem the
+		     user caused, and the rows above already carry the urgency. Once nothing is
+		     outstanding it has no caveat left to give, so it confirms instead. -->
+		{#if outstanding === 0}
+			<Alert type="success" title="You're all set" size="xs">
+				Everything this project needs is configured. Finish, and it is ready to run.
+			</Alert>
+		{:else}
+			<Alert type="info" title="You can skip this" size="xs" collapsible>
+				The project's apps and flows will fail wherever they read something that is still
+				unconfigured. Everything else it imported works either way, and you can come back to this
+				from the workspace at any time.
+			</Alert>
+		{/if}
 	{/if}
 
 	<div class="mt-2 flex items-center justify-between">
@@ -373,31 +421,45 @@
 			<span></span>
 		{/if}
 		<div class="flex items-center gap-2">
-			<!-- Only a data table needs an action here: it is the one thing this step can
-			     do for the user. Credentials are filled in their own editor, so once the
-			     tables are handled the way out is simply to finish — leaving some blank is
-			     the skip, which the warning above spells out. -->
-			{#if pendingTables.length > 0 && !loading && !loadError}
+			<!-- Every row carries its own action, so the footer only offers the way out —
+			     twice, because leaving work undone is a different decision from having
+			     finished it. Finish stays disabled until nothing is outstanding, and Skip
+			     is the subtle escape beside it. A load that failed cannot tell what is
+			     outstanding, so it offers Finish rather than blocking on an unknown. -->
+			{#if outstanding > 0 && !loading && !loadError}
 				<Button variant="subtle" unifiedSize="sm" disabled={working} onClick={onSkip}>
 					Skip for now
 				</Button>
-				<Button
-					variant="accent"
-					unifiedSize="sm"
-					disabled={!canRun}
-					loading={working}
-					onClick={configureAndRun}
-				>
-					Configure and run migrations
-				</Button>
-			{:else}
-				<Button variant="accent" unifiedSize="sm" disabled={working} onClick={onFinish}>
-					Finish setup →
-				</Button>
 			{/if}
+			<Button
+				variant="accent"
+				unifiedSize="sm"
+				disabled={working || (outstanding > 0 && !loadError)}
+				onClick={onFinish}
+			>
+				Finish setup →
+			</Button>
 		</div>
 	</div>
 </div>
+
+{#if wizardOpen || wizardFor}
+	<AddDataTableWizard
+		bind:this={wizard}
+		bind:opened={wizardOpen}
+		initialName={wizardFor}
+		modalTarget="body"
+		finishAlso="run migrations"
+		onFinishAlso={() => runMigrationsFor(wizardFor ?? '')}
+		existingNames={configuredNames.map((c) => c.name)}
+		existingDataTables={configuredNames}
+		onDone={() => void afterWizard()}
+		{customInstanceDbs}
+		{confirmationModal}
+		{defaultInstanceDbName}
+	/>
+{/if}
+<ConfirmationModal {...confirmationModal.props} />
 
 <!-- The destination is not the workspace the app is in until the run switches to it,
      so the editor is told which one explicitly. -->

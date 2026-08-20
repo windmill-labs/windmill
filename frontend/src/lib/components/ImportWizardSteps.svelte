@@ -48,8 +48,10 @@
 </script>
 
 <div class="mb-5 flex justify-center">
+	<!-- `small`: this steers a dialog, not a page. -->
 	<Stepper
 		{tabs}
+		small
 		selectedIndex={step - 1}
 		maxReachedIndex={step - 1}
 		on:click={(e) => onStepClick(e.detail.index)}
