@@ -111,26 +111,22 @@ import {
 	isWebSearchEnabledForProvider
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
+import { resolveSessionAccess, type SessionAccess } from './global/sessionAccess'
+import { filterSessionTools } from './global/sessionToolset'
 import {
-	globalToolsFor,
 	loadWorkspaceSkills,
-	prepareGlobalSystemMessage,
 	prepareGlobalUserMessage,
 	type AiSkillListItem,
 	type ChatCommandItem,
 	type SessionPromptContext,
-	getSessionContextPromptSection,
 	type GlobalToolHelpers,
 	type GlobalActivePreviewContext
 } from './global/core'
+import { assembleGlobalSystemMessage, assembleGlobalTools } from './global/sessionAssembly'
 import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
-import { createMcpTools, loadMcpServers, type McpServer } from './global/mcpTools'
-import {
-	pipelineTools,
-	getPipelinePromptSection,
-	type PipelineAIChatHelpers
-} from './pipeline/core'
+import { loadMcpServers, type McpServer } from './global/mcpTools'
+import { type PipelineAIChatHelpers } from './pipeline/core'
 import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userScopedStorage'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
@@ -578,6 +574,12 @@ export class AIChatManager {
 	// needs the preview pane; the global side-panel chat leaves it false. Reactive because
 	// `planModeAvailable` derives from it.
 	isSessionChat = $state(false)
+	// What the user may do in this session's operating workspace. Undefined until the
+	// first send resolves it — see `resolveSessionAccessForSend`.
+	// Reactive: `shippedTools` derives from it, so the UI's view of the toolset
+	// follows the resolution instead of a pre-resolution snapshot.
+	private sessionAccess = $state<SessionAccess | undefined>(undefined)
+	private sessionAccessGeneration = 0
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
 		this.autoAcceptEditsAvailable &&
@@ -600,6 +602,10 @@ export class AIChatManager {
 		content: ''
 	})
 	tools = $state<Tool<any>[]>([])
+	/** What the request actually carries: `tools` minus whatever this session's
+	 * capabilities withhold. Anything describing the toolset to the user or counting
+	 * its cost must read this, not `tools`. */
+	shippedTools = $derived(filterSessionTools(this.tools, this.sessionAccess))
 	helpers = $state<any | undefined>(undefined)
 
 	scriptEditorOptions = $state<ScriptOptions | undefined>(undefined)
@@ -1156,10 +1162,9 @@ export class AIChatManager {
 			typeof this.systemMessage.content === 'string'
 				? this.systemMessage.content.length / tokenPerCharacter
 				: 0
+		const tools = this.shippedTools
 		const toolTokens =
-			this.tools.length > 0
-				? JSON.stringify(this.tools.map((t) => t.def)).length / tokenPerCharacter
-				: 0
+			tools.length > 0 ? JSON.stringify(tools.map((t) => t.def)).length / tokenPerCharacter : 0
 		return systemTokens + toolTokens
 	}
 
@@ -1966,18 +1971,19 @@ export class AIChatManager {
 	// stale resolves so workspace changes cannot overwrite newer skills.
 	// Build the global-mode system message, tools, and helpers, layering on the
 	// pipeline surface when a /pipeline editor has registered helpers. Centralized
-	// so changeMode, refreshGlobalSkills, and setPipelineHelpers stay consistent —
-	// each rebuild would otherwise drop the pipeline augmentation the others added.
+	// so changeMode, refreshGlobalSkills, setPipelineHelpers and the send pre-flight stay
+	// consistent — each rebuild would otherwise drop the pipeline augmentation the
+	// others added.
 	private configureGlobalMode = () => {
-		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+		const pipelineCtx = this.pipelineAiChatHelpers?.getPipelineContext()
+		const systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
 			skills: this.globalSkills,
-			mcpServers: this.mcpServers
+			mcpServers: this.mcpServers,
+			access: this.sessionAccess,
+			sessionContext: this.sessionContextResolver?.(),
+			pipelineContext: pipelineCtx
 		})
-		const sessionCtx = this.sessionContextResolver?.()
-		if (sessionCtx) {
-			systemMessage.content += getSessionContextPromptSection(sessionCtx)
-		}
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
 			// permission gating. The global side-panel chat follows the live navigation
@@ -2007,19 +2013,12 @@ export class AIChatManager {
 			}
 		}
 		const pipeline = this.pipelineAiChatHelpers
-		const mcpTools = createMcpTools(this.mcpServers)
-		if (pipeline) {
-			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
-			this.tools = [
-				...globalToolsFor({ sessionPreview: this.isSessionChat }),
-				...pipelineTools,
-				...mcpTools
-			]
-			this.helpers = { ...baseHelpers, pipeline }
-		} else {
-			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...mcpTools]
-			this.helpers = baseHelpers
-		}
+		this.tools = assembleGlobalTools({
+			sessionPreview: this.isSessionChat,
+			pipeline: !!pipeline,
+			mcpServers: this.mcpServers
+		})
+		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
 		this.systemMessage = systemMessage
 		this.syncArtifactsSession()
 	}
@@ -2059,6 +2058,22 @@ export class AIChatManager {
 		}
 	}
 
+	// Re-resolved per send rather than cached for the session's life, so a role change —
+	// or a transient `whoami` failure, which resolves fail-open — takes effect on the next
+	// message rather than only on a workspace switch. Only sessions are filtered.
+	private resolveSessionAccessForSend = async (workspace: string) => {
+		if (!this.isSessionChat || !workspace) {
+			this.sessionAccess = undefined
+			return
+		}
+		const generation = ++this.sessionAccessGeneration
+		const access = await resolveSessionAccess(workspace)
+		// A session can be re-pointed between sends: a slower answer for the workspace
+		// we have since left must not install itself over a newer one.
+		if (generation !== this.sessionAccessGeneration) return
+		this.sessionAccess = workspace === (this.operatingWorkspace ?? '') ? access : undefined
+	}
+
 	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
 	// the update_user_instructions tool) is picked up on the next chat-loop iteration, which
 	// re-reads this.systemMessage via a getter.
@@ -2066,23 +2081,14 @@ export class AIChatManager {
 		if (this.mode !== AIMode.GLOBAL) {
 			return
 		}
-		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
+		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
 			skills: this.globalSkills,
-			mcpServers: this.mcpServers
+			mcpServers: this.mcpServers,
+			access: this.sessionAccess,
+			sessionContext: this.sessionContextResolver?.(),
+			pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
 		})
-		// Preserve the session-state and active pipeline-editor augmentations that
-		// configureGlobalMode adds — otherwise update_user_instructions (which calls
-		// this) would drop them mid-session.
-		const sessionCtx = this.sessionContextResolver?.()
-		if (sessionCtx) {
-			systemMessage.content += getSessionContextPromptSection(sessionCtx)
-		}
-		const pipeline = this.pipelineAiChatHelpers
-		if (pipeline) {
-			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
-		}
-		this.systemMessage = systemMessage
 	}
 
 	private expandGlobalSkillCommand = (instructions: string): string => {
@@ -2433,8 +2439,15 @@ export class AIChatManager {
 					base = self.planMode.decorateSystemMessage(base)
 					return base
 				},
+				// The one place every tool source converges, which is why the capability
+				// filter belongs here and not in `globalToolsFor`. This same array both
+				// advertises the tools and dispatches the calls, so a withheld tool is
+				// unreachable rather than merely unlisted. Filtering is unconditional
+				// because `sessionAccess` is set only for session chats and `changeMode`
+				// keeps those GLOBAL — a non-GLOBAL toolset has no policy entries and
+				// would fail closed to nothing.
 				get tools() {
-					return [...self.tools, ...self.planMode.tools]
+					return filterSessionTools([...self.tools, ...self.planMode.tools], self.sessionAccess)
 				},
 				get helpers() {
 					return self.helpers
@@ -2902,8 +2915,13 @@ export class AIChatManager {
 		if (this.mode === AIMode.GLOBAL) {
 			await Promise.all([
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
-				this.refreshMcpServers(this.operatingWorkspace ?? '')
+				this.refreshMcpServers(this.operatingWorkspace ?? ''),
+				this.resolveSessionAccessForSend(this.operatingWorkspace ?? '')
 			])
+			// The two refreshes above rebuild as each lands, in whichever order they do,
+			// so a prompt built before the access profile resolved would still advertise
+			// the withheld tools. Rebuild once more now that all three have settled.
+			this.configureGlobalMode()
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
 		// request went out. Mirror the main "cancelled before usable output" recovery:

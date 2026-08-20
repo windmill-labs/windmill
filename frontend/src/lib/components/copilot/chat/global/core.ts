@@ -215,6 +215,7 @@ const VARIABLE_MASKED_NOTE =
 const SECRET_UNCOMPARABLE_NOTE =
 	'Note: this is a SECRET variable — its value is never shown and cannot be compared, so it may ALSO have changed beyond what this diff shows.\n\n'
 import { apiCatalogTools } from './apiCatalogTools'
+import type { SessionAccess } from './sessionAccess'
 
 const ITEM_TYPES = [
 	'script',
@@ -392,7 +393,7 @@ const readWorkspaceItemSchema = z.object({
 	path: z
 		.string()
 		.describe(
-			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script.'
+			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from a hub search to read a hub script.'
 		),
 	trigger_kind: triggerKindSchema
 		.optional()
@@ -1033,7 +1034,7 @@ const openPreviewSchema = z.object({
 	kind: z
 		.enum(['script', 'flow', 'raw_app', 'pipeline'])
 		.describe(
-			'Item kind to preview. Use "raw_app" for code-based apps (created via init_app). Use "pipeline" to show the data-pipeline graph for a folder — here `path` is the folder name, not an item path. The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
+			'Item kind to preview. Use "raw_app" for code-based apps. Use "pipeline" to show the data-pipeline graph for a folder — here `path` is the folder name, not an item path. The legacy drag-and-drop app builder ("app") is not previewable in the session panel — don\'t pass it.'
 		),
 	path: z
 		.string()
@@ -1164,7 +1165,11 @@ type FolderPromptContext = { folders: string[]; foldersRead: string[]; isAdmin: 
 // non-exhaustive hint alongside permission-agnostic guidance (the complete set
 // needs a folder-listing tool — follow-up).
 // Capped so a folder-heavy workspace can't dominate the prompt.
-function buildFolderGuidance(username: string, ctx?: FolderPromptContext): string {
+function buildFolderGuidance(
+	username: string,
+	ctx?: FolderPromptContext,
+	canCreateFolder: boolean = true
+): string {
 	if (!ctx) return ''
 	const MAX = 40
 	const writable = ctx.folders ?? []
@@ -1180,17 +1185,21 @@ function buildFolderGuidance(username: string, ctx?: FolderPromptContext): strin
 			writable.length > 0
 				? ` Folders here include ${fmt(writable)} (you can also write to others not listed).`
 				: ''
-		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it; if they explicitly ask for a new folder, create it with \`create_folder\`; otherwise ask them which folder to use rather than guessing or creating one unprompted.`
+		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it;${canCreateFolder ? ' if they explicitly ask for a new folder, create it with `create_folder`;' : ''} otherwise ask them which folder to use rather than guessing${canCreateFolder ? ' or creating one unprompted' : ''}.`
 	}
 	const readOnly = (ctx.foldersRead ?? []).filter((f) => !writable.includes(f))
 	const lines: string[] = []
 	if (writable.length > 0) {
 		lines.push(
-			`- Folders you can write to in this workspace: ${fmt(writable)}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use (askUserQuestion) rather than inventing a path. Use \`create_folder\` only when the user explicitly asks for a new folder.`
+			`- Folders you can write to in this workspace: ${fmt(writable)}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use (askUserQuestion) rather than inventing a path.${canCreateFolder ? ' Use `create_folder` only when the user explicitly asks for a new folder.' : ''}`
 		)
 	} else {
 		lines.push(
-			`- You have no shared folders you can write to in this workspace, so use \`u/${username}/<name>\`. If the user explicitly asks for a shared folder, create one with \`create_folder\` (you become an owner); otherwise ask before placing shared work rather than inventing an \`f/<folder>/...\` path.`
+			`- You have no shared folders you can write to in this workspace, so use \`u/${username}/<name>\`. ${
+				canCreateFolder
+					? 'If the user explicitly asks for a shared folder, create one with `create_folder` (you become an owner); otherwise ask'
+					: 'If the user explicitly asks for a shared folder, say plainly that you cannot create one here; otherwise ask'
+			} before placing shared work rather than inventing an \`f/<folder>/...\` path.`
 		)
 	}
 	if (readOnly.length > 0) {
@@ -1206,9 +1215,22 @@ const buildGlobalSystemPrompt = (
 	previewTools: boolean,
 	folderCtx?: FolderPromptContext,
 	skills: AiSkillListItem[] = [],
-	mcpServers: McpServer[] = []
+	mcpServers: McpServer[] = [],
+	access?: SessionAccess
 ) => {
-	const folderGuidance = buildFolderGuidance(username, folderCtx)
+	// Each `can*` mirrors the capability that gates the matching tools in
+	// SESSION_TOOL_POLICIES, so a rule cannot outlive the tool it describes. An
+	// unresolved profile keeps every block.
+	const canWriteDraft = !access || access.capabilities.has('write_draft')
+	const canRunPreview = !access || access.capabilities.has('run_preview')
+	// `deploy` covers only the kinds `check_deploy_rules` gates, and `create_folder` is
+	// the one tool here that names such a kind — the deploy tools take theirs as an
+	// argument, so they ship with the drafts they act on.
+	const canCreateFolder = !access || access.capabilities.has('deploy')
+	// Each gated block carries its own leading newline, so dropping one leaves no blank
+	// line behind and a full-access prompt is byte-for-byte the ungated text.
+	const when = (cond: boolean, block: string) => (cond ? block : '')
+	const folderGuidance = buildFolderGuidance(username, folderCtx, canCreateFolder)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
 	// `previewTools` doubles as "this is a session chat" — sessions are the only
 	// chats that get the preview tool set. The alpha heads-up only makes sense
@@ -1228,48 +1250,90 @@ const buildGlobalSystemPrompt = (
 
 The current user's workspace username is "${username}".
 
-Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.
+${
+	canWriteDraft
+		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
+		: "Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit anything here — this user's role does not allow it — so when they ask for a change, say plainly that you cannot make it rather than describing steps as if you had."
+}${when(
+		// Every line here is about choosing a path for something NEW, down to the folder
+		// guidance; with nothing to create, the whole block is context tax.
+		canWriteDraft,
+		`
 
 Path conventions:
 - A workspace path starts with one of two namespaces; its trailing <name> may itself contain "/", so a path has three or more segments:
   - \`u/${username}/<name>\` — your personal scope. Default for ad-hoc, exploratory, or scratch work.
   - \`f/<folder>/<name>\` — a shared folder scope; the <folder> must already exist (a bare \`f/<name>\` with no folder segment is INVALID and will fail).
 - If the user supplies a fully qualified \`f/<folder>/...\` path, use that exact path; they have already chosen the folder. Do not ask for folder confirmation or substitute a \`u/${username}/...\` path unless a tool rejects it.
-- Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/${username}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist; create one with \`create_folder\` only when the user explicitly asks for a new folder.${folderGuidanceBlock}
+- Default a bare name with no namespace prefix (e.g. "create a flow called myflow") to \`u/${username}/<name>\`. Never invent an \`f/<folder>/...\` path for a folder that does not exist${when(
+			canCreateFolder,
+			'; create one with `create_folder` only when the user explicitly asks for a new folder'
+		)}.${folderGuidanceBlock}`
+	)}
 
-Rules:
-- Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.
+Rules:${when(
+		canWriteDraft,
+		`
+- Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.`
+	)}
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
-- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}
-- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
-- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.
-- Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.
+- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${when(
+		canWriteDraft,
+		`
+- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.`
+	)}${when(
+		canWriteDraft,
+		`
+- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.`
+	)}${when(
+		!canWriteDraft,
+		`
+- Two changes are still open to you where the server allows them: discard_local_draft drops a draft this user left behind, and delete_workspace_item removes an item already deployed in the workspace. You cannot create or edit one.`
+	)}
+- Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.${when(
+		canWriteDraft,
+		`
 - You can never read a variable's value, secret or not, so never invent one: when editing an existing variable, omit value (and is_secret) from write_variable and pass only the fields you are actually changing. The user can reveal a value in the variable editor; you cannot, so never tell them a value is unreadable in general. "$var:path/to/variable" is how a resource value references a variable — it is never a variable's own value.
 - Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
 - Hub scripts are prebuilt integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Use search_hub_scripts to find one before hand-writing an integration, then read_workspace_item with type "script" and the returned hub path to get its code, language, and input schema.
 - Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
-${pipelineBullet}
-- After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
+${pipelineBullet}`
+	)}${when(
+		canRunPreview && canWriteDraft,
+		`
+- After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.`
+	)}
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
-- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.
+- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its edit drawer, or the page's filters otherwise). Never just describe where to click.${when(
+		canWriteDraft,
+		`
 - When the user is happy with the changes and wants to review or deploy them, use open_page with page "compare" — it opens the Compare & Deploy review page.${
-		previewTools
-			? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
-			: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
-	}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.
-- For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools — use the draft tools and delete_workspace_item instead.
-- runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs). To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.
+			previewTools
+				? ' By default it preselects the items this chat modified; pass items ("<kind>:<path>" entries) to control the selection'
+				: ' Pass items ("<kind>:<path>" entries naming the items you changed) so the review is scoped to them — omitting items preselects every pending change in the workspace'
+		}, or mode ("draft" or "fork") to force which comparison is shown. Prefer offering this review page over calling deploy_workspace_item directly when several items changed.`
+	)}
+- For a Windmill operation no other tool covers (workers, queue state, a run's args, ...), use search_api_endpoints to find a REST endpoint, then call_api_get for reads or call_api_endpoint for mutations (the user is asked to confirm those). Always prefer a dedicated tool when one exists; endpoints for authoring or deleting scripts, flows, apps, schedules, resources, or variables are not available through the API catalog tools${` — use ${[canWriteDraft && 'the draft tools', 'delete_workspace_item']
+		.filter(Boolean)
+		.join(' and ')} instead`}.
+- runScriptByPath / runFlowByPath from the API catalog run the DEPLOYED version of an item. Use them only when the user explicitly asks to run the deployed version, and read the item with read_workspace_item version: "deployed" first so the arguments match the deployed input schema (a draft may have different inputs).${when(
+		canRunPreview && canWriteDraft,
+		' To test something you are editing or just wrote, always use test_run_script, test_run_flow, or test_run_step — they run the draft.'
+	)}
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
 - When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
 - Keep context targeted.${
 		previewTools
-			? `
+			? `${when(
+					canWriteDraft,
+					`
 - After writing or substantially editing a script / flow / app draft, show it via open_preview(kind, path) so the user sees the editor and live preview right next to the chat. First check whether it is already shown: if unsure, call get_preview_status. Only call open_preview (or offer to) when no preview is open or it is showing a different item — don't re-open a preview already showing the item you just edited.
-- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty or not-yet-created folder is fine (create_folder first if needed, then open it). Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.
+- Building a data pipeline: call open_preview(kind="pipeline", path="<folder>") as the FIRST step, before creating any node — this opens the pipeline editor the user reviews in. path is the folder, not an item; an empty ${when(canCreateFolder, 'or not-yet-created ')}folder is fine${when(canCreateFolder, ' (create_folder first if needed, then open it)')}. Opening it registers build_pipeline_node / edit_pipeline_node — use ONLY those to add or change pipeline nodes, never write_script for a pipeline node — they apply directly as unsaved drafts on the canvas (no separate accept/reject step) that the user reviews and deploys. Do not write pipeline scripts without first opening the editor.`
+				)}
 - When debugging a running raw app, call get_app_runtime_logs to read the live preview's browser console output. It needs the raw app preview open (open_preview kind="raw_app").
 - To inspect what actually rendered in a running raw app (verify an edit landed on screen, diagnose a blank/empty or wrong view, answer "what's showing"), use search_dom (regex over the live HTML) and read_dom (a line-numbered window). Pass a \`selector\` to scope to an element — prefer the selector from a DOM element chip the user attached — or omit it for the whole page. When a chip lists an \`app_path\`, pass it too so the RIGHT app is read (several previews can be open; a query without \`app_path\` hits the visible one). The DOM is read live and is never in context; no match means the element isn't rendered. Both need the raw app preview open.
 - get_app_runtime_logs only shows the app's browser console. For the server-side logs of a backend runnable the app invoked (a backend.<id> call), call list_app_runs to get that run's job_id from the live preview, then get_job_logs with it. Use this when a backend call errors or returns something unexpected.
@@ -1293,22 +1357,37 @@ Documentation:
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
-- Use read_flow_module_code and set_flow_module_code for inline script bodies.
-- Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.
+- Use read_flow_module_code${when(canWriteDraft, ' and set_flow_module_code')} for inline script bodies.${when(
+		canWriteDraft,
+		`
+- Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.`
+	)}
 
 Raw apps:
-- read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.
+- read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.${when(
+		canWriteDraft,
+		`
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
-- Use init_app only after confirming framework, path, and summary with the user.
-- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.
+- Use init_app only after confirming framework, path, and summary with the user.`
+	)}${when(
+		canWriteDraft,
+		`
+- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.`
+	)}
 
 Data Tables:
 - Datatables are workspace-scoped managed PostgreSQL databases, shared across the workspace (not owned by any single app). They must be configured by the user in their workspace settings (Workspace settings → Data Tables); they cannot be created via SQL.
-- Use list_datatables to discover the available datatables and their tables. Reuse an existing table rather than creating a duplicate. If list_datatables reports none, this is a blocking prerequisite — tell the user to set up a datatable in their workspace settings and stop; do not assume a "main" datatable exists or call exec_datatable_sql.
-- Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.
-- Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.
-- When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(). Default to TypeScript (bun) unless the user asked for another language. Call get_instructions with subject "datatable" and language "bun" for the TypeScript SQL SDK reference (or language "python3" for Python) — it returns only that language so you get just what you need.${
+- Use list_datatables to discover the available datatables and their tables. Reuse an existing table rather than creating a duplicate. If list_datatables reports none, this is a blocking prerequisite — tell the user to set up a datatable in their workspace settings and stop; do not assume a "main" datatable exists${when(canRunPreview, ' or call exec_datatable_sql')}.
+- Use get_datatable_table_schema only when you need a table's column names/types; list_datatables is enough for table-list or availability summaries.${when(
+		canRunPreview,
+		`
+- Use exec_datatable_sql to explore data, run queries, mutate rows, or change schema (CREATE/ALTER/DROP). Creating a table is a normal CREATE TABLE statement — it appears in list_datatables afterward, with no registration step.`
+	)}${when(
+		canWriteDraft,
+		`
+- When writing runnable code (inline app runnables, scripts, flow modules) that reads or writes datatable data at runtime, it accesses a datatable via wmill.datatable(). Default to TypeScript (bun) unless the user asked for another language. Call get_instructions with subject "datatable" and language "bun" for the TypeScript SQL SDK reference (or language "python3" for Python) — it returns only that language so you get just what you need.`
+	)}${
 		skills.length > 0
 			? `
 
@@ -2198,12 +2277,31 @@ export type SessionPromptContext = {
 
 /** Session-state guidance appended to the global system prompt so the model
  * knows where its work lands (staged fork vs the live workspace). */
-export function getSessionContextPromptSection(ctx: SessionPromptContext): string {
+export function getSessionContextPromptSection(
+	ctx: SessionPromptContext,
+	access?: SessionAccess
+): string {
+	// Concatenated onto an already capability-gated prompt, so it has to honour the same
+	// profile rather than assume the gating happened upstream. Each branch keeps its
+	// "where work lands" fact either way.
+	const canDeploy = !access || access.capabilities.has('deploy')
+	const canWriteDraft = !access || access.capabilities.has('write_draft')
+	const canRunPreview = !access || access.capabilities.has('run_preview')
+	const targets = [
+		'reads',
+		canWriteDraft && 'drafts',
+		canRunPreview && 'test runs',
+		// `deploy_workspace_item` ships with the draft tools: it deploys a draft, so a
+		// session that cannot write one has nothing to deploy.
+		canWriteDraft && 'deploys'
+	]
+		.filter(Boolean)
+		.join(', ')
 	const lines = [
 		'',
 		'',
 		'Session state:',
-		'- This chat is a Windmill AI session with its own operating workspace: every tool call (reads, drafts, test runs, deploys) targets that workspace.'
+		`- This chat is a Windmill AI session with its own operating workspace: every tool call (${targets}) targets that workspace.`
 	]
 	if (ctx.pendingForkOf) {
 		lines.push(
@@ -2211,23 +2309,30 @@ export function getSessionContextPromptSection(ctx: SessionPromptContext): strin
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". deploy_workspace_item publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". ${canWriteDraft ? 'deploy_workspace_item publishes' : 'Changes land'} into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.parentWorkspaceId) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. deploy_workspace_item publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. ${canWriteDraft ? 'deploy_workspace_item publishes' : 'Changes land'} into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.forkParentUnknown) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. deploy_workspace_item publishes into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
+			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. ${canWriteDraft ? 'deploy_workspace_item publishes' : 'Changes land'} into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
 		)
 	} else if (ctx.workspaceId) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork. deploy_workspace_item publishes directly to everyone in it.`
+			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork.${canWriteDraft ? ' deploy_workspace_item publishes directly to everyone in it.' : ''}`
 		)
 	} else {
 		lines.push(
 			'- No operating workspace is set yet; the user picks one (or a new staged fork) before the first message is sent.'
+		)
+	}
+	// Without this the model reads "deploys" among its targets with no way to know which
+	// kinds are refused, and keeps proposing script deploys that come back 403.
+	if (canWriteDraft && !canDeploy) {
+		lines.push(
+			"- This workspace refuses direct deployment for this user, except for schedules and triggers — those are the only kinds deploy_workspace_item and delete_workspace_item can still act on. Scripts, flows, apps, resources and variables must be promoted from the session's deploy panel (fork or pull request); do not offer to deploy or delete them directly."
 		)
 	}
 	return lines.join('\n')
@@ -3531,7 +3636,7 @@ export const globalTools: Tool<{}>[] = [
 		def: createToolDef(
 			rebaseDraftSchema,
 			'rebase_draft',
-			'Discard a stale script, flow, or app draft and return your changes as a diff to re-apply on the latest deployed version. Use when deploy_workspace_item reports the draft was started from an older deployed version.',
+			'Discard a stale script, flow, or app draft and return your changes as a diff to re-apply on the latest deployed version. Use when a deploy reports the draft was started from an older deployed version.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -7338,6 +7443,10 @@ export function prepareGlobalSystemMessage(
 		user?: { username: string; is_admin?: boolean; folders?: string[]; folders_read?: string[] }
 		skills?: AiSkillListItem[]
 		mcpServers?: McpServer[]
+		/** Capabilities of the chat's operating workspace. Undefined leaves every block
+		 * in place: the prompt is never what withholds a tool, only the documentation of
+		 * the toolset that was actually assembled — so the two must not drift apart. */
+		access?: SessionAccess
 	}
 ): ChatCompletionSystemMessageParam {
 	const user = opts?.user ?? get(userStore)
@@ -7354,7 +7463,8 @@ export function prepareGlobalSystemMessage(
 		opts?.previewTools ?? false,
 		folderCtx,
 		opts?.skills ?? [],
-		opts?.mcpServers ?? []
+		opts?.mcpServers ?? [],
+		opts?.access
 	)
 	if (instructions?.workspace?.trim()) {
 		content = `${content}\n\nWORKSPACE INSTRUCTIONS (configured by a workspace admin, shared by everyone in this workspace — you cannot modify these):\n${instructions.workspace.trim()}`
