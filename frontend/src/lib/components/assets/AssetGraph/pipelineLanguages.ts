@@ -15,7 +15,7 @@ export const PIPELINE_LANGUAGES: Array<{ label: string; lang: ScriptLang }> = [
 	{ label: 'Snowflake', lang: 'snowflake' },
 	{ label: 'MySQL', lang: 'mysql' },
 	{ label: 'MS SQL', lang: 'mssql' },
-	{ label: 'TypeScript (Deno)', lang: 'deno' },
+	{ label: 'Deno', lang: 'deno' },
 	{ label: 'Bash', lang: 'bash' },
 	{ label: 'Go', lang: 'go' }
 ]
