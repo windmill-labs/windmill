@@ -5,12 +5,13 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { DraftService, ResourceService, type InputTransform } from '$lib/gen'
+	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { Bot, ChevronDown, ChevronUp, FlaskConical, Save, Unlink, Pencil } from 'lucide-svelte'
 	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
+	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
@@ -376,7 +377,16 @@
 		// `tools` is one array per module value, so it identifies the step itself — the path alone
 		// would not, since a replacement can carry the same link.
 		const stepMarker = tools
-		const res = await ResourceService.getResource({ workspace: ws, path })
+		// `getDraft` rather than a second request for the draft: the overlay rides the load that
+		// already has to succeed, so a failure cannot quietly mean "no draft" and let the next
+		// keystroke write over one. It carries `draft_saved_at` too, which is the baseline a later
+		// autosave sends as `last_sync`, so a newer draft from another tab is rejected rather than
+		// overwritten.
+		const res = (await ResourceService.getResource({
+			workspace: ws,
+			path,
+			getDraft: resumeDraft
+		})) as Resource & { draft?: { args?: AIAgentConfig }; draft_saved_at?: string }
 		// The module may have been replaced while the fetch was in flight (undo, session drafts);
 		// applying a stale fork would overwrite the restored state and recreate the Editing target.
 		if (agent !== path || tools !== stepMarker) {
@@ -401,29 +411,17 @@
 		// value would show them something other than what they last wrote, and then write over it
 		// on the first keystroke.
 		let source = cfg
-		let resumed = false
 		if (resumeDraft) {
-			const own = await DraftService.getOwnDraft({ workspace: ws, kind: 'resource', path }).catch(
-				() => null
-			)
-			if (agent !== path || tools !== stepMarker) {
-				return undefined
-			}
-			// A resource draft wraps the value it is a draft of, the way the resource editor files it.
-			const wrapper = (own?.value ?? undefined) as Record<string, unknown> | undefined
-			const inner = ['args', 'value'].reduce<Record<string, unknown> | undefined>(
-				(found, key) =>
-					found ??
-					(wrapper?.[key] && typeof wrapper[key] === 'object'
-						? (wrapper[key] as Record<string, unknown>)
-						: undefined),
-				undefined
-			)
-			const draftCfg = inner ?? wrapper
+			// The overlay files the value under `args`, the shape the resource editor writes, so both
+			// editors read and write the same draft.
+			const draftCfg = res.draft?.args
 			if (draftCfg) {
-				source = draftCfg as AIAgentConfig
-				resumed = true
+				source = draftCfg
 			}
+			UserDraftDbSyncer.recordRemoteSync(
+				{ workspace: ws, itemKind: 'resource', path },
+				res.draft_saved_at
+			)
 		}
 		const brain = agentConfigToInputTransforms(source)
 		inputTransforms = { ...brain, ...local }
@@ -431,7 +429,6 @@
 		// What was written into the step, which is what the mirror waits to see before it treats a
 		// difference as an edit. Not the same as `deployedConfig` once a draft has been resumed.
 		forkedConfig = JSON.stringify(inputTransformsToAgentConfig(inputTransforms, forkedTools))
-		openedWithDraft = resumed
 		if (foldOverrides) {
 			for (const tool of forkedTools) {
 				const overrides = toolInputs?.[tool.id]
@@ -544,9 +541,6 @@
 	/** What was written into the step when the editor opened — the draft when one was resumed,
 	 *  otherwise the deployed value. What the settle gate waits to see. */
 	let forkedConfig: string | undefined = $state(undefined)
-	/** The editor opened on unsaved work that was already there, rather than on the deployed value.
-	 *  Said on the bar, and it is what stops Cancel from throwing that work away. */
-	let openedWithDraft = $state(false)
 	/** The step is holding the configuration that was forked into it, so what it holds from here is
 	 *  what someone did to it. */
 	let forkSettled = $state(false)
@@ -560,11 +554,24 @@
 				deployedConfig = undefined
 				mirrored = undefined
 				forkedConfig = undefined
-				openedWithDraft = false
 				forkSettled = false
 			})
 		}
 	})
+
+	/**
+	 * Drop the draft and put the editor back on what is deployed, which is what the banner's
+	 * Discard means everywhere else it appears.
+	 */
+	function discardDraft() {
+		const path = editingPath
+		if (!path) return
+		clearDraft(path)
+		// And leave the editor, which re-links the step to the deployed agent — the baseline being
+		// reset to. Reloading the values into an editor that is already open would leave its panes
+		// painting what was just discarded until it is reopened.
+		cancelEdit()
+	}
 
 	// Cancel discards the edits and re-links the step, leaving the agent untouched. Diverging from
 	// the agent is Unlink's job, on the linked card. Edit kept this flow's `tool_inputs` off the
@@ -576,11 +583,9 @@
 		if (!path) {
 			return
 		}
-		// Only a draft this editor created. One that was already there is unsaved work it resumed,
-		// and abandoning the fork is not a decision to throw that away.
-		if (edited && !openedWithDraft) {
-			clearDraft(path)
-		}
+		// The draft stays. Cancel un-forks the step; it is not a decision about the unsaved work,
+		// which is what Discard on the banner is for — the same split the resource editor makes.
+		// Edits that ended back at the deployed value are already cleared by the mirror above.
 		agent = path
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)
@@ -716,12 +721,7 @@
 							</Badge>
 						{/if}
 						{#if edited}
-							<!-- Which unsaved changes these are: opening Edit continues the ones already on
-							     the agent, and a badge that read the same either way would leave someone
-							     wondering whether their earlier work was still there. -->
-							<Badge color="yellow" title={openedWithDraft ? 'Editing continues the unsaved changes you already had on this agent' : undefined}>
-								{openedWithDraft ? 'unsaved changes resumed' : 'unsaved changes'}
-							</Badge>
+							<Badge color="yellow">unsaved changes</Badge>
 						{/if}
 					</div>
 					<div class="text-2xs text-secondary flex items-center gap-0.5">
@@ -729,7 +729,8 @@
 							{#snippet text()}
 								Edits are kept on the agent as a draft, so they survive leaving this flow, and
 								opening Edit again continues them. Save changes writes them back to the agent and
-								re-links this step. Cancel re-links it and leaves any draft it found as it was.
+								re-links this step; Cancel re-links it and leaves the draft for next time.
+								Discard, on the banner, is what drops the draft.
 							{/snippet}
 						</Tooltip>
 					</div>
@@ -747,6 +748,17 @@
 					Evals
 				</Button>
 			</div>
+			<!-- The same banner the resource editor shows over a draft, so unsaved work reads the
+			     same wherever it is met: what differs from deployed, and the one control that drops
+			     it. Editing resumes a draft rather than replacing it, which is exactly the state
+			     worth naming. -->
+			<LocalDraftBanner
+				show={edited}
+				getDeployed={() => (deployedConfig ? JSON.parse(deployedConfig) : undefined)}
+				getCurrent={() => inputTransformsToAgentConfig(inputTransforms, tools)}
+				onDiscard={discardDraft}
+				title="Deployed <> Unsaved agent changes"
+			/>
 			<!-- Deciding the edits' fate gets a row of its own: at this width it was wrapping into
 			     the line that names them, and the two are not the same question. -->
 			<div class="flex items-center justify-end gap-1">
