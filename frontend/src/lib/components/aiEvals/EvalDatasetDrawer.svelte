@@ -329,6 +329,9 @@
 			     case, and a case is read against every column. Offered while naming a new one too:
 			     a scorer is a runnable of its own, so it needs the dataset's name but not its row,
 			     and the list is carried into the dataset that creating this makes. -->
+			<!-- Locked while the dataset is written, like the cases and the name: a scorer added after
+			     the click is not in the request the click built, and the drawer closes on it. -->
+			<div inert={writing}>
 			<EvalScorers
 				{workspace}
 				datasetPath={mode === 'edit' ? datasetPath : path}
@@ -337,6 +340,7 @@
 				bind:pending={pendingScorers}
 				onChanged={onScorersChanged}
 			/>
+			</div>
 			<!-- Written while naming a new dataset too: a case cannot be stored without one, so these
 			     are held in the drawer and created with it. -->
 			<div class="flex flex-col gap-2 grow min-h-0">
@@ -364,7 +368,7 @@
 						bind:cases={workingCases}
 						onRemove={removeCase}
 						locked={writing}
-						bind:editing={casesEditing}
+						onEditingChange={(v) => (casesEditing = v)}
 					/>
 				</div>
 			</div>

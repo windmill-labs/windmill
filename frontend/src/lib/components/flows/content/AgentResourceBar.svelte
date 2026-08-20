@@ -596,7 +596,7 @@
 						Evals
 					</Button>
 					<Button
-						size="xs2"
+						unifiedSize="2xs"
 						variant="default"
 						startIcon={{ icon: Pencil }}
 						iconOnly
@@ -607,7 +607,7 @@
 						}}
 					/>
 					<Button
-						size="xs2"
+						unifiedSize="2xs"
 						variant="default"
 						startIcon={{ icon: Unlink }}
 						iconOnly
