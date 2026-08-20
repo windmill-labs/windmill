@@ -147,23 +147,28 @@
 	}
 
 	async function listUsers(): Promise<void> {
-		// Every membership mutation on this page refetches through here, but so does
-		// mounting it and switching workspace on it (the switch only rewrites
-		// `?workspace=`, so this component survives). Bump only when the same
-		// workspace's member set is seen to change; anything else re-baselines
-		// silently, or every consumer would re-fetch for a list nothing changed about.
+		// Mounting, switching workspace (the switch only rewrites `?workspace=`, so this
+		// component survives) and every membership mutation all refetch through here.
+		// Bump only when the same workspace's member set is seen to change; anything else
+		// re-baselines silently, or consumers re-fetch for a list nothing changed about.
 		const workspace = $workspaceStore!
+		const seq = ++usersIssued
 		const previous = lastSeen?.workspace === workspace ? lastSeen.signature : undefined
-		users = await UserService.listUsers({ workspace })
-		const signature = membershipSignature(users)
-		lastSeen = { workspace, signature }
+		const list = await UserService.listUsers({ workspace })
+		// A response a newer read has already overtaken describes a member set that is no
+		// longer on screen: baselining on it makes the next real change look like none.
+		if (lastSeen && seq < lastSeen.seq) return
+		users = list
+		const signature = membershipSignature(list)
+		lastSeen = { workspace, signature, seq }
 		if (previous !== undefined && previous !== signature) {
 			$workspaceMembershipVersion++
 		}
 	}
 
-	// The last member set seen, and which workspace it belonged to.
-	let lastSeen: { workspace: string; signature: string } | undefined = undefined
+	// The last member set applied, which workspace it belonged to, and the read it came from.
+	let lastSeen: { workspace: string; signature: string; seq: number } | undefined = undefined
+	let usersIssued = 0
 
 	// Every field a paid seat count depends on — the developer/operator split, and the
 	// two categories billing excludes.
