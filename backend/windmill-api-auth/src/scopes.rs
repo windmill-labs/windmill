@@ -1014,13 +1014,16 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
 }
 
 /// The workspace-less POSTs a job token keeps. Each takes a `POST` for the sake of a
-/// request body rather than to commit anything of consequence: none writes state outside
-/// the caller's own account. What each may *read* is bounded per entry below — the
+/// request body rather than to commit anything of consequence: none writes Windmill state
+/// outside the caller's own account. The object-storage probe does write to the store the
+/// body names — see its entry. What each may *read* is bounded per entry below — the
 /// workspace-existence check answers for any id, the rest only from the body or the
 /// caller's own row:
 /// - a resource editor's object-storage "Test connection" runs as a preview job that POSTs
-///   the storage config (`TestConnection.svelte`). The probe acts only on the store the
-///   request body describes, touching no Windmill state of any workspace.
+///   the storage config (`TestConnection.svelte`). It puts and deletes an object to prove
+///   the credentials work, so it does write — but only to the store the body names, and a
+///   failure between the two can leave that object behind. No Windmill state of any
+///   workspace is touched.
 /// - `wmill workspace add`, how a job points the CLI at its own instance, checks the
 ///   workspace exists before accepting the credentials — the git-sync hub scripts run
 ///   exactly this. `workspace` carries no row-level security, so the bare boolean it
