@@ -7,6 +7,7 @@ import { yamlParseContent } from "./yaml.ts";
 import {
   depFileOfSharedLock,
   extractWorkspaceDepsAnnotation,
+  hasLockAffectingAnnotation,
   inferContentTypeFromFilePath,
   isSharedLockPath,
   languageNeedsLock,
@@ -255,40 +256,6 @@ function depKeyOf(depFilePath: string): string | undefined {
     : undefined;
 }
 
-/**
- * The dependency inputs a lock was generated from, as the worker recorded them
- * in the lock itself (`WorkspaceDependenciesPrefetched::to_lock_header`):
- *
- *     # workspace-dependencies-mode: manual
- *     # workspace-dependencies: default:<sha of the dependency file's content>
- *
- * This is what separates the two reasons a lock can differ from the one its
- * dependency file's scripts share. Same inputs, different body: the script
- * pinned something the worker also locks, and the file is not its to move.
- * Different inputs: the file moved, and one script is evidence enough.
- *
- * Undefined when the header is absent — old workers do not write one
- * (`min_version_supports_v0_workspace_dependencies`), and the caller falls back
- * to what it can infer.
- */
-function depInputsOf(lock: string): string | undefined {
-  const inputs: string[] = [];
-  for (const line of lock.split("\n")) {
-    const trimmed = line.trim();
-    if (trimmed === "") continue;
-    const match = /^(?:#|\/\/)\s*workspace-dependencies(-mode)?:\s*(.+)$/.exec(
-      trimmed,
-    );
-    if (match) {
-      inputs.push(match[2].trim());
-      continue;
-    }
-    if (trimmed.startsWith("#") || trimmed.startsWith("//")) continue;
-    break; // past the header block
-  }
-  return inputs.length > 0 ? inputs.sort().join("|") : undefined;
-}
-
 /** Workspace dependency files keyed by the language and name a script names. */
 function depFilesByKey(paths: Iterable<string>): Map<string, string> {
   const byKey = new Map<string, string>();
@@ -310,6 +277,10 @@ function shareableDepFile(
   language: ScriptLanguage,
   depFiles: Map<string, string>,
 ): string | undefined {
+  // A script the worker locks differently for reasons of its own — a pinned
+  // interpreter, `//npm`, `//nobundling` — cannot stand for its dependency
+  // file's lock, so it never joins a group and its lock stays its own.
+  if (hasLockAffectingAnnotation(scriptContent, language)) return undefined;
   const annotation = extractWorkspaceDepsAnnotation(scriptContent, language);
   if (annotation && (annotation.mode === "extra" || annotation.inline)) {
     return undefined;
@@ -407,13 +378,6 @@ export type SharedLockPlanContext = {
    * is left with an `!inline` that resolves to nothing.
    */
   present?: Record<string, string>;
-  /**
-   * Dependency files whose content this operation changed. It is what separates
-   * the two reasons a script's lock can disagree with the shared one: the file
-   * moved and this script took the bump, or the script pins something the
-   * worker also locks and the file is not its to move.
-   */
-  movedDepFiles?: Iterable<string>;
 };
 
 export function computeSharedLockPlan(
@@ -422,9 +386,6 @@ export function computeSharedLockPlan(
 ): SharedLockPlan {
   const plan: SharedLockPlan = { writes: {}, deletes: [] };
   const depFiles = depFilesByKey([...Object.keys(map), ...(ctx.depFiles ?? [])]);
-  const movedDepFiles = new Set(
-    [...(ctx.movedDepFiles ?? [])].map((p) => toRefPath(p)),
-  );
   // Every shared lockfile this sync can see, from either side.
   const present: Record<string, string> = { ...ctx.present };
   for (const [key, content] of Object.entries(map)) {
@@ -461,9 +422,9 @@ export function computeSharedLockPlan(
   };
 
   for (const [depFile, group] of byDepFile) {
-    // These scripts resolve against the same file, so their locks agree unless
-    // one of them pins something the worker also locks (a Python version, an
-    // `//npm` annotation). The many outvote the one; ties break on the content
+    // Every script here resolves against the same file and carries nothing the
+    // worker locks separately, so their locks agree — unless one's committed
+    // lock is simply behind. The many outvote the one; ties break on the content
     // itself so the outcome never depends on map ordering.
     const byContent = new Map<string, ScriptEntry[]>();
     for (const entry of group) {
@@ -481,34 +442,10 @@ export function computeSharedLockPlan(
       }
     }
 
-    const sharedRef = sharedLockPathFor(depFile);
-    const sharedKey = toMapKey(sharedRef);
-    const held = present[sharedRef];
-    // Whether the file takes this content, for any of four reasons.
-    const heldInputs = held === undefined ? undefined : depInputsOf(held);
-    const contentInputs = depInputsOf(content);
-    const inputsChanged =
-      heldInputs !== undefined && contentInputs !== undefined
-        ? // The worker stamps the dependency inputs it resolved into each lock:
-          // equal inputs with different bodies mean this script pinned something
-          // and the file is not its to move.
-          heldInputs !== contentInputs
-        : // Unstamped — a worker too old to say — so fall back to what the sync
-          // itself observed about the dependency file.
-          movedDepFiles.has(depFile);
-    const moves =
-      held === undefined ||
-      content === held ||
-      // Scripts agreeing with each other and not with the file outrank it,
-      // whatever the stamps say: a dependency file can re-resolve without
-      // changing (an unpinned `requirements.in` picking up a new patch), and
-      // this is also what corrects a file some lone variant planted itself on.
-      count >= 2 ||
-      inputsChanged;
-    const finalContent = moves ? content : held;
-    if (map[sharedKey] !== finalContent) plan.writes[sharedKey] = finalContent;
+    const sharedKey = toMapKey(sharedLockPathFor(depFile));
+    if (map[sharedKey] !== content) plan.writes[sharedKey] = content;
     for (const entry of group) {
-      if (entry.lock === finalContent) point(entry, sharedKey);
+      if (entry.lock === content) point(entry, sharedKey);
       else takeOwnLock(entry);
     }
   }

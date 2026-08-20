@@ -156,6 +156,59 @@ export function extractWorkspaceDepsAnnotation(
   return { mode, external, inline };
 }
 
+/** The comment marker each language's annotations are written behind. */
+const LANG_COMMENT_LIT: Partial<Record<ScriptLanguage, string>> = {
+  python3: "#",
+  ansible: "#",
+  powershell: "#",
+  bun: "//",
+  nativets: "//",
+  deno: "//",
+  go: "//",
+  php: "//",
+  rust: "//!",
+};
+
+/**
+ * Whether a script's leading comment block carries an annotation, i.e. anything
+ * that is not prose and not the workspace-dependency selection.
+ *
+ * The worker reads that block for flags of its own — `# py311`, `# py: 3.11.11`,
+ * `//npm`, `//nobundling`, `//native`, `# go1_22_compat` (the `#[annotations]`
+ * structs in windmill-common) — and several of them change what it locks. A
+ * script carrying one cannot stand for its dependency file's lock.
+ *
+ * Recognised by shape rather than by a list of names, so an annotation this CLI
+ * has never heard of also disqualifies: a lone bare word, or `word: value`.
+ * Prose ("# syncs users nightly") is several words and stays eligible, which is
+ * what keeps ordinary documented scripts deduplicating.
+ */
+export function hasLockAffectingAnnotation(
+  scriptContent: string,
+  language: ScriptLanguage,
+): boolean {
+  const comment = LANG_COMMENT_LIT[language];
+  if (!comment) return true; // unknown language: assume it matters
+  const depsKeyword = LANG_ANNOTATION_CONFIG[language]?.keyword;
+  for (const line of scriptContent.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") continue;
+    if (!trimmed.startsWith(comment)) break; // past the header block
+    const body = trimmed.slice(comment.length).trim();
+    if (body === "") continue;
+    if (
+      depsKeyword &&
+      new RegExp(`^(extra[_-])?${depsKeyword}\\s*:`).test(body)
+    ) {
+      continue; // the dependency selection is what puts it in the group
+    }
+    if (/^[a-z0-9_]+$/i.test(body) || /^[a-z0-9_]+\s*:/i.test(body)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** Where the lockfiles shared by several scripts live when `dedupeLockfiles`
  *  is on — see `utils/lock_dedup.ts`. A top-level directory of its own: what a
  *  group shares is a resolved lock, which needs no workspace dependency file
