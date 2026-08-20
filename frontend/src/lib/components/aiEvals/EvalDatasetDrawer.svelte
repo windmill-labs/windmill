@@ -9,12 +9,9 @@
 	import { AiEvalsService, type EvalCase, type EvalDataset, type Scorer } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { summaryToName } from '$lib/utils'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import DataTable from '$lib/components/table/DataTable.svelte'
-	import Head from '$lib/components/table/Head.svelte'
-	import Cell from '$lib/components/table/Cell.svelte'
-	import { Plus, Trash2 } from 'lucide-svelte'
+	import { Plus } from 'lucide-svelte'
 	import { untrack } from 'svelte'
+	import EvalCasesGrid from './EvalCasesGrid.svelte'
 	import EvalScorers from './EvalScorers.svelte'
 	import { caseLabel, emptyCase, fromStoredCase, type CaseDraft } from './evalCaseUtils'
 	import { randomUUID } from '$lib/utils/uuid'
@@ -26,6 +23,7 @@
 		dataset,
 		datasets,
 		cases,
+		totalCases = undefined,
 		onCreated,
 		onRenamed,
 		onCasesChanged,
@@ -40,8 +38,11 @@
 		dataset: EvalDataset | undefined
 		/** Every dataset in the workspace, for naming the next one. */
 		datasets: EvalDataset[]
-		/** The dataset's cases, held by the pane that lists them. */
+		/** The dataset's cases, held by the pane that lists them. A page of them: the pane reads a
+		 *  bounded number, and a dataset may hold more than it asked for. */
 		cases: EvalCase[]
+		/** How many cases the dataset holds, against which `cases` may be a page. */
+		totalCases?: number
 		onCreated: (path: string) => void | Promise<void>
 		onRenamed: (path: string) => void | Promise<void>
 		onCasesChanged: () => void | Promise<void>
@@ -76,33 +77,11 @@
 
 	let removingCase = $state<CaseDraft | undefined>(undefined)
 
-	/** What is in an Expected cell while it is being typed, keyed by case. Held apart from the case
-	 *  because the text and the value are not the same thing: a half-written object parses as
-	 *  nothing, and reading the cell back off the value would rewrite it under the cursor. Only the
-	 *  cells that were touched are in here; the rest render from the case. */
-	let expectedDrafts = $state<Record<string, string>>({})
-
-	function expectedText(c: CaseDraft): string {
-		if (c.id != undefined && c.id in expectedDrafts) return expectedDrafts[c.id]
-		if (c.expected == undefined) return ''
-		return typeof c.expected === 'string' ? c.expected : JSON.stringify(c.expected, null, 2)
-	}
-
-	/** Text that parses as JSON is stored as JSON, so a structured answer can be written by hand
-	 *  rather than only produced by a run. */
-	function setExpected(c: CaseDraft, text: string) {
-		if (c.id != undefined) expectedDrafts[c.id] = text
-		const trimmed = text.trim()
-		if (!trimmed) {
-			c.expected = undefined
-			return
-		}
-		try {
-			c.expected = JSON.parse(text)
-		} catch {
-			c.expected = text
-		}
-	}
+	/** Whether the dataset holds cases this drawer was not given. Only while editing: a dataset
+	 *  being created holds exactly what is on screen. */
+	let truncated = $derived(
+		mode === 'edit' && totalCases != undefined && totalCases > storedIds.size
+	)
 
 	/** The next free `<agent>_datasetN`, which is what a dataset is called until it is named. */
 	function nextDatasetIndex(): number {
@@ -118,7 +97,6 @@
 		// Cleared per open: what was collected for a dataset that was never created belongs to that
 		// attempt, not to the next one.
 		pendingScorers = []
-		expectedDrafts = {}
 		workingCases = next === 'edit' ? cases.map((c) => fromStoredCase(c) as CaseDraft) : []
 		storedIds = new Set(next === 'edit' ? cases.map((c) => c.id) : [])
 		if (next === 'edit') {
@@ -252,7 +230,6 @@
 
 	function deleteCase(id: string) {
 		workingCases = workingCases.filter((c) => c.id !== id)
-		delete expectedDrafts[id]
 	}
 
 	/** A row the dataset has never been told about goes without being asked about: what the
@@ -360,94 +337,31 @@
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-semibold text-emphasis">Cases</span>
 					<span class="text-2xs text-tertiary">{workingCases.length}</span>
+					{#if truncated}
+						<!-- Said rather than left to be noticed: a drawer that quietly holds part of a set
+						     is one where Save looks like it dropped the rest. It does not; only what is
+						     here is written. -->
+						<span class="text-2xs text-tertiary">
+							showing the first {workingCases.length} of {totalCases}
+						</span>
+					{/if}
+					<div class="grow"></div>
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: Plus }}
+						disabled={mode === 'edit' && !datasetPath}
+						onclick={addCase}
+					>
+						Add a case
+					</Button>
 				</div>
 				<!-- The whole set on screen, edited where it is read: curating a dataset is comparing
 				     cases against each other, which a pane showing one at a time cannot be asked to do.
-				     The cells grow with what is typed, so a long question is not hidden behind a click.
-
-				     Adding a case belongs to the list it lands in, so it is the last row of it. -->
-				<div class="grow min-h-0 overflow-auto">
-					<DataTable size="sm" tableFixed>
-						<colgroup>
-							<col style="width: 50%" />
-							<col />
-							<col style="width: 2.5rem" />
-						</colgroup>
-						<Head>
-							<tr>
-								<Cell head first>Question</Cell>
-								<Cell head>Expected</Cell>
-								<Cell head last></Cell>
-							</tr>
-						</Head>
-						<tbody class="divide-y">
-							{#each workingCases as stored (stored.id)}
-								<tr>
-									<Cell first>
-										<TextInput
-											underlyingInputEl="textarea"
-											size="xs"
-											unifiedHeight={false}
-											class="min-h-7 max-h-40"
-											bind:value={
-												() => stored.input?.user_message ?? '',
-												(next) => (stored.input = { ...stored.input, user_message: next })
-											}
-											inputProps={{ placeholder: 'What the agent is asked' }}
-										/>
-										{#if (stored.input?.user_attachments ?? []).length > 0}
-											<div class="flex flex-wrap gap-1 mt-1">
-												{#each (stored.input?.user_attachments ?? []) as { s3?: string }[] as attachment, index (index)}
-													<Badge color="gray">{attachment.s3 ?? JSON.stringify(attachment)}</Badge>
-												{/each}
-											</div>
-										{/if}
-									</Cell>
-									<Cell>
-										<TextInput
-											underlyingInputEl="textarea"
-											size="xs"
-											unifiedHeight={false}
-											class="min-h-7 max-h-40"
-											bind:value={() => expectedText(stored), (next) => setExpected(stored, next)}
-											inputProps={{ placeholder: 'Optional' }}
-										/>
-									</Cell>
-									<Cell last>
-										<Button
-											size="xs2"
-											variant="subtle"
-											startIcon={{ icon: Trash2 }}
-											iconOnly
-											title="Delete this case"
-											on:click={() => removeCase(stored)}
-										/>
-									</Cell>
-								</tr>
-							{/each}
-							{#if workingCases.length === 0}
-								<tr>
-									<td colspan="3" class="px-2 pt-3 text-center text-2xs text-tertiary">
-										A case is a question this agent is asked, and what a good answer to it looks
-										like.
-									</td>
-								</tr>
-							{/if}
-							<tr>
-								<td colspan="3" class="p-1">
-									<Button
-										size="xs"
-										variant="subtle"
-										startIcon={{ icon: Plus }}
-										disabled={mode === 'edit' && !datasetPath}
-										onclick={addCase}
-									>
-										Add a case
-									</Button>
-								</td>
-							</tr>
-						</tbody>
-					</DataTable>
+				     The same grid the data tables are edited in, so a set of rows is edited the one way
+				     this app edits rows. -->
+				<div class="grow min-h-0">
+					<EvalCasesGrid bind:cases={workingCases} onRemove={removeCase} />
 				</div>
 			</div>
 		</div>

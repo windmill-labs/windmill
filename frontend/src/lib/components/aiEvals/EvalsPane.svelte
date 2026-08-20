@@ -76,6 +76,8 @@
 	// ran it*, which is what results must show and exactly what must not be written back: editing
 	// from a row would save a stale input and drop the fields a row does not carry.
 	let storedCases = $state<Record<string, EvalCase>>({})
+	/** How many cases the dataset holds, against which `storedCases` is one bounded page. */
+	let totalCases = $state<number | undefined>(undefined)
 	let means = $state<ScorerMean[]>([])
 	/** The version the agent is on now, against which a row's own version is stale or current. */
 	let currentVersion = $state<number | undefined>(undefined)
@@ -185,6 +187,7 @@
 		if (!ws || !path) {
 			dataset = undefined
 			storedCases = {}
+			totalCases = undefined
 			return
 		}
 		// Deliberately not the pane's `loading`: opening a dataset to edit it happens over the runs
@@ -197,6 +200,7 @@
 			if (generation !== loadGeneration) return
 			dataset = row
 			storedCases = Object.fromEntries(cases.cases.map((c) => [c.id, c]))
+			totalCases = cases.total
 		} catch (e) {
 			if (generation === loadGeneration) {
 				sendUserToast(`Failed to load ${path}: ${e}`, true)
@@ -214,6 +218,7 @@
 			perPage: CASE_PAGE_SIZE
 		})
 		storedCases = Object.fromEntries(cases.cases.map((c) => [c.id, c]))
+		totalCases = cases.total
 	}
 
 	async function loadResults() {
@@ -1003,6 +1008,7 @@
 	{dataset}
 	{datasets}
 	cases={Object.values(storedCases)}
+	{totalCases}
 	onCreated={selectSavedDataset}
 	onRenamed={selectSavedDataset}
 	onCasesChanged={casesChanged}
