@@ -26,7 +26,7 @@
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 	interface Props {
-		kind?: 'script' | 'trigger' | 'approval' | 'failure'
+		kind?: 'script' | 'trigger' | 'approval' | 'failure' | 'preprocessor'
 		isTemplate?: boolean | undefined
 		displayLock?: boolean
 		filter?: string
