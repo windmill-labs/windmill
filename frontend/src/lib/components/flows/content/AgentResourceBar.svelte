@@ -445,6 +445,13 @@
 		// `tools` is one array per module value, so it identifies the step itself — the path alone
 		// would not, since a replacement can carry the same link.
 		const stepMarker = tools
+		if (resumeDraft) {
+			// A write the server refused stays parked for a retry, and this read is what makes that
+			// retry wrong: it reseeds `last_sync` from the copy it is about to open on, which is the
+			// stamp that would let a later flush put the refused value over the draft that won.
+			// Dropped before the read rather than after, so the debounce cannot fire mid-flight.
+			UserDraftDbSyncer.dropPending({ workspace: ws, itemKind: 'resource', path })
+		}
 		// `getDraft` rather than a second request for the draft: the overlay rides the load that
 		// already has to succeed, so a failure cannot quietly mean "no draft" and let the next
 		// keystroke write over one. It carries `draft_saved_at` too, which is the baseline a later
@@ -647,13 +654,8 @@
 	 */
 	async function reloadFromServer() {
 		if (!editingPath) return
-		// The refused write is still parked for a retry, and taking the server's copy is the decision
-		// not to retry it. Left there it outlives this editor: the reload seeds `last_sync` from the
-		// copy it just read, which is exactly the stamp that would make a later flush of the
-		// discarded value acceptable to the server, over the draft that won.
-		if (draftQuery) {
-			UserDraftDbSyncer.dropPending(draftQuery)
-		}
+		// The refused write is dropped by the re-fork below, which is where every read of the
+		// server's copy drops it — reopening the editor after a Cancel takes the same path.
 		cancelEdit()
 		try {
 			const path = await forkFromResource(false, true)
@@ -912,10 +914,12 @@
 		<div class="mt-1">
 			{#if discardFailed}
 				<!-- Both writes this card makes share one key, so a failed delete arrives here too —
-				     saying the edits are missing while the badge above correctly says they are there. -->
-				<Alert type="error" size="xs" title="This agent still has unsaved changes">
-					Discarding them did not reach the server: {draftSyncFailure}. Discard again from Edit, or
-					from the agent itself.
+				     saying the edits are missing while the badge above correctly says they are there.
+				     Worded for the delete itself rather than for why it was made, which is deploying,
+				     discarding or editing back to the deployed value. -->
+				<Alert type="error" size="xs" title="This agent's draft was not removed">
+					Removing it did not reach the server: {draftSyncFailure}. The agent goes on reading as
+					having unsaved changes until it is removed.
 				</Alert>
 			{:else if draftSyncFailure}
 				<Alert type="error" size="xs" title="These edits are not on the agent">
