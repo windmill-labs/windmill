@@ -1044,15 +1044,17 @@ async fn test_wm_token_gets_no_admin_claim_in_a_foreign_workspace(
     Ok(())
 }
 
-/// Four of the seven guards keyed on `ApiAuthed::job_id` gate only workspace-less routes,
+/// Three of the seven guards keyed on `ApiAuthed::job_id` gate only workspace-less routes,
 /// so confinement answers every request that would reach them and no HTTP case can tell
-/// whether they still cap job tokens. Call those four directly, so the inner cap cannot be
-/// dropped while this suite stays green (GHSA-hfh4-cx4h-3fcr).
+/// whether they still cap job tokens: `require_devops_role`, `require_instance_admin` and
+/// `forbid_superadmin_job_token`. Call those directly, so the inner cap cannot be dropped
+/// while this suite stays green (GHSA-hfh4-cx4h-3fcr).
 ///
-/// The other three keep an observable route and are covered over HTTP above:
+/// The other four keep a workspace-scoped route and are exercised over HTTP above:
 /// `require_super_admin` through `w/{workspace}/users/list_addable`,
-/// `is_super_admin_authed` through the `CUSTOM_INSTANCE_DB` lookup, and
-/// `forbid_job_token_account_destruction` through `w/{workspace}/workspaces/leave`.
+/// `is_super_admin_authed` through the `CUSTOM_INSTANCE_DB` lookup,
+/// `forbid_job_token_account_destruction` through `w/{workspace}/workspaces/leave`, and
+/// `forbid_elevated_job_token` through `w/{workspace}/apps/embed_token`.
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
 async fn test_privilege_gates_reject_a_job_token_directly(
     db: Pool<Postgres>,
@@ -1129,9 +1131,10 @@ async fn test_privilege_gates_reject_a_job_token_directly(
     );
 
     // `forbid_elevated_job_token` is the same shape one tier wider — `is_devops_email` is
-    // true for superadmins too. Its three call sites (`create_token`,
-    // `update_token_scopes`, `set_password`) are all workspace-less, so it has no
-    // observable path either.
+    // true for superadmins too. The embed-token case above reaches it, but only ever with
+    // an elevated identity; these pin the other two combinations, so collapsing the gate
+    // into a blanket job-token refusal would be caught here rather than by whoever next
+    // creates a token from a script.
     assert!(
         windmill_api_auth::forbid_elevated_job_token(&db, "devops@windmill.dev", job.job_id)
             .await
