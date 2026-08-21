@@ -10,17 +10,14 @@
 		logoUrl?: string
 		/** Integration slugs to draw, most representative first. */
 		iconApps: string[]
-		/** Where the icons and the logo are fetched from. */
-		hub: string
 		counts: { apps: number; flows: number; scripts: number; resources: number }
 	}
 </script>
 
 <script lang="ts">
-	import { resource } from 'runed'
 	import { ExternalLink, LayoutGrid } from 'lucide-svelte'
 	import ProjectContentBadges from '$lib/components/ProjectContentBadges.svelte'
-	import { fetchAppIcon } from '$lib/hubProject'
+	import { hubAppIcon } from '$lib/hubProject'
 
 	interface Props {
 		project: ImportProjectSummary
@@ -35,20 +32,15 @@
 	// scheme the page itself was served over.
 	const hubProjectUrl = $derived(`//${hubHost}/projects/${project.slug}`)
 
-	// Icons come from the hub rather than a local map: it ships ~270 of them and is
-	// the thing that knows which slug an integration is filed under. They arrive as
-	// SVG markup so `fill="currentColor"` still resolves against this page.
-	// Keyed on a string so "same icons" is an equality the resource can see; the
-	// fetcher reads `project`, which the key changes with.
-	const iconKey = $derived(`${project.hub}|${project.iconApps.slice(0, 4).join(',')}`)
-	const iconResource = resource(
-		() => iconKey,
-		async () =>
-			(
-				await Promise.all(project.iconApps.slice(0, 4).map((a) => fetchAppIcon(project.hub, a)))
-			).filter((s): s is string => !!s)
+	// Resolved locally rather than fetched: these are Windmill's own bundled icons, so the
+	// card draws them synchronously instead of waiting on the hub — and keeps working on a
+	// hub that refuses uncredentialed reads.
+	const icons = $derived(
+		project.iconApps
+			.slice(0, 4)
+			.map(hubAppIcon)
+			.filter((c): c is NonNullable<typeof c> => !!c)
 	)
-	const icons = $derived(iconResource.current ?? [])
 
 	// The icon row shows the integrations the tile is not already showing: with an
 	// uploaded logo the tile shows none of them, so the row shows them all.
@@ -66,10 +58,10 @@
 				{#if project.logoUrl}
 					<img src={project.logoUrl} alt="" class="max-h-10 max-w-10 object-contain" />
 				{:else if icons[0]}
-					<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-					<span class="inline-flex h-7 w-7 text-primary [&>svg]:h-full [&>svg]:w-full"
-						>{@html icons[0]}</span
-					>
+					{@const Icon = icons[0]}
+					<span class="inline-flex h-7 w-7 text-primary [&>svg]:h-full [&>svg]:w-full">
+						<Icon size={28} />
+					</span>
 				{:else}
 					<LayoutGrid size={22} class="text-secondary" />
 				{/if}
@@ -107,11 +99,10 @@
 			<!-- The integrations, minus whichever one is already standing in as the logo. -->
 			{#if restIcons.length > 0}
 				<div class="flex shrink-0 items-center gap-1.5 pt-0.5">
-					{#each restIcons as svg, i (i)}
-						<!-- eslint-disable-next-line svelte/no-at-html-tags -->
-						<span class="inline-flex h-4 w-4 text-primary opacity-80 [&>svg]:h-full [&>svg]:w-full"
-							>{@html svg}</span
-						>
+					{#each restIcons as Icon, i (i)}
+						<span class="inline-flex h-4 w-4 text-primary opacity-80 [&>svg]:h-full [&>svg]:w-full">
+							<Icon size={16} />
+						</span>
 					{/each}
 				</div>
 			{/if}

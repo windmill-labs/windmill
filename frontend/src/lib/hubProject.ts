@@ -1,4 +1,5 @@
-import DOMPurify from 'dompurify'
+import type { Component } from 'svelte'
+import { appIconComponent } from '$lib/components/icons'
 import { SettingService } from '$lib/gen'
 import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 import type { ImportProjectSummary } from '$lib/components/ImportProjectCard.svelte'
@@ -58,7 +59,6 @@ export async function fetchHubProject(slug: string): Promise<ImportProjectSummar
 		iconApps: [p.logoApp, ...(p.apps ?? [])].filter(
 			(a, i, all): a is string => !!a && all.indexOf(a) === i
 		),
-		hub,
 		counts: {
 			apps: p.counts?.apps ?? 0,
 			flows: p.counts?.flows ?? 0,
@@ -86,18 +86,20 @@ export async function fetchHubProject(slug: string): Promise<ImportProjectSummar
  * including moving or hiding the wizard's own Import and Delete controls — and
  * `<image href="https://…">` is a page-view beacon pointed at whoever it likes.
  */
-export async function fetchAppIcon(hub: string, app: string): Promise<string | undefined> {
-	try {
-		const res = await fetch(`${hub}/icons/integrations/${encodeURIComponent(app)}.svg`)
-		if (!res.ok) return undefined
-		const raw = (await res.text()).trim()
-		if (!raw.startsWith('<svg')) return undefined
-		const clean = DOMPurify.sanitize(raw, {
-			USE_PROFILES: { svg: true, svgFilters: true },
-			FORBID_TAGS: ['style', 'image']
-		}).trim()
-		return clean.startsWith('<svg') ? clean : undefined
-	} catch {
-		return undefined
-	}
+/**
+ * The icon for a hub integration slug, resolved from the icons Windmill already bundles.
+ *
+ * Not fetched from the hub: the hub renders these out of `@windmill-labs/components`, which
+ * is this frontend's own package, so asking it over HTTP is a round trip to get our own
+ * assets back — and it made the card depend on a cross-origin request that an `API_SECRET`
+ * hub refuses anyway.
+ *
+ * The alias exists because the two repos disagree on one slug: the hub files Postgres scripts
+ * under `postgres`, the icon set ships the mark as `postgresql`. The hub bridges it in
+ * `aliasApp`; this is the same bridge on the consuming side.
+ */
+const HUB_APP_ICON_ALIAS: Record<string, string> = { postgres: 'postgresql' }
+
+export function hubAppIcon(app: string): Component | undefined {
+	return appIconComponent(HUB_APP_ICON_ALIAS[app] ?? app)
 }
