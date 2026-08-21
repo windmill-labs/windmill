@@ -18,7 +18,7 @@ async fn capture_workspace(db: &Pool<Postgres>, id: i64) -> Option<String> {
         .unwrap()
 }
 
-#[sqlx::test(fixtures("capture_cross_workspace"))]
+#[sqlx::test(fixtures("base", "capture_cross_workspace"))]
 async fn delete_capture_is_confined_to_the_url_workspace(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
