@@ -557,6 +557,11 @@ fn validate_subject(subject: &EvalSubject) -> Result<()> {
                 .to_string(),
         ));
     }
+    if subject.draft.is_none() && subject.kind == EvalSubjectKind::AgentDraft {
+        return Err(Error::BadRequest(
+            "A run of unsaved edits must carry the configuration being edited".to_string(),
+        ));
+    }
     if subject.path.trim().is_empty() {
         return Err(Error::BadRequest(
             "The subject needs a path: it is the agent a run is filed under".to_string(),
@@ -918,6 +923,28 @@ mod tests {
 
     fn scorer(kind: ScorerDef) -> Scorer {
         Scorer { id: "s1".to_string(), name: None, pass_if: None, def: kind }
+    }
+
+    fn subject(kind: EvalSubjectKind, draft: Option<AgentDraft>) -> EvalSubject {
+        EvalSubject { kind, path: "u/me/agent".to_string(), version: None, draft, draft_hash: None }
+    }
+
+    /// The whole argument for accepting a configuration from the request is that it is accepted
+    /// for exactly one kind: the edits in progress, which exist nowhere the server can read. A
+    /// saved agent or a past version carrying one would run something other than what it names.
+    #[test]
+    fn a_configuration_is_required_for_edits_and_refused_for_anything_saved() {
+        assert!(
+            validate_subject(&subject(EvalSubjectKind::AgentDraft, Some(agent_config()))).is_ok()
+        );
+        assert!(validate_subject(&subject(EvalSubjectKind::Agent, None)).is_ok());
+        assert!(validate_subject(&subject(EvalSubjectKind::AgentDraft, None)).is_err());
+        assert!(validate_subject(&subject(EvalSubjectKind::Agent, Some(agent_config()))).is_err());
+        assert!(validate_subject(&subject(
+            EvalSubjectKind::AgentVersion,
+            Some(agent_config())
+        ))
+        .is_err());
     }
 
     /// Where the collect step sits is load-bearing twice over: inside the loop it would run once

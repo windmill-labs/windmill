@@ -698,7 +698,8 @@
 							<!-- The badge is the way to the diff: it is what says there is one. -->
 							<Badge
 								color="yellow"
-								class="shrink-0 cursor-pointer"
+								class="shrink-0"
+								clickable
 								title="Show what differs from the deployed agent"
 								onclick={showDiff}
 							>

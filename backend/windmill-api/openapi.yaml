@@ -26839,8 +26839,9 @@ components:
         subject_draft_hash:
           type: string
           description: >
-            For a draft run, the hash of the configuration this cell ran. A draft moves without a
-            version changing, so this is what says the row ran an agent that has been edited.
+            For a run of unsaved edits, the hash of the configuration this cell ran. Edits move
+            without a version changing, so this is what identifies what ran, and what recognises a
+            run whose edits were later saved as a run of that version.
         scores:
           type: array
           description: One entry per scorer of the dataset, in column order.

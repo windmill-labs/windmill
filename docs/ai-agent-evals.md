@@ -188,12 +188,13 @@ it is its own.
   is uniform today; it is per cell so that a run which one day executes cell by cell can say so
   rather than averaging two versions silently.
 
-The table watches the agent while it is open — a small `subject_state` read every few seconds,
-paused while the tab is hidden and repeated when it regains focus. The results endpoint reports the
-same version and hash, but it is the expensive read — it collects the run as it goes — so it is
-polled only while a run is actually in flight, and one pass at a time. Without the cheap watch, an
-agent edited while the table is open goes on looking current until the pane is reopened, which is
-exactly when it is most misleading.
+The table asks what version the agent is on when it opens and whenever the tab regains focus — a
+small `subject_state` read, which is when a save made elsewhere is most likely waiting. It is not
+polled: the results endpoint reports the same version, but it is the expensive read — it collects
+the run as it goes — so it is polled only while a run is actually in flight, and one pass at a time;
+and the edits a run is offered on live in the editor that opened the pane, so there is nothing on
+the server to watch for them. An agent saved in another tab while this one stays focused is noticed
+on the next focus or the next run, not before.
 
 - **Edits are dated by their hash**, not by a version, because editing moves nothing a version
   could record. Each cell carries `subject_draft_hash`, the hash of the configuration it ran
@@ -205,11 +206,11 @@ anything is deployed. A run whose edits were later deployed is a run of that ver
 results endpoint recognises and restamps it. Two runs both reading `v23 + edits` can be two
 different things; the hash each carries is what tells them apart, and since the edits live only in
 the editor that ran them there is no "current draft" for the table to compare either against.
-- **An agent's draft is its own subject.** Its runs are keyed under `agent_draft`, so a number
-  produced by unsaved edits is never quietly read as the deployed agent's. An agent with edits
-  waiting is tested on the edits, and the toolbar says which of its two states is under test.
-  There is no toggle: editing an agent and opening evals means testing the edits, and the deployed
-  value's numbers are already in the history from before the editing started.
+- **An agent's unsaved edits are their own subject.** Their runs are keyed under `agent_draft`, so
+  a number produced by edits is never quietly read as the deployed agent's. The run dialog offers
+  them only when it was opened from the editing card, preselected there because testing the edits
+  is why you came; the deployed value and past versions stay one click away on the same toggle,
+  and from anywhere else the agent is what is deployed.
 
 In the flow editor, editing a linked agent forks the configuration into the step and clears the
 link. The step is the only copy of the edits: nothing is saved anywhere until you decide. Which
@@ -226,8 +227,11 @@ Three ways out, none of them a draft: **Save changes** writes the edits to the a
 the step; **Cancel** drops them and re-links, asking first when there is something to drop; the diff
 drawer's **Discard changes** is Cancel without the question, from a view of exactly what goes. The
 agent's own resource draft — the one the resource editor writes — is untouched by any of this, and
-evals never read it. (Editing a linked agent in its own editor, rather than in the step, is a
-follow-up; this is the shape until then.)
+evals never read it. What a fork is an edit *of* is held only by `agentEditStore`, in memory: the
+fork itself survives a reload in the flow's own unsaved state, the session does not, so a reloaded
+step comes back as a standalone agent with no path to save back to. (Editing a linked agent in its
+own editor, rather than in the step, is a follow-up, and persisting that relationship is part of
+it; this is the shape until then.)
 
 The editor can unmount mid-session — another node selected, the step's tab switched — so what it
 needs to judge the edits travels with the session in `agentEditStore`, not with the component: the

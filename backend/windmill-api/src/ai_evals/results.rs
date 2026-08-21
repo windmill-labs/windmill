@@ -428,8 +428,9 @@ pub struct ExperimentRow {
     /// the table says instead of averaging two versions silently.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject_version: Option<i64>,
-    /// For a draft run, the hash of the configuration this cell ran. A draft moves without its
-    /// version changing, so this is what says the row describes an agent that has been edited.
+    /// For a run of unsaved edits, the hash of the configuration this cell ran. Edits move without
+    /// a version changing, so this is what identifies what ran — and what `resolve_deployed_draft`
+    /// matches against the agent as deployed to recognise a run whose edits were later saved.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject_draft_hash: Option<String>,
     /// One entry per scorer of the dataset, in column order.
