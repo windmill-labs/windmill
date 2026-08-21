@@ -13,8 +13,9 @@ pub struct EvalSubject {
     /// version the run was enqueued against, recorded so the run stays attributable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<i64>,
-    /// The agent's undeployed configuration, read from its draft server-side. Present exactly
-    /// when `kind` is `agent_draft`, and it is the whole definition of what ran.
+    /// The agent's unsaved edits, as the editor holds them. Present exactly when `kind` is
+    /// `agent_draft` — carried by the request, since the edits exist nowhere else — and it is the
+    /// whole definition of what ran.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<AgentDraft>,
     /// Hash of that configuration. A draft moves without the version moving, so this is the only
@@ -73,9 +74,9 @@ fn default_subject_kind() -> EvalSubjectKind {
 #[serde(rename_all = "snake_case")]
 pub enum EvalSubjectKind {
     Agent,
-    /// A saved agent's undeployed draft. The value is read server-side and inlined, because a
-    /// linked step resolves the resource live and so would run what the draft replaces. Its own
-    /// subject, so its runs never mix with the deployed agent's history.
+    /// A saved agent's unsaved edits, as the editor holds them. Carried by the request and
+    /// inlined, because a linked step resolves the resource live and so would run what the edits
+    /// replace. Its own subject, so its runs never mix with the deployed agent's history.
     AgentDraft,
     /// One past version of a saved agent, read out of its history and inlined the same way a draft
     /// is — a linked step resolves the resource live, so pinning is exactly what it cannot
@@ -125,17 +126,12 @@ pub struct SubjectState {
     /// The version the agent is on now.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<i64>,
-    /// What its draft hashes to now, when it has one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub draft_hash: Option<String>,
-    pub has_undeployed_changes: bool,
 }
 
-/// What the agent is right now: the version it is deployed at, and what its draft hashes to.
+/// What the agent is right now: the version it is deployed at.
 ///
 /// Small on purpose. The results endpoint reports the same thing, but it harvests scores and
-/// reads every job to do it, so it is not something to poll — and without polling, an agent
-/// edited while the table is open goes on looking current until the pane is reopened.
+/// reads every job to do it, so it is not something to ask for on its own.
 pub async fn subject_state(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -143,18 +139,9 @@ pub async fn subject_state(
     Path(w_id): Path<String>,
     Query(query): Query<SubjectStateQuery>,
 ) -> JsonResult<SubjectState> {
-    // Reading the agent through `user_db` is what gates the rest: a draft's existence is
-    // information about the resource it is a draft of.
     require_agent(&authed, &user_db, &w_id, &query.path).await?;
     let version = current_resource_version(&db, &w_id, &query.path).await?;
-    let draft = agent_draft_config(&authed, &user_db, &w_id, &query.path)
-        .await
-        .ok();
-    Ok(Json(SubjectState {
-        version,
-        draft_hash: draft.as_ref().map(draft_hash),
-        has_undeployed_changes: draft.is_some(),
-    }))
+    Ok(Json(SubjectState { version }))
 }
 
 // -----------------------------------------------------------------------------------------------

@@ -6,7 +6,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonMore from '$lib/components/common/toggleButton-v2/ToggleButtonMore.svelte'
-	import { AiEvalsService, ResourceService, type EvalDataset, type EvalSubject } from '$lib/gen'
+	import { ResourceService, type AgentDraft, type EvalDataset, type EvalSubject } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import MissingWorkerTagAlert from '$lib/components/jobs/MissingWorkerTagAlert.svelte'
 	import { Pencil, Play, Plus } from 'lucide-svelte'
@@ -20,7 +20,7 @@
 		/** The dataset to open on: the one last worked in, or the one a run was read from. */
 		defaultDataset,
 		/** Whether the agent has edits waiting, which is the one option the history cannot show. */
-		hasUndeployedChanges,
+		editedConfig = undefined,
 		running = false,
 		onRun,
 		onEditDataset,
@@ -32,7 +32,9 @@
 		agentPath: string
 		datasets: EvalDataset[]
 		defaultDataset: string | undefined
-		hasUndeployedChanges: boolean
+		/** Opened from an agent being edited: the edits, as the step holds them when Run is
+		 *  pressed. Offered — and preselected — as a subject of their own. */
+		editedConfig?: () => AgentDraft
 		running?: boolean
 		onRun: (subject: EvalSubject, dataset: string) => void | Promise<void>
 		onEditDataset: (path: string) => void
@@ -42,13 +44,10 @@
 	/** What to run: `draft`, `deployed`, or an earlier version's number. One value for the whole
 	 *  choice, so the toggle and the overflow menu cannot disagree about what was chosen. */
 	let choice = $state<string>('deployed')
-	/** Whether anyone has chosen since this opened, so a late answer about the draft can preselect
-	 *  it without overruling a choice already made. */
-	let touched = $state(false)
-	/** Read here rather than taken from the caller, whose own copy is polled: an agent edited a
-	 *  moment ago has a draft that poll has not seen yet, and the option would be missing exactly
-	 *  when it is the reason the dialog was opened. */
-	let hasDraft = $state(false)
+	/** Whether the edits are on offer: only when the dialog was opened from an agent being edited,
+	 *  whose edits are what is under test. Anywhere else the agent is what is deployed — the same
+	 *  reading a flow step linking it makes. */
+	let hasDraft = $derived(editedConfig !== undefined)
 	let dataset = $state<string | undefined>(undefined)
 	let hoveringDataset = $state(false)
 	/** Set while the dialog is standing aside for the dataset drawer, which it is brought back
@@ -83,27 +82,12 @@
 		}
 	}
 
-	/** Whether the agent has edits waiting. Asked again on open so the answer is this moment's. */
-	async function loadDraftState() {
-		if (!workspace) return
-		try {
-			const state = await AiEvalsService.evalSubjectState({ workspace, path: agentPath })
-			hasDraft = state.has_undeployed_changes
-			// A draft that turned up after the dialog opened is still the reason to have opened it.
-			if (hasDraft && !touched) choice = 'draft'
-			if (!hasDraft && choice === 'draft') choice = 'deployed'
-		} catch {
-			// Leaves the toggle on what the caller knew, which is the last thing it saw.
-		}
-	}
-
 	$effect(() => {
 		if (!open) return
 		untrack(() => {
-			// Asked again either way: a version saved or a draft written during the detour is one of
-			// the things you might have left to do.
+			// Asked again either way: a version saved during the detour is one of the things you
+			// might have left to do.
 			loadVersions()
-			loadDraftState()
 			const aside = steppedAside
 			steppedAside = undefined
 			if (aside) {
@@ -117,9 +101,7 @@
 			// Only a dataset this agent has actually been worked in. Falling back to whichever came
 			// first offered someone else's set as though it were the obvious one.
 			dataset = defaultDataset
-			hasDraft = hasUndeployedChanges
-			choice = hasUndeployedChanges ? 'draft' : 'deployed'
-			touched = false
+			choice = hasDraft ? 'draft' : 'deployed'
 		})
 	})
 
@@ -152,7 +134,9 @@
 	)
 
 	function subjectOf(): EvalSubject {
-		if (choice === 'draft') return { kind: 'agent_draft', path: agentPath }
+		// The edits are read when Run is pressed, not when the dialog opened: the step stays live
+		// behind it, and the run is of what is on screen at that moment.
+		if (choice === 'draft') return { kind: 'agent_draft', path: agentPath, draft: editedConfig?.() }
 		if (choice === 'deployed') return { kind: 'agent', path: agentPath }
 		return { kind: 'agent_version', path: agentPath, version: Number(choice) }
 	}
@@ -174,7 +158,7 @@
 		>
 			<!-- The two worth naming are the two you are choosing between while editing; every
 			     earlier version is one click further, since running one is a deliberate act. -->
-			<ToggleButtonGroup bind:selected={choice} onSelected={() => (touched = true)} class="w-fit">
+			<ToggleButtonGroup bind:selected={choice} class="w-fit">
 				{#snippet children({ item })}
 					{#if hasDraft}
 						<ToggleButton

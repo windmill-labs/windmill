@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { base } from '$lib/base'
-	import { Alert, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -10,6 +10,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import {
+		type AgentDraft,
 		AiEvalsService,
 		type EvalCase,
 		type EvalDataset,
@@ -46,6 +47,7 @@
 	let {
 		agentPath,
 		opWorkspace = undefined,
+		editedConfig = undefined,
 		location = $bindable()
 	}: {
 		/** The agent under test. A dataset and its runs belong to an agent, so an agent that has
@@ -54,6 +56,9 @@
 		/** The workspace the opening editor operates on, which differs from the nav workspace in
 		 * fork and session editors. Every read and write targets it. */
 		opWorkspace?: string
+		/** Opened from an agent being edited: the edits, as the step holds them, are what a run is
+		 * offered on. Everywhere else the agent is what is deployed. */
+		editedConfig?: () => AgentDraft
 		/** The level the pane is on and the way out of it, reported up so the surface holding it
 		 * can put both in its header. Undefined at the root, which that surface already names.
 		 * The pane navigates; where that shows belongs to whoever owns the frame. */
@@ -79,13 +84,8 @@
 	let means = $state<ScorerMean[]>([])
 	/** The version the agent is on now, against which a row's own version is stale or current. */
 	let currentVersion = $state<number | undefined>(undefined)
-	/** What the agent's draft hashes to now, against which a draft run's own hash is stale. */
-	let currentDraftHash = $state<string | undefined>(undefined)
-	/** What the agent hashes to as deployed: a draft run carrying it ran what was then saved. */
+	/** What the agent hashes to as deployed: a run of edits carrying it ran what was then saved. */
 	let deployedHash = $state<string | undefined>(undefined)
-	// A run of the agent executes what was deployed when it started: edits sitting in a draft are
-	// not what any of these numbers describe.
-	let undeployedChanges = $state(false)
 	let running = $state(false)
 	let scorers = $derived(dataset?.scorers ?? [])
 	let selectedCaseId = $state<string | undefined>(undefined)
@@ -255,9 +255,7 @@
 			rows = results.rows
 			means = results.means
 			currentVersion = results.subject_current_version
-			currentDraftHash = results.subject_current_draft_hash
 			deployedHash = results.subject_deployed_hash
-			undeployedChanges = results.subject_has_undeployed_changes
 			if (dataset) dataset = { ...dataset, scorers: results.scorers }
 			renderedResults = key
 			reportedResultsFailure = undefined
@@ -297,20 +295,16 @@
 	})
 
 	/**
-	 * The agent is edited elsewhere — another tab, the drawer, a colleague — and the table has to
-	 * notice: a run's numbers stop describing the agent the moment it moves. Watched on its own
-	 * small endpoint rather than by re-reading the results, which harvest scores and read every
-	 * job, and paused while the tab is hidden.
+	 * The version the agent is on right now, so a run's label can say it is of an earlier one.
+	 * Read on its own small endpoint rather than from the results, which harvest scores and read
+	 * every job; asked when the pane opens and when the tab comes back, which is when a save made
+	 * elsewhere is most likely waiting.
 	 */
-	const SUBJECT_WATCH_MS = 5000
-	let subjectWatch: ReturnType<typeof setInterval> | undefined = undefined
 	async function readSubjectState() {
 		if (!ws || !agentPath || document.hidden) return
 		try {
 			const state = await AiEvalsService.evalSubjectState({ workspace: ws, path: agentPath })
 			currentVersion = state.version
-			currentDraftHash = state.draft_hash
-			undeployedChanges = state.has_undeployed_changes
 		} catch {
 			// The agent was deleted or is no longer readable: the table keeps what it last knew
 			// rather than claiming everything went stale.
@@ -318,13 +312,8 @@
 	}
 	$effect(() => {
 		agentPath
-		untrack(() => {
-			clearInterval(subjectWatch)
-			readSubjectState()
-			subjectWatch = setInterval(() => untrack(() => readSubjectState()), SUBJECT_WATCH_MS)
-		})
+		untrack(() => readSubjectState())
 	})
-	onDestroy(() => clearInterval(subjectWatch))
 	// Coming back to the tab is the moment an edit made elsewhere is most likely waiting, and the
 	// same is true of a run: the poller only arms for a run this pane already knows about, so one
 	// started from another tab would otherwise never appear on a list left open.
@@ -596,33 +585,6 @@
 	}): { name: string; passed: boolean; detail?: string }[] {
 		return Array.isArray(cell.checks) ? (cell.checks as any[]) : []
 	}
-
-	/**
-	 * The run's label is `v23 draft`, the agent is still on v23 with edits waiting, and they are
-	 * not the same edits.
-	 *
-	 * That one case, because it is the only one the label cannot express. A run of an older version
-	 * is history and says so (`Run 14 · v23` beside an agent on v24), and a run whose edits were
-	 * deployed is a run of that version — the results endpoint recognises it and restamps it. Only
-	 * two runs both reading `v23 draft` can silently be two different things.
-	 *
-	 * A property of the run, not of its rows: the subject is resolved once when the run is opened
-	 * and every cell is stamped from it, so it is always all of them or none. Saying it once, above
-	 * the table, is therefore the whole of saying it.
-	 */
-	let staleRun = $derived(
-		rows.some(
-			(row) =>
-				// It executed a draft, and one that is not what is deployed now.
-				row.subject_draft_hash != undefined &&
-				row.subject_draft_hash !== deployedHash &&
-				// On the version the agent is still on: a version that moved is named by the label.
-				row.subject_version === currentVersion &&
-				// And there is a draft now, holding something else.
-				currentDraftHash != undefined &&
-				row.subject_draft_hash !== currentDraftHash
-		)
-	)
 </script>
 
 <div class="flex flex-col h-full min-h-0">
@@ -695,20 +657,6 @@
 			{/if}
 		{/if}
 	</div>
-
-	<!-- About the run on screen, so it goes when the run does: on the list there is no one run for
-	     it to be about. No button and no frame of its own — it is a line the table carries, not a
-	     panel above it. -->
-	{#if viewingRun && staleRun}
-		<div class="py-2">
-			<Alert
-				type="warning"
-				size="xs"
-				title={`This run executed an earlier state of the draft on v${currentVersion}`}
-				collapsible={false}
-			/>
-		</div>
-	{/if}
 
 	<div class="grow min-h-0">
 		<Splitpanes class="h-full">
@@ -1053,7 +1001,7 @@
 	{agentPath}
 	{datasets}
 	defaultDataset={selectedDataset}
-	hasUndeployedChanges={undeployedChanges}
+	{editedConfig}
 	{running}
 	onRun={runAll}
 	onEditDataset={async (path) => {

@@ -449,61 +449,8 @@ pub(crate) async fn deployed_agent_state(
     ))
 }
 
-pub(crate) async fn agent_draft_config(
-    authed: &ApiAuthed,
-    user_db: &UserDB,
-    w_id: &str,
-    agent_path: &str,
-) -> Result<AgentDraft> {
-    require_agent(authed, user_db, w_id, agent_path).await?;
-    let mut tx = user_db.clone().begin(authed).await?;
-    // Read through `user_db` alongside the resource itself, so a draft is only reachable to
-    // someone who can read what it is a draft of — and scoped to this caller, because a draft is
-    // per-user: `draft` carries no policies and holds a row per owner, so an unscoped read picks
-    // an arbitrary colleague's unpublished prompt and runs it as yours. A legacy row carries no
-    // owner at all and is the workspace's, which is why it is the fallback rather than excluded.
-    let value = sqlx::query_scalar!(
-        "SELECT value FROM draft
-         WHERE workspace_id = $1 AND path = $2 AND typ = 'resource'
-               AND (email = $3 OR email IS NULL)
-         ORDER BY email NULLS LAST LIMIT 1",
-        w_id,
-        agent_path,
-        authed.email,
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    let Some(value) = value else {
-        return Err(Error::BadRequest(format!(
-            "Agent {} has no undeployed changes to run",
-            agent_path
-        )));
-    };
-    // A resource draft wraps the value it is a draft of, alongside the path and description the
-    // save form carries. Every writer files that value under `args` — the resource editor and the
-    // flow editor's agent step alike — and both read it back from there, so a draft shaped any
-    // other way is refused rather than run as though the wrapper were a configuration.
-    let inner = value
-        .get("args")
-        .filter(|v| v.is_object())
-        .cloned()
-        .ok_or_else(|| {
-            Error::BadRequest(format!(
-                "The draft of agent {} does not hold a configuration",
-                agent_path
-            ))
-        })?;
-    config_to_draft(inner).map_err(|_| {
-        Error::BadRequest(format!(
-            "The draft of agent {} is not an object",
-            agent_path
-        ))
-    })
-}
-
-/// Fill in what the client cannot: the version a saved agent is at, or the configuration sitting
-/// in its draft. Both run paths do this identically, and a subject that skipped it would run the
+/// Fill in what the client cannot: the version a saved agent is at, or the configuration a past
+/// version held. Both run paths do this identically, and a subject that skipped it would run the
 /// wrong definition or record no version.
 ///
 /// Returns the configuration the run executes, read once here. Every case of a run then executes
@@ -536,11 +483,18 @@ async fn resolve_subject(
             })?
         }
         EvalSubjectKind::AgentDraft => {
-            let config = agent_draft_config(authed, user_db, w_id, &subject.path).await?;
-            subject.draft = Some(config.clone());
-            // The version the draft is an edit of, as of now: a draft records no version of its
+            // The edits are the editor's and live nowhere the server can read them: the step being
+            // edited holds them, and the request carries them. The agent is still read, so a run
+            // can only be filed under an agent the caller can see.
+            require_agent(authed, user_db, w_id, &subject.path).await?;
+            let config = subject.draft.clone().ok_or_else(|| {
+                Error::BadRequest(
+                    "A run of unsaved edits must carry the configuration being edited".to_string(),
+                )
+            })?;
+            // The version the edits are an edit of, as of now: edits record no version of their
             // own, so "v15 plus unsaved edits" means the edits and whatever was deployed when the
-            // run started. Reading it alongside the draft would not make it any more exact.
+            // run started.
             subject.version = current_resource_version(db, w_id, &subject.path).await?;
             config
         }
@@ -592,13 +546,14 @@ async fn agent_version_config(
     })
 }
 
-/// The configuration is never taken from the client: every kind of subject is read from the
-/// workspace by the path it names, so a request carrying one would run something other than the
-/// agent it claims to be a run of.
+/// A saved agent and a past version are read from the workspace by the path they name, so a
+/// request carrying a configuration for them would run something other than the agent it claims
+/// to be a run of. Unsaved edits are the one kind the request has to carry: they exist only in
+/// the editor, and the run records what it was handed — inlined into its flow and hashed.
 fn validate_subject(subject: &EvalSubject) -> Result<()> {
-    if subject.draft.is_some() {
+    if subject.draft.is_some() && subject.kind != EvalSubjectKind::AgentDraft {
         return Err(Error::BadRequest(
-            "An agent's configuration is read from the workspace; remove it from the request"
+            "A saved agent's configuration is read from the workspace; remove it from the request"
                 .to_string(),
         ));
     }

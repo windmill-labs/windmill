@@ -471,20 +471,12 @@ pub struct ExperimentResults {
     pub regressed: usize,
     /// The version the subject is on now. A row that ran against an earlier one describes an
     /// agent that no longer exists, which is the difference between a stale number and a wrong
-    /// one. Absent for a draft, which has no versions to be behind.
+    /// one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject_current_version: Option<i64>,
-    /// The agent has edits that were never deployed. A run of the agent executes what is deployed
-    /// when it starts: without this, editing an agent and running evals reads as testing the edits
-    /// when it is testing what they replace.
-    pub subject_has_undeployed_changes: bool,
-    /// What the draft hashes to now, for a draft subject. A row carrying a different one ran a
-    /// configuration that has since been edited, which is the draft's answer to a version bump.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub subject_current_draft_hash: Option<String>,
-    /// What the agent hashes to as deployed. A draft run carrying this hash ran exactly what is
-    /// deployed now — the edits were saved — so it is a run of that version rather than of a
-    /// draft, and saying otherwise would strand it.
+    /// What the agent hashes to as deployed. A run of unsaved edits carrying this hash ran exactly
+    /// what is deployed now — the edits were saved — so it is a run of that version rather than
+    /// of edits, and saying otherwise would strand it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject_deployed_hash: Option<String>,
 }
@@ -856,75 +848,13 @@ pub async fn experiment_results(
         })
         .collect();
 
-    // What the subject is now: the version it is on, whether it has edits waiting, and — for a
-    // draft — what those edits hash to, so a row that ran an earlier draft can say so.
-    let mut subject_current_draft_hash = None;
-    // One read, so the hash and the version it belongs to cannot come from either side of a deploy.
-    let (deployed_config, deployed_version) =
+    // What the subject is now: the version it is on, and what it hashes to as deployed. One read,
+    // so the hash and the version it belongs to cannot come from either side of a deploy.
+    let (deployed_config, subject_current_version) =
         deployed_agent_state(&db, &w_id, &experiment.subject.path).await?;
     let subject_deployed_hash = deployed_config.as_ref().map(draft_hash);
-    let (subject_current_version, subject_has_undeployed_changes) = match experiment.subject.kind {
-        // A pinned version is what it is: nothing about the agent as it is now can make a run of
-        // v18 stale, which is the reason to pin one.
-        EvalSubjectKind::AgentVersion => (deployed_version, false),
-        EvalSubjectKind::Agent => {
-            let version = deployed_version;
-            // Whether a resource has a draft is information about that resource, and `draft`
-            // carries no policies of its own: the agent is read through `user_db` first, so a
-            // caller who cannot see it is told nothing about it.
-            let mut tx = user_db.begin(&authed).await?;
-            let visible = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2)",
-                w_id,
-                experiment.subject.path
-            )
-            .fetch_one(&mut *tx)
-            .await?
-            .unwrap_or(false);
-            tx.commit().await?;
-            let undeployed = visible
-                && sqlx::query_scalar!(
-                    "SELECT EXISTS(SELECT 1 FROM draft
-                     WHERE workspace_id = $1 AND path = $2 AND typ = 'resource'
-                           AND (email = $3 OR email IS NULL))",
-                    w_id,
-                    experiment.subject.path,
-                    authed.email,
-                )
-                .fetch_one(&db)
-                .await?
-                .unwrap_or(false);
-            (version, undeployed)
-        }
-        // A draft run already ran the draft: what matters is whether one is still there to run,
-        // and which deployed version it is now an edit of.
-        EvalSubjectKind::AgentDraft => {
-            let mut tx = user_db.clone().begin(&authed).await?;
-            let still_drafted = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM resource r
-                 WHERE r.workspace_id = $1 AND r.path = $2
-                       AND EXISTS(SELECT 1 FROM draft d
-                                  WHERE d.workspace_id = $1 AND d.path = r.path
-                                        AND d.typ = 'resource'
-                                        AND (d.email = $3 OR d.email IS NULL)))",
-                w_id,
-                experiment.subject.path,
-                authed.email,
-            )
-            .fetch_one(&mut *tx)
-            .await?
-            .unwrap_or(false);
-            tx.commit().await?;
-            if still_drafted {
-                subject_current_draft_hash = Some(draft_hash(
-                    &agent_draft_config(&authed, &user_db, &w_id, &experiment.subject.path).await?,
-                ));
-            }
-            (deployed_version, still_drafted)
-        }
-    };
 
-    // A draft run whose configuration has since been deployed is a run of that version.
+    // A run of unsaved edits whose configuration has since been deployed is a run of that version.
     let mut baseline = baseline.map(|(baseline, _)| baseline);
     resolve_deployed_draft(
         &db,
@@ -959,8 +889,6 @@ pub async fn experiment_results(
         means,
         regressed,
         subject_current_version,
-        subject_has_undeployed_changes,
-        subject_current_draft_hash,
         subject_deployed_hash,
     }))
 }

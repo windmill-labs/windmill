@@ -5,14 +5,14 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
+	import { ResourceService, type AgentDraft, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { Bot, ChevronDown, ChevronUp, FlaskConical, Save, Unlink, Pencil } from 'lucide-svelte'
 	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
-	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
-	import DraftSyncConflictModal from '$lib/components/common/confirmationModal/DraftSyncConflictModal.svelte'
+	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import type { Value } from '$lib/utils'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
@@ -29,7 +29,12 @@
 		clearLinkedAgentTools,
 		linkedToolsScope
 	} from '../linkedAgentToolsStore.svelte'
-	import { getAgentEditingPath, setAgentEditingPath } from '../agentEditStore.svelte'
+	import {
+		getAgentEdit,
+		getAgentEditingPath,
+		markAgentEditSettled,
+		setAgentEditingPath
+	} from '../agentEditStore.svelte'
 	import { claimLinkedToolsFetch } from '../flowState'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
@@ -63,10 +68,12 @@
 	let pathError = $state('')
 	let description = $state('')
 	let saving = $state(false)
-	// The path "Save changes" upserts back to, for a step forked from a saved agent. Lives in an
-	// external store so it survives this component unmounting when another node is selected, keyed
+	// The edit session of a step forked from a saved agent: the path "Save changes" upserts back
+	// to, and the baselines the edits are judged against. Lives in an external store so it
+	// survives this component unmounting — another node selected, the step's tab switched — keyed
 	// by the forked `tools` identity so a stale entry can't resurface (see agentEditStore).
-	let editingPath = $derived(getAgentEditingPath(tools))
+	let editing = $derived(getAgentEdit(tools))
+	let editingPath = $derived(editing?.path)
 
 	type LinkedInfo = {
 		// What this result was fetched for. runed's resource neither aborts nor tags a superseded
@@ -78,26 +85,20 @@
 		tools: AgentTool[]
 		providerPath?: string
 		providerOk: boolean
-		hasDraft: boolean
 	}
 
 	// A linked agent is rigid and read-only: its brain and tools come from the resource. We
 	// load them here for display, and probe the provider resource so we can warn when it isn't
 	// accessible in this workspace (the user then needs to unlink/fork or gain access).
+	// The deployed agent and nothing else: a linked step runs what is deployed, and so does
+	// everything on this card. Edit forks that into the step, which is where edits live until saved.
 	let linkedResource = resource(
 		() => ({ ws, path: agent }),
 		async ({ ws, path }): Promise<LinkedInfo> => {
 			if (!ws || !path) {
-				return { ws, path, config: {}, tools: [], providerOk: true, hasDraft: false }
+				return { ws, path, config: {}, tools: [], providerOk: true }
 			}
-			// `getDraft` for the overlay, not for the value: the card is about the deployed agent, and
-			// `value` stays deployed either way. Cancel leaves a draft behind on purpose, and a card
-			// that never mentions it is a card whose Evals button offers to run edits nothing named.
-			const res = (await ResourceService.getResource({
-				workspace: ws,
-				path,
-				getDraft: true
-			})) as Resource & { draft_saved_at?: string }
+			const res = await ResourceService.getResource({ workspace: ws, path })
 			const cfg = (res.value ?? {}) as AIAgentConfig & { provider?: { resource?: string } }
 			const tools = (cfg.tools ?? []) as AgentTool[]
 			const providerRef = cfg.provider?.resource
@@ -119,8 +120,7 @@
 				config: cfg,
 				tools,
 				providerPath,
-				providerOk,
-				hasDraft: res.draft_saved_at != undefined
+				providerOk
 			}
 		}
 	)
@@ -143,11 +143,6 @@
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
 	/** The agent the card is about: the one this step links to, or the one being edited. */
 	let cardPath = $derived(agent ?? editingPath)
-	/** The agent has edits nobody has deployed — left by Cancel here, or written in the resource
-	 *  editor. Named on the card because it is what the Evals button offers to run. The server's
-	 *  answer and nothing else: every write this card makes to the draft is awaited before the
-	 *  card is shown again, so there is no write of its own for it to vouch for. */
-	let linkedHasDraft = $derived(linkedInfo?.hasDraft ?? false)
 	// Evals belong to the agent, not to the step, so they open over the flow rather than as one of
 	// the step's tabs: what you go there to read is a history of runs, not a setting of this step.
 	let evalsOpen = $state(false)
@@ -372,24 +367,7 @@
 		const path = editingPath
 		try {
 			if (await persist(path)) {
-				// Deployed: the draft described what is now the agent, so it describes nothing. The
-				// step is linked again by now, so the conflict modal is gone with the editor: a draft
-				// that moved on elsewhere meanwhile is someone's newer work, and it is left in place.
-				const outcome = await writeDraft(path, null)
-				if (outcome === 'conflict') {
-					UserDraftDbSyncer.clearConflict({ workspace: ws, itemKind: 'resource', path })
-					sendUserToast(
-						`Updated agent ${path}. A newer draft of it was saved elsewhere and was left in place`,
-						true
-					)
-				} else if (outcome === 'failed') {
-					sendUserToast(
-						`Updated agent ${path}, but its leftover draft could not be removed: ${lastWriteFailure(path)}`,
-						true
-					)
-				} else {
-					sendUserToast(`Updated agent ${path}`)
-				}
+				sendUserToast(`Updated agent ${path}`)
 			}
 		} catch (e) {
 			sendUserToast(`Failed to update agent: ${e}`, true)
@@ -403,9 +381,8 @@
 	// standalone step keeps its bindings; Edit must not fold, or those overrides would be promoted
 	// into the shared agent instead of surviving the re-link.
 	async function forkFromResource(
-		foldOverrides: boolean,
-		resumeDraft = false
-	): Promise<string | undefined> {
+		foldOverrides: boolean
+	): Promise<{ path: string; deployedConfig: string; forkedConfig: string } | undefined> {
 		if (!ws || !agent) {
 			return undefined
 		}
@@ -413,16 +390,7 @@
 		// `tools` is one array per module value, so it identifies the step itself — the path alone
 		// would not, since a replacement can carry the same link.
 		const stepMarker = tools
-		const draftKey = { workspace: ws, itemKind: 'resource' as const, path }
-		// `getDraft` rather than a second request for the draft: the overlay rides the load that
-		// already has to succeed, so a failure cannot quietly mean "no draft" and let the next
-		// write go over one. It carries `draft_saved_at` too, which is the baseline a later write
-		// sends as `last_sync`, so a newer draft from another tab is refused rather than overwritten.
-		const res = (await ResourceService.getResource({
-			workspace: ws,
-			path,
-			getDraft: resumeDraft
-		})) as Resource & { draft?: { args?: AIAgentConfig }; draft_saved_at?: string }
+		const res = await ResourceService.getResource({ workspace: ws, path })
 		// The module may have been replaced while the fetch was in flight (undo, session drafts);
 		// applying a stale fork would overwrite the restored state and recreate the Editing target.
 		if (agent !== path || tools !== stepMarker) {
@@ -436,39 +404,22 @@
 				local[key] = inputTransforms[key]
 			}
 		}
-		// What the agent holds, as the same round trip the draft is written in: opening the editor
+		// What the agent holds, as the same round trip the edits are compared in: opening the editor
 		// normalises the configuration, and a normalisation is not an edit. Comparing against the
 		// resource's own JSON would compare key order too.
-		deployedConfig = JSON.stringify(
+		const deployedConfig = JSON.stringify(
 			inputTransformsToAgentConfig(
 				{ ...agentConfigToInputTransforms(cfg), ...local },
 				cfg.tools ?? []
 			)
 		)
 
-		// Editing resumes this user's own unsaved work when there is any. Opening on the deployed
-		// value would show them something other than what they last wrote, and then write over it
-		// the next time the draft is written.
-		let source = cfg
-		if (resumeDraft) {
-			// The overlay files the value under `args`, the shape the resource editor writes, so both
-			// editors read and write the same draft.
-			const draftCfg = res.draft?.args
-			if (draftCfg) {
-				source = draftCfg
-			}
-			// A write the server refused, or that failed, is still parked for a retry — composed
-			// against an older copy than the one just read. Reading the server's copy is the
-			// decision to start from it, so the retry would only put back what was given up.
-			UserDraftDbSyncer.dropPending(draftKey)
-			UserDraftDbSyncer.recordRemoteSync(draftKey, res.draft_saved_at)
-		}
-		const brain = agentConfigToInputTransforms(source)
+		const brain = agentConfigToInputTransforms(cfg)
 		inputTransforms = { ...brain, ...local }
-		const forkedTools = source.tools ?? []
+		const forkedTools = cfg.tools ?? []
 		// What was written into the step, which is what the settle gate waits to see before it
-		// treats a change as an edit. Not the same as `deployedConfig` once a draft has been resumed.
-		forkedConfig = JSON.stringify(inputTransformsToAgentConfig(inputTransforms, forkedTools))
+		// treats a change as an edit.
+		const forkedConfig = JSON.stringify(inputTransformsToAgentConfig(inputTransforms, forkedTools))
 		if (foldOverrides) {
 			for (const tool of forkedTools) {
 				const overrides = toolInputs?.[tool.id]
@@ -480,14 +431,14 @@
 		}
 		tools = forkedTools
 		agent = undefined
-		return path
+		return { path, deployedConfig, forkedConfig }
 	}
 
 	// Unlink forks the agent into this step so it can diverge here. It does not write back.
 	async function unlink() {
 		try {
-			const path = await forkFromResource(true)
-			if (path) {
+			const fork = await forkFromResource(true)
+			if (fork) {
 				setAgentEditingPath(tools, undefined)
 				sendUserToast('Forked agent. Its configuration was copied into this step')
 			} else {
@@ -502,9 +453,10 @@
 	// "Save changes" writes back to it (updating every flow that links to it).
 	async function editAgent() {
 		try {
-			const path = await forkFromResource(false, true)
-			if (path) {
-				setAgentEditingPath(tools, path)
+			const fork = await forkFromResource(false)
+			if (fork) {
+				const { path, ...baselines } = fork
+				setAgentEditingPath(tools, path, baselines)
 				sendUserToast(`Editing ${path}. Make changes, then Save changes to update it`)
 			} else {
 				sendUserToast('The step changed while loading the agent. Try Edit again', true)
@@ -515,184 +467,92 @@
 	}
 
 	/**
-	 * The agent's draft is where the edits are kept, and it is written at the moments that decide
-	 * their fate rather than as they are typed: Cancel, opening Evals on them, Save changes and
-	 * Discard. Each write is awaited and its outcome read while the editor is still on screen, so
-	 * a refused or failed one holds the editor open instead of leaving a card to account for it.
-	 *
-	 * The step is forked while you edit it, which is what makes the edits runnable here — but the
-	 * agent is what is being edited, so that is where they belong once kept: there they show the
-	 * agent as drafted wherever it appears, Edit resumes them, and evals run them.
+	 * The edits as a run of them executes them: the step's brain transforms as authored,
+	 * expressions included, and its tools. Nothing is saved anywhere for this — the step is the
+	 * only copy of the edits, and evals opened from the editing card read it when Run is pressed.
+	 * The flow-local inputs are left out: a case supplies them, and leaving them out is what lets
+	 * the server recognise a run of edits that were later deployed as a run of that version.
 	 */
-	type WriteOutcome = 'saved' | 'conflict' | 'failed'
-	function draftKeyOf(path: string) {
-		return { workspace: ws!, itemKind: 'resource' as const, path }
-	}
-	/** Write `value` (`null` deletes) as the agent's draft and say how it went. */
-	async function writeDraft(path: string, value: unknown | null): Promise<WriteOutcome> {
-		const key = draftKeyOf(path)
-		await UserDraftDbSyncer.save({ ...key, value, immediate: true })
-		if (UserDraftDbSyncer.getConflict(key).conflict !== undefined) return 'conflict'
-		if (UserDraftDbSyncer.getState(key).state === 'failed') return 'failed'
-		return 'saved'
-	}
-	function lastWriteFailure(path: string): string {
-		return UserDraftDbSyncer.getState(draftKeyOf(path)).failureMessage ?? 'Unknown error'
-	}
-	/**
-	 * Put what the editor holds on the agent: its edits, or nothing when it is back at the
-	 * deployed value — including a draft it resumed rather than wrote, which is the rule the
-	 * resource editor applies to its own. Returns whether it landed. A conflict is shown by the
-	 * modal mounted on the editor; a failure is said here. Either way the editor stays open.
-	 */
-	async function commitDraft(path: string): Promise<boolean> {
-		const outcome = await writeDraft(path, edited ? draftValue(path) : null)
-		if (outcome === 'failed') {
-			sendUserToast(
-				`The edits could not be kept on ${path}'s draft: ${lastWriteFailure(path)}. Still editing`,
-				true
-			)
+	function editedConfig(): AgentDraft {
+		const brain: Record<string, InputTransform> = {}
+		for (const [key, transform] of Object.entries(inputTransforms ?? {})) {
+			if (!(AGENT_FLOW_LOCAL_KEYS as readonly string[]).includes(key)) {
+				brain[key] = transform
+			}
 		}
-		return outcome === 'saved'
-	}
-
-	/** What is filed as the draft: the configuration under `args`, wrapped the way the resource
-	 *  editor wraps it, which is the shape both editors and the run path read it back from. */
-	function draftValue(path: string) {
 		return {
-			path,
-			description: '',
-			args: inputTransformsToAgentConfig(inputTransforms, tools),
-			labels: undefined,
-			wsSpecific: false
+			input_transforms: $state.snapshot(brain) as Record<string, unknown>,
+			tools: $state.snapshot(tools) as Record<string, unknown>[]
 		}
 	}
 
-	/** The configuration the step holds now, in the form the agent's draft is compared and written in. */
+	/** The configuration the step holds now, in the form it is compared with the deployed agent in. */
 	let currentConfig = $derived(JSON.stringify(inputTransformsToAgentConfig(inputTransforms, tools)))
+	/** The agent as deployed, in the same form. It lives with the edit session rather than here —
+	 *  as does what was written into the step when the editor opened — so an editor mounted
+	 *  part-way through a session still has its baselines. */
+	let deployedConfig = $derived(editing?.deployedConfig)
+	/** The step is holding the configuration that was forked into it, so what it holds from here is
+	 *  what someone did to it. */
+	let forkSettled = $derived(editing?.settled ?? false)
 	// The fork is written into the step through bound props, so it arrives over several states:
 	// the first ones read back are the step part-way through being forked, not anything anyone
 	// edited. It has landed once what the step holds is what was forked into it, and only from
-	// there is a difference an edit.
+	// there is a difference an edit. Recorded on the session, because only the editor that saw it
+	// land can say so, and one mounted later must not wait for it again.
 	$effect(() => {
-		// Both read here: the marker is set after the fork is written, and the settle has to be
+		// Both read here: the session is set after the fork is written, and the settle has to be
 		// looked for again at that point, not only on the next change to the configuration.
-		const path = editingPath
+		const session = editing
 		const config = currentConfig
+		const marker = tools
 		untrack(() => {
-			if (!path || forkSettled) return
-			if (config === forkedConfig) forkSettled = true
+			if (!session || session.settled) return
+			if (config === session.forkedConfig) markAgentEditSettled(marker)
 		})
 	})
-	/** The agent as deployed, in the same form. */
-	let deployedConfig: string | undefined = $state(undefined)
-	/** What was written into the step when the editor opened — the draft when one was resumed,
-	 *  otherwise the deployed value. What the settle gate waits to see. */
-	let forkedConfig: string | undefined = $state(undefined)
-	/** The step is holding the configuration that was forked into it, so what it holds from here is
-	 *  what someone did to it. */
-	let forkSettled = $state(false)
 	/** Whether what is in the editor differs from the agent it is an edit of. */
 	let edited = $derived(
 		forkSettled && deployedConfig !== undefined && currentConfig !== deployedConfig
 	)
-	/** A write to the draft is on its way, and the controls that would start another wait for it. */
-	let committing = $state(false)
-	$effect(() => {
-		if (!editingPath) {
-			untrack(() => {
-				deployedConfig = undefined
-				forkedConfig = undefined
-				forkSettled = false
-			})
-		}
-	})
 
-	/** The draft the editor is on, as the syncer keys it. */
-	let draftQuery = $derived(
-		ws && editingPath
-			? { workspace: ws, itemKind: 'resource' as const, path: editingPath }
-			: undefined
-	)
-	/**
-	 * Take the draft as the server has it, discarding what this editor holds — the conflict modal's
-	 * "Load from server". Re-enters the editor rather than writing the values into the open one,
-	 * whose panes are mounted on the fork and would keep painting what was replaced.
-	 */
-	async function reloadFromServer() {
-		const path = editingPath
-		if (!path) return
-		// Nothing is written on the way out: the server's copy is what is wanted, and the re-fork
-		// below drops the refused one where every read of the server's copy drops it.
-		relink(path)
-		try {
-			const reopened = await forkFromResource(false, true)
-			if (reopened) {
-				setAgentEditingPath(tools, reopened)
+	let diffDrawer: DiffDrawer | undefined = $state()
+	/** What differs from deployed, in the drawer every other unsaved change shows its diff in. Both
+	 *  sides are snapshotted at click time: the current one is the step's live state, and the
+	 *  drawer would otherwise go on re-reading it while the user keeps typing behind it. */
+	function showDiff() {
+		if (!deployedConfig) return
+		diffDrawer?.openDrawer()
+		diffDrawer?.setDiff({
+			mode: 'simple',
+			original: JSON.parse(deployedConfig) as Value,
+			current: $state.snapshot(inputTransformsToAgentConfig(inputTransforms, tools)) as Value,
+			title: 'Deployed <> Unsaved agent changes',
+			button: {
+				text: 'Discard changes',
+				onClick: () => {
+					// Asked for by name, from a drawer showing exactly what goes: no second question.
+					const path = editingPath
+					if (path) relink(path)
+					diffDrawer?.closeDrawer()
+				}
 			}
-		} catch (e) {
-			sendUserToast(`Failed to reload the agent: ${e}`, true)
-		}
-	}
-
-	/** Run one write to the draft, holding the controls that would start another meanwhile, and
-	 *  leave the editor only if it landed: a refused write has the modal up, a failed one has been
-	 *  said, and in both the edits are still where they can be seen. */
-	async function leaveIf(path: string, write: () => Promise<boolean>): Promise<boolean> {
-		if (committing) return false
-		committing = true
-		try {
-			if (!(await write())) return false
-			// The edit session may have ended under the write (undo, session drafts): the draft is
-			// written either way, but there is no fork left to re-link.
-			if (getAgentEditingPath(tools) !== path) return false
-			return true
-		} finally {
-			committing = false
-		}
-	}
-
-	/**
-	 * Drop the draft and put the editor back on what is deployed, which is what the banner's
-	 * Discard means everywhere else it appears.
-	 */
-	async function discardDraft() {
-		const path = editingPath
-		if (!path) return
-		const left = await leaveIf(path, async () => {
-			const outcome = await writeDraft(path, null)
-			if (outcome === 'failed') {
-				sendUserToast(`${path}'s draft could not be dropped: ${lastWriteFailure(path)}`, true)
-			}
-			return outcome === 'saved'
 		})
-		// And leave the editor, which re-links the step to the deployed agent — the baseline being
-		// reset to. Reloading the values into an editor that is already open would leave its panes
-		// painting what was just discarded until it is reopened.
-		if (left) relink(path)
 	}
 
-	/**
-	 * Evals of an agent being edited run the edits, which the run reads from the agent's draft: put
-	 * them there first, so what runs is what is on screen.
-	 */
-	async function openEvalsOfEdit() {
+	/** Cancel is asking to be sure when there is something to lose. */
+	let confirmCancel = $state(false)
+	// Cancel drops the edits and re-links the step, leaving the agent untouched: nothing is saved
+	// anywhere on the way out, so it asks first when there are edits to drop. Diverging from the
+	// agent is Unlink's job, on the linked card.
+	function cancelEdit() {
 		const path = editingPath
 		if (!path) return
-		if (await leaveIf(path, () => commitDraft(path))) {
-			evalsOpen = true
+		if (edited) {
+			confirmCancel = true
+			return
 		}
-	}
-
-	// Cancel keeps the edits on the agent as its draft and re-links the step. It is not a decision
-	// about the unsaved work, which is what Discard on the banner is for — the same split the
-	// resource editor makes. Diverging from the agent is Unlink's job, on the linked card.
-	async function cancelEdit() {
-		const path = editingPath
-		if (!path) return
-		if (await leaveIf(path, () => commitDraft(path))) {
-			relink(path)
-		}
+		relink(path)
 	}
 
 	// Put the step back on the agent. Edit kept this flow's `tool_inputs` off the forked tools
@@ -737,15 +597,6 @@
 					{#if version != undefined}
 						<Badge color="gray" class="shrink-0" title="The version runs are recorded against">
 							v{version}
-						</Badge>
-					{/if}
-					{#if linkedHasDraft}
-						<Badge
-							color="yellow"
-							class="shrink-0"
-							title="This agent has undeployed edits. Edit continues them, and Evals offers to run them."
-						>
-							unsaved changes
 						</Badge>
 					{/if}
 				</div>
@@ -844,15 +695,22 @@
 							</Badge>
 						{/if}
 						{#if edited}
-							<Badge color="yellow">unsaved changes</Badge>
+							<!-- The badge is the way to the diff: it is what says there is one. -->
+							<Badge
+								color="yellow"
+								class="shrink-0 cursor-pointer"
+								title="Show what differs from the deployed agent"
+								onclick={showDiff}
+							>
+								unsaved changes
+							</Badge>
 						{/if}
 					</div>
 					<div class="text-2xs text-secondary flex items-center gap-0.5">
 						saving updates every flow using it<Tooltip small>
 							{#snippet text()}
-								Cancel keeps the edits on the agent as a draft and re-links this step; Edit
-								continues them next time, here or in the resource editor, and Evals runs them. Save
-								changes writes them to the agent. Discard, on the banner, is what drops the draft.
+								The edits live in this step until you decide: Evals runs them as they are here, Save
+								changes writes them to the agent, Cancel drops them and re-links the step.
 							{/snippet}
 						</Tooltip>
 					</div>
@@ -865,34 +723,25 @@
 					variant="default"
 					startIcon={{ icon: FlaskConical }}
 					title="Run these edits against a dataset of cases"
-					disabled={committing}
-					onclick={openEvalsOfEdit}
+					disabled={saving}
+					onclick={() => (evalsOpen = true)}
 				>
 					Evals
 				</Button>
 			</div>
-			<!-- The same banner the resource editor shows over a draft, so unsaved work reads the
-			     same wherever it is met: what differs from deployed, and the one control that drops
-			     it. Editing resumes a draft rather than replacing it, which is exactly the state
-			     worth naming. -->
-			<LocalDraftBanner
-				show={edited}
-				getDeployed={() => (deployedConfig ? JSON.parse(deployedConfig) : undefined)}
-				getCurrent={() => inputTransformsToAgentConfig(inputTransforms, tools)}
-				onDiscard={discardDraft}
-				title="Deployed <> Unsaved agent changes"
-			/>
 			<!-- Deciding the edits' fate gets a row of its own: at this width it was wrapping into
-			     the line that names them, and the two are not the same question. -->
+			     the line that names them, and the two are not the same question. The badge above
+			     says there are unsaved changes and shows them; this row is what can be done about
+			     them. -->
 			<div class="flex items-center justify-end gap-1">
-				<Button unifiedSize="2xs" variant="default" disabled={committing} onclick={cancelEdit}>
+				<Button unifiedSize="2xs" variant="default" disabled={saving} onclick={cancelEdit}>
 					Cancel
 				</Button>
 				<Button
 					unifiedSize="2xs"
 					variant="accent"
 					startIcon={{ icon: Save }}
-					disabled={saving || committing || !!providerSaveError}
+					disabled={saving || !!providerSaveError}
 					onclick={saveChanges}
 				>
 					Save changes
@@ -961,15 +810,30 @@
 	</DrawerContent>
 </Drawer>
 
-<AgentEvalModal agentPath={cardPath} {opWorkspace} bind:open={evalsOpen} />
+<!-- Opened from the editing card, the edits are what is under test, read from the step when Run is
+     pressed; from the linked card, the deployed agent is. -->
+<AgentEvalModal
+	agentPath={cardPath}
+	{opWorkspace}
+	editedConfig={editingPath ? editedConfig : undefined}
+	bind:open={evalsOpen}
+/>
 
-<!-- The agent's draft is shared with the resource editor, so it can advance under this one, and
-     a write here is then refused. The modal is the shared answer to that: it holds the screen
-     until the two are reconciled, and the editor stays open behind it with the edits. -->
-{#if draftQuery}
-	<DraftSyncConflictModal
-		query={draftQuery}
-		onLoadFromServer={reloadFromServer}
-		getLocalDraft={() => (editingPath ? draftValue(editingPath) : undefined)}
-	/>
-{/if}
+<DiffDrawer bind:this={diffDrawer} />
+
+<ConfirmationModal
+	open={confirmCancel}
+	title="Drop these edits?"
+	confirmationText="Drop edits"
+	onConfirmed={() => {
+		confirmCancel = false
+		const path = editingPath
+		if (path) relink(path)
+	}}
+	onCanceled={() => (confirmCancel = false)}
+>
+	<span class="text-sm">
+		The step goes back to {editingPath} as it is deployed, and the edits are not kept anywhere. Save
+		changes writes them to the agent instead.
+	</span>
+</ConfirmationModal>

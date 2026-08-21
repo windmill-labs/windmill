@@ -1,13 +1,15 @@
 <script lang="ts">
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import type { AgentDraft } from '$lib/gen'
 	import type { EvalsLocation } from './evalRuns'
 	import EvalsPane from './EvalsPane.svelte'
 
 	let {
 		agentPath = undefined,
 		open = $bindable(),
-		opWorkspace = undefined
+		opWorkspace = undefined,
+		editedConfig = undefined
 	}: {
 		/** The agent under test. A dataset and its runs belong to a saved agent, so without one
 		 * the dialog can only say so. */
@@ -17,6 +19,9 @@
 		/** The workspace the opening editor operates on, which differs from the nav workspace in
 		 * fork and session editors. Every read and write targets it. */
 		opWorkspace?: string
+		/** Opened from an agent being edited: the edits, as the step holds them, are what a run is
+		 * offered on. Everywhere else the agent is what is deployed. */
+		editedConfig?: () => AgentDraft
 	} = $props()
 
 	// The dialog is what the breadcrumb's first segment names, so the path is composed here from
@@ -56,7 +61,7 @@
 	{/snippet}
 	<div class="h-full min-h-0">
 		{#if agentPath}
-			<EvalsPane {agentPath} {opWorkspace} bind:location />
+			<EvalsPane {agentPath} {opWorkspace} {editedConfig} bind:location />
 		{:else}
 			<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
 				<span class="text-sm text-emphasis">Evals run against a saved agent</span>

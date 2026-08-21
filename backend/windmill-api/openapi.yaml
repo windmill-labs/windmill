@@ -12002,10 +12002,9 @@ paths:
     get:
       summary: what the agent under test is right now
       description: >
-        The version it is deployed at, and what its draft hashes to. Small on purpose: the results
-        endpoint reports the same thing but harvests scores and reads every job to do it, so it is
-        not something to poll — and without polling, an agent edited while the table is open goes
-        on looking current.
+        The version it is deployed at. Small on purpose: the results endpoint reports the same
+        thing but harvests scores and reads every job to do it, so it is not something to ask for
+        on its own.
       operationId: evalSubjectState
       tags:
         - ai_evals
@@ -12023,15 +12022,10 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [has_undeployed_changes]
                 properties:
                   version:
                     type: integer
                     format: int64
-                  draft_hash:
-                    type: string
-                  has_undeployed_changes:
-                    type: boolean
 
   /w/{workspace}/ai_evals/run_payload:
     get:
@@ -12243,8 +12237,7 @@ paths:
             application/json:
               schema:
                 type: object
-                required:
-                  [experiment, scorers, rows, means, regressed, subject_has_undeployed_changes]
+                required: [experiment, scorers, rows, means, regressed]
                 properties:
                   experiment:
                     $ref: "#/components/schemas/EvalExperiment"
@@ -12271,25 +12264,13 @@ paths:
                     format: int64
                     description: >
                       The version the subject is on now. A row that ran against an earlier one
-                      describes an agent that no longer exists. Absent for a draft, which has no
-                      versions to be behind.
+                      describes an agent that no longer exists.
                   subject_deployed_hash:
                     type: string
                     description: >
-                      What the agent hashes to as deployed. A draft run carrying this hash ran
-                      exactly what is deployed now — the edits were saved — so it is a run of that
-                      version rather than of a draft.
-                  subject_current_draft_hash:
-                    type: string
-                    description: >
-                      What the draft hashes to now, for a draft subject. A row carrying a different
-                      one ran a configuration that has since been edited.
-                  subject_has_undeployed_changes:
-                    type: boolean
-                    description: >
-                      The agent has edits that were never deployed. A run of the agent executes
-                      what was deployed when it started, so those edits are not what any of these
-                      numbers describe.
+                      What the agent hashes to as deployed. A run of unsaved edits carrying this
+                      hash ran exactly what is deployed now — the edits were saved — so it is a run
+                      of that version rather than of edits.
 
   /w/{workspace}/path_autocomplete/list_paths:
     get:
@@ -26558,10 +26539,11 @@ components:
           type: string
           description: >
             `agent` runs the ai_agent resource as it is deployed when the run opens, `agent_draft`
-            the caller's own undeployed draft of it, and `agent_version` one past version named by
-            `version`. All three are read server-side and inlined into the run, so every case of a
-            run executes one configuration: a deploy part-way through changes what the next run
-            measures, never this one.
+            the caller's unsaved edits of it as the editor holds them (carried in `draft`), and
+            `agent_version` one past version named by `version`. The first and last are read
+            server-side; all three are inlined into the run, so every case of a run executes one
+            configuration: a deploy part-way through changes what the next run measures, never
+            this one.
           enum: [agent, agent_draft, agent_version]
         path:
           type: string
@@ -26589,10 +26571,10 @@ components:
     AgentDraft:
       type: object
       description: >
-        The brain and tools of an agent, as the flow editor holds them. Read server-side from the
-        agent's draft and present exactly when the subject kind is `agent_draft`, where it is the
-        whole definition of what ran: the run goes through the same unlinked branch of the agent
-        executor the editor's own test uses.
+        The brain and tools of an agent, as the flow editor holds them. Carried by the request and
+        present exactly when the subject kind is `agent_draft` — the edits exist only in the editor
+        — where it is the whole definition of what ran: the run goes through the same unlinked
+        branch of the agent executor the editor's own test uses.
       properties:
         input_transforms:
           type: object

@@ -53,18 +53,22 @@ The cases are the loop's **static iterator**, so they live in the flow's value, 
 once. Passing them as an argument would put a copy of the whole dataset in every iteration's
 arguments.
 
-Whichever state of the agent is chosen — what is deployed, its draft, or a past version — its
-configuration is read once, when the run is opened, and inlined into the step every case runs. A
+Whichever state of the agent is chosen — what is deployed, the edits in progress, or a past version
+— its configuration is fixed once, when the run is opened, and inlined into the step every case runs. A
 linked step would resolve the resource when each case reaches it, so a deploy part-way through a
 run would be executed by the cases after it while every row still named the version the run started
 against. One run measures one configuration; the cost is that a run does not exercise the linked
 branch the production step takes.
 
-The draft and a past version could not be run any other way in the first place: a reference
+The edits and a past version could not be run any other way in the first place: a reference
 resolves to what is deployed, which is exactly what neither of them is.
 
-The configuration is never taken from the request. A subject carrying one is refused: it would run
-something other than the resource it names, and a run nobody can attribute is worse than no run.
+A saved agent's and a past version's configuration are never taken from the request: both are read
+from the workspace by the path they name, and a subject carrying one is refused, since it would run
+something other than the resource it names. The edits in progress are the one kind the request has
+to carry — they exist only in the editor — and the run records what it was handed, inlined into its
+flow and hashed, so it is reproducible and attributable to "this version plus these edits"; what the
+server cannot assert about them is that they derive from that version.
 
 Each iteration is an agent step, then a **payload step**, then one step per scorer. The payload
 step exists because the flow cannot see what it needs to: the agent's own result carries the
@@ -74,7 +78,7 @@ one argument is the iteration's own job id, and hands the scorers exactly what a
 anywhere else. A scorer therefore measures the agent's latency and not its own: the payload
 reports the *agent step's* duration, never the iteration's.
 
-A draft is the transforms as authored, expressions included. One that reads `results.<step>.x` or
+The edits are the transforms as authored, expressions included. One that reads `results.<step>.x` or
 a `flow_input` the case does not supply resolves to nothing here, the same way it would in any run
 of that step outside its flow.
 
@@ -191,25 +195,16 @@ polled only while a run is actually in flight, and one pass at a time. Without t
 agent edited while the table is open goes on looking current until the pane is reopened, which is
 exactly when it is most misleading.
 
-- **A draft is dated by its hash**, not by a version, because editing a draft moves nothing a
-  version could record. Each cell carries `subject_draft_hash`, the hash of the configuration it
-  ran (canonicalised: key order is not meaningful and `serde_json` preserves insertion order).
+- **Edits are dated by their hash**, not by a version, because editing moves nothing a version
+  could record. Each cell carries `subject_draft_hash`, the hash of the configuration it ran
+  (canonicalised: key order is not meaningful and `serde_json` preserves insertion order).
 
-**One case is called stale**, and it is the one a label cannot express: the run reads `v23 + edits`,
-the agent is *still* on v23 with edits waiting, and they are not the same edits. All four conditions
-hold together — the run executed a draft, that draft is not what is deployed now, its version is the
-version the agent is still on, and a draft exists now holding something else.
-
-Everything else is legible without a warning. A run of an older version is history and says so
+Everything is legible without a warning. A run of an older version is history and says so
 (`Run 14 · v23` beside an agent on v24), and flagging it would flag every past run the moment
 anything is deployed. A run whose edits were later deployed is a run of that version, and the
-results endpoint recognises and restamps it. Only two runs both reading `v23 + edits` can silently
-be two different things.
-
-The table says it once, above itself, in one line: *this run executed an earlier state of the draft
-on v24*. No dimming, because every cell of a run is stamped from one resolution of the subject and so
-the statement is about the run rather than its rows; and no rerun button, because Run all is one row
-up.
+results endpoint recognises and restamps it. Two runs both reading `v23 + edits` can be two
+different things; the hash each carries is what tells them apart, and since the edits live only in
+the editor that ran them there is no "current draft" for the table to compare either against.
 - **An agent's draft is its own subject.** Its runs are keyed under `agent_draft`, so a number
   produced by unsaved edits is never quietly read as the deployed agent's. An agent with edits
   waiting is tested on the edits, and the toolbar says which of its two states is under test.
@@ -217,29 +212,28 @@ up.
   value's numbers are already in the history from before the editing started.
 
 In the flow editor, editing a linked agent forks the configuration into the step and clears the
-link. The edits are kept on that agent's own resource draft, so evals still name the agent: the
-step is where you type, and the draft is what runs. Which agent a step is,
-whether it is being edited, and whether those edits are saved is a **card at the top of the step's
-inputs**, inside the same scroll region as the fields it is about, rather than a second bar with a
-scrollbar of its own. Evals open from that card in both of its states, since evals of an agent
-being edited run the edits and the question they answer is whether the edit is an improvement.
-While an agent is being edited the card says on the line — not under an icon — that saving updates
-every flow using the agent, and carries an unsaved-changes badge once there is something to save.
+link. The step is the only copy of the edits: nothing is saved anywhere until you decide. Which
+agent a step is, whether it is being edited, and whether those edits are saved is a **card at the
+top of the step's inputs**, inside the same scroll region as the fields it is about, rather than a
+second bar with a scrollbar of its own. Evals open from that card in both of its states: from the
+editing card they run the edits as the step holds them when Run is pressed, since the question they
+answer is whether the edit is an improvement; from the linked card they run the deployed agent, the
+same reading a linked step makes at run time. While an agent is being edited the card says on the
+line — not under an icon — that saving updates every flow using the agent, and carries an
+unsaved-changes badge once there is something to save; the badge is also the way to the diff.
 
-The draft is the agent's, not the step's, so it outlives both. It is written at the moments that
-decide the edits' fate rather than as they are typed: Cancel puts them on the draft and re-links
-the step; opening Evals from the editing card puts them there first, so the run reads what is on
-screen; Save changes writes them to the agent and drops the draft; Discard, on the banner, is the
-one control that drops it without saving. The next Edit resumes the draft — in this flow or in the
-resource editor, which writes the same draft. Each write is awaited and its outcome read while the
-editor is still open: two editors on one draft means it can advance underneath you, and a write the
-server refuses for that raises the shared conflict dialog with the editor still open behind it; a
-write that fails is said in a toast and the editor stays open too. So there is never a moment at
-which the card has to vouch for a write it cannot see the outcome of, and a linked step's
-unsaved-changes badge is the server's answer alone — shown because that is what its Evals button
-offers to run. Between those moments the edits live in the step alone (and in the flow's own
-draft, which autosaves it); leaving the flow without Cancel or Save writes nothing to the agent.
-Edit reads the draft as the server has it.
+Three ways out, none of them a draft: **Save changes** writes the edits to the agent and re-links
+the step; **Cancel** drops them and re-links, asking first when there is something to drop; the diff
+drawer's **Discard changes** is Cancel without the question, from a view of exactly what goes. The
+agent's own resource draft — the one the resource editor writes — is untouched by any of this, and
+evals never read it. (Editing a linked agent in its own editor, rather than in the step, is a
+follow-up; this is the shape until then.)
+
+The editor can unmount mid-session — another node selected, the step's tab switched — so what it
+needs to judge the edits travels with the session in `agentEditStore`, not with the component: the
+agent as deployed, what was forked into the step, and whether the step has read that fork back.
+Without a baseline an editor cannot tell an edit from the deployed value, which is the difference
+between Cancel asking and Cancel dropping work unannounced.
 
 The card also names the version, because that is what a run is recorded against: `v24` beside the
 agent, and `v24` beside an unsaved-changes badge for edits sitting on top of it, which is what a run
@@ -510,8 +504,9 @@ already collected, so the steady state is one query and not one flow read per ro
 follows from where you happen to be standing:
 
 - **which state of the agent.** `Latest` is the agent as it is saved when you press Run. A past
-  version is what it was then, and `Unsaved edits` runs the draft — preselected when there are
-  edits waiting, because that is why you came. All three are read once and run by every case.
+  version is what it was then, and `Unsaved edits` runs the step's edits as they are when you press
+  Run — offered, and preselected, only when the dialog was opened from the editing card, because
+  that is why you came. All three are fixed once and run by every case.
 - **which dataset**, as a resource picker does it: named by its summary with the path under it, an
   edit button on the row, and a way to start a new one without leaving.
 
