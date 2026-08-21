@@ -430,8 +430,18 @@ fn settle_verdict(
         Some(value) => {
             let verdict = extract_verdict(value);
             match verdict {
-                // A number, or the scorer saying this case is not one it measures. Both are
-                // answers, so both are recorded and neither is an error.
+                // A score is a fraction: both templates document 0 to 1, the mean and the pass
+                // rate read it as one, so a number outside that range is a scorer bug recorded as
+                // an error rather than a value that would quietly skew the column.
+                Verdict { score: Some(score), .. } if !(0.0..=1.0).contains(&score) => (
+                    Verdict::default(),
+                    Some(format!(
+                        "The scorer returned {}, outside the 0 to 1 range a score must be in",
+                        score
+                    )),
+                ),
+                // A number in range, or the scorer saying this case is not one it measures. Both
+                // are answers, so both are recorded and neither is an error.
                 Verdict { score: Some(_), .. } | Verdict { not_applicable: true, .. } => {
                     (verdict, None)
                 }
