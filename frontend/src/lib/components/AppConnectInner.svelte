@@ -20,7 +20,7 @@
 		type ResourceType
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
-	import oauthConnectRegistry from '$oauth_connect_registry'
+	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
 	import { createEventDispatcher, onDestroy, tick, untrack } from 'svelte'
 	import Path from './Path.svelte'
 	import { Button, RadioCard, Skeleton } from './common'
@@ -108,10 +108,6 @@
 		return connectsInfo[key]?.has_shared_credentials ?? false
 	}
 
-	const SANDBOX_SUFFIX = '_sandbox'
-	function stripSandboxSuffix(name: string): string {
-		return name.endsWith(SANDBOX_SUFFIX) ? name.slice(0, -SANDBOX_SUFFIX.length) : name
-	}
 	// `resourceType` is always the canonical type (e.g. `docusign`) so resource
 	// rows are uniform. `connectClient` carries the suffixed OAuth client name
 	// (e.g. `docusign_sandbox`) used to look up credentials/URLs at runtime
@@ -205,16 +201,16 @@
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 	let resourceTypeNotFound = $state(false)
 
+	// Both resolve `_sandbox` clients to their parent entry (e.g. salesforce_sandbox ->
+	// salesforce) so sandbox connections see the same metadata. Shared with callers that
+	// decide whether to open this dialog at all, so the two cannot disagree.
 	function registryEntry(): any {
-		const reg = oauthConnectRegistry as Record<string, any>
-		// Resolve `_sandbox` clients to their parent registry entry (e.g.
-		// salesforce_sandbox -> salesforce) so sandbox connections see CC metadata.
-		return reg[stripSandboxSuffix(connectClient)] ?? reg[stripSandboxSuffix(resourceType)]
+		return registryEntryFor(connectClient, resourceType)
 	}
 
 	/** The static registry declares this provider supports client credentials */
 	function registryCcCapable(): boolean {
-		return registryEntry()?.grant_types?.includes('client_credentials') ?? false
+		return registryCcCapableFor(connectClient, resourceType)
 	}
 
 	/** Instance-name metadata for providers whose token URL is instance-templated
@@ -299,11 +295,7 @@
 
 	/** Static registry declares client-credentials support for `key`. */
 	function isCcCapable(key: string): boolean {
-		return (
-			(oauthConnectRegistry as Record<string, any>)[stripSandboxSuffix(key)]?.grant_types?.includes(
-				'client_credentials'
-			) ?? false
-		)
+		return registryCcCapableFor(key)
 	}
 
 	/** Step-1 "Others" selection: CC-capable resource types open the client-
@@ -774,8 +766,7 @@
 			// the user entered in `ccInstance` (raw, possibly a full host); the shared
 			// path carries it (already normalized) in the connect entry's extra_params.
 			// Prefer the user-entered one so the saved resource matches the exchange.
-			const connectTemplate = (oauthConnectRegistry as Record<string, any>)[resourceType]
-				?.connect_config_template
+			const connectTemplate = registryEntryFor(resourceType)?.connect_config_template
 			if (connectTemplate?.resource_mapping) {
 				const instanceKey = connectTemplate.extra_params_key ?? 'instance'
 				let instanceValue = extra_params.find(([key, _]) => key === instanceKey)?.[1] ?? ''

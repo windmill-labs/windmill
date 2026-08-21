@@ -15,6 +15,7 @@
 	import ImportSetupRow from '$lib/components/ImportSetupRow.svelte'
 	import AppConnectDrawer from '$lib/components/AppConnectDrawer.svelte'
 	import { OauthService } from '$lib/gen'
+	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
 	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import type { ProjectMigration } from '$lib/components/workspaceSettings/projectBundle'
@@ -90,7 +91,15 @@
 			}
 		}
 	)
-	const connectable = $derived(new Set(oauthConnects.current ?? []))
+	const instanceConnects = $derived(new Set(oauthConnects.current ?? []))
+	/**
+	 * Matches what the dialog itself decides (`AppConnectInner.open`: `manual = !inConnects &&
+	 * !registryCcCapable()`). An instance client is the usual route, but a provider the
+	 * registry marks client-credentials-capable is connectable without one, because those
+	 * credentials are entered per resource rather than held by a superadmin. Testing only the
+	 * first half hid Connect on the eight such providers, where the dialog would have worked.
+	 */
+	const canConnectType = (rt: string) => instanceConnects.has(rt) || registryCcCapableFor(rt)
 	let appConnect: AppConnectDrawer | undefined = $state(undefined)
 
 	const customInstanceDbs = resource([() => workspace], SettingService.listCustomInstanceDbs)
@@ -409,7 +418,7 @@
 				>
 				<ul class="flex flex-col gap-1.5">
 					{#each blanks as b (b.path)}
-						{@const canConnect = !b.done && connectable.has(b.resourceType)}
+						{@const canConnect = !b.done && canConnectType(b.resourceType)}
 						<!-- Laid out like the resource type rows in the Add-a-resource drawer: the
 						     integration's own icon, its product name, and the raw identifier demoted
 						     beside it. The path only matters when two resources share a type, so it
