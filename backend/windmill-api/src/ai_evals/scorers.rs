@@ -107,7 +107,7 @@ pub(crate) fn assign_scorer_ids(
             seen.insert(scorer.id.clone());
         }
         if let Some(name) = &scorer.name {
-            if name.len() > 120 {
+            if name.chars().count() > 120 {
                 return Err(Error::BadRequest(format!(
                     "Scorer name {} is too long, 120 characters at most",
                     name

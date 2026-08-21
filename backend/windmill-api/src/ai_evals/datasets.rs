@@ -327,8 +327,8 @@ pub async fn update_dataset(
             map_rls_denied(new_path.as_deref().unwrap_or(&path), "rename", e)
         }
     })?;
-    // Gone between the lock and here cannot happen under the row lock, but a rename the WITH CHECK
-    // refused returns no row: report it as the write it was.
+    // No row updated: the caller cannot write this dataset (its UPDATE policy denied the row) or it
+    // is gone. A refused rename destination raises 42501 instead, handled just above.
     let Some(updated) = updated else {
         drop(tx);
         return Err(write_refused(&authed, &user_db, &w_id, &path).await);
@@ -486,6 +486,19 @@ pub async fn add_case(
             path, MAX_CASES_PER_DATASET
         )));
     }
+    // The dataset's own bytes plus this case's, so incremental adds cannot walk a dataset past the
+    // aggregate cap one case at a time. Read under the same lock as the count.
+    let existing_bytes = sqlx::query_scalar!(
+        "SELECT COALESCE(SUM(octet_length(input::text) + COALESCE(octet_length(expected::text), 0)), 0) AS \"bytes!\"
+         FROM eval_case WHERE workspace_id = $1 AND dataset_path = $2",
+        w_id,
+        path
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    check_dataset_bytes(
+        existing_bytes as usize + case_bytes(&payload.input, payload.expected.as_ref())?,
+    )?;
 
     let id = sqlx::query_scalar!(
         "INSERT INTO eval_case
@@ -640,6 +653,21 @@ pub async fn update_case(
         payload.expected.as_ref(),
     )?;
     let mut tx = user_db.begin(&authed).await?;
+    lock_dataset_cases(&mut tx, &w_id, &path).await?;
+    // The dataset's other cases plus this one's new bytes: replacing a case must not carry the
+    // dataset over the aggregate cap either.
+    let others_bytes = sqlx::query_scalar!(
+        "SELECT COALESCE(SUM(octet_length(input::text) + COALESCE(octet_length(expected::text), 0)), 0) AS \"bytes!\"
+         FROM eval_case WHERE workspace_id = $1 AND dataset_path = $2 AND id <> $3",
+        w_id,
+        path,
+        payload.id
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    check_dataset_bytes(
+        others_bytes as usize + case_bytes(&payload.input, payload.expected.as_ref())?,
+    )?;
     let updated = sqlx::query_scalar!(
         "UPDATE eval_case
          SET name = $4, input = $5, expected = $6
@@ -654,13 +682,13 @@ pub async fn update_case(
     )
     .fetch_optional(&mut *tx)
     .await?;
-    tx.commit().await?;
     if updated.is_none() {
         return Err(Error::NotFound(format!(
             "Eval case {} not found in {}",
             payload.id, path
         )));
     }
+    tx.commit().await?;
     Ok(format!("Updated eval case {}", payload.id))
 }
 

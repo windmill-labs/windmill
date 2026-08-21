@@ -1026,8 +1026,10 @@
 	{running}
 	onRun={runAll}
 	onEditDataset={async (path) => {
-		resumeRunDialog = true
-		if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
+		if (await useDataset(path)) {
+			resumeRunDialog = true
+			datasetDrawer?.openDrawer('edit')
+		}
 	}}
 	onNewDataset={() => {
 		resumeRunDialog = true

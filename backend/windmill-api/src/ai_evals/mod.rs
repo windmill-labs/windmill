@@ -232,7 +232,7 @@ async fn read_dataset(
 /// not enough on its own: `user_db` runs at READ COMMITTED, where each statement takes a fresh
 /// snapshot, so the row is taken `FOR UPDATE` — which an atomic edit's own `FOR UPDATE`, and a
 /// case write's foreign-key lock, both conflict with — pinning the cases against change until the
-/// read commits. `None` when the dataset is not there to read.
+/// read commits. `Err(NotFound)` when the dataset is not there for this caller to read for a run.
 pub(crate) async fn read_dataset_and_cases(
     authed: &ApiAuthed,
     user_db: &UserDB,
