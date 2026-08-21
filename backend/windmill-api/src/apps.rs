@@ -2137,20 +2137,24 @@ fn custom_path_conflict_error(
 /// A raw app's `value.files` keys are app-root-relative paths (`/index.tsx`),
 /// written back to disk relative to the app folder by `wmill sync pull`. A key
 /// with a `..` segment resolves outside that folder, so reject it at deploy
-/// time: the value is stored verbatim, and a pulled file must stay within its
-/// own app's folder.
+/// time: a pulled file must stay within its own app's folder.
+///
+/// Validate the value as it will be *stored and later read*, not as it arrived:
+/// the INSERT strips NUL escapes (a `/..\u0000/` key becomes `/../` on disk) and
+/// a puller parses with last-duplicate-wins JSON semantics. Mirror both — strip
+/// first, then parse to `serde_json::Value` — so a key that looks safe on the
+/// wire but is unsafe once stored cannot slip past.
 fn validate_raw_app_file_keys(value: &RawValue) -> Result<()> {
-    #[derive(Deserialize)]
-    struct FilesOnly<'a> {
-        #[serde(default, borrow)]
-        files: HashMap<String, &'a RawValue>,
-    }
-    // A value that is not the raw-app source shape has no `files` to police; the
-    // normal deploy path handles a malformed value.
-    let Ok(parsed) = serde_json::from_str::<FilesOnly>(value.get()) else {
+    let stored = strip_json_nul(value.get());
+    // A raw-app value already deserialized once to reach here, so it is valid
+    // JSON; a value with no `files` object has nothing to police.
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&stored) else {
         return Ok(());
     };
-    for key in parsed.files.keys() {
+    let Some(files) = parsed.get("files").and_then(|f| f.as_object()) else {
+        return Ok(());
+    };
+    for key in files.keys() {
         // Mirror the CLI's write: it strips one leading `/` and joins the rest
         // under the app folder. Any `..` segment (either separator, since a
         // checkout can be pulled on Windows) escapes it.
@@ -5790,5 +5794,30 @@ mod raw_app_file_key_tests {
         // A low-code app value has no `files` map to police; validation is a no-op.
         let v = RawValue::from_string(r#"{"grid":[]}"#.to_string()).unwrap();
         validate_raw_app_file_keys(&v).expect("no `files` means nothing to reject");
+    }
+
+    #[test]
+    fn rejects_nul_that_becomes_traversal_once_stored() {
+        // `/..\u0000/escape.ts` has no literal `..` segment on the wire, but the
+        // NUL is stripped before storage, leaving `/../escape.ts` for a puller.
+        let v = value_with_files(r#"{"/..\u0000/escape.ts":"y"}"#);
+        assert!(
+            validate_raw_app_file_keys(&v).is_err(),
+            "a key that becomes a traversal after NUL-stripping must be rejected"
+        );
+    }
+
+    #[test]
+    fn rejects_last_of_duplicate_files_fields() {
+        // A puller's JSON parse keeps the last duplicate field; validation must
+        // look at that one, not fail open because the value has two `files`.
+        let v = RawValue::from_string(
+            r#"{"runnables":{},"files":{"/ok.ts":"x"},"files":{"/../evil.ts":"y"}}"#.to_string(),
+        )
+        .unwrap();
+        assert!(
+            validate_raw_app_file_keys(&v).is_err(),
+            "the last of duplicate `files` fields must be validated"
+        );
     }
 }
