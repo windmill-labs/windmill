@@ -47,7 +47,10 @@ use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
     error::{self, to_anyhow, Error, JsonResult, Result},
-    flows::{EditFlow, Flow, FlowWithStarred, ListFlowQuery, ListableFlow, NewFlow},
+    flows::{
+        require_readable_flow_step_refs, EditFlow, Flow, FlowWithStarred, ListFlowQuery,
+        ListableFlow, NewFlow,
+    },
     jobs::JobPayload,
     schedule::Schedule,
     triggers::MovedNativeTrigger,
@@ -533,6 +536,24 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
+/// Gate the runnables the flow's steps point at on the deployer's own ACL.
+///
+/// Runs after `maybe_refresh_folders` so it sees the folder set the deploy itself is authorized
+/// with, and before the flow value is written: a reference persisted here is resolved with a
+/// privileged connection at run time.
+async fn check_flow_step_refs_access(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    db: &DB,
+    w_id: &str,
+    new_flow: &NewFlow,
+) -> error::Result<()> {
+    let value = new_flow
+        .parse_flow_value()
+        .map_err(|e| Error::BadRequest(format!("Invalid flow value: {e:#}")))?;
+    require_readable_flow_step_refs(authed, user_db, db, w_id, &value).await
+}
+
 async fn validate_flow(new_flow: &NewFlow) -> error::Result<()> {
     #[cfg(not(feature = "enterprise"))]
     if new_flow.ws_error_handler_muted.is_some_and(|val| val) {
@@ -609,6 +630,8 @@ async fn create_flow(
 
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
+
+    check_flow_step_refs_access(&authed, &user_db, &db, &w_id, &nf).await?;
 
     // Apply folder default_permissioned_as on create when the caller did not
     // explicitly preserve a value and the user can preserve.
@@ -1142,6 +1165,9 @@ async fn update_flow(
     validate_flow(&nf).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
+
+    check_flow_step_refs_access(&authed, &user_db, &db, &w_id, &nf).await?;
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
     check_schedule_conflict(&mut tx, &w_id, flow_path).await?;

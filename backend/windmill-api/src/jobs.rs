@@ -9184,6 +9184,16 @@ async fn run_preview_flow_job(
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
+    // The preview value is request-supplied, so its step references never went through the
+    // deploy-time gate in `create_flow`/`update_flow`.
+    windmill_common::flows::require_readable_flow_step_refs(
+        &authed,
+        &user_db,
+        &db,
+        &w_id,
+        &raw_flow.value,
+    )
+    .await?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;

@@ -2045,6 +2045,18 @@ pub async fn get_script_info_for_hash<'e, E: sqlx::PgExecutor<'e>>(
                         computed_hash.unwrap_or_else(|| PermsCache::compute_hash(db_authed.authed)),
                         ScriptHash(hash),
                     );
+                } else if get_script_info_for_hash_inner(db, w_id, hash)
+                    .await?
+                    .is_some()
+                {
+                    // Same "exists but not authorized" split as the path-keyed
+                    // `get_latest_deployed_hash_for_path`, so a pinned reference cannot be
+                    // mistaken for a stale one and silently tolerated by the caller.
+                    return Err(Error::NotAuthorized(format!(
+                        "You are not authorized to access this script: {} (but it exists). Your permissions are: {:?}",
+                        ScriptHash(hash),
+                        db_authed.authed
+                    )));
                 }
                 hash_info
             } else {
