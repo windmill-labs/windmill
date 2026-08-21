@@ -306,8 +306,8 @@ points at.
 ### What a scorer receives
 
 An agent is judged on its behaviour, so the final answer is the smaller half of the evidence. Every
-scorer — a judge prompt, a script, a flow — is handed the same `EvalRun`, built from the job the
-run already stored:
+scorer — a judge prompt or a script — is handed the same `EvalRun`, built from the job the run
+already stored:
 
 | field | from |
 |---|---|

@@ -249,6 +249,12 @@ pub async fn get_dataset(
     Ok(Json(read_dataset(&authed, &user_db, &w_id, &path).await?))
 }
 
+/// An edit is one transaction: the rename, the summary, the columns and the cases land together
+/// or not at all, so a case the list no longer holds, or a name already taken, refuses the whole
+/// save rather than half of it. `eval_case` has no write policies, so the transaction runs on
+/// `db`; what the policies would have decided is decided first, through the caller's own
+/// connection: that they may write this row, asked of the row itself, and that they may put a
+/// dataset at the new name, which is what the insert policies ask of a new row.
 pub async fn update_dataset(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -266,19 +272,17 @@ pub async fn update_dataset(
     let new_path = match payload.path.filter(|p| *p != path) {
         Some(new_path) => {
             check_path(&new_path)?;
+            require_creatable_at(&authed, &new_path)?;
             Some(new_path)
         }
         None => None,
     };
-    // Everything that can be refused is refused before anything is written: the dataset row and
-    // its cases are written in two transactions (see below), and what is left to fail between
-    // them is the database, not the request.
     if let Some(cases) = &payload.cases {
         check_cases(cases)?;
     }
-    let mut tx = user_db.clone().begin(&authed).await?;
     // `FOR UPDATE` applies the UPDATE policies, so the row itself answers who may write it; the
     // columns it holds are what decides which incoming scorer ids are kept (`assign_scorer_ids`).
+    let mut tx = user_db.clone().begin(&authed).await?;
     let current = sqlx::query_scalar!(
         "SELECT scorers FROM eval_dataset WHERE workspace_id = $1 AND path = $2 FOR UPDATE",
         w_id,
@@ -286,8 +290,8 @@ pub async fn update_dataset(
     )
     .fetch_optional(&mut *tx)
     .await?;
+    tx.commit().await?;
     let Some(current) = current else {
-        tx.commit().await?;
         return Err(write_refused(&authed, &user_db, &w_id, &path).await);
     };
     let existing: std::collections::HashSet<String> =
@@ -301,6 +305,8 @@ pub async fn update_dataset(
         }
         None => None,
     };
+
+    let mut tx = db.begin().await?;
     let updated = sqlx::query_scalar!(
         "UPDATE eval_dataset
          SET path = COALESCE($6, path), summary = $3,
@@ -326,19 +332,43 @@ pub async fn update_dataset(
             e.into()
         }
     })?;
-    tx.commit().await?;
+    // Gone between the check above and here: renamed or deleted under the caller.
     let Some(updated) = updated else {
         return Err(write_refused(&authed, &user_db, &w_id, &path).await);
     };
-    // After the rename, under the name the dataset now has. Outside the row's transaction because
-    // `eval_case` has no write policies: its writes go through `db` once the dataset row has
-    // admitted the caller, which the `FOR UPDATE` above did.
-    if let Some(cases) = payload.cases {
-        let mut tx = db.begin().await?;
-        write_cases(&mut tx, &w_id, &updated, &cases, &authed.username).await?;
-        tx.commit().await?;
+    // Under the name the dataset now has: the cases followed the rename through the foreign key.
+    if let Some(cases) = &payload.cases {
+        write_cases(&mut tx, &w_id, &updated, cases, &authed.username).await?;
     }
+    tx.commit().await?;
     Ok(format!("Updated eval dataset {}", updated))
+}
+
+/// Whether the caller may put a dataset at `path`: the insert policies, asked ahead of a write
+/// that does not go through them. Admins may anywhere; a user may under their own prefix, in a
+/// folder they can write, or under a group they belong to.
+fn require_creatable_at(authed: &ApiAuthed, path: &str) -> Result<()> {
+    if authed.is_admin {
+        return Ok(());
+    }
+    let mut segments = path.splitn(3, '/');
+    let allowed = match (segments.next(), segments.next()) {
+        (Some("u"), Some(user)) => user == authed.username,
+        (Some("f"), Some(folder)) => authed
+            .folders
+            .iter()
+            .any(|(name, can_write, _)| name == folder && *can_write),
+        (Some("g"), Some(group)) => authed.groups.iter().any(|g| g == group),
+        _ => false,
+    };
+    if allowed {
+        Ok(())
+    } else {
+        Err(Error::NotAuthorized(format!(
+            "You are not allowed to write a dataset at {}",
+            path
+        )))
+    }
 }
 
 /// The cases, the experiments and their recorded case sets go with the dataset, through the
