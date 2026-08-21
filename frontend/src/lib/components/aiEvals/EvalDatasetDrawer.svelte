@@ -161,10 +161,10 @@
 			creating = false
 			return
 		}
-		// Created. The drawer is done, and moving the pane onto it is a refresh, not the write: a
-		// refresh that fails must not read as a create that failed, or the retry hits "already
-		// exists".
-		drawer?.closeDrawer()
+		// Move the pane onto the created dataset before closing: closing reopens the Run dialog this
+		// drawer was stepped aside from, and that dialog reads the pane's selected dataset as it
+		// opens, so the selection has to land first. A refresh that fails must still not read as a
+		// create that failed, or the retry hits "already exists".
 		try {
 			await onCreated(created)
 		} catch (e) {
@@ -172,9 +172,9 @@
 				`Created the dataset, but the view could not refresh: ${e}. Reload to see it.`,
 				true
 			)
-		} finally {
-			creating = false
 		}
+		drawer?.closeDrawer()
+		creating = false
 	}
 
 	/** The cases as the drawer now holds them, for the save: what it added, what it changed and
@@ -216,13 +216,12 @@
 			saving = false
 			return
 		}
-		// Saved. The drawer is done; what follows is a refresh of the pane behind it, and a refresh
-		// that fails must not read as a save that failed, or the retry renames from the obsolete
-		// path.
-		drawer?.closeDrawer()
+		// Move the pane onto the saved name before closing: closing reopens the Run dialog this
+		// drawer was stepped aside from, and that dialog reads the pane's selected dataset as it
+		// opens, so the selection has to land first — and a re-read under the old name is a 404 on a
+		// save that succeeded. A refresh that fails must still not read as a save that failed, or
+		// the retry renames from the obsolete path.
 		try {
-			// The pane moves to the name the dataset now has before anything is re-read under it:
-			// a re-read under the old name is a 404 on a save that succeeded.
 			await onRenamed(submitted.path)
 			await onCasesChanged()
 		} catch (e) {
@@ -230,9 +229,9 @@
 				`Saved the dataset, but the view could not refresh: ${e}. Reload to see it.`,
 				true
 			)
-		} finally {
-			saving = false
 		}
+		drawer?.closeDrawer()
+		saving = false
 	}
 
 	/** Adding a case puts a row in the list the drawer is holding. It reaches the dataset when the

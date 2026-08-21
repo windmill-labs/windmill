@@ -199,8 +199,8 @@ CREATE TABLE eval_experiment_case (
 );
 
 -- One scorer's verdict on one run. Separate from the run because scoring is separate from running:
--- a run can be measured again by a scorer added later, from the answers it already stored, without
--- re-running the agent.
+-- a scorer's verdict is stored per run and scorer, independent of the agent execution that
+-- produced the answers.
 CREATE TABLE eval_score (
     experiment_id UUID NOT NULL,
     ordinal INT NOT NULL,

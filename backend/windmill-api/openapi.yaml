@@ -26759,7 +26759,7 @@ components:
           type: integer
         missing_in_baseline:
           type: integer
-          description: Cells the baseline has no score for, which is what scoring it would fill.
+          description: Cells the baseline has no score for, so a column the baseline never ran shows as unscored rather than as a spurious difference.
         definition_changed:
           type: boolean
 
