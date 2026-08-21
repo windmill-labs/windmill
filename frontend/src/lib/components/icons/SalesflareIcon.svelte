@@ -8,7 +8,7 @@
 </script>
 
 <!-- #0053FF per salesflare.com's own `--color--major-blue` design token. -->
-<svg {width} {height} viewBox="0.65 5 46.35 28" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-1.457 -6.282 50.564 50.564" xmlns="http://www.w3.org/2000/svg">
 	<path
 		fill-rule="evenodd"
 		clip-rule="evenodd"

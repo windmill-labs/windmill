@@ -8,7 +8,7 @@
 </script>
 
 <!-- #FBEC2A (face #292929) per kustomer.com/images/kustomer/Kusty.svg. -->
-<svg {width} {height} viewBox="0 0 103 99" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-4.682 -7.084 112.364 112.364" xmlns="http://www.w3.org/2000/svg">
 	<g clip-path="url(#kustomer-clip0_1_529)">
 		<mask
 			id="kustomer-mask0_1_529"

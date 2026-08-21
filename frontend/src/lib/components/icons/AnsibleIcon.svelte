@@ -13,7 +13,7 @@
 <svg
 	{height}
 	preserveAspectRatio="xMidYMid"
-	viewBox="0 0 256 256"
+	viewBox="-11.114 -11.614 278.727 278.727"
 	{width}
 	xmlns="http://www.w3.org/2000/svg"
 	class="dark:invert"

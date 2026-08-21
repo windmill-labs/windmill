@@ -8,7 +8,7 @@
 </script>
 
 <!-- #FFDD33 field with #1C1C1E mark, per the Miro logo on miro.com. -->
-<svg {width} {height} viewBox="3 2 395 395" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-14.955 -15.955 430.909 430.909" xmlns="http://www.w3.org/2000/svg">
 	<path
 		d="M3 100.754C3 46.2604 47.2435 2 101.754 2H299.246C353.756 2 398 46.2435 398 100.754V298.246C398 352.756 353.756 397 299.246 397H101.754C47.2435 397 3 352.756 3 298.246V100.754Z"
 		fill="#FFDD33"

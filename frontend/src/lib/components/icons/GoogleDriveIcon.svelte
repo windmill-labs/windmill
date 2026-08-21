@@ -9,7 +9,13 @@
 
 <!-- #3186FF / #0EBC5F / #FEC700 gradients per https://www.gstatic.com/images/branding/productlogos/drive_2026/v2/web/192px.svg (Drive 2026 mark, copied verbatim).
 	Google's Drive branding guide permits resizing only — no other change to the logo — so no per-theme recolour. -->
-<svg {width} {height} viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="5.182 4.244 181.636 181.636"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<mask
 		id="googledrive-mask"
 		width="168"

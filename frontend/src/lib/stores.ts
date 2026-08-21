@@ -80,8 +80,10 @@ export const whitelabelNameStore = derived([enterpriseLicense], ([enterpriseLice
 	return undefined
 })
 export const workerTags = writable<string[] | undefined>(undefined)
-export const usageStore = writable<number>(0)
-export const workspaceUsageStore = writable<number>(0)
+// `undefined` while unresolved. `0` is a real usage value, so a placeholder that
+// reads as one lets a failed or in-flight fetch render as "no executions used".
+export const usageStore = writable<number | undefined>(undefined)
+export const workspaceUsageStore = writable<number | undefined>(undefined)
 export const initialArgsStore = writable<any>(undefined)
 export const oauthStore = writable<TokenResponse | undefined>(undefined)
 export const userStore = writable<UserExt | undefined>(undefined)
@@ -90,7 +92,25 @@ export const workspaceStore = writable<string | undefined>(
 )
 export const defaultScripts = writable<WorkspaceDefaultScripts | undefined>(undefined)
 export const dbClockDrift = writable<number | undefined>(undefined)
-export const isPremiumStore = writable<boolean>(false)
+// `undefined` until the active workspace's tier is known — a tier belongs to a
+// workspace, so consumers rendering a number from it must not read the previous
+// one's value across a switch. `false` is a claim, not a safe default: it meters a
+// paid workspace against the free cap, so a failed fetch leaves this `undefined`.
+export const isPremiumStore = writable<boolean | undefined>(undefined)
+// Set when the tier fetch for the active workspace failed, which is indistinguishable
+// from "still pending" in `isPremiumStore` alone.
+export const premiumFetchFailed = writable<boolean>(false)
+// For affordances rather than numbers: gate on this so a paid→paid switch doesn't
+// retract a button for the length of the fetch, while a failed fetch still fails
+// closed instead of leaving it enabled for the session.
+export const maybePremium: Readable<boolean> = derived(
+	[isPremiumStore, premiumFetchFailed],
+	([premium, failed]) => premium !== false && !failed
+)
+// Bumped when the active workspace's membership is seen to have changed, so anything
+// deriving a number from the member count (paid seats) can re-resolve it without
+// polling or owning its own invalidation.
+export const workspaceMembershipVersion = writable<number>(0)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)

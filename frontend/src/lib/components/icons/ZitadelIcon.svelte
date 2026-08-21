@@ -12,7 +12,7 @@
 	class="text-[#232323] dark:text-[#FFFFFF]"
 	{width}
 	{height}
-	viewBox="0 0 467 467"
+	viewBox="-9.826 -10.282 487.564 487.564"
 	version="1.1"
 	xmlns="http://www.w3.org/2000/svg"
 	xmlns:xlink="http://www.w3.org/1999/xlink"

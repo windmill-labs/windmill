@@ -1703,6 +1703,11 @@ export function getResetCode(
 		| 'ci_test_python'
 		| undefined
 ) {
+	// Every *_INIT_CODE_CLEAR below is a `main` stub, which cannot run under the preprocessor
+	// entrypoint. Preprocessors must go through initialCode to keep theirs.
+	if (kind === 'preprocessor') {
+		return initialCode(language, kind, subkind)
+	}
 	if (language === 'deno') {
 		return DENO_INIT_CODE_CLEAR
 	} else if (language === 'python3') {

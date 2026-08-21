@@ -9,7 +9,13 @@
 
 <!-- #1CC29F on both themes per splitwise.com/press (sw.svg / sw-wide.svg / bg-primary.svg). Splitwise's
 	logos carry a single green and no reversed variant, so the same colour is used on light and dark. -->
-<svg class="text-[#1CC29F]" {width} {height} viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
+<svg
+	class="text-[#1CC29F]"
+	{width}
+	{height}
+	viewBox="3.239 3.239 41.523 41.523"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		fill="none"
 		stroke="currentColor"

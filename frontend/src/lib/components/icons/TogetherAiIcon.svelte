@@ -8,7 +8,7 @@
 </script>
 
 <!-- #EF2CC1 / #CAAEF5 / #FC4C02 per together.ai's brand page (https://www.together.ai/brand). -->
-<svg {width} {height} viewBox="0 0 484.98 452.5" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-22.045 -38.285 529.069 529.069" xmlns="http://www.w3.org/2000/svg">
 	<defs>
 		<style>
 			.together-ai-cls-1 {

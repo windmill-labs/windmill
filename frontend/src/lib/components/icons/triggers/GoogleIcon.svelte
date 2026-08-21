@@ -28,7 +28,7 @@
 	role="img"
 	{width}
 	{height}
-	viewBox="0 0 168 168"
+	viewBox="-1.596 -0.119 168.239 168.239"
 	fill={color ?? 'currentColor'}
 	xmlns="http://www.w3.org/2000/svg"
 	class={clazz}

@@ -1,5 +1,6 @@
 import { resourceTypesStore } from './components/resourceTypesStore'
 import { refreshSuperadmin } from './refreshUser'
+import { clearWorkspaceRoleCache } from './user'
 import {
 	workspaceStore,
 	userStore,
@@ -34,6 +35,7 @@ export function clearStores(): void {
 
 	resourceTypesStore.set(undefined)
 	resetProtectionRules()
+	clearWorkspaceRoleCache()
 	userStore.set(undefined)
 	workspaceStore.set(undefined)
 	usersWorkspaceStore.set(undefined)

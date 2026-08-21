@@ -8,7 +8,7 @@
 </script>
 
 <!-- #16B378 / #F9AE41 / #D2D2D2 on both themes per getgrist.com/trademark/assets/. "Keep it exactly as depicted — no recoloring, no cropping." -->
-<svg {width} {height} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-1.091 -1.091 26.182 26.182" xmlns="http://www.w3.org/2000/svg">
 	<path
 		fill="#16B378"
 		d="M24 0.928L20.292 0.928C18.581 0.928 17.192 2.317 17.192 4.028L17.192 7.117L20.929 7.117C22.624 7.117 24 5.741 24 4.047Z"

@@ -17,7 +17,7 @@ ratio and radius, keep the M/arrow/box relative sizes, and draw all three in one
 	class="text-[#000000] dark:text-[#FFFFFF]"
 	width={derivedWidth}
 	height={derivedHeight}
-	viewBox="0 0 24 24"
+	viewBox="-1.091 -1.091 26.182 26.182"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 >
