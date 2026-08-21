@@ -634,15 +634,14 @@ pub(crate) async fn tarball_workspace(
         skip_resources
     );
 
-    // The route is gated by workspaces:read, but exporting DECRYPTED secrets is a
-    // variable-read capability beyond workspace metadata. Require variables:read
-    // only on the plaintext-secret path: ordinary tarball pulls (structure and
-    // encrypted-only values) keep working with workspaces:read, and the workspace
-    // key itself stays admin-only (include_key). No-op for unscoped tokens.
-    if plain_secret.or(plain_secrets).unwrap_or(false)
-        && !skip_secrets.unwrap_or(false)
-        && !skip_variables.unwrap_or(false)
-    {
+    // The route is gated by workspaces:read, but the tarball also carries the item
+    // values that the per-item routes gate on their own domain (get_resource_value,
+    // get_variable). A whole-workspace export cannot be confined to a path, so it
+    // takes the unrestricted domain scope: a path-scoped token has to skip that kind.
+    if !skip_resources.unwrap_or(false) {
+        check_scopes(&authed, || "resources:read".to_string())?;
+    }
+    if !skip_variables.unwrap_or(false) {
         check_scopes(&authed, || "variables:read".to_string())?;
     }
 
