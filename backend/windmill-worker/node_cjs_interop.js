@@ -17,7 +17,8 @@ const WM_IDENT = "[A-Za-z_$][A-Za-z0-9_$]*";
 const WM_NS_CLAUSE = `\\*\\s*as\\s+${WM_IDENT}`;
 const WM_NAMED_CLAUSE = "\\{[^{}]*\\}";
 const WM_CLAUSE = `(?:${WM_NS_CLAUSE}|${WM_NAMED_CLAUSE}|${WM_IDENT}(?:\\s*,\\s*(?:${WM_NS_CLAUSE}|${WM_NAMED_CLAUSE}))?)`;
-const WM_IMPORT = `(^|[;}\\n])import\\s*(?:(${WM_CLAUSE})\\s*from\\s*)?(?:"([^"\\n]*)"|'([^'\\n]*)')`;
+const WM_ATTRS = "\\s*(?:with|assert)\\s*\\{[^{}]*\\}";
+const WM_IMPORT = `(^|[;}\\n])import\\s*(?:(${WM_CLAUSE})\\s*from\\s*)?(?:"([^"\\n]*)"|'([^'\\n]*)')(${WM_ATTRS})?`;
 
 function wmRewriteExternalImports(code, externals, jobDir) {
   if (!externals || externals.length === 0) {
@@ -37,7 +38,9 @@ function wmRewriteExternalImports(code, externals, jobDir) {
 
   // Import statements are found on a copy whose literals are blanked out, so
   // that generated code holding an import statement in a string is not touched.
-  // Blanking preserves offsets and can only hide matches, never invent one.
+  // Blanking preserves offsets, but mis-pairing a literal's boundaries can still
+  // expose a string's contents as code, so the parser cross-check below is what
+  // makes the rewrite safe — it is load-bearing, not a belt-and-braces extra.
   const masked = wmMaskLiterals(code);
   const anchored = new RegExp(WM_IMPORT);
   const found = [];
@@ -48,15 +51,22 @@ function wmRewriteExternalImports(code, externals, jobDir) {
     }
     const spec = m[3] !== undefined ? m[3] : m[4];
     if (needsInterop(spec)) {
-      found.push({ at: hit.index, len: hit[0].length, lead: m[1], clause: m[2], spec });
+      found.push({
+        at: hit.index,
+        len: hit[0].length,
+        lead: m[1],
+        clause: m[2],
+        spec,
+        attrs: m[5] ?? "",
+      });
     }
   }
   if (found.length === 0) {
     return code;
   }
 
-  // Backstop for a literal the masking missed: if the statements found are not
-  // the ones the parser sees, leave the bundle alone rather than corrupt it.
+  // If the statements found are not the ones the parser sees, the masking
+  // mis-paired a literal somewhere: leave the bundle alone rather than corrupt it.
   const counts = new Map();
   for (const f of found) {
     counts.set(f.spec, (counts.get(f.spec) ?? 0) + 1);
@@ -99,11 +109,13 @@ function wmRewriteExternalImports(code, externals, jobDir) {
       decls.push(`${parts.ns}=${nsHelper}(${ns})`);
     }
     for (const [imported, local] of parts.named) {
-      decls.push(`${local}=${getHelper}(${ns},${JSON.stringify(imported)})`);
+      decls.push(
+        `${local}=${getHelper}(${ns},${JSON.stringify(imported)},${JSON.stringify(f.spec)})`
+      );
     }
     out +=
       code.slice(cursor, f.at) +
-      `${f.lead}import*as ${ns} from${JSON.stringify(f.spec)};const ${decls.join(",")};`;
+      `${f.lead}import*as ${ns} from${JSON.stringify(f.spec)}${f.attrs};const ${decls.join(",")};`;
     cursor = f.at + f.len;
   }
   if (count === 0) {
@@ -111,7 +123,8 @@ function wmRewriteExternalImports(code, externals, jobDir) {
   }
 
   return (
-    `var ${getHelper}=(n,k)=>k in n?n[k]:n.default==null?undefined:n.default[k];` +
+    `var ${getHelper}=(n,k,s)=>{if(k in n)return n[k];let d=Object(n.default);if(k in d)return d[k];` +
+    "throw new SyntaxError(`The requested module '${s}' does not provide an export named '${k}'`)};" +
     `var ${nsHelper}=(n)=>{let d=n.default;return d!=null&&(typeof d==="object"||typeof d==="function")` +
     `?new Proxy(n,{get:(t,k,r)=>k in t?Reflect.get(t,k,r):d[k]}):n};` +
     out +
