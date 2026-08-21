@@ -1459,9 +1459,8 @@ describe('getHubIntegrationTool', () => {
 	const doc = {
 		app: 'confluence',
 		display_name: 'Confluence',
-		// Authored, but curated is opt-in per integration and unset for every
-		// hand-curated one the hub serves today.
-		curated: false,
+		// Authored knowledge, but nobody has asserted whether the script set was pruned.
+		curated: null,
 		metadata_source: 'curated',
 		meta: { gotchas: ['Auth is Basic with an API token, not the password'] },
 		derived: {
@@ -1492,8 +1491,6 @@ describe('getHubIntegrationTool', () => {
 		)
 
 		expect(parsed.verified_provider_notes).toEqual(doc.meta)
-		// Every hand-curated integration on the hub still reports curated=false, so an
-		// authored meta.json has to be enough on its own to suppress the note.
 		expect(parsed.scripts_note).toBeUndefined()
 		expect(parsed.observed_from_scripts).toEqual({
 			api_hosts: ['api.atlassian.com'],
@@ -1525,10 +1522,34 @@ describe('getHubIntegrationTool', () => {
 		)
 
 		expect(parsed.integration).toBe('stripe')
-		expect(parsed.scripts_note).toContain('generated one per API endpoint')
 		expect(parsed.observed_from_scripts).toBeUndefined()
 		expect(parsed.resource_types).toEqual([])
 		expect(parsed.example_scripts).toEqual([])
+	})
+
+	// `curated` has three states and only `true` is a licence to call the scripts good
+	// examples. `false` and the unassessed `null` must both stay silent, or the 212
+	// integrations nobody has looked at get characterised anyway.
+	it.each([
+		[true, true],
+		[false, false],
+		[null, false]
+	])('speaks about the script set only when curated is true (%s)', async (curated, expected) => {
+		const { IntegrationService } = await import('$lib/gen')
+		Object.assign(IntegrationService, {
+			getHubIntegrationMeta: vi.fn(async () => ({ ...doc, curated }))
+		})
+
+		const { getHubIntegrationTool } = await import('./shared')
+		const parsed = JSON.parse(
+			await getHubIntegrationTool.fn({
+				args: { integration: 'confluence' },
+				toolId: 't1',
+				toolCallbacks: { setToolStatus: vi.fn() }
+			} as any)
+		)
+
+		expect(!!parsed.scripts_note).toBe(expected)
 	})
 
 	// A hub with no such integration and one too old to serve the endpoint both 404;

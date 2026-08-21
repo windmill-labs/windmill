@@ -8387,9 +8387,11 @@ paths:
                     nullable: true
                   curated:
                     description: >-
-                      the script set was pruned to idiomatic actions rather than
-                      generated one per endpoint
+                      whether the script set was pruned to idiomatic actions rather
+                      than generated one per endpoint; null when nobody has assessed
+                      it, which is distinct from a stated false
                     type: boolean
+                    nullable: true
                   metadata_source:
                     description: >-
                       whether the provider knowledge was authored (curated) or
@@ -8503,7 +8505,6 @@ paths:
                 required:
                   - app
                   - display_name
-                  - curated
                   - metadata_source
                   - derived
                   - resource_types

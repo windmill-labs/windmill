@@ -1346,16 +1346,16 @@ export const getHubIntegrationTool = {
 						}
 					}
 				: {}),
-			// Said in the payload rather than the system prompt: it is only true of some
-			// integrations, and only matters once the model has asked about one. Authored
-			// knowledge counts as evidence of curation on its own, because `curated` is
-			// opt-in per integration and unset for every hand-curated one on the hub today.
-			...(doc.meta || doc.curated
-				? {}
-				: {
+			// `curated` is three-state: only an integration's own meta.json asserts it, and
+			// anything else means nobody has assessed the script set. Speak only for a
+			// positive assertion, so an unassessed integration is never characterised
+			// either way; `script_counts` below is the factual signal for the rest.
+			...(doc.curated === true
+				? {
 						scripts_note:
-							'These scripts were generated one per API endpoint from a spec: good for the endpoint shapes, weak as style examples.'
-					}),
+							'These scripts were pruned to idiomatic actions rather than generated one per API endpoint, so they are worth following as style examples.'
+					}
+				: {}),
 			resource_types: (doc.resource_types ?? []).map((rt) => ({
 				name: rt.name,
 				...(rt.description ? { description: rt.description } : {}),
