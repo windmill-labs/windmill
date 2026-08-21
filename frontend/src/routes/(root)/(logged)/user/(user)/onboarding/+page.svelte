@@ -2,6 +2,7 @@
 	import { ArrowLeft } from 'lucide-svelte'
 	import { UserService } from '$lib/gen/services.gen'
 	import { goto } from '$lib/navigation'
+	import { page } from '$app/state'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -16,7 +17,7 @@
 		Building2,
 		Twitter,
 		Youtube,
-		Bot, 
+		Bot,
 		MessageCircleCode
 	} from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -96,8 +97,19 @@
 			sendUserToast('Failed to save information: ' + (error?.body || error?.message || error), true)
 		} finally {
 			// do not block users from accessing windmill even if there is an error
-			goto('/user/workspaces')
+			goto(onboardingDestination())
 		}
+	}
+
+	/**
+	 * Where to go once onboarding is done. `/user/workspaces` unless the sign-in carried a
+	 * destination — a hub project import, say — in which case that is what the user came for.
+	 * Same-origin relative paths only, so a crafted `?rd=` cannot bounce them off-site.
+	 */
+	function onboardingDestination(): string {
+		const rd = page.url.searchParams.get('rd')
+		if (rd && rd.startsWith('/') && !rd.startsWith('//')) return rd
+		return '/user/workspaces'
 	}
 
 	async function skip() {
@@ -110,7 +122,7 @@
 			console.error('Error skipping onboarding:', error)
 		} finally {
 			// do not block users from accessing windmill even if there is an error
-			goto('/user/workspaces')
+			goto(onboardingDestination())
 		}
 	}
 </script>
