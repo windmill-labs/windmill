@@ -1,7 +1,10 @@
 import { z } from 'zod'
 import type { FlowModule, FlowValue } from '$lib/gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
-import { collectProviderlessAgentIds } from '$lib/components/flows/agentToolTree'
+import {
+	collectInvalidAgentToolNames,
+	collectProviderlessAgentIds
+} from '$lib/components/flows/agentToolTree'
 import { SPECIAL_MODULE_IDS } from '../shared'
 import { findUnresolvedInlineScriptRefs, type InlineScriptSession } from './inlineScriptsUtils'
 import {
@@ -265,6 +268,22 @@ export function validateFlowModules(
 				.join(
 					', '
 				)} need a provider input transform, or an "agent" path linking them to a saved agent`
+		)
+	}
+
+	// An agent tool's `summary` is the name the LLM sees; the worker rejects anything outside
+	// `^[a-zA-Z0-9_]+$`, so a flow written with a spaced name saves but fails on every run.
+	const invalidToolNames = collectInvalidAgentToolNames(parsedModules)
+	if (invalidToolNames.length > 0) {
+		throw new Error(
+			`Invalid AI agent tool name(s): ${invalidToolNames
+				.map(
+					(t) =>
+						`agent "${t.agentId}" tool "${t.toolId}" is named ${JSON.stringify(t.name)} - ${t.error}`
+				)
+				.join(
+					'; '
+				)}. The tool's "summary" is the name the agent calls it by: use underscores instead of spaces (e.g. "search_docs").`
 		)
 	}
 

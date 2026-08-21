@@ -16,7 +16,7 @@
 	xmlns:xlink="http://www.w3.org/1999/xlink"
 	x="0px"
 	y="0px"
-	viewBox="0 0 400 400"
+	viewBox="-13.92 -13.92 427.841 427.841"
 	enable-background="new 0 0 400 400"
 	xml:space="preserve"
 	{width}

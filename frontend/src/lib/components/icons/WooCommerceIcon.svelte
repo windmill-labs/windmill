@@ -13,7 +13,7 @@
 <svg
 	{width}
 	{height}
-	viewBox="0 0 183.6 47.5"
+	viewBox="-8.345 -76.395 200.291 200.291"
 	fill="currentColor"
 	xmlns="http://www.w3.org/2000/svg"
 	role="img"

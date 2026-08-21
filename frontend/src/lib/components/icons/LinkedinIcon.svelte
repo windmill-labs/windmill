@@ -9,7 +9,13 @@
 
 <!-- #0A66C2 per the official inbug SVGs embedded in brand.linkedin.com/in-logo.
 	 That page forbids recolouring: only the approved blue, black and white variants. -->
-<svg {width} {height} viewBox="0 0 512 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-23.273 -23.273 558.545 558.545"
+	fill="currentColor"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		d="M56.9 512h398.2c31.4 0 56.9-25.5 56.9-56.9V56.9C512 25.5 486.5 0 455.1 0H56.9C25.5 0 0 25.5 0 56.9v398.2C0 486.5 25.5 512 56.9 512"
 		style="fill-rule:evenodd;clip-rule:evenodd;fill:#0A66C2"

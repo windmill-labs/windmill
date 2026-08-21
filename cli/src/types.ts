@@ -35,6 +35,7 @@ import {
   buildFolderPath,
   isScriptModulePath,
 } from "./utils/resource_folders.ts";
+import { isSharedLockPath } from "./utils/script_common.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -366,6 +367,7 @@ export function getTypeStrFromPath(
   | "group"
   | "settings"
   | "encryption_key"
+  | "shared_lock"
   | "workspace_dependencies" {
   if (isDatatableMigrationPath(p)) {
     return "datatable_migration";
@@ -381,6 +383,10 @@ export function getTypeStrFromPath(
   }
   if (isRawAppPath(p)) {
     return "raw_app";
+  }
+  // A repo-side artifact of `dedupeLockfiles`: it has no object on the server.
+  if (isSharedLockPath(p)) {
+    return "shared_lock";
   }
   if (p.startsWith("dependencies" + SEP)) {
     return "workspace_dependencies";

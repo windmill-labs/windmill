@@ -16,6 +16,7 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
+	import SidebarUsage from '$lib/components/sidebar/SidebarUsage.svelte'
 	import SidebarScrollArea from '$lib/components/sidebar/SidebarScrollArea.svelte'
 	import { SIDEBAR_BG, SIDEBAR_BG_DARK } from '$lib/components/sidebar/sidebarChrome'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
@@ -23,10 +24,7 @@
 	import UpdateDevWorkspaceModal from '$lib/components/UpdateDevWorkspaceModal.svelte'
 	import {
 		enterpriseLicense,
-		isPremiumStore,
 		superadmin,
-		usageStore,
-		workspaceUsageStore,
 		userStore,
 		workspaceStore,
 		userWorkspaces,
@@ -73,6 +71,7 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
+	import { createUsageResources, registerUsageResources } from '$lib/usage.svelte'
 	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
@@ -109,6 +108,15 @@
 
 	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
+	// Owned here because the logged-in layout is the app's lifetime: it outlives every
+	// in-app navigation, so the counters and tier resolve once per workspace rather than
+	// per mounting component, and no detached `$effect.root` is needed to hold them.
+	registerUsageResources(
+		createUsageResources({
+			workspace: () => $workspaceStore,
+			user: () => $userStore
+		})
+	)
 	let menuOpen = $state(false)
 	// Set by the workspace⇄session switch before it navigates, so the mobile menu
 	// drawer stays open across a mode toggle (unlike a normal link navigation,
@@ -331,16 +339,6 @@
 			} catch (e) {
 				console.error('Could not persist username to local storage', e)
 			}
-			// Populate for all members (not just admins) so non-admin developers also get premium-gated
-			// affordances like the fork entry points on cloud. The `is_premium` endpoint is a boolean
-			// and no longer admin-gated. Best-effort: a failure here must not block user-store init.
-			if (isCloudHosted()) {
-				try {
-					isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
-				} catch (e) {
-					console.error('Could not fetch premium status', e)
-				}
-			}
 		} else {
 			userStore.set(undefined)
 		}
@@ -464,21 +462,11 @@
 
 	function onLoad() {
 		loadFavorites()
-		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
 		loadWsBaseUrl()
 		loadDisableHub()
 		loadUsedTriggerKinds()
-	}
-
-	async function loadUsage() {
-		if (isCloudHosted() && $workspaceStore) {
-			$usageStore = await UserService.getUsage()
-			$workspaceUsageStore = await WorkspaceService.getWorkspaceUsage({
-				workspace: $workspaceStore!
-			})
-		}
 	}
 
 	async function loadHubBaseUrl() {
@@ -1094,6 +1082,10 @@
 										</SidebarScrollArea>
 									{/if}
 
+									<div class="w-52">
+										<SidebarUsage isCollapsed={false} />
+									</div>
+
 									<div class="px-4 pt-3 pb-3.5 w-52">
 										{@render brandMark(false)}
 									</div>
@@ -1227,6 +1219,10 @@
 									</div>
 								</SidebarScrollArea>
 							{/if}
+
+							<div class="flex-shrink-0">
+								<SidebarUsage {isCollapsed} />
+							</div>
 
 							<div
 								class="flex-shrink-0 flex pt-3 pb-3.5 {isCollapsed

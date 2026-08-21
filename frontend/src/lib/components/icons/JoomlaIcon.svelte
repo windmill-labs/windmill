@@ -8,7 +8,7 @@
 </script>
 
 <!-- #7AC143 / #F9A541 / #F44321 / #5091CD per the official logo at cdn.joomla.org/images/joomla-colours-logo.svg. Joomla's trademark policy forbids recolouring the mark, so there is no per-theme variant. -->
-<svg {width} {height} viewBox="10 10 79.2 79.2" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="6.569 6.569 86.063 86.063" xmlns="http://www.w3.org/2000/svg">
 	<path
 		fill="#7AC143"
 		d="M24.37,49.97l-1.52-1.51c-4.7-4.7-6.16-11.43-4.38-17.38c-4.7-1.06-8.21-5.27-8.21-10.29c0-5.83,4.72-10.55,10.55-10.55c5.25,0,9.59,3.83,10.41,8.84c5.69-1.33,11.92,0.22,16.36,4.66l0.61,0.61l-7.79,7.78l-0.6-0.61c-2.53-2.52-6.62-2.52-9.15,0c-2.54,2.54-2.53,6.64-0.01,9.16l1.52,1.52l7.79,7.78l8.24,8.23l-7.78,7.78l-8.24-8.23L24.37,49.97L24.37,49.97z"

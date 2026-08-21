@@ -12,7 +12,7 @@
 	class="text-[#000000] dark:text-[#FFFFFF]"
 	{width}
 	{height}
-	viewBox="0 0 1024 1024"
+	viewBox="-47.545 -46.545 1117.091 1117.091"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<path

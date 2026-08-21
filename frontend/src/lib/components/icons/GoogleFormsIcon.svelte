@@ -18,7 +18,7 @@
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 192 192"
+	viewBox="12.955 12.955 166.091 166.091"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 >

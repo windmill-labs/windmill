@@ -25,7 +25,7 @@
 	{width}
 	{height}
 	class={twMerge(clazz)}
-	viewBox="-3.67 -3.67 519.34 519.34"
+	viewBox="0.727 0.727 510.545 510.545"
 	fill="currentColor"
 	xmlns="http://www.w3.org/2000/svg"
 >

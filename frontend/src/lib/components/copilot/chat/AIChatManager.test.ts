@@ -73,8 +73,20 @@ vi.mock('$lib/stores', () => {
 				return () => undefined
 			}
 		},
-		userStore: readable({ username: 'admin', email: 'admin@test', is_admin: true }),
-		// Read eagerly at module load by the open_page tool's allowedOpenPages /
+		// `workspace_id` tracks the mocked active workspace: allowedOpenPages compares the
+		// two, and on a mismatch fetches `whoami` for the workspace it gates.
+		userStore: {
+			subscribe: (run: (value: unknown) => void) => {
+				run({
+					username: 'admin',
+					email: 'admin@test',
+					is_admin: true,
+					workspace_id: mocks.workspace
+				})
+				return () => undefined
+			}
+		},
+		// Read eagerly at module load by the open_page tool's restrictedOpenPages /
 		// allowedTriggerKinds / allowsAllWorkspacesRuns (global/core.ts) as the manager's
 		// tools are built.
 		superadmin: readable(false),

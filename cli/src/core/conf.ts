@@ -109,6 +109,7 @@ export interface SyncOptions {
   promotion?: string;
   lint?: boolean;
   locksRequired?: boolean;
+  dedupeLockfiles?: boolean;
   syncBehavior?: string;
 }
 

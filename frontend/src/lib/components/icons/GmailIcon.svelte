@@ -8,7 +8,13 @@
 </script>
 
 <!-- #EA4335 per gstatic.com/images/branding/product/2x/gmail_2020q4_48dp.png. Google's brand guidelines forbid recolouring the mark. -->
-<svg {width} {height} viewBox="0 0 512 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-23.273 -23.273 558.545 558.545"
+	fill="currentColor"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path d="M34.9 448h81.5V250.2L0 163v250.2C0 432.5 15.7 448 34.9 448" style="fill:#4285f4" /><path
 		d="M395.6 448h81.5c19.3 0 34.9-15.7 34.9-34.9V163l-116.4 87.3"
 		style="fill:#34a853"

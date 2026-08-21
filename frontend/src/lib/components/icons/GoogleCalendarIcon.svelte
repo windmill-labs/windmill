@@ -9,7 +9,13 @@
 
 <!-- #3C90FF per the Google Calendar 2026 product icon, taken verbatim from
 	https://www.gstatic.com/images/branding/productlogos/calendar_2026/v2/web/192px.svg. Google's trademark guidelines forbid distorting or altering a brand feature, so no per-theme recolour. -->
-<svg {width} {height} viewBox="0 0 192 192" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="6.409 0.409 179.182 179.182"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		fill="#bbe2ff"
 		d="M32 36.8C32 20.894 44.894 8 60.8 8h70.4C147.106 8 160 20.894 160 36.8v30.4c0 15.906-12.894 28.8-28.8 28.8H60.8C44.894 96 32 83.106 32 67.2z"

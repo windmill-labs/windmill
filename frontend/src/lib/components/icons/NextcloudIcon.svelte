@@ -24,7 +24,7 @@
 <!-- #0082C9 / #FFFFFF per nextcloud.com. -->
 <svg
 	role="img"
-	viewBox="-1.333 -1.383 26.667 26.667"
+	viewBox="-1.091 -1.091 26.182 26.182"
 	{width}
 	{height}
 	xmlns="http://www.w3.org/2000/svg"

@@ -13,7 +13,7 @@
 	role="img"
 	{width}
 	{height}
-	viewBox="0 0 24 24"
+	viewBox="-1.091 -1.091 26.182 26.182"
 	style="fill:#FF3621;"
 >
 	<path

@@ -8,7 +8,7 @@
 </script>
 
 <!-- #09C269 per mailerlite.com/brand-assets. Their IP guidelines forbid altering or recolouring the mark. -->
-<svg {width} {height} viewBox="0 0 520.000000 520.000000" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="1.939 -0.092 514.091 514.091" xmlns="http://www.w3.org/2000/svg">
 	<metadata> Created by potrace 1.11, written by Peter Selinger 2001-2013 </metadata>
 	<g
 		transform="translate(0.000000,520.000000) scale(0.100000,-0.100000)"

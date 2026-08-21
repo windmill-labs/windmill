@@ -3,7 +3,7 @@
 	id="Layer_1"
 	data-name="Layer 1"
 	xmlns="http://www.w3.org/2000/svg"
-	viewBox="0 0 1000 1000"
+	viewBox="-45.455 -45.455 1090.909 1090.909"
 	width="24"
 	height="24"
 	fill="currentColor"

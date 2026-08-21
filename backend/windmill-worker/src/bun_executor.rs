@@ -35,6 +35,7 @@ use windmill_common::{
     cache,
     client::AuthedClient,
     jobs::JobKind,
+    min_version::MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptHash, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
@@ -377,6 +378,44 @@ pub(crate) fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool)
     }
 }
 
+/// An empty `lockfileVersion: 1` lockfile, planted before `bun install` so bun writes v1.
+///
+/// bun keeps whichever version the lockfile it found already had, and only raises it when the
+/// dependencies genuinely need newer syntax. Seeding therefore gets a real v1 lockfile — written
+/// by bun, not rewritten by us — whenever v1 can express the resolution, and lets bun escalate
+/// when it cannot. [`bun_lockfile_version`] catches the escalation afterwards.
+const EMPTY_V1_BUN_LOCK: &str = r#"{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {},
+  },
+  "packages": {}
+}"#;
+
+async fn seed_v1_bun_lockfile(job_dir: &str) -> Result<()> {
+    let path = format!("{job_dir}/bun.lock");
+    if tokio::fs::metadata(&path).await.is_ok() {
+        return Ok(());
+    }
+    write_file(job_dir, "bun.lock", EMPTY_V1_BUN_LOCK)?;
+    Ok(())
+}
+
+/// The `lockfileVersion` a bun text lockfile declares, if it declares one.
+fn bun_lockfile_version(lockfile: &str) -> Option<u32> {
+    let i = lockfile.find("\"lockfileVersion\"")?;
+    let rest = &lockfile[i + "\"lockfileVersion\"".len()..];
+    let digits = rest
+        .trim_start()
+        .strip_prefix(':')?
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    digits.parse().ok()
+}
+
 pub async fn gen_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -496,6 +535,9 @@ pub async fn gen_bun_lockfile(
     }
 
     if !empty_deps {
+        if !npm_mode && !MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.met_conservatively() {
+            seed_v1_bun_lockfile(job_dir).await?;
+        }
         install_bun_lockfile(
             mem_peak,
             canceled_by,
@@ -539,6 +581,30 @@ pub async fn gen_bun_lockfile(
                     let mut file = File::open(&file).await?;
                     let mut buf = String::default();
                     file.read_to_string(&mut buf).await?;
+                    if !MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.met_conservatively() {
+                        // Seeding asked bun for v1; a higher version back means these
+                        // dependencies cannot be expressed in one. Storing it anyway would not
+                        // fail on an older worker — it would install from package.json alone and
+                        // silently resolve different versions.
+                        match bun_lockfile_version(&buf) {
+                            Some(1) => {}
+                            Some(v) => {
+                                return Err(error::Error::ExecutionErr(format!(
+                                    "bun produced a v{v} lockfile, which workers older than {} \
+                                     cannot read. Finish upgrading every worker before deploying \
+                                     dependencies that need it (overrides, catalogs).",
+                                    MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.version()
+                                )));
+                            }
+                            // The guard cannot classify this one, so it must not pass silently:
+                            // a bun that stops writing the header would reopen the drift hole
+                            // with nothing in the logs.
+                            None => tracing::warn!(
+                                "bun wrote a lockfile with no readable lockfileVersion; storing \
+                                 it unchecked for job {job_id}"
+                            ),
+                        }
+                    }
                     content.push_str(&buf);
                 } else {
                     content.push_str(&EMPTY_FILE);
@@ -4124,6 +4190,22 @@ pub async fn start_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_bun_lockfile_version() {
+        assert_eq!(bun_lockfile_version(EMPTY_V1_BUN_LOCK), Some(1));
+        assert_eq!(
+            bun_lockfile_version("{\n  \"lockfileVersion\": 2,\n  \"packages\": {}\n}"),
+            Some(2)
+        );
+        // bun raises the version on its own for overrides/catalogs, so any version has to parse
+        assert_eq!(bun_lockfile_version("{\"lockfileVersion\":3}"), Some(3));
+        assert_eq!(
+            bun_lockfile_version("{ \"lockfileVersion\" : 42 }"),
+            Some(42)
+        );
+        assert_eq!(bun_lockfile_version("{\"packages\":{}}"), None);
+    }
 
     #[test]
     fn test_split_lockfile_text_unix() {

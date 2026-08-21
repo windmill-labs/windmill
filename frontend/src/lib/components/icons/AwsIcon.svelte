@@ -18,7 +18,7 @@
 	class={twMerge('text-[#252F3E] dark:text-white', clazz)}
 	width={width ?? size}
 	height={height ?? size}
-	viewBox="0.02 102.6 511.9 306.4"
+	viewBox="-23.248 -23.418 558.436 558.436"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<path

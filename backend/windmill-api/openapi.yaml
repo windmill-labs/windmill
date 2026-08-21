@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.792.2
+  version: 1.793.0
   title: Windmill API
 
   contact:
@@ -2743,6 +2743,34 @@ paths:
                     type: string
                 required:
                   - token
+
+  /w/{workspace}/github_app/repo_archive/{path}:
+    get:
+      summary: download a gzipped tarball of a GitHub App repository
+      operationId: getGithubAppRepoArchive
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: ref
+          description: branch, tag or commit sha; defaults to the resource's branch
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: gzipped tarball of the repository at the resolved commit
+          headers:
+            x-commit-sha:
+              description: the commit the archive was taken at
+              schema:
+                type: string
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
 
   /w/{workspace}/github_app/install_from_workspace:
     post:
