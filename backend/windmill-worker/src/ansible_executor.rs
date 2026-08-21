@@ -2486,10 +2486,12 @@ mod tests {
         std::fs::create_dir(&target).unwrap();
 
         unpack_repo_archive(&path, &target, &no_abort()).unwrap();
-        assert_eq!(
-            std::fs::read_to_string(target.join("docs/link")).unwrap(),
-            "hi\n"
-        );
+        let link = target.join("docs").join("link");
+        assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+        // Windows stores a symlink's target verbatim and its object manager
+        // rejects the `/` in a POSIX one, so only here does the link resolve.
+        #[cfg(unix)]
+        assert_eq!(std::fs::read_to_string(&link).unwrap(), "hi\n");
     }
 
     #[test]

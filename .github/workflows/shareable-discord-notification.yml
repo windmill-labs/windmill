@@ -150,13 +150,21 @@ jobs:
           COMMENT_URL: ${{ inputs.COMMENT_URL }}
           COMMENT_IS_EDIT: ${{ inputs.COMMENT_IS_EDIT }}
         run: |
-          # 1) Find the thread by PR number
+          # 1) Find the thread by PR number. A rate-limited or unauthorized
+          # response carries no thread list at all, which under `bash -e` aborts
+          # the step (jq cannot iterate null, nor parse an HTML error page)
+          # rather than reaching the skip below. It is also not the same thing as
+          # this PR having no thread, so it is reported rather than swallowed.
           threads=$(curl -s -H "Authorization: Bot $BOT_TOKEN" \
             "https://discord.com/api/v10/guilds/${GUILD_ID}/threads/active")
+          if ! echo "$threads" | jq -e 'has("threads")' >/dev/null 2>&1; then
+            echo "::warning::Discord returned no thread list; the comment on PR #${PR_NUMBER} was not relayed: ${threads:0:200}"
+            exit 0
+          fi
           thread_id=$(echo "$threads" | jq -r \
             --arg cid "$CHANNEL_ID" \
             --arg pref "#${PR_NUMBER}:" \
-            '.threads[] | select(.parent_id == $cid and (.name | startswith($pref))) | .id')
+            '(.threads // [])[] | select(.parent_id == $cid and (.name | startswith($pref))) | .id')
 
           if [ -z "$thread_id" ]; then
             echo "Thread not found for PR #${PR_NUMBER}, skipping"
