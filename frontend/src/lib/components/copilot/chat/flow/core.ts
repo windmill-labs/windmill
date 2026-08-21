@@ -52,6 +52,8 @@ import {
 	type FlowValueSettings
 } from './editableFlowJson'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
+import { getAiAgentProviderCatalogFor } from './aiAgentProviderCatalog'
+import { formatAiAgentProviderWarnings } from './aiAgentProviders'
 
 type FlowJsonUpdate = {
 	modules?: FlowModule[]
@@ -533,7 +535,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		streamArguments: true,
 		showDetails: true,
 		showFade: true,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+		fn: async ({ args, helpers, toolId, toolCallbacks, workspace }) => {
 			const parsedArgs = patchFlowJsonSchema.parse(args)
 			const { old_string: oldString, new_string: newString, replace_all: replaceAll } = parsedArgs
 			const { flow, selectedId } = helpers.getFlowAndSelectedId()
@@ -554,13 +556,24 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				'current flow JSON'
 			)
 
-			let parsedFlow: EditableFlowJson
+			let patchedValue: unknown
 			try {
-				parsedFlow = validateEditableFlowJson(JSON.parse(updatedFlowJson))
+				patchedValue = JSON.parse(updatedFlowJson)
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error)
 				throw new Error(`Invalid JSON after replacement: ${message}`)
 			}
+			const aiProviders = await getAiAgentProviderCatalogFor(
+				workspace,
+				(patchedValue as { modules?: unknown } | null)?.modules
+			)
+			const aiProviderWarnings: string[] = []
+			// Validation errors carry their own diagnosis (a bad module, a provider the workspace
+			// does not have); only a parse failure is about the replacement's JSON.
+			const parsedFlow: EditableFlowJson = validateEditableFlowJson(patchedValue, {
+				aiProviders,
+				aiProviderWarnings
+			})
 
 			for (const [moduleId, content] of Object.entries(inlineScriptSession.getAll())) {
 				helpers.inlineScriptSession.set(moduleId, content)
@@ -591,7 +604,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				result: 'Success'
 			})
 
-			return `Flow JSON updated.${warning}`
+			return `Flow JSON updated.${warning}${formatAiAgentProviderWarnings(aiProviderWarnings)}`
 		}
 	},
 	{
@@ -675,7 +688,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		streamArguments: true,
 		showDetails: true,
 		showFade: true,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+		fn: async ({ args, helpers, toolId, toolCallbacks, workspace }) => {
 			const { modules, schema, preprocessor_module, failure_module, groups, notes } = args
 
 			let parsedModules: FlowModule[] | null | undefined
@@ -708,8 +721,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				parsedSchema = undefined
 			}
 
+			const aiProviderWarnings: string[] = []
 			if (parsedModules !== undefined) {
-				parsedModules = validateFlowModules(parsedModules)
+				const aiProviders = await getAiAgentProviderCatalogFor(workspace, parsedModules)
+				parsedModules = validateFlowModules(parsedModules, { aiProviders, aiProviderWarnings })
 				const reservedIds = collectAllFlowModuleIdsFromModules(parsedModules).filter(
 					(id) => id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE
 				)
@@ -794,7 +809,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				content: `Flow updated`,
 				result: 'Success'
 			})
-			return `Flow updated.${warning}`
+			return `Flow updated.${warning}${formatAiAgentProviderWarnings(aiProviderWarnings)}`
 		}
 	},
 	{

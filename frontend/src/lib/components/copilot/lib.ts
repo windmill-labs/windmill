@@ -156,11 +156,23 @@ export interface ModelResponse {
 	}
 }
 
+/** `boundedJson` is imported only when a caller asks for a cap: this module is already slow to
+ * load, and a static edge is paid by every importer. */
+async function readListing(response: Response, maxBytes: number | undefined): Promise<unknown> {
+	if (maxBytes === undefined) {
+		return response.json()
+	}
+	const { readJsonWithLimit } = await import('./boundedJson')
+	return readJsonWithLimit(response, maxBytes)
+}
+
 export async function fetchAvailableModels(
 	resourcePath: string,
 	workspace: string,
 	provider: AIProvider,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	/** Cap on the listing response, for callers that fetch without a user asking. */
+	maxBytes?: number
 ): Promise<string[]> {
 	// Handle AWS Bedrock separately (needs both foundation-models and inference-profiles)
 	if (provider === 'aws_bedrock') {
@@ -186,7 +198,7 @@ export async function fetchAvailableModels(
 			throw new Error('Failed to fetch foundation models for AWS Bedrock')
 		}
 
-		const foundationModelsData = (await foundationModelsResp.json()) as {
+		const foundationModelsData = (await readListing(foundationModelsResp, maxBytes)) as {
 			modelSummaries: Array<{
 				modelId: string
 				modelArn: string
@@ -203,7 +215,7 @@ export async function fetchAvailableModels(
 		}> = []
 
 		if (inferenceProfilesResp.ok) {
-			const inferenceProfilesData = (await inferenceProfilesResp.json()) as {
+			const inferenceProfilesData = (await readListing(inferenceProfilesResp, maxBytes)) as {
 				inferenceProfileSummaries: Array<{
 					inferenceProfileId: string
 					models: Array<{ modelArn: string }>
@@ -258,7 +270,7 @@ export async function fetchAvailableModels(
 		throw new Error(`Failed to fetch models for provider ${provider}`)
 	}
 
-	const data = (await models.json()) as { data: ModelResponse[] }
+	const data = (await readListing(models, maxBytes)) as { data: ModelResponse[] }
 	if (data.data.length > 0) {
 		const sortFunc = (provider: AIProvider) => (a: string, b: string) => {
 			// First prioritize models in defaultModels array

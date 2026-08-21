@@ -5,6 +5,7 @@ import {
 	type AgentTool,
 	type FlowModuleTool
 } from './agentToolUtils'
+import { forEachAiAgentModule } from './aiAgentModules'
 
 type FlowNodeLike = Pick<FlowModule, 'id' | 'value'>
 
@@ -168,38 +169,11 @@ function collectFlowNodeIdsFromNode(node: FlowNodeLike): string[] {
 	return ids
 }
 
-/** Walks every AI agent module of a flow, including agents nested in loops, branches and in another
- * agent's tools. */
-function visitAgentModules(
-	modules: unknown,
-	cb: (mod: FlowModule, value: Record<string, any>) => void
-) {
-	const visit = (mods: unknown) => {
-		if (!Array.isArray(mods)) return
-		for (const mod of mods) {
-			const v = (mod as FlowModule | undefined)?.value as Record<string, any> | undefined
-			if (!v) continue
-			if (v.type === 'aiagent') {
-				cb(mod as FlowModule, v)
-				visit(v.tools)
-			} else if (v.type === 'forloopflow' || v.type === 'whileloopflow') {
-				visit(v.modules)
-			} else if (v.type === 'branchone') {
-				visit(v.default)
-				for (const b of v.branches ?? []) visit(b.modules)
-			} else if (v.type === 'branchall') {
-				for (const b of v.branches ?? []) visit(b.modules)
-			}
-		}
-	}
-	visit(modules)
-}
-
 /** Ids of AI agent modules that neither link to a saved agent nor set a provider — they pass schema
  * validation (a linked step legitimately has no provider of its own) but fail on every run. */
 export function collectProviderlessAgentIds(modules: unknown): string[] {
 	const ids: string[] = []
-	visitAgentModules(modules, (mod, v) => {
+	forEachAiAgentModule(modules, (mod, v) => {
 		if (!v.agent && !v.input_transforms?.provider) {
 			ids.push(mod.id)
 		}
@@ -218,7 +192,7 @@ export type InvalidAgentToolName = {
  * of the agent step fails, so writers must catch this before the flow is stored. */
 export function collectInvalidAgentToolNames(modules: unknown): InvalidAgentToolName[] {
 	const invalid: InvalidAgentToolName[] = []
-	visitAgentModules(modules, (mod, v) => {
+	forEachAiAgentModule(modules, (mod, v) => {
 		const tools: AgentTool[] = Array.isArray(v.tools) ? v.tools : []
 		// Only a flowmodule tool's summary is a callable name: the worker never reads an mcp or
 		// websearch summary, so a blank one there must stay writable (both default to '').
