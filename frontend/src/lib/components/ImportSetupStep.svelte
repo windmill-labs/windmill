@@ -273,6 +273,33 @@
 	}
 
 	/**
+	 * Leaving a credential unfilled costs the project the parts that read it. Leaving a
+	 * data table unconfigured costs it everything: the apps query tables that do not
+	 * exist, so they fail on open rather than degrading. Only the second is worth
+	 * stopping for, and the wizard is the only place that can still run the migration —
+	 * nothing in the workspace knows the project shipped one.
+	 */
+	async function skip(): Promise<void> {
+		if (pendingTables.length > 0) {
+			const names = pendingTables.map((r) => r.name).join(', ')
+			const one = pendingTables.length === 1
+			const confirmed = await confirmationModal.ask({
+				title: 'The project will not run',
+				confirmationText: 'Skip anyway',
+				type: 'danger',
+				children:
+					`${one ? 'The data table' : 'The data tables'} <b>${names}</b> ` +
+					`${one ? 'is' : 'are'} not set up, so the tables this project's apps and flows read ` +
+					`do not exist. Every one of them will fail as soon as it opens.<br /><br />` +
+					`Setting ${one ? 'it' : 'them'} up later from workspace settings creates the ` +
+					`connection but not the tables — only this step runs the project's migration.`
+			})
+			if (!confirmed) return
+		}
+		onSkip()
+	}
+
+	/**
 	 * After the wizard closes. The migrations already ran inside its checklist, via
 	 * `onFinishAlso`, so this only re-reads what exists now — including the case where
 	 * the wizard was cancelled, or made a table under a different name than the row
@@ -433,19 +460,28 @@
 			</div>
 		{/if}
 
-		<!-- The same slot says two different things. While work is outstanding: info, not
-		     warning — skipping is a supported choice with a consequence, not a problem the
-		     user caused, and the rows above already carry the urgency. Once nothing is
-		     outstanding it has no caveat left to give, so it confirms instead. -->
+		<!-- Three different things to say, and which one depends on what is left. A missing
+		     credential degrades the project; a missing data table ends it, because every app
+		     queries tables that do not exist. Only the credential case is offered as
+		     skippable — saying "you can skip this" above a missing data table would be
+		     telling the user something that is not true. -->
 		{#if outstanding === 0}
 			<Alert type="success" title="You're all set" size="xs">
 				Everything this project needs is configured. Finish, and it is ready to run.
 			</Alert>
+		{:else if pendingTables.length > 0}
+			<Alert type="warning" title="The project will not run without this" size="xs">
+				{pendingTables.length === 1 ? 'This data table does not' : 'These data tables do not'} exist
+				yet, and the project's apps and flows query
+				{pendingTables.length === 1 ? 'tables inside it' : 'tables inside them'}. Until
+				{pendingTables.length === 1 ? 'it is' : 'they are'} set up, every one of them fails as soon as
+				it opens.
+			</Alert>
 		{:else}
 			<Alert type="info" title="You can skip this" size="xs" collapsible>
-				The project's apps and flows will fail wherever they read something that is still
-				unconfigured. Everything else it imported works either way, and you can come back to this
-				from the workspace at any time.
+				The project's apps and flows will fail wherever they read a credential that is still
+				missing. Everything else it imported works either way, and you can fill these in from the
+				workspace at any time.
 			</Alert>
 		{/if}
 	{/if}
@@ -471,7 +507,7 @@
 			     is the subtle escape beside it. A load that failed cannot tell what is
 			     outstanding, so it offers Finish rather than blocking on an unknown. -->
 			{#if outstanding > 0 && !loading && !loadError}
-				<Button variant="subtle" unifiedSize="sm" disabled={working} onClick={onSkip}>
+				<Button variant="subtle" unifiedSize="sm" disabled={working} onClick={skip}>
 					Skip for now
 				</Button>
 			{/if}
