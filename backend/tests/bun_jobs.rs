@@ -1279,15 +1279,10 @@ fn test_generate_bun_bundle_propagates_exit_status() {
     );
 }
 
-/// `//nodejs` bundles keep the packages installed under `node_modules` external,
-/// so node — not bun — resolves them at runtime. Node's cjs-module-lexer cannot
-/// see the named exports of a CommonJS package that builds `module.exports`
-/// dynamically (lodash & co.), so a named import fails to instantiate and a
-/// namespace import yields nothing but `default`. The bundle must import such a
-/// package as a namespace and read the names off `default` instead, while
-/// leaving alone anything node loads as ESM — including a package whose
-/// conditional exports hand bun a different file than they hand node — so its
-/// named imports stay the live bindings node gives them.
+/// Pins the two halves of the `//nodejs` CommonJS interop: a package whose
+/// exports only exist once it has run must resolve through `default`, and one
+/// node loads as ESM — including through conditional exports that hand bun a
+/// different file — must keep its named imports as live bindings.
 #[test]
 fn test_node_loader_cjs_named_export_interop() {
     use std::process::Command;

@@ -129,7 +129,8 @@ function wmRewriteExternalImports(code, externals, jobDir, nodePath) {
     "throw new SyntaxError(`The requested module '${s}' does not provide an export named '${k}'`)};" +
     `var ${nsHelper}=(n)=>{let d=n.default;if(d==null||typeof d!=="object"&&typeof d!=="function")return n;` +
     `let t={},a=(o,k)=>Object.defineProperty(t,k,{get:()=>o[k],enumerable:!0,configurable:!0});` +
-    `for(let k of Object.keys(d))a(d,k);for(let k of Object.keys(n))a(n,k);return t};` +
+    `for(let k of Object.keys(d))a(d,k);for(let k of Object.keys(n))a(n,k);` +
+    `return new Proxy(t,{get:(x,k,r)=>k in x?Reflect.get(x,k,r):d[k],has:(x,k)=>k in x||k in d})};` +
     out +
     code.slice(cursor)
   );
@@ -142,7 +143,7 @@ function wmCommonJsSpecs(specs, jobDir, nodePath) {
   const commonjs = new Set();
   let resolved = null;
   const probe =
-    "const out={};" +
+    "if(typeof import.meta.resolve!=='function')process.exit(3);const out={};" +
     "for(const s of JSON.parse(process.argv[1])){try{out[s]=import.meta.resolve(s)}catch(e){out[s]=null}}" +
     "console.log(JSON.stringify(out))";
   try {
