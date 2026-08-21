@@ -138,8 +138,14 @@
 		settingsDrawer?.openDrawer()
 	}
 
+	// A pass threshold is a score, so it lives in 0..=1 — the same bound the server enforces on
+	// save. Caught here so an out-of-range value blocks the field rather than surfacing as a
+	// failed save.
 	let thresholdError = $derived(
-		settingsThreshold.trim() !== '' && Number.isNaN(Number(settingsThreshold))
+		settingsThreshold.trim() !== '' &&
+			(Number.isNaN(Number(settingsThreshold)) ||
+				Number(settingsThreshold) < 0 ||
+				Number(settingsThreshold) > 1)
 	)
 
 	/** Where the pass line sits is an interpretation of the scores rather than part of producing

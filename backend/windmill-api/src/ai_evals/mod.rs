@@ -77,10 +77,9 @@ pub fn workspaced_service() -> Router {
         .route("/experiments/results/{*path}", get(experiment_results))
 }
 
-/// What `eval_dataset.path` and `.summary` hold. Checked here rather than left to the columns: a
-/// value the column refuses comes back as an internal database error, which tells the caller
-/// nothing about which field was too long.
-const MAX_DATASET_PATH_CHARS: usize = 255;
+/// What `eval_dataset.summary` holds. Checked here rather than left to the column: a value the
+/// column refuses comes back as an internal database error, which tells the caller nothing about
+/// which field was too long. The path is bounded by `check_proper_path`.
 const MAX_DATASET_SUMMARY_CHARS: usize = 1000;
 
 fn check_summary(summary: Option<&str>) -> Result<()> {

@@ -454,7 +454,8 @@ pub struct ScorerMean {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub baseline_pass_rate: Option<f64>,
     pub scored: usize,
-    /// Cells the baseline has no score for, which is what the offer to score it counts.
+    /// Cells the baseline has no score for, reported so a column the baseline never ran shows as
+    /// unscored rather than as a spurious difference.
     pub missing_in_baseline: usize,
     pub definition_changed: bool,
 }

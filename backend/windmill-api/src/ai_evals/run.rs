@@ -1023,9 +1023,8 @@ mod tests {
         assert_eq!(collect["continue_on_error"].as_bool(), Some(true));
     }
 
-    /// A judge is pinned by inlining its configuration, and a judge the caller cannot read stays a
-    /// linked step. The two arms differ by exactly one field, which is the difference between a run
-    /// that grades against one definition and one that resolves the judge per case.
+    /// A code scorer pins the deployed hash it resolved to, and that hash must reach the flow as a
+    /// `ScriptHash` (a hex string), not the bare number it is in the database.
     #[test]
     fn a_script_scorer_pins_its_resolved_hash_as_a_hex_string() {
         let s = scorer(ScorerDef::Script { path: "f/e/scorer".to_string() });
@@ -1041,6 +1040,9 @@ mod tests {
         );
     }
 
+    /// A judge is pinned by inlining its configuration, and a judge the caller cannot read stays a
+    /// linked step. The two arms differ by exactly one field, which is the difference between a run
+    /// that grades against one definition and one that resolves the judge per case.
     #[test]
     fn a_judge_is_inlined_when_it_could_be_read_and_linked_otherwise() {
         let judge = scorer(ScorerDef::Agent { path: "f/e/judge".to_string() });

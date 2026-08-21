@@ -26,8 +26,7 @@ pub(crate) async fn resolve_scorer(
             // so the version a scorer pins is the one everything else runs. Read as the caller, on a
             // `user_db` transaction, so a run can only pin a script the caller may read.
             let mut tx = user_db.clone().begin(authed).await?;
-            let hash =
-                windmill_common::get_latest_script_hash(&mut *tx, path, w_id).await?;
+            let hash = windmill_common::get_latest_script_hash(&mut *tx, path, w_id).await?;
             tx.commit().await?;
             let Some(hash) = hash else {
                 return Err(Error::BadRequest(format!(
@@ -636,20 +635,6 @@ mod tests {
     /// object, or a judge's answer wrapped in `output` and often stringified. A shape that goes
     /// unrecognised is a silently empty cell, not an error.
     #[test]
-    fn an_out_of_range_score_is_recorded_as_an_error_not_a_value() {
-        // In range: recorded as the score it is.
-        let (v, e) = settle_verdict(Some(&raw("0.5")), Some("success"), None).unwrap();
-        assert_eq!(v.score, Some(0.5));
-        assert!(e.is_none());
-        // Out of range (a scorer returning a count, say): no score, an error naming the value.
-        let (v, e) = settle_verdict(Some(&raw("100")), Some("success"), None).unwrap();
-        assert_eq!(v.score, None);
-        assert!(e.unwrap().contains("100"));
-        let (v, _) = settle_verdict(Some(&raw("-5")), Some("success"), None).unwrap();
-        assert_eq!(v.score, None);
-    }
-
-    #[test]
     fn extract_verdict_reads_every_documented_scorer_shape() {
         let score = |json: &str| extract_verdict(&raw(json)).score;
         assert_eq!(score("0.75"), Some(0.75));
@@ -703,6 +688,22 @@ mod tests {
                 .as_deref(),
             Some("fine")
         );
+    }
+
+    /// A score is a fraction: anything outside 0..=1 (a scorer that returned a count, say) is
+    /// recorded as an error naming the value rather than plotted as a bogus point.
+    #[test]
+    fn an_out_of_range_score_is_recorded_as_an_error_not_a_value() {
+        // In range: recorded as the score it is.
+        let (v, e) = settle_verdict(Some(&raw("0.5")), Some("success"), None).unwrap();
+        assert_eq!(v.score, Some(0.5));
+        assert!(e.is_none());
+        // Out of range (a scorer returning a count, say): no score, an error naming the value.
+        let (v, e) = settle_verdict(Some(&raw("100")), Some("success"), None).unwrap();
+        assert_eq!(v.score, None);
+        assert!(e.unwrap().contains("100"));
+        let (v, _) = settle_verdict(Some(&raw("-5")), Some("success"), None).unwrap();
+        assert_eq!(v.score, None);
     }
 
     /// A scorer saying it has nothing to measure on a case, which is a verdict rather than a

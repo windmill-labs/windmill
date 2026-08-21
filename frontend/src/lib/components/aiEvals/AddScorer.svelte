@@ -437,7 +437,7 @@ Expected: the case's expected value`
 				{/each}
 			</div>
 		{:else if kind === 'agent'}
-			<ResourcePicker bind:value={existing} resourceType="ai_agent" />
+			<ResourcePicker bind:value={existing} resourceType="ai_agent" {workspace} />
 		{:else}
 			<ScriptPicker bind:scriptPath={existing} kinds={['script']} clearable {workspace} />
 		{/if}

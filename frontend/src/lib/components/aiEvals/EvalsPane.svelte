@@ -122,6 +122,7 @@
 
 	/** The agent's whole history, which is the screen the pane opens on. */
 	async function loadRuns() {
+		loadError = false
 		try {
 			experiments = await listSubjectExperiments()
 		} catch (e) {
@@ -149,6 +150,7 @@
 
 	async function loadDatasets() {
 		if (!ws) return
+		loadError = false
 		try {
 			datasets = await AiEvalsService.listEvalDatasets({ workspace: ws })
 		} catch (e) {
