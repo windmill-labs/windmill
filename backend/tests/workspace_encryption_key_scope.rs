@@ -42,17 +42,18 @@ async fn test_workspace_key_denied_to_scoped_token(db: Pool<Postgres>) -> anyhow
 
     let scoped = mint_scoped_token(port, vec!["workspaces:read"]).await?;
 
+    // 403 has other producers on these routes (`require_admin`, a route-scope denial),
+    // so every case pins the guard's own message rather than the status alone.
     let resp = authed(
         client().get(format!("{ws}/workspaces/encryption_key")),
         &scoped,
     )
     .send()
     .await?;
-    assert_eq!(
-        resp.status(),
-        403,
-        "workspaces:read token must not read the encryption key: {}",
-        resp.text().await.unwrap_or_default()
+    assert_eq!(resp.status(), 403, "workspaces:read must not read the key");
+    assert!(
+        resp.text().await?.contains("without scopes"),
+        "the 403 must come from the encryption-key guard"
     );
 
     let resp = authed(
@@ -66,8 +67,11 @@ async fn test_workspace_key_denied_to_scoped_token(db: Pool<Postgres>) -> anyhow
     assert_eq!(
         resp.status(),
         403,
-        "workspaces:read token must not export the encryption key: {}",
-        resp.text().await.unwrap_or_default()
+        "workspaces:read must not export the key"
+    );
+    assert!(
+        resp.text().await?.contains("without scopes"),
+        "the 403 must come from the encryption-key guard"
     );
 
     // Replacing the key is the same capability: the server re-encrypts every secret

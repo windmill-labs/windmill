@@ -463,6 +463,12 @@ pub fn is_effectively_unscoped(scopes: Option<&[String]>) -> bool {
 /// decrypt them all. No scope grants either, so any scope-restricted token is
 /// refused. An admin check is not a substitute — it answers for the user behind the
 /// token, not for the token's own scopes.
+///
+/// This bounds the token making the request, not every route to the key. A job token
+/// is minted unscoped from its owner's privileges, so a `jobs:run` token still reaches
+/// the key indirectly by running a job as a workspace admin — the same property that
+/// lets git-sync export it. Confining that means not inheriting unscoped privilege
+/// into job tokens, which is a far wider change than this guard.
 pub fn forbid_scoped_token_workspace_key(authed: &ApiAuthed) -> error::Result<()> {
     if is_effectively_unscoped(authed.scopes.as_deref()) {
         return Ok(());
