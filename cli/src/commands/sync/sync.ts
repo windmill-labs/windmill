@@ -1433,9 +1433,13 @@ function ZipFSElement(
                 ) {
                   continue;
                 }
+                // Strip only a leading `/` (keys are app-root-relative), so the
+                // relative path handed to the guard matches what the backend's
+                // `strip_prefix('/')` validates — the two must not disagree on a
+                // non-`/` key, or a deploy the backend allows would abort the pull.
                 const filePathInApp = rawAppPathWithinFolder(
                   finalPath,
-                  filePath.substring(1),
+                  filePath.replace(/^\//, ""),
                 );
                 yield {
                   isDirectory: false,
