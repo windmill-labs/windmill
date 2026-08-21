@@ -887,35 +887,81 @@ try {{
 }} catch (e) {{
 }}
 
+const nodeModulesDir = "{job_dir_js}/node_modules";
 const cjsShimDir = "{job_dir_js}/.wm_node_cjs";
+
+// Bun is the only one of the two that applies a "bun" export condition, so a manifest carrying one
+// can point bun at a CommonJS entry where node loads ESM. Such a package cannot be classified from
+// bun's resolution at all.
+function usesBunCondition(exports) {{
+    if (Array.isArray(exports)) {{
+        return exports.some(usesBunCondition);
+    }}
+    if (exports && typeof exports === "object") {{
+        return Object.keys(exports).some((key) =>
+            key === "bun" || key === "bun-macro" || usesBunCondition(exports[key]));
+    }}
+    return false;
+}}
 
 // Node only sees the named exports of a CommonJS dependency that cjs-module-lexer finds
 // statically, which fails on packages such as lodash, so leaving those as plain externals breaks
 // `import {{ x }} from "pkg"` and `import * as pkg from "pkg"`. A generated CommonJS shim makes
-// bun synthesize the interop while the package itself is still required at runtime. Packages node
-// loads as ESM keep real named exports and must stay plain externals: requiring them would throw
-// on the node versions without require(esm).
-const isCjsCache = new Map();
-function isCjs(specifier) {{
-    if (!isCjsCache.has(specifier)) {{
-        let cjs = false;
-        try {{
-            const file = Bun.resolveSync(specifier, "{job_dir_js}");
-            if (file.endsWith(".cjs") || file.endsWith(".node")) {{
-                cjs = true;
-            }} else if (file.endsWith(".js")) {{
-                // Same nearest-package.json walk node does to decide how to load a bare .js
-                for (let dir = dirname(file); dir !== dirname(dir); dir = dirname(dir)) {{
-                    try {{
-                        cjs = JSON.parse(readFileSync(dir + "/package.json", "utf8")).type !== "module";
-                        break;
-                    }} catch (e) {{}}
-                }}
-            }}
-        }} catch (e) {{}}
-        isCjsCache.set(specifier, cjs);
+// bun synthesize the interop while the package itself is still required at runtime. Only packages
+// proven CommonJS get one: requiring an ESM entry throws on the node versions without
+// require(esm), so anything unproven keeps the plain external it had before.
+const moduleKinds = new Map();
+function moduleKind(specifier) {{
+    if (!moduleKinds.has(specifier)) {{
+        moduleKinds.set(specifier, classifyModule(specifier));
+        if (moduleKinds.get(specifier) === "unknown") {{
+            console.log("could not tell whether '" + specifier
+                + "' is CommonJS or ESM, leaving it external: named imports from it may not resolve under node");
+        }}
     }}
-    return isCjsCache.get(specifier);
+    return moduleKinds.get(specifier);
+}}
+
+function classifyModule(specifier) {{
+    const segments = specifier.split("/");
+    const pkg = specifier.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
+    try {{
+        const manifest = JSON.parse(readFileSync(nodeModulesDir + "/" + pkg + "/package.json", "utf8"));
+        if (manifest.bun !== undefined || usesBunCondition(manifest.exports)) {{
+            return "unknown";
+        }}
+        const file = Bun.resolveSync(specifier, "{job_dir_js}");
+        if (file.endsWith(".mjs")) {{
+            return "esm";
+        }}
+        if (file.endsWith(".cjs") || file.endsWith(".node")) {{
+            return "cjs";
+        }}
+        if (file.endsWith(".js")) {{
+            // Same nearest-package.json walk node does to decide how to load a bare .js
+            for (let dir = dirname(file); dir !== dirname(dir); dir = dirname(dir)) {{
+                try {{
+                    return JSON.parse(readFileSync(dir + "/package.json", "utf8")).type === "module"
+                        ? "esm" : "cjs";
+                }} catch (e) {{}}
+            }}
+        }}
+    }} catch (e) {{}}
+    return "unknown";
+}}
+
+const cjsShims = new Map();
+function cjsShim(specifier) {{
+    if (!cjsShims.has(specifier)) {{
+        const shim = cjsShimDir + "/" + specifier.replace(/[^a-zA-Z0-9]/g, "_")
+            + "_" + Bun.hash(specifier).toString(36) + ".cjs";
+        mkdirSync(cjsShimDir, {{ recursive: true }});
+        // The local binding is load-bearing: bun collapses a bare `module.exports = require(x)`
+        // back into a passthrough external import, which is the shape that breaks node.
+        writeFileSync(shim, "const mod = require(" + JSON.stringify(specifier) + ");\nmodule.exports = mod;\n");
+        cjsShims.set(specifier, shim);
+    }}
+    return cjsShims.get(specifier);
 }}
 
 const nodeExternals = {{
@@ -928,16 +974,10 @@ const nodeExternals = {{
             if (!fileNames.includes(args.path.split("/")[0])) {{
                 return undefined;
             }}
-            if (!isCjs(args.path)) {{
+            if (moduleKind(args.path) !== "cjs") {{
                 return {{ path: args.path, external: true }};
             }}
-            const shim = cjsShimDir + "/" + args.path.replace(/[^a-zA-Z0-9]/g, "_")
-                + "_" + Bun.hash(args.path).toString(36) + ".cjs";
-            mkdirSync(cjsShimDir, {{ recursive: true }});
-            // The local binding is load-bearing: bun collapses a bare `module.exports = require(x)`
-            // back into a passthrough external import, which is the shape that breaks node.
-            writeFileSync(shim, "const mod = require(" + JSON.stringify(args.path) + ");\nmodule.exports = mod;\n");
-            return {{ path: shim }};
+            return {{ path: cjsShim(args.path) }};
         }});
     }},
 }};

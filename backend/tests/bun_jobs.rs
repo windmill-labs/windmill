@@ -540,7 +540,9 @@ export function main() {
 }
 
 /// Node's ESM loader cannot see the named exports of a CommonJS package that cjs-module-lexer
-/// fails to analyze, so `//nodejs` scripts must not leave such packages as plain externals.
+/// fails to analyze, so `//nodejs` scripts must not leave such packages as plain externals. The
+/// ESM-only import guards the other half: those must stay external, since `require`ing one throws
+/// on the node versions without require(esm).
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_nodejs_cjs_named_and_namespace_import(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -550,9 +552,10 @@ async fn test_bun_nodejs_cjs_named_and_namespace_import(db: Pool<Postgres>) -> a
     let content = r#"//nodejs
 import { chunk } from "lodash";
 import * as lodash from "lodash";
+import { nanoid } from "nanoid";
 
 export function main() {
-    return [chunk([1, 2, 3, 4], 2), lodash.chunk([1, 2], 1)];
+    return [chunk([1, 2, 3, 4], 2), lodash.chunk([1, 2], 1), typeof nanoid()];
 }
 "#
     .to_owned();
@@ -578,7 +581,10 @@ export function main() {
         .json_result()
         .unwrap();
 
-    assert_eq!(result, serde_json::json!([[[1, 2], [3, 4]], [[1], [2]]]));
+    assert_eq!(
+        result,
+        serde_json::json!([[[1, 2], [3, 4]], [[1], [2]], "string"])
+    );
     Ok(())
 }
 
