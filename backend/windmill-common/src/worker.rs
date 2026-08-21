@@ -219,7 +219,7 @@ const CLOUD_PREMIUM_TIMEOUT_MULTIPLIER: u64 = 6;
 /// number dies under a job the instance is still willing to keep running.
 pub fn max_job_duration_secs(cloud_premium_workspace: bool) -> u64 {
     if cloud_premium_workspace {
-        *MAX_TIMEOUT * CLOUD_PREMIUM_TIMEOUT_MULTIPLIER
+        MAX_TIMEOUT.saturating_mul(CLOUD_PREMIUM_TIMEOUT_MULTIPLIER)
     } else {
         *MAX_TIMEOUT
     }

@@ -589,11 +589,17 @@ pub fn ephemeral_script_token_label(permissioned_as: &str, created_by: &str) -> 
 }
 
 /// Lifetime to mint an ephemeral job token with. The token is issued once when the job is pulled
-/// and never refreshed under a running script, so it has to outlive the longest run the instance
-/// permits for this workspace — a premium cloud workspace outruns `MAX_TIMEOUT` sixfold, and a
-/// token sized to `MAX_TIMEOUT` 401s such a job mid-flight, after it has already burned the
+/// and is never refreshed under a running script, so sizing it to `MAX_TIMEOUT` 401s a premium
+/// cloud job mid-flight — those may run six times that long — after it has already burned the
 /// compute. Resolved per workspace rather than globally so a free workspace, which cannot run
 /// that long, does not get the wider token.
+///
+/// The doubling covers setup. The token's clock starts at pull, but the job timeout's clock
+/// restarts for every child process the job spawns (`resolve_job_timeout` is called per
+/// `handle_child`), so lock resolution, dependency install and bundling each carry a full
+/// timeout of their own before the run phase gets its own. Pull-to-finish wall time is therefore
+/// not bounded by `max_job_duration_secs` at all; one setup phase's worth of slack covers the
+/// realistic case, and a pathologically slow install can still outlive the token.
 pub async fn job_token_expiry_secs(_db: &DB, _w_id: &str) -> u64 {
     if let Some(override_secs) = *crate::worker::SCRIPT_TOKEN_EXPIRY_OVERRIDE {
         return override_secs;
@@ -614,7 +620,11 @@ pub async fn job_token_expiry_secs(_db: &DB, _w_id: &str) -> u64 {
     #[cfg(not(feature = "cloud"))]
     let premium = false;
 
-    crate::worker::max_job_duration_secs(premium)
+    job_token_expiry_from_premium(premium)
+}
+
+fn job_token_expiry_from_premium(cloud_premium_workspace: bool) -> u64 {
+    crate::worker::max_job_duration_secs(cloud_premium_workspace).saturating_mul(2)
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -800,10 +810,12 @@ pub mod aws {
 #[cfg(test)]
 mod tests {
     use super::{is_reserved_on_behalf_of_identity, is_user_token};
-    use super::{job_token_remaining_lifetime_secs, JWTAuthClaims, JOB_TOKEN_REFRESH_MARGIN_SECS};
+    use super::{job_token_expiry_from_premium, job_token_remaining_lifetime_secs};
+    use super::{JWTAuthClaims, JOB_TOKEN_REFRESH_MARGIN_SECS};
     use crate::users::{
         SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL,
     };
+    use crate::worker::max_job_duration_secs;
 
     fn job_jwt(exp_offset_secs: i64) -> String {
         let claims = JWTAuthClaims {
@@ -899,5 +911,17 @@ mod tests {
         assert!(!is_user_token(Some("Ephemeral-test")));
         assert!(!is_user_token(Some("ePhemeral-test")));
         assert!(!is_user_token(Some("EPHEMERAL-test")));
+    }
+
+    /// A job token minted for less than the run it has to serve 401s the job mid-flight, which is
+    /// what shipping the premium ceiling without widening the token did on cloud.
+    #[test]
+    fn job_token_outlives_the_longest_job_it_may_serve() {
+        for premium in [false, true] {
+            assert!(
+                job_token_expiry_from_premium(premium) > max_job_duration_secs(premium),
+                "token expiry must exceed the job ceiling (premium: {premium})"
+            );
+        }
     }
 }
