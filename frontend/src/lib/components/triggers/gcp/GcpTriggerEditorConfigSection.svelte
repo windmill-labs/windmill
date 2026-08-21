@@ -42,7 +42,9 @@
 	}
 
 	async function loadAllPubSubTopicsFromProject() {
-		if (!hasCredentials) {
+		// Listing is admin-only under application default credentials, and a non-admin viewing an
+		// inherited trigger cannot change the topic anyway, so asking would only raise a 403 toast.
+		if (!hasCredentials || blockedByAdminGate) {
 			return
 		}
 		try {
@@ -64,7 +66,7 @@
 	}
 
 	async function loadAllSubscriptionFromGooglePubSubTopic() {
-		if (!hasCredentials || emptyStringTrimmed(topic_id)) {
+		if (!hasCredentials || blockedByAdminGate || emptyStringTrimmed(topic_id)) {
 			return
 		}
 		try {
