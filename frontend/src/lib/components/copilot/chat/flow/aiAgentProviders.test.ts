@@ -256,12 +256,22 @@ describe('sanitizeModelListing', () => {
 		).toEqual({ ids: ['good-model'], complete: false })
 	})
 
+	it('keeps a listing far longer than the prompt shows, so membership survives', () => {
+		// OpenRouter lists hundreds. The prompt renders 25 of them, but a workspace default at
+		// entry 300 still has to be recognised as served.
+		const many = Array.from({ length: 400 }, (_, i) => `model-${i}`)
+		const listing = sanitizeModelListing(many, true)
+		expect(listing.ids).toHaveLength(400)
+		expect(listing.ids).toContain('model-300')
+		expect(listing.complete).toBe(true)
+	})
+
 	it('is not whole once anything is dropped, capped, or the source was already partial', () => {
-		// The cap is the case that made an OpenRouter listing look exhaustive at its 200th id.
-		const many = Array.from({ length: 250 }, (_, i) => `model-${i}`)
-		const capped = sanitizeModelListing(many, true)
-		expect(capped.ids).toHaveLength(200)
+		const beyondCap = Array.from({ length: 5001 }, (_, i) => `model-${i}`)
+		const capped = sanitizeModelListing(beyondCap, true)
+		expect(capped.ids).toHaveLength(5000)
 		expect(capped.complete).toBe(false)
+		expect(sanitizeModelListing(['x'.repeat(200), 'fine'], true).complete).toBe(false)
 		expect(sanitizeModelListing(['fine'], false).complete).toBe(false)
 	})
 })

@@ -52,9 +52,14 @@ export function isModelId(value: unknown): value is string {
  */
 export type ModelListing = { ids: string[]; complete: boolean }
 
-/** Models kept per resource, before the prompt's own display cap. Bounds what a hostile or broken
- * listing can hold in memory and match against. */
-const MAX_MODELS_PER_RESOURCE = 200
+/**
+ * Models kept per resource. This is the set membership questions are answered from — is this id
+ * served? — so it is deliberately far larger than the {@link MAX_PROMPTED_MODELS} the prompt
+ * shows: OpenRouter lists hundreds, and a workspace default among them must still be recognised.
+ * The response itself is capped in bytes before it is parsed, so this is a backstop on entries
+ * rather than the memory bound; reaching it means the set is no longer whole.
+ */
+const MAX_MODELS_PER_RESOURCE = 5000
 
 /** Keep the entries of a provider's model listing that are usable as an id, and record whether
  * what is left is still the endpoint's whole set. `sourceIsWhole` is the caller's claim about the
