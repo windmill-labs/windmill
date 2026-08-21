@@ -108,12 +108,12 @@ fn check_path(path: &str) -> Result<()> {
     }
     let segments = path.split('/').collect::<Vec<_>>();
     if segments.len() < 3
-        || !matches!(segments[0], "u" | "f")
+        || !matches!(segments[0], "u" | "f" | "g")
         || segments.iter().any(|s| s.is_empty())
         || segments.iter().any(|s| *s == "." || *s == "..")
     {
         return Err(Error::BadRequest(format!(
-            "Invalid dataset path '{}': expected 'u/<user>/<name>' or 'f/<folder>/<name>'",
+            "Invalid dataset path '{}': expected 'u/<user>/<name>', 'f/<folder>/<name>' or 'g/<group>/<name>'",
             path
         )));
     }

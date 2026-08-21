@@ -428,7 +428,11 @@ pub async fn add_case(
     Json(payload): Json<NewEvalCase>,
 ) -> Result<String> {
     require_dataset_writable(&authed, &user_db, &w_id, &path).await?;
-    check_case(payload.name.as_deref(), &payload.input, payload.expected.as_ref())?;
+    check_case(
+        payload.name.as_deref(),
+        &payload.input,
+        payload.expected.as_ref(),
+    )?;
 
     let mut tx = db.begin().await?;
     lock_dataset_cases(&mut tx, &w_id, &path).await?;
@@ -494,10 +498,20 @@ pub async fn save_cases(
     for case in &payload.cases {
         check_case(case.name.as_deref(), &case.input, case.expected.as_ref())?;
     }
+    // One row per id: the same id twice would write one row twice and return a list longer than
+    // the dataset it describes, and the save would read as having kept a case it dropped.
+    let mut kept: Vec<Uuid> = payload.cases.iter().filter_map(|c| c.id).collect();
+    kept.sort();
+    let unique = kept.len();
+    kept.dedup();
+    if kept.len() != unique {
+        return Err(Error::BadRequest(
+            "A case id appears more than once in the dataset".to_string(),
+        ));
+    }
 
     let mut tx = db.begin().await?;
     lock_dataset_cases(&mut tx, &w_id, &path).await?;
-    let kept: Vec<Uuid> = payload.cases.iter().filter_map(|c| c.id).collect();
     sqlx::query!(
         "DELETE FROM eval_case
          WHERE workspace_id = $1 AND dataset_path = $2 AND NOT (id = ANY($3))",
@@ -563,7 +577,11 @@ pub async fn update_case(
     Json(payload): Json<UpdateCase>,
 ) -> Result<String> {
     require_dataset_writable(&authed, &user_db, &w_id, &path).await?;
-    check_case(payload.name.as_deref(), &payload.input, payload.expected.as_ref())?;
+    check_case(
+        payload.name.as_deref(),
+        &payload.input,
+        payload.expected.as_ref(),
+    )?;
     let updated = sqlx::query_scalar!(
         "UPDATE eval_case
          SET name = $4, input = $5, expected = $6

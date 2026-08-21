@@ -158,14 +158,24 @@ function under_ms(run: EvalRun, max: number): boolean {
   return ms != undefined && ms <= max
 }
 
+// Same rule for usage: a provider that reported no token counts has not stayed under a budget.
+function tokens_used(run: EvalRun): number | undefined {
+  const usage = (run.metrics.usage ?? {}) as Record<string, number | undefined>
+  const input = usage.input_tokens
+  const output = usage.output_tokens
+  if (input == undefined && output == undefined) return undefined
+  return (input ?? 0) + (output ?? 0)
+}
+
 function under_tokens(run: EvalRun, max: number): boolean {
-  const usage = (run.metrics.usage ?? {}) as Record<string, number>
-  return (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0) <= max
+  const tokens = tokens_used(run)
+  return tokens != undefined && tokens <= max
 }
 
 // Windmill keeps no provider price table, so the rate is yours to set: dollars per 1k tokens.
 function cost_under(run: EvalRun, usd: number, rate: { input: number; output: number }): boolean {
-  const usage = (run.metrics.usage ?? {}) as Record<string, number>
+  if (tokens_used(run) == undefined) return false
+  const usage = (run.metrics.usage ?? {}) as Record<string, number | undefined>
   const cost =
     ((usage.input_tokens ?? 0) / 1000) * rate.input +
     ((usage.output_tokens ?? 0) / 1000) * rate.output

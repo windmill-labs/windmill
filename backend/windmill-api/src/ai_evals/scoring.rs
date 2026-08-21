@@ -45,8 +45,8 @@ pub(crate) async fn sync_run(
     Ok(())
 }
 
-/// In-flight reads of what a run produced. Each is several queries and a run holds up to
-/// `MAX_CASES_PER_RUN` cases, so they go a few at a time rather than one after another.
+/// In-flight reads of what a case's agent step produced. Each is several queries and a run holds
+/// up to `MAX_CASES_PER_RUN` cases, so they go a few at a time rather than one after another.
 const HARVEST_CONCURRENCY: usize = 8;
 
 /// Copy what each iteration produced into its row: the agent's answer, whether producing it
@@ -203,50 +203,84 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
     )
     .fetch_all(db)
     .await?;
+    if pending.is_empty() {
+        return Ok(());
+    }
 
-    use futures::StreamExt;
-    let verdicts = futures::stream::iter(pending.into_iter().map(|row| async move {
-        // Nothing left to read the verdict out of. Settled here, since a cell left pending is one
-        // every later listing would go back to this same absent job for.
-        if !row.job_exists {
-            return Ok((
-                row.ordinal,
-                row.scorer_id,
-                Some((
-                    Verdict::default(),
-                    Some("The run that produced this score is no longer available".to_string()),
-                )),
-            ));
-        }
-        // What to say when the job is over and this scorer left nothing: the two are different
-        // states, and a cell reading "no answer to score" beside an Answer column that plainly
-        // shows one is the report being wrong rather than the run. Only `record_case_answers`
-        // tells them apart and the listing syncs without it, so there is a wording to settle on
-        // only once it has run. `None` withholds the sentence, not the harvest: a scorer that
-        // returned a number is read and recorded either way.
-        let missing = row.answered.map(|answered| {
-            if answered {
-                "This scorer did not run for the case"
-            } else {
-                "The case produced no answer to score"
-            }
-        });
-        let verdict = read_verdict(
-            db,
-            w_id,
-            row.job_id,
-            &row.scorer_id,
-            row.status.as_deref(),
-            missing,
-        )
-        .await?;
-        Ok::<_, Error>((row.ordinal, row.scorer_id, verdict))
-    }))
-    .buffered(HARVEST_CONCURRENCY)
-    .collect::<Vec<_>>()
-    .await
+    // Every scorer result of every pending case in one read, keyed by case job and scorer module.
+    // A live run is read every couple of seconds and a full one is up to MAX_CASES_PER_RUN ×
+    // MAX_SCORERS_PER_DATASET cells, so the job tree is walked in SQL rather than once per cell.
+    // The shape is `build_run_flow`'s: a scorer is the one module of its own branch of the scoring
+    // step, so its job's parent is that branch and the branch's parent is the case. A step that
+    // has not finished has no completed row and its cell stays pending.
+    let mut case_jobs: Vec<Uuid> = pending.iter().map(|row| row.job_id).collect();
+    case_jobs.sort();
+    case_jobs.dedup();
+    let mut modules: Vec<String> = pending
+        .iter()
+        .map(|row| scorer_module_id(&row.scorer_id))
+        .collect();
+    modules.sort();
+    modules.dedup();
+    let results: std::collections::HashMap<(Uuid, String), Box<RawValue>> = sqlx::query!(
+        "SELECT branch.parent_job AS \"case_job!\", scorer.flow_step_id AS \"module!\",
+                done.result AS \"result: sqlx::types::Json<Box<RawValue>>\"
+         FROM v2_job branch
+         JOIN v2_job scorer ON scorer.parent_job = branch.id
+         JOIN v2_job_completed done ON done.id = scorer.id
+         WHERE branch.parent_job = ANY($1) AND branch.workspace_id = $2
+               AND scorer.flow_step_id = ANY($3)",
+        &case_jobs,
+        w_id,
+        &modules
+    )
+    .fetch_all(db)
+    .await?
     .into_iter()
-    .collect::<Result<Vec<_>>>()?;
+    .map(|row| {
+        let result = row
+            .result
+            .map(|json| json.0)
+            .unwrap_or_else(|| RawValue::from_string("null".to_string()).expect("a literal"));
+        ((row.case_job, row.module), result)
+    })
+    .collect();
+
+    let verdicts: Vec<(i32, String, Option<(Verdict, Option<String>)>)> = pending
+        .into_iter()
+        .map(|row| {
+            // Nothing left to read the verdict out of. Settled here, since a cell left pending is
+            // one every later listing would go back to this same absent job for.
+            if !row.job_exists {
+                return (
+                    row.ordinal,
+                    row.scorer_id,
+                    Some((
+                        Verdict::default(),
+                        Some("The run that produced this score is no longer available".to_string()),
+                    )),
+                );
+            }
+            // What to say when the job is over and this scorer left nothing: the two are different
+            // states, and a cell reading "no answer to score" beside an Answer column that plainly
+            // shows one is the report being wrong rather than the run. Only `record_case_answers`
+            // tells them apart and the listing syncs without it, so there is a wording to settle
+            // on only once it has run. `None` withholds the sentence, not the harvest: a scorer
+            // that returned a number is read and recorded either way.
+            let missing = row.answered.map(|answered| {
+                if answered {
+                    "This scorer did not run for the case"
+                } else {
+                    "The case produced no answer to score"
+                }
+            });
+            let result = results
+                .get(&(row.job_id, scorer_module_id(&row.scorer_id)))
+                .map(|r| r.as_ref());
+            let verdict = settle_verdict(result, row.status.as_deref(), missing);
+            (row.ordinal, row.scorer_id, verdict)
+        })
+        .collect();
 
     // One statement for every cell read, for the same reason the answers are written that way.
     let mut ordinals = vec![];
@@ -294,40 +328,22 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
     Ok(())
 }
 
-/// One scorer's verdict, read out of the job that produced it, which may still be running: a
-/// scorer's own step can be done while the iteration around it is not. `Ok(None)` while the result
-/// is not readable yet, which is a state to wait through rather than to record as a failure; an
-/// error is a read that failed rather than a scorer that produced nothing, and settling the cell on
-/// one would make a transient failure permanent.
-async fn read_verdict(
-    db: &DB,
-    w_id: &str,
-    scoring_job: Uuid,
-    scorer_id: &str,
+/// One scorer's verdict, from the result of the step that produced it, inside a job that may
+/// still be running: a scorer's own step can be done while the iteration around it is not. `None`
+/// while the result is not readable yet, which is a state to wait through rather than to record
+/// as a failure; `Some` with an error is a scorer that produced nothing, worded by where it ran.
+fn settle_verdict(
+    result: Option<&RawValue>,
     job_status: Option<&str>,
     // What to record when the job is over and this scorer produced nothing. A different statement
     // depending on where the scorer ran: its own job failed, or the case it was to score never
     // produced an answer. `None` when the caller cannot yet tell those apart, which leaves the
     // cell pending for a read that can, rather than settling it on the wrong one of the two.
     missing_error: Option<&str>,
-) -> Result<Option<(Verdict, Option<String>)>> {
-    let module = scorer_module_id(scorer_id);
-    let result = match windmill_queue::get_result_and_success_by_id_from_flow(
-        db,
-        w_id,
-        &scoring_job,
-        &module,
-        None,
-    )
-    .await
-    {
-        Ok(found) => Some(found),
-        Err(Error::NotFound(_)) => None,
-        Err(e) => return Err(e),
-    };
-    Ok(Some(match result {
-        Some((value, _)) => {
-            let verdict = extract_verdict(&value);
+) -> Option<(Verdict, Option<String>)> {
+    Some(match result {
+        Some(value) => {
+            let verdict = extract_verdict(value);
             match verdict {
                 // A number, or the scorer saying this case is not one it measures. Both are
                 // answers, so both are recorded and neither is an error.
@@ -336,26 +352,26 @@ async fn read_verdict(
                 }
                 // The job around this scorer is still going, so a module with no number in it is
                 // one that has not run yet. Recording a failure here would make it permanent.
-                _ if job_status.is_none() => return Ok(None),
+                _ if job_status.is_none() => return None,
                 _ if job_status == Some("success") => (
                     verdict,
                     Some("The scorer returned no number to plot".to_string()),
                 ),
                 _ => match missing_error {
                     Some(missing) => (verdict, Some(missing.to_string())),
-                    None => return Ok(None),
+                    None => return None,
                 },
             }
         }
-        None if job_status == Some("success") => return Ok(None),
+        None if job_status == Some("success") => return None,
         // The job holding this scorer has not finished, so a module with nothing in it yet is a
         // step that has not run rather than one that produced nothing.
-        None if job_status.is_none() => return Ok(None),
+        None if job_status.is_none() => return None,
         None => match missing_error {
             Some(missing) => (Verdict::default(), Some(missing.to_string())),
-            None => return Ok(None),
+            None => return None,
         },
-    }))
+    })
 }
 
 /// The score and reason read straight out of text that failed to parse as JSON. Deliberately not a
