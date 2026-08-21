@@ -146,7 +146,11 @@
 			} else {
 				if (
 					(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
-					!page.url.pathname.startsWith('/oauth/mcp_authorize')
+					!page.url.pathname.startsWith('/oauth/mcp_authorize') &&
+					// The hub import wizard asks for the destination itself, and may end in a
+					// workspace that does not exist yet — bouncing it to the picker would
+					// force the very choice it exists to make.
+					!page.url.pathname.startsWith('/projects/import')
 				) {
 					goto(
 						`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`

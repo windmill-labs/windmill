@@ -201,7 +201,11 @@ async function importApp(workspace: string, a: ExportItem): Promise<unknown> {
 // Apply one migration to the target data table. If the data table opted into
 // migrations, record it (datatable_migrations + _wm_migrations, run only this
 // version); otherwise run the SQL once as a preview job (unrecorded).
-async function applyOneMigration(
+//
+// Exported because the import can leave migrations unapplied: a data table the
+// project needs may not be configured in the destination yet, and the wizard's setup
+// step runs them once it is.
+export async function applyOneMigration(
 	workspace: string,
 	projectSlug: string,
 	m: ProjectMigration
@@ -259,16 +263,38 @@ export async function installProject(args: {
 	exportData: ProjectExport
 	folder: string
 	migrations: ProjectMigration[]
+	/** Called once, before the reviewed migrations are applied, when there are any. Lets a
+	 *  caller show them as their own step rather than folding them into the item import. */
+	onMigrationsStart?: () => void
+	/**
+	 * Asked before each write. Returning true stops the run where it is — the writes already
+	 * made stay, the rest never start. Nothing here can cancel a request already in flight,
+	 * so this is the granularity available without threading an `AbortSignal` through every
+	 * service call: the import wizard uses it when the user confirms leaving mid-run.
+	 */
+	stopped?: () => boolean
 	hasEeLicense: boolean
 	onResult: (r: InstallResult) => void
 }): Promise<void> {
-	const { workspace, exportData, folder, migrations, hasEeLicense, onResult } = args
+	const {
+		workspace,
+		exportData,
+		folder,
+		migrations,
+		hasEeLicense,
+		onResult,
+		onMigrationsStart,
+		stopped
+	} = args
 
 	const record = (path: string, p: Promise<unknown>): Promise<void> =>
 		p.then(
 			() => onResult({ path, ok: true }),
 			(e: any) => onResult({ path, ok: false, error: errorMessage(e) })
 		)
+
+	/** Every write goes through here, so one check covers items, variables and migrations. */
+	const halted = () => stopped?.() === true
 
 	try {
 		await FolderService.createFolder({ workspace, requestBody: { name: folder } })
@@ -309,6 +335,7 @@ export async function installProject(args: {
 	}
 
 	for (const s of proj.scripts) {
+		if (halted()) return
 		// `$var:` is resolved in job args (flow inputs, schedule args, trigger config),
 		// not in script source, so there is no variable arg to contain here.
 		await checkedItem(s.path, extractScriptRefs(s.content ?? ''), undefined, () =>
@@ -316,19 +343,23 @@ export async function installProject(args: {
 		)
 	}
 	for (const f of proj.flows) {
+		if (halted()) return
 		await checkedItem(f.path, extractFlowRefs(f.value), f.value, () => importFlow(workspace, f))
 	}
 	for (const r of proj.resources) {
+		if (halted()) return
 		await checked(r.path, () => importResourceStub(workspace, r))
 	}
 	// Placeholders for the project's internal `$var:`/`$jsonvar:` refs (retargeted
 	// into this folder). External refs are rejected per-item, so only stub in-folder
 	// ones; guard again in case an out-of-folder ref slipped through retargeting.
 	for (const p of collectExportVarPaths(proj)) {
+		if (halted()) return
 		if (!p.startsWith(prefix)) continue
 		await record(`variable: ${p}`, importVariablePlaceholder(workspace, p))
 	}
 	for (const a of proj.apps) {
+		if (halted()) return
 		const isRaw = a.app_type === 'raw'
 		const refs = isRaw ? extractRawAppRefs(a.value?.raw ?? '') : extractAppRefs(a.value)
 		// Raw apps hold their runnables in the `value.raw` JSON string; parse it so the
@@ -368,6 +399,7 @@ export async function installProject(args: {
 		return varContainmentViolation(cfg, folder)
 	}
 	for (const t of proj.triggers) {
+		if (halted()) return
 		const violation = guard(t.path, t.runnable_path) ?? triggerConfigViolation(t)
 		await record(
 			String(t.path),
@@ -389,7 +421,10 @@ export async function installProject(args: {
 	}
 
 	// Apply the reviewed data table migrations after items exist.
+	if (halted()) return
+	if (migrations.length) onMigrationsStart?.()
 	for (const m of migrations) {
+		if (halted()) return
 		await record(
 			`data table: ${m.datatable_name}`,
 			applyOneMigration(workspace, exportData.project.slug, m)

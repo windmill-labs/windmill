@@ -109,7 +109,8 @@
 				} else {
 					goto(rd ?? '/')
 				}
-			} else if (rd?.startsWith('/user/workspaces')) {
+				// See (root)/+layout.svelte for why /projects/import skips the picker.
+			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith('/projects/import')) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)

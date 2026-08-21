@@ -85,6 +85,23 @@
 		customInstanceDbs: ResourceReturn<ListCustomInstanceDbsResponse>
 		confirmationModal: ConfirmationModalHandle
 		defaultInstanceDbName: () => string
+		/** Name to open with, when the caller needs a table of a particular name rather
+		 * than whatever the user picks — the import wizard configures the one a project's
+		 * migrations target. Still editable; it is a starting point, not a lock. */
+		initialName?: string
+		/** Where the dialog portals to. `#content` is the app shell's scroll container,
+		 * which only exists inside the `(logged)` layout; a page reparented out of it
+		 * (the hub import wizard) has to say `body` or the portal finds nothing and the
+		 * dialog never appears. */
+		modalTarget?: string
+		/** What the caller does once the table exists, named on the final button so the
+		 * user is told before pressing it — the import wizard runs the project's
+		 * migrations, which is otherwise invisible until it has already happened. */
+		finishAlso?: string
+		/** The work `finishAlso` names. Run as the last checklist step, so it reports
+		 * where the rest of the run does instead of starting after the dialog closes.
+		 * Throwing marks that step failed; the table itself is already made either way. */
+		onFinishAlso?: () => Promise<void>
 	}
 
 	let {
@@ -95,7 +112,11 @@
 		onDone,
 		customInstanceDbs,
 		confirmationModal,
-		defaultInstanceDbName
+		defaultInstanceDbName,
+		initialName,
+		modalTarget = '#content',
+		finishAlso,
+		onFinishAlso
 	}: Props = $props()
 
 	const STEPS = ['Choose a database', 'Set it up', 'Review']
@@ -182,6 +203,9 @@
 	}
 
 	function defaultTableName(): string {
+		// A caller that needs a specific name wins over the usual "main, unless taken":
+		// the import wizard's migrations only apply to a table of the name they target.
+		if (initialName) return initialName
 		return existingNames.includes('main') ? `${$workspaceStore ?? 'data'}_datatable` : 'main'
 	}
 
@@ -375,6 +399,9 @@
 
 	function reset(from: WizardResume | undefined) {
 		resumedPath = from?.resourcePath
+		// A pending confirmation that never settled leaves `dismissing` true, and `finally`
+		// cannot clear what never resolves — so a fresh open always starts dismissable.
+		dismissing = false
 		wiz = newWizardState({
 			name: from?.name || defaultTableName(),
 			projectName: from?.projectName || defaultProjectName(),
@@ -687,6 +714,23 @@
 				username: $userStore?.username ?? ''
 			})
 		} finally {
+			// The caller's own finishing work, appended to the same checklist. It only runs
+			// on a clean setup: there is no table for it to act on otherwise.
+			if (result?.ok && onFinishAlso && finishAlso) {
+				const title = finishAlso.charAt(0).toUpperCase() + finishAlso.slice(1)
+				run.steps = [...run.steps, { title, status: 'running' }]
+				try {
+					await onFinishAlso()
+					run.steps = run.steps.map((s, i) =>
+						i === run.steps.length - 1 ? { ...s, status: 'done' as const } : s
+					)
+				} catch (err: any) {
+					const description = err?.body ?? err?.message ?? String(err)
+					run.steps = run.steps.map((s, i) =>
+						i === run.steps.length - 1 ? { ...s, status: 'failed' as const, description } : s
+					)
+				}
+			}
 			// `runSetup` catches per step, but anything escaping it would otherwise leave the
 			// button spinning with a page reload the only way out.
 			// Kept, not replaced: what an earlier attempt wrote is still out there, so a later
@@ -730,19 +774,25 @@
 			return
 		}
 		dismissing = true
-		const confirmed = await confirmationModal.ask({
-			title: 'Leave without adding a data table?',
-			// A run that failed and was sent back to be edited leaves whatever it got through
-			// behind it, so promising otherwise would be a lie exactly when it matters most.
-			children: leftBehind
-				? 'The setup that already ran left what it created behind, and what you have filled in here will be lost.'
-				: 'Nothing has been created yet, and what you have filled in here will be lost.',
-			confirmationText: 'Discard'
-		})
-		dismissing = false
-		// Re-read rather than trust the entry check: a run can start while the dialog is up, and
-		// answering Discard would otherwise tear the modal down in the middle of it.
-		if (confirmed && !preventClose) close()
+		// `finally`, because the flag is what blocks a second attempt: an `ask` that throws
+		// would otherwise leave the dialog permanently undismissable — the backdrop, Escape
+		// and the close button all return early here, so the only way out would be a reload.
+		try {
+			const confirmed = await confirmationModal.ask({
+				title: 'Leave without adding a data table?',
+				// A run that failed and was sent back to be edited leaves whatever it got through
+				// behind it, so promising otherwise would be a lie exactly when it matters most.
+				children: leftBehind
+					? 'The setup that already ran left what it created behind, and what you have filled in here will be lost.'
+					: 'Nothing has been created yet, and what you have filled in here will be lost.',
+				confirmationText: 'Discard'
+			})
+			// Re-read rather than trust the entry check: a run can start while the dialog is up, and
+			// answering Discard would otherwise tear the modal down in the middle of it.
+			if (confirmed && !preventClose) close()
+		} finally {
+			dismissing = false
+		}
 	}
 
 	function close() {
@@ -809,11 +859,12 @@
 				act: enterReview
 			}
 		}
+		const created =
+			wiz.provider === 'supabase' && wiz.supabase.mode === 'create'
+				? 'Create project and data table'
+				: 'Create data table'
 		return {
-			label:
-				wiz.provider === 'supabase' && wiz.supabase.mode === 'create'
-					? 'Create project and data table'
-					: 'Create data table',
+			label: finishAlso ? `${created} and ${finishAlso}` : created,
 			disabled:
 				// Guards the way back as well as the way forward: the stepper can return to step 2,
 				// and not every control there invalidates the review it just made stale.
@@ -842,7 +893,7 @@
 			else opened = v
 		}
 	}
-	target="#content"
+	target={modalTarget}
 	formStyling
 	title="Add a data table"
 	contentClasses="flex flex-col"
