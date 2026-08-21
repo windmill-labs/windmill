@@ -146,8 +146,9 @@
 		icon?: any
 	}
 
-	// Known providers keep their declared order and customs follow them, as they did before the
-	// last-used ordering existed; SAML sits at the end. Whatever worked last time is hoisted out.
+	// rank() maps an unknown type to known.length, not indexOf's -1, so a custom OAuth client
+	// sorts after the known providers rather than ahead of all of them. SAML sits at the end,
+	// and whatever worked last time is hoisted to the front.
 	let orderedThirdParty = $derived.by(() => {
 		const known = providers.map((p) => p.type as string)
 		const rank = (type: string) => (known.indexOf(type) === -1 ? known.length : known.indexOf(type))
@@ -662,7 +663,7 @@
 				<Skeleton layout={[0.5, [2.375]]} />
 			{/each}
 		{:else}
-			{#each orderedThirdParty as entry (entry.method.kind === 'saml' ? 'saml' : entry.method.provider)}
+			{#each orderedThirdParty as entry (entry.method.kind === 'saml' ? 'saml:' : `oauth:${entry.method.provider}`)}
 				<div class="relative">
 					{#if sameLoginMethod(lastUsed, entry.method)}
 						{@render lastUsedBadge()}
