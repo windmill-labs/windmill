@@ -63,6 +63,7 @@
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { PanelLeftClose, PanelLeftOpen, Home, Play, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
+	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
@@ -315,6 +316,9 @@
 				}
 			}
 			const user = await getUserExt(workspace)
+			// getUserExt resolves to undefined on failure, so a user is the only proof of a
+			// session: without it a cancelled SSO round trip would claim the "Last used" badge.
+			if (user) confirmPendingLoginMethod()
 			// Every workspace change starts a fetch without cancelling the one before it,
 			// so a slow response can land after a faster one for the workspace the user
 			// has since moved to. The store must describe the active workspace: letting a
