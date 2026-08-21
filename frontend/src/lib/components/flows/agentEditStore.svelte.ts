@@ -15,7 +15,7 @@ export type AgentEdit = {
 	/** The agent as deployed and what was forked into the step, both in the form the editor
 	 *  compares them in. Kept with the path rather than in the editor: the editor can unmount
 	 *  mid-session, and without a baseline it cannot tell an edit from the deployed value — and
-	 *  would then drop the draft on Cancel as though nothing had been changed. */
+	 *  Cancel would then drop the edits as though nothing had been changed. */
 	deployedConfig?: string
 	forkedConfig?: string
 	/** The step has read back what was forked into it, so what it holds from here is an edit. The

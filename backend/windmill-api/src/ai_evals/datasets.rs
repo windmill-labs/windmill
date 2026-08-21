@@ -73,6 +73,11 @@ pub struct EditDataset {
     /// Left out to keep the dataset's columns as they are; sent to replace them wholesale.
     #[serde(default)]
     pub scorers: Option<Vec<Scorer>>,
+    /// The cases as they should stand afterwards, as `save_cases` takes them. Sent with the rest
+    /// of an edit so that a rename the dataset refuses refuses the case edits with it, rather
+    /// than leaving them written under a dataset that kept its name.
+    #[serde(default)]
+    pub cases: Option<Vec<SaveCase>>,
 }
 
 #[derive(Deserialize)]
@@ -181,7 +186,8 @@ pub async fn create_dataset(
         check_case(case.name.as_deref(), &case.input, case.expected.as_ref())?;
     }
     let mut scorers = payload.scorers;
-    assign_scorer_ids(&mut scorers)?;
+    // A dataset being created has no columns yet, so every id is minted.
+    assign_scorer_ids(&mut scorers, &std::collections::HashSet::new())?;
     let scorers = serde_json::to_value(&scorers)?;
     let mut tx = user_db.begin(&authed).await?;
     // A path already taken returns no row; a path the caller may not write raises the policy
@@ -245,6 +251,7 @@ pub async fn get_dataset(
 
 pub async fn update_dataset(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, String)>,
     Json(payload): Json<EditDataset>,
@@ -256,13 +263,6 @@ pub async fn update_dataset(
             "Operators cannot modify eval datasets".to_string(),
         ));
     }
-    let scorers = match payload.scorers {
-        Some(mut scorers) => {
-            assign_scorer_ids(&mut scorers)?;
-            Some(serde_json::to_value(&scorers)?)
-        }
-        None => None,
-    };
     let new_path = match payload.path.filter(|p| *p != path) {
         Some(new_path) => {
             check_path(&new_path)?;
@@ -270,7 +270,37 @@ pub async fn update_dataset(
         }
         None => None,
     };
+    // Everything that can be refused is refused before anything is written: the dataset row and
+    // its cases are written in two transactions (see below), and what is left to fail between
+    // them is the database, not the request.
+    if let Some(cases) = &payload.cases {
+        check_cases(cases)?;
+    }
     let mut tx = user_db.clone().begin(&authed).await?;
+    // `FOR UPDATE` applies the UPDATE policies, so the row itself answers who may write it; the
+    // columns it holds are what decides which incoming scorer ids are kept (`assign_scorer_ids`).
+    let current = sqlx::query_scalar!(
+        "SELECT scorers FROM eval_dataset WHERE workspace_id = $1 AND path = $2 FOR UPDATE",
+        w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(current) = current else {
+        tx.commit().await?;
+        return Err(write_refused(&authed, &user_db, &w_id, &path).await);
+    };
+    let existing: std::collections::HashSet<String> =
+        serde_json::from_value::<Vec<Scorer>>(current)
+            .map(|scorers| scorers.into_iter().map(|s| s.id).collect())
+            .unwrap_or_default();
+    let scorers = match payload.scorers {
+        Some(mut scorers) => {
+            assign_scorer_ids(&mut scorers, &existing)?;
+            Some(serde_json::to_value(&scorers)?)
+        }
+        None => None,
+    };
     let updated = sqlx::query_scalar!(
         "UPDATE eval_dataset
          SET path = COALESCE($6, path), summary = $3,
@@ -300,6 +330,14 @@ pub async fn update_dataset(
     let Some(updated) = updated else {
         return Err(write_refused(&authed, &user_db, &w_id, &path).await);
     };
+    // After the rename, under the name the dataset now has. Outside the row's transaction because
+    // `eval_case` has no write policies: its writes go through `db` once the dataset row has
+    // admitted the caller, which the `FOR UPDATE` above did.
+    if let Some(cases) = payload.cases {
+        let mut tx = db.begin().await?;
+        write_cases(&mut tx, &w_id, &updated, &cases, &authed.username).await?;
+        tx.commit().await?;
+    }
     Ok(format!("Updated eval dataset {}", updated))
 }
 
@@ -488,30 +526,50 @@ pub async fn save_cases(
     Json(payload): Json<SaveCases>,
 ) -> JsonResult<Vec<Uuid>> {
     require_dataset_writable(&authed, &user_db, &w_id, &path).await?;
+    check_cases(&payload.cases)?;
+    let mut tx = db.begin().await?;
+    let ids = write_cases(&mut tx, &w_id, &path, &payload.cases, &authed.username).await?;
+    tx.commit().await?;
+    Ok(Json(ids))
+}
+
+/// What a whole list of cases can be refused for, before any of it is written.
+fn check_cases(cases: &[SaveCase]) -> Result<()> {
     // The list is what the dataset holds afterwards, so its own length is the count to weigh.
-    if payload.cases.len() as i64 > MAX_CASES_PER_DATASET {
+    if cases.len() as i64 > MAX_CASES_PER_DATASET {
         return Err(Error::BadRequest(format!(
             "An eval dataset holds at most {} cases. Split them into several datasets.",
             MAX_CASES_PER_DATASET
         )));
     }
-    for case in &payload.cases {
+    for case in cases {
         check_case(case.name.as_deref(), &case.input, case.expected.as_ref())?;
     }
     // One row per id: the same id twice would write one row twice and return a list longer than
     // the dataset it describes, and the save would read as having kept a case it dropped.
-    let mut kept: Vec<Uuid> = payload.cases.iter().filter_map(|c| c.id).collect();
-    kept.sort();
-    let unique = kept.len();
-    kept.dedup();
-    if kept.len() != unique {
+    let mut ids: Vec<Uuid> = cases.iter().filter_map(|c| c.id).collect();
+    ids.sort();
+    let submitted = ids.len();
+    ids.dedup();
+    if ids.len() != submitted {
         return Err(Error::BadRequest(
             "A case id appears more than once in the dataset".to_string(),
         ));
     }
+    Ok(())
+}
 
-    let mut tx = db.begin().await?;
-    lock_dataset_cases(&mut tx, &w_id, &path).await?;
+/// Replace a dataset's cases with `cases`, in the caller's transaction: rows not in the list go,
+/// rows carrying an id are updated, the rest are added. Returns one id per case, in order.
+async fn write_cases(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    path: &str,
+    cases: &[SaveCase],
+    username: &str,
+) -> Result<Vec<Uuid>> {
+    lock_dataset_cases(tx, w_id, path).await?;
+    let kept: Vec<Uuid> = cases.iter().filter_map(|c| c.id).collect();
     sqlx::query!(
         "DELETE FROM eval_case
          WHERE workspace_id = $1 AND dataset_path = $2 AND NOT (id = ANY($3))",
@@ -519,11 +577,11 @@ pub async fn save_cases(
         path,
         &kept
     )
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await?;
 
-    let mut ids = Vec::with_capacity(payload.cases.len());
-    for case in &payload.cases {
+    let mut ids = Vec::with_capacity(cases.len());
+    for case in cases {
         let input = serde_json::to_value(&case.input)?;
         let expected = opt_from_raw(case.expected.as_ref())?;
         let id = match case.id {
@@ -538,7 +596,7 @@ pub async fn save_cases(
                 input,
                 expected,
             )
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?
             .ok_or_else(|| Error::NotFound(format!("Eval case {} not found in {}", id, path)))?,
             None => sqlx::query_scalar!(
@@ -551,9 +609,9 @@ pub async fn save_cases(
                 case.name,
                 input,
                 expected,
-                authed.username,
+                username,
             )
-            .fetch_one(&mut *tx)
+            .fetch_one(&mut **tx)
             .await
             .map_err(|e| {
                 if is_missing_dataset(&e) {
@@ -565,8 +623,7 @@ pub async fn save_cases(
         };
         ids.push(id);
     }
-    tx.commit().await?;
-    Ok(Json(ids))
+    Ok(ids)
 }
 
 pub async fn update_case(

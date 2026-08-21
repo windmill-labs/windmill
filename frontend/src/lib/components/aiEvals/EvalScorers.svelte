@@ -48,6 +48,9 @@
 	} = $props()
 
 	let scorers = $derived(dataset ? (dataset.scorers ?? []) : (pending ?? []))
+	// The server's cap, refused when the dataset is written. Adding creates the judge or script
+	// first, so the 21st would leave a runnable behind; the control closes before that.
+	const MAX_SCORERS_PER_DATASET = 20
 
 	let scorerDrawer: Drawer | undefined = $state()
 	let addScorerForm: AddScorer | undefined = $state()
@@ -196,7 +199,7 @@
 					variant="default"
 					startIcon={{ icon: Plus }}
 					endIcon={{ icon: ChevronDown }}
-					disabled={!workspace}
+					disabled={!workspace || scorers.length >= MAX_SCORERS_PER_DATASET}
 				>
 					Add scorer
 				</Button>

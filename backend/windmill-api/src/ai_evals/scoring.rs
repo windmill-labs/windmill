@@ -49,6 +49,10 @@ pub(crate) async fn sync_run(
 /// up to `MAX_CASES_PER_RUN` cases, so they go a few at a time rather than one after another.
 const HARVEST_CONCURRENCY: usize = 8;
 
+/// Cases whose scorer results are read in one query: every scorer of every case in the batch, so
+/// the batch is what keeps a run's worth of judge conversations from being held at once.
+const HARVEST_BATCH_CASES: usize = 100;
+
 /// Copy what each iteration produced into its row: the agent's answer, whether producing it
 /// succeeded, and how the iteration ended.
 ///
@@ -207,12 +211,14 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
         return Ok(());
     }
 
-    // Every scorer result of every pending case in one read, keyed by case job and scorer module.
-    // A live run is read every couple of seconds and a full one is up to MAX_CASES_PER_RUN ×
-    // MAX_SCORERS_PER_DATASET cells, so the job tree is walked in SQL rather than once per cell.
-    // The shape is `build_run_flow`'s: a scorer is the one module of its own branch of the scoring
-    // step, so its job's parent is that branch and the branch's parent is the case. A step that
-    // has not finished has no completed row and its cell stays pending.
+    // The scorer results of the pending cases are read a batch of cases at a time, keyed by case
+    // job and scorer module. A live run is read every couple of seconds and a full one is up to
+    // MAX_CASES_PER_RUN × MAX_SCORERS_PER_DATASET cells, so the job tree is walked in SQL rather
+    // than once per cell; and a judge's result is its whole conversation, so the batch is what
+    // bounds how much of that is held at once. The shape is `build_run_flow`'s: a scorer is the
+    // one module of its own branch of the scoring step, so its job's parent is that branch and the
+    // branch's parent is the case. A step that has not finished has no completed row and its cell
+    // stays pending.
     let mut case_jobs: Vec<Uuid> = pending.iter().map(|row| row.job_id).collect();
     case_jobs.sort();
     case_jobs.dedup();
@@ -222,44 +228,46 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
         .collect();
     modules.sort();
     modules.dedup();
-    let results: std::collections::HashMap<(Uuid, String), Box<RawValue>> = sqlx::query!(
-        "SELECT branch.parent_job AS \"case_job!\", scorer.flow_step_id AS \"module!\",
-                done.result AS \"result: sqlx::types::Json<Box<RawValue>>\"
-         FROM v2_job branch
-         JOIN v2_job scorer ON scorer.parent_job = branch.id
-         JOIN v2_job_completed done ON done.id = scorer.id
-         WHERE branch.parent_job = ANY($1) AND branch.workspace_id = $2
-               AND scorer.flow_step_id = ANY($3)",
-        &case_jobs,
-        w_id,
-        &modules
-    )
-    .fetch_all(db)
-    .await?
-    .into_iter()
-    .map(|row| {
-        let result = row
-            .result
-            .map(|json| json.0)
-            .unwrap_or_else(|| RawValue::from_string("null".to_string()).expect("a literal"));
-        ((row.case_job, row.module), result)
-    })
-    .collect();
-
-    let verdicts: Vec<(i32, String, Option<(Verdict, Option<String>)>)> = pending
+    let mut verdicts: Vec<(i32, String, Option<(Verdict, Option<String>)>)> =
+        Vec::with_capacity(pending.len());
+    for batch in case_jobs.chunks(HARVEST_BATCH_CASES) {
+        let results: std::collections::HashMap<(Uuid, String), Box<RawValue>> = sqlx::query!(
+            "SELECT branch.parent_job AS \"case_job!\", scorer.flow_step_id AS \"module!\",
+                    done.result AS \"result: sqlx::types::Json<Box<RawValue>>\"
+             FROM v2_job branch
+             JOIN v2_job scorer ON scorer.parent_job = branch.id
+             JOIN v2_job_completed done ON done.id = scorer.id
+             WHERE branch.parent_job = ANY($1) AND branch.workspace_id = $2
+                   AND scorer.flow_step_id = ANY($3)",
+            batch,
+            w_id,
+            &modules
+        )
+        .fetch_all(db)
+        .await?
         .into_iter()
         .map(|row| {
+            let result = row
+                .result
+                .map(|json| json.0)
+                .unwrap_or_else(|| RawValue::from_string("null".to_string()).expect("a literal"));
+            ((row.case_job, row.module), result)
+        })
+        .collect();
+        let in_batch: std::collections::HashSet<Uuid> = batch.iter().copied().collect();
+        for row in pending.iter().filter(|row| in_batch.contains(&row.job_id)) {
             // Nothing left to read the verdict out of. Settled here, since a cell left pending is
             // one every later listing would go back to this same absent job for.
             if !row.job_exists {
-                return (
+                verdicts.push((
                     row.ordinal,
-                    row.scorer_id,
+                    row.scorer_id.clone(),
                     Some((
                         Verdict::default(),
                         Some("The run that produced this score is no longer available".to_string()),
                     )),
-                );
+                ));
+                continue;
             }
             // What to say when the job is over and this scorer left nothing: the two are different
             // states, and a cell reading "no answer to score" beside an Answer column that plainly
@@ -278,9 +286,9 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
                 .get(&(row.job_id, scorer_module_id(&row.scorer_id)))
                 .map(|r| r.as_ref());
             let verdict = settle_verdict(result, row.status.as_deref(), missing);
-            (row.ordinal, row.scorer_id, verdict)
-        })
-        .collect();
+            verdicts.push((row.ordinal, row.scorer_id.clone(), verdict));
+        }
+    }
 
     // One statement for every cell read, for the same reason the answers are written that way.
     let mut ordinals = vec![];

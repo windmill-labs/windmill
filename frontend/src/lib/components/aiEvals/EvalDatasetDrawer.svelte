@@ -167,34 +167,21 @@
 		}
 	}
 
-	/** Writes the cases as the drawer now holds them, in one request: what it added, what it
-	 *  changed and what it dropped land together or not at all. The ids come back so that a save
-	 *  which failed further on — the rename below — is retried as the same cases rather than
-	 *  adding the new ones a second time. */
-	async function saveCases() {
-		if (!workspace || !datasetPath) return
-		const sent = $state.snapshot(workingCases)
-		const ids = await AiEvalsService.saveEvalCases({
-			workspace,
-			path: datasetPath,
-			requestBody: {
-				cases: sent.map((c) => ({
-					// A local id is the drawer's own, for a row the dataset has never been told about.
-					id: c.id != undefined && storedIds.has(c.id) ? c.id : undefined,
-					name: c.name,
-					input: c.input,
-					expected: c.expected
-				}))
-			}
-		})
-		// Back onto the rows by the local id each was sent under rather than by position, which is
-		// what keeps this correct however the list moved while the request was out.
-		const assigned = new Map(sent.map((c, index) => [c.id, ids[index]]))
-		workingCases = workingCases.map((c) => ({ ...c, id: assigned.get(c.id) ?? c.id }))
-		storedIds = new Set(ids)
+	/** The cases as the drawer now holds them, for the save: what it added, what it changed and
+	 *  what it dropped. A local id is the drawer's own, for a row the dataset has never been told
+	 *  about, and goes out as no id. */
+	function casesToSave() {
+		return $state.snapshot(workingCases).map((c) => ({
+			id: c.id != undefined && storedIds.has(c.id) ? c.id : undefined,
+			name: c.name,
+			input: c.input,
+			expected: c.expected
+		}))
 	}
 
-	/** Renaming moves the dataset: its cases and experiments follow it through the foreign keys. */
+	/** Renaming moves the dataset: its cases and experiments follow it through the foreign keys.
+	 *  One request carries the rename, the summary and the cases, so a rename the server refuses
+	 *  refuses the case edits with it instead of leaving them written under the old name. */
 	async function saveDataset() {
 		if (!workspace || !datasetPath || !dataset || !path || pathError) return
 		// Before anything reads the list: a cell still open is an edit that must go in with it.
@@ -204,14 +191,14 @@
 		const submitted = { path, summary: summary || undefined }
 		saving = true
 		try {
-			await saveCases()
 			await AiEvalsService.updateEvalDataset({
 				workspace,
 				path: datasetPath,
 				requestBody: {
 					path: submitted.path,
 					summary: submitted.summary,
-					scorers: dataset.scorers
+					scorers: dataset.scorers,
+					cases: casesToSave()
 				}
 			})
 			await onCasesChanged()

@@ -11755,10 +11755,12 @@ paths:
                   maxLength: 1000
                 scorers:
                   type: array
+                  maxItems: 20
                   items:
                     $ref: "#/components/schemas/Scorer"
                 cases:
                   type: array
+                  maxItems: 1000
                   description: The cases to create the dataset holding, so one can be assembled in a single act rather than created empty and filled in afterwards.
                   items:
                     $ref: "#/components/schemas/NewEvalCase"
@@ -11815,11 +11817,21 @@ paths:
                   maxLength: 1000
                 scorers:
                   type: array
+                  maxItems: 20
                   description: >
                     Left out to keep the dataset's columns as they are; sent to replace them
                     wholesale.
                   items:
                     $ref: "#/components/schemas/Scorer"
+                cases:
+                  type: array
+                  maxItems: 1000
+                  description: >
+                    The cases as they should stand afterwards, as the cases/save endpoint takes
+                    them. Sent with the rest of an edit so that a rename the dataset refuses
+                    refuses the case edits with it.
+                  items:
+                    $ref: "#/components/schemas/SaveEvalCase"
       responses:
         "200":
           description: eval dataset updated
@@ -11920,6 +11932,7 @@ paths:
               properties:
                 cases:
                   type: array
+                  maxItems: 1000
                   items:
                     $ref: "#/components/schemas/SaveEvalCase"
       responses:

@@ -407,7 +407,9 @@ as a suggestion they could add and never be able to score with.
 ### A scorer is a column
 
 A scorer is stored on the dataset as `{id, name?, pass_if?, kind, path}`, with the `id` assigned
-once and never reused. That id is what
+once and never reused: on a write, an incoming id is kept only when it names a column the dataset
+already holds, and anything else is minted, so a column that was removed cannot come back under
+its old id and inherit the scores recorded against it. That id is what
 makes a column the same column across experiments when the scorer is renamed or its definition
 edited, and a delta is only ever computed between two scores carrying the same id. Two scorers
 pointing at the same script are two columns, which is what someone comparing thresholds wants.
@@ -463,7 +465,9 @@ cases yet, so there is one place a dataset is written and one shape to learn. It
 the dataset named on a row of the runs list, and from the run dialog — the pencil on the dataset
 you are about to run, and **New dataset** beside it — which are the two places a dataset is what
 you are looking at. Renaming moves the dataset, and its cases and its runs follow through the
-foreign keys.
+foreign keys. The drawer saves in one request — the rename, the summary and the cases together —
+so a rename the server refuses leaves the cases as they were rather than written under the old
+name.
 
 Curating and reading are kept apart because they answer different questions and a table that did
 both invited editing a case while looking at what an earlier version of it scored. So the row keeps

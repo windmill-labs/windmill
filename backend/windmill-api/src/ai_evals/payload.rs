@@ -64,8 +64,12 @@ fn truncate_value(value: Box<RawValue>) -> (Box<RawValue>, bool) {
     if value.get().len() <= MAX_TOOL_RESULT_BYTES {
         return (value, false);
     }
-    let cut: String = value.get().chars().take(MAX_TOOL_RESULT_BYTES).collect();
-    match serde_json::value::to_raw_value(&format!("{}… [truncated]", cut)) {
+    let text = value.get();
+    let mut end = MAX_TOOL_RESULT_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    match serde_json::value::to_raw_value(&format!("{}… [truncated]", &text[..end])) {
         Ok(v) => (v, true),
         Err(_) => (value, false),
     }

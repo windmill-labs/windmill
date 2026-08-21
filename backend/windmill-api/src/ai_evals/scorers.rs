@@ -85,15 +85,15 @@ impl Scorer {
     }
 }
 
-/// Ids are assigned here rather than trusted from the client: two columns sharing one id would
-/// silently merge two scorers' history into one, and an id that is not a valid flow module
-/// identifier would break the scoring flows it is baked into (see `scorer_module_id`).
-pub(crate) fn assign_scorer_ids(scorers: &mut Vec<Scorer>) -> Result<()> {
-    fn valid_id(id: &str) -> bool {
-        !id.is_empty()
-            && id.len() <= 64
-            && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-    }
+/// Ids are assigned here rather than trusted from the client: an id is kept only when it names a
+/// column the dataset already has, so a column that was removed cannot come back under its old id
+/// and inherit the scores recorded against it, and two columns cannot share one id and merge two
+/// scorers' history into one. Anything else is minted, as a valid flow module identifier, which
+/// the scoring flows it is baked into require (see `scorer_module_id`).
+pub(crate) fn assign_scorer_ids(
+    scorers: &mut Vec<Scorer>,
+    existing: &std::collections::HashSet<String>,
+) -> Result<()> {
     if scorers.len() > MAX_SCORERS_PER_DATASET {
         return Err(Error::BadRequest(format!(
             "An eval dataset holds at most {} scorers",
@@ -102,7 +102,7 @@ pub(crate) fn assign_scorer_ids(scorers: &mut Vec<Scorer>) -> Result<()> {
     }
     let mut seen = std::collections::HashSet::new();
     for scorer in scorers.iter_mut() {
-        if !valid_id(&scorer.id) || !seen.insert(scorer.id.clone()) {
+        if !existing.contains(&scorer.id) || !seen.insert(scorer.id.clone()) {
             scorer.id = Uuid::new_v4().simple().to_string();
             seen.insert(scorer.id.clone());
         }

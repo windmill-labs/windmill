@@ -296,6 +296,17 @@ fn check_case(
             )));
         }
     }
+    // The shape the agent step reads its attachments in, checked when the case is written rather
+    // than when a run deserialises the step's arguments, which is after the case was queued.
+    if let Some(attachments) = &input.user_attachments {
+        if serde_json::from_str::<Vec<windmill_types::s3::S3Object>>(attachments.get()).is_err() {
+            return Err(Error::BadRequest(
+                "A case's user_attachments is a list of S3 objects, each with an `s3` key naming \
+                 the file"
+                    .to_string(),
+            ));
+        }
+    }
     check_case_size(input, expected)
 }
 
