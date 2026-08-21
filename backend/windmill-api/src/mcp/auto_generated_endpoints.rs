@@ -678,9 +678,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
     },
     EndpointTool {
         name: Cow::Borrowed("createScript"),
-        description: Cow::Borrowed("create script: Creates a new script at a path that does not already hold one.
-Deploying a new version of an existing script is `POST /w/{workspace}/scripts/update/{path}`"),
-        instructions: Cow::Borrowed("Creates a script at a path that is free. Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it."),
+        description: Cow::Borrowed("create script: Creates a script at a path that does not already hold one"),
+        instructions: Cow::Borrowed("Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it."),
         path: Cow::Borrowed("/w/{workspace}/scripts/create"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,

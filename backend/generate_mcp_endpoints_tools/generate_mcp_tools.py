@@ -411,9 +411,18 @@ def schema_to_rust_value(schema: Optional[Dict[str, Any]]) -> str:
     return f"Some(serde_json::json!({json.dumps(schema, indent=8, ensure_ascii=False)}))"
 
 def build_tool_description(operation: Dict[str, Any], method: str, path: str) -> str:
-    """Build the MCP tool description from OpenAPI summary and description."""
+    """Build the MCP tool description from OpenAPI summary and description.
+
+    `x-mcp-tool-description` stands in for the operation's own description, for a route
+    whose two audiences need different text: the description documents the endpoint,
+    including fields like `parent_hash` that `x-mcp-tool-include-fields` deliberately
+    keeps out of the tool, and naming one there tells an agent to send what its schema
+    does not offer.
+    """
     summary = operation.get('summary', '').strip()
-    description = operation.get('description', '').strip()
+    description = (
+        operation.get('x-mcp-tool-description') or operation.get('description', '')
+    ).strip()
 
     if summary and description:
         return f"{summary}: {description}".rstrip('.!? ')

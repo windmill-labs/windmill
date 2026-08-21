@@ -687,8 +687,8 @@ export const mcpEndpointTools: EndpointTool[] = [
     },
     {
         name: "createScript",
-        description: "create script: Creates a new script at a path that does not already hold one.\nDeploying a new version of an existing script is `POST /w/{workspace}/scripts/update/{path}`",
-        instructions: "Creates a script at a path that is free. Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it.",
+        description: "create script: Creates a script at a path that does not already hold one",
+        instructions: "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it.",
         path: "/w/{workspace}/scripts/create",
         method: "POST",
         pathParamsSchema: undefined,

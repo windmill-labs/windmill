@@ -12768,10 +12768,10 @@
     "/w/{workspace}/scripts/create": {
       "post": {
         "summary": "create script",
-        "description": "Creates a new script at a path that does not already hold one.\nDeploying a new version of an existing script is `POST /w/{workspace}/scripts/update/{path}`.\n",
+        "description": "Creates a new script at a path that does not already hold one.\nSupplying `parent_hash` instead deploys a new version of the script that hash names, and a `path` differing from that version's moves the script there. `POST /w/{workspace}/scripts/update/{path}` does the same, naming the superseded version in its URL.\n",
         "operationId": "createScript",
         "x-mcp-tool": true,
-        "x-mcp-instructions": "Creates a script at a path that is free. Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it.",
+        "x-mcp-instructions": "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it.",
         "x-mcp-tool-include-fields": [
           "path",
           "content",
@@ -12812,7 +12812,8 @@
               }
             }
           }
-        }
+        },
+        "x-mcp-tool-description": "Creates a script at a path that does not already hold one."
       }
     },
     "/w/{workspace}/scripts/update/{path}": {
@@ -37640,7 +37641,8 @@
             "type": "string"
           },
           "parent_hash": {
-            "type": "string"
+            "type": "string",
+            "description": "The hash of the version this one supersedes: deploying with it archives that version and chains the new one onto its history, and a `path` differing from the superseded version's moves the script there."
           },
           "auto_parent": {
             "type": "boolean",
