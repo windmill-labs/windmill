@@ -201,9 +201,10 @@ async fn build_run_payload(
                 schema: row.and_then(|r| r.schema.as_ref()).map(|s| s.0.clone()),
             });
         }
-        // A failed call's error is the result too — the same failure payload — so it is bounded by
-        // the same cap: rendering prefers `error`, and an unbounded one would put back exactly the
-        // bytes `truncate_value` just kept out of a judge's context.
+        // A failed call's error is its (already truncated) result restated. `render_tool_calls`
+        // shows `error` and not `result` for a failed call, so the judge's context carries the
+        // payload once and bounded; `result` stays on the raw call for a script scorer, which reads
+        // `error` to detect the failure and `result` for what it returned.
         let error = failed
             .then(|| result.as_ref().map(|r| r.get().to_string()))
             .flatten();

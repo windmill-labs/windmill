@@ -432,7 +432,14 @@ pub(crate) async fn readable_agent_state(
     let (Some(value), Some(version)) = (row.value, row.version) else {
         return Ok(None);
     };
-    Ok(Some((config_to_draft(value.0)?, version)))
+    // A resource's value isn't validated against its type on write, so an ai_agent whose value
+    // isn't a valid config is treated as no usable state (None), matching this function's contract,
+    // rather than erroring: a read path then leaves the "since deployed" label unresolved and a
+    // launch refuses the judge, instead of one bad row 400ing the whole results page or run list.
+    match config_to_draft(value.0) {
+        Ok(config) => Ok(Some((config, version))),
+        Err(_) => Ok(None),
+    }
 }
 
 /// What the agent is deployed as, and which version that is, from one read.
