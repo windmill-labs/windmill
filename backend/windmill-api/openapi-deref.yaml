@@ -13317,8 +13317,10 @@ paths:
         new version of it, and do NOT delete and recreate a script to change
         it. A new version generates its lock async, and only a version with a
         lock is runnable: until it lands, a run by path still executes the
-        previous version, so poll getScriptByPath until lock is non-null before
-        running the new one.
+        previous version. Poll getScriptByPath before running the new one and
+        stop on either outcome: lock non-null means it is ready, lock_error_logs
+        set means the lockfile failed and that version will never run, so report
+        the error instead of polling on.
       x-mcp-tool-include-fields:
         - path
         - content
@@ -13523,8 +13525,10 @@ paths:
         path that holds no script is refused: use createScript to create one. A
         new version generates its lock async, and only a version with a lock is
         runnable: until it lands, a run by path still executes the previous
-        version, so poll getScriptByPath until lock is non-null before running
-        the new one.
+        version. Poll getScriptByPath before running the new one and stop on
+        either outcome: lock non-null means it is ready, lock_error_logs set
+        means the lockfile failed and that version will never run, so report the
+        error instead of polling on.
       x-mcp-tool-include-fields:
         - path
         - content
