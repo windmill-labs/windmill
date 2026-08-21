@@ -1933,6 +1933,45 @@
           - email
   skipJudge: true
 
+# Confluence ships 13 real actions, and `List Pages` takes a cursor without ever
+# following one — so where the next cursor comes from (`_links.next`) is stated in the
+# integration's authored metadata and appears in no script body. A task that has to
+# paginate is therefore the one place the two routes to an integration's conventions
+# are not interchangeable.
+- id: global-hub4-confluence-paginate-all-pages
+  prompt: |-
+    I need a script that returns every page in one of my Confluence spaces, not just the
+    first batch — it should keep fetching until there are no more.
+    Save it as a draft at `f/evals/global/confluence_all_pages` and leave it as an AI
+    draft; do not deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 14
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/confluence_all_pages
+        valueIncludes:
+          - /wiki/
+          - Basic
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    # Either route to the integration's conventions is fine; the checklist is where the
+    # difference between them has to show up.
+    requiredToolsAnyOf:
+      - - search_hub_scripts
+        - get_hub_integration
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  judgeChecklist:
+    - the script loops until the API stops returning a next link, rather than making a single request
+    - the next cursor is read from the response's `_links.next` or the Link header, not from an invented field such as `next_cursor`, `nextPageToken` or `offset`
+    - it authenticates with HTTP Basic built from the Confluence resource's email and API token rather than a bearer token
+    - the script takes a Confluence resource as an input parameter rather than loose credential strings
+    - the result stays an AI draft and is not deployed
+
 # --- Windmill Hub reuse (search_hub_scripts + read_workspace_item on a hub/ path) ---
 # Holded's API is obscure enough that a model writing from memory cannot reproduce
 # its endpoint and `key` auth header — so the draft's fidelity to the published

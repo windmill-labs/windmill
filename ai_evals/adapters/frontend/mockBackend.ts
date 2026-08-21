@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import confluenceFixture from '../../fixtures/frontend/global/hub/confluence.json'
 import type {
 	AppWithLastVersion,
 	CompletedJob,
@@ -866,7 +867,33 @@ export function listBenchmarkMcpTools(): EndpointTool[] {
  * hub republishes new versions. */
 const BENCHMARK_INTEGRATION_META_PATH = /^\/api\/integrations\/hub\/([^/]+)\/meta$/
 
+/** One integration lifted verbatim from the content repo — its shipped scripts, its
+ * authored meta.json and its resource type. Hand-written fixtures make both routes to
+ * an integration's conventions look equally cheap; a real one is the only way to tell
+ * whether reading the metadata beats reading a script. */
+const REAL_HUB_INTEGRATIONS = [confluenceFixture] as unknown as Array<{
+	app: string
+	display_name: string
+	description: string
+	docs_url: string
+	curated: boolean | null
+	meta: unknown
+	resource_type: { name: string; description: string; schema: unknown }
+	scripts: Array<{
+		version_id: number
+		app: string
+		summary: string
+		description: string
+		terms: string
+		kind: string
+		language: string
+		content: string
+		schema: unknown
+	}>
+}>
+
 const BENCHMARK_HUB_SCRIPTS = [
+	...REAL_HUB_INTEGRATIONS.flatMap((integration) => integration.scripts),
 	{
 		version_id: 22235,
 		app: 'holded',
@@ -1284,6 +1311,21 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 	const integrationMeta = BENCHMARK_INTEGRATION_META_PATH.exec(path)
 	if (integrationMeta) {
 		const app = decodeURIComponent(integrationMeta[1])
+		const real = REAL_HUB_INTEGRATIONS.find((integration) => integration.app === app)
+		if (real) {
+			return Response.json({
+				app,
+				display_name: real.display_name,
+				description: real.description,
+				docs_url: real.docs_url,
+				curated: real.curated,
+				metadata_source: 'curated',
+				meta: real.meta,
+				meta_updated_at: null,
+				derived: benchmarkDerivedFacts(app),
+				resource_types: [{ id: 1, ...real.resource_type }]
+			})
+		}
 		const entry = BENCHMARK_HUB_INTEGRATION_META[app]
 		if (!entry) {
 			return Response.json({ error: 'integration not found' }, { status: 404 })
