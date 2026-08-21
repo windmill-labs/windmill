@@ -697,7 +697,7 @@
 		<Splitpanes class="h-full">
 			<Pane size={selectedRow ? 60 : 100} minSize={35}>
 				<div class="h-full overflow-auto">
-					{#if loaded && loadError && datasets.length === 0}
+					{#if loaded && loadError}
 						<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
 							<span class="text-sm text-emphasis">Could not load evals</span>
 							<span class="text-xs text-secondary max-w-md">
