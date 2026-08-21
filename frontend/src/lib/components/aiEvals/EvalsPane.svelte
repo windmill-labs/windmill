@@ -170,22 +170,22 @@
 	 * the selection. The load resets which run is being read, so an effect would race every caller
 	 * that sets the dataset and then opens a run of it.
 	 */
-	async function useDataset(path: string) {
+	async function useDataset(path: string): Promise<boolean> {
 		selectedDataset = path
 		rememberDataset(path)
-		await loadDataset(path)
+		return await loadDataset(path)
 	}
 
 	// Switching datasets leaves the previous request in flight; only the newest may write, or a
 	// slow response for the dataset you just left replaces the one you are looking at.
 	let loadGeneration = 0
 
-	async function loadDataset(path: string | undefined) {
+	async function loadDataset(path: string | undefined): Promise<boolean> {
 		const generation = ++loadGeneration
 		if (!ws || !path) {
 			dataset = undefined
 			storedCases = {}
-			return
+			return false
 		}
 		// Deliberately not the pane's `loading`: opening a dataset to edit it happens over the runs
 		// list, and blanking that list to a skeleton makes the click read as navigation.
@@ -194,13 +194,20 @@
 				AiEvalsService.getEvalDataset({ workspace: ws, path }),
 				AiEvalsService.listEvalCases({ workspace: ws, path, perPage: CASE_PAGE_SIZE })
 			])
-			if (generation !== loadGeneration) return
+			if (generation !== loadGeneration) return false
 			dataset = row
 			storedCases = Object.fromEntries(cases.cases.map((c) => [c.id, c]))
+			return true
 		} catch (e) {
 			if (generation === loadGeneration) {
+				// The load failed, so what `dataset`/`storedCases` still hold is the previous dataset.
+				// Clear them rather than leave a caller (the edit drawer) to open on another dataset's
+				// cases and write them back under this path.
+				dataset = undefined
+				storedCases = {}
 				sendUserToast(`Failed to load ${path}: ${e}`, true)
 			}
+			return false
 		}
 	}
 
@@ -705,8 +712,7 @@
 							{loaded}
 							onOpen={(e) => openRun(e.id)}
 							onEditDataset={async (path) => {
-								await useDataset(path)
-								datasetDrawer?.openDrawer('edit')
+								if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
 							}}
 							onNew={() => (runDialogOpen = true)}
 						/>
@@ -1021,8 +1027,7 @@
 	onRun={runAll}
 	onEditDataset={async (path) => {
 		resumeRunDialog = true
-		await useDataset(path)
-		datasetDrawer?.openDrawer('edit')
+		if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
 	}}
 	onNewDataset={() => {
 		resumeRunDialog = true

@@ -190,8 +190,9 @@ pub async fn recent_scorers(
             }
         }
     }
-    recent.truncate(MAX_RECENT_SCORERS);
-
+    // Readability is resolved over every candidate, then the list is cut: an unreadable scorer must
+    // not take a slot a readable one further down would have filled, leaving the picker looking
+    // emptier than the workspace is.
     let script_paths = recent
         .iter()
         .filter(|r| matches!(r.scorer.def, ScorerDef::Script { .. }))
@@ -226,6 +227,7 @@ pub async fn recent_scorers(
         ScorerDef::Script { path } => readable_scripts.contains(path),
         ScorerDef::Agent { path } => readable_agents.contains(path),
     });
+    recent.truncate(MAX_RECENT_SCORERS);
     Ok(Json(recent))
 }
 

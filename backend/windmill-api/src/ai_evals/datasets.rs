@@ -180,9 +180,12 @@ pub async fn create_dataset(
             MAX_CASES_PER_DATASET
         )));
     }
+    let mut total = 0usize;
     for case in &payload.cases {
         check_case(case.name.as_deref(), &case.input, case.expected.as_ref())?;
+        total += case_bytes(&case.input, case.expected.as_ref())?;
     }
+    check_dataset_bytes(total)?;
     let mut scorers = payload.scorers;
     // A dataset being created has no columns yet, so every id is minted.
     assign_scorer_ids(&mut scorers, &std::collections::HashSet::new())?;
@@ -241,10 +244,7 @@ pub async fn get_dataset(
 
 /// An edit is one transaction: the rename, the summary, the columns and the cases land together
 /// or not at all, so a case the list no longer holds, or a name already taken, refuses the whole
-/// save rather than half of it. `eval_case` has no write policies, so the transaction runs on
-/// `db`; what the policies would have decided is decided first, through the caller's own
-/// connection: that they may write this row, asked of the row itself, and that they may put a
-/// dataset at the new name, which is what the insert policies ask of a new row.
+/// save rather than half of it.
 pub async fn update_dataset(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -269,10 +269,16 @@ pub async fn update_dataset(
     }
     // The whole edit is one `user_db` transaction, governed by the row-level policies throughout:
     // the row is read `FOR UPDATE` (its UPDATE policy decides who may), the columns it holds are
-    // read under that lock so a concurrent edit cannot restore a removed scorer's id, the `UPDATE`
-    // re-checks the destination path (a rename to a name the caller cannot write is refused), and
-    // the cases move under the new name through the same policies. Nothing decides access in Rust.
+    // read under that lock so a concurrent edit cannot restore a removed scorer's id, and the
+    // cases move under the (possibly new) name through the case write policies. The rename's
+    // destination is checked too — the dataset UPDATE policies carry no explicit `WITH CHECK`, so
+    // Postgres reuses their `USING` as one, and a rename into a path the caller cannot write is
+    // refused (into their own namespace is allowed, as for any resource). Nothing is decided in Rust.
     let mut tx = user_db.clone().begin(&authed).await?;
+    // The case advisory lock first, then the row `FOR UPDATE`: `add_case`/`save_cases` take the
+    // advisory lock before their `eval_case` writes touch the dataset row's foreign key, so every
+    // path that holds both must take them in this order or a concurrent edit and case-add deadlock.
+    lock_dataset_cases(&mut tx, &w_id, &path).await?;
     let current = sqlx::query_scalar!(
         "SELECT scorers FROM eval_dataset WHERE workspace_id = $1 AND path = $2 FOR UPDATE",
         w_id,
@@ -534,9 +540,12 @@ fn check_cases(cases: &[SaveCase]) -> Result<()> {
             MAX_CASES_PER_DATASET
         )));
     }
+    let mut total = 0usize;
     for case in cases {
         check_case(case.name.as_deref(), &case.input, case.expected.as_ref())?;
+        total += case_bytes(&case.input, case.expected.as_ref())?;
     }
+    check_dataset_bytes(total)?;
     // One row per id: the same id twice would write one row twice and return a list longer than
     // the dataset it describes, and the save would read as having kept a case it dropped.
     let mut ids: Vec<Uuid> = cases.iter().filter_map(|c| c.id).collect();

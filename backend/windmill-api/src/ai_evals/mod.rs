@@ -128,6 +128,10 @@ fn check_path(path: &str) -> Result<()> {
 /// loop left running — cannot grow a dataset past what a listing can load.
 
 const MAX_CASE_BYTES: usize = 256 * 1024;
+/// The whole dataset's cases together, so 1 000 cases at the per-case cap cannot add up to a
+/// dataset a listing or a run must hold hundreds of megabytes of at once. Cases are text —
+/// attachments are S3 references — so this is generous for real use and only bites the pathological.
+const MAX_DATASET_BYTES: usize = 16 * 1024 * 1024;
 /// Also what a listing returns in one page, so a dataset is always read whole: the editor holds
 /// every case at once and writes them together, and half a set on screen is a Save that looks
 /// like it dropped the rest.
@@ -223,9 +227,12 @@ async fn read_dataset(
     })
 }
 
-/// The dataset and its cases as one snapshot, both read in one transaction so a launch cannot
-/// observe the cases from before an edit beside the scorers from after it — a dataset state that
-/// never existed. `None` when the dataset is not there to read.
+/// The dataset and its cases as one snapshot, so a launch cannot record the cases from before an
+/// edit beside the scorers from after it — a dataset state that never existed. One transaction is
+/// not enough on its own: `user_db` runs at READ COMMITTED, where each statement takes a fresh
+/// snapshot, so the row is taken `FOR UPDATE` — which an atomic edit's own `FOR UPDATE`, and a
+/// case write's foreign-key lock, both conflict with — pinning the cases against change until the
+/// read commits. `None` when the dataset is not there to read.
 pub(crate) async fn read_dataset_and_cases(
     authed: &ApiAuthed,
     user_db: &UserDB,
@@ -236,7 +243,7 @@ pub(crate) async fn read_dataset_and_cases(
     let mut tx = user_db.clone().begin(authed).await?;
     let row = sqlx::query!(
         "SELECT path, summary, scorers, created_at, created_by, edited_at, edited_by
-         FROM eval_dataset WHERE workspace_id = $1 AND path = $2",
+         FROM eval_dataset WHERE workspace_id = $1 AND path = $2 FOR UPDATE",
         w_id,
         path
     )
@@ -369,11 +376,30 @@ fn check_case(
     check_case_size(input, expected)
 }
 
-fn check_case_size(input: &EvalCaseInput, expected: Option<&Box<RawValue>>) -> Result<()> {
+/// The bytes one case weighs against its own and the dataset's caps.
+fn case_bytes(input: &EvalCaseInput, expected: Option<&Box<RawValue>>) -> Result<usize> {
     let mut bytes = serde_json::to_vec(input)?.len();
     if let Some(expected) = expected {
         bytes += expected.get().len();
     }
+    Ok(bytes)
+}
+
+/// Refuse a whole case set whose bytes exceed the dataset cap, before any of it is written.
+pub(crate) fn check_dataset_bytes(total: usize) -> Result<()> {
+    if total > MAX_DATASET_BYTES {
+        return Err(Error::BadRequest(format!(
+            "This dataset is {} KiB of cases, over the {} KiB limit. Attachments belong in \
+             workspace storage and are referenced by a case, not stored inside it.",
+            total / 1024,
+            MAX_DATASET_BYTES / 1024
+        )));
+    }
+    Ok(())
+}
+
+fn check_case_size(input: &EvalCaseInput, expected: Option<&Box<RawValue>>) -> Result<()> {
+    let bytes = case_bytes(input, expected)?;
     if bytes > MAX_CASE_BYTES {
         return Err(Error::BadRequest(format!(
             "This eval case is {} KiB, over the {} KiB limit. Attachments belong in workspace \
