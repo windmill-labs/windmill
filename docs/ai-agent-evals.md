@@ -217,8 +217,8 @@ up.
   value's numbers are already in the history from before the editing started.
 
 In the flow editor, editing a linked agent forks the configuration into the step and clears the
-link. The edits are mirrored into that agent's own resource draft as they are made, so evals still
-name the agent: the step is where you type, and the draft is what runs. Which agent a step is,
+link. The edits are kept on that agent's own resource draft, so evals still name the agent: the
+step is where you type, and the draft is what runs. Which agent a step is,
 whether it is being edited, and whether those edits are saved is a **card at the top of the step's
 inputs**, inside the same scroll region as the fields it is about, rather than a second bar with a
 scrollbar of its own. Evals open from that card in both of its states, since evals of an agent
@@ -226,13 +226,20 @@ being edited run the edits and the question they answer is whether the edit is a
 While an agent is being edited the card says on the line — not under an icon — that saving updates
 every flow using the agent, and carries an unsaved-changes badge once there is something to save.
 
-The draft is the agent's, not the step's, so it outlives both. Save changes writes it to the agent
-and re-links the step; Cancel re-links the step and leaves the draft, which the next Edit resumes
-from — in this flow or in the resource editor, which writes the same draft; Discard, on the banner,
-is the one control that drops it. A linked step whose agent has a draft waiting says so with the
-same badge, because that is what its Evals button offers to run. Two editors on one draft means it
-can advance underneath you, so the card carries the shared conflict dialog, and an autosave that
-was rejected is reported rather than left to look like a save.
+The draft is the agent's, not the step's, so it outlives both. It is written at the moments that
+decide the edits' fate rather than as they are typed: Cancel puts them on the draft and re-links
+the step; opening Evals from the editing card puts them there first, so the run reads what is on
+screen; Save changes writes them to the agent and drops the draft; Discard, on the banner, is the
+one control that drops it without saving. The next Edit resumes the draft — in this flow or in the
+resource editor, which writes the same draft. Each write is awaited and its outcome read while the
+editor is still open: two editors on one draft means it can advance underneath you, and a write the
+server refuses for that raises the shared conflict dialog with the editor still open behind it; a
+write that fails is said in a toast and the editor stays open too. So there is never a moment at
+which the card has to vouch for a write it cannot see the outcome of, and a linked step's
+unsaved-changes badge is the server's answer alone — shown because that is what its Evals button
+offers to run. Between those moments the edits live in the step alone (and in the flow's own
+draft, which autosaves it); leaving the flow without Cancel or Save writes nothing to the agent.
+Edit reads the draft as the server has it.
 
 The card also names the version, because that is what a run is recorded against: `v24` beside the
 agent, and `v24` beside an unsaved-changes badge for edits sitting on top of it, which is what a run
