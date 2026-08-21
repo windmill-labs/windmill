@@ -20,7 +20,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { onMount, untrack } from 'svelte'
 	import { summaryToName } from '$lib/utils'
-	import { Bot, Code2, Table2 } from 'lucide-svelte'
+	import { Bot, Code2 } from 'lucide-svelte'
 	import type { RecentScorersResponse } from '$lib/gen'
 	import type { ScorerKind } from './evalScorers'
 
@@ -409,9 +409,9 @@ Expected: the case's expected value`
 							class="flex items-center gap-1.5 text-2xs text-tertiary min-w-0 shrink"
 							title={scorer.dataset}
 						>
-							<Table2 size={12} class="shrink-0" />
 							<!-- What the dataset is for over what it is called, as the list on the left reads
-							     and as a dataset is named everywhere else it is listed. -->
+							     and as a dataset is named everywhere else it is listed. No icon: every row has a
+							     dataset, so a glyph would distinguish nothing, and datasets carry none elsewhere. -->
 							<span class="flex flex-col min-w-0 text-right">
 								{#if datasetSummary(scorer.dataset)}
 									<span class="truncate leading-tight">{datasetSummary(scorer.dataset)}</span>
