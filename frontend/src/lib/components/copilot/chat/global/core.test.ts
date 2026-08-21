@@ -346,7 +346,7 @@ import {
 	UserService,
 	VariableService
 } from '$lib/gen'
-import { userStore, usersWorkspaceStore } from '$lib/stores'
+import { superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
 import { clearWorkspaceRoleCache } from '$lib/user'
 import { get } from 'svelte/store'
 import type { Tool, ToolCallbacks } from '../shared'
@@ -5797,6 +5797,8 @@ describe('open_page workspace gating', () => {
 		// Admin of the workspace being browsed, plain member of the one a session operates on.
 		userStore.set({ username: 'bob', workspace_id: NAV, is_admin: true } as any)
 		usersWorkspaceStore.set({ workspaces: [{ id: NAV }, { id: SESSION }, { id: FLAKY }] } as any)
+		// A non-membership is only pronounced once both of these have resolved.
+		superadmin.set(false)
 		whoamiByWorkspace.set(SESSION, {
 			username: 'bob',
 			email: 'bob@windmill.dev',
@@ -5809,6 +5811,7 @@ describe('open_page workspace gating', () => {
 	afterEach(() => {
 		userStore.set(undefined)
 		usersWorkspaceStore.set(undefined)
+		superadmin.set(undefined)
 		whoamiByWorkspace.clear()
 		clearWorkspaceRoleCache()
 		openPage().def = pristineDef
@@ -5858,5 +5861,16 @@ describe('open_page workspace gating', () => {
 		expect(UserService.whoami).not.toHaveBeenCalledWith(
 			expect.objectContaining({ workspace: 'unreachable_ws' })
 		)
+	})
+
+	// An unloaded list is indistinguishable from an empty one, and the layout may never
+	// finish loading it, so reading it as settled would deny the workspace permanently.
+	it('asks whoami while the workspace list is still unresolved', async () => {
+		usersWorkspaceStore.set(undefined)
+
+		await openPage().setSchema?.({ operatingWorkspace: SESSION })
+
+		expect(UserService.whoami).toHaveBeenCalledWith(expect.objectContaining({ workspace: SESSION }))
+		expect(advertisedPages()).not.toEqual([])
 	})
 })

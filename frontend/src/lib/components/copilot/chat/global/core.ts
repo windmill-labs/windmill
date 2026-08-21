@@ -152,6 +152,7 @@ import {
 	devopsRole,
 	enterpriseLicense,
 	userWorkspaces,
+	usersWorkspaceStore,
 	workspaceStore
 } from '$lib/stores'
 import { getWorkspaceRole, type RoleLookup } from '$lib/user'
@@ -2107,9 +2108,12 @@ ${getScriptPrompt(selected)}`
 }
 
 async function getFlowInstructions(workspace: string | undefined): Promise<string> {
-	const aiAgentProviders = formatAiAgentProvidersPrompt(await getAiAgentProviderCatalog(workspace), {
-		canAskUser: true
-	})
+	const aiAgentProviders = formatAiAgentProvidersPrompt(
+		await getAiAgentProviderCatalog(workspace),
+		{
+			canAskUser: true
+		}
+	)
 	return `# Global draft flow instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
@@ -2436,7 +2440,15 @@ async function roleForWorkspace(
 	// `whoami` would reject it every time. Settle it here: the rejection is a bare 401,
 	// which cannot be told apart from an expired session, and a superadmin resolves on a
 	// workspace they are not a member of, so neither the status nor the list alone decides.
-	if (!get(superadmin) && !get(userWorkspaces).some((w) => w.id === workspaceId)) {
+	// Both stores start undefined and load asynchronously, and the list can exhaust its
+	// retries for good, so an unloaded one must never read as an empty one: that denies
+	// every other workspace, permanently. Unknown membership means ask `whoami`.
+	const membershipKnown = get(usersWorkspaceStore) != undefined && get(superadmin) != undefined
+	if (
+		membershipKnown &&
+		!get(superadmin) &&
+		!get(userWorkspaces).some((w) => w.id === workspaceId)
+	) {
 		return { kind: 'not_a_member' }
 	}
 	return getWorkspaceRole(workspaceId)
