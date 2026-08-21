@@ -992,7 +992,7 @@ async fn offboard_user_from_workspace<'c>(
     // as it does for a reassigned resource.
     let eval_datasets_reassigned = sqlx::query_scalar!(
         r#"WITH updated AS (
-            UPDATE eval_dataset SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/')
+            UPDATE eval_dataset SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1')
             WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3
             RETURNING 1
         ) SELECT COUNT(*) FROM updated"#,
@@ -1004,7 +1004,7 @@ async fn offboard_user_from_workspace<'c>(
     .await?
     .unwrap_or(0);
     sqlx::query!(
-        r#"UPDATE eval_experiment SET subject = jsonb_set(subject, '{path}', to_jsonb(REGEXP_REPLACE(subject->>'path', 'u/' || $2 || '/(.*)', $1 || '/'))) WHERE subject->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        r#"UPDATE eval_experiment SET subject = jsonb_set(subject, '{path}', to_jsonb(REGEXP_REPLACE(subject->>'path', 'u/' || $2 || '/(.*)', $1 || '/\1'))) WHERE subject->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         &new_prefix,
         username,
         w_id
@@ -1015,7 +1015,7 @@ async fn offboard_user_from_workspace<'c>(
         r#"UPDATE eval_dataset SET scorers = COALESCE((
                 SELECT jsonb_agg(
                     CASE WHEN elem->>'path' LIKE ('u/' || $2 || '/%')
-                    THEN jsonb_set(elem, '{path}', to_jsonb(REGEXP_REPLACE(elem->>'path', 'u/' || $2 || '/(.*)', $1 || '/')))
+                    THEN jsonb_set(elem, '{path}', to_jsonb(REGEXP_REPLACE(elem->>'path', 'u/' || $2 || '/(.*)', $1 || '/\1')))
                     ELSE elem END)
                 FROM jsonb_array_elements(scorers) elem), '[]'::jsonb)
            WHERE workspace_id = $3
