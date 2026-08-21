@@ -489,6 +489,12 @@ pub async fn handle_dependency_job(
             // Since only worker that ran this Dependency Job has the cache
             // we do not need to think about invalidating cache for other workers.
             cache::script::invalidate(current_hash);
+            // The version only became runnable now, so this process still resolves the path to
+            // the version before it. Only the runnable-hash cache: the import-side caches ignore
+            // the lock, so their answer already moved when the row was inserted, and evicting
+            // just this process' half of that pair would key a bundle by a hash whose content
+            // cache has not caught up.
+            windmill_common::invalidate_deployed_script_hash_cache(w_id, script_path);
 
             if let Err(e) = handle_deployment_metadata(
                 &job.permissioned_as_email,

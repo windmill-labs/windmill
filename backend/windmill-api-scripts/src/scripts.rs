@@ -547,6 +547,7 @@ async fn create_snapshot_script(
     let mut uploaded = false;
     let mut handle_deployment_metadata = None;
     let mut moved_native_triggers = Vec::new();
+    let mut deployed_path = None;
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
@@ -554,6 +555,7 @@ async fn create_snapshot_script(
             let ns: NewScript = Some(serde_json::from_slice(&data).map_err(to_anyhow)?).unwrap();
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
             let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
+            deployed_path = Some(ns.path.clone());
             let (new_hash, ntx, hdm, moved) = create_script_internal(
                 ns,
                 w_id.clone(),
@@ -606,6 +608,9 @@ async fn create_snapshot_script(
     }
 
     tx.unwrap().commit().await?;
+    if let Some(script_path) = deployed_path.as_deref() {
+        invalidate_script_path_caches(&w_id, script_path);
+    }
     reregister_moved_native_triggers(&db, &authed, &w_id, moved_native_triggers);
     if let Some(hdm) = handle_deployment_metadata {
         hdm.handle(&db).await?;
@@ -741,6 +746,7 @@ async fn deploy_script(
     )
     .await?;
     tx.commit().await?;
+    invalidate_script_path_caches(&w_id, &script_path);
     reregister_moved_native_triggers(&db, &authed_for_triggers, &w_id, moved_native_triggers);
     if let Some(hdm) = hdm {
         // Only a script that needed no lock generation is deployed and runnable by
@@ -768,6 +774,14 @@ async fn deploy_script(
         }
     }
     Ok((StatusCode::CREATED, format!("{}", hash)))
+}
+
+/// Drop the path -> hash entries a just-committed deploy made stale, so this process resolves the
+/// path to the new version straight away instead of at the next `notify_event` poll. Must run
+/// after the commit, or a concurrent resolution repopulates them from the pre-deploy state.
+fn invalidate_script_path_caches(w_id: &str, script_path: &str) {
+    windmill_common::invalidate_latest_script_hash_caches(w_id, script_path);
+    RAW_SCRIPT_LATEST_HASH_CACHE.remove(&format!("{w_id}:{script_path}"));
 }
 
 /// What a script deploy still has to do once its transaction has committed.

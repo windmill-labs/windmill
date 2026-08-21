@@ -688,7 +688,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "createScript",
         description: "create script: Creates a script at a path that does not already hold one",
-        instructions: "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async and can take up to a minute before a run by path uses it rather than the previous one.",
+        instructions: "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version, so poll getScriptByPath until lock is non-null before running the new one.",
         path: "/w/{workspace}/scripts/create",
         method: "POST",
         pathParamsSchema: undefined,
@@ -737,7 +737,7 @@ export const mcpEndpointTools: EndpointTool[] = [
     {
         name: "updateScript",
         description: "update script: Deploys a new version of the script at `path`, which must already hold one.\nThe body's `path` is the destination: the same path leaves the script where it\nis, a different one moves it there and archives the old path",
-        instructions: "Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async and can take up to a minute before a run by path uses it rather than the previous one.",
+        instructions: "Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version, so poll getScriptByPath until lock is non-null before running the new one.",
         path: "/w/{workspace}/scripts/update/{path}",
         method: "POST",
         pathParamsSchema: {
