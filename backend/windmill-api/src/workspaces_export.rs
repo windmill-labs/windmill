@@ -638,12 +638,17 @@ pub(crate) async fn tarball_workspace(
     // variable-read capability beyond workspace metadata. Require variables:read
     // only on the plaintext-secret path: ordinary tarball pulls (structure and
     // encrypted-only values) keep working with workspaces:read, and the workspace
-    // key itself stays admin-only (include_key). No-op for unscoped tokens.
+    // key itself takes an admin *and* an unscoped token (include_key), since it
+    // decrypts those same secrets offline. No-op for unscoped tokens.
     if plain_secret.or(plain_secrets).unwrap_or(false)
         && !skip_secrets.unwrap_or(false)
         && !skip_variables.unwrap_or(false)
     {
         check_scopes(&authed, || "variables:read".to_string())?;
+    }
+    if include_key.unwrap_or(false) {
+        require_admin(authed.is_admin, &authed.username)?;
+        windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
     }
 
     // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
@@ -671,12 +676,14 @@ pub(crate) async fn tarball_workspace(
 
     // Exporting decrypted secrets in bulk is the same capability as a per-item
     // secret read, so record it for parity with variables.decrypt_secret.
+    // Audit entries go to the pool, not `tx`: that transaction is a read-only RLS
+    // scope the handler never commits, so anything written through it is rolled back.
     if plain_secret.or(plain_secrets).unwrap_or(false)
         && !skip_variables.unwrap_or(false)
         && !skip_secrets.unwrap_or(false)
     {
         windmill_audit::audit_oss::audit_log(
-            &mut *tx,
+            &db,
             &authed,
             "variables.decrypt_secret",
             windmill_audit::ActionKind::Execute,
@@ -1681,7 +1688,16 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_key.unwrap_or(false) {
-        require_admin(authed.is_admin, &authed.username)?;
+        windmill_audit::audit_oss::audit_log(
+            &db,
+            &authed,
+            "workspaces.read_encryption_key",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
 
         let key = sqlx::query_scalar!(
             "SELECT key FROM workspace_key WHERE workspace_id = $1",
