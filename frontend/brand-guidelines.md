@@ -658,6 +658,16 @@ When implementing any component:
 
 We use the **[Lucide icon library](https://lucide.dev/)** to ensure a consistent, modern, and lightweight visual language. Icons are line-only, aligning with our clean and technical aesthetic.
 
+## Brand marks and the safe area
+
+Third-party brand marks live in `frontend/src/lib/components/icons/`. They sit next to Lucide glyphs at the same requested size — in resource rows, pickers and trigger strips — so they have to occupy the same box, or the coloured mark reads as larger than the grey glyph beside it.
+
+Lucide draws on a 24×24 grid and its artwork, stroke included, spans 22 of those 24 units. Every brand mark matches that: **a square `viewBox` centred on the artwork, sized so the painted artwork spans 22/24 of it**, leaving roughly 4% of the box as margin on the tightest side.
+
+When adding an icon, do not paste the brand's own `viewBox` from its press kit — those are cropped to the artwork, so the mark lands edge to edge and draws about 10% larger than everything around it. Instead, measure the painted bounding box, then set the `viewBox` to a square of `max(width, height) × 24/22` centred on it. `/kitchen_sink/icons` renders the whole library with an **Icon box** toggle that outlines each icon's box, which is the quickest way to see whether a new mark sits with its neighbours.
+
+`iconViewBox.test.ts` fails on a non-square `viewBox`, the usual symptom of a pasted one. The 22/24 ratio itself needs a renderer to check, so it is not enforced automatically.
+
 ## Do's and Don'ts
 
 ### ✅ Do
