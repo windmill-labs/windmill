@@ -192,7 +192,7 @@
 			{#snippet buttonReplacement()}
 				<Button
 					nonCaptureEvent
-					unifiedSize="2xs"
+					unifiedSize="md"
 					variant="default"
 					startIcon={{ icon: Plus }}
 					endIcon={{ icon: ChevronDown }}
@@ -233,7 +233,7 @@
 							</span>
 						{/if}
 						<Button
-							unifiedSize="2xs"
+							unifiedSize="sm"
 							variant="subtle"
 							startIcon={{ icon: Pencil }}
 							iconOnly
@@ -241,7 +241,7 @@
 							on:click={() => editScorer(scorer)}
 						/>
 						<Button
-							unifiedSize="2xs"
+							unifiedSize="sm"
 							variant="subtle"
 							startIcon={{ icon: Settings }}
 							iconOnly
@@ -249,7 +249,7 @@
 							on:click={() => openSettings(scorer)}
 						/>
 						<Button
-							unifiedSize="2xs"
+							unifiedSize="sm"
 							variant="subtle"
 							startIcon={{ icon: Trash2 }}
 							iconOnly
@@ -287,7 +287,7 @@
 			     what to write or which one to pick, and pressing this is what makes it a column. -->
 			{@const state = addScorerForm?.submitState()}
 			<Button
-				unifiedSize="xs"
+				unifiedSize="md"
 				variant="accent"
 				loading={state?.busy}
 				disabled={!state || state.disabled}
@@ -351,7 +351,7 @@
 		{/if}
 		{#snippet actions()}
 			<Button
-				unifiedSize="xs"
+				unifiedSize="md"
 				variant="accent"
 				loading={savingSettings}
 				disabled={savingSettings || thresholdError}

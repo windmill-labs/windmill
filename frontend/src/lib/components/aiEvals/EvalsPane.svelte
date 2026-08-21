@@ -631,7 +631,7 @@
 			     making yet is a detour. Secondary, because a run is what this screen is a list of.
 			     Absent until there is a dataset: the empty state below is then the one move. -->
 			<Button
-				unifiedSize="xs"
+				unifiedSize="md"
 				variant="default"
 				startIcon={{ icon: Plus }}
 				onclick={() => datasetDrawer?.openDrawer('new')}
@@ -645,7 +645,7 @@
 				     bill, so a button that reads as spending one on the way past would be lying
 				     about the click. -->
 				<Button
-					unifiedSize="xs"
+					unifiedSize="md"
 					variant="accent"
 					startIcon={{ icon: Plus }}
 					loading={running}
@@ -671,7 +671,7 @@
 								it is the first thing to make.
 							</span>
 							<Button
-								unifiedSize="xs"
+								unifiedSize="md"
 								variant="accent"
 								startIcon={{ icon: Plus }}
 								onclick={() => datasetDrawer?.openDrawer('new')}
@@ -890,7 +890,7 @@
 								</a>
 							{/if}
 							<Button
-								unifiedSize="2xs"
+								unifiedSize="sm"
 								variant="subtle"
 								startIcon={{ icon: X }}
 								iconOnly

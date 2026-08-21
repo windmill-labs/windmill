@@ -88,7 +88,7 @@
 						unifiedSize="sm"
 						title={`Edit ${experiment.dataset}`}
 						wrapperClasses="min-w-0 max-w-full"
-						btnClasses="!px-0 !font-normal flex-col items-start text-left hover:underline hover:!bg-transparent min-w-0 max-w-full"
+						btnClasses="!h-auto py-1 !px-0 !font-normal flex-col items-start text-left hover:underline hover:!bg-transparent min-w-0 max-w-full"
 						onClick={(e) => {
 							e?.stopPropagation()
 							onEditDataset(experiment.dataset)
@@ -175,7 +175,7 @@
 						</span>
 						<!-- Where the first row would be: an empty table's one move belongs in it rather than
 						     above it, where it reads as a control over rows that are not there. -->
-						<Button unifiedSize="xs" variant="accent" startIcon={{ icon: Plus }} onclick={onNew}>
+						<Button unifiedSize="md" variant="accent" startIcon={{ icon: Plus }} onclick={onNew}>
 							New evaluation
 						</Button>
 					</div>

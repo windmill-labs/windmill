@@ -204,8 +204,9 @@ Everything is legible without a warning. A run of an older version is history an
 (`Run 14 · v23` beside an agent on v24), and flagging it would flag every past run the moment
 anything is deployed. A run whose edits were later deployed is a run of that version, and the
 results endpoint recognises and restamps it. Two runs both reading `v23 + edits` can be two
-different things; the hash each carries is what tells them apart, and since the edits live only in
-the editor that ran them there is no "current draft" for the table to compare either against.
+different things, and on screen they read the same: the hash each carries is recorded, not shown,
+and is what lets a run be recognised as the version it later became. Since the edits live only in
+the editor that ran them, there is no "current edits" for the table to compare either against.
 - **An agent's unsaved edits are their own subject.** Their runs are keyed under `agent_draft`, so
   a number produced by edits is never quietly read as the deployed agent's. The run dialog offers
   them only when it was opened from the editing card, preselected there because testing the edits

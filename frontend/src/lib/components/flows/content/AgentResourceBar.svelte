@@ -613,7 +613,7 @@
 						</span>
 					{/if}
 					<Button
-						unifiedSize="2xs"
+						unifiedSize="sm"
 						variant="default"
 						startIcon={{ icon: FlaskConical }}
 						title="Run this agent against a dataset of cases"
@@ -625,7 +625,7 @@
 						Evals
 					</Button>
 					<Button
-						unifiedSize="2xs"
+						unifiedSize="sm"
 						variant="default"
 						startIcon={{ icon: Pencil }}
 						iconOnly
@@ -636,7 +636,7 @@
 						}}
 					/>
 					<Button
-						unifiedSize="2xs"
+						unifiedSize="sm"
 						variant="default"
 						startIcon={{ icon: Unlink }}
 						iconOnly
@@ -720,7 +720,7 @@
 				     belongs to the line naming them rather than to the row that keeps or discards
 				     them. -->
 				<Button
-					unifiedSize="2xs"
+					unifiedSize="sm"
 					variant="default"
 					startIcon={{ icon: FlaskConical }}
 					title="Run these edits against a dataset of cases"
@@ -735,11 +735,11 @@
 			     says there are unsaved changes and shows them; this row is what can be done about
 			     them. -->
 			<div class="flex items-center justify-end gap-1">
-				<Button unifiedSize="2xs" variant="default" disabled={saving} onclick={cancelEdit}>
+				<Button unifiedSize="sm" variant="default" disabled={saving} onclick={cancelEdit}>
 					Cancel
 				</Button>
 				<Button
-					unifiedSize="2xs"
+					unifiedSize="sm"
 					variant="accent"
 					startIcon={{ icon: Save }}
 					disabled={saving || !!providerSaveError}
@@ -756,7 +756,7 @@
 		{/if}
 	{:else}
 		<Button
-			unifiedSize="2xs"
+			unifiedSize="sm"
 			variant="default"
 			startIcon={{ icon: Save }}
 			wrapperClasses="w-full"

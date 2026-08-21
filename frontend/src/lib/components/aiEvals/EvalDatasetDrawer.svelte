@@ -352,7 +352,7 @@
 					<span class="text-2xs text-tertiary">{workingCases.length}</span>
 					<div class="grow"></div>
 					<Button
-						unifiedSize="xs"
+						unifiedSize="sm"
 						variant="default"
 						startIcon={{ icon: Plus }}
 						disabled={(mode === 'edit' && !datasetPath) || writing}
@@ -379,7 +379,7 @@
 		{#snippet actions()}
 			{#if mode === 'edit'}
 				<Button
-					unifiedSize="xs"
+					unifiedSize="md"
 					variant="accent"
 					loading={saving}
 					disabled={saving || !path || !!pathError || (nothingToSave && !casesEditing)}
@@ -389,7 +389,7 @@
 				</Button>
 			{:else}
 				<Button
-					unifiedSize="xs"
+					unifiedSize="md"
 					variant="accent"
 					startIcon={{ icon: Plus }}
 					loading={creating}

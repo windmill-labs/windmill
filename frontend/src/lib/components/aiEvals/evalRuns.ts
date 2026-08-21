@@ -34,8 +34,8 @@ export function subjectLabel(
 			experiment.subject.kind === 'agent' ? experiment.subject.version : currentVersion
 		return version ? `v${version}` : 'deployed'
 	}
-	// Version first, as every other badge reads, and "+ draft" for what is sitting on it: the
-	// word is what the rest of Windmill calls unsaved edits, and the plus is what says they are on
-	// top of that version rather than a version of their own.
-	return experiment.subject.version ? `v${experiment.subject.version} + draft` : 'draft'
+	// Version first, as every other badge reads, and "+ edits" for what is sitting on it: the plus
+	// is what says they are on top of that version rather than a version of their own. Not
+	// "draft": the agent's resource draft is a different thing, which evals never read.
+	return experiment.subject.version ? `v${experiment.subject.version} + edits` : 'edits'
 }

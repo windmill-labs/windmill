@@ -19,7 +19,8 @@
 		datasets,
 		/** The dataset to open on: the one last worked in, or the one a run was read from. */
 		defaultDataset,
-		/** Whether the agent has edits waiting, which is the one option the history cannot show. */
+		/** The edits in the step, when opened from an agent being edited — the one option the
+		 *  history cannot show. */
 		editedConfig = undefined,
 		running = false,
 		onRun,
@@ -163,8 +164,8 @@
 					{#if hasDraft}
 						<ToggleButton
 							value="draft"
-							label={latest ? `v${latest} + draft (current)` : 'Draft (current)'}
-							tooltip="The edits waiting on the agent, as they are before saving."
+							label={latest ? `v${latest} + edits (current)` : 'Edits (current)'}
+							tooltip="The edits in the step, as they are when Run is pressed."
 							{item}
 						/>
 					{/if}
@@ -201,7 +202,7 @@
 						A run measures the agent on a set of cases, and there is no set yet.
 					</span>
 					<Button
-						unifiedSize="xs"
+						unifiedSize="sm"
 						variant="default"
 						startIcon={{ icon: Plus }}
 						onclick={() => stepAside(onNewDataset)}
@@ -229,7 +230,7 @@
 						{#snippet endSnippet({ item, close })}
 							<Button
 								variant="subtle"
-								unifiedSize="2xs"
+								unifiedSize="sm"
 								wrapperClasses="-mr-2 pl-1 -my-2"
 								btnClasses="hover:bg-surface-tertiary"
 								startIcon={{ icon: Pencil }}
@@ -263,7 +264,7 @@
 						<div class="absolute right-10 z-20">
 							<Button
 								variant="subtle"
-								unifiedSize="2xs"
+								unifiedSize="sm"
 								wrapperClasses="pl-1"
 								btnClasses="hover:bg-surface-tertiary"
 								startIcon={{ icon: Pencil }}
@@ -285,7 +286,7 @@
 	</div>
 	{#snippet actions()}
 		<Button
-			unifiedSize="xs"
+			unifiedSize="md"
 			variant="accent"
 			startIcon={{ icon: Play }}
 			loading={running}
