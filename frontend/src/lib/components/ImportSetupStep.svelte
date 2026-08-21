@@ -6,6 +6,7 @@
 	import { Button } from '$lib/components/common'
 	import AddDataTableWizard from '$lib/components/workspaceSettings/AddDataTableWizard.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import Portal from '$lib/components/Portal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import { SettingService } from '$lib/gen'
 	import { resource } from 'runed'
@@ -539,7 +540,14 @@
 		{defaultInstanceDbName}
 	/>
 {/if}
-<ConfirmationModal {...confirmationModal.props} />
+<!-- Portalled to the body, not left in place: this step renders inside the wizard page's
+     CenteredModal, which is its own stacking context, while the data table wizard it shares
+     this handle with portals to the body. In place, the confirmation's z-index is capped by
+     that context and the wizard paints over it — leaving its backdrop swallowing every click
+     with nothing visible to answer. -->
+<Portal>
+	<ConfirmationModal {...confirmationModal.props} />
+</Portal>
 
 <!-- The destination is not the workspace the app is in until the run switches to it,
      so the editor is told which one explicitly.
