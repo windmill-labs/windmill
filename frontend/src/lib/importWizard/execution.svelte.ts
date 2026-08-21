@@ -13,6 +13,7 @@ import type {
 	ProjectMigration
 } from '$lib/components/workspaceSettings/projectBundle'
 import { planWorkspaceId, type ImportPlan } from './plan'
+import { clearParkedImport, parkImport, resumableImport } from './parking'
 
 /**
  * The only thing in the wizard that changes anything. It takes a finished plan and
@@ -42,6 +43,30 @@ export interface TaskView {
 	label: string
 	status: TaskStatus
 	detail?: string
+}
+
+/**
+ * What a plan will do, as the same task list the run reports against. Exported so the
+ * last step can show it before the run starts: the checklist is what the step says it
+ * is going to do, and the run then fills in the same rows rather than replacing them.
+ *
+ * Derived from the plan alone — no network — so it is safe to call while rendering.
+ */
+export function plannedTasks(plan: ImportPlan): TaskView[] {
+	const d = plan.destination
+	const tasks: TaskView[] = []
+	if (d?.kind === 'new') {
+		tasks.push({ key: 'create', label: `Create workspace ${d.id}`, status: 'pending' })
+	}
+	tasks.push({ key: 'fetch', label: 'Fetch the project from the hub', status: 'pending' })
+	// The destination rides on this row when nothing creates it, so the list still says
+	// where the items are going in the existing-workspace case.
+	tasks.push({
+		key: 'import',
+		label: d?.kind === 'existing' ? `Import the items into ${d.workspaceId}` : 'Import the items',
+		status: 'pending'
+	})
+	return tasks
 }
 
 export interface ExecutionDeps {
@@ -118,9 +143,19 @@ export class ImportExecution {
 	// `$workspaceStore` already holds the workspace being entered.
 	#priorWorkspace = get(workspaceStore)
 
+	/**
+	 * A workspace this plan created before the page was reloaded. Only ever true for a run
+	 * whose create already succeeded: `resumableImport` requires the parked project *and*
+	 * workspace to be this plan's, so an entry left by another import cannot make this run
+	 * skip a create it has not done.
+	 */
+	#resumed: boolean
+
 	constructor(plan: ImportPlan, deps: ExecutionDeps) {
 		this.#plan = plan
 		this.#deps = deps
+		const d = plan.destination
+		this.#resumed = d?.kind === 'new' && resumableImport(plan.slug, d.id)
 		this.tasks = this.#initialTasks()
 	}
 
@@ -128,7 +163,17 @@ export class ImportExecution {
 		return planWorkspaceId(this.#plan)
 	}
 
-	/** True once this run created a workspace — the only case where deleting is ours to offer. */
+	/**
+	 * True once this run created a workspace — the only case where deleting is ours to offer.
+	 *
+	 * Deliberately not satisfied by `#resumed`. A parked entry is enough to skip a create,
+	 * because entering the wrong workspace is recoverable; it is not enough to delete one,
+	 * because that is not. Verifying would need a discriminator to compare the live
+	 * workspace against, and a workspace has none — no `created_at`, nothing that moves
+	 * when someone else writes — so a parked id could name a workspace another admin made
+	 * at that id after ours was removed. A resumed run therefore finishes the import and
+	 * leaves the undo to the run that actually did the creating.
+	 */
 	get createdWorkspace(): boolean {
 		return this.#workspaceCreated
 	}
@@ -137,15 +182,19 @@ export class ImportExecution {
 		return this.results.filter((r) => !r.ok).length
 	}
 
+	/** `installProject` reports migrations through the same channel as items, tagged by this
+	 *  prefix. Split so the import row counts what it imported and the migrate row counts
+	 *  what it migrated — one failure should not be attributed to both. */
+	static readonly MIGRATION_PREFIX = 'data table: '
+	get itemResults(): InstallResult[] {
+		return this.results.filter((r) => !r.path.startsWith(ImportExecution.MIGRATION_PREFIX))
+	}
+	get migrationResults(): InstallResult[] {
+		return this.results.filter((r) => r.path.startsWith(ImportExecution.MIGRATION_PREFIX))
+	}
+
 	#initialTasks(): TaskView[] {
-		const d = this.#plan.destination
-		const tasks: TaskView[] = []
-		if (d?.kind === 'new') {
-			tasks.push({ key: 'create', label: `Create workspace ${d.id}`, status: 'pending' })
-		}
-		tasks.push({ key: 'fetch', label: 'Fetch the project from the hub', status: 'pending' })
-		tasks.push({ key: 'import', label: 'Import the items', status: 'pending' })
-		return tasks
+		return plannedTasks(this.#plan)
 	}
 
 	#set(key: string, status: TaskStatus, detail?: string) {
@@ -202,8 +251,9 @@ export class ImportExecution {
 		}
 		// Keyed on the workspace existing rather than on the task being green: a retry
 		// after entering it failed must not run the create again, which would only
-		// report the id as taken by the workspace this run just made.
-		if (!this.#workspaceCreated) {
+		// report the id as taken by the workspace this run just made. `#resumed` covers
+		// the same ground across a reload, where the field starts false again.
+		if (!this.#workspaceCreated && !this.#resumed) {
 			this.#set('create', 'running')
 			try {
 				await WorkspaceService.createWorkspace({
@@ -216,6 +266,9 @@ export class ImportExecution {
 				return undefined
 			}
 			this.#workspaceCreated = true
+			// From here a reload can no longer tell that this id is ours, so record it
+			// before anything else can fail.
+			parkImport({ slug: this.#plan.slug, workspaceId: d.id })
 		}
 		try {
 			await enterNewWorkspace(d.id)
@@ -275,6 +328,20 @@ export class ImportExecution {
 			return
 		}
 
+		// Appended only once the review has settled: until then nothing knows whether any
+		// migration is runnable here, and a row that might not apply is worse than none.
+		if (migrations.length && !this.tasks.some((t) => t.key === 'migrate')) {
+			const n = migrations.length
+			this.tasks = [
+				...this.tasks,
+				{
+					key: 'migrate',
+					label: `Run ${n} data table migration${n === 1 ? '' : 's'}`,
+					status: 'pending'
+				}
+			]
+		}
+
 		this.results = []
 		try {
 			await installProject({
@@ -283,7 +350,8 @@ export class ImportExecution {
 				folder,
 				migrations,
 				hasEeLicense: this.#deps.hasEeLicense,
-				onResult: (r) => (this.results = [...this.results, r])
+				onResult: (r) => (this.results = [...this.results, r]),
+				onMigrationsStart: () => this.#set('migrate', 'running')
 			})
 		} catch (e: any) {
 			this.#set('import', 'failed', String(e))
@@ -291,17 +359,29 @@ export class ImportExecution {
 			return
 		}
 
-		const failed = this.failedCount
+		const items = this.itemResults
+		const failed = items.filter((r) => !r.ok).length
 		this.#set(
 			'import',
 			failed > 0 ? 'failed' : 'done',
-			failed > 0
-				? `${this.results.length - failed} of ${this.results.length} imported`
-				: `${this.results.length} items`
+			failed > 0 ? `${items.length - failed} of ${items.length} imported` : `${items.length} items`
 		)
+
+		const migrated = this.migrationResults
+		if (migrated.length) {
+			const badly = migrated.filter((r) => !r.ok)
+			this.#set(
+				'migrate',
+				badly.length ? 'failed' : 'done',
+				badly.length ? badly.map((r) => r.error).join('; ') : undefined
+			)
+		}
 		// A partial import is finished, not broken: the items that landed are real,
 		// and the failures are listed. Only a hard stop leaves `done` false.
 		this.done = true
+		// Nothing left to resume. A later import of the same project must reach its
+		// create rather than adopt this one.
+		clearParkedImport()
 		if (failed > 0) this.error = `${failed} item${failed === 1 ? '' : 's'} failed to import.`
 	}
 
@@ -334,6 +414,8 @@ export class ImportExecution {
 		switchWorkspace(this.#priorWorkspace)
 		await refreshWorkspaceList()
 		this.#workspaceCreated = false
+		// The id is free again, so a retry has to create it rather than adopt it.
+		clearParkedImport()
 		this.#set('create', 'pending')
 		this.done = false
 		this.results = []
