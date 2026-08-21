@@ -193,7 +193,11 @@ fn scorer_modules(
                 ScorerDef::Script { path } => serde_json::json!({
                     "type": "script",
                     "path": path,
-                    "hash": script_hashes.get(path),
+                    // Serialized as `ScriptHash` (a hex string), which is the only shape a flow
+                    // module's `hash` field deserializes from — a bare number fails in the worker.
+                    "hash": script_hashes
+                        .get(path)
+                        .map(|h| windmill_common::scripts::ScriptHash(*h)),
                     "input_transforms": {
                         "run": {
                             "type": "javascript",

@@ -38,8 +38,13 @@ pub(crate) async fn resolve_scorer(
         // `readable_agent_config`, so a readable judge is already pinned and an unreadable one runs
         // linked (the run-without-expose path).
         ScorerDef::Agent { path } => {
-            let version = current_resource_version(db, w_id, path).await?;
-            Ok((scorer.definition(version.map(|v| v.to_string()).as_deref()), None))
+            let Some(version) = current_resource_version(db, w_id, path).await? else {
+                return Err(Error::BadRequest(format!(
+                    "Judge scorer {} does not exist",
+                    path
+                )));
+            };
+            Ok((scorer.definition(Some(&version.to_string())), None))
         }
     }
 }

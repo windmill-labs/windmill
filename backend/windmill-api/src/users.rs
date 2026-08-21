@@ -402,6 +402,25 @@ async fn update_username_in_workpsace<'c>(
     ).execute(&mut **tx)
     .await?;
 
+    // Authorship, as every other object's is rewritten above: the API and the runs list read
+    // these, and a reused username would otherwise inherit the old owner's provenance.
+    sqlx::query!(
+        "UPDATE eval_dataset SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+        new_username, old_username, w_id
+    ).execute(&mut **tx).await?;
+    sqlx::query!(
+        "UPDATE eval_dataset SET edited_by = $1 WHERE edited_by = $2 AND workspace_id = $3",
+        new_username, old_username, w_id
+    ).execute(&mut **tx).await?;
+    sqlx::query!(
+        "UPDATE eval_case SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+        new_username, old_username, w_id
+    ).execute(&mut **tx).await?;
+    sqlx::query!(
+        "UPDATE eval_experiment SET created_by = $1 WHERE created_by = $2 AND workspace_id = $3",
+        new_username, old_username, w_id
+    ).execute(&mut **tx).await?;
+
     // A dataset's scorers name scripts and agents by path in a JSONB array, which the rewrites
     // above do not reach; those runnables are renamed elsewhere in this transaction, so each
     // scorer path under the old username is rewritten too or the dataset points at a runnable that
