@@ -219,7 +219,15 @@
 		go({ destination: { kind: 'existing', workspaceId } }, 3)
 	}
 
+	/**
+	 * The wizard sits outside the `(logged)` layout, so leaving it mounts that layout
+	 * and the workspace home for the first time — a second or more of loading with the
+	 * finished wizard still on screen, which reads as a dead button. Hand the screen
+	 * over to a loader on the way out; the navigation unmounts it.
+	 */
+	let leaving = $state(false)
 	function finish() {
+		leaving = true
 		// The run has already switched to the destination workspace.
 		goto('/')
 	}
@@ -262,7 +270,14 @@
 	})
 </script>
 
-{#if !slug}
+{#if leaving}
+	<CenteredModal title="Opening your workspace" centerVertically={false}>
+		<div class="flex items-center gap-2 text-xs text-secondary">
+			<Loader2 size={16} class="animate-spin" />
+			Taking you to {planWorkspaceId(plan) ?? 'your workspace'}…
+		</div>
+	</CenteredModal>
+{:else if !slug}
 	<CenteredModal title="Nothing to import" centerVertically={false}>
 		<p class="text-xs text-secondary">
 			This page needs a <span class="font-mono">?hub=&lt;slug&gt;</span> to know which project to import.
