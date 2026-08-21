@@ -1972,6 +1972,68 @@
     - the script takes a Confluence resource as an input parameter rather than loose credential strings
     - the result stays an AI draft and is not deployed
 
+# Unlike the Confluence case, both facts this needs — the {"result"} envelope and
+# PATCH-not-PUT — are visible in ServiceNow's own shipped scripts. That makes it the
+# control for whether the metadata earns its place when the scripts already answer.
+- id: global-hub5-servicenow-assign-incident
+  prompt: |-
+    Write me a script that assigns an existing ServiceNow incident to a person, looking
+    that person up by their email address.
+    Save it as a draft at `f/evals/global/servicenow_assign_incident` and leave it as an
+    AI draft; do not deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 14
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/servicenow_assign_incident
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    requiredToolsAnyOf:
+      - - search_hub_scripts
+        - get_hub_integration
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  judgeChecklist:
+    - it looks the person up in the sys_user table by email rather than assuming a sys_id was supplied
+    - it reads records out of the `result` envelope the ServiceNow API wraps responses in
+    - it sets assigned_to to the user's sys_id rather than to the raw email address
+    - it updates the incident with a partial update (PATCH) rather than a full replace that would clear the fields it did not send
+    - the result stays an AI draft and is not deployed
+
+# Outreach is JSON:API. Its content type and payload envelope are both stated in the
+# metadata and visible in the shipped update scripts, so this is a second control.
+- id: global-hub6-outreach-reschedule-task
+  prompt: |-
+    Write me a script that moves an existing Outreach task to a new due date.
+    Save it as a draft at `f/evals/global/outreach_reschedule_task` and leave it as an AI
+    draft; do not deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 14
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: script
+        path: f/evals/global/outreach_reschedule_task
+  toolExpect:
+    requiredToolsUsed:
+      - write_script
+    requiredToolsAnyOf:
+      - - search_hub_scripts
+        - get_hub_integration
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  judgeChecklist:
+    - the request sends the JSON:API content type application/vnd.api+json for its body
+    - the payload wraps the change as data.type and data.attributes rather than sending bare top-level fields
+    - it identifies the task by id inside the payload rather than only in the URL, and treats the id as a number
+    - it updates the existing task with PATCH rather than creating a new one
+    - the result stays an AI draft and is not deployed
+
 # --- Windmill Hub reuse (search_hub_scripts + read_workspace_item on a hub/ path) ---
 # Holded's API is obscure enough that a model writing from memory cannot reproduce
 # its endpoint and `key` auth header — so the draft's fidelity to the published

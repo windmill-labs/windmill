@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import confluenceFixture from '../../fixtures/frontend/global/hub/confluence.json'
+import servicenowFixture from '../../fixtures/frontend/global/hub/servicenow.json'
+import outreachFixture from '../../fixtures/frontend/global/hub/outreach.json'
 import type {
 	AppWithLastVersion,
 	CompletedJob,
@@ -871,7 +873,7 @@ const BENCHMARK_INTEGRATION_META_PATH = /^\/api\/integrations\/hub\/([^/]+)\/met
  * authored meta.json and its resource type. Hand-written fixtures make both routes to
  * an integration's conventions look equally cheap; a real one is the only way to tell
  * whether reading the metadata beats reading a script. */
-const REAL_HUB_INTEGRATIONS = [confluenceFixture] as unknown as Array<{
+const REAL_HUB_INTEGRATIONS = [confluenceFixture, servicenowFixture, outreachFixture] as unknown as Array<{
 	app: string
 	display_name: string
 	description: string
