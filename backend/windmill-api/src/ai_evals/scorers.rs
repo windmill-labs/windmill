@@ -213,8 +213,12 @@ pub async fn recent_scorers(
         .filter(|r| matches!(r.scorer.def, ScorerDef::Agent { .. }))
         .map(|r| r.scorer.def.path().to_string())
         .collect::<Vec<_>>();
+    // Same deployed-version predicate as get_latest_script_hash: a script with no successfully
+    // locked version can't be resolved at launch, so it must not offer itself as a scorer here.
     let readable_scripts = sqlx::query_scalar!(
-        "SELECT path FROM script WHERE workspace_id = $1 AND path = ANY($2) AND deleted = false",
+        "SELECT DISTINCT path FROM script
+         WHERE workspace_id = $1 AND path = ANY($2)
+           AND deleted = false AND lock IS NOT NULL AND lock_error_logs IS NULL",
         w_id,
         &script_paths
     )

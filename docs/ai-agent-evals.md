@@ -552,8 +552,8 @@ no single number for a dataset: averaging a judge with an exact match would inve
 that wants one number can compute it — the script template scores by counting passed checks.
 
 Rows are joined by case id, so a case added after the baseline ran has no delta rather than
-counting as a change. A column the baseline was never scored with reports that, and offers to score
-it, rather than showing a difference that does not exist.
+counting as a change. A column the baseline was never scored with reports that, rather than showing
+a difference that does not exist.
 
 ## Storage
 
