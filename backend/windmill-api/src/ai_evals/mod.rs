@@ -98,25 +98,11 @@ fn check_summary(summary: Option<&str>) -> Result<()> {
 
 /// Dataset paths are Windmill paths, so the folder they live in is what grants access to them.
 fn check_path(path: &str) -> Result<()> {
-    if path.chars().count() > MAX_DATASET_PATH_CHARS {
-        return Err(Error::BadRequest(format!(
-            "This dataset's path is {} characters, over the {} the column holds.",
-            path.chars().count(),
-            MAX_DATASET_PATH_CHARS
-        )));
-    }
-    let segments = path.split('/').collect::<Vec<_>>();
-    if segments.len() < 3
-        || !matches!(segments[0], "u" | "f" | "g")
-        || segments.iter().any(|s| s.is_empty())
-        || segments.iter().any(|s| *s == "." || *s == "..")
-    {
-        return Err(Error::BadRequest(format!(
-            "Invalid dataset path '{}': expected 'u/<user>/<name>', 'f/<folder>/<name>' or 'g/<group>/<name>'",
-            path
-        )));
-    }
-    Ok(())
+    // The canonical Windmill path validator, so a dataset path is one the normal editor can also
+    // save and rename — a hand-rolled check let spaces and query characters through, which the
+    // `proper_id` shape (and every other object) rejects. It bounds length and requires
+    // `u/`/`f/`/`g/` with alphanumeric/`_`/`-` segments.
+    windmill_common::utils::check_proper_path(path)
 }
 
 /// A case is text: a message and the answer it was expected to produce. Attachments are S3

@@ -115,12 +115,18 @@
 	 *  something to say while the answer is still on its way. */
 	let runsLoaded = $state(false)
 	let datasetsLoaded = $state(false)
+	// A rejected initial load (no access, network) would otherwise leave the lists empty and render
+	// as "No dataset yet" — a real emptiness and a failed read must not look the same.
+	let loadError = $state(false)
 	let loaded = $derived(!ws || (runsLoaded && datasetsLoaded))
 
 	/** The agent's whole history, which is the screen the pane opens on. */
 	async function loadRuns() {
 		try {
 			experiments = await listSubjectExperiments()
+		} catch (e) {
+			loadError = true
+			sendUserToast(`Failed to load the runs: ${e}`, true)
 		} finally {
 			runsLoaded = true
 		}
@@ -145,6 +151,11 @@
 		if (!ws) return
 		try {
 			datasets = await AiEvalsService.listEvalDatasets({ workspace: ws })
+		} catch (e) {
+			loadError = true
+			sendUserToast(`Failed to load the datasets: ${e}`, true)
+			datasetsLoaded = true
+			return
 		} finally {
 			datasetsLoaded = true
 		}
@@ -408,8 +419,8 @@
 	}
 
 	/** Runs a dataset against a chosen state of the agent, as the run dialog asked for it. */
-	async function runAll(runSubject: EvalSubject, path: string) {
-		if (!ws || !path) return
+	async function runAll(runSubject: EvalSubject, path: string): Promise<boolean> {
+		if (!ws || !path) return false
 		running = true
 		let id: string
 		try {
@@ -420,7 +431,7 @@
 		} catch (e) {
 			running = false
 			sendUserToast(`Failed to run the dataset: ${e}`, true)
-			return
+			return false
 		}
 		// From here the run exists and is billing: what can still fail is reading it back, and
 		// saying "failed to run" to that invites a second, duplicate run.
@@ -439,6 +450,8 @@
 		} finally {
 			running = false
 		}
+		// The run was launched; a failed read-back above is reported but does not undo it.
+		return true
 	}
 
 	/** The dataset a run is of, once it has been created or moved: both are a different list of
@@ -684,7 +697,14 @@
 		<Splitpanes class="h-full">
 			<Pane size={selectedRow ? 60 : 100} minSize={35}>
 				<div class="h-full overflow-auto">
-					{#if loaded && datasets.length === 0}
+					{#if loaded && loadError && datasets.length === 0}
+						<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
+							<span class="text-sm text-emphasis">Could not load evals</span>
+							<span class="text-xs text-secondary max-w-md">
+								The datasets or runs could not be read. Check your access to this agent and reload.
+							</span>
+						</div>
+					{:else if loaded && datasets.length === 0}
 						<!-- Nothing to run and nothing to have run: the first dataset is the only move. -->
 						<div class="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
 							<span class="text-sm text-emphasis">No dataset yet</span>

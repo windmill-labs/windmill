@@ -16,8 +16,9 @@ width, rather than a panel beside the thing you came from.
 Three words, and no fourth:
 
 - a **case** is one input the agent should handle, held in a **dataset**;
-- a **run** is one case executed once, which is a job;
-- an **experiment** is the set of runs over a dataset.
+- a **run** (stored as an **experiment**) is one execution of a whole dataset: a single flow job
+  that answers every case, which is what the UI labels "Run N";
+- each case is answered as one **iteration** of that run.
 
 It is reachable from where an agent already is, and always over what you were doing rather
 than instead of it: the agent card at the top of an AI agent step's inputs in the flow editor, and

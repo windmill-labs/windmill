@@ -37,7 +37,7 @@
 		 *  pressed. Offered — and preselected — as a subject of their own. */
 		editedConfig?: () => AgentDraft
 		running?: boolean
-		onRun: (subject: EvalSubject, dataset: string) => void | Promise<void>
+		onRun: (subject: EvalSubject, dataset: string) => boolean | void | Promise<boolean | void>
 		onEditDataset: (path: string) => void
 		onNewDataset: () => void
 	} = $props()
@@ -293,8 +293,9 @@
 			disabled={running || !dataset}
 			onclick={async () => {
 				if (!dataset) return
-				await onRun(subjectOf(), dataset)
-				open = false
+				// Close only when the launch succeeded: a failed one leaves the dialog open so the
+				// selection survives and the run can be retried.
+				if (await onRun(subjectOf(), dataset)) open = false
 			}}
 		>
 			Run
