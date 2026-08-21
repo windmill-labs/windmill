@@ -608,8 +608,10 @@ for, that nothing will collect and that a retry would silently duplicate. In thi
 that dies before the push leaves an experiment naming a job that never started — a run that did
 not run — and a push that fails deletes it, because one failed push is the whole run.
 
-The dataset's foreign key is what makes a concurrent delete safe: the transaction fails, and at
-that point nothing has been queued.
+The dataset's foreign key guards a delete that races the assembly: the transaction fails, and at
+that point nothing has been queued. It does not cover a delete that lands in the gap after this
+transaction commits and before the flow is queued, which cascades the experiment away while the
+run still starts; that launch/delete race is a known beta limitation.
 
 ### How a cell finds its job, and its score
 

@@ -698,8 +698,10 @@ pub async fn run_experiment(
     // when the score comes back, so a scorer edited while the run was in flight reads as the change
     // of scorer it is.
     let mut definitions = Vec::with_capacity(scorers.len());
-    let mut script_hashes: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
-    let mut judges: std::collections::HashMap<String, AgentDraft> = std::collections::HashMap::new();
+    let mut script_hashes: std::collections::HashMap<String, i64> =
+        std::collections::HashMap::new();
+    let mut judges: std::collections::HashMap<String, AgentDraft> =
+        std::collections::HashMap::new();
     for scorer in &scorers {
         let (definition, resolved) = resolve_scorer(&user_db, &authed, &w_id, scorer).await?;
         match resolved {
@@ -731,8 +733,14 @@ pub async fn run_experiment(
     // job before it exists.
     let experiment_id = Uuid::new_v4();
     let run_job_id = Uuid::new_v4();
-    let flow_value =
-        build_run_flow(&config, &iterations, &scorers, &judges, &script_hashes, experiment_id)?;
+    let flow_value = build_run_flow(
+        &config,
+        &iterations,
+        &scorers,
+        &judges,
+        &script_hashes,
+        experiment_id,
+    )?;
 
     // The whole run is recorded, with the id of the job that will hold it, before that job is
     // queued. A launch that dies partway therefore leaves an experiment naming a job that never
@@ -785,8 +793,10 @@ pub async fn run_experiment(
     .execute(&mut *tx)
     .await?;
     insert_pending_scores(&mut tx, experiment_id, &ordinals, &scorers, &definitions).await?;
-    // The foreign key is the guard against a dataset deleted while this was being assembled: the
-    // commit fails and nothing has been queued yet.
+    // The foreign key guards a delete that races this assembly: it makes the commit fail, so
+    // nothing is queued. It does not cover a delete landing in the gap after this commit and
+    // before the push below cascades the experiment away while the flow still queues, leaving an
+    // orphaned run. That launch/delete race is a known beta limitation, not handled here.
     tx.commit().await?;
 
     if let Err(e) = push_run_flow(
