@@ -151,6 +151,27 @@ function resolveColumnType(c: TableEditorValuesColumn): {
  * callers creating several tables can emit every CREATE before any constraint —
  * required for circular FKs, where no creation order satisfies inline FKs.
  */
+/**
+ * The schema API reports a foreign key's target as a bare table name whenever it
+ * lives in the same schema as the table declaring it. Emitting that verbatim
+ * produces `REFERENCES links (id)`, which Postgres resolves against `search_path`
+ * — so a migration that just created `"bitly"."links"` fails with `relation
+ * "links" does not exist`. Qualify it: the declaring table's own schema first,
+ * then any schema that has the table, matching how the FK closure resolves it.
+ */
+function qualifyFkTarget(
+	sourceSchema: DatabaseSchema,
+	targetTable: string | undefined,
+	declaringSchema: string
+): string | undefined {
+	if (!targetTable || targetTable.includes('.')) return targetTable
+	if (sourceSchema[declaringSchema]?.[targetTable]) return `${declaringSchema}.${targetTable}`
+	for (const schemaName of Object.keys(sourceSchema)) {
+		if (sourceSchema[schemaName]?.[targetTable]) return `${schemaName}.${targetTable}`
+	}
+	return targetTable
+}
+
 export function generateAddedTableSql(
 	change: TableDiff,
 	sourceSchema: DatabaseSchema,
@@ -177,11 +198,15 @@ export function generateAddedTableSql(
 	const create = `${schemaDdl}${createKeyword} ${qualifiedName} (\n  ${colDefs}${pkLine}\n);`
 	const constraints: string[] = []
 	for (const fk of table.foreignKeys ?? []) {
-		const fkSql = renderForeignKey(fk, {
-			useSchema: true,
-			dbType: 'postgresql',
-			tableName: change.tableName
-		})
+		const fkSql = renderForeignKey(
+			{ ...fk, targetTable: qualifyFkTarget(sourceSchema, fk.targetTable, change.schemaName) },
+			{
+				useSchema: true,
+				dbType: 'postgresql',
+				tableName: change.tableName,
+				quoteTarget: true
+			}
+		)
 		// With IF NOT EXISTS the table may pre-exist with this FK already in
 		// place; an unconditional ADD would then abort the whole transaction.
 		// The constraint name is emitted unquoted, so Postgres folds it to
