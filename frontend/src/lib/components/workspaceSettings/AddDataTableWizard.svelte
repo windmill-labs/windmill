@@ -399,6 +399,9 @@
 
 	function reset(from: WizardResume | undefined) {
 		resumedPath = from?.resourcePath
+		// A pending confirmation that never settled leaves `dismissing` true, and `finally`
+		// cannot clear what never resolves — so a fresh open always starts dismissable.
+		dismissing = false
 		wiz = newWizardState({
 			name: from?.name || defaultTableName(),
 			projectName: from?.projectName || defaultProjectName(),
@@ -771,19 +774,25 @@
 			return
 		}
 		dismissing = true
-		const confirmed = await confirmationModal.ask({
-			title: 'Leave without adding a data table?',
-			// A run that failed and was sent back to be edited leaves whatever it got through
-			// behind it, so promising otherwise would be a lie exactly when it matters most.
-			children: leftBehind
-				? 'The setup that already ran left what it created behind, and what you have filled in here will be lost.'
-				: 'Nothing has been created yet, and what you have filled in here will be lost.',
-			confirmationText: 'Discard'
-		})
-		dismissing = false
-		// Re-read rather than trust the entry check: a run can start while the dialog is up, and
-		// answering Discard would otherwise tear the modal down in the middle of it.
-		if (confirmed && !preventClose) close()
+		// `finally`, because the flag is what blocks a second attempt: an `ask` that throws
+		// would otherwise leave the dialog permanently undismissable — the backdrop, Escape
+		// and the close button all return early here, so the only way out would be a reload.
+		try {
+			const confirmed = await confirmationModal.ask({
+				title: 'Leave without adding a data table?',
+				// A run that failed and was sent back to be edited leaves whatever it got through
+				// behind it, so promising otherwise would be a lie exactly when it matters most.
+				children: leftBehind
+					? 'The setup that already ran left what it created behind, and what you have filled in here will be lost.'
+					: 'Nothing has been created yet, and what you have filled in here will be lost.',
+				confirmationText: 'Discard'
+			})
+			// Re-read rather than trust the entry check: a run can start while the dialog is up, and
+			// answering Discard would otherwise tear the modal down in the middle of it.
+			if (confirmed && !preventClose) close()
+		} finally {
+			dismissing = false
+		}
 	}
 
 	function close() {

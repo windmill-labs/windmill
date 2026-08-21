@@ -52,6 +52,15 @@
 		manual?: boolean
 		express?: boolean
 		workspace?: string
+		/**
+		 * Fill an existing resource instead of creating one. The path is fixed to it and the
+		 * "already exists" guard becomes an update, so a caller holding a resource that is
+		 * already there — the import wizard's empty stubs — can connect into it rather than
+		 * making the user delete it first and retype the path.
+		 *
+		 * Opt-in: without it this flow still refuses to write over anything.
+		 */
+		fillPath?: string
 	}
 
 	let {
@@ -61,7 +70,8 @@
 		disabled = $bindable(false),
 		manual = $bindable(true),
 		express = false,
-		workspace = undefined
+		workspace = undefined,
+		fillPath = undefined
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
@@ -553,8 +563,9 @@
 			valueToken = data.res
 			responseExtra = data.extra ?? {}
 			step = 4
-			if (express) {
-				path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+			// `fillPath` decides the path as surely as express does, so neither stops here.
+			if (fillPath || express) {
+				path = fillPath ?? `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
 				next()
 			}
 		}
@@ -689,8 +700,8 @@
 						grant_type: 'client_credentials' // Mark this token as client_credentials
 					}
 					step = 4
-					if (express) {
-						path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+					if (fillPath || express) {
+						path = fillPath ?? `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
 						next()
 					}
 				} catch (error) {
@@ -749,7 +760,10 @@
 				path
 			})
 
-			if (exists) {
+			// Filling one names its path up front; anything else reaching an occupied path got
+			// there by the user typing it, which is the case worth refusing.
+			const filling = exists && !!fillPath && path === fillPath
+			if (exists && !filling) {
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}
 
@@ -895,17 +909,27 @@
 				}
 			}
 
-			await ResourceService.createResource({
-				workspace: effectiveWorkspace,
-				requestBody: {
-					resource_type: resourceType,
+			if (filling) {
+				// The stub the import made carries no description, so this is the one chance to
+				// give it one; its resource_type and path are already what we want.
+				await ResourceService.updateResource({
+					workspace: effectiveWorkspace,
 					path,
-					value: resourceValue,
-					description,
-					labels,
-					ws_specific: wsSpecific
-				}
-			})
+					requestBody: { value: resourceValue, description }
+				})
+			} else {
+				await ResourceService.createResource({
+					workspace: effectiveWorkspace,
+					requestBody: {
+						resource_type: resourceType,
+						path,
+						value: resourceValue,
+						description,
+						labels,
+						ws_specific: wsSpecific
+					}
+				})
+			}
 			dispatch('refresh', path)
 			dispatch('close')
 			sendUserToast(

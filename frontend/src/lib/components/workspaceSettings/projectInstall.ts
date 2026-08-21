@@ -263,10 +263,14 @@ export async function installProject(args: {
 	exportData: ProjectExport
 	folder: string
 	migrations: ProjectMigration[]
+	/** Called once, before the reviewed migrations are applied, when there are any. Lets a
+	 *  caller show them as their own step rather than folding them into the item import. */
+	onMigrationsStart?: () => void
 	hasEeLicense: boolean
 	onResult: (r: InstallResult) => void
 }): Promise<void> {
-	const { workspace, exportData, folder, migrations, hasEeLicense, onResult } = args
+	const { workspace, exportData, folder, migrations, hasEeLicense, onResult, onMigrationsStart } =
+		args
 
 	const record = (path: string, p: Promise<unknown>): Promise<void> =>
 		p.then(
@@ -393,6 +397,7 @@ export async function installProject(args: {
 	}
 
 	// Apply the reviewed data table migrations after items exist.
+	if (migrations.length) onMigrationsStart?.()
 	for (const m of migrations) {
 		await record(
 			`data table: ${m.datatable_name}`,

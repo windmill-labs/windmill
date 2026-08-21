@@ -8,6 +8,30 @@
 		triggers?: number
 		migrations?: number
 	}
+
+	/** The kinds, in the order a project is read. Shared by the badges and the sentence
+	 *  below so the same project can never be counted two ways. */
+	function kinds(counts: ProjectContentCounts) {
+		return [
+			{ label: 'app', count: counts.apps },
+			{ label: 'flow', count: counts.flows },
+			{ label: 'script', count: counts.scripts },
+			{ label: 'resource', count: counts.resources },
+			{ label: 'trigger', count: counts.triggers ?? 0 },
+			{ label: 'data table migration', count: counts.migrations ?? 0 }
+		].filter((c) => c.count > 0)
+	}
+
+	/**
+	 * The same counts as one line of text, for callers with a row to sit on rather than
+	 * a space for chips — the import step names them beside the task that imports them.
+	 * Empty when a project has nothing in it, so a caller can drop the whole phrase.
+	 */
+	export function contentSummary(counts: ProjectContentCounts): string {
+		return kinds(counts)
+			.map((c) => `${c.count} ${c.label}${c.count === 1 ? '' : 's'}`)
+			.join(', ')
+	}
 </script>
 
 <script lang="ts">
@@ -28,16 +52,15 @@
 	//
 	// Zero counts are dropped rather than shown: a project with no apps should read
 	// as "no apps", not as a "0 apps" chip the eye has to discount.
-	const shown = $derived(
-		[
-			{ label: 'app', count: counts.apps, icon: LayoutDashboard },
-			{ label: 'flow', count: counts.flows, icon: BarsStaggered },
-			{ label: 'script', count: counts.scripts, icon: Code2 },
-			{ label: 'resource', count: counts.resources, icon: Database },
-			{ label: 'trigger', count: counts.triggers ?? 0, icon: Zap },
-			{ label: 'data table migration', count: counts.migrations ?? 0, icon: Table2 }
-		].filter((c) => c.count > 0)
-	)
+	const ICONS: Record<string, any> = {
+		app: LayoutDashboard,
+		flow: BarsStaggered,
+		script: Code2,
+		resource: Database,
+		trigger: Zap,
+		'data table migration': Table2
+	}
+	const shown = $derived(kinds(counts).map((c) => ({ ...c, icon: ICONS[c.label] })))
 </script>
 
 <div class="flex flex-wrap items-center gap-1.5">
