@@ -539,6 +539,49 @@ export function main() {
     Ok(())
 }
 
+/// Node's ESM loader cannot see the named exports of a CommonJS package that cjs-module-lexer
+/// fails to analyze, so `//nodejs` scripts must not leave such packages as plain externals.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_nodejs_cjs_named_and_namespace_import(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"//nodejs
+import { chunk } from "lodash";
+import * as lodash from "lodash";
+
+export function main() {
+    return [chunk([1, 2, 3, 4], 2), lodash.chunk([1, 2], 1)];
+}
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result, serde_json::json!([[[1, 2], [3, 4]], [[1], [2]]]));
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_nobundling_mode(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;

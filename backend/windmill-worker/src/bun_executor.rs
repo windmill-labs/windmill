@@ -878,6 +878,8 @@ pub async fn build_loader(
 {loader}
 
 import {{ readdir }} from "node:fs/promises";
+import {{ dirname }} from "node:path";
+import {{ mkdirSync, readFileSync, writeFileSync }} from "node:fs";
 
 let fileNames = []
 try {{
@@ -885,14 +887,68 @@ try {{
 }} catch (e) {{
 }}
 
+const cjsShimDir = "{job_dir_js}/.wm_node_cjs";
+
+// Node only sees the named exports of a CommonJS dependency that cjs-module-lexer finds
+// statically, which fails on packages such as lodash, so leaving those as plain externals breaks
+// `import {{ x }} from "pkg"` and `import * as pkg from "pkg"`. A generated CommonJS shim makes
+// bun synthesize the interop while the package itself is still required at runtime. Packages node
+// loads as ESM keep real named exports and must stay plain externals: requiring them would throw
+// on the node versions without require(esm).
+const isCjsCache = new Map();
+function isCjs(specifier) {{
+    if (!isCjsCache.has(specifier)) {{
+        let cjs = false;
+        try {{
+            const file = Bun.resolveSync(specifier, "{job_dir_js}");
+            if (file.endsWith(".cjs") || file.endsWith(".node")) {{
+                cjs = true;
+            }} else if (file.endsWith(".js")) {{
+                // Same nearest-package.json walk node does to decide how to load a bare .js
+                for (let dir = dirname(file); dir !== dirname(dir); dir = dirname(dir)) {{
+                    try {{
+                        cjs = JSON.parse(readFileSync(dir + "/package.json", "utf8")).type !== "module";
+                        break;
+                    }} catch (e) {{}}
+                }}
+            }}
+        }} catch (e) {{}}
+        isCjsCache.set(specifier, cjs);
+    }}
+    return isCjsCache.get(specifier);
+}}
+
+const nodeExternals = {{
+    name: "windmill-node-externals",
+    setup(build) {{
+        build.onResolve({{ filter: /^[^./]/ }}, (args) => {{
+            if (args.importer.replace(/\\/g, "/").includes("/.wm_node_cjs/")) {{
+                return {{ path: args.path, external: true }};
+            }}
+            if (!fileNames.includes(args.path.split("/")[0])) {{
+                return undefined;
+            }}
+            if (!isCjs(args.path)) {{
+                return {{ path: args.path, external: true }};
+            }}
+            const shim = cjsShimDir + "/" + args.path.replace(/[^a-zA-Z0-9]/g, "_")
+                + "_" + Bun.hash(args.path).toString(36) + ".cjs";
+            mkdirSync(cjsShimDir, {{ recursive: true }});
+            // The local binding is load-bearing: bun collapses a bare `module.exports = require(x)`
+            // back into a passthrough external import, which is the shape that breaks node.
+            writeFileSync(shim, "const mod = require(" + JSON.stringify(args.path) + ");\nmodule.exports = mod;\n");
+            return {{ path: shim }};
+        }});
+    }},
+}};
+
 let result;
 try {{
     result = await Bun.build({{
         entrypoints: ["{job_dir_js}/wrapper.mjs"],
         outdir: "./",
         target: "node",
-        plugins: [p],
-        external: fileNames,
+        plugins: [p, nodeExternals],
         minify: true,
     }});
 }} catch(err) {{
