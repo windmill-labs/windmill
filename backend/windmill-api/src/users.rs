@@ -373,6 +373,35 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
+    // Eval datasets are path-addressed like every other object, so a username change moves them
+    // too. The foreign keys cascade the rename onto their cases and experiments; the experiment
+    // subject (the agent a run was of) is a `u/<user>/` path of its own inside JSONB, so it is
+    // rewritten separately or a user's own runs would detach from their renamed agent.
+    sqlx::query!(
+        r#"UPDATE eval_dataset SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE eval_dataset SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        r#"UPDATE eval_experiment SET subject = jsonb_set(subject, '{path}', to_jsonb(REGEXP_REPLACE(subject->>'path','u/' || $2 || '/(.*)','u/' || $1 || '/\1'))) WHERE subject->>'path' LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
     // ---- variables ----
 
     // Handle Vault secret renames before updating paths in DB

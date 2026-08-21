@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_experiment_case SET status = $2, answered = false\n         WHERE experiment_id = $1 AND job_id IS NULL AND status IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fb115aac53a6a94558548fdd07ea162ad9fff73af035d6ff56fd93c08ea6f534"
+}

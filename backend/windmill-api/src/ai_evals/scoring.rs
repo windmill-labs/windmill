@@ -38,10 +38,58 @@ pub(crate) async fn sync_run(
     answers: bool,
 ) -> Result<()> {
     backfill_case_jobs(db, w_id, experiment_id, run_job_id).await?;
+    settle_unspawned_cases(db, w_id, experiment_id, run_job_id).await?;
     if answers {
         record_case_answers(db, w_id, experiment_id).await?;
     }
     harvest_flow_scores(db, w_id, experiment_id).await?;
+    Ok(())
+}
+
+/// Give a terminal status to cases the run never spawned an iteration for. A case with no `job_id`
+/// has nothing to read an answer or a score out of, so it would report "running" indefinitely —
+/// which is right while the run is in flight, and wrong once the run is over. Only settles when
+/// the outer run job is terminal (completed with its own status, or gone from the queue entirely);
+/// while it is still running, an unspawned case is one whose iteration has yet to be created.
+async fn settle_unspawned_cases(
+    db: &DB,
+    w_id: &str,
+    experiment_id: Uuid,
+    run_job_id: Uuid,
+) -> Result<()> {
+    let completed = sqlx::query_scalar!(
+        "SELECT status::text AS \"status!\" FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
+        run_job_id,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let terminal_status = match completed {
+        Some(status) => status,
+        None => {
+            // Not completed. Still in the job table means still running — leave the cells pending;
+            // absent from it means the job aged out, so the run is over regardless.
+            let still_a_job = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2) AS \"e!\"",
+                run_job_id,
+                w_id
+            )
+            .fetch_one(db)
+            .await?;
+            if still_a_job {
+                return Ok(());
+            }
+            "canceled".to_string()
+        }
+    };
+    sqlx::query!(
+        "UPDATE eval_experiment_case SET status = $2, answered = false
+         WHERE experiment_id = $1 AND job_id IS NULL AND status IS NULL",
+        experiment_id,
+        terminal_status
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
