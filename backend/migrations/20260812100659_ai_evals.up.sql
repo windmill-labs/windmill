@@ -93,15 +93,36 @@ USING (exists(
     WHERE SPLIT_PART(key, '/', 1) = 'g' AND key = ANY((select regexp_split_to_array(current_setting('session.pgroups'), ','))::text[])
     AND value::boolean));
 
--- Cases are the *contents* of a dataset, not independently addressable objects, so their
--- visibility is the parent's: the subquery is itself subject to eval_dataset's policies above,
--- which stay stated once instead of being mirrored here and left to drift.
---
--- SELECT only, deliberately. A `FOR ALL ... USING` would be reused as the INSERT/UPDATE/DELETE
--- check expression, and since the subquery is a SELECT it applies the dataset's *read* policies —
--- which would let someone with read-only access to a dataset write its cases. Writes are done on
--- the unrestricted pool after the API has checked write access to the parent, and a stray
--- `user_db` write to this table is meant to fail rather than silently succeed.
+-- Whether the session may *write* the dataset at (_workspace_id, _path): the same disjunction the
+-- dataset's own write policies use, in one place so the cases that hang off a dataset are governed
+-- by exactly the rule the dataset is. A read grant is not enough — writing a case is writing the
+-- dataset's contents — so this checks write, not merely visibility.
+CREATE OR REPLACE FUNCTION eval_dataset_writable(_workspace_id varchar, _path varchar)
+    RETURNS boolean LANGUAGE sql STABLE AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM eval_dataset d
+        WHERE d.workspace_id = _workspace_id AND d.path = _path
+        AND (
+            (SPLIT_PART(d.path, '/', 1) = 'f' AND SPLIT_PART(d.path, '/', 2) = any((select regexp_split_to_array(current_setting('session.folders_write'), ','))::text[]))
+            OR (SPLIT_PART(d.path, '/', 1) = 'u' AND SPLIT_PART(d.path, '/', 2) = (select current_setting('session.user')))
+            OR (SPLIT_PART(d.path, '/', 1) = 'g' AND SPLIT_PART(d.path, '/', 2) = any((select regexp_split_to_array(current_setting('session.groups'), ','))::text[]))
+            OR ((d.extra_perms ->> (select concat('u/', current_setting('session.user'))))::boolean)
+            OR EXISTS (
+                SELECT 1 FROM jsonb_each_text(d.extra_perms) ep
+                WHERE SPLIT_PART(ep.key, '/', 1) = 'g'
+                AND ep.key = ANY((select regexp_split_to_array(current_setting('session.pgroups'), ','))::text[])
+                AND ep.value::boolean)
+        )
+    );
+$$;
+
+-- Cases are the *contents* of a dataset, not independently addressable objects, so both their
+-- visibility and who may change them are the parent's, stated once here instead of mirrored in the
+-- API and left to drift. Read is the dataset's read (the subquery is itself subject to
+-- eval_dataset's SELECT policies above); write is the dataset's write, which `eval_dataset_writable`
+-- checks — so a read-only grant on a dataset can list its cases but not edit them. The whole edit
+-- of a dataset and its cases therefore runs as one `user_db` transaction, governed by these
+-- policies, rather than being split across the unrestricted pool after a hand-written check.
 CREATE POLICY see_parent_dataset ON eval_case FOR SELECT TO windmill_user
 USING (
     EXISTS (
@@ -109,6 +130,13 @@ USING (
         WHERE d.workspace_id = eval_case.workspace_id AND d.path = eval_case.dataset_path
     )
 );
+CREATE POLICY write_parent_dataset_insert ON eval_case FOR INSERT TO windmill_user
+WITH CHECK (eval_dataset_writable(eval_case.workspace_id, eval_case.dataset_path));
+CREATE POLICY write_parent_dataset_update ON eval_case FOR UPDATE TO windmill_user
+USING (eval_dataset_writable(eval_case.workspace_id, eval_case.dataset_path))
+WITH CHECK (eval_dataset_writable(eval_case.workspace_id, eval_case.dataset_path));
+CREATE POLICY write_parent_dataset_delete ON eval_case FOR DELETE TO windmill_user
+USING (eval_dataset_writable(eval_case.workspace_id, eval_case.dataset_path));
 -- One run of a dataset: written once when the dataset is run, and only ever read afterwards,
 -- which is what makes it worth comparing against.
 CREATE TABLE eval_experiment (

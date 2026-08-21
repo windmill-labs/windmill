@@ -142,9 +142,9 @@
 		if (!workspace || !path || pathError) return
 		await casesGrid?.flush()
 		creating = true
+		const created = path
+		const submittedSummary = summary || undefined
 		try {
-			const created = path
-			const submittedSummary = summary || undefined
 			await AiEvalsService.createEvalDataset({
 				workspace,
 				requestBody: {
@@ -156,12 +156,22 @@
 					cases: workingCases.map(({ id: _id, ...rest }) => rest)
 				}
 			})
-			// Everything the drawer holds is written with it, so creating is the whole of what this
-			// was opened for: it closes on the dataset it just made, which the pane is now on.
-			await onCreated(created)
-			drawer?.closeDrawer()
 		} catch (e) {
 			sendUserToast(`Failed to create the dataset: ${e}`, true)
+			creating = false
+			return
+		}
+		// Created. The drawer is done, and moving the pane onto it is a refresh, not the write: a
+		// refresh that fails must not read as a create that failed, or the retry hits "already
+		// exists".
+		drawer?.closeDrawer()
+		try {
+			await onCreated(created)
+		} catch (e) {
+			sendUserToast(
+				`Created the dataset, but the view could not refresh: ${e}. Reload to see it.`,
+				true
+			)
 		} finally {
 			creating = false
 		}
@@ -201,16 +211,25 @@
 					cases: casesToSave()
 				}
 			})
+		} catch (e) {
+			sendUserToast(`Failed to save the dataset: ${e}`, true)
+			saving = false
+			return
+		}
+		// Saved. The drawer is done; what follows is a refresh of the pane behind it, and a refresh
+		// that fails must not read as a save that failed, or the retry renames from the obsolete
+		// path.
+		drawer?.closeDrawer()
+		try {
 			// The pane moves to the name the dataset now has before anything is re-read under it:
 			// a re-read under the old name is a 404 on a save that succeeded.
 			await onRenamed(submitted.path)
 			await onCasesChanged()
-			// Everything the drawer holds is written, so saving is the whole of what it was opened
-			// for and it closes on that, as creating does. The next open seeds it from the dataset
-			// as it now stands rather than from what this one was left holding.
-			drawer?.closeDrawer()
 		} catch (e) {
-			sendUserToast(`Failed to save the dataset: ${e}`, true)
+			sendUserToast(
+				`Saved the dataset, but the view could not refresh: ${e}. Reload to see it.`,
+				true
+			)
 		} finally {
 			saving = false
 		}

@@ -590,6 +590,10 @@ async fn resolve_deployed_draft(
     // The hash stays: it is what identifies the configuration, and what this resolution rests on.
     experiment.subject.kind = EvalSubjectKind::Agent;
     experiment.subject.version = Some(version);
+    // Both writes in one transaction: the experiment and its cells describe the same run, and a
+    // failure between them would leave the experiment promoted to a version while its cells stayed
+    // a draft's — a split that no later read repairs, since the experiment is no longer a draft.
+    let mut tx = db.begin().await?;
     sqlx::query!(
         "UPDATE eval_experiment
          SET subject = jsonb_set(
@@ -602,7 +606,7 @@ async fn resolve_deployed_draft(
         experiment.id,
         version,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
     // The cells that ran that configuration are dated by the version too. Their hash has served
     // its purpose — it was what dated a cell with no version to name it by — and leaving it would
@@ -615,8 +619,9 @@ async fn resolve_deployed_draft(
         hash,
         version,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok(())
 }
 

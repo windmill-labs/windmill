@@ -160,7 +160,7 @@ pub async fn list_datasets(
 
 pub async fn create_dataset(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(payload): Json<CreateDataset>,
 ) -> Result<String> {
@@ -171,10 +171,9 @@ pub async fn create_dataset(
             "Operators cannot create eval datasets".to_string(),
         ));
     }
-    // Created with its cases in one transaction, so it either exists holding them or does not
-    // exist. `eval_case` has no write policies, so the transaction runs on `db`; what the insert
-    // policies would have decided about the dataset row is decided first, the same way.
-    require_creatable_at(&authed, &payload.path)?;
+    // The dataset and its cases are written in one `user_db` transaction: the row's insert policy
+    // gates the dataset, the cases' insert policy gates each case, and the two land together or
+    // not at all. Nothing decides access a second time in Rust.
     if payload.cases.len() as i64 > MAX_CASES_PER_DATASET {
         return Err(Error::BadRequest(format!(
             "An eval dataset holds at most {} cases. Split them into several datasets.",
@@ -188,8 +187,9 @@ pub async fn create_dataset(
     // A dataset being created has no columns yet, so every id is minted.
     assign_scorer_ids(&mut scorers, &std::collections::HashSet::new())?;
     let scorers = serde_json::to_value(&scorers)?;
-    let mut tx = db.begin().await?;
-    // A path already taken returns no row.
+    let mut tx = user_db.begin(&authed).await?;
+    // A path already taken returns no row; a path the caller may not create raises the insert
+    // policy, which `map_rls_denied` turns into an access error.
     let created = sqlx::query_scalar!(
         "INSERT INTO eval_dataset
             (workspace_id, path, summary, scorers, created_by, edited_by)
@@ -203,7 +203,8 @@ pub async fn create_dataset(
         authed.username,
     )
     .fetch_optional(&mut *tx)
-    .await?;
+    .await
+    .map_err(|e| map_rls_denied(&payload.path, "create", e))?;
     if created.is_none() {
         return Err(Error::BadRequest(format!(
             "Eval dataset {} already exists",
@@ -246,16 +247,19 @@ pub async fn get_dataset(
 /// dataset at the new name, which is what the insert policies ask of a new row.
 pub async fn update_dataset(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, String)>,
     Json(payload): Json<EditDataset>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot modify eval datasets".to_string(),
+        ));
+    }
     check_summary(payload.summary.as_deref())?;
     let new_path = match payload.path.filter(|p| *p != path) {
         Some(new_path) => {
             check_path(&new_path)?;
-            require_creatable_at(&authed, &new_path)?;
             Some(new_path)
         }
         None => None,
@@ -263,18 +267,12 @@ pub async fn update_dataset(
     if let Some(cases) = &payload.cases {
         check_cases(cases)?;
     }
-    // Who may write this row, asked of the row itself through the caller's own connection: `FOR
-    // UPDATE` applies its UPDATE policies as well as its SELECT ones. The lock is only the
-    // permission gate; the write locks the row again below, on `db`, where the columns it still
-    // holds are read under that lock.
-    require_dataset_writable(&authed, &user_db, &w_id, &path).await?;
-
-    // One transaction on `db` for the whole edit: the columns are read under a row lock, so a
-    // concurrent edit cannot read the same set and restore a scorer id one of them removed; and
-    // the row, its columns and its cases move together, so a rename the row refuses refuses the
-    // cases with it. `eval_case` has no write policies, which is why this runs on `db` rather than
-    // `user_db`, after the permission gate above.
-    let mut tx = db.begin().await?;
+    // The whole edit is one `user_db` transaction, governed by the row-level policies throughout:
+    // the row is read `FOR UPDATE` (its UPDATE policy decides who may), the columns it holds are
+    // read under that lock so a concurrent edit cannot restore a removed scorer's id, the `UPDATE`
+    // re-checks the destination path (a rename to a name the caller cannot write is refused), and
+    // the cases move under the new name through the same policies. Nothing decides access in Rust.
+    let mut tx = user_db.clone().begin(&authed).await?;
     let current = sqlx::query_scalar!(
         "SELECT scorers FROM eval_dataset WHERE workspace_id = $1 AND path = $2 FOR UPDATE",
         w_id,
@@ -283,7 +281,7 @@ pub async fn update_dataset(
     .fetch_optional(&mut *tx)
     .await?;
     let Some(current) = current else {
-        tx.commit().await?;
+        drop(tx);
         return Err(write_refused(&authed, &user_db, &w_id, &path).await);
     };
     let existing: std::collections::HashSet<String> =
@@ -320,11 +318,13 @@ pub async fn update_dataset(
                 new_path.as_deref().unwrap_or(&path)
             ))
         } else {
-            e.into()
+            map_rls_denied(new_path.as_deref().unwrap_or(&path), "rename", e)
         }
     })?;
-    // Gone between the check above and here: renamed or deleted under the caller.
+    // Gone between the lock and here cannot happen under the row lock, but a rename the WITH CHECK
+    // refused returns no row: report it as the write it was.
     let Some(updated) = updated else {
+        drop(tx);
         return Err(write_refused(&authed, &user_db, &w_id, &path).await);
     };
     // Under the name the dataset now has: the cases followed the rename through the foreign key.
@@ -333,33 +333,6 @@ pub async fn update_dataset(
     }
     tx.commit().await?;
     Ok(format!("Updated eval dataset {}", updated))
-}
-
-/// Whether the caller may put a dataset at `path`: the insert policies, asked ahead of a write
-/// that does not go through them. Admins may anywhere; a user may under their own prefix, in a
-/// folder they can write, or under a group they belong to.
-fn require_creatable_at(authed: &ApiAuthed, path: &str) -> Result<()> {
-    if authed.is_admin {
-        return Ok(());
-    }
-    let mut segments = path.splitn(3, '/');
-    let allowed = match (segments.next(), segments.next()) {
-        (Some("u"), Some(user)) => user == authed.username,
-        (Some("f"), Some(folder)) => authed
-            .folders
-            .iter()
-            .any(|(name, can_write, _)| name == folder && *can_write),
-        (Some("g"), Some(group)) => authed.groups.iter().any(|g| g == group),
-        _ => false,
-    };
-    if allowed {
-        Ok(())
-    } else {
-        Err(Error::NotAuthorized(format!(
-            "You are not allowed to write a dataset at {}",
-            path
-        )))
-    }
 }
 
 /// The cases, the experiments and their recorded case sets go with the dataset, through the
@@ -481,7 +454,6 @@ async fn lock_dataset_cases(
 
 pub async fn add_case(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, String)>,
     Json(payload): Json<NewEvalCase>,
@@ -493,7 +465,7 @@ pub async fn add_case(
         payload.expected.as_ref(),
     )?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = user_db.begin(&authed).await?;
     lock_dataset_cases(&mut tx, &w_id, &path).await?;
     let count = sqlx::query_scalar!(
         "SELECT count(*) AS \"count!\" FROM eval_case WHERE workspace_id = $1 AND dataset_path = $2",
@@ -541,14 +513,13 @@ pub async fn add_case(
 /// and the cases it had already written would arrive again as new ones when the save was retried.
 pub async fn save_cases(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, String)>,
     Json(payload): Json<SaveCases>,
 ) -> JsonResult<Vec<Uuid>> {
     require_dataset_writable(&authed, &user_db, &w_id, &path).await?;
     check_cases(&payload.cases)?;
-    let mut tx = db.begin().await?;
+    let mut tx = user_db.begin(&authed).await?;
     let ids = write_cases(&mut tx, &w_id, &path, &payload.cases, &authed.username).await?;
     tx.commit().await?;
     Ok(Json(ids))
@@ -649,7 +620,6 @@ async fn write_cases(
 
 pub async fn update_case(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, String)>,
     Json(payload): Json<UpdateCase>,
@@ -660,6 +630,7 @@ pub async fn update_case(
         &payload.input,
         payload.expected.as_ref(),
     )?;
+    let mut tx = user_db.begin(&authed).await?;
     let updated = sqlx::query_scalar!(
         "UPDATE eval_case
          SET name = $4, input = $5, expected = $6
@@ -672,8 +643,9 @@ pub async fn update_case(
         serde_json::to_value(&payload.input)?,
         opt_from_raw(payload.expected.as_ref())?,
     )
-    .fetch_optional(&db)
+    .fetch_optional(&mut *tx)
     .await?;
+    tx.commit().await?;
     if updated.is_none() {
         return Err(Error::NotFound(format!(
             "Eval case {} not found in {}",
@@ -685,12 +657,12 @@ pub async fn update_case(
 
 pub async fn delete_case(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, String)>,
     Json(payload): Json<CaseId>,
 ) -> Result<String> {
     require_dataset_writable(&authed, &user_db, &w_id, &path).await?;
+    let mut tx = user_db.begin(&authed).await?;
     let deleted = sqlx::query_scalar!(
         "DELETE FROM eval_case
          WHERE workspace_id = $1 AND dataset_path = $2 AND id = $3
@@ -699,8 +671,9 @@ pub async fn delete_case(
         path,
         payload.id
     )
-    .fetch_optional(&db)
+    .fetch_optional(&mut *tx)
     .await?;
+    tx.commit().await?;
     if deleted.is_none() {
         return Err(Error::NotFound(format!(
             "Eval case {} not found in {}",

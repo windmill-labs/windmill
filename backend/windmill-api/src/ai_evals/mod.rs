@@ -11,18 +11,17 @@
 //! the first time they can be read, since jobs have their own retention and a recorded run has to
 //! outlive the jobs that produced it.
 //!
-//! Reads go through `user_db`, which makes row-level security the authority on who may see a
-//! dataset. A write is gated the same way — `require_dataset_writable` asks the dataset row itself,
-//! through `user_db`, whether this caller may write it — but then runs on the unrestricted pool,
-//! because a dataset and its cases move together in one transaction and `eval_case` carries a read
-//! policy derived from its dataset and no write policy at all. Creating a dataset at a new path,
-//! and renaming one, cannot ask an existing row, so `require_creatable_at` mirrors the insert
-//! policies (`u/` own, `f/` writable, `g/` member) ahead of that write; an `extra_perms` grant on
-//! a specific dataset does not extend to placing one at a new path.
+//! Reads and writes of a dataset and its cases both go through `user_db`, so row-level security is
+//! the authority throughout: `eval_dataset` carries the usual read and write policies, and
+//! `eval_case` carries a read policy derived from its dataset (`see_parent_dataset`) plus write
+//! policies that check the dataset is *writable* (`eval_dataset_writable`, in the migration). A
+//! dataset and its cases therefore move in one transaction, governed by those policies, with no
+//! access decided a second time in Rust.
 //!
-//! The harvest is a further exception: copying what a run produced onto its own rows is gated on
-//! *reading* that run, because it writes nothing a reader could not already cause — see
-//! `collect_experiment`.
+//! The experiment tables are the exception. Their rows are written from two places — a launch,
+//! which holds dataset write, and the harvest, which holds only *read* of the run it copies onto
+//! its own rows — so they carry read policies only and are written on the unrestricted pool after
+//! the API has checked the appropriate access. See `run_experiment` and `collect_experiment`.
 
 use axum::{
     extract::{Path, Query},
@@ -156,6 +155,15 @@ fn is_missing_dataset(e: &sqlx::Error) -> bool {
     e.as_database_error().and_then(|d| d.code()).as_deref() == Some("23503")
 }
 
+/// A `user_db` write the row-level policies refused surfaces as SQLSTATE 42501 (`insufficient
+/// privilege`), whose message names the table and the policy. Turn it into one about access.
+fn map_rls_denied(path: &str, action: &str, e: sqlx::Error) -> Error {
+    if e.as_database_error().and_then(|d| d.code()).as_deref() == Some("42501") {
+        return Error::NotAuthorized(format!("Not allowed to {} eval dataset {}", action, path));
+    }
+    e.into()
+}
+
 /// A write that matched no row is either a dataset that does not exist or one the caller can read
 /// but not write. Row-level security cannot distinguish them — both are simply invisible to the
 /// statement — so ask again with a plain read.
@@ -213,6 +221,65 @@ async fn read_dataset(
         edited_at: row.edited_at,
         edited_by: row.edited_by,
     })
+}
+
+/// The dataset and its cases as one snapshot, both read in one transaction so a launch cannot
+/// observe the cases from before an edit beside the scorers from after it — a dataset state that
+/// never existed. `None` when the dataset is not there to read.
+pub(crate) async fn read_dataset_and_cases(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    w_id: &str,
+    path: &str,
+) -> Result<(EvalDataset, Vec<EvalCase>)> {
+    check_path(path)?;
+    let mut tx = user_db.clone().begin(authed).await?;
+    let row = sqlx::query!(
+        "SELECT path, summary, scorers, created_at, created_by, edited_at, edited_by
+         FROM eval_dataset WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(row) = row else {
+        tx.commit().await?;
+        return Err(Error::NotFound(format!("Eval dataset {} not found", path)));
+    };
+    let case_rows = sqlx::query!(
+        "SELECT id, name, input, expected, created_at, created_by
+         FROM eval_case
+         WHERE workspace_id = $1 AND dataset_path = $2
+         ORDER BY created_at, id",
+        w_id,
+        path
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let dataset = EvalDataset {
+        path: row.path,
+        summary: row.summary,
+        scorers: serde_json::from_value(row.scorers).unwrap_or_default(),
+        created_at: row.created_at,
+        created_by: row.created_by,
+        edited_at: row.edited_at,
+        edited_by: row.edited_by,
+    };
+    let cases = case_rows
+        .into_iter()
+        .map(|row| {
+            Ok(EvalCase {
+                id: row.id,
+                name: row.name,
+                input: serde_json::from_value(row.input)?,
+                expected: opt_to_raw(row.expected)?,
+                created_at: row.created_at,
+                created_by: row.created_by,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok((dataset, cases))
 }
 
 /// Whether this caller may write a dataset's contents: its cases, and the experiments that run

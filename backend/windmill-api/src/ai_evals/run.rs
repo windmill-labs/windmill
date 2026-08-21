@@ -654,7 +654,11 @@ pub async fn run_experiment(
     validate_subject(&subject)?;
     let config = resolve_subject(&authed, &db, &user_db, &w_id, &mut subject).await?;
 
-    let cases = read_cases(&authed, &user_db, &w_id, &payload.dataset, None).await?;
+    // One snapshot of the dataset: the scorers and the cases a run records must be the same
+    // revision, or a Save landing between two reads files a run under cases and columns that never
+    // stood together.
+    let (dataset, cases) =
+        read_dataset_and_cases(&authed, &user_db, &w_id, &payload.dataset).await?;
     if cases.is_empty() {
         return Err(Error::BadRequest(format!(
             "Eval dataset {} has no case to run",
@@ -669,7 +673,6 @@ pub async fn run_experiment(
     }
 
     let case_count = cases.len();
-    let dataset = read_dataset(&authed, &user_db, &w_id, &payload.dataset).await?;
     let scorers: Vec<&Scorer> = dataset.scorers.iter().collect();
     // What each scorer's code is right now. Recorded per cell at launch rather than resolved when
     // the score comes back, so a scorer edited while the run was in flight is visible as the

@@ -586,16 +586,15 @@ A dataset is permissioned like any other path-addressed object: row-level securi
 `extra_perms` grant) and who may change it. Operators cannot write at all. Recording an experiment
 counts as a write, since it persists into the dataset.
 
-Cases and experiments are the contents of a dataset rather than objects in their own right. They
-carry a read policy derived from their dataset and no write policy at all, so a dataset and its
-cases are written together in one transaction on the unrestricted pool — after the dataset row has
-been asked, through `user_db` with `SELECT … FOR UPDATE`, whether this caller may write it (which
-applies the dataset's UPDATE policies as well as its SELECT ones). Placing a dataset at a new
-path — creating one, or renaming one — has no existing row to ask, so `require_creatable_at`
-mirrors the insert policies (own `u/`, writable `f/`, member `g/`) ahead of that write. One
-consequence of asking the row for writes but the insert policies for placement: an `extra_perms`
-grant on a specific dataset lets a user edit it in place but not rename it, since a rename is a
-placement.
+Cases are the contents of a dataset rather than objects in their own right. `eval_case` carries a
+read policy derived from its dataset (`see_parent_dataset`) and write policies that check the
+dataset is *writable* — `eval_dataset_writable`, one function holding the same disjunction the
+dataset's own write policies use, so a read-only grant can list a dataset's cases but not edit
+them. A dataset and its cases therefore move in one `user_db` transaction, governed by the same
+policies, and a rename is checked against the destination path the same way. The experiment tables
+are the exception: their rows are written both by a launch (which holds dataset write) and by the
+harvest (which holds only *read* of the run it copies onto its rows), so they carry read policies
+only and are written on the unrestricted pool after the API has checked the right access.
 
 ### Why an experiment is recorded before it is launched
 
