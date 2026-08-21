@@ -13303,9 +13303,7 @@ paths:
         Creates a new script at a path that does not already hold one.
 
         Deploying a new version of an existing script is `POST
-        /w/{workspace}/scripts/update/{path}`, which names the version being
-        superseded in its URL; this route does it too when given that version's
-        `parent_hash`.
+        /w/{workspace}/scripts/update/{path}`.
       operationId: createScript
       x-mcp-tool: true
       x-mcp-instructions: >-
@@ -13500,10 +13498,9 @@ paths:
       summary: update script
       description: >
         Deploys a new version of the script at `path`, which must already hold
-        one. The URL names the version being superseded, so no `parent_hash` is
-        needed. The body's `path` is where the script should end up: repeat the
-        URL's to keep the script where it is, or name another to move it there,
-        archiving the old path.
+        one. The body's `path` is the destination: the same path leaves the
+        script where it is, a different one moves it there and archives the old
+        path.
       operationId: updateScript
       x-mcp-tool: true
       x-mcp-instructions: >-

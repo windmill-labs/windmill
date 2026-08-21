@@ -679,7 +679,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("createScript"),
         description: Cow::Borrowed("create script: Creates a new script at a path that does not already hold one.
-Deploying a new version of an existing script is `POST /w/{workspace}/scripts/update/{path}`, which names the version being superseded in its URL; this route does it too when given that version's `parent_hash`"),
+Deploying a new version of an existing script is `POST /w/{workspace}/scripts/update/{path}`"),
         instructions: Cow::Borrowed("Creates a script at a path that is free. Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it."),
         path: Cow::Borrowed("/w/{workspace}/scripts/create"),
         method: Cow::Borrowed("POST"),
@@ -729,9 +729,8 @@ Deploying a new version of an existing script is `POST /w/{workspace}/scripts/up
     EndpointTool {
         name: Cow::Borrowed("updateScript"),
         description: Cow::Borrowed("update script: Deploys a new version of the script at `path`, which must already hold one.
-The URL names the version being superseded, so no `parent_hash` is needed. The
-body's `path` is where the script should end up: repeat the URL's to keep the
-script where it is, or name another to move it there, archiving the old path"),
+The body's `path` is the destination: the same path leaves the script where it
+is, a different one moves it there and archives the old path"),
         instructions: Cow::Borrowed("Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one."),
         path: Cow::Borrowed("/w/{workspace}/scripts/update/{path}"),
         method: Cow::Borrowed("POST"),
