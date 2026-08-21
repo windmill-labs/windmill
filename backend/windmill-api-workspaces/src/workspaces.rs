@@ -4796,6 +4796,7 @@ async fn set_encryption_key(
     Json(request): Json<SetEncryptionKeyRequest>,
 ) -> Result<()> {
     require_super_admin(&db, &authed).await?;
+    windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
 
     if !WORKSPACE_KEY_REGEXP.is_match(request.new_key.as_str()) {
         return Err(Error::BadRequest(

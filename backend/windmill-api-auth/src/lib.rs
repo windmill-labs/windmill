@@ -454,21 +454,23 @@ pub fn is_effectively_unscoped(scopes: Option<&[String]>) -> bool {
     scope_restrictions(scopes).is_none()
 }
 
-/// Forbid disclosing the workspace encryption key to a scope-restricted token.
+/// Forbid reaching the workspace encryption key with a scope-restricted token.
 ///
-/// The key is not the read of any one domain: it decrypts every secret variable
-/// offline, outliving the token that fetched it, and it mints the secrets that
-/// unlock public apps. No scope grants that, so any scope-restricted token is
-/// refused. An admin check is not a substitute — it answers for the user behind
-/// the token, not for the token's own scopes.
+/// The key is not the read or the write of any one domain: it decrypts every secret
+/// variable offline, outliving the token that reached it, and it mints the secrets
+/// that unlock public apps. Replacing it is the same capability — the server
+/// re-encrypts every secret under the new key, so a caller that chooses the key can
+/// decrypt them all. No scope grants either, so any scope-restricted token is
+/// refused. An admin check is not a substitute — it answers for the user behind the
+/// token, not for the token's own scopes.
 pub fn forbid_scoped_token_workspace_key(authed: &ApiAuthed) -> error::Result<()> {
     if is_effectively_unscoped(authed.scopes.as_deref()) {
         return Ok(());
     }
     Err(Error::PermissionDenied(
-        "The workspace encryption key cannot be read with a scoped token: it decrypts every \
-         secret of the workspace offline, past the scopes and the lifetime of the token that \
-         fetched it. Use a token created without scopes."
+        "The workspace encryption key cannot be read or replaced with a scoped token: it \
+         decrypts every secret of the workspace offline, past the scopes and the lifetime of \
+         the token that reached it. Use a token created without scopes."
             .to_string(),
     ))
 }

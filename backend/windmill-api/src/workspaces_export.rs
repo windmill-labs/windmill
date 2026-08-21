@@ -640,15 +640,41 @@ pub(crate) async fn tarball_workspace(
     // encrypted-only values) keep working with workspaces:read, and the workspace
     // key itself takes an admin *and* an unscoped token (include_key), since it
     // decrypts those same secrets offline. No-op for unscoped tokens.
+    //
+    // Both branches also record what they are about to disclose, on the pool and
+    // before the RLS transaction opens: `tx` is never committed, so an entry
+    // written through it is rolled back with it.
     if plain_secret.or(plain_secrets).unwrap_or(false)
         && !skip_secrets.unwrap_or(false)
         && !skip_variables.unwrap_or(false)
     {
         check_scopes(&authed, || "variables:read".to_string())?;
+        // Exporting decrypted secrets in bulk is the same capability as a per-item
+        // secret read, so record it for parity with variables.decrypt_secret.
+        windmill_audit::audit_oss::audit_log(
+            &db,
+            &authed,
+            "variables.decrypt_secret",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
     }
     if include_key.unwrap_or(false) {
         require_admin(authed.is_admin, &authed.username)?;
         windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
+        windmill_audit::audit_oss::audit_log(
+            &db,
+            &authed,
+            "workspaces.read_encryption_key",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
     }
 
     // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
@@ -673,26 +699,6 @@ pub(crate) async fn tarball_workspace(
     };
 
     let mut tx = user_db.begin(&authed).await?;
-
-    // Exporting decrypted secrets in bulk is the same capability as a per-item
-    // secret read, so record it for parity with variables.decrypt_secret.
-    // Audit entries go to the pool, not `tx`: that transaction is a read-only RLS
-    // scope the handler never commits, so anything written through it is rolled back.
-    if plain_secret.or(plain_secrets).unwrap_or(false)
-        && !skip_variables.unwrap_or(false)
-        && !skip_secrets.unwrap_or(false)
-    {
-        windmill_audit::audit_oss::audit_log(
-            &db,
-            &authed,
-            "variables.decrypt_secret",
-            windmill_audit::ActionKind::Execute,
-            &w_id,
-            Some("workspace_tarball_export"),
-            None,
-        )
-        .await?;
-    }
 
     // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
     // The wm-fork-* prefix is a creation-time naming convention that could in
@@ -1688,17 +1694,6 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_key.unwrap_or(false) {
-        windmill_audit::audit_oss::audit_log(
-            &db,
-            &authed,
-            "workspaces.read_encryption_key",
-            windmill_audit::ActionKind::Execute,
-            &w_id,
-            Some("workspace_tarball_export"),
-            None,
-        )
-        .await?;
-
         let key = sqlx::query_scalar!(
             "SELECT key FROM workspace_key WHERE workspace_id = $1",
             &w_id

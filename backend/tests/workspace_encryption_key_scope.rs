@@ -4,6 +4,7 @@
 //! to `workspaces:read`, while the key decrypts every secret variable of the
 //! workspace offline — so a `workspaces:read` token would recover, past its own
 //! scopes, what `variables:read` gates on the same handler (GHSA-g3x2-mwm6-jrc3).
+//! Replacing the key reaches the same secrets, so it is held to the same bar.
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -69,7 +70,28 @@ async fn test_workspace_key_denied_to_scoped_token(db: Pool<Postgres>) -> anyhow
         resp.text().await.unwrap_or_default()
     );
 
-    // The same admin's unscoped token keeps both paths working.
+    // Replacing the key is the same capability: the server re-encrypts every secret
+    // under a key the caller chose. `workspaces:write` reaches the route, so a 403 here
+    // is the guard rather than the route's own scope check.
+    let scoped_write = mint_scoped_token(port, vec!["workspaces:write"]).await?;
+    let resp = authed(
+        client().post(format!("{ws}/workspaces/encryption_key")),
+        &scoped_write,
+    )
+    .json(&json!({ "new_key": "a".repeat(64) }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "workspaces:write token must not replace the encryption key"
+    );
+    assert!(
+        resp.text().await?.contains("without scopes"),
+        "the 403 must come from the encryption-key guard"
+    );
+
+    // The same admin's unscoped token keeps both read paths working.
     let resp = authed(
         client().get(format!("{ws}/workspaces/encryption_key")),
         ADMIN_TOKEN,
