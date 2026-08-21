@@ -1302,6 +1302,20 @@ const getHubIntegrationToolDef = createToolDef(
  * a specific one. */
 const MAX_INTEGRATION_EXAMPLES = 5
 
+/** The hub keeps a resource type's schema in a text column and hands it back as a
+ * JSON string, so parse it rather than passing an escaped blob to the model.
+ * Anything already structured goes through untouched. */
+function parseResourceTypeSchema(schema: unknown): unknown {
+	if (typeof schema !== 'string') {
+		return schema
+	}
+	try {
+		return JSON.parse(schema)
+	} catch {
+		return schema
+	}
+}
+
 export const getHubIntegrationTool = {
 	def: getHubIntegrationToolDef,
 	fn: async ({ args, toolId, toolCallbacks }) => {
@@ -1359,7 +1373,7 @@ export const getHubIntegrationTool = {
 			resource_types: (doc.resource_types ?? []).map((rt) => ({
 				name: rt.name,
 				...(rt.description ? { description: rt.description } : {}),
-				schema: rt.schema
+				schema: parseResourceTypeSchema(rt.schema)
 			})),
 			example_scripts: (derived?.top_scripts ?? []).slice(0, MAX_INTEGRATION_EXAMPLES).map((s) => ({
 				path: s.path,

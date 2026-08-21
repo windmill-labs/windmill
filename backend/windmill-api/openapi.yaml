@@ -8497,8 +8497,10 @@ paths:
                           type: string
                           nullable: true
                         schema:
-                          type: object
-                          additionalProperties: true
+                          description: >-
+                            the resource type's JSON schema; the hub stores it as text
+                            and returns it as a JSON string, so a client must be ready
+                            for either that or an object
                       required:
                         - name
                         - schema
