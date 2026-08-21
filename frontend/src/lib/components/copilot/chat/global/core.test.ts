@@ -313,6 +313,7 @@ import {
 	globalTools,
 	globalToolsFor,
 	prepareGlobalSystemMessage,
+	resolveGlobalPromptIdentity,
 	getSessionContextPromptSection,
 	prepareGlobalUserMessage,
 	setDeployedInSessionHandler,
@@ -4830,7 +4831,14 @@ describe('folder tools', () => {
 	})
 
 	it('create_folder creates the folder and reflects it in the path context', async () => {
-		userStore.set({ username: 'bob', is_admin: false, folders: ['existing'] } as any)
+		// `workspace_id` is what makes the ambient store the identity for WORKSPACE — the
+		// tool credits the workspace it created the folder in, not whoever is browsing.
+		userStore.set({
+			username: 'bob',
+			workspace_id: WORKSPACE,
+			is_admin: false,
+			folders: ['existing']
+		} as any)
 		const raw = await callGlobalTool('create_folder', { name: 'analytics', summary: 'team data' })
 
 		expect(vi.mocked(FolderService.createFolder)).toHaveBeenCalledWith({
@@ -5063,6 +5071,14 @@ describe('prepareGlobalSystemMessage', () => {
 			expect(content).toContain(
 				'- As a workspace admin you can write to any existing folder. If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.'
 			)
+			expect(content).not.toContain('Folders here include')
+		})
+
+		// Admin guidance asserts nothing about the folder list, so unknown ACLs must not
+		// silence it the way they silence the non-admin bullets.
+		it('keeps the admin guidance when the folder sets are unknown', () => {
+			const content = guidanceOf({ username: 'admin', is_admin: true })
+			expect(content).toContain('As a workspace admin you can write to any existing folder.')
 			expect(content).not.toContain('Folders here include')
 		})
 
@@ -5872,5 +5888,91 @@ describe('open_page workspace gating', () => {
 
 		expect(UserService.whoami).toHaveBeenCalledWith(expect.objectContaining({ workspace: SESSION }))
 		expect(advertisedPages()).not.toEqual([])
+	})
+})
+
+describe('global prompt identity', () => {
+	const NAV = 'nav_ws'
+	const SESSION = 'session_ws'
+
+	beforeEach(() => {
+		// Browsing NAV as `alice` with a folder of her own; the session operates on
+		// SESSION, where she is a different user with different folders.
+		userStore.set({
+			username: 'alice',
+			workspace_id: NAV,
+			is_admin: false,
+			folders: ['alice_stuff'],
+			folders_read: ['alice_stuff']
+		} as any)
+		usersWorkspaceStore.set({
+			workspaces: [
+				{ id: NAV, username: 'alice' },
+				{ id: SESSION, username: 'a_smith' }
+			]
+		} as any)
+		superadmin.set(false)
+		whoamiByWorkspace.set(SESSION, {
+			username: 'a_smith',
+			email: 'alice@windmill.dev',
+			is_admin: false,
+			operator: false,
+			groups: [],
+			folders: ['team_etl'],
+			folders_read: ['team_etl', 'readonly_reports']
+		})
+	})
+
+	afterEach(() => {
+		userStore.set(undefined)
+		usersWorkspaceStore.set(undefined)
+		superadmin.set(undefined)
+		whoamiByWorkspace.clear()
+		clearWorkspaceRoleCache()
+	})
+
+	// Reading the ambient store instead tells the model to write to `u/alice/...` and
+	// offers `f/alice_stuff`, neither of which exists in the workspace it writes to.
+	it('describes the operating workspace, not the one being browsed', async () => {
+		const identity = await resolveGlobalPromptIdentity(SESSION)
+		const content = prepareGlobalSystemMessage(undefined, { user: identity }).content as string
+
+		expect(content).toContain('workspace username is "a_smith"')
+		expect(content).toContain('`f/team_etl`')
+		expect(content).toContain('You can see but NOT write to: `f/readonly_reports`')
+		expect(content).not.toContain('alice_stuff')
+		expect(content).not.toContain('u/alice/')
+	})
+
+	// The username cannot be dropped the way the folder sets can — it renders into
+	// `u/<username>/...`, and an empty one yields `u//`.
+	it('keeps the username but drops folder guidance when the role cannot be resolved', async () => {
+		whoamiByWorkspace.delete(SESSION)
+		const identity = await resolveGlobalPromptIdentity(SESSION)
+		const content = prepareGlobalSystemMessage(undefined, { user: identity }).content as string
+
+		expect(identity).toEqual({ username: 'a_smith' })
+		expect(content).toContain('workspace username is "a_smith"')
+		expect(content).not.toContain('u//')
+		expect(content).not.toContain('Folders you can write to')
+		// Unknown ACLs must not be rendered as known-empty ones: this bullet is the
+		// no-writable-folders claim, and it is false in a workspace we never resolved.
+		expect(content).not.toContain('You have no shared folders you can write to')
+		expect(content).not.toContain('alice_stuff')
+	})
+
+	it('credits a created folder to the workspace it was created in', async () => {
+		await getGlobalTool('create_folder').fn({
+			args: { name: 'analytics' },
+			workspace: SESSION,
+			helpers: {},
+			toolCallbacks,
+			toolId: 'test-create-folder-cross-workspace'
+		})
+
+		expect(await resolveGlobalPromptIdentity(SESSION)).toMatchObject({
+			folders: ['team_etl', 'analytics']
+		})
+		expect(get(userStore)?.folders).toEqual(['alice_stuff'])
 	})
 })

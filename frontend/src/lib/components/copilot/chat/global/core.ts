@@ -153,6 +153,7 @@ import {
 	enterpriseLicense,
 	userWorkspaces,
 	usersWorkspaceStore,
+	NON_MEMBER_USERNAME,
 	workspaceStore
 } from '$lib/stores'
 import { getWorkspaceRole, type RoleLookup } from '$lib/user'
@@ -1181,7 +1182,9 @@ const createFolderSchema = z.object({
 	summary: z.string().optional().describe('Optional human-readable description of the folder.')
 })
 
-type FolderPromptContext = { folders: string[]; foldersRead: string[]; isAdmin: boolean }
+// `folders`/`foldersRead` are undefined when the user's role in this workspace could not
+// be resolved.
+type FolderPromptContext = { folders?: string[]; foldersRead?: string[]; isAdmin: boolean }
 
 // Renders the folders the current user can act on into the system prompt so the
 // model can pick an `f/<folder>/...` path without a discovery round-trip (there
@@ -1210,6 +1213,11 @@ function buildFolderGuidance(username: string, ctx?: FolderPromptContext): strin
 				: ''
 		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it; if they explicitly ask for a new folder, create it with \`create_folder\`; otherwise ask them which folder to use rather than guessing or creating one unprompted.`
 	}
+	// Everything below states the writable set as fact, including the empty case, so an
+	// unresolved role has to say nothing at all: "you have no shared folders" is a claim,
+	// and a wrong one steers shared work into personal paths. The admin branch above
+	// asserts nothing about the list, so it stands whether or not the ACLs are known.
+	if (!ctx.folders) return ''
 	const readOnly = (ctx.foldersRead ?? []).filter((f) => !writable.includes(f))
 	const lines: string[] = []
 	if (writable.length > 0) {
@@ -2454,6 +2462,47 @@ async function roleForWorkspace(
 	return getWorkspaceRole(workspaceId)
 }
 
+// Who the user is in the workspace the chat operates on, for the prompt's path-convention
+// and folder guidance. Both are per-workspace: usernames come from that workspace's `usr`
+// row, and the writable/readable folder sets are its own ACLs.
+export type GlobalPromptIdentity = {
+	username: string
+	is_admin?: boolean
+	folders?: string[]
+	folders_read?: string[]
+}
+
+// `userWorkspaces` carries the real per-workspace username for every membership at no
+// request cost; the ambient store's belongs to the workspace being browsed, so it is the
+// last resort. Undefined rather than empty when neither names anybody — the prompt would
+// otherwise render `u//<name>`.
+function fallbackUsername(workspaceId: string): string | undefined {
+	const listed = get(userWorkspaces).find((w) => w.id === workspaceId)?.username
+	if (listed && listed !== NON_MEMBER_USERNAME) return listed
+	return get(userStore)?.username || undefined
+}
+
+export async function resolveGlobalPromptIdentity(
+	workspaceId: string | undefined
+): Promise<GlobalPromptIdentity | undefined> {
+	const role = await roleForWorkspace(workspaceId)
+	if (role.kind === 'resolved') {
+		const u = role.user
+		return {
+			username: u.username,
+			is_admin: u.is_admin,
+			folders: u.folders,
+			folders_read: u.folders_read
+		}
+	}
+	// Headless callers (the eval harness) hold no workspace and pass their own identity.
+	if (role.kind === 'no_workspace_context') return undefined
+	// The role is the only source for the folder sets, so an unresolved one leaves them out:
+	// the browsed workspace's would name folders that may not exist where the chat writes.
+	const username = fallbackUsername(workspaceId!)
+	return username ? { username } : undefined
+}
+
 // Which pages the user can actually reach in `workspaceId` — mirrors the sidebar's gating.
 // `workspaceId` is the chat's operating workspace, defaulting to the navigation workspace
 // for the global side-panel chat. The tool only ever advertises, and only ever acts on,
@@ -3352,10 +3401,12 @@ export const globalTools: Tool<{}>[] = [
 					workspace,
 					requestBody: { name: parsed.name, summary: parsed.summary }
 				})
-				// Reflect the new folder in the path-convention context for the rest of this
-				// session, matching FolderPicker's local update (avoids userStore.set()).
-				const user = get(userStore)
-				if (user) {
+				// Reflect the new folder for the rest of the session without a refetch, crediting
+				// the workspace it was created in: crediting the ambient one instead would hide
+				// it from the prompt that needs it.
+				const role = await roleForWorkspace(workspace)
+				if (role.kind === 'resolved') {
+					const user = role.user
 					if (!user.folders) user.folders = []
 					if (!user.folders.includes(parsed.name)) user.folders.push(parsed.name)
 				}
@@ -7643,10 +7694,11 @@ export function prepareGlobalSystemMessage(
 	instructions?: { workspace?: string; user?: string },
 	opts?: {
 		previewTools?: boolean
-		// Identity the path-convention guidance is built from. Production omits it
-		// (read from userStore); callers that must not touch the process-global
-		// store (the eval harness) pass it explicitly instead.
-		user?: { username: string; is_admin?: boolean; folders?: string[]; folders_read?: string[] }
+		// Identity the path-convention guidance is built from (`GlobalPromptIdentity`); the
+		// eval harness seeds its own. The `userStore` fallback below is the browsed
+		// workspace's, and answers whenever no identity has been resolved yet — including
+		// before the first `refreshGlobalIdentity` settles, which is why `beforeSend` awaits it.
+		user?: GlobalPromptIdentity
 		skills?: AiSkillListItem[]
 		mcpServers?: McpServer[]
 	}
@@ -7655,8 +7707,8 @@ export function prepareGlobalSystemMessage(
 	const username = user?.username ?? ''
 	const folderCtx: FolderPromptContext | undefined = user
 		? {
-				folders: user.folders ?? [],
-				foldersRead: user.folders_read ?? user.folders ?? [],
+				folders: user.folders,
+				foldersRead: user.folders_read ?? user.folders,
 				isAdmin: user.is_admin ?? false
 			}
 		: undefined

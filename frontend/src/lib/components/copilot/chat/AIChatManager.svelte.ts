@@ -117,6 +117,8 @@ import {
 	globalToolsFor,
 	loadWorkspaceSkills,
 	prepareGlobalSystemMessage,
+	resolveGlobalPromptIdentity,
+	type GlobalPromptIdentity,
 	prepareGlobalUserMessage,
 	type AiSkillListItem,
 	type ChatCommandItem,
@@ -1081,6 +1083,12 @@ export class AIChatManager {
 	mcpServers = $state<McpServer[]>([])
 	private mcpServersRefreshId = 0
 
+	// The GLOBAL prompt's path conventions and folder ACLs, for this chat's operating
+	// workspace (`GlobalPromptIdentity`). Resolved asynchronously alongside skills, never
+	// read from the ambient user store.
+	private globalIdentity = $state<GlobalPromptIdentity | undefined>(undefined)
+	private globalIdentityRefreshId = 0
+
 	// Built-in session-chat slash commands, listed in the command picker
 	// alongside workspace skills. Unlike a skill, these run locally and never
 	// reach the model; the submit path intercepts them first, so they shadow any
@@ -1954,6 +1962,7 @@ export class AIChatManager {
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
+			void this.refreshGlobalIdentity()
 			void this.refreshGlobalSkills()
 			void this.refreshMcpServers()
 		} else if (mode === AIMode.APP) {
@@ -1974,6 +1983,7 @@ export class AIChatManager {
 	private configureGlobalMode = () => {
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
+			user: this.globalIdentity,
 			skills: this.globalSkills,
 			mcpServers: this.mcpServers
 		})
@@ -2039,6 +2049,20 @@ export class AIChatManager {
 		}
 	}
 
+	// Same shape as refreshGlobalSkills. An identity that resolves after the operating
+	// workspace moved describes the workspace left behind, so it is dropped, not installed.
+	refreshGlobalIdentity = async (workspace = this.operatingWorkspace ?? '') => {
+		const refreshId = ++this.globalIdentityRefreshId
+		const identity = await resolveGlobalPromptIdentity(workspace)
+		if (refreshId !== this.globalIdentityRefreshId) {
+			return
+		}
+		this.globalIdentity = workspace === (this.operatingWorkspace ?? '') ? identity : undefined
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
 	// Same shape as refreshGlobalSkills: rebuild GLOBAL mode once the connected
 	// MCP servers resolve so the next chat-loop iteration advertises their tools,
 	// ignoring stale resolves so a workspace change cannot overwrite newer ones.
@@ -2085,6 +2109,7 @@ export class AIChatManager {
 		}
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
+			user: this.globalIdentity,
 			skills: this.globalSkills,
 			mcpServers: this.mcpServers
 		})
@@ -2914,10 +2939,13 @@ export class AIChatManager {
 				return false
 			}
 		}
-		// Session chats commit their workspace in beforeSend; skills and MCP servers
-		// must match the committed workspace before the system prompt is sent.
+		// Session chats commit their workspace in beforeSend; the identity, skills and
+		// MCP servers must all match the committed workspace before the system prompt is
+		// sent. Settling them here rather than mid-turn also keeps the prompt — the
+		// cached prefix of every iteration — stable for the whole request.
 		if (this.mode === AIMode.GLOBAL) {
 			await Promise.all([
+				this.refreshGlobalIdentity(this.operatingWorkspace ?? ''),
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
 				this.refreshMcpServers(this.operatingWorkspace ?? '')
 			])
