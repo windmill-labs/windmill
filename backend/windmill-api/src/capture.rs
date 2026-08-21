@@ -742,17 +742,21 @@ async fn get_capture(
 async fn delete_capture(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((_, id)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
+    // capture RLS only keys on the path segment, so without workspace_id an id from
+    // another workspace whose path collides with the caller's grants would be deleted.
     sqlx::query!(
         r#"
-        DELETE FROM 
+        DELETE FROM
             capture
-        WHERE 
+        WHERE
             id = $1
+            AND workspace_id = $2
         "#,
-        id
+        id,
+        &w_id,
     )
     .execute(&mut *tx)
     .await?;
