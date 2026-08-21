@@ -230,7 +230,10 @@ async fn test_tarball_export_gates_values_on_item_scopes(db: Pool<Postgres>) -> 
               '{workspaces:read,resources:read:u/test-user/creds,variables:read:u/test-user/plain}'),
              (encode(sha256('ITEM_READ_TOKEN'::bytea), 'hex'), 'ITEM_READ_', 'ITEM_READ_TOKEN',
               'test@windmill.dev', 'item read', false,
-              '{workspaces:read,resources:read,variables:read}')"#,
+              '{workspaces:read,resources:read,variables:read}'),
+             (encode(sha256('WILDCARD_TOKEN'::bytea), 'hex'), 'WILDCARD_T', 'WILDCARD_TOKEN',
+              'test@windmill.dev', 'wildcard item read', false,
+              '{workspaces:read,resources:read:*,variables:read:*}')"#,
     )
     .execute(&db)
     .await?;
@@ -271,9 +274,16 @@ async fn test_tarball_export_gates_values_on_item_scopes(db: Pool<Postgres>) -> 
         assert_eq!(status, 200, "{token} denied a value-free export: {body}");
     }
 
-    let (status, body) = export("ITEM_READ_TOKEN", "").await?;
-    assert_eq!(status, 200, "granted token denied: {body}");
-    assert!(body.contains("RESOURCE_VALUE") && body.contains("VARIABLE_VALUE"));
+    // `*` is a resource path the scope picker mints, and it spans the whole domain,
+    // so it must export exactly as the unqualified grant does.
+    for token in ["ITEM_READ_TOKEN", "WILDCARD_TOKEN"] {
+        let (status, body) = export(token, "").await?;
+        assert_eq!(status, 200, "{token} denied: {body}");
+        assert!(
+            body.contains("RESOURCE_VALUE") && body.contains("VARIABLE_VALUE"),
+            "{token} exported no values"
+        );
+    }
 
     Ok(())
 }

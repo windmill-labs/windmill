@@ -147,7 +147,11 @@ impl ScopeDefinition {
             (Some(self_resources), Some(other_resources)) => {
                 resources_match(self_resources, other_resources)
             }
-            (Some(_), None) => false,
+            // A requirement naming no path is the whole domain, so only a grant that
+            // itself spans every path satisfies it. `*` is that grant — the scope UI
+            // accepts it as a resource path and `resources_match` already reads it as
+            // everything — while any listed path leaves the collection unauthorized.
+            (Some(self_resources), None) => self_resources.iter().any(|r| r == "*"),
             (None, _) => true,
         }
     }
@@ -1432,6 +1436,24 @@ mod tests {
             "DELETE"
         )
         .is_ok());
+    }
+
+    // Whole-collection reads (the workspace export, `apps:read`, ...) require the
+    // domain with no path. Only a grant spanning every path may satisfy that.
+    #[test]
+    fn test_unqualified_requirement_needs_a_whole_domain_grant() {
+        let unqualified = ScopeDefinition::new("resources", "read", None, None);
+
+        let wildcard = ScopeDefinition::new("resources", "read", None, Some(vec!["*".to_string()]));
+        assert!(wildcard.includes(&unqualified));
+
+        let path_scoped = ScopeDefinition::new(
+            "resources",
+            "read",
+            None,
+            Some(vec!["f/team/db".to_string(), "u/alice/db".to_string()]),
+        );
+        assert!(!path_scoped.includes(&unqualified));
     }
 
     #[test]
