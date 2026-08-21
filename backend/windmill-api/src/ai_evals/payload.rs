@@ -199,16 +199,17 @@ async fn build_run_payload(
                 schema: row.and_then(|r| r.schema.as_ref()).map(|s| s.0.clone()),
             });
         }
+        // A failed call's error is the result too — the same failure payload — so it is bounded by
+        // the same cap: rendering prefers `error`, and an unbounded one would put back exactly the
+        // bytes `truncate_value` just kept out of a judge's context.
+        let error = failed
+            .then(|| result.as_ref().map(|r| r.get().to_string()))
+            .flatten();
         tool_calls.push(EvalToolCall {
             name,
             args: inline_args.or_else(|| row.and_then(|r| r.args.as_ref()).map(|a| a.0.clone())),
             result,
-            error: failed
-                .then(|| {
-                    row.and_then(|r| r.result.as_ref())
-                        .map(|r| r.0.get().to_string())
-                })
-                .flatten(),
+            error,
             duration_ms: row.map(|r| r.duration_ms),
             truncated,
         });
