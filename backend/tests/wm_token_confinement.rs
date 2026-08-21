@@ -1,17 +1,32 @@
-//! A WM_TOKEN (job JWT) running as a superadmin must not be able to perform
-//! global user/token management — promotion, password reset, user creation,
-//! token creation/impersonation, offboarding, or exporting the user table.
-//! A non-admin `wm_deployers` member can mint
-//! such a token implicitly via an app/flow `on_behalf_of`, so trusting it would
-//! let them establish *persistent* superadmin. A real superadmin who needs this
-//! from a script must use a dedicated superadmin API token (which only a real
-//! superadmin can create), not `$WM_TOKEN`.
+//! A WM_TOKEN (job JWT) is minted for one job in one workspace and carries that
+//! job's full user privileges. Two independent caps hold it there, and this file
+//! covers both:
+//!
+//! - Confinement to the job's workspace, enforced in the auth middleware. A route
+//!   that names no workspace is instance-wide, so reaching one would trade an
+//!   ephemeral, workspace-bound credential for a permanent one (`tokens/create`
+//!   mints a workspace-less API token that never expires), for instance
+//!   configuration, or for global user management. Refusals are `403`.
+//! - A ceiling of workspace admin whatever identity the token borrows, enforced at
+//!   the privilege gates themselves (`require_super_admin`, `require_devops_role`,
+//!   `require_instance_admin`, GHSA-hfh4-cx4h-3fcr). Refusals are `401`.
+//!
+//! The middleware runs first, so on a workspace-less route it answers before the
+//! gate behind it ever runs: those cases pin the outer cap, and the gates are
+//! pinned by the workspace-scoped cases, which the middleware lets through.
+//!
+//! A non-admin `wm_deployers` member can mint such a token implicitly via an
+//! app/flow `on_behalf_of`, so the identity it carries need not be their own. A
+//! real superadmin who needs a global endpoint from a script must use a
+//! dedicated API token (which only a real superadmin can create), not
+//! `$WM_TOKEN`.
 //!
 //! The fixture provides `test@windmill.dev` (instance superadmin, token
 //! `SECRET_TOKEN`) and `test2@windmill.dev` (non-superadmin, `SECRET_TOKEN_2`).
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
+use windmill_api_auth::ApiAuthed;
 use windmill_common::auth::create_jwt_token;
 use windmill_common::db::Authed;
 use windmill_test_utils::*;
@@ -51,7 +66,7 @@ async fn wm_token(email: &str, is_admin: bool) -> String {
 }
 
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
-async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     // The server decodes WM_TOKENs with the same in-process JWT secret, so
     // setting it once lets us mint a valid one below.
@@ -59,11 +74,14 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
 
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
-    let base = format!("http://localhost:{port}/api/users");
+    let api = format!("http://localhost:{port}/api");
+    let base = format!("{api}/users");
 
     // A superadmin-capable WM_TOKEN — the exact thing a deployer obtains via an
     // app on_behalf_of pointed at a superadmin.
     let sa_wm = wm_token("test@windmill.dev", true).await;
+    // ...and one for a plain user: neither may leave its workspace.
+    let user_wm = wm_token("test2@windmill.dev", false).await;
 
     // 1. Cannot mint a (superadmin) token.
     let resp = authed(client().post(format!("{base}/tokens/create")), &sa_wm)
@@ -72,7 +90,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not create tokens: {}",
         resp.text().await?
     );
@@ -84,7 +102,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not impersonate: {}",
         resp.text().await?
     );
@@ -99,7 +117,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not promote users: {}",
         resp.text().await?
     );
@@ -111,7 +129,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not reset passwords: {}",
         resp.text().await?
     );
@@ -125,7 +143,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not delete users: {}",
         resp.text().await?
     );
@@ -140,7 +158,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not change login type: {}",
         resp.text().await?
     );
@@ -156,7 +174,7 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not offboard users: {}",
         resp.text().await?
     );
@@ -167,13 +185,38 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not export global users: {}",
         resp.text().await?
     );
 
-    // 5. Escape hatch / no false positive: a real superadmin API token
-    //    (SECRET_TOKEN, no job_id) can still create tokens.
+    // 5. Not only user management: any workspace-less route is out of reach,
+    //    including one open to every authenticated user.
+    let resp = authed(client().get(format!("{api}/workers/list")), &user_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "WM_TOKEN must not enumerate instance workers: {}",
+        resp.text().await?
+    );
+
+    // 6. A plain user's WM_TOKEN cannot mint itself a permanent, workspace-less
+    //    token either — the confinement does not depend on being a superadmin.
+    let resp = authed(client().post(format!("{base}/tokens/create")), &user_wm)
+        .json(&json!({ "label": "from-script" }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "WM_TOKEN must not create tokens: {}",
+        resp.text().await?
+    );
+
+    // 7. Escape hatch / no false positive: a real API token (SECRET_TOKEN, no
+    //    job_id) still reaches both.
     let resp = authed(
         client().post(format!("{base}/tokens/create")),
         "SECRET_TOKEN",
@@ -187,28 +230,137 @@ async fn test_wm_token_cannot_manage_superadmin_users(db: Pool<Postgres>) -> any
         "a real superadmin token must still create tokens: {}",
         resp.text().await?
     );
-
-    // 6. No collateral: a non-superadmin WM_TOKEN can still create its own
-    //    token — the guard only fires for superadmin-capable job tokens.
-    let user_wm = wm_token("test2@windmill.dev", false).await;
-    let resp = authed(client().post(format!("{base}/tokens/create")), &user_wm)
-        .json(&json!({ "label": "from-script" }))
+    let resp = authed(client().get(format!("{api}/workers/list")), "SECRET_TOKEN")
         .send()
         .await?;
     assert_eq!(
         resp.status(),
-        201,
-        "non-superadmin WM_TOKEN must still create its own token: {}",
+        200,
+        "a real token must still list workers: {}",
         resp.text().await?
     );
+
+    // 8. No collateral on the routes a job legitimately needs: its own workspace,
+    //    and the workspace-less endpoint the clients' `whoami()` calls.
+    let resp = authed(client().get(format!("{base}/whoami")), &user_wm)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still resolve its own identity: {}",
+        resp.text().await?
+    );
+    let resp = authed(
+        client().get(format!("{api}/w/test-workspace/scripts/list")),
+        &user_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still work inside its own workspace: {}",
+        resp.text().await?
+    );
+
+    // 9. ...and the writes it keeps. `wmill workspace add` checks this before it will
+    //    accept the credentials it was given, so a job that points the CLI at its own
+    //    instance depends on it.
+    let resp = authed(client().post(format!("{api}/workspaces/exists")), &user_wm)
+        .json(&json!({ "id": "test-workspace" }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still reach the workspace-exists check `wmill workspace add` makes: {}",
+        resp.text().await?
+    );
+
+    //    The resource editor's object-storage "Test connection" runs as a preview job that
+    //    POSTs its config here. The body is deliberately not a valid `ObjectSettings`, so
+    //    reaching the handler's own extractors is exactly a 422 — a 403 means confinement
+    //    refused it. The route is only mounted under `parquet`, which would make this a 404,
+    //    so the case is gated on the feature rather than left to fail where it can't run.
+    #[cfg(feature = "parquet")]
+    {
+        let resp = authed(
+            client().post(format!("{api}/settings/test_object_storage_config")),
+            &user_wm,
+        )
+        .json(&json!({}))
+        .send()
+        .await?;
+        assert_eq!(
+            resp.status(),
+            422,
+            "WM_TOKEN must still reach the object-storage connection test: {}",
+            resp.text().await?
+        );
+    }
+
+    // 10. The rest of the allowlist: routes that answer from the caller's own account or
+    //     from the request body alone.
+    for route in [
+        "users/email",
+        "users/usage",
+        "users/tutorial_progress",
+        "workspaces/allowed_domain_auto_invite",
+    ] {
+        let resp = authed(client().get(format!("{api}/{route}")), &user_wm)
+            .send()
+            .await?;
+        assert_eq!(
+            resp.status(),
+            200,
+            "WM_TOKEN must still read its own {route}: {}",
+            resp.text().await?
+        );
+    }
+    let resp = authed(client().post(format!("{api}/schedules/preview")), &user_wm)
+        .json(&json!({ "schedule": "0 0 12 * * *", "timezone": "UTC" }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still preview a cron expression: {}",
+        resp.text().await?
+    );
+    let resp = authed(client().post(format!("{base}/tutorial_progress")), &user_wm)
+        .json(&json!({ "progress": 1, "skipped_all": false }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still record its own tutorial progress: {}",
+        resp.text().await?
+    );
+
+    // 11. ...and the caller-scoped reads deliberately left out of it, each because it
+    //     names another workspace or the identity's credentials.
+    for route in ["users/list_invites", "users/tokens/list", "workspaces/list"] {
+        let resp = authed(client().get(format!("{api}/{route}")), &user_wm)
+            .send()
+            .await?;
+        assert_eq!(
+            resp.status(),
+            403,
+            "{route} must stay confined: {}",
+            resp.text().await?
+        );
+    }
 
     Ok(())
 }
 
 /// A WM_TOKEN running as a superadmin must be rejected by *any* `require_super_admin`
-/// route, not just the handful that call `forbid_superadmin_job_token`. `GET
-/// /api/settings/list_global` is gated solely by `require_super_admin`, so it
-/// exercises the token-layer guard (GHSA-hfh4-cx4h-3fcr).
+/// route, not just the handful that call `forbid_superadmin_job_token`
+/// (GHSA-hfh4-cx4h-3fcr). Both shapes of such a route are covered: a workspace-less
+/// one, which workspace confinement answers first, and a workspace-scoped one, which
+/// reaches the gate itself.
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
 async fn test_wm_token_rejected_by_require_super_admin(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -225,7 +377,7 @@ async fn test_wm_token_rejected_by_require_super_admin(db: Pool<Postgres>) -> an
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not reach a require_super_admin route: {}",
         resp.text().await?
     );
@@ -241,6 +393,35 @@ async fn test_wm_token_rejected_by_require_super_admin(db: Pool<Postgres>) -> an
         resp.status(),
         200,
         "a real superadmin token must still reach the route: {}",
+        resp.text().await?
+    );
+
+    // `GET /api/w/{workspace}/users/list_addable` is gated solely by
+    // `require_super_admin` too, but names a workspace, so the request runs the gate
+    // instead of stopping at confinement.
+    let resp = authed(
+        client().get(format!("{base}/w/test-workspace/users/list_addable")),
+        &sa_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "superadmin WM_TOKEN must not clear require_super_admin inside its own workspace: {}",
+        resp.text().await?
+    );
+
+    let resp = authed(
+        client().get(format!("{base}/w/test-workspace/users/list_addable")),
+        "SECRET_TOKEN",
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "a real superadmin token must still clear the gate: {}",
         resp.text().await?
     );
 
@@ -331,7 +512,7 @@ async fn test_wm_token_rejected_by_require_devops_role(db: Pool<Postgres>) -> an
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not reach a require_devops_role route: {}",
         resp.text().await?
     );
@@ -360,7 +541,7 @@ async fn test_wm_token_rejected_by_require_devops_role(db: Pool<Postgres>) -> an
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not list all users: {}",
         resp.text().await?
     );
@@ -448,7 +629,7 @@ async fn test_wm_token_rejected_by_instance_admin_gates(db: Pool<Postgres>) -> a
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not unarchive an arbitrary workspace: {}",
         resp.text().await?
     );
@@ -477,23 +658,30 @@ async fn test_wm_token_rejected_by_instance_admin_gates(db: Pool<Postgres>) -> a
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not list global concurrency groups: {}",
         resp.text().await?
     );
 
-    // 4. Worker-group config: the static env value must be masked for a job token.
-    let body = authed(
+    // 4. Worker-group config: refused outright, so the static env value it would
+    //    otherwise obfuscate never reaches a job token. Asserting the status rather
+    //    than the absence of the secret keeps the case honest — an error body
+    //    trivially satisfies "does not contain the secret".
+    let resp = authed(
         client().get(format!("{base}/configs/list_worker_groups")),
         &sa_wm,
     )
     .send()
-    .await?
-    .text()
     .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(
+        status, 403,
+        "superadmin WM_TOKEN must not read the worker-group config: {body}"
+    );
     assert!(
         !body.contains("supersecretvalue"),
-        "superadmin WM_TOKEN must get the obfuscated worker-group view: {body}"
+        "the refusal must not carry the static env value: {body}"
     );
 
     // No false positive: a real superadmin API token (no job_id) still sees the
@@ -539,7 +727,7 @@ async fn test_wm_token_cannot_mint_a_provenance_free_credential(
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not refresh into a session token: {}",
         resp.text().await?
     );
@@ -567,7 +755,7 @@ async fn test_wm_token_cannot_mint_a_provenance_free_credential(
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "devops WM_TOKEN must not mint a token: {}",
         resp.text().await?
     );
@@ -580,7 +768,7 @@ async fn test_wm_token_cannot_mint_a_provenance_free_credential(
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "devops WM_TOKEN must not set its account password: {}",
         resp.text().await?
     );
@@ -642,7 +830,7 @@ async fn test_wm_token_cannot_mint_via_mcp_oauth_approval(
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not approve through the MCP gateway: {}",
         resp.text().await?
     );
@@ -709,7 +897,7 @@ async fn test_wm_token_cannot_mint_or_widen_an_app_embed_token(
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "superadmin WM_TOKEN must not widen a token's scopes: {}",
         resp.text().await?
     );
@@ -739,7 +927,7 @@ async fn test_wm_token_cannot_destroy_its_on_behalf_account(
         .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "WM_TOKEN must not delete the account it runs as: {}",
         resp.text().await?
     );
@@ -754,7 +942,7 @@ async fn test_wm_token_cannot_destroy_its_on_behalf_account(
     .await?;
     assert_eq!(
         resp.status(),
-        401,
+        403,
         "WM_TOKEN must not revoke that identity's tokens: {}",
         resp.text().await?
     );
@@ -851,6 +1039,128 @@ async fn test_wm_token_gets_no_admin_claim_in_a_foreign_workspace(
         200,
         "a real superadmin token must still diff across workspaces: {}",
         resp.text().await?
+    );
+
+    Ok(())
+}
+
+/// The guards below cap a job token on routes that name no workspace, which confinement
+/// now answers first — so no request can reach them and no HTTP case would notice if they
+/// stopped capping. They are called directly for that reason; deleting them because the
+/// suite is green elsewhere would leave the inner cap unpinned (GHSA-hfh4-cx4h-3fcr).
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_privilege_gates_reject_a_job_token_directly(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    fn authed_as(email: &str, job_id: Option<uuid::Uuid>) -> ApiAuthed {
+        ApiAuthed {
+            email: email.to_string(),
+            username: "runner".to_string(),
+            is_admin: true,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            scopes: None,
+            username_override: None,
+            username_override_is_token_label: false,
+            is_session_token: false,
+            token_prefix: None,
+            read_only: false,
+            job_id,
+        }
+    }
+
+    let job = authed_as("test@windmill.dev", Some(uuid::Uuid::new_v4()));
+    let not_job = authed_as("test@windmill.dev", None);
+
+    assert!(
+        windmill_api_auth::require_devops_role(&db, &job)
+            .await
+            .is_err(),
+        "a job token must not hold the devops role"
+    );
+    assert!(
+        windmill_api_auth::require_instance_admin(&job).is_err(),
+        "a job token must not hold instance admin"
+    );
+
+    // The identity is a real superadmin, so without the job provenance both gates pass —
+    // proving the rejections above key off `job_id` and not the fixture's user.
+    assert!(
+        windmill_api_auth::require_devops_role(&db, &not_job)
+            .await
+            .is_ok(),
+        "a superadmin API token must still hold the devops role"
+    );
+    assert!(
+        windmill_api_auth::require_instance_admin(&not_job).is_ok(),
+        "a superadmin API token must still hold instance admin"
+    );
+
+    // The boolean sibling, which `list_worker_groups` consults to decide whether to
+    // obfuscate rather than to refuse: reading `true` there returns `env_vars_static` in
+    // the clear, so this one fails by leaking rather than by letting a request through.
+    assert!(
+        !windmill_api_auth::is_instance_admin(&job),
+        "a job token must not read as instance admin"
+    );
+    assert!(
+        windmill_api_auth::is_instance_admin(&not_job),
+        "an admin API token must still read as instance admin"
+    );
+
+    // `forbid_superadmin_job_token` guards the same class of route but keys on two things
+    // at once, so all three combinations are worth pinning: it fires only for a job token
+    // whose identity is a superadmin.
+    assert!(
+        windmill_api_auth::forbid_superadmin_job_token(&db, &job.email, job.job_id)
+            .await
+            .is_err(),
+        "a superadmin job token must be forbidden"
+    );
+    assert!(
+        windmill_api_auth::forbid_superadmin_job_token(&db, &not_job.email, None)
+            .await
+            .is_ok(),
+        "a superadmin API token carries no job provenance to forbid"
+    );
+    assert!(
+        windmill_api_auth::forbid_superadmin_job_token(
+            &db,
+            "test2@windmill.dev",
+            Some(uuid::Uuid::new_v4())
+        )
+        .await
+        .is_ok(),
+        "a job token running as a non-superadmin is not what this gate withholds"
+    );
+
+    // `forbid_elevated_job_token` is the same shape one tier wider — `is_devops_email` is
+    // true for superadmins too. The embed-token case above reaches it, but only ever with
+    // an elevated identity; these pin the other two combinations, so collapsing the gate
+    // into a blanket job-token refusal would be caught here rather than by whoever next
+    // creates a token from a script.
+    assert!(
+        windmill_api_auth::forbid_elevated_job_token(&db, "devops@windmill.dev", job.job_id)
+            .await
+            .is_err(),
+        "a devops job token must not mint a credential"
+    );
+    assert!(
+        windmill_api_auth::forbid_elevated_job_token(&db, &job.email, job.job_id)
+            .await
+            .is_err(),
+        "a superadmin job token must not mint a credential"
+    );
+    assert!(
+        windmill_api_auth::forbid_elevated_job_token(
+            &db,
+            "test2@windmill.dev",
+            Some(uuid::Uuid::new_v4())
+        )
+        .await
+        .is_ok(),
+        "an unelevated job token is left to the confinement check, not refused here"
     );
 
     Ok(())
