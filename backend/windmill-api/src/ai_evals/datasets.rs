@@ -237,6 +237,12 @@ pub async fn update_dataset(
     let new_path = match payload.path.filter(|p| *p != path) {
         Some(new_path) => {
             check_path(&new_path)?;
+            // A rename is owner-only, as for every other renamable object (update_resource does the
+            // same). RLS write access — which a shared dataset's extra_perms grants — is enough to
+            // edit a dataset's contents but not to move it into another namespace: the UPDATE
+            // policies carry no explicit WITH CHECK, so Postgres reuses their USING, and the row's
+            // own extra_perms travels with the rename and would satisfy it for any destination.
+            windmill_api_auth::require_owner_of_path(&authed, &path)?;
             Some(new_path)
         }
         None => None,
@@ -247,10 +253,8 @@ pub async fn update_dataset(
     // The whole edit is one `user_db` transaction, governed by the row-level policies throughout:
     // the row is read `FOR UPDATE` (its UPDATE policy decides who may), the columns it holds are
     // read under that lock so a concurrent edit cannot restore a removed scorer's id, and the
-    // cases move under the (possibly new) name through the case write policies. The rename's
-    // destination is checked too — the dataset UPDATE policies carry no explicit `WITH CHECK`, so
-    // Postgres reuses their `USING` as one, and a rename into a path the caller cannot write is
-    // refused (into their own namespace is allowed, as for any resource). Nothing is decided in Rust.
+    // cases move under the (possibly new) name through the case write policies. Who may write a
+    // dataset's contents is left to those policies; who may *rename* it is the owner check above.
     let mut tx = user_db.clone().begin(&authed).await?;
     // The case advisory lock, in the same order `write_cases` takes it below (re-entrantly), so
     // two concurrent edits of one dataset serialize on its case set rather than interleaving.
