@@ -5,17 +5,18 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import FolderPicker from '$lib/components/FolderPicker.svelte'
 	import { WorkspaceService } from '$lib/gen'
-	import ProjectContentBadges from '$lib/components/ProjectContentBadges.svelte'
+	import { contentSummary } from '$lib/components/ProjectContentBadges.svelte'
 	import type { ProjectMigration } from '$lib/components/workspaceSettings/projectBundle'
 	import MigrationSqlEditor from '$lib/components/workspaceSettings/MigrationSqlEditor.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
-	import { ImportExecution } from '$lib/importWizard/execution.svelte'
-	import { beforeNavigate } from '$app/navigation'
+	import { ImportExecution, plannedTasks } from '$lib/importWizard/execution.svelte'
+	import SetupChecklist, { type SetupStep } from '$lib/components/wizards/SetupChecklist.svelte'
+	import { beforeNavigate, goto } from '$app/navigation'
 	import { FOLDER_NAME_RE, planProblem, type ImportPlan } from '$lib/importWizard/plan'
 	import type { ImportProjectSummary } from '$lib/components/ImportProjectCard.svelte'
-	import { ArrowLeft, Check, Download, Loader2, X } from 'lucide-svelte'
+	import { ArrowLeft, Download, Loader2 } from 'lucide-svelte'
 
 	// The last step: it shows the plan, and it is the only step that can act on it.
 	// All the acting lives in ImportExecution — this file decides what the user sees
@@ -62,12 +63,6 @@
 	})
 	const folderValid = $derived(FOLDER_NAME_RE.test(folder.trim()))
 	const problem = $derived(planProblem({ ...plan, folder: folder.trim() }))
-
-	const destinationLabel = $derived(
-		plan.destination?.kind === 'new'
-			? `${plan.destination.id} (new)`
-			: (plan.destination?.workspaceId ?? 'nowhere yet')
-	)
 
 	// --- the run ---------------------------------------------------------------
 	let reviewDrawer = $state<Drawer | undefined>()
@@ -143,6 +138,44 @@
 	const execution = $derived(run?.key === planKey ? run.execution : undefined)
 	$effect(() => onExecution?.(execution))
 
+	// What the import will bring, named on the row that brings it. Triggers and
+	// migrations only become known once the export is fetched, so the phrase grows
+	// mid-run rather than starting complete.
+	const importSummary = $derived(
+		project ? contentSummary({ ...project.counts, ...(execution?.extraCounts ?? {}) }) : ''
+	)
+
+	// The same rows before and during the run: the step states what it is about to do,
+	// and the run fills those rows in rather than replacing a paragraph with a list.
+	const tasks = $derived(execution?.tasks ?? plannedTasks(plan))
+
+	// `SetupStep` carries no detail field, so what the row reports goes in the title
+	// beside the label — the same sentence the run used to write after an em dash. The
+	// import row says what it is importing; every other row keeps whatever the run
+	// reported. The breakdown supersedes the run's own "N items" here, being the same
+	// total said in a more useful way.
+	const checklist = $derived<SetupStep[]>(
+		tasks.map((task) => {
+			const detail = (task.key === 'import' && importSummary) || task.detail
+			return {
+				title: detail ? `${task.label} — ${detail}` : task.label,
+				status: task.status,
+				// Only under the row that wrote them. A failed item carries its error as the
+				// description, which the checklist opens by itself.
+				substeps:
+					task.key === 'import'
+						? execution?.itemResults.map((r) => ({
+								title: r.path,
+								status: r.ok ? ('done' as const) : ('failed' as const),
+								description: r.error
+							}))
+						: undefined
+			}
+		})
+	)
+	/** A run that has been attempted — what makes the button read Retry rather than Import. */
+	const attempted = $derived(!!execution)
+
 	function start() {
 		const current =
 			execution ??
@@ -158,11 +191,64 @@
 		void current.run()
 	}
 
+	const leaveModal = createAsyncConfirmationModal()
+	/** The question is on screen; a second attempt must not stack another one. */
+	let askingToLeave = false
+	/** The navigation the question approved, which has to get past this guard. */
+	let leaveApproved = false
+
 	// The browser's own back/forward, which the stepper's guard cannot see. Leaving
-	// mid-run unmounts the migration review the executor may be awaiting.
+	// mid-run unmounts the migration review the executor may be awaiting, so it is
+	// worth stopping for — but silently refusing reads as a broken back button, so
+	// cancel, ask, and re-navigate if the answer is yes.
 	beforeNavigate((nav) => {
-		if (execution?.running) nav.cancel()
+		if (leaveApproved) return
+		// Nothing in flight has anything to lose.
+		if (!execution?.running) return
+		if (askingToLeave) {
+			nav.cancel()
+			return
+		}
+		// Leaving the app entirely cannot be resumed from here — the browser owns that
+		// prompt — so there is nothing to ask and nowhere to navigate back to.
+		const to = nav.to?.url
+		if (!to) {
+			nav.cancel()
+			return
+		}
+		nav.cancel()
+		void confirmLeave(to)
 	})
+
+	async function confirmLeave(to: URL): Promise<void> {
+		askingToLeave = true
+		// `finally`, because this flag is what blocks a second attempt: an `ask` that threw
+		// would otherwise leave the step permanently unleavable, since every path above
+		// returns early on it.
+		try {
+			const landed = execution?.itemResults.length ?? 0
+			const confirmed = await leaveModal.ask({
+				title: 'Leave while the import is running?',
+				confirmationText: 'Leave',
+				type: 'danger',
+				// A run that has already written items leaves them behind, so promising
+				// otherwise would be a lie exactly when it matters most.
+				children:
+					(landed === 0
+						? 'Nothing has been imported into the workspace yet.'
+						: `${landed} item${landed === 1 ? '' : 's'} already imported into the workspace will stay there.`) +
+					'<br /><br />The import stops where it is. Coming back to this link picks it up ' +
+					'again without redoing what finished.'
+			})
+			if (!confirmed) return
+			// Deliberately not re-read against `running`: the answer was about leaving, and a
+			// run that finished in the meantime only makes leaving safer.
+			leaveApproved = true
+			await goto(to)
+		} finally {
+			askingToLeave = false
+		}
+	}
 
 	// If this step is torn down while the review drawer is open, resolve the promise
 	// the executor is waiting on rather than leaving it pending forever.
@@ -189,28 +275,23 @@
 </script>
 
 <div class="flex flex-col gap-4">
-	<div>
-		<h2 class="text-sm font-semibold text-emphasis">
-			{project?.name ?? plan.slug} → <span class="font-mono">{destinationLabel}</span>
-		</h2>
-		{#if project}
-			<p class="mt-0.5 text-xs text-secondary">{project.summary}</p>
-		{/if}
-	</div>
-
-	{#if project}
-		<!-- Triggers and migrations only become known once the export is fetched, so the
-		     row grows mid-run rather than starting complete. -->
-		<ProjectContentBadges counts={{ ...project.counts, ...(execution?.extraCounts ?? {}) }} />
-	{/if}
-
 	<!-- Only when the destination already exists. A workspace created by this run is
 	     empty, so there is nothing for the project to sit next to and nothing to
 	     choose between — asking would be a question with one answer. It lands in
 	     f/<slug>/ either way; `installProject` creates the folder as it imports. -->
 	{#if existingWorkspace}
 		<div class="max-w-sm">
-			<span class="mb-1 block text-xs font-normal text-secondary">Folder</span>
+			<!-- The workspace rides on the field label rather than getting a line of its own:
+			     the folder is the only thing being chosen, and naming its container is what
+			     the label is for. Step 2 chose the workspace a screen ago, so this is a
+			     reminder, not a control. -->
+			<span class="block text-xs font-semibold text-emphasis">
+				Folder inside <span class="font-mono">{existingWorkspace}</span>
+			</span>
+			<!-- Says where the items land, now that the path hint under the picker is gone. -->
+			<p class="mb-1 text-xs font-normal text-secondary">
+				Everything the project ships is imported into this folder.
+			</p>
 			<!-- Pointed at the destination rather than the active workspace: the run is
 			     what enters it, and that has not happened yet on this step. -->
 			<FolderPicker
@@ -223,59 +304,21 @@
 				<p class="mt-1 text-2xs font-normal text-red-500"
 					>Letters, digits, dashes and underscores only.</p
 				>
-			{:else}
-				<p class="mt-1 text-xs text-tertiary">
-					Items import under <span class="font-mono">f/{folder.trim() || plan.slug}/</span>.
-				</p>
 			{/if}
 		</div>
 	{/if}
 
-	{#if execution}
-		<!-- The run, task by task, so a failure says which part failed. The paths the
-		     import writes hang off the import task rather than forming a second list:
-		     they are that task's output, not a parallel account of the same run. No
-		     box around it — one run, one component. -->
-		<ul class="flex flex-col gap-1.5">
-			{#each execution.tasks as task (task.key)}
-				<li class="flex flex-col gap-1">
-					<div class="flex items-center gap-2 text-xs">
-						{#if task.status === 'running'}
-							<Loader2 size={13} class="animate-spin text-blue-500" />
-						{:else if task.status === 'done'}
-							<Check size={13} class="text-emerald-600" />
-						{:else if task.status === 'failed'}
-							<X size={13} class="text-red-600" />
-						{:else}
-							<span class="h-[13px] w-[13px] rounded-full border border-border-light"></span>
-						{/if}
-						<span class={task.status === 'pending' ? 'text-tertiary' : 'text-primary'}>
-							{task.label}
-						</span>
-						{#if task.detail}
-							<span class="truncate text-tertiary">— {task.detail}</span>
-						{/if}
-					</div>
+	<!-- Heads the step the way the others do ("Where should it go?", "Name the new
+	     workspace"), and in the same voice: a sentence, not a label. -->
+	<h2 class="text-sm font-semibold text-emphasis">What this will do</h2>
 
-					{#if task.key === 'import' && execution.results.length}
-						<!-- Indented to the task's label, so the rule down the left reads as
-						     "these came from the line above". -->
-						<ul
-							class="ml-[6px] flex max-h-52 flex-col gap-1 overflow-y-auto border-l border-border-light pl-4 text-xs"
-						>
-							{#each execution.results as r}
-								<li class="flex items-center gap-2">
-									<span class={r.ok ? 'text-emerald-600' : 'text-red-600'}>{r.ok ? '✓' : '✗'}</span>
-									<span class="truncate font-mono">{r.path}</span>
-									{#if !r.ok}<span class="shrink-0 text-red-600">— {r.error}</span>{/if}
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</li>
-			{/each}
-		</ul>
-	{/if}
+	<!-- The run, task by task, so a failure says which part failed. Shown before the
+	     run too, as the plan: every row starts pending and turns green in place. The
+	     paths the import writes hang off the import task rather than forming a second
+	     list: they are that task's output, not a parallel account of the same run.
+	     `substepsClass` caps that list: a project ships tens of items where a data
+	     table wizard step has a handful of checks. -->
+	<SetupChecklist steps={checklist} substepsClass="max-h-52 overflow-y-auto" />
 
 	{#if execution?.error}
 		<Alert type="error" title="The import did not finish cleanly" size="xs">
@@ -283,7 +326,16 @@
 		</Alert>
 	{/if}
 
-	<Alert type="warning" title="What import does to resources and triggers" size="xs" collapsible>
+	<!-- `info`, not `warning`: nothing here has gone wrong, it is what import does. Borderless
+	     so the collapsed row sits under the checklist as a note rather than competing with it
+	     — `bgClass` is the only lever, the border is baked into each type's classes. -->
+	<Alert
+		type="info"
+		title="What import does to resources and triggers"
+		size="xs"
+		bgClass="border-0"
+		collapsible
+	>
 		Resources are imported as empty stubs — set their values after import; a resource whose path
 		already exists is reported as failed (existing values are never overwritten). Trigger kinds are
 		recreated disabled, except GCP and Azure triggers, which manage cloud subscriptions at creation
@@ -338,8 +390,10 @@
 				>
 					{#if execution?.running}
 						Importing…
-					{:else if execution}
+					{:else if attempted}
 						Retry
+					{:else if plan.destination?.kind === 'new'}
+						Create workspace and import
 					{:else}
 						Import
 					{/if}
@@ -351,16 +405,27 @@
 
 <Portal>
 	<ConfirmationModal {...deleteModal.props} />
+	<ConfirmationModal {...leaveModal.props} />
 </Portal>
 
 <Drawer bind:this={reviewDrawer} size="700px" on:close={() => closeMigrationReview(false)}>
 	<DrawerContent title="Data table migrations" on:close={() => closeMigrationReview(false)}>
 		<div class="flex flex-col gap-4">
+			<!-- Unconditional, because this drawer cannot open for anything else: `reviewMigrations`
+			     keeps only migrations whose data table is already present in the destination, and a
+			     workspace this run just created has none. Everything listed here therefore targets a
+			     table that already exists and may already hold rows. -->
+			<Alert type="warning" title="These run against data tables that already exist" size="xs">
+				{reviewList.length === 1 ? 'This data table is' : 'These data tables are'} already set up{existingWorkspace
+					? ` in ${existingWorkspace}`
+					: ''} and may already hold data. These migrations were written to create the project's tables,
+				so running them here can alter or drop what is in them. Read the SQL before you run it, and skip
+				anything you are unsure of.
+			</Alert>
 			<p class="text-xs text-secondary">
-				This project ships migrations that recreate the data tables it uses. Review and edit the
-				SQL, then choose which to run. A migration runs against the data table of the same name in
-				the destination workspace; if that data table has migrations enabled it is recorded,
-				otherwise it runs once as a preview job.
+				Review and edit the SQL, then choose which to run. A migration runs against the data table
+				of the same name in the destination workspace; if that data table has migrations enabled it
+				is recorded, otherwise it runs once as a preview job.
 			</p>
 			{#each reviewList as m (m.datatable_name)}
 				<div class="flex flex-col gap-1.5 rounded border bg-surface-secondary p-2 text-xs">
