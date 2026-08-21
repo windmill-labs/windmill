@@ -5695,14 +5695,14 @@ async fn clone_triggers_and_schedules(
 
     sqlx::query!(
         r#"INSERT INTO gcp_trigger (
-            gcp_resource_path, topic_id, subscription_id, delivery_type,
+            gcp_resource_path, project_id, topic_id, subscription_id, delivery_type,
             delivery_config, path, script_path, is_flow, workspace_id, edited_by,
             edited_at, extra_perms, server_id, last_server_ping, error,
             subscription_mode, error_handler_path, error_handler_args, retry,
             auto_acknowledge_msg, ack_deadline, mode, permissioned_as, labels
         )
         SELECT
-            gcp_resource_path, topic_id, subscription_id, delivery_type,
+            gcp_resource_path, project_id, topic_id, subscription_id, delivery_type,
             delivery_config, path, script_path, is_flow, $1, edited_by,
             edited_at, extra_perms, NULL, NULL, NULL,
             subscription_mode, error_handler_path, error_handler_args, retry,

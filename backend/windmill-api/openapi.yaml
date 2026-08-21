@@ -19041,6 +19041,29 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/gcp_triggers/subscriptions/delete:
+    delete:
+      summary: delete a subscription reachable with the instance's application default credentials
+      operationId: deleteGcpSubscriptionWithDefaultCredentials
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: args to delete subscription from google cloud
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteGcpSubscription"
+      responses:
+        "200":
+          description: gcp trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/gcp_triggers/topics/list/{path}:
     get:
       summary: list all topics of google cloud service
@@ -19050,6 +19073,26 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - $ref: "#/components/parameters/GcpProjectId"
+      responses:
+        "200":
+          description: get all google topics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/gcp_triggers/topics/list:
+    get:
+      summary: list all topics reachable with the instance's application default credentials
+      operationId: listGoogleTopicsWithDefaultCredentials
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/GcpProjectId"
       responses:
         "200":
           description: get all google topics
@@ -19069,6 +19112,31 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+      requestBody:
+        description: args to get subscription's topic from google cloud
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetAllTopicSubscription"
+      responses:
+        "200":
+          description: get all google topic subscriptions name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/gcp_triggers/subscriptions/list:
+    post:
+      summary: list all subscriptions of a topic reachable with the instance's application default credentials
+      operationId: listAllTGoogleTopicSubscriptionsWithDefaultCredentials
+      tags:
+        - gcp_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
       requestBody:
         description: args to get subscription's topic from google cloud
         required: true
@@ -24834,6 +24902,12 @@ components:
       required: true
       schema:
         type: string
+    GcpProjectId:
+      name: project_id
+      in: query
+      description: GCP project to list resources from, when it is not the project of the credentials
+      schema:
+        type: string
     S3Sig:
       name: sig
       in: query
@@ -30165,13 +30239,16 @@ components:
       properties:
         gcp_resource_path:
           type: string
-          description: "Path to the GCP resource containing service account credentials for authentication."
+          description: "Path to the GCP resource containing service account credentials for authentication. Omit to authenticate with the instance's application default credentials."
+        project_id:
+          type: string
+          description: "GCP project the client operates in. Defaults to the project of the credentials. Topics and subscriptions given as fully qualified names are reached whatever it is."
         topic_id:
           type: string
-          description: "Google Cloud Pub/Sub topic ID to subscribe to."
+          description: "Google Cloud Pub/Sub topic ID to subscribe to. Accepts a bare ID or a fully qualified name (projects/<project>/topics/<id>)."
         subscription_id:
           type: string
-          description: "Google Cloud Pub/Sub subscription ID."
+          description: "Google Cloud Pub/Sub subscription ID. Accepts a bare ID or a fully qualified name (projects/<project>/subscriptions/<id>)."
         server_id:
           type: string
           description: "ID of the server currently handling this trigger (internal use)."
@@ -30199,7 +30276,6 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
           description: "Retry configuration for failed executions."
       required:
-        - gcp_resource_path
         - topic_id
         - subscription_id
         - delivery_type
@@ -30218,15 +30294,18 @@ components:
       properties:
         gcp_resource_path:
           type: string
-          description: "Path to the GCP resource containing service account credentials for authentication."
+          description: "Path to the GCP resource containing service account credentials for authentication. Omit to authenticate with the instance's application default credentials, which only workspace admins may select."
+        project_id:
+          type: string
+          description: "GCP project the client operates in. Defaults to the project of the credentials. Topics and subscriptions given as fully qualified names are reached whatever it is."
         subscription_mode:
           $ref: "#/components/schemas/SubscriptionMode"
         topic_id:
           type: string
-          description: "Google Cloud Pub/Sub topic ID to subscribe to."
+          description: "Google Cloud Pub/Sub topic ID to subscribe to. Accepts a bare ID or a fully qualified name (projects/<project>/topics/<id>)."
         subscription_id:
           type: string
-          description: "Google Cloud Pub/Sub subscription ID."
+          description: "Google Cloud Pub/Sub subscription ID. Accepts a bare ID or a fully qualified name (projects/<project>/subscriptions/<id>)."
         base_endpoint:
           type: string
           description: "Base URL for push delivery endpoint."
@@ -30278,7 +30357,6 @@ components:
         - path
         - script_path
         - is_flow
-        - gcp_resource_path
         - topic_id
         - subscription_mode
 
@@ -30287,6 +30365,8 @@ components:
       properties:
         topic_id:
           type: string
+        project_id:
+          type: string
       required:
         - topic_id
 
@@ -30294,6 +30374,8 @@ components:
       type: object
       properties:
         subscription_id:
+          type: string
+        project_id:
           type: string
       required:
         - subscription_id

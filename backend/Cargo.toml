@@ -522,7 +522,10 @@ rustls-pemfile = "2.2.0"
 # only used with special deno_core_mac feature to prevent ffi issue on macos, requires libffi to be installed
 libffi-sys = { version = "2.3.0", features = ["system"]}
 
-google-cloud-pubsub = "0.30.0"
+# `external-account` is off in the crate's defaults, which compiles out the token source for
+# Workload Identity Federation credentials — the keyless setup for running outside GCP. Without it
+# an ADC file of that type is rejected as an unsupported account type.
+google-cloud-pubsub = { version = "0.30.0", features = ["external-account"] }
 google-cloud-googleapis = {version = "0.16.1", features = ["pubsub"]}
 # TODO: remove once deno fixes the issue on their end
 # https://github.com/denoland/deno/issues/28557
