@@ -3,6 +3,7 @@
 	import { UserService } from '$lib/gen/services.gen'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
+	import { toSameOriginRelativePath } from '$lib/logoutRedirect'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -107,9 +108,11 @@
 	 * Same-origin relative paths only, so a crafted `?rd=` cannot bounce them off-site.
 	 */
 	function onboardingDestination(): string {
-		const rd = page.url.searchParams.get('rd')
-		if (rd && rd.startsWith('/') && !rd.startsWith('//')) return rd
-		return '/user/workspaces'
+		// `toSameOriginRelativePath` rather than a local check: it already rejects `//host`,
+		// `/\\host` (which WHATWG URL parsing resolves to a different origin), control
+		// characters and oversized values. A second, weaker copy of this is how one of those
+		// gets missed.
+		return toSameOriginRelativePath(page.url.searchParams.get('rd')) ?? '/user/workspaces'
 	}
 
 	async function skip() {

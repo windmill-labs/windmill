@@ -147,11 +147,6 @@ function resolveColumnType(c: TableEditorValuesColumn): {
 }
 
 /**
- * SQL for an added table, with the CREATE TABLE and the FK constraints split so
- * callers creating several tables can emit every CREATE before any constraint —
- * required for circular FKs, where no creation order satisfies inline FKs.
- */
-/**
  * The schema API reports a foreign key's target as a bare table name whenever it
  * lives in the same schema as the table declaring it. Emitting that verbatim
  * produces `REFERENCES links (id)`, which Postgres resolves against `search_path`
@@ -172,6 +167,11 @@ function qualifyFkTarget(
 	return targetTable
 }
 
+/**
+ * SQL for an added table, with the CREATE TABLE and the FK constraints split so
+ * callers creating several tables can emit every CREATE before any constraint —
+ * required for circular FKs, where no creation order satisfies inline FKs.
+ */
 export function generateAddedTableSql(
 	change: TableDiff,
 	sourceSchema: DatabaseSchema,

@@ -368,7 +368,10 @@ export class ImportExecution {
 				migrations,
 				hasEeLicense: this.#deps.hasEeLicense,
 				onResult: (r) => (this.results = [...this.results, r]),
-				onMigrationsStart: () => this.#set('migrate', 'running')
+				onMigrationsStart: () => this.#set('migrate', 'running'),
+				// Checked before every write, so leaving mid-run stops the remaining items
+				// rather than only the phases. What already landed stays and is listed.
+				stopped: () => this.#abandoned
 			})
 		} catch (e: any) {
 			this.#set('import', 'failed', String(e))

@@ -14,6 +14,7 @@
 	import { ImportExecution, plannedTasks } from '$lib/importWizard/execution.svelte'
 	import SetupChecklist, { type SetupStep } from '$lib/components/wizards/SetupChecklist.svelte'
 	import { beforeNavigate, goto } from '$app/navigation'
+	import { untrack } from 'svelte'
 	import { FOLDER_NAME_RE, planProblem, type ImportPlan } from '$lib/importWizard/plan'
 	import type { ImportProjectSummary } from '$lib/components/ImportProjectCard.svelte'
 	import { ArrowLeft, Download, Loader2 } from 'lucide-svelte'
@@ -32,6 +33,13 @@
 		/** Hands the run to the page, which needs the export's data tables to know
 		 * whether a setup step follows this one. */
 		onExecution?: (execution: ImportExecution | undefined) => void
+		/**
+		 * The run this step already made, handed back when it is remounted. Step 4 unmounts
+		 * this component, so returning from it would otherwise arrive at a fresh step with no
+		 * run — offering Import again over a bundle that is already in, and on a new
+		 * workspace failing at create because the finished run cleared its parking.
+		 */
+		resume?: ImportExecution | undefined
 		onBack: () => void
 	}
 
@@ -42,7 +50,8 @@
 		onFinish,
 		onBack,
 		setupPending = false,
-		onExecution
+		onExecution,
+		resume
 	}: Props = $props()
 
 	let folder = $state(plan.folder ?? plan.slug)
@@ -137,7 +146,15 @@
 	// clearing it from an effect, so a previous run's outcome can never be shown
 	// against another plan. The folder is deliberately not part of the tag: it is
 	// pushed onto the existing run instead (see `start`).
-	let run = $state<{ key: string; execution: ImportExecution } | undefined>(undefined)
+	// Seeded from the handed-back run, under the same tag a fresh one would carry, so the
+	// `planKey` guard below still rejects it if the destination changed in between.
+	// `untrack`, because this is a mount-time snapshot on purpose: a later plan change must
+	// invalidate the run through that tag, not silently re-seed it.
+	let run = $state<{ key: string; execution: ImportExecution } | undefined>(
+		untrack(() =>
+			resume ? { key: JSON.stringify(plan.destination) + plan.slug, execution: resume } : undefined
+		)
+	)
 	const planKey = $derived(JSON.stringify(plan.destination) + plan.slug)
 	const execution = $derived(run?.key === planKey ? run.execution : undefined)
 	$effect(() => onExecution?.(execution))

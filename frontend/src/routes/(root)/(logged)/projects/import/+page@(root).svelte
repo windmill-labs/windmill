@@ -446,7 +446,7 @@
 										onClick={() => expandCollapseAll?.()}
 										title={allExpanded ? 'Collapse all' : 'Expand all'}
 										startIcon={{ icon: allExpanded ? ChevronsDownUp : ChevronsUpDown }}
-										size="xs2"
+										unifiedSize="2xs"
 										variant="default"
 									>
 										{allExpanded ? 'Collapse' : 'Expand'}
@@ -482,7 +482,12 @@
 						<Button
 							unifiedSize="sm"
 							variant="accent"
-							disabled={!name.trim() || !!idProblem || !!usernameProblem || idTaken || checkingId}
+							disabled={!name.trim() ||
+								!id.trim() ||
+								!!idProblem ||
+								!!usernameProblem ||
+								idTaken ||
+								checkingId}
 							onClick={confirmNewWorkspace}
 						>
 							Continue →
@@ -499,11 +504,13 @@
 				onFinish={() => (setupNeeded ? go({}, 4) : finish())}
 				onBack={() => go({}, 2)}
 				onExecution={(e) => (execution = e)}
+				resume={execution}
 			/>
 		{:else}
 			<ImportSetupStep
 				workspace={planWorkspaceId(plan) ?? ''}
 				{slug}
+				folder={plan.folder}
 				onSkip={finish}
 				onFinish={finish}
 				onBack={() => go({}, 3)}

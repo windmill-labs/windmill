@@ -69,3 +69,20 @@ describe('toWorkspaceId', () => {
 		expect(validateWorkspaceId(id)).toBeUndefined()
 	})
 })
+
+describe('validateWorkspaceId — the reserved id', () => {
+	// `check_w_id_conflict` refuses it, and `existsWorkspace` reports it free, so without
+	// this the wizard walks the user to the last step before the create fails.
+	it('refuses `global`', () => {
+		expect(validateWorkspaceId('global')).toMatch(/not allowed/i)
+	})
+
+	it('refuses it as the effective id too', () => {
+		expect(validateWorkspaceId('wm-fork-x', 'global')).toMatch(/not allowed/i)
+	})
+
+	it('still accepts ids that merely contain it', () => {
+		expect(validateWorkspaceId('global-ops')).toBeUndefined()
+		expect(validateWorkspaceId('my-global')).toBeUndefined()
+	})
+})

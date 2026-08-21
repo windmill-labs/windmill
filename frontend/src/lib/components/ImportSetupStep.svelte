@@ -18,8 +18,13 @@
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
 	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
-	import type { ProjectMigration } from '$lib/components/workspaceSettings/projectBundle'
+	import {
+		retargetProjectExport,
+		type ProjectExport,
+		type ProjectMigration
+	} from '$lib/components/workspaceSettings/projectBundle'
 	import { sendUserToast } from '$lib/toast'
+	import { escapeHtml } from '$lib/utils'
 
 	// The last step, and the only optional one: it exists when the project's data
 	// tables are not configured in the destination. The import has already run —
@@ -33,12 +38,16 @@
 	interface Props {
 		workspace: string
 		slug: string
+		/** The folder the import wrote into. The export names resources under the project's
+		 *  own slug and `installProject` retargets them, so reading the raw paths here would
+		 *  look for stubs that are not where they landed. */
+		folder?: string
 		onSkip: () => void
 		onFinish: () => void
 		onBack?: () => void
 	}
 
-	let { workspace, slug, onSkip, onFinish, onBack }: Props = $props()
+	let { workspace, slug, folder, onSkip, onFinish, onBack }: Props = $props()
 
 	type Row = {
 		name: string
@@ -133,10 +142,7 @@
 				`/api/w/${encodeURIComponent(workspace)}/hub/projects/${encodeURIComponent(slug)}/export`
 			)
 			if (!res.ok) throw new Error(`the hub proxy answered ${res.status}`)
-			const exportData = (await res.json()) as {
-				migrations?: ProjectMigration[]
-				resources?: { path: string; resource_type: string }[]
-			}
+			const exportData = (await res.json()) as ProjectExport
 			const enabled = (exportData.migrations ?? []).filter(
 				(m) => m.enabled && (m.sql ?? '').trim() !== ''
 			)
@@ -159,7 +165,17 @@
 					justSaved: false
 				}
 			})
-			projectResources = exportData.resources ?? []
+			// Retargeted the same way the import was, so these are where the stubs actually
+			// landed. `retargetProjectExport` is a no-op when the folder is the slug, which is
+			// every new-workspace import.
+			const target = folder?.trim() || slug
+			const retargeted = retargetProjectExport(exportData, exportData.project?.slug ?? slug, target)
+			// Contained for the same reason the import contains: a crafted export can name a
+			// path outside the folder, and offering that for editing would reach a resource
+			// this import was never allowed to create.
+			projectResources = (retargeted.resources ?? [])
+				.map((r) => ({ path: String(r.path), resource_type: String((r as any).resource_type) }))
+				.filter((r) => r.path.startsWith(`f/${target}/`))
 			await refreshBlanks()
 		} catch (e: any) {
 			loadError = e?.body ?? e?.message ?? String(e)
@@ -248,12 +264,6 @@
 	})
 
 	/**
-	 * Configure every named data table in one write, then run each one's migrations.
-	 * The config is read back and merged rather than replaced: `editDataTableConfig`
-	 * takes the whole settings object, so sending only ours would delete any the
-	 * workspace already has.
-	 */
-	/**
 	 * The data table now exists — run the migrations that were skipped for it during the
 	 * import, which is the whole reason this step waits for the configuration.
 	 */
@@ -277,6 +287,11 @@
 			row.status = 'failed'
 			row.error = e?.body ?? e?.message ?? String(e)
 			sendUserToast(`Could not run the migrations for ${name}: ${row.error}`, true)
+			// Rethrown, because this also runs as the wizard's last checklist step
+			// (`onFinishAlso`). Swallowing it there makes the wizard report a clean finish
+			// over a failed migration, and close — leaving the data table name taken and no
+			// way back to retry it.
+			throw e
 		} finally {
 			working = false
 		}
@@ -291,7 +306,12 @@
 	 */
 	async function skip(): Promise<void> {
 		if (pendingTables.length > 0) {
-			const names = pendingTables.map((r) => r.name).join(', ')
+			// Escaped: `confirmationModal.ask` renders `children` through `createRawSnippet`,
+			// so this string is HTML, and the name is a `datatable_name` straight out of the
+			// hub export. A hub is not ours — `hub_base_url` is an instance setting and the
+			// wizard can be pointed at any of them — so a name carrying an event-bearing
+			// element would otherwise run script in this authenticated origin.
+			const names = pendingTables.map((r) => escapeHtml(r.name)).join(', ')
 			const one = pendingTables.length === 1
 			const confirmed = await confirmationModal.ask({
 				title: 'The project will not run',
