@@ -282,9 +282,11 @@ asks first, and says that.
 
 ### A score is a number, and optionally a line through it
 
-Every scorer returns a number. Pass or fail is not a second kind of score: a column carries an
-optional `pass_if`, and a case scoring at or above it counts as a pass. A boolean scorer is one
-that returns 0 or 1 with the line at 0.5.
+Every scorer returns a number **between 0 and 1** — both templates say so, and the mean and the
+pass rate read it as a fraction; a scorer returning anything outside that range has its result
+recorded as an error rather than counted, and a `pass_if` threshold is held to the same range. Pass
+or fail is not a second kind of score: a column carries an optional `pass_if`, and a case scoring at
+or above it counts as a pass. A boolean scorer is one that returns 0 or 1 with the line at 0.5.
 
 One primitive, two readings. A column with a threshold reports a **pass rate** beside its mean and
 marks each cell, because "how many cases are good enough" is the question most datasets are

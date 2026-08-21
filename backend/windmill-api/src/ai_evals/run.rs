@@ -170,8 +170,9 @@ fn scorer_modules(
                         Some(judge) => {
                             map.insert("tools".to_string(), serde_json::json!(judge.tools));
                         }
-                        // Only when the judge is not readable as this caller: they may still run
-                        // it, and a step that resolves it holds nothing of it.
+                        // A launched run refuses an unreadable judge (`resolve_scorer`), so this is
+                        // a defensive fallback rather than a reachable path: a judge with no inlined
+                        // configuration is left linked by path.
                         None => {
                             map.insert("agent".to_string(), serde_json::json!(path));
                         }
@@ -405,24 +406,33 @@ fn config_to_draft(value: serde_json::Value) -> Result<AgentDraft> {
 
 /// An agent's deployed value as this caller can read it, in the shape a step runs. `None` when
 /// they cannot see the resource, or it is not an agent.
-async fn readable_agent_config(
+pub(crate) async fn readable_agent_state(
     authed: &ApiAuthed,
     user_db: &UserDB,
     w_id: &str,
     path: &str,
-) -> Result<Option<AgentDraft>> {
+) -> Result<Option<(AgentDraft, i64)>> {
     let mut tx = user_db.clone().begin(authed).await?;
-    let value = sqlx::query_scalar!(
-        "SELECT value FROM resource
-         WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
+    let row = sqlx::query!(
+        "SELECT r.value AS \"value: sqlx::types::Json<serde_json::Value>\",
+                (SELECT version FROM resource_version v
+                 WHERE v.workspace_id = r.workspace_id AND v.path = r.path
+                 ORDER BY v.version DESC LIMIT 1) AS version
+         FROM resource r
+         WHERE r.workspace_id = $1 AND r.path = $2 AND r.resource_type = 'ai_agent'",
         w_id,
         path
     )
     .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
+    .await?;
     tx.commit().await?;
-    Ok(value.map(config_to_draft).transpose().ok().flatten())
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let (Some(value), Some(version)) = (row.value, row.version) else {
+        return Ok(None);
+    };
+    Ok(Some((config_to_draft(value.0)?, version)))
 }
 
 /// What the agent is deployed as, and which version that is, from one read.
@@ -689,23 +699,22 @@ pub async fn run_experiment(
     // of scorer it is.
     let mut definitions = Vec::with_capacity(scorers.len());
     let mut script_hashes: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut judges: std::collections::HashMap<String, AgentDraft> = std::collections::HashMap::new();
     for scorer in &scorers {
-        let (definition, hash) = resolve_scorer(&db, &user_db, &authed, &w_id, scorer).await?;
-        if let (ScorerDef::Script { path }, Some(hash)) = (&scorer.def, hash) {
-            script_hashes.insert(path.clone(), hash);
-        }
-        definitions.push(definition);
-    }
-    // Each judge as it stands now, so the run grades against one definition of it throughout.
-    // Read as the caller, since inlining a configuration into the run's own value is showing it to
-    // them: a judge they cannot read stays a linked step, which resolves it without exposing it.
-    let mut judges = std::collections::HashMap::new();
-    for scorer in &scorers {
-        if let ScorerDef::Agent { path } = &scorer.def {
-            if let Some(config) = readable_agent_config(&authed, &user_db, &w_id, path).await? {
-                judges.insert(path.clone(), config);
+        let (definition, resolved) = resolve_scorer(&user_db, &authed, &w_id, scorer).await?;
+        match resolved {
+            ResolvedScorer::Script { hash } => {
+                if let ScorerDef::Script { path } = &scorer.def {
+                    script_hashes.insert(path.clone(), hash);
+                }
+            }
+            ResolvedScorer::Judge { config } => {
+                if let ScorerDef::Agent { path } = &scorer.def {
+                    judges.insert(path.clone(), config);
+                }
             }
         }
+        definitions.push(definition);
     }
 
     let iterations = cases

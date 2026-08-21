@@ -11827,9 +11827,9 @@ paths:
                   type: array
                   maxItems: 1000
                   description: >
-                    The cases as they should stand afterwards, as the cases/save endpoint takes
-                    them. Sent with the rest of an edit so that a rename the dataset refuses
-                    refuses the case edits with it.
+                    The cases as they should stand afterwards: all of them, each carrying its id if
+                    the dataset already has it. Sent with the rest of an edit so that a rename the
+                    dataset refuses refuses the case edits with it.
                   items:
                     $ref: "#/components/schemas/SaveEvalCase"
       responses:
@@ -12008,7 +12008,7 @@ paths:
 
   /w/{workspace}/ai_evals/experiments/run:
     post:
-      summary: run every case of a dataset, closing the writable experiment and opening the next
+      summary: run every case of a dataset as one immutable experiment
       operationId: runExperiment
       tags:
         - ai_evals

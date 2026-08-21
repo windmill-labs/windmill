@@ -7,18 +7,28 @@ use super::*;
 ///
 /// Returns the definition to record and, for a script, the hash to pin into its flow module. A
 /// script the caller cannot read (or that is not deployed) is refused here rather than run.
+/// What a scorer resolves to, alongside the definition to record: a script by its pinned hash, or
+/// a judge by the configuration to inline.
+pub(crate) enum ResolvedScorer {
+    Script { hash: i64 },
+    Judge { config: AgentDraft },
+}
+
 pub(crate) async fn resolve_scorer(
-    db: &DB,
     user_db: &UserDB,
     authed: &ApiAuthed,
     w_id: &str,
     scorer: &Scorer,
-) -> Result<(String, Option<i64>)> {
+) -> Result<(String, ResolvedScorer)> {
     match &scorer.def {
         ScorerDef::Script { path } => {
             let mut tx = user_db.clone().begin(authed).await?;
+            // `lock IS NOT NULL` is the deployed version: a draft or a failed deploy has no
+            // lockfile, and pinning one would run code that never deployed. Read as the caller, so
+            // a run can only pin a script the caller may read.
             let hash = sqlx::query_scalar!(
-                "SELECT hash FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false
+                "SELECT hash FROM script
+                 WHERE workspace_id = $1 AND path = $2 AND archived = false AND lock IS NOT NULL
                  ORDER BY created_at DESC LIMIT 1",
                 w_id,
                 path
@@ -32,19 +42,27 @@ pub(crate) async fn resolve_scorer(
                     path
                 )));
             };
-            Ok((scorer.definition(Some(&hash.to_string())), Some(hash)))
+            Ok((
+                scorer.definition(Some(&hash.to_string())),
+                ResolvedScorer::Script { hash },
+            ))
         }
-        // A judge's version is a label; its configuration is inlined per-caller by
-        // `readable_agent_config`, so a readable judge is already pinned and an unreadable one runs
-        // linked (the run-without-expose path).
+        // The judge's configuration and version in one read, as the caller: a run inlines only a
+        // judge the caller may read (a linked step would run as that caller and fail anyway) and of
+        // exactly the type it needs, and the version it records is the version it inlined — not a
+        // number a concurrent deploy could pair with a different configuration.
         ScorerDef::Agent { path } => {
-            let Some(version) = current_resource_version(db, w_id, path).await? else {
+            let Some((config, version)) = readable_agent_state(authed, user_db, w_id, path).await?
+            else {
                 return Err(Error::BadRequest(format!(
-                    "Judge scorer {} does not exist",
+                    "Judge scorer {} is not a readable ai_agent resource",
                     path
                 )));
             };
-            Ok((scorer.definition(Some(&version.to_string())), None))
+            Ok((
+                scorer.definition(Some(&version.to_string())),
+                ResolvedScorer::Judge { config },
+            ))
         }
     }
 }
@@ -620,6 +638,20 @@ mod tests {
     /// A scorer's answer arrives in whatever shape its runnable returns: a script's bare value or
     /// object, or a judge's answer wrapped in `output` and often stringified. A shape that goes
     /// unrecognised is a silently empty cell, not an error.
+    #[test]
+    fn an_out_of_range_score_is_recorded_as_an_error_not_a_value() {
+        // In range: recorded as the score it is.
+        let (v, e) = settle_verdict(Some(&raw("0.5")), Some("success"), None).unwrap();
+        assert_eq!(v.score, Some(0.5));
+        assert!(e.is_none());
+        // Out of range (a scorer returning a count, say): no score, an error naming the value.
+        let (v, e) = settle_verdict(Some(&raw("100")), Some("success"), None).unwrap();
+        assert_eq!(v.score, None);
+        assert!(e.unwrap().contains("100"));
+        let (v, _) = settle_verdict(Some(&raw("-5")), Some("success"), None).unwrap();
+        assert_eq!(v.score, None);
+    }
+
     #[test]
     fn extract_verdict_reads_every_documented_scorer_shape() {
         let score = |json: &str| extract_verdict(&raw(json)).score;

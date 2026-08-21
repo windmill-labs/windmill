@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT hash FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false\n                 ORDER BY created_at DESC LIMIT 1",
+  "query": "SELECT hash FROM script\n                 WHERE workspace_id = $1 AND path = $2 AND archived = false AND lock IS NOT NULL\n                 ORDER BY created_at DESC LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       false
     ]
   },
-  "hash": "f2489ab4129ff3757a17fba3c919d58c13af7b688ac950db861f1625b969e251"
+  "hash": "c7797506e6030e4fb373d2d1cd6be8ac7579999869db538db167a3103b23dece"
 }

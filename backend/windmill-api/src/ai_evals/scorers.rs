@@ -114,6 +114,16 @@ pub(crate) fn assign_scorer_ids(
                 )));
             }
         }
+        // A pass line is read against a score, and a score is 0 to 1, so a threshold outside that
+        // range would pass everything or nothing regardless of what the scorer measured.
+        if let Some(pass_if) = scorer.pass_if {
+            if !(0.0..=1.0).contains(&pass_if) {
+                return Err(Error::BadRequest(format!(
+                    "Scorer pass threshold {} must be between 0 and 1",
+                    pass_if
+                )));
+            }
+        }
         if scorer.def.path().trim().is_empty() {
             return Err(Error::BadRequest(format!(
                 "{} scorer needs a path",
