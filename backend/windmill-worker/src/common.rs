@@ -1587,7 +1587,11 @@ pub(crate) async fn get_workspace_s3_resource_path(
     use windmill_object_store::job_s3_helpers_oss::get_s3_resource_internal;
     use windmill_types::s3::StorageResourceType;
 
-    let raw_lfs_opt = if let Some(storage) = storage {
+    // `_default_` names the primary storage, never a secondary one (see `DEFAULT_STORAGE`), so
+    // it resolves below rather than being looked up among storages that cannot carry the name.
+    let raw_lfs_opt = if let Some(storage) =
+        storage.filter(|s| s.as_str() != windmill_types::s3::DEFAULT_STORAGE)
+    {
         sqlx::query_scalar!(
             "SELECT large_file_storage->'secondary_storage'->$2 FROM workspace_settings WHERE workspace_id = $1",
             workspace_id,

@@ -11,6 +11,12 @@
 //!   - the non-admin CAN sign `allowed/*` (authorized), and the minted signature
 //!     validates end-to-end through the presigned s3_proxy fetch route;
 //!   - the non-admin CANNOT sign `secret/*` (bypass closed);
+//!
+//! How `storage` enters the signature is pinned in the same test function rather than its own:
+//! `s3_proxy_ee.rs`'s `S3_RESOURCE_CACHE` is process-global and keyed by (workspace, storage),
+//! so two test functions sharing the one fixture workspace serve each other's stale — by then
+//! deleted — filesystem root.
+//!
 //! Advanced S3 permissions are an enterprise feature, so this test requires the
 //! `enterprise` + `private` + `parquet` features.
 #![cfg(all(feature = "enterprise", feature = "private", feature = "parquet"))]
@@ -118,6 +124,53 @@ async fn test_sign_s3_objects_enforces_read_authz(db: Pool<Postgres>) -> anyhow:
         body.as_ref(),
         b"authorized payload",
         "signed fetch must stream the authorized object's bytes"
+    );
+
+    // ---- The same object signed with an explicit `_default_` must redeem through the same URL.
+    let resp = authed(
+        client().post(format!("{base}/apps/sign_s3_objects")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "s3_objects": [{ "s3": "allowed/file.txt", "storage": "_default_" }] }))
+    .send()
+    .await?;
+    let status = resp.status();
+    let signed: serde_json::Value = resp.json().await?;
+    assert!(
+        status.is_success(),
+        "signing on the explicitly-named default storage must succeed: {status} {signed}"
+    );
+    let presigned = signed[0]["presigned"]
+        .as_str()
+        .expect("sign must return a presigned string")
+        .to_string();
+
+    let resp = client()
+        .get(format!(
+            "{base}/s3_proxy/_default_/allowed/file.txt?{presigned}"
+        ))
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.bytes().await?;
+    assert!(
+        status.is_success(),
+        "a signature minted for `_default_` must verify on redemption: {status} {:?}",
+        String::from_utf8_lossy(&body)
+    );
+    assert_eq!(body.as_ref(), b"authorized payload");
+
+    // ---- A storage that resolves to nothing must be refused, not signed unchecked.
+    let resp = authed(
+        client().post(format!("{base}/apps/sign_s3_objects")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "s3_objects": [{ "s3": "allowed/file.txt", "storage": "nope" }] }))
+    .send()
+    .await?;
+    assert!(
+        !resp.status().is_success(),
+        "an unresolvable storage must be refused, not signed unauthorized"
     );
 
     Ok(())

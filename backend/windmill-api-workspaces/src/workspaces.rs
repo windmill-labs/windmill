@@ -1956,6 +1956,20 @@ async fn edit_large_file_storage_config(
     .await?;
 
     if let Some(lfs_config) = new_config.large_file_storage {
+        // `_default_` names the primary storage everywhere else — `get_secondary_storage_names`
+        // hands it out, the s3-proxy URL carries it, the clients fall back to it — so a secondary
+        // storage of that name is unreachable by design and would shadow the primary for anything
+        // that resolves the name. Reject it at the only route that creates one.
+        if lfs_config
+            .secondary_storage
+            .contains_key(windmill_types::s3::DEFAULT_STORAGE)
+        {
+            return Err(Error::BadRequest(format!(
+                "`{}` is reserved for the primary storage and cannot name a secondary one",
+                windmill_types::s3::DEFAULT_STORAGE
+            )));
+        }
+
         let serialized_lfs_config =
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;
