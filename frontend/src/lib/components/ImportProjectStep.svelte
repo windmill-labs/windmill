@@ -146,14 +146,13 @@
 	// clearing it from an effect, so a previous run's outcome can never be shown
 	// against another plan. The folder is deliberately not part of the tag: it is
 	// pushed onto the existing run instead (see `start`).
-	// Seeded from the handed-back run, under the same tag a fresh one would carry, so the
-	// `planKey` guard below still rejects it if the destination changed in between.
-	// `untrack`, because this is a mount-time snapshot on purpose: a later plan change must
-	// invalidate the run through that tag, not silently re-seed it.
+	// Seeded from the handed-back run under *its own* tag, so the `planKey` guard below
+	// still rejects it when the destination changed while this component was unmounted —
+	// tagging it with the current plan would make that check pass by construction and show
+	// one destination's finished checklist against another's plan.
+	// `untrack`, because this is a mount-time snapshot on purpose.
 	let run = $state<{ key: string; execution: ImportExecution } | undefined>(
-		untrack(() =>
-			resume ? { key: JSON.stringify(plan.destination) + plan.slug, execution: resume } : undefined
-		)
+		untrack(() => (resume ? { key: resume.planTag, execution: resume } : undefined))
 	)
 	const planKey = $derived(JSON.stringify(plan.destination) + plan.slug)
 	const execution = $derived(run?.key === planKey ? run.execution : undefined)

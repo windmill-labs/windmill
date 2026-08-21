@@ -159,6 +159,16 @@ export class ImportExecution {
 		this.tasks = this.#initialTasks()
 	}
 
+	/**
+	 * Identifies the plan this run belongs to — destination and project, not the folder,
+	 * which stays editable on the last step and is pushed onto the run instead. A caller
+	 * handing a run back after a remount compares this against the plan it is rendering;
+	 * computing the tag from *that* plan would make the check pass by construction.
+	 */
+	get planTag(): string {
+		return JSON.stringify(this.#plan.destination) + this.#plan.slug
+	}
+
 	get workspaceId(): string | undefined {
 		return planWorkspaceId(this.#plan)
 	}
@@ -376,6 +386,17 @@ export class ImportExecution {
 		} catch (e: any) {
 			this.#set('import', 'failed', String(e))
 			this.error = `The import stopped: ${e}`
+			return
+		}
+
+		// `installProject` returns early when `stopped` goes true, and it returns the same way
+		// it does on success — so the tail has to ask why. An abandoned run has written only
+		// what it got through; calling that `done` reports a clean import over items that
+		// never started, and the resumed step would offer Continue instead of Retry.
+		if (this.#abandoned) {
+			const landed = this.itemResults.length
+			this.#set('import', 'failed', `stopped after ${landed} item${landed === 1 ? '' : 's'}`)
+			this.error = 'Import stopped. Retry to import what is left.'
 			return
 		}
 
