@@ -11,7 +11,7 @@
 <svg
 	{width}
 	{height}
-	viewBox="0 0 1024 1024"
+	viewBox="-46.545 -46.545 1117.091 1117.091"
 	xmlns="http://www.w3.org/2000/svg"
 	role="img"
 	aria-label="Campayn"

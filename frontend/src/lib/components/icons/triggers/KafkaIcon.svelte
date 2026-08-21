@@ -16,7 +16,7 @@
 	width={`${size}px`}
 	height={`${size}px`}
 	preserveAspectRatio="xMidYMid"
-	viewBox="0 0 256 413"
+	viewBox="-97.273 -18.773 450.545 450.545"
 	xmlns="http://www.w3.org/2000/svg"
 	class={clazz}
 	fill={color ?? 'currentColor'}

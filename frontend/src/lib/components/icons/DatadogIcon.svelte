@@ -14,7 +14,7 @@
 	class="dark:hidden"
 	{width}
 	{height}
-	viewBox="103.88 0.26 592.73 634.49"
+	viewBox="54.16 -28.58 692.171 692.171"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<path
@@ -28,7 +28,7 @@
 	class="hidden dark:block"
 	{width}
 	{height}
-	viewBox="103.88 0.26 592.73 634.49"
+	viewBox="72.251 -28.468 689.467 689.467"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<path

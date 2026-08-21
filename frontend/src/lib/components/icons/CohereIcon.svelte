@@ -8,7 +8,7 @@
 </script>
 
 <!-- Fixed full-colour logomark: #355146 / #D18EE2 / #FF7759 per https://cohere.com/logo.svg. -->
-<svg {width} {height} viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-1.58 -1.455 34.909 34.909" xmlns="http://www.w3.org/2000/svg">
 	<g clip-path="url(#clip0_3915_2196)">
 		<path
 			fill-rule="evenodd"

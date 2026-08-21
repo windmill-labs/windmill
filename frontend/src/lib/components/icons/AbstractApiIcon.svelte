@@ -8,7 +8,7 @@
 </script>
 
 <!-- #20E492 per abstractapi.com's own logo SVG (6538df34291c9fa4ed28d6f7_Logo.svg). -->
-<svg {width} {height} viewBox="0.77 0 90.15 90.15" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-3.328 -4.098 98.345 98.345" xmlns="http://www.w3.org/2000/svg">
 	<defs
 		><clipPath id="abstractapi-clip0_4255_674">
 			<rect

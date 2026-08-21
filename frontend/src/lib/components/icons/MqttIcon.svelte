@@ -14,7 +14,7 @@
 	xmlns="http://www.w3.org/2000/svg"
 	width={`${size}px`}
 	height={`${size}px`}
-	viewBox="0 0 24 24"
+	viewBox="-1.091 -1.091 26.182 26.182"
 	fill={color ?? 'currentColor'}
 	class={twMerge('text-[#660066] dark:text-[#FFFFFF]', clazz)}
 >

@@ -8,7 +8,7 @@
 </script>
 
 <!-- #52BD94 / #52BD94 per Segment's own app favicon (app.segment.com) and Evergreen green500 #52BD95. Segment ships the mark in one flat green and publishes no reversed variant. -->
-<svg {width} {height} viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-2.909 -2.909 69.818 69.818" xmlns="http://www.w3.org/2000/svg">
 	<g transform="matrix(.768307 0 0 .768307 0 2.304922)"
 		><path
 			d="M51.9 52.8H4c-2.2 0-4-1.8-4-4s1.8-4 4-4h47.9c2.2 0 4 1.8 4 4s-1.8 4-4 4z"

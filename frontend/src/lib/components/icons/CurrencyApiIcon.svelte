@@ -8,7 +8,13 @@
 </script>
 
 <!-- #45A2FF/#2660FF and #2994FF/#0033BF gradients per currencyapi.com/img/currencyapi_logo_color.svg. -->
-<svg {width} {height} viewBox="0 0 50 50" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="5.336 6.361 38.353 38.353"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		d="M42 25.4897C42 28.2017 39.7997 30.402 37.0877 30.402H11.9225C9.21055 30.402 7.01025 28.2017 7.01025 25.4897C7.01025 22.7777 9.21055 20.5774 11.9225 20.5774H37.0877C39.7997 20.5774 42 22.7777 42 25.4897Z"
 		fill="url(#paint0_linear_682_2)"
