@@ -13517,7 +13517,9 @@ paths:
         script, not a patch: read the current one with getScriptByPath first,
         unless you wrote its content yourself. Set path__body only to move the
         script to a different path; omit it to leave the script where it is. A
-        path that holds no script is refused: use createScript to create one.
+        path that holds no script is refused: use createScript to create one. A
+        new version takes a moment to become runnable: getScriptByPath reports
+        the live hash.
       x-mcp-tool-include-fields:
         - path
         - content

@@ -730,7 +730,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         description: Cow::Borrowed("update script: Deploys a new version of the script at `path`, which must already hold one.
 The body's `path` is the destination: the same path leaves the script where it
 is, a different one moves it there and archives the old path"),
-        instructions: Cow::Borrowed("Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one."),
+        instructions: Cow::Borrowed("Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version takes a moment to become runnable: getScriptByPath reports the live hash."),
         path: Cow::Borrowed("/w/{workspace}/scripts/update/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({
