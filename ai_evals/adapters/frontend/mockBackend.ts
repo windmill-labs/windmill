@@ -1321,7 +1321,7 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 				description: real.description,
 				docs_url: real.docs_url,
 				curated: real.curated,
-				metadata_source: 'curated',
+				metadata_source: real.meta ? 'curated' : 'derived',
 				meta: real.meta,
 				meta_updated_at: null,
 				derived: benchmarkDerivedFacts(app),
