@@ -70,6 +70,47 @@ pub struct WebhookArgs {
 // capture
 //
 
+/// One multipart part's value, kept in body order so that repeated field names
+/// can be grouped without dropping any of them.
+#[cfg(any(feature = "parquet", test))]
+enum MultipartValue {
+    Text(String),
+    File(serde_json::Value),
+}
+
+/// Collapse multipart parts into one value per field name: a name sent once
+/// stays a scalar, a name sent several times becomes an array of its values in
+/// body order. A name that carried a file is always an array, even for a single
+/// file, since that is the shape scripts have been typed against since #5002.
+#[cfg(any(feature = "parquet", test))]
+fn collapse_multipart_fields(
+    parts: Vec<(String, MultipartValue)>,
+) -> HashMap<String, Box<RawValue>> {
+    let mut grouped: HashMap<String, (Vec<serde_json::Value>, bool)> = HashMap::new();
+
+    for (name, value) in parts {
+        let (values, has_file) = grouped.entry(name).or_insert_with(|| (vec![], false));
+        match value {
+            MultipartValue::Text(text) => values.push(serde_json::Value::String(text)),
+            MultipartValue::File(file) => {
+                values.push(file);
+                *has_file = true;
+            }
+        }
+    }
+
+    grouped
+        .into_iter()
+        .map(|(name, (mut values, has_file))| {
+            let value = match (has_file, values.len()) {
+                (false, 1) => values.remove(0),
+                _ => serde_json::Value::Array(values),
+            };
+            (name, to_raw_value(&value))
+        })
+        .collect()
+}
+
 impl RawWebhookArgs {
     #[cfg(not(feature = "parquet"))]
     pub async fn process_multipart(
@@ -106,8 +147,7 @@ impl RawWebhookArgs {
         if let Some(s3_resource) = s3_resource {
             let s3_client = build_object_store_client(&s3_resource).await?;
 
-            let mut body = HashMap::new();
-            let mut files = HashMap::new();
+            let mut parts: Vec<(String, MultipartValue)> = Vec::new();
 
             while let Some(field) = multipart.next_field().await.map_err(|e| {
                 Error::BadRequest(format!("Error reading multipart field: {}", e.body_text()))
@@ -146,7 +186,8 @@ impl RawWebhookArgs {
                         // file_key is always freshly random here, so this never
                         // overwrites an existing object; the full size is the delta.
                         #[cfg(not(feature = "enterprise"))]
-                        let max_size = Some(ce_storage_quota_remaining(db, w_id, None).await? as usize);
+                        let max_size =
+                            Some(ce_storage_quota_remaining(db, w_id, None).await? as usize);
                         #[cfg(feature = "enterprise")]
                         let max_size: Option<usize> = None;
 
@@ -176,20 +217,20 @@ impl RawWebhookArgs {
                             }
                         }
 
-                        files.entry(name).or_insert(vec![]).push(serde_json::json!({
-                            "s3": &file_key
-                        }));
+                        parts.push((
+                            name,
+                            MultipartValue::File(serde_json::json!({ "s3": &file_key })),
+                        ));
                     } else {
-                        body.insert(name, to_raw_value(&field.text().await.unwrap_or_default()));
+                        parts.push((
+                            name,
+                            MultipartValue::Text(field.text().await.unwrap_or_default()),
+                        ));
                     }
                 }
             }
 
-            for (k, v) in files {
-                body.insert(k, to_raw_value(&v));
-            }
-
-            Ok(body)
+            Ok(collapse_multipart_fields(parts))
         } else {
             Err(Error::BadRequest(format!(
                 "You need to connect your workspace to an S3 bucket to use multipart/form-data"
@@ -798,5 +839,37 @@ mod tests {
             }
             _ => panic!("Expected a HashMap"),
         }
+    }
+
+    #[test]
+    fn test_collapse_multipart_fields() {
+        let file = |key: &str| MultipartValue::File(serde_json::json!({ "s3": key }));
+        let body = collapse_multipart_fields(vec![
+            ("single".to_string(), MultipartValue::Text("a".to_string())),
+            (
+                "repeated".to_string(),
+                MultipartValue::Text("a".to_string()),
+            ),
+            (
+                "repeated".to_string(),
+                MultipartValue::Text("b".to_string()),
+            ),
+            ("one_file".to_string(), file("k1")),
+            ("many_files".to_string(), file("k2")),
+            ("many_files".to_string(), file("k3")),
+            ("mixed".to_string(), MultipartValue::Text("a".to_string())),
+            ("mixed".to_string(), file("k4")),
+        ]);
+
+        let get = |k: &str| body.get(k).expect(k).get().to_string();
+
+        assert_eq!(get("single"), r#""a""#);
+        assert_eq!(get("repeated"), r#"["a","b"]"#);
+        // A lone file stays wrapped in an array: scripts are typed against it.
+        assert_eq!(get("one_file"), r#"[{"s3":"k1"}]"#);
+        assert_eq!(get("many_files"), r#"[{"s3":"k2"},{"s3":"k3"}]"#);
+        // A name used by both a text and a file part keeps both, in body order,
+        // rather than the file silently replacing the text.
+        assert_eq!(get("mixed"), r#"["a",{"s3":"k4"}]"#);
     }
 }
