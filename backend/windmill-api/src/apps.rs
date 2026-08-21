@@ -2134,6 +2134,37 @@ fn custom_path_conflict_error(
     }
 }
 
+/// A raw app's `value.files` keys are app-root-relative paths (`/index.tsx`),
+/// written back to disk relative to the app folder by `wmill sync pull`. A key
+/// with a `..` segment resolves outside that folder, so reject it at deploy
+/// time: the value is stored verbatim, and a pulled file must stay within its
+/// own app's folder.
+fn validate_raw_app_file_keys(value: &RawValue) -> Result<()> {
+    #[derive(Deserialize)]
+    struct FilesOnly<'a> {
+        #[serde(default, borrow)]
+        files: HashMap<String, &'a RawValue>,
+    }
+    // A value that is not the raw-app source shape has no `files` to police; the
+    // normal deploy path handles a malformed value.
+    let Ok(parsed) = serde_json::from_str::<FilesOnly>(value.get()) else {
+        return Ok(());
+    };
+    for key in parsed.files.keys() {
+        // Mirror the CLI's write: it strips one leading `/` and joins the rest
+        // under the app folder. Any `..` segment (either separator, since a
+        // checkout can be pulled on Windows) escapes it.
+        let rel = key.strip_prefix('/').unwrap_or(key);
+        if rel.split(['/', '\\']).any(|seg| seg == "..") {
+            return Err(Error::BadRequest(format!(
+                "raw app file path {key:?} is not allowed: keys must stay within \
+                 the app folder and cannot contain '..' segments"
+            )));
+        }
+    }
+    Ok(())
+}
+
 async fn create_app_internal<'a>(
     authed: ApiAuthed,
     db: sqlx::Pool<sqlx::Postgres>,
@@ -2147,6 +2178,9 @@ async fn create_app_internal<'a>(
     // denied app committed in the DB.
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
     validate_frontend_sdk_scopes(&app.policy)?;
+    if raw_app {
+        validate_raw_app_file_keys(&app.value.0)?;
+    }
     if *CLOUD_HOSTED {
         let nb_apps =
             sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
@@ -3087,6 +3121,12 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
+    }
+
+    if raw_app {
+        if let Some(value) = ns.value.as_ref() {
+            validate_raw_app_file_keys(&value.0)?;
+        }
     }
 
     // Reject a forged superadmin run identity in a preserved policy. Mirror the
@@ -5708,5 +5748,47 @@ mod policy_tests {
         let p: Policy = serde_json::from_str(r#"{"execution_mode": "anonymous"}"#).unwrap();
         assert_eq!(p.execution_mode(), ExecutionMode::Anonymous);
         assert_eq!(p.stated_execution_mode(), Some(ExecutionMode::Anonymous));
+    }
+}
+
+#[cfg(test)]
+mod raw_app_file_key_tests {
+    use super::validate_raw_app_file_keys;
+    use serde_json::value::RawValue;
+
+    fn value_with_files(files: &str) -> Box<RawValue> {
+        RawValue::from_string(format!(r#"{{"runnables":{{}},"files":{files}}}"#)).unwrap()
+    }
+
+    #[test]
+    fn accepts_app_root_relative_keys() {
+        let v = value_with_files(r#"{"/index.tsx":"x","/src/util.ts":"y","/package.json":"{}"}"#);
+        validate_raw_app_file_keys(&v).expect("legit keys must be accepted");
+    }
+
+    #[test]
+    fn rejects_traversal_keys() {
+        // Each resolves outside the app folder when a puller joins it under the
+        // app folder on `sync pull`.
+        for files in [
+            r#"{"/index.tsx":"x","/../sibling.ts":"y"}"#,
+            r#"{"/../../../f/other/outside.ts":"y"}"#,
+            r#"{"/../../../../../../elsewhere.txt":"y"}"#,
+            r#"{"/src/../../escape.ts":"y"}"#,
+            r#"{"/win\\..\\..\\escape.ts":"y"}"#,
+        ] {
+            let v = value_with_files(files);
+            assert!(
+                validate_raw_app_file_keys(&v).is_err(),
+                "traversal key must be rejected: {files}"
+            );
+        }
+    }
+
+    #[test]
+    fn ignores_values_without_a_files_object() {
+        // A low-code app value has no `files` map to police; validation is a no-op.
+        let v = RawValue::from_string(r#"{"grid":[]}"#.to_string()).unwrap();
+        validate_raw_app_file_keys(&v).expect("no `files` means nothing to reject");
     }
 }

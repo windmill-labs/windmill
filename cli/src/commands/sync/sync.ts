@@ -1113,6 +1113,31 @@ async function pushFilesetParentResource(
   return { status: "pushed", resourceFilePath };
 }
 
+/**
+ * Resolve a raw app's `value.files` key to the on-disk path it is written to on
+ * pull, joined under the app folder `finalPath`. Keys are app-author-controlled
+ * remote data, so a key that resolves outside the app folder (a `..` segment) is
+ * rejected: a pulled file must stay within its own app's folder.
+ */
+export function rawAppFilePathWithinFolder(
+  finalPath: string,
+  filePath: string,
+): string {
+  const filePathInApp = path.join(finalPath, filePath.substring(1));
+  const relInApp = path.relative(finalPath, filePathInApp);
+  if (
+    relInApp === "" ||
+    relInApp === ".." ||
+    relInApp.startsWith(".." + path.sep) ||
+    path.isAbsolute(relInApp)
+  ) {
+    throw new Error(
+      `raw app file key ${filePath} escapes the app folder ${finalPath}`,
+    );
+  }
+  return filePathInApp;
+}
+
 function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
@@ -1408,9 +1433,16 @@ function ZipFSElement(
                 ) {
                   continue;
                 }
+                // A `files` key is an app-root-relative path the app author
+                // controls; a `..` segment would resolve outside the app folder
+                // on pull. Keep every pulled file within its own app's folder.
+                const filePathInApp = rawAppFilePathWithinFolder(
+                  finalPath,
+                  filePath,
+                );
                 yield {
                   isDirectory: false,
-                  path: path.join(finalPath, filePath.substring(1)),
+                  path: filePathInApp,
                   async *getChildren() {},
                   async getContentText() {
                     if (typeof content !== "string") {
