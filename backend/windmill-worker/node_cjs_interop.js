@@ -11,7 +11,7 @@
 // after evaluation.
 
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const WM_IDENT = "[A-Za-z_$][A-Za-z0-9_$]*";
@@ -174,13 +174,14 @@ function wmCommonJsSpecs(specs, jobDir, nodePath) {
   return commonjs;
 }
 
-// Node's own rule for a file's format: the extension decides, and `.js` follows
-// the `type` of the closest package.json.
+// Node's own rule for a file's format: the extension decides, and `.js` — like an
+// extensionless entry — follows the `type` of the closest package.json.
 function wmIsCommonJsFile(file) {
-  if (file.endsWith(".mjs")) {
+  const ext = extname(file);
+  if (ext === ".mjs") {
     return false;
   }
-  if (!file.endsWith(".js")) {
+  if (ext !== ".js" && ext !== "") {
     return true;
   }
   let dir = dirname(file);

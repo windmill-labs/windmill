@@ -1281,8 +1281,8 @@ fn test_generate_bun_bundle_propagates_exit_status() {
 
 /// Pins the two halves of the `//nodejs` CommonJS interop: a package whose
 /// exports only exist once it has run must resolve through `default`, and one
-/// node loads as ESM — including through conditional exports that hand bun a
-/// different file — must keep its named imports as live bindings.
+/// node loads as ESM — through conditional exports that hand bun a different
+/// file, or an extensionless entry — must keep its named imports as live bindings.
 #[test]
 fn test_node_loader_cjs_named_export_interop() {
     use std::process::Command;
@@ -1349,6 +1349,18 @@ module.exports = api;
         ],
     );
 
+    // An extensionless entry, which takes its format from the package scope too.
+    write_pkg(
+        "extless-esm-pkg",
+        &[
+            (
+                "package.json",
+                r#"{ "name": "extless-esm-pkg", "version": "1.0.0", "type": "module", "exports": "./entry" }"#,
+            ),
+            ("entry", "export let count = 0;\nexport function bump() { count++; }\n"),
+        ],
+    );
+
     std::fs::write(
         dir.join("main.ts"),
         r#"
@@ -1356,10 +1368,12 @@ import { greet } from "dyn-cjs-pkg";
 import * as pkg from "dyn-cjs-pkg";
 import { count, bump } from "live-esm-pkg";
 import { count as dual, bump as bumpDual } from "dual-cond-pkg";
+import { count as extless, bump as bumpExtless } from "extless-esm-pkg";
 export function main() {
     bump();
     bumpDual();
-    return [greet("a"), pkg.greet("b"), { ...pkg }.greet("c"), count, dual];
+    bumpExtless();
+    return [greet("a"), pkg.greet("b"), { ...pkg }.greet("c"), count, dual, extless];
 }
 "#,
     )
@@ -1412,7 +1426,7 @@ console.log(JSON.stringify(Main.main()));
         "node rejected the bundle:\nstdout:\n{stdout}\nstderr:\n{}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(stdout.trim(), r#"["greet a","greet b","greet c",1,1]"#);
+    assert_eq!(stdout.trim(), r#"["greet a","greet b","greet c",1,1,1]"#);
 }
 
 /// Regression test for the install_bun_lockfile no-DB path: same code shape as
