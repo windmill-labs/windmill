@@ -106,7 +106,7 @@ pub async fn list_all_experiments(
         })
         .collect::<Result<Vec<_>>>()?;
 
-    resolve_listed_drafts(&db, &w_id, &mut experiments).await?;
+    resolve_listed_drafts(&authed, &db, &user_db, &w_id, &mut experiments).await?;
     let scorers = scorers_of_listed(&authed, &user_db, &w_id, &experiments).await?;
     enrich_listed_runs(&db, &w_id, &mut experiments, &scorers).await?;
     Ok(Json(experiments))
@@ -160,7 +160,9 @@ async fn mark_running(db: &DB, w_id: &str, experiments: &mut [EvalExperiment]) -
 /// is exactly the confusion the version is recorded to prevent. Resolved once per subject rather
 /// than once per run, because a listing is usually one agent's history.
 async fn resolve_listed_drafts(
+    authed: &ApiAuthed,
     db: &DB,
+    user_db: &UserDB,
     w_id: &str,
     experiments: &mut [EvalExperiment],
 ) -> Result<()> {
@@ -172,10 +174,15 @@ async fn resolve_listed_drafts(
     if drafted.is_empty() {
         return Ok(());
     }
+    // Read each subject as the caller (see experiment_results): an agent the caller cannot read
+    // yields no hash or version, so its config fingerprint never leaks through the list either.
     let mut deployed = std::collections::HashMap::new();
     for path in drafted {
-        let (config, version) = deployed_agent_state(db, w_id, &path).await?;
-        deployed.insert(path.clone(), (config.as_ref().map(draft_hash), version));
+        let (hash, version) = match readable_agent_state(authed, user_db, w_id, &path).await? {
+            Some((config, version)) => (Some(draft_hash(&config)), Some(version)),
+            None => (None, None),
+        };
+        deployed.insert(path.clone(), (hash, version));
     }
     for experiment in experiments.iter_mut() {
         let Some((hash, version)) = deployed.get(&experiment.subject.path) else {
@@ -855,11 +862,16 @@ pub async fn experiment_results(
         })
         .collect();
 
-    // What the subject is now: the version it is on, and what it hashes to as deployed. One read,
-    // so the hash and the version it belongs to cannot come from either side of a deploy.
-    let (deployed_config, subject_current_version) =
-        deployed_agent_state(&db, &w_id, &experiment.subject.path).await?;
-    let subject_deployed_hash = deployed_config.as_ref().map(draft_hash);
+    // What the subject is now: the version it is on, and what it hashes to as deployed. Read as
+    // the caller, so a viewer who can see the dataset but not the agent gets neither — the "since
+    // deployed" label just does not resolve for them, rather than the agent's version and config
+    // fingerprint leaking past its own read permission. This matches subject_state, which gates
+    // the same version on agent readability.
+    let (subject_deployed_hash, subject_current_version) =
+        match readable_agent_state(&authed, &user_db, &w_id, &experiment.subject.path).await? {
+            Some((config, version)) => (Some(draft_hash(&config)), Some(version)),
+            None => (None, None),
+        };
 
     // A run of unsaved edits whose configuration has since been deployed is a run of that version.
     let mut baseline = baseline.map(|(baseline, _)| baseline);

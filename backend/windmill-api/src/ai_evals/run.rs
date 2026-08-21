@@ -601,9 +601,9 @@ pub struct RunExperiment {
 /// Open a run of this dataset. A run is a fixed point: it is written once and then only ever
 /// read, which is what makes it worth comparing against.
 ///
-/// Runs are numbered per agent rather than per dataset, and the deployed agent and its draft
-/// share that numbering: they are the same agent, and "Run 7" of it should mean one thing whether
-/// it ran the deployed value or the edits waiting on top of it.
+/// Runs are numbered per (dataset, agent) pair, and the deployed agent and its draft share that
+/// numbering: they are the same agent, and "Run 7" of a dataset should mean one thing whether it
+/// ran the deployed value or the edits waiting on top of it.
 async fn new_run(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,

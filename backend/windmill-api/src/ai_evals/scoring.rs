@@ -87,9 +87,9 @@ pub(crate) async fn sync_run(
 
 /// Give a terminal status to cases the run never spawned an iteration for. A case with no `job_id`
 /// has nothing to read an answer or a score out of, so it would report "running" indefinitely —
-/// which is right while the run is in flight, and wrong once the run is over. Only settles when
-/// the outer run job is terminal (completed with its own status, or gone from the queue entirely);
-/// while it is still running, an unspawned case is one whose iteration has yet to be created.
+/// which is right while the run is in flight, and wrong once the run is over. Only settles once
+/// the outer run job has reached `v2_job_completed`; while it is still running, an unspawned case
+/// is one whose iteration has yet to be created.
 async fn settle_unspawned_cases(
     db: &DB,
     w_id: &str,

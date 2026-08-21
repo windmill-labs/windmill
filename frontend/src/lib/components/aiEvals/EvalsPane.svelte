@@ -116,17 +116,21 @@
 	let runsLoaded = $state(false)
 	let datasetsLoaded = $state(false)
 	// A rejected initial load (no access, network) would otherwise leave the lists empty and render
-	// as "No dataset yet" — a real emptiness and a failed read must not look the same.
-	let loadError = $state(false)
+	// as "No dataset yet" — a real emptiness and a failed read must not look the same. Tracked per
+	// loader: the two run independently, so a successful reload of one must not clear the other's
+	// error.
+	let runsLoadError = $state(false)
+	let datasetsLoadError = $state(false)
+	let loadError = $derived(runsLoadError || datasetsLoadError)
 	let loaded = $derived(!ws || (runsLoaded && datasetsLoaded))
 
 	/** The agent's whole history, which is the screen the pane opens on. */
 	async function loadRuns() {
-		loadError = false
+		runsLoadError = false
 		try {
 			experiments = await listSubjectExperiments()
 		} catch (e) {
-			loadError = true
+			runsLoadError = true
 			sendUserToast(`Failed to load the runs: ${e}`, true)
 		} finally {
 			runsLoaded = true
@@ -150,11 +154,11 @@
 
 	async function loadDatasets() {
 		if (!ws) return
-		loadError = false
+		datasetsLoadError = false
 		try {
 			datasets = await AiEvalsService.listEvalDatasets({ workspace: ws })
 		} catch (e) {
-			loadError = true
+			datasetsLoadError = true
 			sendUserToast(`Failed to load the datasets: ${e}`, true)
 			datasetsLoaded = true
 			return

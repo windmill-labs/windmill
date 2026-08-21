@@ -85,7 +85,13 @@
 	// column stops reporting how good an answer was and starts reporting whether it was good
 	// enough, which is the question most datasets are actually asking.
 	let passIf = $state('')
-	let threshold = $derived(passIf && !Number.isNaN(Number(passIf)) ? Number(passIf) : undefined)
+	// Not a truthiness test: the number input coerces `passIf` to a number, so a valid threshold of
+	// 0 (which the server accepts) would read as empty and be dropped. Empty is `''` or null.
+	let threshold = $derived.by(() => {
+		if (passIf === '' || passIf == null) return undefined
+		const n = Number(passIf)
+		return Number.isNaN(n) ? undefined : n
+	})
 	// The server refuses a threshold outside 0 to 1; catch it here so an invalid one blocks the
 	// form rather than being caught only after the judge or script has already been created.
 	let thresholdError = $derived(threshold !== undefined && (threshold < 0 || threshold > 1))
