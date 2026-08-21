@@ -39,21 +39,28 @@
 	/** `fill` connects into a resource that already exists, instead of creating one. */
 	export async function open(rt?: string, fill?: string) {
 		fillPath = fill
+		handedOff = false
 		rtToLoad = rt
 		drawer?.openDrawer?.()
 	}
 
 	/**
-	 * Once per opening. The reactive statement below re-runs both when `rtToLoad` changes and
-	 * when `appConnectInner` binds, and a second `open()` runs `next()` a second time — which
-	 * walks a resource type opened with one straight past the Connect button and into
-	 * `window.open`. A popup opened from a reactive effect rather than the click is blocked,
-	 * so the drawer then sits on "Finish connection in popup window" with no popup.
+	 * Hand off to the inner component exactly once per opening. The reactive statement below
+	 * re-runs both when `rtToLoad` changes and when `appConnectInner` binds — and it binds
+	 * afresh on every opening, since the drawer destroys its content on close. A second
+	 * `open()` runs `next()` a second time, which walks a drawer opened on a resource type
+	 * straight past the Connect button and into `window.open`; a popup opened from a reactive
+	 * effect rather than from the click is blocked, leaving "Finish connection in popup
+	 * window" with no popup behind it.
+	 *
+	 * A flag rather than the last resource type: `open()` with no argument leaves `rtToLoad`
+	 * undefined, which compares equal to the initial state and would skip the hand-off
+	 * entirely — the resources page opens it that way.
 	 */
-	let openedFor: string | undefined = undefined
+	let handedOff = false
 	function onRtToLoadChange(rtToLoad: string | undefined) {
-		if (openedFor === rtToLoad) return
-		openedFor = rtToLoad
+		if (handedOff) return
+		handedOff = true
 		appConnectInner?.open(rtToLoad)
 	}
 
@@ -68,7 +75,7 @@
 	bind:this={drawer}
 	on:close={() => {
 		step = 1
-		openedFor = undefined
+		handedOff = false
 		dispatch('close')
 	}}
 	size="700px"

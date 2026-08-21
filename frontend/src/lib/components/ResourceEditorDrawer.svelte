@@ -158,8 +158,12 @@
 				unifiedSize="md"
 				startIcon={{ icon: Save }}
 				on:click={async () => {
-					await resourceEditor?.save()
+					// Closed before the write is awaited, the way it always was: `save()` toasts its
+					// own failures and never rejects, so waiting would only add visible lag to every
+					// caller of this drawer. `onSaved` still fires after the write lands.
+					const saved = resourceEditor?.save()
 					drawer?.closeDrawer()
+					await saved
 					onSaved?.()
 				}}
 				disabled={!canSave}
