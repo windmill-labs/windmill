@@ -771,6 +771,7 @@ async fn check_path_conflicts(
         "flow",
         "app",
         "resource",
+        "eval_dataset",
         "variable",
         "schedule",
         "http_trigger",

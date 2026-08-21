@@ -223,7 +223,7 @@ pub async fn recent_scorers(
     .into_iter()
     .collect::<std::collections::HashSet<_>>();
     let readable_agents = sqlx::query_scalar!(
-        "SELECT path FROM resource WHERE workspace_id = $1 AND path = ANY($2)",
+        "SELECT path FROM resource WHERE workspace_id = $1 AND path = ANY($2) AND resource_type = 'ai_agent'",
         w_id,
         &agent_paths
     )

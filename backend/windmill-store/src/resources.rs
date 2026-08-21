@@ -81,8 +81,8 @@ pub fn workspaced_service() -> Router {
             "/history/p/{*path}",
             get(get_resource_history).delete(clear_resource_history),
         )
-        .route("/history/v/{id}", get(get_resource_version))
-        .route("/history/restore/v/{id}", post(restore_resource_version))
+        .route("/history/v/{version}", get(get_resource_version))
+        .route("/history/restore/v/{version}", post(restore_resource_version))
         .route("/delete/{*path}", delete(delete_resource))
         .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
