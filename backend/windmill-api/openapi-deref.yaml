@@ -13315,7 +13315,8 @@ paths:
         For TypeScript, use 'bun' unless deno-specific APIs are needed. A path
         that already holds a script is refused: use updateScript to deploy a
         new version of it, and do NOT delete and recreate a script to change
-        it.
+        it. A new version generates its lock async and takes a moment to be
+        runnable: getScriptByPath reports the live hash.
       x-mcp-tool-include-fields:
         - path
         - content
@@ -13518,8 +13519,8 @@ paths:
         unless you wrote its content yourself. Set path__body only to move the
         script to a different path; omit it to leave the script where it is. A
         path that holds no script is refused: use createScript to create one. A
-        new version takes a moment to become runnable: getScriptByPath reports
-        the live hash.
+        new version generates its lock async and takes a moment to be runnable:
+        getScriptByPath reports the live hash.
       x-mcp-tool-include-fields:
         - path
         - content

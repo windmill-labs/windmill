@@ -12771,7 +12771,7 @@
         "description": "Creates a new script at a path that does not already hold one.\nSupplying `parent_hash` instead deploys a new version of the script that hash names, and a `path` differing from that version's moves the script there. `POST /w/{workspace}/scripts/update/{path}` does the same, naming the superseded version in its URL.\n",
         "operationId": "createScript",
         "x-mcp-tool": true,
-        "x-mcp-instructions": "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it.",
+        "x-mcp-instructions": "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async and takes a moment to be runnable: getScriptByPath reports the live hash.",
         "x-mcp-tool-include-fields": [
           "path",
           "content",
@@ -12822,7 +12822,7 @@
         "description": "Deploys a new version of the script at `path`, which must already hold one.\nThe body's `path` is the destination: the same path leaves the script where it\nis, a different one moves it there and archives the old path.\n",
         "operationId": "updateScript",
         "x-mcp-tool": true,
-        "x-mcp-instructions": "Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version takes a moment to become runnable: getScriptByPath reports the live hash.",
+        "x-mcp-instructions": "Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async and takes a moment to be runnable: getScriptByPath reports the live hash.",
         "x-mcp-tool-include-fields": [
           "path",
           "content",
