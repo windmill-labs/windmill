@@ -508,10 +508,10 @@ already collected, so the steady state is one query and not one flow read per ro
 **Run** opens a dialog with two questions, because both answers cost a provider bill and neither
 follows from where you happen to be standing:
 
-- **which state of the agent.** `Latest` is the agent as it is saved when you press Run. A past
-  version is what it was then, and `Unsaved edits` runs the step's edits as they are when you press
-  Run — offered, and preselected, only when the dialog was opened from the editing card, because
-  that is why you came. All three are fixed once and run by every case.
+- **which state of the agent.** `v24 (latest deployed)` is the agent as it is saved when you press
+  Run. A past version is what it was then, and `v24 + edits (current)` runs the step's edits as
+  they are when you press Run — offered, and preselected, only when the dialog was opened from the
+  editing card, because that is why you came. All three are fixed once and run by every case.
 - **which dataset**, as a resource picker does it: named by its summary with the path under it, an
   edit button on the row, and a way to start a new one without leaving.
 

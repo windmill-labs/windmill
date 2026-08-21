@@ -16,6 +16,7 @@
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
+		agentConfigAsEdited,
 		agentConfigToInputTransforms,
 		flowLocalInputs,
 		inputTransformsToAgentConfig,
@@ -408,10 +409,7 @@
 		// normalises the configuration, and a normalisation is not an edit. Comparing against the
 		// resource's own JSON would compare key order too.
 		const deployedConfig = JSON.stringify(
-			inputTransformsToAgentConfig(
-				{ ...agentConfigToInputTransforms(cfg), ...local },
-				cfg.tools ?? []
-			)
+			agentConfigAsEdited({ ...agentConfigToInputTransforms(cfg), ...local }, cfg.tools ?? [])
 		)
 
 		const brain = agentConfigToInputTransforms(cfg)
@@ -419,7 +417,7 @@
 		const forkedTools = cfg.tools ?? []
 		// What was written into the step, which is what the settle gate waits to see before it
 		// treats a change as an edit.
-		const forkedConfig = JSON.stringify(inputTransformsToAgentConfig(inputTransforms, forkedTools))
+		const forkedConfig = JSON.stringify(agentConfigAsEdited(inputTransforms, forkedTools))
 		if (foldOverrides) {
 			for (const tool of forkedTools) {
 				const overrides = toolInputs?.[tool.id]
@@ -486,8 +484,10 @@
 		}
 	}
 
-	/** The configuration the step holds now, in the form it is compared with the deployed agent in. */
-	let currentConfig = $derived(JSON.stringify(inputTransformsToAgentConfig(inputTransforms, tools)))
+	/** The configuration the step holds now, in the form it is compared with the deployed agent in.
+	 *  Expressions count: the saved config cannot hold one, but a run of the edits executes it and
+	 *  Cancel drops it, so it is as much an edit as a value. */
+	let currentConfig = $derived(JSON.stringify(agentConfigAsEdited(inputTransforms, tools)))
 	/** The agent as deployed, in the same form. It lives with the edit session rather than here —
 	 *  as does what was written into the step when the editor opened — so an editor mounted
 	 *  part-way through a session still has its baselines. */
@@ -526,7 +526,7 @@
 		diffDrawer?.setDiff({
 			mode: 'simple',
 			original: JSON.parse(deployedConfig) as Value,
-			current: $state.snapshot(inputTransformsToAgentConfig(inputTransforms, tools)) as Value,
+			current: $state.snapshot(agentConfigAsEdited(inputTransforms, tools)) as Value,
 			title: 'Deployed <> Unsaved agent changes',
 			button: {
 				text: 'Discard changes',
