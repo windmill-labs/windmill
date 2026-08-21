@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { ResourceService, WorkspaceService } from '$lib/gen'
-	import { ArrowLeft, Check, CheckCircle2, Database, Loader2, X } from 'lucide-svelte'
-	import { fly } from 'svelte/transition'
+	import { ArrowLeft, Check, Database, Loader2, X } from 'lucide-svelte'
 	import { tick } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { Button } from '$lib/components/common'
@@ -12,6 +11,10 @@
 	import { resource } from 'runed'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import IconedResourceType from '$lib/components/IconedResourceType.svelte'
+	import ImportSetupRow from '$lib/components/ImportSetupRow.svelte'
+	import AppConnectDrawer from '$lib/components/AppConnectDrawer.svelte'
+	import { OauthService } from '$lib/gen'
+	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import type { ProjectMigration } from '$lib/components/workspaceSettings/projectBundle'
 	import { sendUserToast } from '$lib/toast'
@@ -40,6 +43,8 @@
 		migrations: ProjectMigration[]
 		status: 'unconfigured' | 'running' | 'done' | 'failed'
 		error?: string
+		/** Plays the confirmation flash once, right after the run that configured it. */
+		justSaved: boolean
 	}
 
 	/** A resource the project shipped that needed filling in. */
@@ -69,6 +74,24 @@
 
 	// The wizard needs the instance-database pool and a confirmation host; the settings
 	// page owns them there, so this step owns them here.
+	// Which resource types this instance has an OAuth client for. A resource whose type is
+	// in here can be connected instead of hand-filled, which for an OAuth type is the
+	// difference between clicking Connect and pasting a token that expires in an hour.
+	// Empty when no superadmin has configured any client — then every row falls back to
+	// the editor, which is the only thing that would work anyway.
+	const oauthConnects = resource(
+		() => workspace,
+		async () => {
+			try {
+				return (await OauthService.listOauthConnects()).map((c) => c.name)
+			} catch {
+				return []
+			}
+		}
+	)
+	const connectable = $derived(new Set(oauthConnects.current ?? []))
+	let appConnect: AppConnectDrawer | undefined = $state(undefined)
+
 	const customInstanceDbs = resource([() => workspace], SettingService.listCustomInstanceDbs)
 	const confirmationModal = createAsyncConfirmationModal()
 	let wizardOpen = $state(false)
@@ -122,7 +145,8 @@
 				return {
 					name,
 					migrations: enabled.filter((m) => m.datatable_name === name),
-					status: (missing.includes(name) ? 'unconfigured' : 'done') as Row['status']
+					status: (missing.includes(name) ? 'unconfigured' : 'done') as Row['status'],
+					justSaved: false
 				}
 			})
 			projectResources = exportData.resources ?? []
@@ -232,6 +256,13 @@
 			for (const m of row.migrations) await applyOneMigration(workspace, slug, m)
 			row.status = 'done'
 			row.error = undefined
+			// One-shot, cleared by name rather than by reference: `load()` rebuilds the row
+			// objects, so the one holding the flag when it fires may not be this one.
+			row.justSaved = true
+			setTimeout(() => {
+				const current = rows.find((r) => r.name === name)
+				if (current) current.justSaved = false
+			}, 1500)
 		} catch (e: any) {
 			row.status = 'failed'
 			row.error = e?.body ?? e?.message ?? String(e)
@@ -267,9 +298,11 @@
 <div class="flex flex-col gap-4">
 	<div>
 		<h2 class="text-sm font-semibold text-emphasis">Finish setting up</h2>
+		<!-- Reads as what the user gets out of it, not as what the import failed to do:
+		     the step is skippable, so it has to say why finishing is worth their time. -->
 		<p class="mt-0.5 text-xs text-secondary">
-			The project is imported. What is left is the part it could not bring with it — connections and
-			credentials this workspace has to supply.
+			Your project is imported. For its apps and flows to actually run, they need a place to store
+			data and credentials for the services they use — the import can't supply those for you.
 		</p>
 	</div>
 
@@ -286,31 +319,33 @@
 			<!-- Named and explained: the row underneath is a table called `main`, which
 			     says nothing to someone meeting the concept for the first time. -->
 			<div class="flex flex-col gap-1">
-				<span class="text-xs font-normal text-secondary">
+				<span class="text-xs font-semibold text-emphasis">
 					Data table{rows.length === 1 ? '' : 's'} to set up ({rows.length})
 				</span>
-				<p class="text-xs text-tertiary">
-					Where apps and flows keep the data they read and write. Point {rows.length === 1
-						? 'it'
-						: 'them'} at a database and the tables get created for you.
+				<p class="text-xs font-normal text-secondary">
+					Where apps and flows keep the data they read and write.
 				</p>
 			</div>
 		{/if}
-		<ul class="flex flex-col gap-3">
+		<ul class="flex flex-col gap-1.5">
 			{#each rows as row (row.name)}
-				<li class="flex items-center gap-2 rounded-md border border-border-light px-3 py-2 text-xs">
-					{#if row.status === 'done'}
-						<Check size={14} class="shrink-0 text-emerald-600" />
-					{:else if row.status === 'running'}
-						<Loader2 size={14} class="shrink-0 animate-spin text-blue-500" />
-					{:else if row.status === 'failed'}
-						<X size={14} class="shrink-0 text-red-500" />
-					{:else}
-						<Database size={14} class="shrink-0 text-secondary" />
-					{/if}
-					<span class="min-w-0 flex-1">
-						<span class="block truncate font-mono text-emphasis">{row.name}</span>
-						<span class="block truncate text-tertiary">
+				<ImportSetupRow flash={row.justSaved}>
+					{#snippet icon()}
+						{#if row.status === 'done'}
+							<Check size={20} class="text-emerald-600" />
+						{:else if row.status === 'running'}
+							<Loader2 size={20} class="animate-spin text-blue-500" />
+						{:else if row.status === 'failed'}
+							<X size={20} class="text-red-500" />
+						{:else}
+							<Database size={20} class="text-secondary" />
+						{/if}
+					{/snippet}
+					{#snippet title()}
+						<span class="min-w-0 truncate font-mono text-emphasis">{row.name}</span>
+					{/snippet}
+					{#snippet detail()}
+						<span class="truncate text-secondary">
 							{#if row.status === 'done'}
 								{row.migrations.length} migration{row.migrations.length === 1 ? '' : 's'} run
 							{:else if row.status === 'running'}
@@ -321,72 +356,78 @@
 								not configured yet
 							{/if}
 						</span>
-					</span>
-					<!-- The wizard owns creating a data table: picking or provisioning the
-					     database, writing the config, and reporting the connection. This step
-					     only says which name it needs and runs the migrations afterwards. -->
-					<Button
-						variant={row.status === 'done' ? 'subtle' : 'accent'}
-						unifiedSize="sm"
-						disabled={working}
-						onClick={() => openWizard(row.name)}
-					>
-						{row.status === 'done' ? 'Configured' : 'Set up'}
-					</Button>
-				</li>
+					{/snippet}
+					{#snippet action()}
+						<!-- The wizard owns creating a data table: picking or provisioning the
+						     database, writing the config, and reporting the connection. This step
+						     only says which name it needs and runs the migrations afterwards. -->
+						<Button
+							variant={row.status === 'done' ? 'subtle' : 'accent'}
+							unifiedSize="sm"
+							disabled={working}
+							onClick={() => openWizard(row.name)}
+						>
+							{row.status === 'done' ? 'Configured' : 'Set up'}
+						</Button>
+					{/snippet}
+				</ImportSetupRow>
 			{/each}
 		</ul>
 
 		{#if blanks.length > 0}
 			<div class="flex flex-col gap-2">
-				<span class="text-xs font-normal text-secondary">Credentials to fill ({blanks.length})</span
+				<span class="text-xs font-semibold text-emphasis"
+					>Credentials to fill ({blanks.length})</span
 				>
 				<ul class="flex flex-col gap-1.5">
 					{#each blanks as b (b.path)}
-						<li
-							class="flex items-center gap-2 rounded-md border border-border-light px-3 py-2 text-xs"
-						>
-							{#if b.done}
-								<Check size={14} class="shrink-0 text-emerald-600" />
-							{:else}
-								<!-- The integration's own icon, not a generic key: the row is identified by
-								     which provider it is for. Falls back to a generic box when unknown. -->
-								<span class="shrink-0">
-									<IconedResourceType name={b.resourceType} silent width="14px" height="14px" />
-								</span>
-							{/if}
-							<span class="min-w-0 flex-1">
-								<span class="block truncate font-mono text-emphasis">{b.path}</span>
-								<span class="block truncate text-tertiary">
-									{b.done
-										? b.resourceType
-										: `${b.resourceType}${
-												b.missing.length > 0 ? ` · missing ${b.missing.join(', ')}` : ''
-											}`}
-								</span>
-							</span>
-							<!-- The confirmation flash is the one from SaveButton: the save itself
-							     happens in the resource drawer, so only the overlay is reused here.
-							     The button stays live either way — "Saved" is a state, not a dead end. -->
-							<div class="relative overflow-hidden rounded-md">
+						{@const canConnect = !b.done && connectable.has(b.resourceType)}
+						<!-- Laid out like the resource type rows in the Add-a-resource drawer: the
+						     integration's own icon, its product name, and the raw identifier demoted
+						     beside it. The path only matters when two resources share a type, so it
+						     stops being the thing the eye lands on. -->
+						<ImportSetupRow flash={b.justSaved}>
+							{#snippet icon()}
+								{#if b.done}
+									<Check size={20} class="text-emerald-600" />
+								{:else}
+									<IconedResourceType name={b.resourceType} silent width="20px" height="20px" />
+								{/if}
+							{/snippet}
+							{#snippet title()}
+								<div class="flex min-w-0 flex-row items-baseline gap-2">
+									<span class="min-w-0 truncate text-emphasis">
+										{resourceTypeDisplayName(b.resourceType)}
+									</span>
+									<span class="min-w-0 truncate font-mono text-2xs font-normal text-hint">
+										{b.path}
+									</span>
+								</div>
+							{/snippet}
+							{#snippet detail()}
+								{#if !b.done && b.missing.length > 0}
+									<span class="truncate text-secondary">
+										Missing {b.missing.join(', ')}
+									</span>
+								{/if}
+							{/snippet}
+							{#snippet action()}
+								<!-- Connect where the instance has a client for this type: asking for an
+								     OAuth resource by hand means pasting an access token that dies within
+								     the hour, since only a token Windmill obtained itself gets refreshed. -->
 								<Button
 									variant={b.done ? 'subtle' : 'accent'}
 									unifiedSize="sm"
 									disabled={working}
-									onClick={() => resourceEditor?.initEdit(b.path)}
+									onClick={() =>
+										canConnect
+											? appConnect?.open(b.resourceType, b.path)
+											: resourceEditor?.initEdit(b.path)}
 								>
-									{b.done ? 'Saved' : 'Fill in'}
+									{b.done ? 'Saved' : canConnect ? 'Connect' : 'Fill in'}
 								</Button>
-								{#if b.justSaved}
-									<div
-										class="absolute inset-0 flex items-center justify-center rounded-md bg-green-200 dark:bg-green-800"
-										transition:fly={{ y: -10, duration: 300 }}
-									>
-										<CheckCircle2 class="h-5 w-5 text-green-700 dark:text-green-300" />
-									</div>
-								{/if}
-							</div>
-						</li>
+							{/snippet}
+						</ImportSetupRow>
 					{/each}
 				</ul>
 			</div>
@@ -465,10 +506,19 @@
 <ConfirmationModal {...confirmationModal.props} />
 
 <!-- The destination is not the workspace the app is in until the run switches to it,
-     so the editor is told which one explicitly. -->
+     so the editor is told which one explicitly.
+
+     Saving re-reads only the resources, never `load()`: a credential cannot change which
+     data tables the project ships or which ones the workspace has, and `load()` raises
+     `loading`, which replaces both lists with the spinner — so every save looked like the
+     whole step had reloaded. -->
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	{workspace}
-	onSaved={() => void load()}
-	onRestored={() => void load()}
+	onSaved={() => void refreshBlanks()}
+	onRestored={() => void refreshBlanks()}
 />
+
+<!-- `on:refresh` fires once the connection has been written into the stub — the same moment
+     a save is — so the rows settle the same way either route was taken. -->
+<AppConnectDrawer bind:this={appConnect} {workspace} on:refresh={() => void refreshBlanks()} />
