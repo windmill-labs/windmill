@@ -22,6 +22,12 @@ const FILTERED_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set([
 	'aws_bedrock'
 ])
 
+/** Kinds whose endpoint serves ids its listing does not contain, so an unlisted id is never
+ * grounds for calling it wrong. OpenRouter appends routing suffixes — `:online`, `:nitro`,
+ * `:floor` — to any listed model without listing the combinations, and it carries no `base_url`
+ * of its own (the backend supplies it), so `customEndpoint` does not cover it. */
+const ALIASING_MODEL_LISTING_KINDS: ReadonlySet<string> = new Set(['openrouter'])
+
 /** Each resource costs one model listing call against the provider. A workspace with a
  * long tail of AI resources would otherwise stall every flow write. */
 const MAX_PROVIDER_RESOURCES = 8
@@ -243,6 +249,7 @@ async function loadOption(
 	// Everything known about how short of the truth this response may be, stated once.
 	const sourceIsWhole =
 		!FILTERED_MODEL_LISTING_KINDS.has(candidate.kind) &&
+		!ALIASING_MODEL_LISTING_KINDS.has(candidate.kind) &&
 		listed.length < SINGLE_PAGE_MODEL_COUNT(candidate.kind)
 	const models = sanitizeModelListing(listed, sourceIsWhole)
 	if (models.ids.length > 0) {
