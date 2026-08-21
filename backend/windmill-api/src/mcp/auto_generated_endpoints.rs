@@ -679,7 +679,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
     EndpointTool {
         name: Cow::Borrowed("createScript"),
         description: Cow::Borrowed("create script: Creates a script at a path that does not already hold one"),
-        instructions: Cow::Borrowed("Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async and takes a moment to be runnable: getScriptByPath reports the live hash."),
+        instructions: Cow::Borrowed("Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async and can take up to a minute before a run by path uses it rather than the previous one."),
         path: Cow::Borrowed("/w/{workspace}/scripts/create"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,
@@ -730,7 +730,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
         description: Cow::Borrowed("update script: Deploys a new version of the script at `path`, which must already hold one.
 The body's `path` is the destination: the same path leaves the script where it
 is, a different one moves it there and archives the old path"),
-        instructions: Cow::Borrowed("Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async and takes a moment to be runnable: getScriptByPath reports the live hash."),
+        instructions: Cow::Borrowed("Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async and can take up to a minute before a run by path uses it rather than the previous one."),
         path: Cow::Borrowed("/w/{workspace}/scripts/update/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({
