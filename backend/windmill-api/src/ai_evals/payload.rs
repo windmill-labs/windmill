@@ -130,7 +130,9 @@ async fn build_run_payload(
                     None,
                 )),
                 // An MCP call runs inside the agent rather than as a job, so its arguments are on
-                // the action itself and there is no result to read back.
+                // the action itself. Its result and success live in a later `role: "tool"` message
+                // rather than a child-job row, and are not surfaced to scorers yet: a beta
+                // limitation — an agent scored on its MCP tool outputs is a follow-up.
                 Some("mcp_tool_call") => calls.push((
                     action
                         .get("function_name")
