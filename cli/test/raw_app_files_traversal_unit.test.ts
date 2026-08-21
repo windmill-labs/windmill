@@ -1,33 +1,32 @@
-/**
- * A raw app's `value.files` keys are app-author-controlled and written back to
- * disk relative to the app folder on `wmill sync pull`. A key that resolves
- * outside the app folder (a `..` segment) must be rejected so a pulled file
- * always stays within its own app's folder.
- */
-
 import { expect, test } from "bun:test";
 import { join as joinPath } from "node:path";
-import { rawAppFilePathWithinFolder } from "../src/commands/sync/sync.ts";
+import { rawAppPathWithinFolder } from "../src/commands/sync/sync.ts";
 
 const APP = joinPath("u", "admin", "myapp.raw_app");
+const BACKEND = joinPath(APP, "wm_backend");
 
-test("legit keys resolve to a path inside the app folder", () => {
-  expect(rawAppFilePathWithinFolder(APP, "/index.tsx")).toBe(
+test("keys that stay inside the folder resolve to a path within it", () => {
+  // `value.files` keys arrive with a leading slash the caller strips.
+  expect(rawAppPathWithinFolder(APP, "index.tsx")).toBe(
     joinPath(APP, "index.tsx"),
   );
-  expect(rawAppFilePathWithinFolder(APP, "/src/util.ts")).toBe(
+  expect(rawAppPathWithinFolder(APP, "src/util.ts")).toBe(
     joinPath(APP, "src", "util.ts"),
+  );
+  // A runnable id names its yaml under the backend folder.
+  expect(rawAppPathWithinFolder(BACKEND, "a.yaml")).toBe(
+    joinPath(BACKEND, "a.yaml"),
   );
 });
 
-test("keys that resolve outside the app folder are rejected", () => {
-  for (const key of [
-    "/../sibling.ts", // into the app's own parent folder
-    "/../../../f/other/outside.ts", // into an unrelated folder tree
-    "/../../../../../../elsewhere.txt", // above the app folder entirely
-    "/src/../../escape.ts",
-  ]) {
-    expect(() => rawAppFilePathWithinFolder(APP, key)).toThrow(
+test("keys that resolve outside the folder are rejected", () => {
+  for (const [base, rel] of [
+    [APP, "../sibling.ts"], // a files key into the app's parent folder
+    [APP, "../../../f/other/outside.ts"], // into an unrelated folder tree
+    [APP, "../../../../../../elsewhere.txt"], // above the app folder entirely
+    [BACKEND, "../../../../etc/evil.yaml"], // a runnable id escaping the backend folder
+  ] as const) {
+    expect(() => rawAppPathWithinFolder(base, rel)).toThrow(
       /escapes the app folder/,
     );
   }

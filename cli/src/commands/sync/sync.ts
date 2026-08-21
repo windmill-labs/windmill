@@ -1114,28 +1114,28 @@ async function pushFilesetParentResource(
 }
 
 /**
- * Resolve a raw app's `value.files` key to the on-disk path it is written to on
- * pull, joined under the app folder `finalPath`. Keys are app-author-controlled
- * remote data, so a key that resolves outside the app folder (a `..` segment) is
- * rejected: a pulled file must stay within its own app's folder.
+ * Join a raw app's author-controlled key (`value.files` path, `value.runnables`
+ * id) under `baseFolder` and refuse anything that resolves outside it. Keys are
+ * remote data written to disk on pull, so a `..` segment must not walk a written
+ * file out of the app's own folder.
  */
-export function rawAppFilePathWithinFolder(
-  finalPath: string,
-  filePath: string,
+export function rawAppPathWithinFolder(
+  baseFolder: string,
+  relPath: string,
 ): string {
-  const filePathInApp = path.join(finalPath, filePath.substring(1));
-  const relInApp = path.relative(finalPath, filePathInApp);
+  const resolved = path.join(baseFolder, relPath);
+  const rel = path.relative(baseFolder, resolved);
   if (
-    relInApp === "" ||
-    relInApp === ".." ||
-    relInApp.startsWith(".." + path.sep) ||
-    path.isAbsolute(relInApp)
+    rel === "" ||
+    rel === ".." ||
+    rel.startsWith(".." + path.sep) ||
+    path.isAbsolute(rel)
   ) {
     throw new Error(
-      `raw app file key ${filePath} escapes the app folder ${finalPath}`,
+      `raw app path ${JSON.stringify(relPath)} escapes the app folder ${baseFolder}`,
     );
   }
-  return filePathInApp;
+  return resolved;
 }
 
 function ZipFSElement(
@@ -1433,12 +1433,9 @@ function ZipFSElement(
                 ) {
                   continue;
                 }
-                // A `files` key is an app-root-relative path the app author
-                // controls; a `..` segment would resolve outside the app folder
-                // on pull. Keep every pulled file within its own app's folder.
-                const filePathInApp = rawAppFilePathWithinFolder(
+                const filePathInApp = rawAppPathWithinFolder(
                   finalPath,
-                  filePath,
+                  filePath.substring(1),
                 );
                 yield {
                   isDirectory: false,
@@ -1540,9 +1537,10 @@ function ZipFSElement(
 
               yield {
                 isDirectory: false,
-                path: path.join(
-                  finalPath,
-                  APP_BACKEND_FOLDER,
+                // The runnable id is app-author-controlled and names its file, so
+                // keep it inside the backend folder the same way `files` keys are.
+                path: rawAppPathWithinFolder(
+                  path.join(finalPath, APP_BACKEND_FOLDER),
                   `${runnableId}.yaml`,
                 ),
                 async *getChildren() {},
