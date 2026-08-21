@@ -94,6 +94,12 @@ pub(crate) fn assign_scorer_ids(scorers: &mut Vec<Scorer>) -> Result<()> {
             && id.len() <= 64
             && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
     }
+    if scorers.len() > MAX_SCORERS_PER_DATASET {
+        return Err(Error::BadRequest(format!(
+            "An eval dataset holds at most {} scorers",
+            MAX_SCORERS_PER_DATASET
+        )));
+    }
     let mut seen = std::collections::HashSet::new();
     for scorer in scorers.iter_mut() {
         if !valid_id(&scorer.id) || !seen.insert(scorer.id.clone()) {

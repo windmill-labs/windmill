@@ -138,6 +138,10 @@ const MAX_EXPERIMENTS_LISTED: i64 = 100;
 /// rather than one you search.
 const MAX_RECENT_SCORERS: usize = 12;
 
+/// A run scores every case by every column, so the work a dataset schedules is cases × scorers;
+/// this keeps one request from fanning out past what a results table can show anyway.
+const MAX_SCORERS_PER_DATASET: usize = 20;
+
 /// A run answers every case of its dataset in one flow; more cases than this is a dataset to
 /// split, not a run to start.
 const MAX_CASES_PER_RUN: usize = 1_000;

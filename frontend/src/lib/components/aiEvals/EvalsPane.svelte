@@ -404,11 +404,20 @@
 	async function runAll(runSubject: EvalSubject, path: string) {
 		if (!ws || !path) return
 		running = true
+		let id: string
 		try {
-			const id = await AiEvalsService.runExperiment({
+			id = await AiEvalsService.runExperiment({
 				workspace: ws,
 				requestBody: { dataset: path, subject: runSubject }
 			})
+		} catch (e) {
+			running = false
+			sendUserToast(`Failed to run the dataset: ${e}`, true)
+			return
+		}
+		// From here the run exists and is billing: what can still fail is reading it back, and
+		// saying "failed to run" to that invites a second, duplicate run.
+		try {
 			// Running a dataset is also choosing it: what you started is what the pane is now about.
 			if (path !== dataset?.path) await useDataset(path)
 			await loadRuns()
@@ -416,7 +425,10 @@
 			// still changing, and watching it is why you pressed Run.
 			await openRun(id)
 		} catch (e) {
-			sendUserToast(`Failed to run the dataset: ${e}`, true)
+			sendUserToast(
+				`The run started but could not be read back: ${e}. Reload the runs list to see it.`,
+				true
+			)
 		} finally {
 			running = false
 		}

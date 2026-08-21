@@ -572,7 +572,8 @@ own retention, and a run that happened is not undone by curating the dataset awa
 A case is text: a message and an expected answer. Attachments are S3 references rather than inline
 bytes, so nothing in a case is meant to be large, and two
 caps keep it that way — 256 KiB per case and 1 000 cases per dataset, both refused at the API
-rather than truncated.
+rather than truncated. A run scores every case by every scorer, so a dataset also holds at most
+20 scorers, refused the same way.
 
 ### Permissions
 
