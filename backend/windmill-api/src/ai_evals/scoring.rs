@@ -1,12 +1,5 @@
 use super::*;
 
-/// The runnable a scorer names, resolved through the caller's *own* database so a run can only
-/// execute code the caller may read — a scorer is added with a bare path and nothing checks read
-/// access there, and the flow that runs it stores only the path — and pinned so a redeploy midway
-/// through a run cannot swap the code out from under a score labelled with the old version.
-///
-/// Returns the definition to record and, for a script, the hash to pin into its flow module. A
-/// script the caller cannot read (or that is not deployed) is refused here rather than run.
 /// What a scorer resolves to, alongside the definition to record: a script by its pinned hash, or
 /// a judge by the configuration to inline.
 pub(crate) enum ResolvedScorer {
@@ -14,6 +7,13 @@ pub(crate) enum ResolvedScorer {
     Judge { config: AgentDraft },
 }
 
+/// The runnable a scorer names, resolved through the caller's *own* database so a run can only
+/// execute code the caller may read — a scorer is added with a bare path and nothing checks read
+/// access there, and the flow that runs it stores only the path — and pinned so a redeploy midway
+/// through a run cannot swap the code out from under a score labelled with the old version.
+///
+/// Returns the definition to record and what to run: a script by its deployed hash to pin, or a
+/// judge by the configuration to inline. Anything the caller cannot read is refused here.
 pub(crate) async fn resolve_scorer(
     user_db: &UserDB,
     authed: &ApiAuthed,
@@ -22,19 +22,12 @@ pub(crate) async fn resolve_scorer(
 ) -> Result<(String, ResolvedScorer)> {
     match &scorer.def {
         ScorerDef::Script { path } => {
+            // The latest *deployed* hash (no draft, no failed deploy), through the canonical helper
+            // so the version a scorer pins is the one everything else runs. Read as the caller, on a
+            // `user_db` transaction, so a run can only pin a script the caller may read.
             let mut tx = user_db.clone().begin(authed).await?;
-            // `lock IS NOT NULL` is the deployed version: a draft or a failed deploy has no
-            // lockfile, and pinning one would run code that never deployed. Read as the caller, so
-            // a run can only pin a script the caller may read.
-            let hash = sqlx::query_scalar!(
-                "SELECT hash FROM script
-                 WHERE workspace_id = $1 AND path = $2 AND archived = false AND lock IS NOT NULL
-                 ORDER BY created_at DESC LIMIT 1",
-                w_id,
-                path
-            )
-            .fetch_optional(&mut *tx)
-            .await?;
+            let hash =
+                windmill_common::get_latest_script_hash(&mut *tx, path, w_id).await?;
             tx.commit().await?;
             let Some(hash) = hash else {
                 return Err(Error::BadRequest(format!(
@@ -104,39 +97,43 @@ async fn settle_unspawned_cases(
     experiment_id: Uuid,
     run_job_id: Uuid,
 ) -> Result<()> {
-    let completed = sqlx::query_scalar!(
+    // Only a run that has reached `v2_job_completed` is settled from here. A job absent from the
+    // tables is as likely mid-launch — the experiment is committed before its job is pushed, so a
+    // runs-list poll can catch that window — as aged out, and settling then would cancel the cases
+    // of a run about to start. A cancelled run lands in `v2_job_completed` with its own status, so
+    // the case that matters, a cancel before an iteration spawned, is still covered.
+    let Some(terminal_status) = sqlx::query_scalar!(
         "SELECT status::text AS \"status!\" FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
         run_job_id,
         w_id
     )
     .fetch_optional(db)
-    .await?;
-    let terminal_status = match completed {
-        Some(status) => status,
-        None => {
-            // Not completed. Still in the job table means still running — leave the cells pending;
-            // absent from it means the job aged out, so the run is over regardless.
-            let still_a_job = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM v2_job WHERE id = $1 AND workspace_id = $2) AS \"e!\"",
-                run_job_id,
-                w_id
-            )
-            .fetch_one(db)
-            .await?;
-            if still_a_job {
-                return Ok(());
-            }
-            "canceled".to_string()
-        }
+    .await?
+    else {
+        return Ok(());
     };
-    sqlx::query!(
+    let settled = sqlx::query_scalar!(
         "UPDATE eval_experiment_case SET status = $2, answered = false
-         WHERE experiment_id = $1 AND job_id IS NULL AND status IS NULL",
+         WHERE experiment_id = $1 AND job_id IS NULL AND status IS NULL
+         RETURNING ordinal",
         experiment_id,
         terminal_status
     )
-    .execute(db)
+    .fetch_all(db)
     .await?;
+    // The score cells of a case that never ran have no job to read a verdict out of either, so they
+    // are settled alongside it rather than left reading "pending" under a run that is over.
+    if !settled.is_empty() {
+        sqlx::query!(
+            "UPDATE eval_score SET error = 'The case did not run'
+             WHERE experiment_id = $1 AND ordinal = ANY($2)
+                   AND score IS NULL AND error IS NULL AND NOT not_applicable",
+            experiment_id,
+            &settled
+        )
+        .execute(db)
+        .await?;
+    }
     Ok(())
 }
 

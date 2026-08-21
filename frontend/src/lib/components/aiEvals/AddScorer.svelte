@@ -86,6 +86,9 @@
 	// enough, which is the question most datasets are actually asking.
 	let passIf = $state('')
 	let threshold = $derived(passIf && !Number.isNaN(Number(passIf)) ? Number(passIf) : undefined)
+	// The server refuses a threshold outside 0 to 1; catch it here so an invalid one blocks the
+	// form rather than being caught only after the judge or script has already been created.
+	let thresholdError = $derived(threshold !== undefined && (threshold < 0 || threshold > 1))
 	let busy = $state(false)
 	let seeded = $state(false)
 	// The scorers this workspace already uses, so a new dataset does not start by retyping the
@@ -108,7 +111,12 @@ Expected: the case's expected value`
 
 	let modelReady = $derived(Boolean(provider?.resource && provider?.model))
 	let canCreate = $derived(
-		seeded && !busy && !!path && !pathError && (kind === 'script' || (modelReady && !!prompt))
+		seeded &&
+			!busy &&
+			!!path &&
+			!pathError &&
+			!thresholdError &&
+			(kind === 'script' || (modelReady && !!prompt))
 	)
 
 	/** A scorer is created next to the dataset it scores, so it is findable from it. The suffix
@@ -312,7 +320,12 @@ Expected: the case's expected value`
 			label="Pass threshold"
 			tooltip="Optional. A case scoring at or above this counts as a pass, and the column reports a pass rate beside its mean. It can be set or changed later from the column header, and reads the scores already recorded."
 		>
-			<TextInput bind:value={passIf} size="sm" inputProps={{ placeholder: '0.7' }} />
+			<TextInput
+				bind:value={passIf}
+				size="sm"
+				error={thresholdError}
+				inputProps={{ placeholder: '0.7', type: 'number', min: 0, max: 1, step: 0.05 }}
+			/>
 		</Label>
 
 		{#if kind === 'agent'}

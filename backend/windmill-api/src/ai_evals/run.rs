@@ -1017,6 +1017,21 @@ mod tests {
     /// linked step. The two arms differ by exactly one field, which is the difference between a run
     /// that grades against one definition and one that resolves the judge per case.
     #[test]
+    fn a_script_scorer_pins_its_resolved_hash_as_a_hex_string() {
+        let s = scorer(ScorerDef::Script { path: "f/e/scorer".to_string() });
+        let scorers = vec![&s];
+        let mut hashes = std::collections::HashMap::new();
+        hashes.insert("f/e/scorer".to_string(), 8816320759749465854i64);
+        let modules = scorer_modules(&scorers, &std::collections::HashMap::new(), &hashes);
+        // A flow module's `hash` deserializes only from a `ScriptHash` (a hex string); emitted as a
+        // bare number it fails in the worker and every code-scorer column breaks at runtime.
+        assert!(
+            modules[0]["value"]["hash"].is_string(),
+            "the pinned scorer hash must serialize as a hex string, not a number"
+        );
+    }
+
+    #[test]
     fn a_judge_is_inlined_when_it_could_be_read_and_linked_otherwise() {
         let judge = scorer(ScorerDef::Agent { path: "f/e/judge".to_string() });
         let scorers = vec![&judge];
