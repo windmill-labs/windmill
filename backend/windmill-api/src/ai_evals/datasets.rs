@@ -161,7 +161,6 @@ pub async fn list_datasets(
 pub async fn create_dataset(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(payload): Json<CreateDataset>,
 ) -> Result<String> {
@@ -172,10 +171,10 @@ pub async fn create_dataset(
             "Operators cannot create eval datasets".to_string(),
         ));
     }
-    // Every case is checked before the dataset is written, so that the only step that can fail is
-    // the first one. `eval_case` grants users no write, so the cases cannot be inserted in the
-    // transaction that creates the dataset under the caller's own policies — validating first is
-    // what keeps "created holding these cases" from becoming "created, holding some of them".
+    // Created with its cases in one transaction, so it either exists holding them or does not
+    // exist. `eval_case` has no write policies, so the transaction runs on `db`; what the insert
+    // policies would have decided about the dataset row is decided first, the same way.
+    require_creatable_at(&authed, &payload.path)?;
     if payload.cases.len() as i64 > MAX_CASES_PER_DATASET {
         return Err(Error::BadRequest(format!(
             "An eval dataset holds at most {} cases. Split them into several datasets.",
@@ -189,9 +188,8 @@ pub async fn create_dataset(
     // A dataset being created has no columns yet, so every id is minted.
     assign_scorer_ids(&mut scorers, &std::collections::HashSet::new())?;
     let scorers = serde_json::to_value(&scorers)?;
-    let mut tx = user_db.begin(&authed).await?;
-    // A path already taken returns no row; a path the caller may not write raises the policy
-    // error `map_write_denied` translates. The two are distinct answers and must stay so.
+    let mut tx = db.begin().await?;
+    // A path already taken returns no row.
     let created = sqlx::query_scalar!(
         "INSERT INTO eval_dataset
             (workspace_id, path, summary, scorers, created_by, edited_by)
@@ -205,38 +203,29 @@ pub async fn create_dataset(
         authed.username,
     )
     .fetch_optional(&mut *tx)
-    .await
-    .map_err(|e| map_write_denied(&authed, &payload.path, e))?;
-    tx.commit().await?;
+    .await?;
     if created.is_none() {
         return Err(Error::BadRequest(format!(
             "Eval dataset {} already exists",
             payload.path
         )));
     }
-
-    // One transaction for all of them, on the unrestricted pool: the dataset the caller was just
-    // allowed to create is the permission these rows hang off, and either they all land or the
-    // dataset is left empty rather than holding an arbitrary prefix of what was asked for.
-    if !payload.cases.is_empty() {
-        let mut tx = db.begin().await?;
-        for case in payload.cases {
-            sqlx::query!(
-                "INSERT INTO eval_case
+    for case in &payload.cases {
+        sqlx::query!(
+            "INSERT INTO eval_case
                     (workspace_id, dataset_path, name, input, expected, created_by)
                  VALUES ($1, $2, $3, $4, $5, $6)",
-                w_id,
-                payload.path,
-                case.name,
-                serde_json::to_value(&case.input)?,
-                opt_from_raw(case.expected.as_ref())?,
-                authed.username,
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
-        tx.commit().await?;
+            w_id,
+            payload.path,
+            case.name,
+            serde_json::to_value(&case.input)?,
+            opt_from_raw(case.expected.as_ref())?,
+            authed.username,
+        )
+        .execute(&mut *tx)
+        .await?;
     }
+    tx.commit().await?;
 
     Ok(format!("Created eval dataset {}", payload.path))
 }
@@ -262,13 +251,7 @@ pub async fn update_dataset(
     Path((w_id, path)): Path<(String, String)>,
     Json(payload): Json<EditDataset>,
 ) -> Result<String> {
-    check_path(&path)?;
     check_summary(payload.summary.as_deref())?;
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot modify eval datasets".to_string(),
-        ));
-    }
     let new_path = match payload.path.filter(|p| *p != path) {
         Some(new_path) => {
             check_path(&new_path)?;
@@ -280,9 +263,18 @@ pub async fn update_dataset(
     if let Some(cases) = &payload.cases {
         check_cases(cases)?;
     }
-    // `FOR UPDATE` applies the UPDATE policies, so the row itself answers who may write it; the
-    // columns it holds are what decides which incoming scorer ids are kept (`assign_scorer_ids`).
-    let mut tx = user_db.clone().begin(&authed).await?;
+    // Who may write this row, asked of the row itself through the caller's own connection: `FOR
+    // UPDATE` applies its UPDATE policies as well as its SELECT ones. The lock is only the
+    // permission gate; the write locks the row again below, on `db`, where the columns it still
+    // holds are read under that lock.
+    require_dataset_writable(&authed, &user_db, &w_id, &path).await?;
+
+    // One transaction on `db` for the whole edit: the columns are read under a row lock, so a
+    // concurrent edit cannot read the same set and restore a scorer id one of them removed; and
+    // the row, its columns and its cases move together, so a rename the row refuses refuses the
+    // cases with it. `eval_case` has no write policies, which is why this runs on `db` rather than
+    // `user_db`, after the permission gate above.
+    let mut tx = db.begin().await?;
     let current = sqlx::query_scalar!(
         "SELECT scorers FROM eval_dataset WHERE workspace_id = $1 AND path = $2 FOR UPDATE",
         w_id,
@@ -290,8 +282,8 @@ pub async fn update_dataset(
     )
     .fetch_optional(&mut *tx)
     .await?;
-    tx.commit().await?;
     let Some(current) = current else {
+        tx.commit().await?;
         return Err(write_refused(&authed, &user_db, &w_id, &path).await);
     };
     let existing: std::collections::HashSet<String> =
@@ -306,7 +298,6 @@ pub async fn update_dataset(
         None => None,
     };
 
-    let mut tx = db.begin().await?;
     let updated = sqlx::query_scalar!(
         "UPDATE eval_dataset
          SET path = COALESCE($6, path), summary = $3,

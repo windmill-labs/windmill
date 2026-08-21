@@ -9,6 +9,7 @@
 	import ScriptEditorDrawer from '$lib/components/flows/content/ScriptEditorDrawer.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
 	import { AiEvalsService, ScriptService, type EvalDataset, type Scorer } from '$lib/gen'
+	import { randomUUID } from '$lib/utils/uuid'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		Bot,
@@ -101,7 +102,11 @@
 
 	async function addScorer(scorer: Scorer) {
 		try {
-			await saveScorers([...scorers, scorer])
+			// A pending column (New dataset, no row yet) is identified by this id in the list until the
+			// dataset is created; the server mints its own over it, since a create holds no columns to
+			// keep an id for. Without it every pending scorer shares `undefined` and edits to one hit
+			// all of them.
+			await saveScorers([...scorers, { ...scorer, id: scorer.id ?? randomUUID() }])
 			scorerDrawer?.closeDrawer()
 		} catch (e) {
 			sendUserToast(`Failed to add the scorer: ${e}`, true)
@@ -336,7 +341,7 @@
 					</span>
 					<TextInput
 						bind:value={settingsName}
-						inputProps={{ placeholder: settingsScorer.path.split('/').pop() }}
+						inputProps={{ maxlength: 120, placeholder: settingsScorer.path.split('/').pop() }}
 					/>
 				</Label>
 				<Label label="Pass threshold">

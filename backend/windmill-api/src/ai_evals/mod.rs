@@ -11,14 +11,18 @@
 //! the first time they can be read, since jobs have their own retention and a recorded run has to
 //! outlive the jobs that produced it.
 //!
-//! Reads and dataset writes go through `user_db`, which makes row-level security the authority on
-//! who may see or change a dataset. Cases and experiments carry a read policy derived from their
-//! dataset and no write policy at all: they are written on the unrestricted pool, after
-//! `require_dataset_writable` has asked the dataset row itself whether this caller may write it.
+//! Reads go through `user_db`, which makes row-level security the authority on who may see a
+//! dataset. A write is gated the same way — `require_dataset_writable` asks the dataset row itself,
+//! through `user_db`, whether this caller may write it — but then runs on the unrestricted pool,
+//! because a dataset and its cases move together in one transaction and `eval_case` carries a read
+//! policy derived from its dataset and no write policy at all. Creating a dataset at a new path,
+//! and renaming one, cannot ask an existing row, so `require_creatable_at` mirrors the insert
+//! policies (`u/` own, `f/` writable, `g/` member) ahead of that write; an `extra_perms` grant on
+//! a specific dataset does not extend to placing one at a new path.
 //!
-//! The harvest is the one exception, and a deliberate one: copying what a run produced onto its own
-//! rows is gated on *reading* that run, because it writes nothing a reader could not already cause
-//! — see `collect_experiment`. Every write a caller authors goes through the rule above.
+//! The harvest is a further exception: copying what a run produced onto its own rows is gated on
+//! *reading* that run, because it writes nothing a reader could not already cause — see
+//! `collect_experiment`.
 
 use axum::{
     extract::{Path, Query},
@@ -145,18 +149,6 @@ const MAX_SCORERS_PER_DATASET: usize = 20;
 /// A run answers every case of its dataset in one flow; more cases than this is a dataset to
 /// split, not a run to start.
 const MAX_CASES_PER_RUN: usize = 1_000;
-
-/// A refused write surfaces as SQLSTATE 42501 with a message naming the table and the policy,
-/// which is neither actionable nor meaningful to whoever made the request.
-fn map_write_denied(authed: &ApiAuthed, path: &str, e: sqlx::Error) -> Error {
-    if e.as_database_error().and_then(|d| d.code()).as_deref() == Some("42501") {
-        return Error::NotAuthorized(format!(
-            "User {} does not have write access to eval dataset {}",
-            authed.username, path
-        ));
-    }
-    e.into()
-}
 
 /// The dataset a write was aimed at is gone. Raised from the foreign key rather than from a
 /// preceding existence check, so a dataset deleted mid-request cannot slip between the two.

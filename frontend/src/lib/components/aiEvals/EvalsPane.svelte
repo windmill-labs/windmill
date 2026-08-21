@@ -450,10 +450,13 @@
 	}
 
 	/** Curating the dataset changes what the table lists, and a case that was edited is a case the
-	 *  recorded runs no longer ran: the rows say so once they are read again. */
+	 *  recorded runs no longer ran: the rows say so once they are read again. The runs list names
+	 *  the dataset and counts its cases, so it is re-read too — after a rename it would otherwise
+	 *  still name a path that no longer exists. */
 	async function casesChanged() {
 		await reloadCases()
 		await loadResults()
+		await loadRuns()
 	}
 
 	/** A row of the table is a case as one run executed it, which is what its panel shows. Editing

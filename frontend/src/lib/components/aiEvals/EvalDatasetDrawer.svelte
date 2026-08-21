@@ -201,8 +201,10 @@
 					cases: casesToSave()
 				}
 			})
-			await onCasesChanged()
+			// The pane moves to the name the dataset now has before anything is re-read under it:
+			// a re-read under the old name is a 404 on a save that succeeded.
 			await onRenamed(submitted.path)
+			await onCasesChanged()
 			// Everything the drawer holds is written, so saving is the whole of what it was opened
 			// for and it closes on that, as creating does. The next open seeds it from the dataset
 			// as it now stands rather than from what this one was left holding.

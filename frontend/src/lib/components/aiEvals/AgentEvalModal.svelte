@@ -61,7 +61,11 @@
 	{/snippet}
 	<div class="h-full min-h-0">
 		{#if agentPath}
-			<EvalsPane {agentPath} {opWorkspace} {editedConfig} bind:location />
+			<!-- Keyed: the resources page keeps one dialog for every row, so a different agent must
+			     start from nothing rather than inherit the runs and the open run of the last one. -->
+			{#key `${opWorkspace ?? ''}:${agentPath}`}
+				<EvalsPane {agentPath} {opWorkspace} {editedConfig} bind:location />
+			{/key}
 		{:else}
 			<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
 				<span class="text-sm text-emphasis">Evals run against a saved agent</span>

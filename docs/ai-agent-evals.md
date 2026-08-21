@@ -587,11 +587,15 @@ A dataset is permissioned like any other path-addressed object: row-level securi
 counts as a write, since it persists into the dataset.
 
 Cases and experiments are the contents of a dataset rather than objects in their own right. They
-carry a read policy derived from their dataset and no write policy at all: the API writes them on
-the unrestricted pool, after asking the dataset row itself whether this caller may write it with
-`SELECT … FOR UPDATE`, which applies the dataset's UPDATE policies as well as its SELECT policies.
-The rule therefore lives in one place instead of being mirrored in Rust, where it could drift. A
-stray write to those tables through `user_db` fails rather than silently succeeding.
+carry a read policy derived from their dataset and no write policy at all, so a dataset and its
+cases are written together in one transaction on the unrestricted pool — after the dataset row has
+been asked, through `user_db` with `SELECT … FOR UPDATE`, whether this caller may write it (which
+applies the dataset's UPDATE policies as well as its SELECT ones). Placing a dataset at a new
+path — creating one, or renaming one — has no existing row to ask, so `require_creatable_at`
+mirrors the insert policies (own `u/`, writable `f/`, member `g/`) ahead of that write. One
+consequence of asking the row for writes but the insert policies for placement: an `extra_perms`
+grant on a specific dataset lets a user edit it in place but not rename it, since a rename is a
+placement.
 
 ### Why an experiment is recorded before it is launched
 

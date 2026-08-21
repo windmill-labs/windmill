@@ -287,6 +287,7 @@ Expected: the case's expected value`
 				bind:value={summary}
 				size="sm"
 				inputProps={{
+					maxlength: 120,
 					placeholder: kind === 'agent' ? 'Answers the question asked' : 'Tool discipline'
 				}}
 			/>
