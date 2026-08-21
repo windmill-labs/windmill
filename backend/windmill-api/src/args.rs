@@ -868,8 +868,7 @@ mod tests {
         // A lone file stays wrapped in an array: scripts are typed against it.
         assert_eq!(get("one_file"), r#"[{"s3":"k1"}]"#);
         assert_eq!(get("many_files"), r#"[{"s3":"k2"},{"s3":"k3"}]"#);
-        // A name used by both a text and a file part keeps both, in body order,
-        // rather than the file silently replacing the text.
+        // A name used by both a text and a file part keeps both, in body order.
         assert_eq!(get("mixed"), r#"["a",{"s3":"k4"}]"#);
     }
 }
