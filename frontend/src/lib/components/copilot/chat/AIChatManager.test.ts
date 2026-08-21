@@ -9,6 +9,7 @@ import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
+import { clearWorkspaceRoleCache } from '$lib/user'
 
 // This suite forces esm-env BROWSER=true (below). That makes @sveltejs/kit's
 // client runtime (pulled transitively via $lib/navigation) evaluate browser-only
@@ -33,7 +34,11 @@ const mocks = vi.hoisted(() => ({
 	runChatLoop: vi.fn(),
 	listAiSkills: vi.fn(),
 	getJob: vi.fn(),
-	workspace: 'test_workspace' as string | undefined
+	whoami: vi.fn(),
+	workspace: 'test_workspace' as string | undefined,
+	// The workspace being browsed, which a session chat's own workspace need not be.
+	navWorkspace: undefined as string | undefined,
+	userWorkspaces: [] as unknown[]
 }))
 
 vi.mock('monaco-editor', () => ({
@@ -48,6 +53,9 @@ vi.mock('$lib/gen', () => ({
 	},
 	ScriptService: {},
 	FlowService: {},
+	UserService: {
+		whoami: mocks.whoami
+	},
 	JobService: {
 		getJob: mocks.getJob
 	}
@@ -73,15 +81,15 @@ vi.mock('$lib/stores', () => {
 				return () => undefined
 			}
 		},
-		// `workspace_id` tracks the mocked active workspace: allowedOpenPages compares the
-		// two, and on a mismatch fetches `whoami` for the workspace it gates.
+		// `workspace_id` is the workspace being browsed; consumers compare it against the
+		// workspace they are asked about and fetch `whoami` for the latter on a mismatch.
 		userStore: {
 			subscribe: (run: (value: unknown) => void) => {
 				run({
 					username: 'admin',
 					email: 'admin@test',
 					is_admin: true,
-					workspace_id: mocks.workspace
+					workspace_id: mocks.navWorkspace ?? mocks.workspace
 				})
 				return () => undefined
 			}
@@ -91,7 +99,16 @@ vi.mock('$lib/stores', () => {
 		// tools are built.
 		superadmin: readable(false),
 		devopsRole: readable(false),
-		userWorkspaces: readable([] as unknown[]),
+		userWorkspaces: {
+			subscribe: (run: (value: unknown[]) => void) => {
+				run(mocks.userWorkspaces)
+				return () => undefined
+			}
+		},
+		// Read by roleForWorkspace (global/core.ts), which may only settle a
+		// non-membership once this has resolved.
+		usersWorkspaceStore: readable({ workspaces: [] as unknown[] }),
+		NON_MEMBER_USERNAME: 'superadmin',
 		enterpriseLicense: readable(undefined)
 	}
 })
@@ -376,6 +393,63 @@ describe('AIChatManager global skills', () => {
 		await manager.sendRequest({ instructions: '/review-code find bugs', mode: AIMode.GLOBAL })
 
 		expect(manager.displayMessages[0]?.content).toBe('/review-code find bugs')
+	})
+})
+
+describe('AIChatManager global prompt identity', () => {
+	const model = { provider: 'openai', model: 'gpt-4o' }
+
+	beforeEach(() => {
+		localStorage.clear()
+		mocks.getCurrentModel.mockReturnValue(model)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+		mocks.listAiSkills.mockResolvedValue([])
+	})
+
+	afterEach(() => {
+		mocks.navWorkspace = undefined
+		mocks.userWorkspaces = []
+		clearWorkspaceRoleCache()
+	})
+
+	// The identity must be settled before the first request, not after the model has
+	// already been told to write to a `u/<username>/...` that does not exist there.
+	it('resolves the identity for the workspace beforeSend commits, not the browsed one', async () => {
+		mocks.workspace = 'parent'
+		mocks.navWorkspace = 'parent'
+		mocks.userWorkspaces = [{ id: 'parent' }, { id: 'child' }]
+		mocks.whoami.mockImplementation(async ({ workspace }: { workspace: string }) => ({
+			username: `${workspace}_user`,
+			email: 'admin@test',
+			is_admin: false,
+			operator: false,
+			groups: [],
+			folders: [`${workspace}_folder`],
+			folders_read: [`${workspace}_folder`]
+		}))
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			expect(config.systemMessage.content).toContain('workspace username is "child_user"')
+			expect(config.systemMessage.content).toContain('`f/child_folder`')
+			expect(config.systemMessage.content).not.toContain('parent_folder')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.beforeSend = () => {
+			mocks.workspace = 'child'
+		}
+
+		await manager.sendRequest({ instructions: 'first', mode: AIMode.GLOBAL })
+
+		expect(mocks.whoami).toHaveBeenCalledWith({ workspace: 'child' })
+		expect(manager.systemMessage.content).toContain('workspace username is "child_user"')
 	})
 })
 
