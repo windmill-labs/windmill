@@ -107,6 +107,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_scripts))
         .route("/list_search", get(list_search_scripts))
         .route("/create", post(create_script))
+        .route("/update/{*path}", post(update_script))
         .route("/create_snapshot", post(create_snapshot_script))
         .route("/archive/p/{*path}", post(archive_script_by_path))
         .route("/get/p/{*path}", get(get_script_by_path))
@@ -561,6 +562,7 @@ async fn create_snapshot_script(
                 user_db.clone(),
                 webhook.clone(),
                 query.skip_if_noop,
+                None,
             )
             .await?;
             let mut nh = new_hash.to_string();
@@ -648,6 +650,70 @@ async fn create_script(
     Query(query): Query<CreateScriptQuery>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
+    deploy_script(
+        authed,
+        user_db,
+        webhook,
+        db,
+        w_id,
+        query.skip_if_noop,
+        ns,
+        None,
+    )
+    .await
+}
+
+/// Deploy a new version of the script at `path`, which must already hold one.
+///
+/// The URL names the version being superseded, so the body needs no `parent_hash`: a
+/// caller that cannot read one (an MCP client, whose tool schema has no hash field)
+/// still gets a version chained onto the history rather than a fork of it. The body's
+/// own `path` is where the script should end up: the URL's again to leave it there,
+/// another to move it.
+async fn update_script(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(webhook): Extension<WebhookShared>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+    Query(query): Query<CreateScriptQuery>,
+    Json(mut ns): Json<NewScript>,
+) -> Result<(StatusCode, String)> {
+    let path = path.to_path();
+    // Superseding the version at this path is a write to it, checked before anything
+    // reads the row so a path outside the token's scope answers the same whether or
+    // not a script is there.
+    check_scopes(&authed, || format!("scripts:write:{}", path))?;
+
+    // Lineage comes from the URL, resolved in the deploying transaction; letting a body
+    // field name a parent, or a body flag re-derive one from the destination, would fork
+    // the history or turn a move into a copy.
+    ns.parent_hash = None;
+    ns.auto_parent = None;
+
+    deploy_script(
+        authed,
+        user_db,
+        webhook,
+        db,
+        w_id,
+        query.skip_if_noop,
+        ns,
+        Some(path.to_string()),
+    )
+    .await
+}
+
+async fn deploy_script(
+    authed: ApiAuthed,
+    user_db: UserDB,
+    webhook: WebhookShared,
+    db: DB,
+    w_id: String,
+    skip_if_noop: bool,
+    ns: NewScript,
+    supersede_head_at: Option<String>,
+) -> Result<(StatusCode, String)> {
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
         AuditAuthorable::username(&authed),
@@ -670,7 +736,8 @@ async fn create_script(
         db.clone(),
         user_db,
         webhook,
-        query.skip_if_noop,
+        skip_if_noop,
+        supersede_head_at,
     )
     .await?;
     tx.commit().await?;
@@ -997,6 +1064,9 @@ async fn create_script_internal<'c>(
     user_db: UserDB,
     webhook: WebhookShared,
     skip_if_noop: bool,
+    // When set, the parent is the live head at this path rather than anything the body
+    // named, resolved against the deploying transaction.
+    supersede_head_at: Option<String>,
 ) -> Result<(
     ScriptHash,
     Transaction<'c, Postgres>,
@@ -1054,7 +1124,6 @@ async fn create_script_internal<'c>(
     // Caller-intent: CLI / git-sync deploys ask us to preserve any existing
     // user draft at this path instead of wiping it as part of the deploy.
     let skip_draft_deletion = ns.skip_draft_deletion.unwrap_or(false);
-    let hash = ScriptHash(hash_script(&ns));
     let authed = maybe_refresh_folders(&ns.path, &w_id, authed, &db).await;
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
@@ -1101,21 +1170,6 @@ async fn create_script_internal<'c>(
     let legacy_on_behalf_of_email =
         windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
             .await?;
-    if sqlx::query_scalar!(
-        "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
-        hash.0,
-        &w_id
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .is_some()
-    {
-        return Err(Error::BadRequest(
-            "A script with same hash (hence same path, description, summary, content) already \
-             exists!"
-                .to_owned(),
-        ));
-    };
     // When auto_parent is set, serialize concurrent creates for the same (workspace, path)
     // so the clashing_script query always sees the latest committed head.
     if ns.auto_parent.unwrap_or(false) {
@@ -1126,6 +1180,43 @@ async fn create_script_internal<'c>(
         )
         .fetch_one(&mut *tx)
         .await?;
+    }
+    if let Some(source) = supersede_head_at.as_deref() {
+        // Locked, or this is a head it once was: nothing below re-checks `archived`, so
+        // an archive slipping in leaves the deploy chaining onto the version it retired
+        // and reviving it.
+        let head = sqlx::query_scalar::<_, i64>(
+            "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2 \
+             FOR UPDATE",
+        )
+        .bind(source)
+        .bind(&w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(head) = head else {
+            // A live version here now means this deploy lost the lock to one that
+            // superseded the version it set out to supersede. Calling that "not found",
+            // of a path the caller can see holds a script, sends them after the wrong
+            // problem — the answer is to read it again and redeploy.
+            let superseded = sqlx::query_scalar::<_, i64>(
+                "SELECT hash FROM script WHERE path = $1 AND archived = false \
+                 AND workspace_id = $2",
+            )
+            .bind(source)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some();
+            return Err(if superseded {
+                Error::BadRequest(format!(
+                    "The script at {source} was deployed to concurrently; read it again \
+                     and redeploy"
+                ))
+            } else {
+                Error::NotFound(format!("Script not found at path {source}"))
+            });
+        };
+        ns.parent_hash = Some(ScriptHash(head));
     }
     let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
         "SELECT {} FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
@@ -1150,6 +1241,27 @@ async fn create_script_internal<'c>(
             ns.parent_hash = None;
         }
     }
+
+    // Must stay below the parent resolution above: an auto_parent deploy hashed before
+    // it carries a first deploy's lineage, so redeploying content the path has held
+    // before collides with that archived version instead of superseding it. The
+    // folder-derived `on_behalf_of` set further up is likewise covered by the hash.
+    let hash = ScriptHash(hash_script(&ns));
+    if sqlx::query_scalar!(
+        "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+        hash.0,
+        &w_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .is_some()
+    {
+        return Err(Error::BadRequest(
+            "A script with same hash (hence same path, description, summary, content) already \
+             exists!"
+                .to_owned(),
+        ));
+    };
 
     let parent_hashes_and_perms: Option<ParentInfo> = match (&ns.parent_hash, clashing_script) {
         (None, None) => Ok(None),

@@ -455,6 +455,375 @@ async fn test_auto_parent_resolves_parent_hash(db: Pool<Postgres>) -> anyhow::Re
         "v3 parent_hashes should contain v2 hash {v2_hash}, got: {parent_hashes:?}"
     );
 
+    // Redeploy v1's exact body. The version hash covers the parent, so this is a
+    // distinct version of the lineage rather than a repeat of the archived v1 —
+    // which it is not if the hash is taken before auto_parent resolves the parent.
+    let mut revert = new_script(
+        "u/test-user/auto_parent_test",
+        "v1",
+        "export async function main() { return 1; }",
+    );
+    revert["auto_parent"] = json!(true);
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&revert)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "reverting to v1's content with auto_parent: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
+
+/// The update route carries the version being superseded in its URL, so a caller that
+/// cannot read a `parent_hash` still chains onto the history instead of forking it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_update_script_chains_moves_and_refuses_a_free_path(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+    let path = "u/test-user/update_test";
+
+    // Nothing deployed there yet: an update has no version to supersede.
+    let resp = authed(client().post(format!("{base}/update/{path}")))
+        .json(&new_script(
+            path,
+            "v1",
+            "export async function main() { return 1; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 404, "update of a free path must be refused");
+
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&new_script(
+            path,
+            "v1",
+            "export async function main() { return 1; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create v1: {}", resp.text().await?);
+    let v1_hash = authed_get(port, "get/p", path)
+        .await
+        .json::<serde_json::Value>()
+        .await?["hash"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // The body repeats the path, so the script stays where it is, chained onto v1.
+    let resp = authed(client().post(format!("{base}/update/{path}")))
+        .json(&new_script(
+            path,
+            "v2",
+            "export async function main() { return 2; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "update in place: {}",
+        resp.text().await?
+    );
+
+    let body = authed_get(port, "get/p", path)
+        .await
+        .json::<serde_json::Value>()
+        .await?;
+    assert_eq!(body["summary"], "v2");
+    let v2_hash = body["hash"].as_str().unwrap().to_string();
+    let parent_hashes = body["parent_hashes"].as_array().unwrap();
+    assert!(
+        parent_hashes.iter().any(|h| h.as_str() == Some(&v1_hash)),
+        "v2 must descend from v1 {v1_hash}, got: {parent_hashes:?}"
+    );
+
+    // A body path that differs moves the script, taking the history with it.
+    let moved_path = "u/test-user/update_test_moved";
+    let resp = authed(client().post(format!("{base}/update/{path}")))
+        .json(&new_script(
+            moved_path,
+            "v3",
+            "export async function main() { return 3; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "move: {}", resp.text().await?);
+
+    let body = authed_get(port, "get/p", moved_path)
+        .await
+        .json::<serde_json::Value>()
+        .await?;
+    assert_eq!(body["summary"], "v3");
+    let parent_hashes = body["parent_hashes"].as_array().unwrap();
+    assert!(
+        parent_hashes.iter().any(|h| h.as_str() == Some(&v2_hash)),
+        "the moved script must descend from v2 {v2_hash}, got: {parent_hashes:?}"
+    );
+    assert_eq!(
+        authed_get(port, "get/p", path)
+            .await
+            .json::<serde_json::Value>()
+            .await?["archived"],
+        json!(true),
+        "the vacated path must be left archived"
+    );
+
+    Ok(())
+}
+
+/// An archived path holds no version to supersede, so an update must not revive it. The
+/// resolution that decides this runs in the deploying transaction rather than ahead of
+/// it, which is what also covers an archive landing mid-deploy — a race this sequential
+/// test cannot stage, so it pins the reachable half.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_update_script_does_not_revive_an_archived_path(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+    let path = "u/test-user/archived_update_test";
+
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&new_script(
+            path,
+            "v1",
+            "export async function main() { return 1; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create v1: {}", resp.text().await?);
+
+    let resp = authed(client().post(format!("{base}/archive/p/{path}")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "archive: {}", resp.text().await?);
+
+    let resp = authed(client().post(format!("{base}/update/{path}")))
+        .json(&new_script(
+            path,
+            "v2",
+            "export async function main() { return 2; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        404,
+        "updating an archived path must not revive it"
+    );
+
+    assert_eq!(
+        authed_get(port, "get/p", path)
+            .await
+            .json::<serde_json::Value>()
+            .await?["archived"],
+        json!(true),
+        "the path must still be archived"
+    );
+
+    Ok(())
+}
+
+/// Stages the interleaving the sequential test above cannot: the update resolves its
+/// parent while an archive is mid-flight. Holding the head row locked from another
+/// connection parks the update on that row, so the archive lands first by construction
+/// — the ordering that, unlocked, hands the deploy an archived hash to chain onto.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_update_script_loses_a_race_with_archive(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+    let path = "u/test-user/raced_update_test";
+
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&new_script(
+            path,
+            "v1",
+            "export async function main() { return 1; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create v1: {}", resp.text().await?);
+
+    // Take the head row before the update can, so it blocks where it resolves.
+    let mut blocker = db.begin().await?;
+    let head: i64 = sqlx::query_scalar(
+        "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2 \
+         FOR UPDATE",
+    )
+    .bind(path)
+    .bind("test-workspace")
+    .fetch_one(&mut *blocker)
+    .await?;
+
+    let update = tokio::spawn({
+        let base = base.clone();
+        let body = new_script(path, "v2", "export async function main() { return 2; }");
+        async move {
+            authed(client().post(format!("{base}/update/{path}")))
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+        }
+    });
+
+    // Order the archive after whatever the update has already read: wait until it is
+    // parked on the row lock. Without this the update can lose to a local UPDATE and
+    // never reach its resolution, which is the sequential case the test above covers.
+    let mut parked = false;
+    for _ in 0..400 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' \
+             AND datname = current_database() AND pid <> pg_backend_pid()",
+        )
+        .fetch_one(&db)
+        .await?;
+        if waiting > 0 {
+            parked = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(parked, "the update never parked on the head row lock");
+
+    // Archive under the lock the update is waiting on, then release it.
+    sqlx::query("UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2")
+        .bind(head)
+        .bind("test-workspace")
+        .execute(&mut *blocker)
+        .await?;
+    blocker.commit().await?;
+
+    let resp = tokio::time::timeout(std::time::Duration::from_secs(20), update).await??;
+    assert_eq!(
+        resp.status(),
+        404,
+        "an update that lost the race must not revive the archived script"
+    );
+    assert_eq!(
+        authed_get(port, "get/p", path)
+            .await
+            .json::<serde_json::Value>()
+            .await?["archived"],
+        json!(true),
+        "the path must be left archived"
+    );
+
+    Ok(())
+}
+
+/// The same interleaving, except the winner leaves a live head behind. The loser must
+/// say so rather than "not found" of a path the caller can see holds a script.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_update_script_reports_losing_to_a_concurrent_deploy(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/scripts");
+    let path = "u/test-user/superseded_update_test";
+
+    let resp = authed(client().post(format!("{base}/create")))
+        .json(&new_script(
+            path,
+            "v1",
+            "export async function main() { return 1; }",
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "create v1: {}", resp.text().await?);
+
+    let mut winner = db.begin().await?;
+    let head: i64 = sqlx::query_scalar(
+        "SELECT hash FROM script WHERE path = $1 AND archived = false AND workspace_id = $2 \
+         FOR UPDATE",
+    )
+    .bind(path)
+    .bind("test-workspace")
+    .fetch_one(&mut *winner)
+    .await?;
+
+    let update = tokio::spawn({
+        let base = base.clone();
+        let body = new_script(path, "v2", "export async function main() { return 2; }");
+        async move {
+            authed(client().post(format!("{base}/update/{path}")))
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+        }
+    });
+
+    let mut parked = false;
+    for _ in 0..400 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' \
+             AND datname = current_database() AND pid <> pg_backend_pid()",
+        )
+        .fetch_one(&db)
+        .await?;
+        if waiting > 0 {
+            parked = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    assert!(parked, "the update never parked on the head row lock");
+
+    // What a deploy leaves behind: the old head archived, a new one live at the path.
+    // Copied through a temp table so this does not have to restate every column.
+    sqlx::query("CREATE TEMP TABLE superseding ON COMMIT DROP AS SELECT * FROM script WHERE hash = $1")
+        .bind(head)
+        .execute(&mut *winner)
+        .await?;
+    sqlx::query("UPDATE superseding SET hash = $1, archived = false, parent_hashes = ARRAY[$2]")
+        .bind(head + 1)
+        .bind(head)
+        .execute(&mut *winner)
+        .await?;
+    sqlx::query("UPDATE script SET archived = true WHERE hash = $1")
+        .bind(head)
+        .execute(&mut *winner)
+        .await?;
+    sqlx::query("INSERT INTO script SELECT * FROM superseding")
+        .execute(&mut *winner)
+        .await?;
+    winner.commit().await?;
+
+    let resp = tokio::time::timeout(std::time::Duration::from_secs(20), update).await??;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 400, "losing the race should not read as success: {body}");
+    assert!(
+        body.contains("deployed to concurrently"),
+        "the loser must say it was superseded, not that the script is missing: {body}"
+    );
+
     Ok(())
 }
 

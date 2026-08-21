@@ -531,14 +531,20 @@ fn assemble_request_body(
 
     let props = schema.get("properties")?.as_object()?;
 
+    // A null argument is how a client that must fill in every declared argument says
+    // "no value". Forwarding it would reach a field the API declares as a bare
+    // `String`, which rejects null outright rather than falling back to its default.
     let body_map: serde_json::Map<String, Value> = props
         .keys()
         .filter_map(|param_name| {
-            args_map.get(param_name).map(|value| {
-                // Use the original name as the key in the request body
-                let original_name = get_original_name(param_name, body_field_renames);
-                (original_name, value.clone())
-            })
+            args_map
+                .get(param_name)
+                .filter(|value| !value.is_null())
+                .map(|value| {
+                    // Use the original name as the key in the request body
+                    let original_name = get_original_name(param_name, body_field_renames);
+                    (original_name, value.clone())
+                })
         })
         .collect();
 
@@ -875,6 +881,28 @@ mod tests {
             .unwrap_or_else(|| panic!("{name} must be a generated endpoint tool"))
     }
 
+    /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does
+    /// not name, falls through to no policy — which is no path confinement at all, so
+    /// a token scoped to `mcp:scripts:f/team/*` reaches every script through it. The
+    /// catalogue lives here and the policy in windmill-mcp, so neither crate notices
+    /// a tool added on one side and forgotten on the other; this is where they meet.
+    #[test]
+    fn every_path_addressed_script_or_flow_tool_is_path_confined() {
+        let unpoliced: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()
+            .into_iter()
+            .filter(|t| {
+                (t.path.contains("/scripts/") || t.path.contains("/flows/"))
+                    && t.path.contains("{path}")
+                    && !windmill_mcp::server::has_endpoint_path_policy(&t.name)
+            })
+            .map(|t| t.name.to_string())
+            .collect();
+        assert!(
+            unpoliced.is_empty(),
+            "path-addressed script/flow tools with no path policy: {unpoliced:?}"
+        );
+    }
+
     #[test]
     fn build_request_body_passthrough_forwards_script_args_minus_path() {
         // runScriptByPath-shaped body: additionalProperties, no declared props.
@@ -1015,6 +1043,70 @@ mod tests {
             build_request_body(&tool, &args_of(json!({ "path": "u/admin/no_args"})))
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    /// Neither script tool asks for a hash: `createScript` never has a parent, and
+    /// `updateScript` names the version it supersedes in its URL. A caller that must
+    /// fill in every declared argument has none to invent a value for, and the one it
+    /// invents anyway is not a field either tool declares, so it never reaches the API.
+    #[test]
+    fn script_tools_take_no_parent_hash() {
+        for name in ["createScript", "updateScript"] {
+            let tool = generated_tool(name);
+            let props = tool.body_schema.as_ref().unwrap()["properties"]
+                .as_object()
+                .unwrap();
+            assert!(
+                !props.contains_key("parent_hash"),
+                "{name} must not ask for a parent_hash"
+            );
+        }
+
+        let body = build_request_body(
+            &generated_tool("createScript"),
+            &args_of(json!({
+                "path": "u/admin/s",
+                "summary": "s",
+                "content": "export async function main() {}",
+                "language": "bun",
+                "parent_hash": "0000000000000000",
+                // A client that must fill in every argument says "no value" with null;
+                // forwarded, it would reach a field the API declares as a bare String.
+                "description": null,
+            })),
+        )
+        .unwrap()
+        .expect("createScript body should be built");
+        let obj = body.as_object().unwrap();
+
+        assert!(!obj.contains_key("parent_hash"));
+        assert!(!obj.contains_key("description"));
+    }
+
+    /// The path an `updateScript` call omits is the one its URL already carries, so the
+    /// tool must not oblige an agent to restate it — a value that drifts from the URL's
+    /// moves the script instead of editing it.
+    #[test]
+    fn update_script_does_not_require_the_destination_path() {
+        let tool = generated_tool("updateScript");
+        let body_schema = tool.body_schema.as_ref().unwrap();
+        // Renamed off the URL's own `path` parameter, and mapped back on the way out.
+        assert!(
+            body_schema["properties"]
+                .as_object()
+                .unwrap()
+                .contains_key("path__body"),
+            "updateScript must still offer a destination path, which is what moves a script"
+        );
+        assert!(
+            !body_schema["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r == "path__body" || r == "path"),
+            "updateScript must not require the destination path, got: {}",
+            body_schema["required"]
         );
     }
 
