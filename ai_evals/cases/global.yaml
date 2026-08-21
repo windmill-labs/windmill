@@ -2035,15 +2035,15 @@
   toolExpect:
     requiredToolsUsed:
       - search_hub_scripts
-      - read_workspace_item
       - write_script
+    # Reading a near-miss script and reading the integration's own metadata are two
+    # routes to the same conventions, so requiring either keeps the case about the
+    # outcome rather than about which route the model took.
+    requiredToolsAnyOf:
+      - - read_workspace_item
+        - get_hub_integration
     forbiddenToolsUsed:
       - deploy_workspace_item
-    toolCallArgs:
-      - tool: read_workspace_item
-        field: path
-        stringIncludesAnyOf:
-          - hub/
   judgeChecklist:
     - the script takes a Baremetrics resource as an input parameter rather than a bare API key string
     - the resource type it declares carries an apiKey field, matching how other Baremetrics hub scripts take credentials

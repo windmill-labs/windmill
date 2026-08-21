@@ -864,6 +864,8 @@ export function listBenchmarkMcpTools(): EndpointTool[] {
  * hub tools throw and no case can exercise hub reuse. Serving fixtures rather
  * than the live hub also keeps assertions on script content stable as the real
  * hub republishes new versions. */
+const BENCHMARK_INTEGRATION_META_PATH = /^\/api\/integrations\/hub\/([^/]+)\/meta$/
+
 const BENCHMARK_HUB_SCRIPTS = [
 	{
 		version_id: 22235,
@@ -1064,6 +1066,7 @@ function searchBenchmarkHubScripts(text: string, app: string | null) {
 			id: script.version_id,
 			version_id: script.version_id,
 			summary: script.summary,
+			description: script.description ?? '',
 			app: script.app,
 			kind: 'script',
 			score: 1 - index * 0.01
@@ -1085,6 +1088,79 @@ function listBenchmarkHubScriptsByApp(app: string | null) {
 		views: 0,
 		votes: 0
 	}))
+}
+
+/** What `/integrations/hub/<app>/meta` serves: the provider knowledge the content
+ * repo authored, plus facts computed off the shipped scripts. Deliberately carries
+ * the integration's conventions and none of the endpoints a case asks the model to
+ * write, so the tool shortens the path to that knowledge without supplying answers.
+ * `derived` is computed from the fixture scripts so it cannot drift from them. */
+const BENCHMARK_HUB_INTEGRATION_META: Record<
+	string,
+	{ display_name: string; description: string; docs_url: string; curated: boolean | null; meta: unknown }
+> = {
+	baremetrics: {
+		display_name: 'Baremetrics',
+		description: 'Subscription analytics for recurring-revenue businesses.',
+		docs_url: 'https://developers.baremetrics.com/reference',
+		curated: null,
+		meta: {
+			api_docs: 'https://developers.baremetrics.com/reference',
+			auth: 'Bearer token. The resource carries a single `apiKey` field; send it as `Authorization: Bearer <apiKey>`.',
+			base_url: 'https://api.baremetrics.com/v1',
+			pagination: { pattern: 'page', request_params: { page: 'page', per_page: 'per_page' } },
+			gotchas: [
+				'Every write is scoped to a source, so the source id is part of the path rather than the body.',
+				'The API answers 200 with an empty `{}` body on some writes; treat a 2xx as success rather than parsing a payload.'
+			],
+			errors: { '401': 'The apiKey is missing or revoked.', '404': 'Unknown source id, or the key cannot see that source.' }
+		}
+	},
+	holded: {
+		display_name: 'Holded',
+		description: 'Invoicing, accounting and CRM for small businesses.',
+		docs_url: 'https://developers.holded.com/reference',
+		curated: null,
+		meta: {
+			api_docs: 'https://developers.holded.com/reference',
+			auth: 'The resource carries an `apiKey`; send it in the `key` header, not as a bearer token.',
+			base_url: 'https://api.holded.com/api',
+			gotchas: ['Each product area has its own path segment (invoicing, crm, projects) after the version.']
+		}
+	}
+}
+
+/** Mirrors the hub's own derivation: hosts seen in the shipped scripts, whether they
+ * call the provider directly, and how many there are of each kind. */
+function benchmarkDerivedFacts(app: string) {
+	const scripts = BENCHMARK_HUB_SCRIPTS.filter((script) => script.app === app)
+	const hosts = new Map<string, number>()
+	const languages: Record<string, number> = {}
+	for (const script of scripts) {
+		languages[script.language] = (languages[script.language] ?? 0) + 1
+		for (const match of script.content.matchAll(/https?:\/\/([a-zA-Z0-9._-]+)/g)) {
+			hosts.set(match[1], (hosts.get(match[1]) ?? 0) + 1)
+		}
+	}
+	return {
+		api_hosts: [...hosts.entries()]
+			.sort((a, b) => b[1] - a[1])
+			.map(([host, count]) => ({ host, count })),
+		style: 'fetch',
+		languages,
+		script_counts: { total: scripts.length, by_kind: { script: scripts.length } },
+		top_scripts: scripts.map((script) => ({
+			path: `hub/${script.version_id}/${script.app}/${script.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+			ask_id: script.version_id,
+			version_id: script.version_id,
+			summary: script.summary,
+			description: script.description ?? null,
+			kind: 'script',
+			language: script.language,
+			views: 0,
+			votes: 0
+		}))
+	}
 }
 
 /** The hub keys a script by its version id; the app and slug segments that
@@ -1150,6 +1226,7 @@ export function hasBenchmarkApiHandler(url: string): boolean {
 		path === '/api/embeddings/query_hub_scripts' ||
 		path === '/api/scripts/hub/top' ||
 		path === '/api/integrations/hub/list' ||
+		BENCHMARK_INTEGRATION_META_PATH.test(path) ||
 		path.startsWith('/api/scripts/hub/get_full/')
 	)
 }
@@ -1203,6 +1280,37 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 	if (path === '/api/scripts/hub/top') {
 		const app = new URLSearchParams(url.split('?')[1] ?? '').get('app')
 		return Response.json({ asks: listBenchmarkHubScriptsByApp(app) })
+	}
+	const integrationMeta = BENCHMARK_INTEGRATION_META_PATH.exec(path)
+	if (integrationMeta) {
+		const app = decodeURIComponent(integrationMeta[1])
+		const entry = BENCHMARK_HUB_INTEGRATION_META[app]
+		if (!entry) {
+			return Response.json({ error: 'integration not found' }, { status: 404 })
+		}
+		return Response.json({
+			app,
+			display_name: entry.display_name,
+			description: entry.description,
+			docs_url: entry.docs_url,
+			curated: entry.curated,
+			metadata_source: entry.meta ? 'curated' : 'derived',
+			meta: entry.meta,
+			meta_updated_at: null,
+			derived: benchmarkDerivedFacts(app),
+			resource_types: [
+				{
+					id: 1,
+					name: app,
+					description: `${entry.display_name} credentials`,
+					schema: {
+						type: 'object',
+						required: ['apiKey'],
+						properties: { apiKey: { type: 'string', description: `${entry.display_name} API key` } }
+					}
+				}
+			]
+		})
 	}
 	if (path === '/api/integrations/hub/list') {
 		const apps = [...new Set(BENCHMARK_HUB_SCRIPTS.map((script) => script.app))].sort()
