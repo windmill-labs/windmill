@@ -588,18 +588,8 @@ pub fn ephemeral_script_token_label(permissioned_as: &str, created_by: &str) -> 
     }
 }
 
-/// Lifetime to mint an ephemeral job token with. The token is issued once when the job is pulled
-/// and is never refreshed under a running script, so sizing it to `MAX_TIMEOUT` 401s a premium
-/// cloud job mid-flight — those may run six times that long — after it has already burned the
-/// compute. Resolved per workspace rather than globally so a free workspace, which cannot run
-/// that long, does not get the wider token.
-///
-/// The doubling covers setup. The token's clock starts at pull, but the job timeout's clock
-/// restarts for every child process the job spawns (`resolve_job_timeout` is called per
-/// `handle_child`), so lock resolution, dependency install and bundling each carry a full
-/// timeout of their own before the run phase gets its own. Pull-to-finish wall time is therefore
-/// not bounded by `max_job_duration_secs` at all; one setup phase's worth of slack covers the
-/// realistic case, and a pathologically slow install can still outlive the token.
+/// Lifetime to mint an ephemeral job token with, resolved per workspace: a token narrower than
+/// the run it serves 401s the job mid-flight, and one wider is a credential nothing revokes.
 pub async fn job_token_expiry_secs(_db: &DB, _w_id: &str) -> u64 {
     if let Some(override_secs) = *crate::worker::SCRIPT_TOKEN_EXPIRY_OVERRIDE {
         return override_secs;
@@ -623,8 +613,19 @@ pub async fn job_token_expiry_secs(_db: &DB, _w_id: &str) -> u64 {
     job_token_expiry_from_premium(premium)
 }
 
+/// Cap on the setup slack below. Where the ceiling is already days, slack buys nothing and only
+/// widens the credential; an hour is what a dependency install realistically needs.
+const JOB_TOKEN_SETUP_SLACK_CAP_SECS: u64 = 3600;
+
 fn job_token_expiry_from_premium(cloud_premium_workspace: bool) -> u64 {
-    crate::worker::max_job_duration_secs(cloud_premium_workspace).saturating_mul(2)
+    // The token's clock starts at pull, but resolve_job_timeout runs per handle_child, so setup
+    // (lock, install, bundle) spends a budget of its own before the run phase gets one. Slack
+    // covers the realistic case; pull-to-finish is not bounded by the ceiling at all.
+    let max_run = crate::worker::max_job_duration_secs(cloud_premium_workspace);
+    max_run
+        .saturating_add(max_run.min(JOB_TOKEN_SETUP_SLACK_CAP_SECS))
+        // create_jwt_token casts this to i64; a saturated value there mints an expired token.
+        .min(u32::MAX as u64)
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
@@ -913,8 +914,6 @@ mod tests {
         assert!(!is_user_token(Some("EPHEMERAL-test")));
     }
 
-    /// A job token minted for less than the run it has to serve 401s the job mid-flight, which is
-    /// what shipping the premium ceiling without widening the token did on cloud.
     #[test]
     fn job_token_outlives_the_longest_job_it_may_serve() {
         for premium in [false, true] {

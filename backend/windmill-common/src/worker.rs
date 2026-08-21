@@ -213,10 +213,9 @@ pub const DEFAULT_SELFHOSTED_TIMEOUT: u64 = 604800; // 7 days
 /// Premium cloud workspaces may run a job for this many times [`MAX_TIMEOUT`].
 const CLOUD_PREMIUM_TIMEOUT_MULTIPLIER: u64 = 6;
 
-/// Longest a single job may run, in seconds. Anything sized per job against the longest possible
-/// run — the ephemeral job token above all — must go through this rather than [`MAX_TIMEOUT`]:
-/// a premium cloud workspace outruns `MAX_TIMEOUT` sixfold, and a resource sized to the smaller
-/// number dies under a job the instance is still willing to keep running.
+/// Longest a single job may run, in seconds. A premium cloud workspace outruns [`MAX_TIMEOUT`]
+/// sixfold, so a per-job resource sized off `MAX_TIMEOUT` alone dies under a job the instance is
+/// still willing to keep running.
 pub fn max_job_duration_secs(cloud_premium_workspace: bool) -> u64 {
     if cloud_premium_workspace {
         MAX_TIMEOUT.saturating_mul(CLOUD_PREMIUM_TIMEOUT_MULTIPLIER)
@@ -375,7 +374,7 @@ lazy_static::lazy_static! {
     .unwrap_or_else(|| if *CLOUD_HOSTED { DEFAULT_CLOUD_TIMEOUT } else { DEFAULT_SELFHOSTED_TIMEOUT });
 
     /// Explicit operator override for the ephemeral job token's lifetime. Unset, the lifetime is
-    /// derived per job from [`max_job_duration_secs`] instead — see `create_token`.
+    /// derived per workspace by `job_token_expiry_secs`, the only place this is read.
     pub static ref SCRIPT_TOKEN_EXPIRY_OVERRIDE: Option<u64> = std::env::var("SCRIPT_TOKEN_EXPIRY")
         .ok()
         .and_then(|x| x.parse::<u64>().ok());
