@@ -588,6 +588,35 @@ pub fn ephemeral_script_token_label(permissioned_as: &str, created_by: &str) -> 
     }
 }
 
+/// Lifetime to mint an ephemeral job token with. The token is issued once when the job is pulled
+/// and never refreshed under a running script, so it has to outlive the longest run the instance
+/// permits for this workspace — a premium cloud workspace outruns `MAX_TIMEOUT` sixfold, and a
+/// token sized to `MAX_TIMEOUT` 401s such a job mid-flight, after it has already burned the
+/// compute. Resolved per workspace rather than globally so a free workspace, which cannot run
+/// that long, does not get the wider token.
+pub async fn job_token_expiry_secs(_db: &DB, _w_id: &str) -> u64 {
+    if let Some(override_secs) = *crate::worker::SCRIPT_TOKEN_EXPIRY_OVERRIDE {
+        return override_secs;
+    }
+    #[cfg(feature = "cloud")]
+    let premium = *crate::worker::CLOUD_HOSTED
+        && crate::workspaces::get_team_plan_status(_db, _w_id)
+            .await
+            .inspect_err(|err| {
+                tracing::error!(
+                    "Failed to get team plan status to size the job token for {_w_id}: {err:#}"
+                )
+            })
+            .map(|s| s.premium)
+            // Matches resolve_job_timeout: on a lookup failure assume the wider ceiling, so the
+            // token cannot come out shorter than the timeout the job is actually held to.
+            .unwrap_or(true);
+    #[cfg(not(feature = "cloud"))]
+    let premium = false;
+
+    crate::worker::max_job_duration_secs(premium)
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner(
     db: &DB,

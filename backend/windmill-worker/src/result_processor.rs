@@ -712,7 +712,7 @@ pub async fn handle_receive_completed_job(
                 &jc.job.workspace_id,
                 &jc.job.permissioned_as,
                 &label,
-                *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
+                windmill_common::auth::job_token_expiry_secs(db, &jc.job.workspace_id).await,
                 &jc.job.permissioned_as_email,
                 &jc.job.id,
                 Some(perms),
