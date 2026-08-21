@@ -175,14 +175,16 @@ function wmCommonJsSpecs(specs, jobDir, nodePath) {
 }
 
 // Node's own rule for a file's format: the extension decides, and `.js` — like an
-// extensionless entry — follows the `type` of the closest package.json.
+// extensionless entry — follows the `type` of the closest package.json. Only the
+// formats node loads through CommonJS qualify; a JSON module exposes `default`
+// alone and must keep that shape.
 function wmIsCommonJsFile(file) {
   const ext = extname(file);
-  if (ext === ".mjs") {
-    return false;
+  if (ext === ".cjs" || ext === ".node") {
+    return true;
   }
   if (ext !== ".js" && ext !== "") {
-    return true;
+    return false;
   }
   let dir = dirname(file);
   for (;;) {
