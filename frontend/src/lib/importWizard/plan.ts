@@ -11,7 +11,8 @@
  * user asks it to on the last step.
  */
 
-import { validateWorkspaceId } from '$lib/utils/workspaceId'
+import { validateUsername } from '$lib/utils'
+import { validateWorkspaceId, WORKSPACE_NAME_MAX_LENGTH } from '$lib/utils/workspaceId'
 
 /**
  * `existing` carries no workspace until one is picked: step 1 answers *which kind*
@@ -92,8 +93,22 @@ export function planProblem(plan: ImportPlan): string | undefined {
 	if (!d) return 'Pick a destination first'
 	if (d.kind === 'new') {
 		if (!d.name.trim()) return 'The new workspace needs a name'
+		// The backend refuses a longer one (`validate_workspace_name`), and only at
+		// creation — by then the wizard has already walked the user through two more steps.
+		if (d.name.trim().length > WORKSPACE_NAME_MAX_LENGTH) {
+			return `The name is too long (${d.name.trim().length} chars). Maximum is ${WORKSPACE_NAME_MAX_LENGTH}.`
+		}
 		const idProblem = validateWorkspaceId(d.id)
 		if (idProblem) return idProblem
+		// Only asked for when the instance does not derive it. `create_workspace` takes
+		// whatever it is given here — `Some("")` passes its only check — so a blank or
+		// malformed username is written to `usr.username` verbatim rather than refused.
+		// The sibling creator validates it; this is the same check.
+		if (d.username !== undefined) {
+			if (!d.username.trim()) return 'The new workspace needs a username'
+			const bad = validateUsername(d.username.trim())
+			if (bad) return bad
+		}
 	} else if (!d.workspaceId) {
 		return 'Pick the workspace to import into'
 	} else if (validateWorkspaceId(d.workspaceId)) {

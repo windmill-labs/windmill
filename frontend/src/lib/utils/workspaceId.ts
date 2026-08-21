@@ -10,6 +10,9 @@ export const WORKSPACE_ID_RE = /^\w+(-\w+)*$/
 /** The DB column and the git branch name derived from it both stop here. */
 export const WORKSPACE_ID_MAX_LENGTH = 50
 
+/** `validate_workspace_name` (windmill-common/src/workspaces.rs:246) refuses a longer name. */
+export const WORKSPACE_NAME_MAX_LENGTH = 50
+
 /**
  * The reason `id` is not a usable workspace id, or undefined when it is.
  *

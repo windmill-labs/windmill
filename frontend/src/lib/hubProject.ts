@@ -69,24 +69,6 @@ export async function fetchHubProject(slug: string): Promise<ImportProjectSummar
 }
 
 /**
- * One integration's icon, as SVG markup rather than an <img>: the hub's icons are
- * `fill="currentColor"`, so inlining them lets the icon follow the page's theme.
- * Returns undefined when the hub ships no icon for that slug (it 404s), which is
- * the caller's cue to fall back to a placeholder.
- *
- * Sanitized before it is returned, because the markup is inlined into this
- * authenticated origin and the hub is not necessarily ours: `hub_base_url` is an
- * instance setting, and the import wizard can be pointed at any hub by URL. A
- * hostile or compromised one answering with `<svg onload=…>` would otherwise run
- * script here. SVG profile only — no HTML, and `svg` plus `svgFilters` namespaces.
- *
- * `style` and `image` are forbidden on top of that profile, because the profile
- * allows both and neither is something an icon needs. An inline `<svg><style>` is
- * document-scoped, not shadowed — it would let the answering hub restyle this page,
- * including moving or hiding the wizard's own Import and Delete controls — and
- * `<image href="https://…">` is a page-view beacon pointed at whoever it likes.
- */
-/**
  * The icon for a hub integration slug, resolved from the icons Windmill already bundles.
  *
  * Not fetched from the hub: the hub renders these out of `@windmill-labs/components`, which

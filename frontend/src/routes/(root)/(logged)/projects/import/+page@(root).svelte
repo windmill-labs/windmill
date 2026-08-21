@@ -22,6 +22,7 @@
 	import { WorkspaceService, type UserWorkspaceList } from '$lib/gen'
 	import { canCreateWorkspace, loadUsernamePolicy } from '$lib/workspaceCreation'
 	import { toWorkspaceId, validateWorkspaceId } from '$lib/utils/workspaceId'
+	import { validateUsername } from '$lib/utils'
 	import {
 		readPlan,
 		planToSearch,
@@ -144,6 +145,17 @@
 	}
 
 	const idProblem = $derived(id.trim() ? validateWorkspaceId(id.trim()) : undefined)
+	// Only when the instance does not derive it, which is the only case the field is shown.
+	// `create_workspace` accepts whatever it is sent — `Some("")` passes its one check and is
+	// written to `usr.username` verbatim — so this is the only thing standing between a
+	// cleared field and a workspace whose owner has no username.
+	const usernameProblem = $derived(
+		automateUsername
+			? undefined
+			: !username.trim()
+				? 'A username is required'
+				: validateUsername(username.trim()) || undefined
+	)
 	// Step 2 shows the workspace list when step 1 chose "one I already have".
 	const choiceIsExisting = $derived(plan.destination?.kind === 'existing')
 
@@ -390,6 +402,9 @@
 						<label class="flex max-w-[50%] flex-col gap-1">
 							<span class="text-xs font-normal text-secondary">Your username in it</span>
 							<TextInput size="sm" bind:value={username} />
+							{#if usernameProblem && username.trim()}
+								<span class="text-2xs font-normal text-red-500">{usernameProblem}</span>
+							{/if}
 						</label>
 					{/if}
 				{:else}
@@ -467,7 +482,7 @@
 						<Button
 							unifiedSize="sm"
 							variant="accent"
-							disabled={!name.trim() || !!idProblem || idTaken || checkingId}
+							disabled={!name.trim() || !!idProblem || !!usernameProblem || idTaken || checkingId}
 							onClick={confirmNewWorkspace}
 						>
 							Continue →

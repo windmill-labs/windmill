@@ -84,6 +84,52 @@ describe('readPlan', () => {
 	})
 })
 
+/**
+ * `create_workspace` takes the username it is given and writes it to `usr.username` without
+ * checking it — `Some("")` passes its only guard — so a blank or malformed one becomes a
+ * workspace whose owner has no usable name. The wizard is the last thing that can refuse it.
+ */
+describe('planProblem — the new-workspace username', () => {
+	const dest = (username?: string) => ({
+		slug: 'calendly',
+		destination: { kind: 'new' as const, id: 'calendly', name: 'Calendly', username }
+	})
+
+	it('asks for nothing when the instance derives the username', () => {
+		expect(planProblem(dest(undefined))).toBeUndefined()
+	})
+
+	it('refuses a blank or whitespace-only username', () => {
+		expect(planProblem(dest(''))).toMatch(/needs a username/i)
+		expect(planProblem(dest('   '))).toMatch(/needs a username/i)
+	})
+
+	it('refuses one the backend would store verbatim but never accept elsewhere', () => {
+		expect(planProblem(dest('1bad'))).toMatch(/letters and numbers/i)
+		expect(planProblem(dest('a b'))).toMatch(/letters and numbers/i)
+	})
+
+	it('accepts a valid one', () => {
+		expect(planProblem(dest('guilhem'))).toBeUndefined()
+	})
+})
+
+/** `validate_workspace_name` refuses > 50 chars, and only at creation — two steps later. */
+describe('planProblem — the new-workspace name length', () => {
+	const named = (name: string) => ({
+		slug: 'calendly',
+		destination: { kind: 'new' as const, id: 'calendly', name }
+	})
+
+	it('accepts the longest name the backend takes', () => {
+		expect(planProblem(named('x'.repeat(50)))).toBeUndefined()
+	})
+
+	it('refuses one character more, rather than failing at create', () => {
+		expect(planProblem(named('x'.repeat(51)))).toMatch(/too long/i)
+	})
+})
+
 describe('planProblem', () => {
 	it('names what is missing, in the order the wizard asks for it', () => {
 		expect(planProblem({ slug: '' })).toMatch(/No project/)

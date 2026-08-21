@@ -71,9 +71,10 @@
 	>([])
 	// Bumped per review session so the Monaco editors re-mount with the new SQL.
 	let reviewGeneration = $state(0)
-	let reviewResolve: ((run: boolean) => void) | undefined
+	/** `abort` stops the whole import; `false` only skips the migrations. */
+	let reviewResolve: ((run: boolean | 'abort') => void) | undefined
 
-	function openMigrationReview(migs: ProjectMigration[]): Promise<boolean> {
+	function openMigrationReview(migs: ProjectMigration[]): Promise<boolean | 'abort'> {
 		reviewList = migs.map((m) => ({
 			datatable_name: m.datatable_name,
 			sql: m.sql,
@@ -82,7 +83,7 @@
 		}))
 		reviewGeneration++
 		reviewDrawer?.openDrawer()
-		return new Promise((resolve) => (reviewResolve = resolve))
+		return new Promise<boolean | 'abort'>((resolve) => (reviewResolve = resolve))
 	}
 	function closeMigrationReview(run: boolean) {
 		// Capture + clear first so the `on:close` fired by closeDrawer() (which would
@@ -117,6 +118,9 @@
 		const runnable = enabled.filter((m) => present.has(m.datatable_name))
 		if (runnable.length === 0) return []
 		const run = await openMigrationReview(runnable)
+		// `abort` is the teardown case: the step is gone, so stop rather than import the
+		// items without the tables the review was about.
+		if (run === 'abort') return null
 		if (!run) return []
 		return reviewList
 			.filter((r) => r.run && r.sql.trim() !== '')
@@ -244,15 +248,21 @@
 			// Deliberately not re-read against `running`: the answer was about leaving, and a
 			// run that finished in the meantime only makes leaving safer.
 			leaveApproved = true
+			// Stop the run before navigating. Nothing can abort a request already in flight,
+			// so this stops it at the next phase boundary and keeps the workspace parked, so
+			// the link the message promises actually resumes instead of failing on create.
+			execution?.abandon()
 			await goto(to)
 		} finally {
 			askingToLeave = false
 		}
 	}
 
-	// If this step is torn down while the review drawer is open, resolve the promise
-	// the executor is waiting on rather than leaving it pending forever.
-	$effect(() => () => reviewResolve?.(false))
+	// Torn down with the review drawer open, the executor is still awaiting an answer.
+	// Abort rather than resolve: resolving to `false` means "skip the migrations", which
+	// would let the orphaned run import every item *without* the tables they need — the
+	// opposite of leaving it where it was.
+	$effect(() => () => reviewResolve?.('abort'))
 
 	const deleteModal = createAsyncConfirmationModal()
 	async function deleteWorkspace() {

@@ -208,16 +208,33 @@ export class ImportExecution {
 	 * `installProject` over the whole bundle, which is idempotent per item but does
 	 * not skip the ones that already landed.
 	 */
+	/**
+	 * Set when the user confirms leaving mid-run. Nothing here can abort a request already
+	 * in flight — `installProject` takes no signal — so this stops the run at the next phase
+	 * boundary instead, which is as far as "stops where it is" can honestly go.
+	 *
+	 * Its other job is to keep the parked workspace: a run that clears parking on its way out
+	 * would make the link the user was told to come back to create the workspace a second
+	 * time and fail with "already exists".
+	 */
+	#abandoned = false
+
+	/** The user has left. Stop at the next phase boundary and leave the run resumable. */
+	abandon() {
+		this.#abandoned = true
+	}
+
 	async run(): Promise<void> {
 		if (this.running) return
+		this.#abandoned = false
 		this.running = true
 		runState.active = true
 		this.error = undefined
 		try {
 			const workspace = await this.#ensureWorkspace()
-			if (!workspace) return
+			if (!workspace || this.#abandoned) return
 			const exportData = await this.#ensureExport(workspace)
-			if (!exportData) return
+			if (!exportData || this.#abandoned) return
 			await this.#import(workspace, exportData)
 		} finally {
 			this.running = false
@@ -380,8 +397,10 @@ export class ImportExecution {
 		// and the failures are listed. Only a hard stop leaves `done` false.
 		this.done = true
 		// Nothing left to resume. A later import of the same project must reach its
-		// create rather than adopt this one.
-		clearParkedImport()
+		// create rather than adopt this one — unless the user left mid-run, in which case
+		// the workspace this created is exactly what the link they were told to return to
+		// has to find.
+		if (!this.#abandoned) clearParkedImport()
 		if (failed > 0) this.error = `${failed} item${failed === 1 ? '' : 's'} failed to import.`
 	}
 
