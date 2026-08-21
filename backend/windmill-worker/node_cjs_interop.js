@@ -161,7 +161,7 @@ function wmCommonJsSpecs(specs, jobDir, nodePath) {
       } catch (err) {
         continue;
       }
-    } else if (resolved[spec] != null) {
+    } else if (resolved[spec]?.startsWith("file:")) {
       file = fileURLToPath(resolved[spec]);
     } else {
       continue;
