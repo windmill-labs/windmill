@@ -13501,9 +13501,9 @@ paths:
       description: >
         Deploys a new version of the script at `path`, which must already hold
         one. The URL names the version being superseded, so no `parent_hash` is
-        needed. The body's `path` is where the script should end up: omit it to
-        keep the script where it is, or set it to move the script there, which
-        archives the old path.
+        needed. The body's `path` is where the script should end up: repeat the
+        URL's to keep the script where it is, or name another to move it there,
+        archiving the old path.
       operationId: updateScript
       x-mcp-tool: true
       x-mcp-instructions: >-
