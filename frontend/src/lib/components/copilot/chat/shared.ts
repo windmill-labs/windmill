@@ -1347,8 +1347,10 @@ export const getHubIntegrationTool = {
 					}
 				: {}),
 			// Said in the payload rather than the system prompt: it is only true of some
-			// integrations, and only matters once the model has asked about one.
-			...(doc.curated
+			// integrations, and only matters once the model has asked about one. Authored
+			// knowledge counts as evidence of curation on its own, because `curated` is
+			// opt-in per integration and unset for every hand-curated one on the hub today.
+			...(doc.meta || doc.curated
 				? {}
 				: {
 						scripts_note:

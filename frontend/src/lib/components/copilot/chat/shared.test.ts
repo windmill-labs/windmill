@@ -1459,7 +1459,9 @@ describe('getHubIntegrationTool', () => {
 	const doc = {
 		app: 'confluence',
 		display_name: 'Confluence',
-		curated: true,
+		// Authored, but curated is opt-in per integration and unset for every
+		// hand-curated one the hub serves today.
+		curated: false,
 		metadata_source: 'curated',
 		meta: { gotchas: ['Auth is Basic with an API token, not the password'] },
 		derived: {
@@ -1490,6 +1492,9 @@ describe('getHubIntegrationTool', () => {
 		)
 
 		expect(parsed.verified_provider_notes).toEqual(doc.meta)
+		// Every hand-curated integration on the hub still reports curated=false, so an
+		// authored meta.json has to be enough on its own to suppress the note.
+		expect(parsed.scripts_note).toBeUndefined()
 		expect(parsed.observed_from_scripts).toEqual({
 			api_hosts: ['api.atlassian.com'],
 			style: 'fetch',
@@ -1520,6 +1525,7 @@ describe('getHubIntegrationTool', () => {
 		)
 
 		expect(parsed.integration).toBe('stripe')
+		expect(parsed.scripts_note).toContain('generated one per API endpoint')
 		expect(parsed.observed_from_scripts).toBeUndefined()
 		expect(parsed.resource_types).toEqual([])
 		expect(parsed.example_scripts).toEqual([])
