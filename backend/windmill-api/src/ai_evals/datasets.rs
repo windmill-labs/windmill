@@ -189,9 +189,13 @@ pub async fn create_dataset(
     }
     for case in &payload.cases {
         sqlx::query!(
+            // clock_timestamp() (not the now() default, which is transaction-stable) so cases
+            // saved together get strictly increasing created_at and reload in insertion order;
+            // ORDER BY created_at, id would otherwise tie-break a same-transaction batch on the
+            // random uuid id.
             "INSERT INTO eval_case
-                    (workspace_id, dataset_path, name, input, expected, created_by)
-                 VALUES ($1, $2, $3, $4, $5, $6)",
+                    (workspace_id, dataset_path, name, input, expected, created_by, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp())",
             w_id,
             payload.path,
             case.name,
@@ -497,9 +501,10 @@ async fn write_cases(
             .await?
             .ok_or_else(|| Error::NotFound(format!("Eval case {} not found in {}", id, path)))?,
             None => sqlx::query_scalar!(
+                // clock_timestamp() keeps a same-transaction batch in insertion order on reload.
                 "INSERT INTO eval_case
-                    (workspace_id, dataset_path, name, input, expected, created_by)
-                 VALUES ($1, $2, $3, $4, $5, $6)
+                    (workspace_id, dataset_path, name, input, expected, created_by, created_at)
+                 VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp())
                  RETURNING id",
                 w_id,
                 path,
