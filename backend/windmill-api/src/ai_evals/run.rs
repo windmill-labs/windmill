@@ -152,6 +152,7 @@ fn judge_case_transforms() -> serde_json::Map<String, serde_json::Value> {
 fn scorer_modules(
     scorers: &[&Scorer],
     judges: &std::collections::HashMap<String, AgentDraft>,
+    script_hashes: &std::collections::HashMap<String, i64>,
 ) -> Vec<serde_json::Value> {
     scorers
         .iter()
@@ -187,10 +188,12 @@ fn scorer_modules(
                     value
                 }
                 // `run` is the whole payload; `input`, `output` and `expected` are the same values
-                // spelled out, so a three-line scorer does not have to reach into it.
+                // spelled out, so a three-line scorer does not have to reach into it. The hash pins
+                // the version resolved at launch, so every case scores against the same code.
                 ScorerDef::Script { path } => serde_json::json!({
                     "type": "script",
                     "path": path,
+                    "hash": script_hashes.get(path),
                     "input_transforms": {
                         "run": {
                             "type": "javascript",
@@ -227,6 +230,7 @@ fn build_run_flow(
     cases: &[CaseIteration],
     scorers: &[&Scorer],
     judges: &std::collections::HashMap<String, AgentDraft>,
+    script_hashes: &std::collections::HashMap<String, i64>,
     experiment_id: Uuid,
 ) -> Result<windmill_common::flows::FlowValue> {
     let mut modules: Vec<serde_json::Value> = vec![agent_module(config)?];
@@ -242,7 +246,7 @@ fn build_run_flow(
                 "parallel": true,
                 "branches": scorers
                     .iter()
-                    .zip(scorer_modules(scorers, judges))
+                    .zip(scorer_modules(scorers, judges, script_hashes))
                     .map(|(scorer, module)| serde_json::json!({
                         // Named for the column it produces: the graph of a run is read to see which
                         // scorer did what, and a module id is not what a scorer is called.
@@ -674,12 +678,19 @@ pub async fn run_experiment(
 
     let case_count = cases.len();
     let scorers: Vec<&Scorer> = dataset.scorers.iter().collect();
-    // What each scorer's code is right now. Recorded per cell at launch rather than resolved when
-    // the score comes back, so a scorer edited while the run was in flight is visible as the
-    // change of scorer it is.
+    // What each scorer's code is right now, resolved through the caller's own db: a run executes
+    // only scripts the caller may read, and the resolved script hash is pinned into the flow so a
+    // redeploy mid-run cannot change what a score was of. Recorded per cell at launch rather than
+    // when the score comes back, so a scorer edited while the run was in flight reads as the change
+    // of scorer it is.
     let mut definitions = Vec::with_capacity(scorers.len());
+    let mut script_hashes: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
     for scorer in &scorers {
-        definitions.push(resolve_definition(&db, &w_id, scorer).await?);
+        let (definition, hash) = resolve_scorer(&db, &user_db, &authed, &w_id, scorer).await?;
+        if let (ScorerDef::Script { path }, Some(hash)) = (&scorer.def, hash) {
+            script_hashes.insert(path.clone(), hash);
+        }
+        definitions.push(definition);
     }
     // Each judge as it stands now, so the run grades against one definition of it throughout.
     // Read as the caller, since inlining a configuration into the run's own value is showing it to
@@ -707,7 +718,8 @@ pub async fn run_experiment(
     // job before it exists.
     let experiment_id = Uuid::new_v4();
     let run_job_id = Uuid::new_v4();
-    let flow_value = build_run_flow(&config, &iterations, &scorers, &judges, experiment_id)?;
+    let flow_value =
+        build_run_flow(&config, &iterations, &scorers, &judges, &script_hashes, experiment_id)?;
 
     // The whole run is recorded, with the id of the job that will hold it, before that job is
     // queued. A launch that dies partway therefore leaves an experiment naming a job that never
@@ -961,6 +973,7 @@ mod tests {
             &[],
             &[],
             &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
             experiment,
         )
         .unwrap();
@@ -995,7 +1008,11 @@ mod tests {
         let judge = scorer(ScorerDef::Agent { path: "f/e/judge".to_string() });
         let scorers = vec![&judge];
 
-        let linked = scorer_modules(&scorers, &std::collections::HashMap::new());
+        let linked = scorer_modules(
+            &scorers,
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+        );
         assert_eq!(linked[0]["value"]["agent"].as_str(), Some("f/e/judge"));
 
         let mut judges = std::collections::HashMap::new();
@@ -1008,7 +1025,7 @@ mod tests {
                 tools: vec![],
             },
         );
-        let pinned = scorer_modules(&scorers, &judges);
+        let pinned = scorer_modules(&scorers, &judges, &std::collections::HashMap::new());
         let value = &pinned[0]["value"];
         assert!(value["agent"].is_null());
         assert_eq!(

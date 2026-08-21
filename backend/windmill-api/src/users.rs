@@ -402,6 +402,25 @@ async fn update_username_in_workpsace<'c>(
     ).execute(&mut **tx)
     .await?;
 
+    // A dataset's scorers name scripts and agents by path in a JSONB array, which the rewrites
+    // above do not reach; those runnables are renamed elsewhere in this transaction, so each
+    // scorer path under the old username is rewritten too or the dataset points at a runnable that
+    // no longer exists.
+    sqlx::query!(
+        r#"UPDATE eval_dataset SET scorers = COALESCE((
+                SELECT jsonb_agg(
+                    CASE WHEN elem->>'path' LIKE ('u/' || $2 || '/%')
+                    THEN jsonb_set(elem, '{path}', to_jsonb(REGEXP_REPLACE(elem->>'path','u/' || $2 || '/(.*)','u/' || $1 || '/\1')))
+                    ELSE elem END)
+                FROM jsonb_array_elements(scorers) elem), '[]'::jsonb)
+           WHERE workspace_id = $3
+             AND EXISTS (SELECT 1 FROM jsonb_array_elements(scorers) e WHERE e->>'path' LIKE ('u/' || $2 || '/%'))"#,
+        new_username,
+        old_username,
+        w_id
+    ).execute(&mut **tx)
+    .await?;
+
     // ---- variables ----
 
     // Handle Vault secret renames before updating paths in DB

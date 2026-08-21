@@ -1,23 +1,47 @@
 use super::*;
 
-/// The version of a scorer's runnable that would run now. Part of what a score records, so a
-/// script edited between two experiments is visible as a change of scorer rather than of agent.
-pub(crate) async fn resolve_definition(db: &DB, w_id: &str, scorer: &Scorer) -> Result<String> {
-    let resolved = match &scorer.def {
-        ScorerDef::Script { path } => sqlx::query_scalar!(
-            "SELECT hash FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false
-             ORDER BY created_at DESC LIMIT 1",
-            w_id,
-            path
-        )
-        .fetch_optional(db)
-        .await?
-        .map(|h| h.to_string()),
-        ScorerDef::Agent { path } => current_resource_version(db, w_id, path)
-            .await?
-            .map(|v| v.to_string()),
-    };
-    Ok(scorer.definition(resolved.as_deref()))
+/// The runnable a scorer names, resolved through the caller's *own* database so a run can only
+/// execute code the caller may read — a scorer is added with a bare path and nothing checks read
+/// access there, and the flow that runs it stores only the path — and pinned so a redeploy midway
+/// through a run cannot swap the code out from under a score labelled with the old version.
+///
+/// Returns the definition to record and, for a script, the hash to pin into its flow module. A
+/// script the caller cannot read (or that is not deployed) is refused here rather than run.
+pub(crate) async fn resolve_scorer(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    scorer: &Scorer,
+) -> Result<(String, Option<i64>)> {
+    match &scorer.def {
+        ScorerDef::Script { path } => {
+            let mut tx = user_db.clone().begin(authed).await?;
+            let hash = sqlx::query_scalar!(
+                "SELECT hash FROM script WHERE workspace_id = $1 AND path = $2 AND deleted = false
+                 ORDER BY created_at DESC LIMIT 1",
+                w_id,
+                path
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            let Some(hash) = hash else {
+                return Err(Error::BadRequest(format!(
+                    "Scorer script {} is not deployed or not readable",
+                    path
+                )));
+            };
+            Ok((scorer.definition(Some(&hash.to_string())), Some(hash)))
+        }
+        // A judge's version is a label; its configuration is inlined per-caller by
+        // `readable_agent_config`, so a readable judge is already pinned and an unreadable one runs
+        // linked (the run-without-expose path).
+        ScorerDef::Agent { path } => {
+            let version = current_resource_version(db, w_id, path).await?;
+            Ok((scorer.definition(version.map(|v| v.to_string()).as_deref()), None))
+        }
+    }
 }
 
 /// Bring a run's record up to date with the flow that executed it: which iteration answered which
