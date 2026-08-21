@@ -912,7 +912,7 @@ if (!result?.success || !(result.outputs?.length > 0)) {{
 try {{
     const bundlePath = "{job_dir_js}/wrapper.js";
     const bundle = await Bun.file(bundlePath).text();
-    const interoped = wmRewriteExternalImports(bundle, fileNames, "{job_dir_js}");
+    const interoped = wmRewriteExternalImports(bundle, fileNames, "{job_dir_js}", {node_bin});
     if (interoped !== bundle) {{
         await Bun.write(bundlePath, interoped);
     }}
@@ -920,7 +920,9 @@ try {{
     console.log("Failed to apply CommonJS interop to the node bundle: " + err);
 }}
 "#,
-                interop = NODE_CJS_INTEROP
+                interop = NODE_CJS_INTEROP,
+                node_bin = serde_json::to_string(&*NODE_BIN_PATH)
+                    .unwrap_or_else(|_| "\"node\"".to_string())
             ),
         )?;
     } else if mode == LoaderMode::Bun {

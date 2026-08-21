@@ -1284,8 +1284,10 @@ fn test_generate_bun_bundle_propagates_exit_status() {
 /// see the named exports of a CommonJS package that builds `module.exports`
 /// dynamically (lodash & co.), so a named import fails to instantiate and a
 /// namespace import yields nothing but `default`. The bundle must import such a
-/// package as a namespace and read the names off `default` instead — while
-/// leaving an ESM package's named imports as the live bindings node gives it.
+/// package as a namespace and read the names off `default` instead, while
+/// leaving alone anything node loads as ESM — including a package whose
+/// conditional exports hand bun a different file than they hand node — so its
+/// named imports stay the live bindings node gives them.
 #[test]
 fn test_node_loader_cjs_named_export_interop() {
     use std::process::Command;
@@ -1294,39 +1296,63 @@ fn test_node_loader_cjs_named_export_interop() {
     let temp_dir = tempfile::tempdir().unwrap();
     let dir = temp_dir.path();
     let dir_str = dir.to_str().unwrap();
+    let write_pkg = |name: &str, files: &[(&str, &str)]| {
+        let pkg_dir = dir.join("node_modules").join(name);
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        for (file, content) in files {
+            std::fs::write(pkg_dir.join(file), content).unwrap();
+        }
+    };
 
     // A CommonJS package whose exports only exist once it has run, which is
     // what defeats the lexer.
-    let pkg_dir = dir.join("node_modules").join("dyn-cjs-pkg");
-    std::fs::create_dir_all(&pkg_dir).unwrap();
-    std::fs::write(
-        pkg_dir.join("package.json"),
-        r#"{ "name": "dyn-cjs-pkg", "version": "1.0.0", "main": "index.js" }"#,
-    )
-    .unwrap();
-    std::fs::write(
-        pkg_dir.join("index.js"),
-        r#"
+    write_pkg(
+        "dyn-cjs-pkg",
+        &[
+            (
+                "package.json",
+                r#"{ "name": "dyn-cjs-pkg", "version": "1.0.0", "main": "index.js" }"#,
+            ),
+            (
+                "index.js",
+                r#"
 const api = {};
 ["greet"].forEach((k) => { api[k] = (s) => k + " " + s; });
 module.exports = api;
 "#,
-    )
-    .unwrap();
+            ),
+        ],
+    );
 
     // An ESM package whose exported binding changes after evaluation.
-    let esm_dir = dir.join("node_modules").join("live-esm-pkg");
-    std::fs::create_dir_all(&esm_dir).unwrap();
-    std::fs::write(
-        esm_dir.join("package.json"),
-        r#"{ "name": "live-esm-pkg", "version": "1.0.0", "type": "module", "main": "index.js" }"#,
-    )
-    .unwrap();
-    std::fs::write(
-        esm_dir.join("index.js"),
-        "export let count = 0;\nexport function bump() { count++; }\n",
-    )
-    .unwrap();
+    write_pkg(
+        "live-esm-pkg",
+        &[
+            (
+                "package.json",
+                r#"{ "name": "live-esm-pkg", "version": "1.0.0", "type": "module", "main": "index.js" }"#,
+            ),
+            ("index.js", "export let count = 0;\nexport function bump() { count++; }\n"),
+        ],
+    );
+
+    // Conditional exports that give bun CommonJS and node ESM: only node's
+    // answer says whether the bundle may snapshot the bindings.
+    write_pkg(
+        "dual-cond-pkg",
+        &[
+            (
+                "package.json",
+                r#"{ "name": "dual-cond-pkg", "version": "1.0.0",
+                     "exports": { ".": { "bun": "./bun-cjs.js", "node": "./node-esm.mjs", "default": "./node-esm.mjs" } } }"#,
+            ),
+            ("bun-cjs.js", "module.exports = { count: 0, bump() {} };\n"),
+            (
+                "node-esm.mjs",
+                "export let count = 0;\nexport function bump() { count++; }\n",
+            ),
+        ],
+    );
 
     std::fs::write(
         dir.join("main.ts"),
@@ -1334,7 +1360,12 @@ module.exports = api;
 import { greet } from "dyn-cjs-pkg";
 import * as pkg from "dyn-cjs-pkg";
 import { count, bump } from "live-esm-pkg";
-export function main() { bump(); return [greet("a"), pkg.greet("b"), count]; }
+import { count as dual, bump as bumpDual } from "dual-cond-pkg";
+export function main() {
+    bump();
+    bumpDual();
+    return [greet("a"), pkg.greet("b"), { ...pkg }.greet("c"), count, dual];
+}
 "#,
     )
     .unwrap();
@@ -1386,7 +1417,7 @@ console.log(JSON.stringify(Main.main()));
         "node rejected the bundle:\nstdout:\n{stdout}\nstderr:\n{}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(stdout.trim(), r#"["greet a","greet b",1]"#);
+    assert_eq!(stdout.trim(), r#"["greet a","greet b","greet c",1,1]"#);
 }
 
 /// Regression test for the install_bun_lockfile no-DB path: same code shape as

@@ -12,6 +12,7 @@
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const WM_IDENT = "[A-Za-z_$][A-Za-z0-9_$]*";
 const WM_NS_CLAUSE = `\\*\\s*as\\s+${WM_IDENT}`;
@@ -20,21 +21,12 @@ const WM_CLAUSE = `(?:${WM_NS_CLAUSE}|${WM_NAMED_CLAUSE}|${WM_IDENT}(?:\\s*,\\s*
 const WM_ATTRS = "\\s*(?:with|assert)\\s*\\{[^{}]*\\}";
 const WM_IMPORT = `(^|[;}\\n])import\\s*(?:(${WM_CLAUSE})\\s*from\\s*)?(?:"([^"\\n]*)"|'([^'\\n]*)')(${WM_ATTRS})?`;
 
-function wmRewriteExternalImports(code, externals, jobDir) {
+function wmRewriteExternalImports(code, externals, jobDir, nodePath) {
   if (!externals || externals.length === 0) {
     return code;
   }
-  const eligible = new Map();
-  const needsInterop = (spec) => {
-    let ok = eligible.get(spec);
-    if (ok === undefined) {
-      ok =
-        externals.some((name) => spec === name || spec.startsWith(name + "/")) &&
-        wmIsCommonJs(spec, jobDir);
-      eligible.set(spec, ok);
-    }
-    return ok;
-  };
+  const isExternal = (spec) =>
+    externals.some((name) => spec === name || spec.startsWith(name + "/"));
 
   // Import statements are found on a copy whose literals are blanked out, so
   // that generated code holding an import statement in a string is not touched.
@@ -43,15 +35,15 @@ function wmRewriteExternalImports(code, externals, jobDir) {
   // makes the rewrite safe — it is load-bearing, not a belt-and-braces extra.
   const masked = wmMaskLiterals(code);
   const anchored = new RegExp(WM_IMPORT);
-  const found = [];
+  const matches = [];
   for (const hit of masked.matchAll(new RegExp(WM_IMPORT, "g"))) {
     const m = code.slice(hit.index, hit.index + hit[0].length).match(anchored);
     if (m === null || m.index !== 0) {
       continue;
     }
     const spec = m[3] !== undefined ? m[3] : m[4];
-    if (needsInterop(spec)) {
-      found.push({
+    if (isExternal(spec)) {
+      matches.push({
         at: hit.index,
         len: hit[0].length,
         lead: m[1],
@@ -61,6 +53,16 @@ function wmRewriteExternalImports(code, externals, jobDir) {
       });
     }
   }
+  if (matches.length === 0) {
+    return code;
+  }
+
+  const commonjs = wmCommonJsSpecs(
+    [...new Set(matches.map((m) => m.spec))],
+    jobDir,
+    nodePath
+  );
+  const found = matches.filter((m) => commonjs.has(m.spec));
   if (found.length === 0) {
     return code;
   }
@@ -125,22 +127,55 @@ function wmRewriteExternalImports(code, externals, jobDir) {
   return (
     `var ${getHelper}=(n,k,s)=>{if(k in n)return n[k];let d=Object(n.default);if(k in d)return d[k];` +
     "throw new SyntaxError(`The requested module '${s}' does not provide an export named '${k}'`)};" +
-    `var ${nsHelper}=(n)=>{let d=n.default;return d!=null&&(typeof d==="object"||typeof d==="function")` +
-    `?new Proxy(n,{get:(t,k,r)=>k in t?Reflect.get(t,k,r):d[k]}):n};` +
+    `var ${nsHelper}=(n)=>{let d=n.default;if(d==null||typeof d!=="object"&&typeof d!=="function")return n;` +
+    `let t={},a=(o,k)=>Object.defineProperty(t,k,{get:()=>o[k],enumerable:!0,configurable:!0});` +
+    `for(let k of Object.keys(d))a(d,k);for(let k of Object.keys(n))a(n,k);return t};` +
     out +
     code.slice(cursor)
   );
 }
 
-// Node's own rule for the format of the file a specifier resolves to: the
-// extension decides, and `.js` follows the `type` of the closest package.json.
-function wmIsCommonJs(spec, jobDir) {
-  let file;
+// Node runs the bundle, and conditional exports can hand it a different file
+// than they hand bun, so ask node itself where each specifier resolves. Bun's
+// resolver is only the fallback for a node too old for `import.meta.resolve`.
+function wmCommonJsSpecs(specs, jobDir, nodePath) {
+  const commonjs = new Set();
+  let resolved = null;
+  const probe =
+    "const out={};" +
+    "for(const s of JSON.parse(process.argv[1])){try{out[s]=import.meta.resolve(s)}catch(e){out[s]=null}}" +
+    "console.log(JSON.stringify(out))";
   try {
-    file = Bun.resolveSync(spec, jobDir);
-  } catch (err) {
-    return true;
+    const run = Bun.spawnSync([nodePath, "--input-type=module", "-e", probe, JSON.stringify(specs)], {
+      cwd: jobDir,
+    });
+    if (run.success) {
+      resolved = JSON.parse(run.stdout.toString());
+    }
+  } catch (err) {}
+  for (const spec of specs) {
+    let file;
+    if (resolved === null) {
+      try {
+        file = Bun.resolveSync(spec, jobDir);
+      } catch (err) {
+        continue;
+      }
+    } else if (resolved[spec] != null) {
+      file = fileURLToPath(resolved[spec]);
+    } else {
+      continue;
+    }
+    if (wmIsCommonJsFile(file)) {
+      commonjs.add(spec);
+    }
   }
+  return commonjs;
+}
+
+// Node's own rule for a file's format: the extension decides, and `.js` follows
+// the `type` of the closest package.json.
+function wmIsCommonJsFile(file) {
   if (file.endsWith(".mjs")) {
     return false;
   }
