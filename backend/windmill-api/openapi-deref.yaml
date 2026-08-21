@@ -13315,8 +13315,12 @@ paths:
         For TypeScript, use 'bun' unless deno-specific APIs are needed. A path
         that already holds a script is refused: use updateScript to deploy a
         new version of it, and do NOT delete and recreate a script to change
-        it. A new version generates its lock async and can take up to a minute
-        before a run by path uses it rather than the previous one.
+        it. A new version generates its lock async, and only a version with a
+        lock is runnable: until it lands, a run by path still executes the
+        previous version. Poll getScriptByPath before running the new one and
+        stop on either outcome: lock non-null means it is ready, lock_error_logs
+        set means the lockfile failed and that version will never run, so report
+        the error instead of polling on.
       x-mcp-tool-include-fields:
         - path
         - content
@@ -13519,8 +13523,12 @@ paths:
         unless you wrote its content yourself. Set path__body only to move the
         script to a different path; omit it to leave the script where it is. A
         path that holds no script is refused: use createScript to create one. A
-        new version generates its lock async and can take up to a minute before
-        a run by path uses it rather than the previous one.
+        new version generates its lock async, and only a version with a lock is
+        runnable: until it lands, a run by path still executes the previous
+        version. Poll getScriptByPath before running the new one and stop on
+        either outcome: lock non-null means it is ready, lock_error_logs set
+        means the lockfile failed and that version will never run, so report the
+        error instead of polling on.
       x-mcp-tool-include-fields:
         - path
         - content

@@ -1762,11 +1762,14 @@ async fn process_notify_event(
                     let key = (workspace_id.to_string(), path.to_string());
                     match *source_type {
                         "script" => {
-                            windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
-                            // Bundle-cache key resolution for imported scripts; evicted
-                            // together with the content-side caches below so key and
-                            // inlined content flip to the new version in the same window.
-                            windmill_common::IMPORTED_SCRIPT_HASH_CACHE.remove(&key);
+                            // Evicts DEPLOYED_SCRIPT_HASH_CACHE together with the bundle-cache
+                            // key resolution for imported scripts (IMPORTED_SCRIPT_HASH_CACHE),
+                            // so key and inlined content flip to the new version in the same
+                            // window as the content-side cache below.
+                            windmill_common::invalidate_latest_script_hash_caches(
+                                workspace_id,
+                                path,
+                            );
                             // Evict the relative-import latest-hash cache so a redeployed
                             // imported script flips the content cache to its new version
                             // across all replicas within a poll interval (see #6769). Keyed
