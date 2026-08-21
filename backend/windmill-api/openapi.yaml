@@ -7791,7 +7791,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/resources/history/v/{version}:
+  /w/{workspace}/resources/history/v/{id}:
     get:
       summary: get a single resource version, with its value
       operationId: getResourceVersion
@@ -7799,7 +7799,7 @@ paths:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: version
+        - name: id
           in: path
           required: true
           description: The version's id, not its number.
@@ -7824,7 +7824,7 @@ paths:
                     required:
                       - missing_references
 
-  /w/{workspace}/resources/history/restore/v/{version}:
+  /w/{workspace}/resources/history/restore/v/{id}:
     post:
       summary: restore a resource to a previous version
       operationId: restoreResourceVersion
@@ -7832,7 +7832,7 @@ paths:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: version
+        - name: id
           in: path
           required: true
           description: The version's id, not its number.
