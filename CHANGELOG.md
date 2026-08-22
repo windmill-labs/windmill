@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.795.0](https://github.com/windmill-labs/windmill/compare/v1.794.1...v1.795.0) (2026-08-22)
+
+
+### Features
+
+* show the date on the runs dashboard chart axes ([#10808](https://github.com/windmill-labs/windmill/issues/10808)) ([a350f7c](https://github.com/windmill-labs/windmill/commit/a350f7c68e14909746427e716c5fdc3144d1df71))
+
+
+### Bug Fixes
+
+* keep raw-app files within their app folder on sync pull ([#10796](https://github.com/windmill-labs/windmill/issues/10796)) ([5b885ae](https://github.com/windmill-labs/windmill/commit/5b885ae311f079a7852e0ecd8fb94e57e79c707f))
+* keep workflow-as-code scripts off dedicated workers ([#10805](https://github.com/windmill-labs/windmill/issues/10805)) ([01891cd](https://github.com/windmill-labs/windmill/commit/01891cd73207e290a614cf7da506909fc4993646))
+* name the requested storage when a workspace storage lookup finds nothing ([#10803](https://github.com/windmill-labs/windmill/issues/10803)) ([01fc4f1](https://github.com/windmill-labs/windmill/commit/01fc4f1568c2010af7c23929ff50108b5e1fb635))
+* require an unscoped token to reach the workspace encryption key ([#10798](https://github.com/windmill-labs/windmill/issues/10798)) ([25d9a20](https://github.com/windmill-labs/windmill/commit/25d9a206304268326505ceef8c20cdb7941b6558))
+* require item read scope on workspace tarball export ([#10797](https://github.com/windmill-labs/windmill/issues/10797)) ([dc27db6](https://github.com/windmill-labs/windmill/commit/dc27db68de21c4d13033222cdaadbc4e2e732fe8))
+* scope capture deletion to the workspace in the request path ([#10795](https://github.com/windmill-labs/windmill/issues/10795)) ([40f0cab](https://github.com/windmill-labs/windmill/commit/40f0cab2adbdfbf1bfb12b7fbc3e419951fc8179))
+* size the ephemeral job token to the job timeout it must serve ([#10804](https://github.com/windmill-labs/windmill/issues/10804)) ([4b406e3](https://github.com/windmill-labs/windmill/commit/4b406e37c05a63ae89bc007ac0e6e669e7f84125))
+
 ## [1.794.1](https://github.com/windmill-labs/windmill/compare/v1.794.0...v1.794.1) (2026-08-21)
 
 
