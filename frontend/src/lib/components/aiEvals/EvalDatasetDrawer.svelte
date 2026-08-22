@@ -8,7 +8,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import { AiEvalsService, type EvalCase, type EvalDataset, type Scorer } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { Plus } from 'lucide-svelte'
+	import { Plus, Trash } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import EvalCasesGrid from './EvalCasesGrid.svelte'
 	import EvalScorers from './EvalScorers.svelte'
@@ -24,6 +24,7 @@
 		cases,
 		onCreated,
 		onRenamed,
+		onDeleted,
 		onCasesChanged,
 		onScorersChanged,
 		onClosed
@@ -41,6 +42,7 @@
 		cases: EvalCase[]
 		onCreated: (path: string) => void | Promise<void>
 		onRenamed: (path: string) => void | Promise<void>
+		onDeleted: (path: string) => void | Promise<void>
 		onCasesChanged: () => void | Promise<void>
 		onScorersChanged: () => void | Promise<void>
 		/** The drawer is done, whether it saved anything or not. */
@@ -48,6 +50,23 @@
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
+
+	let removingDataset = $state(false)
+	let deleting = $state(false)
+	async function deleteDataset() {
+		if (!workspace || !datasetPath) return
+		deleting = true
+		const deleted = datasetPath
+		try {
+			await AiEvalsService.deleteEvalDataset({ workspace, path: deleted })
+			await onDeleted(deleted)
+			drawer?.closeDrawer()
+		} catch (e) {
+			sendUserToast(`Failed to delete the dataset: ${e}`, true)
+		} finally {
+			deleting = false
+		}
+	}
 	let mode = $state<'new' | 'edit'>('new')
 	let path = $state('')
 	let summary = $state('')
@@ -61,7 +80,7 @@
 	let creating = $state(false)
 	let saving = $state(false)
 	/** The drawer is writing the dataset, by either route: nothing may change until it lands. */
-	let writing = $derived(creating || saving)
+	let writing = $derived(creating || saving || deleting)
 	/** The columns chosen while naming a dataset that does not exist yet, sent with the create. */
 	let pendingScorers = $state<Scorer[]>([])
 	/** The drawer's own copy of the cases, which is what the editor edits and what Save writes.
@@ -176,7 +195,9 @@
 		await casesGrid?.flush()
 		// Read once, so every step of the save agrees on what was submitted: the fields are locked
 		// while it runs, and the one the drawer navigates to afterwards must be the one written.
-		const submitted = { path, summary: summary || undefined }
+		// `summary` always travels: the server keeps the stored one when it is absent, so clearing
+		// it means sending the empty string.
+		const submitted = { path, summary }
 		saving = true
 		try {
 			await AiEvalsService.updateEvalDataset({
@@ -259,6 +280,21 @@
 		<span class="text-sm">
 			{caseLabel(removingCase ?? { input: {} })} goes from the dataset. The runs that executed it keep
 			their results: a run that happened is not undone by curating the case away.
+		</span>
+	</ConfirmationModal>
+	<ConfirmationModal
+		open={removingDataset}
+		title="Delete this dataset"
+		confirmationText="Delete"
+		on:canceled={() => (removingDataset = false)}
+		on:confirmed={() => {
+			removingDataset = false
+			deleteDataset()
+		}}
+	>
+		<span class="text-sm">
+			{datasetPath} goes with its cases and every run recorded against it. The jobs those runs produced
+			are kept.
 		</span>
 	</ConfirmationModal>
 	<DrawerContent
@@ -345,9 +381,20 @@
 			{#if mode === 'edit'}
 				<Button
 					unifiedSize="md"
+					variant="default"
+					destructive
+					startIcon={{ icon: Trash }}
+					loading={deleting}
+					disabled={writing || !datasetPath}
+					onclick={() => (removingDataset = true)}
+				>
+					Delete
+				</Button>
+				<Button
+					unifiedSize="md"
 					variant="accent"
 					loading={saving}
-					disabled={saving || !path || !!pathError || (nothingToSave && !casesEditing)}
+					disabled={writing || !path || !!pathError || (nothingToSave && !casesEditing)}
 					onclick={saveDataset}
 				>
 					Save

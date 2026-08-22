@@ -51,6 +51,7 @@ pub fn workspaced_service() -> Router {
         .route("/datasets/create", post(create_dataset))
         .route("/datasets/get/{*path}", get(get_dataset))
         .route("/datasets/update/{*path}", post(update_dataset))
+        .route("/datasets/delete/{*path}", post(delete_dataset))
         .route("/cases/list/{*path}", get(list_cases))
         .route("/scorer_defaults", get(scorer_defaults))
         .route("/run_payload", get(run_payload))

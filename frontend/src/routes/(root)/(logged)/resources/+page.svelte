@@ -1266,7 +1266,7 @@
 													<Dropdown
 														class="w-fit"
 														items={[
-															...(resource_type === 'ai_agent'
+															...(resource_type === 'ai_agent' && !draft_only
 																? [
 																		{
 																			displayName: 'Evals',

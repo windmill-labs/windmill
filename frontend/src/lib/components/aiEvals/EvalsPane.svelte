@@ -405,6 +405,21 @@
 		await useDataset(path)
 	}
 
+	/** The dataset is gone and every run of it with it: back to the list, on no dataset. */
+	async function datasetDeleted(path: string) {
+		if (selectedDataset === path) {
+			viewingRun = false
+			selectedCaseId = undefined
+			experimentId = undefined
+			baselineId = undefined
+			selectedDataset = undefined
+			rememberDataset(undefined)
+			await loadDataset(undefined)
+		}
+		await loadDatasets()
+		await loadRuns()
+	}
+
 	/** A pass line that moved re-reads every score already recorded, so the run on screen is
 	 *  re-read with the dataset. */
 	async function scorersChanged() {
@@ -949,6 +964,7 @@
 	cases={Object.values(storedCases)}
 	onCreated={selectSavedDataset}
 	onRenamed={selectSavedDataset}
+	onDeleted={datasetDeleted}
 	onCasesChanged={casesChanged}
 	onScorersChanged={scorersChanged}
 	onClosed={() => {

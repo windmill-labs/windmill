@@ -503,6 +503,12 @@ fn validate_subject(subject: &EvalSubject) -> Result<Option<AgentDraft>> {
             "The subject needs a path: it is the agent a run is filed under".to_string(),
         ));
     }
+    if subject.draft_hash.is_some() && !matches!(subject.kind, EvalSubjectKind::AgentDraft) {
+        return Err(Error::BadRequest(
+            "draft_hash is computed from the edits being run; remove it from the request"
+                .to_string(),
+        ));
+    }
     match (&subject.draft, &subject.kind) {
         (Some(draft), EvalSubjectKind::AgentDraft) => Ok(Some(draft.clone())),
         (Some(_), _) => Err(Error::BadRequest(

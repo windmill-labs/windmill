@@ -116,7 +116,7 @@
 		try {
 			// The editor opens a script by hash, so the latest one is resolved here.
 			const script = await ScriptService.getScriptByPath({ workspace, path: scorer.path })
-			scriptEditorDrawer?.openDrawer(script.hash, onChanged)
+			await scriptEditorDrawer?.openDrawer(script.hash, onChanged)
 		} catch (e) {
 			sendUserToast(`Failed to open ${scorer.path}: ${e}`, true)
 		}
@@ -263,7 +263,10 @@
 					kind={scorerKind}
 					mode={scorerMode}
 					onAdd={addScorer}
-					onEditScript={(hash) => scriptEditorDrawer?.openDrawer(hash, onChanged)}
+					onEditScript={(hash) =>
+						scriptEditorDrawer
+							?.openDrawer(hash, onChanged)
+							.catch((e) => sendUserToast(`Failed to open the scorer: ${e}`, true))}
 				/>
 			{/key}
 		{/if}
@@ -360,7 +363,12 @@
 	on:confirmed={async () => {
 		const target = removingScorer
 		removingScorer = undefined
-		if (target) await saveScorers(scorers.filter((s) => s.id !== target.id))
+		if (!target) return
+		try {
+			await saveScorers(scorers.filter((s) => s.id !== target.id))
+		} catch (e) {
+			sendUserToast(`Failed to remove the scorer: ${e}`, true)
+		}
 	}}
 >
 	<span class="text-sm">

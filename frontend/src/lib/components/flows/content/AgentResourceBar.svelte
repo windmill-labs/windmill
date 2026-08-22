@@ -528,6 +528,8 @@
 				aria-expanded={showDetail}
 				onclick={() => (showDetail = !showDetail)}
 				onkeydown={(e) => {
+					// Keys aimed at the buttons inside the row bubble through here; leave them theirs.
+					if (e.target !== e.currentTarget) return
 					if (e.key === 'Enter' || e.key === ' ') {
 						e.preventDefault()
 						showDetail = !showDetail

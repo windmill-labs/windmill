@@ -449,7 +449,12 @@ fn settle_verdict(
                 },
             }
         }
-        None if job_status == Some("success") => return None,
+        // The iteration is over, so a scorer step with no readable result produced nothing and
+        // never will; left pending it would be re-read on every listing.
+        None if job_status == Some("success") => (
+            Verdict::default(),
+            Some("The scorer step produced no result".to_string()),
+        ),
         // The job holding this scorer has not finished, so a module with nothing in it yet is a
         // step that has not run rather than one that produced nothing.
         None if job_status.is_none() => return None,

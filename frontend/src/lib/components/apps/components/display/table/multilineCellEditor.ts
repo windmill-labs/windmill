@@ -50,7 +50,7 @@ export class MultilineCellEditor implements ICellEditorComp {
 				this.params.api.stopEditing(true)
 				return
 			}
-			if (e.key !== 'Enter') return
+			if (e.key !== 'Enter' || e.isComposing) return
 			// Both branches keep the key from the grid, which ends the edit on Enter whether or not
 			// Shift is held: Shift+Enter falls through to the textarea's own newline, and plain Enter
 			// ends the edit here instead.

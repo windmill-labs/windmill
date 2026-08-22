@@ -256,7 +256,7 @@ pub async fn update_dataset(
 
     let updated = sqlx::query_scalar!(
         "UPDATE eval_dataset
-         SET path = COALESCE($6, path), summary = $3,
+         SET path = COALESCE($6, path), summary = COALESCE($3, summary),
              scorers = COALESCE($4, scorers), edited_at = now(), edited_by = $5
          WHERE workspace_id = $1 AND path = $2
          RETURNING path",
@@ -291,6 +291,35 @@ pub async fn update_dataset(
     }
     tx.commit().await?;
     Ok(format!("Updated eval dataset {}", updated))
+}
+
+/// The cases, the experiments and their recorded case sets go with the dataset, through the
+/// foreign keys. The jobs those experiments produced are not touched: they are jobs, with their
+/// own retention.
+pub async fn delete_dataset(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, String)>,
+) -> Result<String> {
+    check_proper_path(&path)?;
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot delete eval datasets".to_string(),
+        ));
+    }
+    let mut tx = user_db.clone().begin(&authed).await?;
+    let deleted = sqlx::query_scalar!(
+        "DELETE FROM eval_dataset WHERE workspace_id = $1 AND path = $2 RETURNING path",
+        w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    if deleted.is_none() {
+        return Err(write_refused(&authed, &user_db, &w_id, &path).await);
+    }
+    Ok(format!("Deleted eval dataset {}", path))
 }
 
 // -----------------------------------------------------------------------------------------------

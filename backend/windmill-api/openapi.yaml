@@ -11840,6 +11840,26 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/ai_evals/datasets/delete/{path}:
+    post:
+      summary: delete an eval dataset and all its cases
+      description: >
+        The cases, the runs and their recorded case sets go with it through the foreign keys; the
+        jobs those runs produced are left alone.
+      operationId: deleteEvalDataset
+      tags:
+        - ai_evals
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: eval dataset deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/ai_evals/cases/list/{path}:
     get:
       summary: list the cases of an eval dataset

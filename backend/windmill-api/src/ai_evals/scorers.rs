@@ -122,12 +122,7 @@ pub(crate) fn assign_scorer_ids(
                 )));
             }
         }
-        if scorer.def.path().trim().is_empty() {
-            return Err(Error::BadRequest(format!(
-                "{} scorer needs a path",
-                scorer.def.kind_label()
-            )));
-        }
+        check_proper_path(scorer.def.path())?;
     }
     Ok(())
 }
