@@ -99,7 +99,7 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { normalizeContextUsage } from './tokenUsage'
 import type { ReviewChangesOpts } from './monaco-adapter'
@@ -161,9 +161,13 @@ const COMPACTION_TRIGGER_RATIO = 0.8
 const COMPACTION_TARGET_RATIO = 0.7
 // How often a running turn is offered to the mid-turn checkpoint (see
 // sendRequest). The whole transcript is rewritten on each accepted checkpoint,
-// so this bounds the write rate; it also bounds how much of a turn a tab
-// closed without warning can lose.
+// so this bounds the write rate; it also bounds how much of a turn a tab that
+// dies without warning can lose.
 const CHECKPOINT_INTERVAL_MS = 2000
+// Stands in for the result of a tool call that had not finished when the
+// transcript was checkpointed — still running, or still waiting to be confirmed.
+// The model reads the step as unfinished, which is what the card tells the reader.
+const INTERRUPTED_TOOL_RESULT = 'Interrupted: the chat was closed before this tool finished'
 // Flat per-image token estimate for a downscaled (≤1568px) vision image. Used instead
 // of chars/4 on the base64 data URL, which would overcount by ~50x.
 const IMAGE_TOKEN_ESTIMATE = 1200
@@ -2270,9 +2274,16 @@ export class AIChatManager {
 	// this becomes the live transcript or only a persisted checkpoint.
 	private interruptedTurnMessages = (
 		collectedMessages: ChatCompletionMessageParam[],
-		partialReply: string
+		partialReply: string,
+		// Content for the synthesized results of a batch caught mid-execution. Only
+		// a snapshot that has to outlive its turn passes it: a turn committed for a
+		// follow-up is better off truncating the batch so the model reruns it, since
+		// it is still live and nothing has been lost yet.
+		interruptedToolContent?: string
 	): { messages: ChatCompletionMessageParam[]; keptPartialReply: boolean } => {
-		const prefix = truncateToToolPairedPrefix(collectedMessages)
+		const prefix = interruptedToolContent
+			? closeInterruptedToolBatch(collectedMessages, interruptedToolContent)
+			: truncateToToolPairedPrefix(collectedMessages)
 		// partialReply can be stale — equal to text already committed inside the
 		// prefix (see its capture in onMessageEnd) — so only append when new.
 		const lastCommittedText = [...prefix]
@@ -3016,18 +3027,24 @@ export class AIChatManager {
 		let checkpointedShape = ''
 		const checkpointTurn = async (force = false) => {
 			// Polled, but written only when the turn actually advanced — a message
-			// collected, or a card appearing (a tool starting, a confirmation staged).
-			// So an answer streaming for minutes and a turn parked on a confirmation
-			// both cost nothing, and the write rate follows steps taken, not time.
-			const shape = `${collectedMessages.length}:${this.displayMessages.length}`
+			// collected, a card appearing, or the answer growing. A turn parked on a
+			// confirmation therefore costs nothing, while a long streamed answer keeps
+			// being captured as it grows rather than freezing at its first slice.
+			const shape = `${collectedMessages.length}:${this.displayMessages.length}:${this.currentReply.length}`
 			if (!force && shape === checkpointedShape) return
+			// The reveal animation holds received-but-unshown text, and currentReply is
+			// only what it has released, so the leaving path has to drain it or persist
+			// a truncated answer. The polled path deliberately does not: flushing would
+			// snap the typewriter to the end on a page the reader is still watching.
+			if (force) this.replyReveal.flush()
 			// partialReply is the last text onMessageEnd flushed, already inside the
 			// prefix unless the turn ended on it; currentReply is the answer streaming
 			// right now, which onMessageEnd has not turned into a message yet.
 			const streaming = this.currentReply
 			const { messages, keptPartialReply } = this.interruptedTurnMessages(
 				collectedMessages,
-				streaming || partialReply
+				streaming || partialReply,
+				INTERRUPTED_TOOL_RESULT
 			)
 			if (messages.length === this.messages.length) return
 			checkpointedShape = shape

@@ -1816,7 +1816,46 @@ describe('AIChatManager queued messages', () => {
 
 	// Every checkpoint test installs a fake document; leaking one would make a
 	// single failure cascade through every later test in the file.
-	afterEach(() => vi.unstubAllGlobals())
+	afterEach(() => {
+		vi.unstubAllGlobals()
+		vi.useRealTimers()
+	})
+
+	it('keeps re-checkpointing a streamed answer as it grows', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true })
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		// One poll interval, per CHECKPOINT_INTERVAL_MS in AIChatManager.
+		const pastOnePoll = 2100
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// A text-only answer: nothing lands in addedMessages and no card appears,
+			// so the growing reply is the only thing that can drive the poll.
+			for (const text of ['the first part', 'the first part and more', 'the whole answer']) {
+				manager.currentReply = text
+				await vi.advanceTimersByTimeAsync(pastOnePoll)
+			}
+			const message = { role: 'assistant' as const, content: manager.currentReply }
+			config.addedMessages.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'write me something long' })
+
+		// A fingerprint blind to the reply would freeze at whatever the first tick
+		// captured, so each tick must persist strictly more of the answer.
+		const persisted = saveChat.mock.calls
+			.map(([, messages]) => messages as ChatCompletionMessageParam[])
+			.map((messages) => messages[messages.length - 1])
+			.filter((m) => m?.role === 'assistant' && typeof m.content === 'string')
+			.map((m) => String(m.content))
+			.filter((c) => c.startsWith('the first part'))
+		expect(persisted).toEqual(['the first part', 'the first part and more'])
+	})
 
 	it('checkpoints a turn to history when the page is hidden mid-generation', async () => {
 		const leavePage = stubHidingPage()
@@ -1855,9 +1894,14 @@ describe('AIChatManager queued messages', () => {
 		const [display, actual] = saveChat.mock.calls.find(
 			([, messages]) => messages.length > 1
 		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
-		// The unanswered t2 call is cut: persisting it would make the next request
-		// 400 on a dangling tool call.
-		expect(actual.map((m) => m.role)).toEqual(['user', 'assistant', 'tool'])
+		// Both steps are kept, and the unfinished t2 call gets a synthesized result:
+		// leaving it dangling would make the next request 400, dropping it would lose
+		// the step the reader can still see on the card below.
+		expect(actual.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant', 'tool'])
+		expect(actual[actual.length - 1]).toMatchObject({
+			tool_call_id: 't2',
+			content: expect.stringContaining('Interrupted')
+		})
 		// Its card is kept but settled, so reopening the chat doesn't restore a
 		// confirmation prompt with nothing behind it.
 		expect(display.find((m) => m.role === 'tool' && m.tool_call_id === 't2')).toMatchObject({

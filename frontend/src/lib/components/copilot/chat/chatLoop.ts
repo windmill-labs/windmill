@@ -124,6 +124,44 @@ export function truncateToToolPairedPrefix(
 	return messages.slice(0, lastValidLen)
 }
 
+/**
+ * Like `truncateToToolPairedPrefix`, but closes the batch it would have dropped:
+ * every call in the trailing `tool_calls` message still missing a result gets one
+ * saying it was interrupted.
+ *
+ * A model emits a whole batch as one assistant message and the parsers execute
+ * its calls one at a time, so a snapshot taken mid-batch has real results for the
+ * calls that finished. Truncating discards those along with the unanswered ones —
+ * fine for a live turn that is about to continue, but for a transcript that has to
+ * outlive its turn it throws away completed steps whose side effects (a written
+ * script, a deployed flow) are already real. Synthesizing the missing results
+ * keeps them as context and matches what their cards show the reader.
+ */
+export function closeInterruptedToolBatch(
+	messages: ChatCompletionMessageParam[],
+	interruptedContent: string
+): ChatCompletionMessageParam[] {
+	const paired = truncateToToolPairedPrefix(messages)
+	const rest = messages.slice(paired.length)
+	const batch = rest[0]
+	if (batch?.role !== 'assistant' || !batch.tool_calls?.length) return paired
+	// Results for THIS batch only, stopping at the first non-tool message:
+	// anything past a still-pending batch was never valid context.
+	const batchIds = new Set(batch.tool_calls.map((c) => c.id))
+	const answers: ChatCompletionMessageParam[] = []
+	const answered = new Set<string>()
+	for (const m of rest.slice(1)) {
+		if (m.role !== 'tool') break
+		if (!batchIds.has(m.tool_call_id)) continue
+		answers.push(m)
+		answered.add(m.tool_call_id)
+	}
+	const interrupted = [...batchIds]
+		.filter((id) => !answered.has(id))
+		.map((id) => ({ role: 'tool' as const, tool_call_id: id, content: interruptedContent }))
+	return [...paired, batch, ...answers, ...interrupted]
+}
+
 const unsupportedWebSearchCache = new Set<string>()
 const WEB_SEARCH_UNAVAILABLE_STATUS_CODES = new Set([400, 403, 404])
 
