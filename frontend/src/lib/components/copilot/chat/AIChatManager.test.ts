@@ -1857,6 +1857,63 @@ describe('AIChatManager queued messages', () => {
 		expect(persisted).toEqual(['the first part', 'the first part and more'])
 	})
 
+	it('carries a completed screenshot into a checkpoint of the batch it came from', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// take_screenshot finished and buffered its image, but the batch it belongs
+			// to has another call still pending — so the loop has not yet turned the
+			// buffer into a message.
+			config.addedMessages.push(
+				{
+					role: 'assistant' as const,
+					content: '',
+					tool_calls: [
+						{
+							id: 'shot',
+							type: 'function' as const,
+							function: { name: 'take_screenshot', arguments: '{}' }
+						},
+						{
+							id: 'next',
+							type: 'function' as const,
+							function: { name: 'do_thing', arguments: '{}' }
+						}
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 'shot', content: 'Screenshot attached below' }
+			)
+			config.callbacks.attachToolImage('shot', {
+				dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+				name: 'shot.png'
+			})
+			leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'look at the app' })
+
+		const [, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		// Without the image the restored history announces a screenshot the model
+		// cannot see, so the next turn cannot answer anything about it.
+		const imageParts = actual.flatMap((m) =>
+			Array.isArray(m.content) ? m.content.filter((p: any) => p.type === 'image_url') : []
+		)
+		expect(imageParts).toHaveLength(1)
+		// And it sits after the batch that produced it, where the live path puts it.
+		const imageIdx = actual.findIndex((m) => Array.isArray(m.content))
+		const resultIdx = actual.findIndex((m) => m.role === 'tool' && m.tool_call_id === 'shot')
+		expect(imageIdx).toBeGreaterThan(resultIdx)
+	})
+
 	it('checkpoints a live reply that repeats an earlier segment verbatim', async () => {
 		const leavePage = stubHidingPage()
 		const manager = createManager()

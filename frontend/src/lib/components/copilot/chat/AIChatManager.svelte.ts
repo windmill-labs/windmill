@@ -29,6 +29,7 @@ import {
 	completedJobToolStatus,
 	backgroundJobCompletionNote,
 	deriveChatJobStatus,
+	pendingToolImagesMessage,
 	trimJob
 } from './shared'
 import type {
@@ -2282,10 +2283,12 @@ export class AIChatManager {
 		snapshot?: {
 			/** Result to synthesize for the calls of a batch caught mid-execution. */
 			interruptedToolContent: string
-			/** True when partialReply is text arriving right now rather than the last
-			 *  text onMessageEnd flushed. Only the latter can be a stale duplicate of
-			 *  what the prefix already holds, so only it may be deduped away. */
+			/** True when partialReply has not been folded into a message yet, so it
+			 *  cannot be the stale duplicate the dedup below exists to drop. */
 			textIsLive: boolean
+			/** Images a tool has produced that the turn has not yet turned into a
+			 *  message (see appendPendingToolImages). */
+			bufferedImages?: ChatCompletionMessageParam
 		}
 	): { messages: ChatCompletionMessageParam[]; keptPartialReply: boolean } => {
 		const prefix = snapshot
@@ -2303,10 +2306,13 @@ export class AIChatManager {
 			)?.content
 		const keptPartialReply =
 			!!partialReply.trim() && (!!snapshot?.textIsLive || partialReply !== lastCommittedText)
+		// Images sit between the batch that produced them and whatever the model
+		// said next, matching where appendPendingToolImages puts them live.
+		const tail = snapshot?.bufferedImages ? [...prefix, snapshot.bufferedImages] : prefix
 		return {
 			messages: keptPartialReply
-				? [...this.messages, ...prefix, { role: 'assistant', content: partialReply }]
-				: [...this.messages, ...prefix],
+				? [...this.messages, ...tail, { role: 'assistant', content: partialReply }]
+				: [...this.messages, ...tail],
 			keptPartialReply
 		}
 	}
@@ -3021,6 +3027,11 @@ export class AIChatManager {
 		// that never became one.
 		const collectedMessages: ChatCompletionMessageParam[] = []
 		let partialReply = ''
+		// How much had been collected when partialReply was captured. The parser
+		// pushes that text as a message right after, so an unchanged count means it
+		// is still uncommitted — which is what tells a checkpoint the text is new
+		// rather than a stale copy of what the transcript already holds.
+		let partialReplyCollectedLen = -1
 		// Once an outcome branch (commit/restore) took over, a later throw (e.g.
 		// from saveChat) must not make the catch commit the turn a second time.
 		let turnOutcomeHandled = false
@@ -3050,11 +3061,19 @@ export class AIChatManager {
 			if (!force && shape === checkpointedShape) return
 			const { messages, keptPartialReply } = this.interruptedTurnMessages(
 				collectedMessages,
-				// partialReply is the last text onMessageEnd flushed, already inside the
-				// prefix unless the turn ended on it; `streaming` is the answer arriving
-				// right now, which onMessageEnd has not turned into a message yet.
+				// `streaming` is the answer arriving right now; partialReply is the last
+				// text onMessageEnd flushed, which the parser folds into a message a tick
+				// later — until it has, that text is as uncommitted as streaming text.
 				streaming || partialReply,
-				{ interruptedToolContent: INTERRUPTED_TOOL_RESULT, textIsLive: !!streaming }
+				{
+					interruptedToolContent: INTERRUPTED_TOOL_RESULT,
+					textIsLive: !!streaming || collectedMessages.length === partialReplyCollectedLen,
+					// A screenshot tool completes inside its batch but its image only
+					// becomes a message once the whole batch does, so a batch closed
+					// mid-flight would otherwise restore a result announcing a screenshot
+					// the model cannot see. Read the buffer without draining it.
+					bufferedImages: pendingToolImagesMessage([...this.pendingToolImages.values()].flat())
+				}
 			)
 			if (messages.length === this.messages.length) return
 			checkpointedShape = shape
@@ -3406,6 +3425,7 @@ export class AIChatManager {
 						// deduped in commitInterruptedTurn.
 						if (this.currentReply) {
 							partialReply = this.currentReply
+							partialReplyCollectedLen = collectedMessages.length
 						}
 						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [

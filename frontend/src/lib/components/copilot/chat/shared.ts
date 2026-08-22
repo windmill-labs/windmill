@@ -1024,20 +1024,29 @@ export async function processToolCall<T>({
  * id is already answered by its tool result before this non-tool message. The image
  * parts ride the same `image_url` carrier that the provider converters translate.
  */
-export function appendPendingToolImages(
-	messages: ChatCompletionMessageParam[],
-	addedMessages: ChatCompletionMessageParam[],
-	toolCallbacks: ToolCallbacks
-): void {
-	const images = toolCallbacks.takePendingToolImages?.() ?? []
-	if (images.length === 0) return
-	const message: ChatCompletionMessageParam = {
+/** The message that hands tool-produced images to the model, or undefined when
+ *  there are none. Split out so a snapshot of a turn still buffering them can
+ *  build the same message without draining the buffer the live turn still owns. */
+export function pendingToolImagesMessage(
+	images: AttachedImage[]
+): ChatCompletionMessageParam | undefined {
+	if (images.length === 0) return undefined
+	return {
 		role: 'user',
 		content: [
 			{ type: 'text', text: 'Screenshot(s) of the app preview:' },
 			...images.map((img) => dataUrlToImagePart(img.dataUrl))
 		]
 	}
+}
+
+export function appendPendingToolImages(
+	messages: ChatCompletionMessageParam[],
+	addedMessages: ChatCompletionMessageParam[],
+	toolCallbacks: ToolCallbacks
+): void {
+	const message = pendingToolImagesMessage(toolCallbacks.takePendingToolImages?.() ?? [])
+	if (!message) return
 	messages.push(message)
 	addedMessages.push(message)
 }
