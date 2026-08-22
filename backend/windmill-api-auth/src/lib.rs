@@ -454,6 +454,33 @@ pub fn is_effectively_unscoped(scopes: Option<&[String]>) -> bool {
     scope_restrictions(scopes).is_none()
 }
 
+/// Forbid reaching the workspace encryption key with a scope-restricted token.
+///
+/// The key is not the read or the write of any one domain: it decrypts every secret
+/// variable offline, outliving the token that reached it, and it mints the secrets
+/// that unlock public apps. Replacing it is the same capability — the server
+/// re-encrypts every secret under the new key, so a caller that chooses the key can
+/// decrypt them all. No scope grants either, so any scope-restricted token is
+/// refused. An admin check is not a substitute — it answers for the user behind the
+/// token, not for the token's own scopes.
+///
+/// This bounds the token making the request, not every route to the key. A job token
+/// is minted unscoped from its owner's privileges, so a `jobs:run` token still reaches
+/// the key indirectly by running a job as a workspace admin — the same property that
+/// lets git-sync export it. Confining that means not inheriting unscoped privilege
+/// into job tokens, which is a far wider change than this guard.
+pub fn forbid_scoped_token_workspace_key(authed: &ApiAuthed) -> error::Result<()> {
+    if is_effectively_unscoped(authed.scopes.as_deref()) {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(
+        "The workspace encryption key cannot be read or replaced with a scoped token: it \
+         decrypts every secret of the workspace offline, past the scopes and the lifetime of \
+         the token that reached it. Use a token created without scopes."
+            .to_string(),
+    ))
+}
+
 /// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
 /// a credential on behalf of `authed`: the resulting credential must never be
 /// more privileged than the caller's own token.

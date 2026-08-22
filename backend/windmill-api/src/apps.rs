@@ -25,7 +25,7 @@ use crate::{
 #[cfg(feature = "parquet")]
 use crate::{
     job_helpers_oss::{
-        download_s3_file_internal, get_random_file_name, get_s3_resource,
+        download_s3_file_internal, get_large_file_storage, get_random_file_name, get_s3_resource,
         get_workspace_s3_resource_and_check_paths, upload_file_from_req, DownloadFileQuery,
         LoadCountQuery, LoadFileMetadataQuery, LoadFilePreviewQuery, LoadPreviewQuery,
     },
@@ -4085,6 +4085,19 @@ async fn sign_s3_objects(
         // Authorize the CALLER's own read permission before signing — otherwise any workspace
         // member (operators included) could mint a signature for any key and bypass the advanced
         // S3 permission rules. This is the fix; do NOT move the check to validation time.
+        // ...and refuse outright when the storage does not resolve, because
+        // `get_workspace_s3_resource_and_check_paths` returns early in that case, *before* the
+        // permission loop below runs at all. Checked here rather than on its `None` return: that
+        // is also `None` when the resource resolved but was denied (an RLS miss, or an instance
+        // bucket restriction), and those ran the loop and must keep their existing behaviour.
+        if get_large_file_storage(&db, &w_id, s3_object.storage.clone())
+            .await?
+            .is_none()
+        {
+            return Err(windmill_object_store::workspace_storage_not_found(
+                s3_object.storage.as_deref(),
+            ));
+        }
         let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
         get_workspace_s3_resource_and_check_paths(
             &db_with_opt_authed,
@@ -4097,10 +4110,12 @@ async fn sign_s3_objects(
         .await?;
 
         let exp = (chrono::Utc::now() + chrono::Duration::hours(12)).timestamp();
-        let mut message = format!("file_key={}&exp={}", s3_object.s3.clone(), exp);
-        if let Some(ref storage) = s3_object.storage {
-            message = format!("{}&storage={}", message, storage);
-        }
+        let message = format!(
+            "file_key={}&exp={}{}",
+            s3_object.s3.clone(),
+            exp,
+            windmill_object_store::s3_signature_storage_fragment(s3_object.storage.as_deref())
+        );
 
         let mut max = HmacSha256::new_from_slice(workspace_key.as_bytes())
             .map_err(|err| Error::internal_err(format!("Failed to create hmac: {}", err)))?;

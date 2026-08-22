@@ -1956,6 +1956,20 @@ async fn edit_large_file_storage_config(
     .await?;
 
     if let Some(lfs_config) = new_config.large_file_storage {
+        // `_default_` names the primary storage everywhere else — `get_secondary_storage_names`
+        // hands it out, the s3-proxy URL carries it, the clients fall back to it — so a secondary
+        // storage of that name is unreachable by design and would shadow the primary for anything
+        // that resolves the name. Reject it at the only route that creates one.
+        if lfs_config
+            .secondary_storage
+            .contains_key(windmill_types::s3::DEFAULT_STORAGE)
+        {
+            return Err(Error::BadRequest(format!(
+                "`{}` is reserved for the primary storage and cannot name a secondary one",
+                windmill_types::s3::DEFAULT_STORAGE
+            )));
+        }
+
         let serialized_lfs_config =
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;
@@ -4759,6 +4773,18 @@ async fn get_encryption_key(
     Path(w_id): Path<String>,
 ) -> JsonResult<GetEncryptionKeyResponse> {
     require_admin(authed.is_admin, &authed.username)?;
+    windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.read_encryption_key",
+        ActionKind::Execute,
+        &w_id,
+        None,
+        None,
+    )
+    .await?;
 
     let encryption_key_opt = sqlx::query_scalar!(
         "SELECT key FROM workspace_key WHERE workspace_id = $1",
@@ -4784,6 +4810,7 @@ async fn set_encryption_key(
     Json(request): Json<SetEncryptionKeyRequest>,
 ) -> Result<()> {
     require_super_admin(&db, &authed).await?;
+    windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
 
     if !WORKSPACE_KEY_REGEXP.is_match(request.new_key.as_str()) {
         return Err(Error::BadRequest(

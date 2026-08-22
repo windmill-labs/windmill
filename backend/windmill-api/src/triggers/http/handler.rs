@@ -352,12 +352,12 @@ async fn route_job(
                 &db,
                 None,
                 &trigger.workspace_id,
-                config.storage,
+                config.storage.clone(),
             )
             .await?;
-            let s3_resource = s3_resource_opt.ok_or(Error::internal_err(
-                "No files storage resource defined at the workspace level".to_string(),
-            ))?;
+            let s3_resource = s3_resource_opt.ok_or_else(|| {
+                windmill_object_store::workspace_storage_misconfigured(config.storage.as_deref())
+            })?;
             let s3_client = build_object_store_client(&s3_resource).await?;
 
             let path = if trigger.is_static_website {
