@@ -237,7 +237,7 @@
 				},
 				min: minMaxTimes.min,
 				max: minMaxTimes.max,
-				ticks: timeTicksWithDate
+				ticks: timeTicksWithDate(minMaxTimes.min, minMaxTimes.max)
 			},
 			y: {
 				grid: {

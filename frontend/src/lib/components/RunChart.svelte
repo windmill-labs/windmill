@@ -270,7 +270,7 @@
 				},
 				min: minMaxTime.minTime.getTime(),
 				max: minMaxTime.maxTime.getTime(),
-				ticks: timeTicksWithDate
+				ticks: timeTicksWithDate(minMaxTime.minTime, minMaxTime.maxTime)
 			},
 			y: {
 				grid: {
