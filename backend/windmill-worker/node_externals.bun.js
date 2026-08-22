@@ -10,13 +10,10 @@ try {
   installedPackages = readdirSync(nodeModulesDir);
 } catch (e) {}
 
-// The shim reaches the package through require(), the classifier through bun's resolution, and the
-// two only ever agree on a manifest that cannot select a different entry for either of them. Which
-// conditions are live is not knowable here: bun applies its own, `import`/`require` split node's
-// two ways in, and `--conditions` in the job's NODE_OPTIONS adds arbitrary more at runtime. So a
-// condition of any name disqualifies the package. Subpaths and `default` always select the same
-// entry, and a package with no `exports` at all resolves through `main`, which conditions never
-// reach.
+// The shim reaches the package by require() and the classifier by bun's resolution, which agree
+// only where no condition can steer them apart. Which conditions are live is unknowable here (bun
+// applies its own, and NODE_OPTIONS `--conditions` adds any name at runtime), so any condition at
+// all disqualifies the package; subpaths and `default` select one entry whatever is live.
 export function entryDependsOnCondition(exports) {
   if (Array.isArray(exports)) {
     return exports.some(entryDependsOnCondition);
@@ -103,11 +100,9 @@ function cjsShim(specifier) {
 }
 
 // Node only sees the named exports of a CommonJS dependency that cjs-module-lexer finds
-// statically, which fails on packages such as lodash, so leaving those as plain externals breaks
-// `import { x } from "pkg"` and `import * as pkg from "pkg"`. A generated CommonJS shim makes bun
-// synthesize the interop while the package itself is still required at runtime. Only a package
-// proven CommonJS gets one: requiring an ESM entry throws on the node versions without
-// require(esm), so everything else keeps the plain external it would have had.
+// statically, which fails on lodash and the like, so a plain external breaks `import { x }` and
+// `import * as x` from it. Routing it through a CommonJS shim makes bun synthesize the interop.
+// Only proven-CommonJS packages get one: requiring an ESM entry throws without require(esm).
 export const nodeExternals = {
   name: "windmill-node-externals",
   setup(build) {
