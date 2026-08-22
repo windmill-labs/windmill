@@ -3477,6 +3477,7 @@ pub async fn start_worker(
         "python",
         client,
         false,
+        false, // the python wrapper has no WAC command yet
         concurrency_semaphore,
     )
     .await

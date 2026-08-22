@@ -362,6 +362,62 @@ pub fn is_wac_v2(lang: Option<ScriptLang>, content: &str) -> bool {
     }
 }
 
+/// Materialize the round's checkpoint in a dedicated worker's job dir, returning the
+/// file name to hand the subprocess.
+///
+/// A checkpoint carries every completed step's result and grows with the run, so it rides
+/// in a file rather than on the single stdin line that carries the command.
+pub async fn write_dedicated_checkpoint(
+    db: &DB,
+    job_id: &Uuid,
+    job_dir: &str,
+) -> error::Result<String> {
+    let checkpoint = load_checkpoint(db, job_id).await?;
+    let checkpoint = prepare_checkpoint_for_resume(db, job_id, checkpoint).await?;
+    let file_name = format!("wac_ckpt_{job_id}.json");
+    let serialized = serde_json::to_vec(&checkpoint).map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to serialize WAC checkpoint for {job_id}: {e}"
+        ))
+    })?;
+    tokio::fs::write(format!("{job_dir}/{file_name}"), serialized)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to write WAC checkpoint for {job_id}: {e}"))
+        })?;
+    Ok(file_name)
+}
+
+/// Act on one `wm_res[wac]:` round.
+///
+/// `Ok(None)` means the round suspended — dispatched children, asked for an approval, went
+/// to sleep, or checkpointed inline — and the job must be left in the queue rather than
+/// completed. Any other outcome is the workflow's final result.
+pub async fn handle_dedicated_wac_result(
+    db: &DB,
+    job: &windmill_queue::MiniPulledJob,
+    result: Box<RawValue>,
+) -> error::Result<Option<Box<RawValue>>> {
+    let conn = windmill_common::worker::Connection::Sql(db.clone());
+    match crate::bun_executor::handle_wac_v2_output(result, job, &conn, &None, None).await {
+        Ok(result) => Ok(Some(result)),
+        Err(Error::WacSuspended(reason)) => {
+            tracing::info!(job_id = %job.id, "{reason}");
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Drop the file `write_dedicated_checkpoint` left behind. A dedicated job dir outlives every
+/// job that passes through it, so a workflow's checkpoints would otherwise accumulate there.
+pub async fn remove_dedicated_checkpoint(job_id: &Uuid, job_dir: &str) {
+    let path = format!("{job_dir}/wac_ckpt_{job_id}.json");
+    if let Err(e) = tokio::fs::remove_file(&path).await {
+        tracing::debug!("could not remove WAC checkpoint {path}: {e}");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
