@@ -1009,7 +1009,65 @@ pub fn check_az_account_name_workspace_restriction(
     Ok(())
 }
 
-pub const DEFAULT_STORAGE: &str = "_default_";
+/// The `&storage=` fragment of a presigned s3 signature's HMAC message. `_default_` and an unset
+/// storage name the same storage and must fold to the same fragment: a signature minted for one
+/// is redeemed through a URL carrying the other, and a disagreement between signer and validator
+/// surfaces only as `Invalid signature`. Both must build the message through this.
+pub fn s3_signature_storage_fragment(storage: Option<&str>) -> String {
+    match storage.filter(|s| *s != DEFAULT_STORAGE) {
+        Some(name) => format!("&storage={name}"),
+        None => String::new(),
+    }
+}
+
+/// Error for a workspace file-storage lookup that resolved to nothing. Naming the requested
+/// storage separates the two causes — a name this workspace has no storage for, versus a
+/// workspace with no storage configured at all — which the reader cannot otherwise tell apart.
+/// The wording stays neutral about where the name came from: callers pass an s3 object's
+/// `storage`, a request field, or a trigger's stored config.
+///
+/// The asset previewer renders "this object has not been written yet" for a 404, and for any
+/// other non-400 whose body contains "not found" (`S3FilePreview.svelte`, `isNotFoundError`).
+/// So the named variant must stay a **400** — its message echoes a caller-supplied name, which
+/// may itself contain "not found" — and the unnamed one must keep a message that does not.
+pub fn workspace_storage_not_found(storage: Option<&str>) -> error::Error {
+    match workspace_storage_not_found_message(storage) {
+        Some(msg) => error::Error::BadRequest(msg),
+        None => error::Error::InternalErr(
+            "No files storage resource defined at the workspace level".to_string(),
+        ),
+    }
+}
+
+/// [`workspace_storage_not_found`] for a caller whose storage name comes from stored
+/// configuration rather than from the request — a trigger's static-asset config, say. Same
+/// message, but a server-side class: the requester cannot correct a name they never supplied.
+///
+/// Not for any route the asset previewer reads: this is the 500-with-an-interpolated-name shape
+/// that `isNotFoundError` falls through to its "not found" substring test for, so a storage
+/// named `archive not found` would render there as "asset not yet materialized".
+#[track_caller]
+pub fn workspace_storage_misconfigured(storage: Option<&str>) -> error::Error {
+    // `internal_err` on both arms: it is `#[track_caller]`, so the `@file:line` stamp lands on
+    // the handler that misconfigured the storage rather than on this helper.
+    error::Error::internal_err(
+        workspace_storage_not_found_message(storage).unwrap_or_else(|| {
+            "No files storage resource defined at the workspace level".to_string()
+        }),
+    )
+}
+
+/// `None` when the request named no storage (or named the primary one), so the caller reports
+/// the workspace as having no storage configured at all.
+fn workspace_storage_not_found_message(storage: Option<&str>) -> Option<String> {
+    storage.filter(|s| *s != DEFAULT_STORAGE).map(|name| {
+        format!(
+            "No files storage named '{name}' is defined at the workspace level. A storage name \
+             must be one of this workspace's secondary storages, or `{DEFAULT_STORAGE}` \
+             (equivalently, nothing at all) for the primary one."
+        )
+    })
+}
 
 pub fn bundle(w_id: &str, hash: &str) -> String {
     format!("script_bundle/{}/{}", w_id, hash)
