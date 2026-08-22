@@ -622,7 +622,7 @@ async fn write_lines(
 /// Handle a real-time WAC step start marker emitted via stdout.
 /// Writes a timeline entry (with started_at but no duration_ms) to workflow_as_code_status
 /// so the frontend can show the step immediately while it's still running.
-async fn handle_wac_step_marker(
+pub(crate) async fn handle_wac_step_marker(
     conn: &Connection,
     job_id: &Uuid,
     json_str: &str,

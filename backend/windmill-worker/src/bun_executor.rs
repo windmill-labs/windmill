@@ -155,6 +155,8 @@ pub struct TsScriptEntry<'a> {
     pub import_name: &'a str,
     pub original_path: &'a str,
     pub codegen: &'a TsScriptCodegen,
+    /// Workflow-as-code entrypoint: reached through `execd_wac:` rather than `main`.
+    pub is_wac: bool,
 }
 
 /// Generate a wrapper for dedicated workers and runner groups.
@@ -164,6 +166,9 @@ pub struct TsScriptEntry<'a> {
 ///   execd_preprocess:<json_args>    -> preprocess + execute the single registered script
 ///   exec:<path>:<json_args>         -> execute script by path (runner groups with multiple scripts)
 ///   exec_preprocess:<path>:<json>   -> preprocess + execute script by path
+///   execd_wac:<job_id>:<ckpt_file>:<json_args>
+///                                   -> run one workflow-as-code round for the single
+///                                      registered script, answering `wm_res[wac]:`
 ///   end                             -> exit
 #[cfg(any(feature = "private", test))]
 pub fn generate_multi_script_wrapper(scripts: &[TsScriptEntry<'_>], ext: &str) -> String {
@@ -173,6 +178,8 @@ pub fn generate_multi_script_wrapper(scripts: &[TsScriptEntry<'_>], ext: &str) -
     } else {
         ""
     };
+
+    let any_wac = scripts.iter().any(|e| e.is_wac);
 
     let imports: String = scripts
         .iter()
@@ -185,6 +192,16 @@ pub fn generate_multi_script_wrapper(scripts: &[TsScriptEntry<'_>], ext: &str) -
         })
         .collect::<Vec<_>>()
         .join("\n");
+
+    // Only pulled in for a workflow: a plain dedicated script need not have
+    // windmill-client installed at all, and an unconditional import would fail its
+    // subprocess at startup.
+    let wac_imports = if any_wac {
+        r#"import { WorkflowCtx, StepSuspend, setWorkflowCtx, setClient } from "windmill-client";
+import * as _wacFs from "node:fs/promises";"#
+    } else {
+        ""
+    };
 
     // Generate per-script getArgs / getPreArgs functions
     let mut functions = String::new();
@@ -221,15 +238,157 @@ function getPreArgs_{i}(line) {{
             "null".to_string()
         };
 
+        // A workflow's params sit on the function `workflow()` wraps, which the signature
+        // parser often cannot reach; with no names to destructure, positional values are
+        // all that is left. Same fallback the per-job WAC wrapper uses.
+        let wac_fn = if entry.is_wac {
+            let wac_spread = if spread.is_empty() {
+                "Object.values(args)".to_string()
+            } else {
+                format!("[ {spread} ]")
+            };
+            let destructure = if spread.is_empty() {
+                "".to_string()
+            } else {
+                format!("let {{ {spread} }} = args;")
+            };
+            functions.push_str(&format!(
+                r#"
+function getWacArgs_{i}(line) {{
+    let args = JSON.parse(line);
+    {destructure}
+    {dates}
+    return {wac_spread};
+}}
+
+function getWorkflow_{i}() {{
+    let fn = _s{i}.default;
+    if (!fn || !fn._is_workflow) {{
+        for (const key of Object.keys(_s{i})) {{
+            if (_s{i}[key]?._is_workflow) {{
+                fn = _s{i}[key];
+                break;
+            }}
+        }}
+    }}
+    if (!fn) {{
+        throw new Error("No workflow() entrypoint found. Wrap your main function with workflow().");
+    }}
+    return fn;
+}}
+"#
+            ));
+            format!("getWacArgs: getWacArgs_{i}, getWorkflow: getWorkflow_{i}")
+        } else {
+            "getWacArgs: null, getWorkflow: null".to_string()
+        };
+
         registrations.push_str(&format!(
-            "scripts.set(\"{path}\", {{ module: _s{i}, getArgs: getArgs_{i}, getPreArgs: {pre_fn} }});\n",
+            "scripts.set(\"{path}\", {{ module: _s{i}, getArgs: getArgs_{i}, getPreArgs: {pre_fn}, {wac_fn} }});\n",
             path = entry.original_path,
         ));
     }
 
+    // `_takePendingStepFailure` / `_takePendingSuspend` hand back what the workflow body
+    // caught and swallowed; honour them instead of reporting a `complete`. Optional: npm
+    // clients may predate them.
+    let wac_runner = if any_wac {
+        r#"
+async function runWac(entry, jobId, jobToken, checkpointPath, argsJson) {
+    const checkpoint = JSON.parse(await _wacFs.readFile(checkpointPath, { encoding: "utf8" }));
+    // The SDK reads job identity from the environment on every call, and a dedicated
+    // subprocess is started once with a placeholder. Each round has to lend it its own —
+    // the token included: the inline-checkpoint endpoint accepts only the token issued to
+    // that exact job, and the worker's own token is rejected with a 403.
+    const prevJobId = process.env.WM_JOB_ID;
+    const prevToken = process.env.WM_TOKEN;
+    process.env.WM_JOB_ID = jobId;
+    process.env.WM_TOKEN = jobToken;
+    setClient();
+    const ctx = new WorkflowCtx(checkpoint);
+    setWorkflowCtx(ctx);
+    try {
+        const result = await entry.getWorkflow()(...entry.getWacArgs(argsJson));
+        setWorkflowCtx(null);
+        const failed = ctx._takePendingStepFailure?.();
+        if (failed) {
+            throw failed.error;
+        }
+        const swallowed = ctx._takePendingSuspend?.();
+        if (swallowed) {
+            throw swallowed;
+        }
+        const trailing = ctx._flushPending();
+        if (trailing.length > 0) {
+            return { type: "dispatch", mode: trailing.length > 1 ? "parallel" : "sequential", steps: trailing };
+        }
+        return { type: "complete", result: result ?? null };
+    } catch (e) {
+        setWorkflowCtx(null);
+        if (e?.name === "StepSuspend" || e instanceof StepSuspend) {
+            const dispatch = e.dispatchInfo ?? e.dispatch_info ?? {};
+            if (dispatch.mode === "step_complete") {
+                return { type: "complete", result: dispatch.result ?? null };
+            }
+            if (dispatch.mode === "inline_checkpoint") {
+                return { type: "inline_checkpoint", key: dispatch.key, result: dispatch.result ?? null, started_at: dispatch.started_at, duration_ms: dispatch.duration_ms };
+            }
+            if (dispatch.mode === "approval") {
+                return { type: "approval", key: dispatch.key, timeout: dispatch.timeout, form: dispatch.form, self_approval_disabled: dispatch.self_approval_disabled };
+            }
+            if (dispatch.mode === "sleep") {
+                return { type: "sleep", key: dispatch.key, seconds: dispatch.seconds };
+            }
+            return { type: "dispatch", mode: dispatch.mode ?? "sequential", steps: dispatch.steps ?? [] };
+        }
+        const failed = ctx._takePendingStepFailure?.();
+        if (failed) {
+            throw failed.error;
+        }
+        throw e;
+    } finally {
+        process.env.WM_JOB_ID = prevJobId;
+        process.env.WM_TOKEN = prevToken;
+        setClient();
+    }
+}
+"#
+    } else {
+        ""
+    };
+
+    let wac_command = if any_wac {
+        r#"
+    if (line.startsWith("execd_wac:")) {
+        const rest = line.slice("execd_wac:".length);
+        const idEnd = rest.indexOf(":");
+        const jobId = rest.slice(0, idEnd);
+        const afterId = rest.slice(idEnd + 1);
+        const tokenEnd = afterId.indexOf(":");
+        const jobToken = afterId.slice(0, tokenEnd);
+        const afterToken = afterId.slice(tokenEnd + 1);
+        const ckptEnd = afterToken.indexOf(":");
+        const checkpointPath = afterToken.slice(0, ckptEnd);
+        const argsJson = afterToken.slice(ckptEnd + 1);
+        const entry = scripts.values().next().value;
+
+        try {
+            const output = await runWac(entry, jobId, jobToken, checkpointPath, argsJson);
+            console.log("wm_res[wac]:" + JSON.stringify(output, (key, value) => typeof value === 'undefined' ? null : value));
+        } catch (e) {
+            console.log("wm_res[error]:" + JSON.stringify({ message: e.message, name: e.name, stack: e.stack, line: argsJson }));
+        }
+        continue;
+    }
+"#
+    } else {
+        ""
+    };
+
     format!(
         r#"
 {imports}
+{wac_imports}
 import * as Readline from "node:readline"
 
 BigInt.prototype.toJSON = function () {{
@@ -239,6 +398,7 @@ BigInt.prototype.toJSON = function () {{
 const scripts = new Map();
 {functions}
 {registrations}
+{wac_runner}
 
 console.log('start');
 
@@ -248,6 +408,7 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
     if (line === "end") {{
         process.exit(0);
     }}
+{wac_command}
 
     // Direct execution: single-script dedicated workers (no path needed)
     if (line.startsWith("execd_preprocess:")) {{
@@ -2962,9 +3123,8 @@ pub async fn handle_wac_v2_output(
                                     version: flow_info.version,
                                     labels: flow_info.labels.clone(),
                                 };
-                                let on_behalf_of = flow_info
-                                    .on_behalf_of(&job.workspace_id, db)
-                                    .await?;
+                                let on_behalf_of =
+                                    flow_info.on_behalf_of(&job.workspace_id, db).await?;
                                 let step_args: HashMap<String, Box<RawValue>> = step
                                     .args
                                     .iter()
@@ -4075,20 +4235,26 @@ pub async fn start_worker(
         .await?;
     }
 
-    let main_code = remove_pinned_imports(inner_content)?;
+    let is_wac = crate::wac_executor::is_wac_v2_ts(inner_content);
+    // Step keys are derived from the variable a `task()` is assigned to, and the checkpoint
+    // is addressed by those keys. Skipping the rewrite here would name every step
+    // differently from what the per-job executor produced for the same source.
+    let main_code = if is_wac {
+        remove_pinned_imports(&crate::wac_executor::inject_wac_task_names(inner_content))?
+    } else {
+        remove_pinned_imports(inner_content)?
+    };
     let _ = write_file(job_dir, "main.ts", &main_code)?;
 
     let codegen = compute_ts_codegen(inner_content);
     let wrapper_ext = if codebase.is_some() { "js" } else { "ts" };
     {
-        let scripts =
-            [
-                TsScriptEntry {
-                    import_name: "main",
-                    original_path: script_path,
-                    codegen: &codegen,
-                },
-            ];
+        let scripts = [TsScriptEntry {
+            import_name: "main",
+            original_path: script_path,
+            codegen: &codegen,
+            is_wac,
+        }];
         let wrapper_content = generate_multi_script_wrapper(&scripts, wrapper_ext);
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
@@ -4151,6 +4317,7 @@ pub async fn start_worker(
             "nodejs",
             client,
             false,
+            is_wac,
             concurrency_semaphore,
         )
         .await
@@ -4181,6 +4348,7 @@ pub async fn start_worker(
             "bun",
             client,
             false,
+            is_wac,
             concurrency_semaphore,
         )
         .await
@@ -4358,8 +4526,12 @@ export function preprocessor(input: string, when: Date) { return { x: input, ts:
     fn test_wrapper_contains_execd_protocol() {
         let code = r#"export function main(x: number) { return x; }"#;
         let cg = compute_ts_codegen(code);
-        let scripts =
-            vec![TsScriptEntry { import_name: "main", original_path: "test/script", codegen: &cg }];
+        let scripts = vec![TsScriptEntry {
+            import_name: "main",
+            original_path: "test/script",
+            codegen: &cg,
+            is_wac: false,
+        }];
         let wrapper = generate_multi_script_wrapper(&scripts, "ts");
         // Single-script wrapper must support execd: (direct, no path)
         assert!(wrapper.contains(r#"line.startsWith("execd:")"#));
@@ -4374,8 +4546,12 @@ export function preprocessor(input: string, when: Date) { return { x: input, ts:
         let code = r#"export function preprocessor(x: number) { return { x }; }
 export function main(x: number) { return x; }"#;
         let cg = compute_ts_codegen(code);
-        let scripts =
-            vec![TsScriptEntry { import_name: "main", original_path: "test/script", codegen: &cg }];
+        let scripts = vec![TsScriptEntry {
+            import_name: "main",
+            original_path: "test/script",
+            codegen: &cg,
+            is_wac: false,
+        }];
         let wrapper = generate_multi_script_wrapper(&scripts, "ts");
         assert!(wrapper.contains(r#"line.startsWith("execd_preprocess:")"#));
         assert!(wrapper.contains(r#"line.startsWith("execd:")"#));

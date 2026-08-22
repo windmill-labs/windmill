@@ -811,6 +811,7 @@ pub async fn start_worker(
         "deno",
         client,
         false,
+        false, // deno's executor has no WAC runner
         concurrency_semaphore,
     )
     .await
