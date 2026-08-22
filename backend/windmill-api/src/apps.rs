@@ -2134,6 +2134,44 @@ fn custom_path_conflict_error(
     }
 }
 
+/// A raw app's `value.files` paths and `value.runnables` ids both become on-disk
+/// paths a puller writes under the app folder (`wmill sync pull`): file keys are
+/// app-root-relative paths, runnable ids name `<backend>/<id>.yaml`. A `..`
+/// segment in either resolves outside that folder, so reject it at deploy time:
+/// a pulled file must stay within its own app's folder.
+///
+/// Validate the value as it will be *stored and later read*, not as it arrived:
+/// the INSERT strips NUL escapes (a `/..\u0000/` key becomes `/../` on disk) and
+/// a puller parses with last-duplicate-wins JSON semantics. Mirror both — strip
+/// first, then parse to `serde_json::Value` — so a key that looks safe on the
+/// wire but is unsafe once stored cannot slip past.
+fn validate_raw_app_path_keys(value: &RawValue) -> Result<()> {
+    let stored = strip_json_nul(value.get());
+    // Fail closed on a value we can't parse: `Box<RawValue>` accepts JSON nested
+    // past serde's recursion limit while `Value` does not, so a value that fails
+    // here could hide a traversal key in a part we never inspected.
+    let parsed: serde_json::Value = serde_json::from_str(&stored)
+        .map_err(|e| Error::BadRequest(format!("raw app value could not be validated: {e}")))?;
+    for map in ["files", "runnables"] {
+        let Some(entries) = parsed.get(map).and_then(|f| f.as_object()) else {
+            continue;
+        };
+        for key in entries.keys() {
+            // Mirror the CLI's write: it strips one leading `/` and joins the rest
+            // under the app folder. Any `..` segment (either separator, since a
+            // checkout can be pulled on Windows) escapes it.
+            let rel = key.strip_prefix('/').unwrap_or(key);
+            if rel.split(['/', '\\']).any(|seg| seg == "..") {
+                return Err(Error::BadRequest(format!(
+                    "raw app {map} path {key:?} is not allowed: keys must stay within \
+                     the app folder and cannot contain '..' segments"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn create_app_internal<'a>(
     authed: ApiAuthed,
     db: sqlx::Pool<sqlx::Postgres>,
@@ -2147,6 +2185,9 @@ async fn create_app_internal<'a>(
     // denied app committed in the DB.
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
     validate_frontend_sdk_scopes(&app.policy)?;
+    if raw_app {
+        validate_raw_app_path_keys(&app.value.0)?;
+    }
     if *CLOUD_HOSTED {
         let nb_apps =
             sqlx::query_scalar!("SELECT COUNT(*) FROM app WHERE workspace_id = $1", &w_id)
@@ -3087,6 +3128,12 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
+    }
+
+    if raw_app {
+        if let Some(value) = ns.value.as_ref() {
+            validate_raw_app_path_keys(&value.0)?;
+        }
     }
 
     // Reject a forged superadmin run identity in a preserved policy. Mirror the
@@ -5723,5 +5770,99 @@ mod policy_tests {
         let p: Policy = serde_json::from_str(r#"{"execution_mode": "anonymous"}"#).unwrap();
         assert_eq!(p.execution_mode(), ExecutionMode::Anonymous);
         assert_eq!(p.stated_execution_mode(), Some(ExecutionMode::Anonymous));
+    }
+}
+
+#[cfg(test)]
+mod raw_app_file_key_tests {
+    use super::validate_raw_app_path_keys;
+    use serde_json::value::RawValue;
+
+    fn value_with_files(files: &str) -> Box<RawValue> {
+        RawValue::from_string(format!(r#"{{"runnables":{{}},"files":{files}}}"#)).unwrap()
+    }
+
+    #[test]
+    fn accepts_app_root_relative_keys() {
+        let v = value_with_files(r#"{"/index.tsx":"x","/src/util.ts":"y","/package.json":"{}"}"#);
+        validate_raw_app_path_keys(&v).expect("legit keys must be accepted");
+    }
+
+    #[test]
+    fn rejects_traversal_keys() {
+        // Each resolves outside the app folder when a puller joins it under the
+        // app folder on `sync pull`.
+        for files in [
+            r#"{"/index.tsx":"x","/../sibling.ts":"y"}"#,
+            r#"{"/../../../f/other/outside.ts":"y"}"#,
+            r#"{"/../../../../../../elsewhere.txt":"y"}"#,
+            r#"{"/src/../../escape.ts":"y"}"#,
+            r#"{"/win\\..\\..\\escape.ts":"y"}"#,
+        ] {
+            let v = value_with_files(files);
+            assert!(
+                validate_raw_app_path_keys(&v).is_err(),
+                "traversal key must be rejected: {files}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_traversal_in_runnable_ids() {
+        // A runnable id names its yaml file, so it is a write path too.
+        let v = RawValue::from_string(
+            r#"{"files":{"/index.tsx":"x"},"runnables":{"../../../../etc/evil":{}}}"#.to_string(),
+        )
+        .unwrap();
+        assert!(
+            validate_raw_app_path_keys(&v).is_err(),
+            "a runnable id with a `..` segment must be rejected"
+        );
+    }
+
+    #[test]
+    fn ignores_values_without_a_files_object() {
+        // A low-code app value has no `files` map to police; validation is a no-op.
+        let v = RawValue::from_string(r#"{"grid":[]}"#.to_string()).unwrap();
+        validate_raw_app_path_keys(&v).expect("no `files` means nothing to reject");
+    }
+
+    #[test]
+    fn rejects_value_too_nested_to_inspect() {
+        // `Box<RawValue>` accepts JSON nested past serde's recursion limit, but the
+        // validator's `Value` parse does not: a value it can't fully inspect must
+        // be refused, not accepted, or a traversal key could ride in unseen.
+        let deep = format!("{}{}", "[".repeat(300), "]".repeat(300));
+        let v =
+            RawValue::from_string(format!(r#"{{"files":{{"/ok.ts":"x"}},"d":{deep}}}"#)).unwrap();
+        assert!(
+            validate_raw_app_path_keys(&v).is_err(),
+            "a value too deeply nested to parse must be rejected"
+        );
+    }
+
+    #[test]
+    fn rejects_nul_that_becomes_traversal_once_stored() {
+        // `/..\u0000/escape.ts` has no literal `..` segment on the wire, but the
+        // NUL is stripped before storage, leaving `/../escape.ts` for a puller.
+        let v = value_with_files(r#"{"/..\u0000/escape.ts":"y"}"#);
+        assert!(
+            validate_raw_app_path_keys(&v).is_err(),
+            "a key that becomes a traversal after NUL-stripping must be rejected"
+        );
+    }
+
+    #[test]
+    fn rejects_last_of_duplicate_files_fields() {
+        // A puller's JSON parse keeps the last duplicate field; validation must
+        // look at that one, not fail open because the value has two `files`.
+        let v = RawValue::from_string(
+            r#"{"runnables":{},"files":{"/ok.ts":"x"},"files":{"/../evil.ts":"y"}}"#.to_string(),
+        )
+        .unwrap();
+        assert!(
+            validate_raw_app_path_keys(&v).is_err(),
+            "the last of duplicate `files` fields must be validated"
+        );
     }
 }

@@ -1113,6 +1113,31 @@ async function pushFilesetParentResource(
   return { status: "pushed", resourceFilePath };
 }
 
+/**
+ * Join a raw app's author-controlled key (`value.files` path, `value.runnables`
+ * id) under `baseFolder` and refuse anything that resolves outside it. Keys are
+ * remote data written to disk on pull, so a `..` segment must not walk a written
+ * file out of the app's own folder.
+ */
+export function rawAppPathWithinFolder(
+  baseFolder: string,
+  relPath: string,
+): string {
+  const resolved = path.join(baseFolder, relPath);
+  const rel = path.relative(baseFolder, resolved);
+  if (
+    rel === "" ||
+    rel === ".." ||
+    rel.startsWith(".." + path.sep) ||
+    path.isAbsolute(rel)
+  ) {
+    throw new Error(
+      `raw app path ${JSON.stringify(relPath)} escapes the app folder ${baseFolder}`,
+    );
+  }
+  return resolved;
+}
+
 function ZipFSElement(
   zip: JSZip,
   useYaml: boolean,
@@ -1408,9 +1433,17 @@ function ZipFSElement(
                 ) {
                   continue;
                 }
+                // Strip only a leading `/` (keys are app-root-relative), so the
+                // relative path handed to the guard matches what the backend's
+                // `strip_prefix('/')` validates — the two must not disagree on a
+                // non-`/` key, or a deploy the backend allows would abort the pull.
+                const filePathInApp = rawAppPathWithinFolder(
+                  finalPath,
+                  filePath.replace(/^\//, ""),
+                );
                 yield {
                   isDirectory: false,
-                  path: path.join(finalPath, filePath.substring(1)),
+                  path: filePathInApp,
                   async *getChildren() {},
                   async getContentText() {
                     if (typeof content !== "string") {
@@ -1508,9 +1541,10 @@ function ZipFSElement(
 
               yield {
                 isDirectory: false,
-                path: path.join(
-                  finalPath,
-                  APP_BACKEND_FOLDER,
+                // The runnable id is app-author-controlled and names its file, so
+                // keep it inside the backend folder the same way `files` keys are.
+                path: rawAppPathWithinFolder(
+                  path.join(finalPath, APP_BACKEND_FOLDER),
                   `${runnableId}.yaml`,
                 ),
                 async *getChildren() {},
