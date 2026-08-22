@@ -46,7 +46,7 @@ use windmill_common::{
     utils::{create_directory_async, WarnAfterExt},
     worker::{
         is_allowed_file_location, make_pull_query, write_file, Connection, HttpClient,
-        EXIT_AFTER_N_JOBS, MAX_TIMEOUT, MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR,
+        EXIT_AFTER_N_JOBS, MIN_PERIODIC_SCRIPT_INTERVAL_SECONDS, ROOT_CACHE_DIR,
         ROOT_CACHE_NOMOUNT_DIR, WINDMILL_DIR,
     },
     worker_group_job_stats::JobStatsMap,
@@ -679,9 +679,6 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or_else(|| 5);
-
-    pub static ref MAX_TIMEOUT_DURATION: Duration = Duration::from_secs(*MAX_TIMEOUT);
-
 
     pub static ref GLOBAL_CACHE_INTERVAL: u64 = std::env::var("GLOBAL_CACHE_INTERVAL")
         .ok()
@@ -2124,7 +2121,10 @@ pub fn log_context_for_job(
         flow_step_id: arc_job.flow_step_id.clone(),
         parent_job: arc_job.parent_job.map(|id| id.to_string()),
         root_job: arc_job.flow_innermost_root_job.map(|id| id.to_string()),
-        trigger_kind: arc_job.trigger_kind.as_ref().map(|k| k.as_str().to_string()),
+        trigger_kind: arc_job
+            .trigger_kind
+            .as_ref()
+            .map(|k| k.as_str().to_string()),
         trigger: arc_job.trigger.clone(),
         hostname: hostname.map(|h| h.to_string()),
         inbound_traceparent: job_inbound_traceparent(arc_job),
