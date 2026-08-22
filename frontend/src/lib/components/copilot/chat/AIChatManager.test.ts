@@ -4,6 +4,7 @@ import type { PipelineAIChatHelpers } from './pipeline/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
+import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import { chatState } from './sharedChatState.svelte'
@@ -1798,6 +1799,72 @@ describe('AIChatManager queued messages', () => {
 		// clean handoff: queued message sent, cancelled prompt NOT shoved back in
 		expect(manager.queuedMessage).toBe('')
 		expect(input.restoreInstructions).not.toHaveBeenCalled()
+	})
+
+	it('checkpoints a turn to history when the page is hidden mid-generation', async () => {
+		// This suite runs under the node env, so stand up the minimum document the
+		// manager needs to hear the page going away.
+		const leavePage = new Set<() => void>()
+		vi.stubGlobal('document', {
+			visibilityState: 'hidden',
+			addEventListener: (_: string, fn: () => void) => leavePage.add(fn),
+			removeEventListener: (_: string, fn: () => void) => leavePage.delete(fn)
+		})
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		const toolCall = (id: string, name: string) => ({
+			role: 'assistant' as const,
+			content: '',
+			tool_calls: [{ id, type: 'function' as const, function: { name, arguments: '{}' } }]
+		})
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// One completed round-trip, then a call still waiting on the user.
+			config.addedMessages.push(
+				toolCall('t1', 'write_script'),
+				{ role: 'tool', tool_call_id: 't1', content: 'created' },
+				toolCall('t2', 'test_run_script')
+			)
+			config.callbacks.setToolStatus('t2', {
+				content: 'Waiting for confirmation...',
+				isLoading: true,
+				needsConfirmation: true
+			})
+			leavePage.forEach((fn) => fn())
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages.push({ role: 'tool', tool_call_id: 't2', content: 'ran' }, message)
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'write and run a script' })
+
+		const [display, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		// The unanswered t2 call is cut: persisting it would make the next request
+		// 400 on a dangling tool call.
+		expect(actual.map((m) => m.role)).toEqual(['user', 'assistant', 'tool'])
+		// Its card is kept but settled, so reopening the chat doesn't restore a
+		// confirmation prompt with nothing behind it.
+		expect(display.find((m) => m.role === 'tool' && m.tool_call_id === 't2')).toMatchObject({
+			isLoading: false,
+			needsConfirmation: false,
+			error: 'Interrupted'
+		})
+		// The turn itself is untouched by the checkpoint and still commits in full.
+		expect(manager.messages.map((m) => m.role)).toEqual([
+			'user',
+			'assistant',
+			'tool',
+			'assistant',
+			'tool',
+			'assistant'
+		])
+		vi.unstubAllGlobals()
 	})
 
 	it('restores consumed DOM selector chips when a turn is cancelled before output', async () => {

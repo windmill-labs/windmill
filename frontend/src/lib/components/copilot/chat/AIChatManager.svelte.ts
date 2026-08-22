@@ -159,6 +159,11 @@ function prefersInstantReveal(): boolean {
 // schema changes from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
 const COMPACTION_TARGET_RATIO = 0.7
+// How often a running turn is offered to the mid-turn checkpoint (see
+// sendRequest). The whole transcript is rewritten on each accepted checkpoint,
+// so this bounds the write rate; it also bounds how much of a turn a tab
+// closed without warning can lose.
+const CHECKPOINT_INTERVAL_MS = 2000
 // Flat per-image token estimate for a downscaled (≤1568px) vision image. Used instead
 // of chars/4 on the base64 data URL, which would overcount by ~50x.
 const IMAGE_TOKEN_ESTIMATE = 1200
@@ -2258,16 +2263,16 @@ export class AIChatManager {
 		}
 	}
 
-	// Commit an interrupted turn's usable output as context for a follow-up:
-	// the tool-paired prefix of completed steps (a dangling tool call would
-	// make providers reject the next request) plus the partial answer text.
-	// A reasoning-only interrupt instead drops its stuck-open bubble.
-	private commitInterruptedTurn = (
+	// The transcript an interrupted turn leaves behind: the stored history, the
+	// tool-paired prefix of the turn's completed steps (a dangling tool call
+	// would make providers reject the next request), and the partial answer text
+	// when it isn't already inside that prefix. Pure — the caller decides whether
+	// this becomes the live transcript or only a persisted checkpoint.
+	private interruptedTurnMessages = (
 		collectedMessages: ChatCompletionMessageParam[],
 		partialReply: string
-	) => {
+	): { messages: ChatCompletionMessageParam[]; keptPartialReply: boolean } => {
 		const prefix = truncateToToolPairedPrefix(collectedMessages)
-		this.messages = [...this.messages, ...prefix]
 		// partialReply can be stale — equal to text already committed inside the
 		// prefix (see its capture in onMessageEnd) — so only append when new.
 		const lastCommittedText = [...prefix]
@@ -2276,9 +2281,27 @@ export class AIChatManager {
 				(m): m is ChatCompletionMessageParam & { content: string } =>
 					m.role === 'assistant' && typeof m.content === 'string' && !!m.content.trim()
 			)?.content
-		if (partialReply.trim() && partialReply !== lastCommittedText) {
-			this.messages = [...this.messages, { role: 'assistant', content: partialReply }]
-		} else {
+		const keptPartialReply = !!partialReply.trim() && partialReply !== lastCommittedText
+		return {
+			messages: keptPartialReply
+				? [...this.messages, ...prefix, { role: 'assistant', content: partialReply }]
+				: [...this.messages, ...prefix],
+			keptPartialReply
+		}
+	}
+
+	// Commit an interrupted turn's usable output as context for a follow-up.
+	// A reasoning-only interrupt instead drops its stuck-open bubble.
+	private commitInterruptedTurn = (
+		collectedMessages: ChatCompletionMessageParam[],
+		partialReply: string
+	) => {
+		const { messages, keptPartialReply } = this.interruptedTurnMessages(
+			collectedMessages,
+			partialReply
+		)
+		this.messages = messages
+		if (!keptPartialReply) {
 			const last = this.displayMessages[this.displayMessages.length - 1]
 			if (last?.role === 'assistant' && !last.content.trim() && !!last.reasoning) {
 				this.displayMessages = this.displayMessages.slice(0, -1)
@@ -2977,6 +3000,53 @@ export class AIChatManager {
 		// that never became one.
 		const collectedMessages: ChatCompletionMessageParam[] = []
 		let partialReply = ''
+		// A turn's output only reaches history when the turn ends, so a tab closed or
+		// reloaded mid-turn would lose every step it had already taken. Persist what
+		// has landed so far WITHOUT committing it: the outcome branches below still
+		// need `this.messages` unmodified to roll the turn back. Whatever the
+		// outcome, their own save overwrites the last checkpoint.
+		let checkpointedShape = ''
+		const checkpointTurn = async (force = false) => {
+			// Polled, but written only when the turn actually advanced — a message
+			// collected, or a card appearing (a tool starting, a confirmation staged).
+			// So an answer streaming for minutes and a turn parked on a confirmation
+			// both cost nothing, and the write rate follows steps taken, not time.
+			const shape = `${collectedMessages.length}:${this.displayMessages.length}`
+			if (!force && shape === checkpointedShape) return
+			// currentReply holds the answer text streaming right now; partialReply is
+			// the last text onMessageEnd flushed (already inside the prefix unless the
+			// turn ended on it), so it only stands in when nothing is streaming.
+			const { messages } = this.interruptedTurnMessages(
+				collectedMessages,
+				this.currentReply || partialReply
+			)
+			if (messages.length === this.messages.length) return
+			checkpointedShape = shape
+			// Best-effort: the turn-end save is the authoritative one, so a failed
+			// checkpoint must never break the turn it is only shadowing.
+			try {
+				await this.historyManager.saveChat(
+					this.settledToolDisplay(this.displayMessages, 'Interrupted'),
+					messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
+			} catch (e) {
+				console.error('Failed to checkpoint chat mid-turn', e)
+			}
+		}
+		const checkpointTimer = setInterval(() => void checkpointTurn(), CHECKPOINT_INTERVAL_MS)
+		// Leaving the page is the one moment worth a forced write, streamed text and
+		// all. `hidden` precedes pagehide on close, reload and navigation and, unlike
+		// pagehide, still runs a live document — though a navigation can still outrun
+		// the IndexedDB write, which is why the poll above carries the guarantee and
+		// this only narrows the gap. `document` is absent under SSR and the node test
+		// env, where a turn has no page to leave.
+		const hideTarget = typeof document !== 'undefined' ? document : undefined
+		const checkpointOnHide = () => {
+			if (hideTarget?.visibilityState === 'hidden') void checkpointTurn(true)
+		}
+		hideTarget?.addEventListener('visibilitychange', checkpointOnHide)
 		// Once an outcome branch (commit/restore) took over, a later throw (e.g.
 		// from saveChat) must not make the catch commit the turn a second time.
 		let turnOutcomeHandled = false
@@ -3525,6 +3595,8 @@ export class AIChatManager {
 			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
+			clearInterval(checkpointTimer)
+			hideTarget?.removeEventListener('visibilitychange', checkpointOnHide)
 			// Turn teardown: cancel any in-flight reveal frame and drop leftover
 			// backlog. onMessageEnd already flushed on every outcome, so this only
 			// releases the loop; it never discards uncommitted text.
@@ -4104,13 +4176,26 @@ export class AIChatManager {
 		}
 	}
 
-	cancelLoadingTools = (messageText: 'Canceled' | 'Error' = 'Canceled') => {
-		this.displayMessages = this.displayMessages.map((message) => {
+	// In-flight and queued tool cards settled into a terminal state. Persisting
+	// one as-is restores a card that spins forever, and an unanswered question
+	// keeps the composer disabled (see isActiveUserQuestion) with nothing left
+	// running to answer it — so every transcript that outlives its turn goes
+	// through here first.
+	private settledToolDisplay = (
+		messages: DisplayMessage[],
+		messageText: string
+	): DisplayMessage[] =>
+		messages.map((message) => {
 			if (message.role === 'tool' && (message.isLoading || message.isQueued)) {
 				return {
 					...message,
 					isLoading: false,
 					isQueued: false,
+					// Both render live affordances on their own, without consulting
+					// isLoading: a Run/Reject footer for a call nothing is waiting on,
+					// and a card that hides its result as still-streaming.
+					needsConfirmation: false,
+					isStreamingArguments: false,
 					// A question's card disappears once canceled, so keep the question
 					// itself readable in the collapsed header.
 					content: message.userQuestion
@@ -4124,6 +4209,9 @@ export class AIChatManager {
 			}
 			return message
 		})
+
+	cancelLoadingTools = (messageText: 'Canceled' | 'Error' = 'Canceled') => {
+		this.displayMessages = this.settledToolDisplay(this.displayMessages, messageText)
 	}
 }
 
