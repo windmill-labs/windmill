@@ -4773,6 +4773,18 @@ async fn get_encryption_key(
     Path(w_id): Path<String>,
 ) -> JsonResult<GetEncryptionKeyResponse> {
     require_admin(authed.is_admin, &authed.username)?;
+    windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.read_encryption_key",
+        ActionKind::Execute,
+        &w_id,
+        None,
+        None,
+    )
+    .await?;
 
     let encryption_key_opt = sqlx::query_scalar!(
         "SELECT key FROM workspace_key WHERE workspace_id = $1",
@@ -4798,6 +4810,7 @@ async fn set_encryption_key(
     Json(request): Json<SetEncryptionKeyRequest>,
 ) -> Result<()> {
     require_super_admin(&db, &authed).await?;
+    windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
 
     if !WORKSPACE_KEY_REGEXP.is_match(request.new_key.as_str()) {
         return Err(Error::BadRequest(

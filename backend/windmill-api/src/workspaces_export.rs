@@ -638,12 +638,17 @@ pub(crate) async fn tarball_workspace(
     // variable-read capability beyond workspace metadata. Require variables:read
     // only on the plaintext-secret path: ordinary tarball pulls (structure and
     // encrypted-only values) keep working with workspaces:read, and the workspace
-    // key itself stays admin-only (include_key). No-op for unscoped tokens.
-    if plain_secret.or(plain_secrets).unwrap_or(false)
+    // key itself takes an admin *and* an unscoped token (include_key), since it
+    // decrypts those same secrets offline. No-op for unscoped tokens.
+    let export_plain_secrets = plain_secret.or(plain_secrets).unwrap_or(false)
         && !skip_secrets.unwrap_or(false)
-        && !skip_variables.unwrap_or(false)
-    {
+        && !skip_variables.unwrap_or(false);
+    if export_plain_secrets {
         check_scopes(&authed, || "variables:read".to_string())?;
+    }
+    if include_key.unwrap_or(false) {
+        require_admin(authed.is_admin, &authed.username)?;
+        windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
     }
 
     // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
@@ -667,39 +672,6 @@ pub(crate) async fn tarball_workspace(
         None
     };
 
-    let mut tx = user_db.begin(&authed).await?;
-
-    // Exporting decrypted secrets in bulk is the same capability as a per-item
-    // secret read, so record it for parity with variables.decrypt_secret.
-    if plain_secret.or(plain_secrets).unwrap_or(false)
-        && !skip_variables.unwrap_or(false)
-        && !skip_secrets.unwrap_or(false)
-    {
-        windmill_audit::audit_oss::audit_log(
-            &mut *tx,
-            &authed,
-            "variables.decrypt_secret",
-            windmill_audit::ActionKind::Execute,
-            &w_id,
-            Some("workspace_tarball_export"),
-            None,
-        )
-        .await?;
-    }
-
-    // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
-    // The wm-fork-* prefix is a creation-time naming convention that could in
-    // principle drift (rename, manual SQL); the column is the contract that
-    // matches what the conflict-warning gates read. The id is also the workspace
-    // whose trigger `mode` / schedule `enabled` a fork export defers to.
-    let parent_workspace_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
-    )
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
-
     let tmp_dir = TempDir::new_in(&*WINDMILL_DIR)?;
 
     let name = match archive_type.as_deref() {
@@ -722,6 +694,54 @@ pub(crate) async fn tarball_workspace(
         }
         Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
+
+    // Record what the export is about to disclose, once nothing left can reject the
+    // request: an entry written before the gates above would claim a disclosure that
+    // a 403 or an invalid archive type then prevented. On the pool and before the RLS
+    // transaction opens — `tx` is never committed, so a write through it is rolled
+    // back with it, and holding both at once would take two connections.
+    if export_plain_secrets {
+        // Exporting decrypted secrets in bulk is the same capability as a per-item
+        // secret read, so record it for parity with variables.decrypt_secret.
+        windmill_audit::audit_oss::audit_log(
+            &db,
+            &authed,
+            "variables.decrypt_secret",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
+    }
+    if include_key.unwrap_or(false) {
+        windmill_audit::audit_oss::audit_log(
+            &db,
+            &authed,
+            "workspaces.read_encryption_key",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
+    // The wm-fork-* prefix is a creation-time naming convention that could in
+    // principle drift (rename, manual SQL); the column is the contract that
+    // matches what the conflict-warning gates read. The id is also the workspace
+    // whose trigger `mode` / schedule `enabled` a fork export defers to.
+    let parent_workspace_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+    )
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
     {
         let folders = sqlx::query_as::<_, Folder>("SELECT name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels FROM folder WHERE workspace_id = $1")
             .bind(&w_id)
@@ -1680,9 +1700,8 @@ pub(crate) async fn tarball_workspace(
             .await?;
     }
 
+    // Gated in the pre-flight block above: admin plus an unscoped token, audited there.
     if include_key.unwrap_or(false) {
-        require_admin(authed.is_admin, &authed.username)?;
-
         let key = sqlx::query_scalar!(
             "SELECT key FROM workspace_key WHERE workspace_id = $1",
             &w_id
