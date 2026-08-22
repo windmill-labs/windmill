@@ -407,13 +407,14 @@
 
 	/** The dataset is gone and every run of it with it: back to the list, on no dataset. */
 	async function datasetDeleted(path: string) {
+		// A run dialog waiting behind the drawer has nothing to come back to.
+		resumeRunDialog = false
 		if (selectedDataset === path) {
 			viewingRun = false
 			selectedCaseId = undefined
 			experimentId = undefined
 			baselineId = undefined
 			selectedDataset = undefined
-			rememberDataset(undefined)
 			await loadDataset(undefined)
 		}
 		await loadDatasets()

@@ -100,13 +100,9 @@ impl EvalSubject {
             path: self.path.clone(),
             version: self.version,
             draft: None,
-            // A subject read back from a run's own stamp carries the hash and not the draft, so
-            // the existing hash is kept rather than recomputed from nothing.
-            draft_hash: self
-                .draft
-                .as_ref()
-                .map(draft_hash)
-                .or_else(|| self.draft_hash.clone()),
+            // Only ever derived from the draft this request carries: a hash the client supplies on
+            // its own could relabel a run as the deployed version.
+            draft_hash: self.draft.as_ref().map(draft_hash),
         }
     }
 }

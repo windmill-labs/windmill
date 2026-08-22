@@ -683,6 +683,12 @@ mod tests {
         assert!(e.unwrap().contains("100"));
         let (v, _) = settle_verdict(Some(&raw("-5")), Some("success"), None).unwrap();
         assert_eq!(v.score, None);
+        // No result at all once the iteration is over: an error, not a cell pending forever.
+        let (v, e) = settle_verdict(None, Some("success"), None).unwrap();
+        assert_eq!(v.score, None);
+        assert!(e.is_some());
+        // Still running: nothing to settle yet.
+        assert!(settle_verdict(None, None, None).is_none());
     }
 
     /// A scorer saying it has nothing to measure on a case is a verdict rather than a failure: the

@@ -80,7 +80,9 @@
 	let creating = $state(false)
 	let saving = $state(false)
 	/** The drawer is writing the dataset, by either route: nothing may change until it lands. */
-	let writing = $derived(creating || saving || deleting)
+	/** A scorer write in flight: Save would otherwise resend the columns as they were before it. */
+	let scorersWriting = $state(false)
+	let writing = $derived(creating || saving || deleting || scorersWriting)
 	/** The columns chosen while naming a dataset that does not exist yet, sent with the create. */
 	let pendingScorers = $state<Scorer[]>([])
 	/** The drawer's own copy of the cases, which is what the editor edits and what Save writes.
@@ -349,6 +351,7 @@
 					{datasets}
 					bind:pending={pendingScorers}
 					onChanged={onScorersChanged}
+					onWriting={(w) => (scorersWriting = w)}
 				/>
 			</div>
 			<div class="flex flex-col gap-2 grow min-h-0">

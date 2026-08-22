@@ -61,6 +61,7 @@ pub struct EditDataset {
     /// Renames the dataset. Its cases and experiments follow through the foreign keys.
     #[serde(default)]
     pub path: Option<String>,
+    /// Left out to keep the stored summary; sent as `""` to clear it.
     #[serde(default)]
     pub summary: Option<String>,
     /// Left out to keep the dataset's columns as they are; sent to replace them wholesale.

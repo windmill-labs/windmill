@@ -31,7 +31,8 @@
 		dataset,
 		datasets,
 		pending = $bindable(),
-		onChanged
+		onChanged,
+		onWriting
 	}: {
 		workspace: string | undefined
 		/** What to name new runnables after, which a dataset has before it exists. */
@@ -44,6 +45,8 @@
 		 * them to, so they are held here and sent with the dataset that is about to be created. */
 		pending?: Scorer[]
 		onChanged: () => void | Promise<void>
+		/** A write of the columns is in flight: the drawer holding this must not save over it. */
+		onWriting?: (writing: boolean) => void
 	} = $props()
 
 	let scorers = $derived(dataset ? (dataset.scorers ?? []) : (pending ?? []))
@@ -74,15 +77,17 @@
 			return
 		}
 		if (!workspace || !datasetPath) return
-		await AiEvalsService.updateEvalDataset({
-			workspace,
-			path: datasetPath,
-			requestBody: {
-				summary: dataset.summary,
-				scorers: next
-			}
-		})
-		await onChanged()
+		onWriting?.(true)
+		try {
+			await AiEvalsService.updateEvalDataset({
+				workspace,
+				path: datasetPath,
+				requestBody: { scorers: next }
+			})
+			await onChanged()
+		} finally {
+			onWriting?.(false)
+		}
 	}
 
 	function openAdd(kind: ScorerKind, mode: 'new' | 'existing') {

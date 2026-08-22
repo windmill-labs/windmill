@@ -11815,6 +11815,7 @@ paths:
                 summary:
                   type: string
                   maxLength: 1000
+                  description: Left out to keep the stored summary; sent as "" to clear it.
                 scorers:
                   type: array
                   maxItems: 20
