@@ -71,6 +71,8 @@ pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.windows.js");
 
 pub const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
+pub const NODE_EXTERNALS_PLUGIN: &str = include_str!("../node_externals.bun.js");
+
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
 pub const BUN_LOCK_SPLIT: &str = "\n//bun.lock\n";
@@ -870,6 +872,7 @@ pub async fn build_loader(
         .replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_json);
 
     if mode == LoaderMode::Node {
+        let node_externals = NODE_EXTERNALS_PLUGIN.replace("JOB_DIR", &job_dir_js);
         write_file(
             &job_dir,
             "node_builder.ts",
@@ -877,109 +880,7 @@ pub async fn build_loader(
                 r#"
 {loader}
 
-import {{ readdir }} from "node:fs/promises";
-import {{ dirname }} from "node:path";
-import {{ mkdirSync, readFileSync, writeFileSync }} from "node:fs";
-
-let fileNames = []
-try {{
-    fileNames = await readdir("{job_dir_js}/node_modules")
-}} catch (e) {{
-}}
-
-const nodeModulesDir = "{job_dir_js}/node_modules";
-const cjsShimDir = "{job_dir_js}/.wm_node_cjs";
-
-// The shim reaches the package through require(), and the classifier through bun's resolution, so
-// a manifest whose entry depends on which condition asks for it would let the two disagree: "bun"
-// is applied by bun and never by node, and "import"/"require" split node's own two ways in. Only a
-// package that resolves to one entry either way can be classified from bun's resolution at all.
-function entryDependsOnCondition(exports) {{
-    if (Array.isArray(exports)) {{
-        return exports.some(entryDependsOnCondition);
-    }}
-    if (exports && typeof exports === "object") {{
-        return Object.keys(exports).some((key) =>
-            key === "bun" || key === "bun-macro" || key === "import" || key === "require"
-                || entryDependsOnCondition(exports[key]));
-    }}
-    return false;
-}}
-
-// Node only sees the named exports of a CommonJS dependency that cjs-module-lexer finds
-// statically, which fails on packages such as lodash, so leaving those as plain externals breaks
-// `import {{ x }} from "pkg"` and `import * as pkg from "pkg"`. A generated CommonJS shim makes
-// bun synthesize the interop while the package itself is still required at runtime. Only a package
-// proven CommonJS gets one: requiring an ESM entry throws on the node versions without
-// require(esm), so everything else keeps the plain external it had before.
-const shimmable = new Map();
-function isShimmableCjs(specifier) {{
-    if (!shimmable.has(specifier)) {{
-        shimmable.set(specifier, classifyAsCjs(specifier));
-    }}
-    return shimmable.get(specifier);
-}}
-
-function classifyAsCjs(specifier) {{
-    const segments = specifier.split("/");
-    const pkg = specifier.startsWith("@") ? segments.slice(0, 2).join("/") : segments[0];
-    try {{
-        const manifest = JSON.parse(readFileSync(nodeModulesDir + "/" + pkg + "/package.json", "utf8"));
-        if (manifest.bun !== undefined || entryDependsOnCondition(manifest.exports)) {{
-            return false;
-        }}
-        const file = Bun.resolveSync(specifier, "{job_dir_js}");
-        if (file.endsWith(".cjs") || file.endsWith(".node")) {{
-            return true;
-        }}
-        if (file.endsWith(".js")) {{
-            // Same nearest-package.json walk node does to decide how to load a bare .js
-            for (let dir = dirname(file); dir !== dirname(dir); dir = dirname(dir)) {{
-                try {{
-                    return JSON.parse(readFileSync(dir + "/package.json", "utf8")).type !== "module";
-                }} catch (e) {{}}
-            }}
-        }}
-        return false;
-    }} catch (e) {{
-        console.log("could not inspect '" + specifier
-            + "' to pick its module format, leaving it external: " + e);
-        return false;
-    }}
-}}
-
-const cjsShims = new Map();
-function cjsShim(specifier) {{
-    if (!cjsShims.has(specifier)) {{
-        const shim = cjsShimDir + "/" + specifier.replace(/[^a-zA-Z0-9]/g, "_")
-            + "_" + Bun.hash(specifier).toString(36) + ".cjs";
-        mkdirSync(cjsShimDir, {{ recursive: true }});
-        // The local binding is load-bearing: bun collapses a bare `module.exports = require(x)`
-        // back into a passthrough external import, which is the shape that breaks node.
-        writeFileSync(shim, "const mod = require(" + JSON.stringify(specifier) + ");\nmodule.exports = mod;\n");
-        cjsShims.set(specifier, shim);
-    }}
-    return cjsShims.get(specifier);
-}}
-
-const nodeExternals = {{
-    name: "windmill-node-externals",
-    setup(build) {{
-        build.onResolve({{ filter: /^[^./]/ }}, (args) => {{
-            if (args.importer.replace(/\\/g, "/").includes("/.wm_node_cjs/")) {{
-                return {{ path: args.path, external: true }};
-            }}
-            if (!fileNames.includes(args.path.split("/")[0])) {{
-                return undefined;
-            }}
-            if (!isShimmableCjs(args.path)) {{
-                return {{ path: args.path, external: true }};
-            }}
-            return {{ path: cjsShim(args.path) }};
-        }});
-    }},
-}};
-
+{node_externals}
 let result;
 try {{
     result = await Bun.build({{

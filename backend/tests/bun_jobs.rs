@@ -2515,6 +2515,65 @@ export function main(name: string) {
     Ok(())
 }
 
+/// A shimmed package is reached by `require()`, so the shim is only safe when nothing can make
+/// node's `require` land on a different entry than the `import` the classifier looked at. Bun's
+/// own conditions, `import`/`require`, and `--conditions` in the job's NODE_OPTIONS can each do
+/// that, so any condition at all disqualifies a manifest.
+#[test]
+fn test_node_externals_refuses_conditional_exports() {
+    use std::process::Command;
+    use windmill_worker::{BUN_PATH, NODE_EXTERNALS_PLUGIN};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let plugin = NODE_EXTERNALS_PLUGIN.replace("JOB_DIR", &dir.to_string_lossy());
+    std::fs::write(dir.join("externals.js"), plugin).unwrap();
+    std::fs::write(
+        dir.join("probe.js"),
+        r#"
+import { entryDependsOnCondition } from "./externals.js";
+const manifests = JSON.parse(await Bun.file("manifests.json").text());
+console.log(JSON.stringify(manifests.map((m) => entryDependsOnCondition(m))));
+"#,
+    )
+    .unwrap();
+    // Every entry a shimmable package may have, then every way one can vary by condition.
+    let manifests = serde_json::json!([
+        serde_json::Value::Null,
+        "./index.js",
+        { ".": "./index.js" },
+        { ".": { "default": "./index.js" }, "./sub": "./sub.js" },
+        { ".": { "bun": "./bun.js", "default": "./index.js" } },
+        { ".": { "import": "./esm.js", "require": "./cjs.js" } },
+        { ".": { "development": "./dev.js", "default": "./index.js" } },
+        { "./sub": { "node": "./node.js", "default": "./index.js" } },
+        { ".": [{ "browser": "./browser.js" }, "./index.js"] },
+    ]);
+    std::fs::write(
+        dir.join("manifests.json"),
+        serde_json::to_string(&manifests).unwrap(),
+    )
+    .unwrap();
+
+    let output = Command::new(BUN_PATH.as_str())
+        .args(["run", "probe.js"])
+        .current_dir(dir)
+        .output()
+        .expect("failed to run bun");
+    assert!(
+        output.status.success(),
+        "probe failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let verdicts: Vec<bool> =
+        serde_json::from_slice(String::from_utf8_lossy(&output.stdout).trim().as_bytes()).unwrap();
+    assert_eq!(
+        verdicts,
+        vec![false, false, false, false, true, true, true, true, true]
+    );
+}
+
 /// Tests for RELATIVE_BUN_BUILDER (loader_builder.bun.js)
 /// These tests verify Bun's behavior for import scanning and package.json generation.
 /// Purpose: Catch regressions when upgrading Bun versions.
