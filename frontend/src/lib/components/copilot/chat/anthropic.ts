@@ -195,7 +195,7 @@ export async function parseAnthropicCompletion(
 	tools: Tool<any>[],
 	helpers: any,
 	abortController?: AbortController,
-	options?: { workspace?: string }
+	options?: { workspace?: string; onTokenUsage?: (usage: ChatTokenUsage) => void }
 ): Promise<ParsedCompletionResult> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error = null
@@ -417,6 +417,7 @@ export async function parseAnthropicCompletion(
 
 	const finalMessage = await completion.finalMessage()
 	const tokenUsage = anthropicUsageToChatTokenUsage(finalMessage.usage)
+	options?.onTokenUsage?.(tokenUsage)
 
 	// Process tool calls if any
 	if (toolCallsToProcess.length > 0) {
