@@ -292,6 +292,7 @@
 							bind:dirty={pathDirty}
 							initialPath={mode === 'edit' ? (datasetPath ?? '') : ''}
 							checkInitialPathExistence={false}
+							warnOnRename={false}
 							namePlaceholder="cases"
 							kind="resource"
 							workspaceOverride={workspace}
