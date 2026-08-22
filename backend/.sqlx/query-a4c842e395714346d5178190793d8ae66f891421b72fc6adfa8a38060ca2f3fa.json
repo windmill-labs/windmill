@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_case (workspace_id, dataset_path, input, expected, created_at, created_by)\n         SELECT $2, dataset_path, input, expected, created_at, created_by\n         FROM eval_case WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a4c842e395714346d5178190793d8ae66f891421b72fc6adfa8a38060ca2f3fa"
+}

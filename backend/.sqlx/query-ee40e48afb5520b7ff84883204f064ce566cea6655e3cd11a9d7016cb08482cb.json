@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_score s\n         SET score = t.score, reason = t.reason, checks = t.checks, error = t.error,\n             not_applicable = t.not_applicable\n         FROM UNNEST($2::int[], $3::text[], $4::double precision[], $5::text[], $6::jsonb[],\n                     $7::text[], $8::bool[])\n              AS t(ordinal, scorer_id, score, reason, checks, error, not_applicable)\n         WHERE s.experiment_id = $1 AND s.ordinal = t.ordinal AND s.scorer_id = t.scorer_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4Array",
+        "TextArray",
+        "Float8Array",
+        "TextArray",
+        "JsonbArray",
+        "TextArray",
+        "BoolArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ee40e48afb5520b7ff84883204f064ce566cea6655e3cd11a9d7016cb08482cb"
+}

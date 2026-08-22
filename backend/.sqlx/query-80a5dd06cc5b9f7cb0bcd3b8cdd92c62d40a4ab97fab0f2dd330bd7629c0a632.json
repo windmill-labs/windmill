@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ordinal, scorer_id, score, reason, checks, error, not_applicable, definition\n         FROM eval_score WHERE experiment_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ordinal",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "scorer_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "score",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 3,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "checks",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "not_applicable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "definition",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "80a5dd06cc5b9f7cb0bcd3b8cdd92c62d40a4ab97fab0f2dd330bd7629c0a632"
+}

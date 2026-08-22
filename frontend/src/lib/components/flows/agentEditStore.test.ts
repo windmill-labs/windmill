@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowModule } from '$lib/gen'
 import {
+	getAgentEdit,
 	getAgentEditingPath,
 	setAgentEditingPath,
 	reanchorAgentEditsAcross
@@ -55,6 +56,24 @@ describe('reanchorAgentEditsAcross', () => {
 		const newNested = newHost[1].value.tools
 		expect(getAgentEditingPath(newHost)).toBe('f/agents/parent')
 		expect(getAgentEditingPath(newNested)).toBe('f/agents/nested')
+	})
+
+	it('carries the deployed baseline with the path', () => {
+		const tools: object[] = [tool('t1')]
+		let modules = [agentFork('a', tools)]
+		setAgentEditingPath(tools, 'f/agents/one', { deployedConfig: '{"d":1}' })
+
+		reanchorAgentEditsAcross(
+			() => modules,
+			() => {
+				modules = JSON.parse(JSON.stringify(modules))
+			}
+		)
+
+		expect(getAgentEdit((modules[0].value as any).tools)).toEqual({
+			path: 'f/agents/one',
+			deployedConfig: '{"d":1}'
+		})
 	})
 
 	it('drops the entry when the module is gone after the refresh', () => {
