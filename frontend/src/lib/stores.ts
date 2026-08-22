@@ -112,6 +112,10 @@ export const maybePremium: Readable<boolean> = derived(
 // polling or owning its own invalidation.
 export const workspaceMembershipVersion = writable<number>(0)
 export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undefined)
+// Stands in for `UserWorkspace.username` on entries with no `usr` row behind them. It
+// names nobody, so anything that would address a user by it (a `u/<username>/...` path)
+// must treat it as "no username here" rather than render it.
+export const NON_MEMBER_USERNAME = 'superadmin'
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
@@ -142,7 +146,7 @@ export function setNonMemberWorkspaces(forWorkspace: string, workspaces: Workspa
 				name: w.name,
 				// No `usr` row here, hence no per-workspace username — same stand-in as the
 				// synthetic `admins` entry below.
-				username: 'superadmin',
+				username: NON_MEMBER_USERNAME,
 				color: w.color,
 				parent_workspace_id: w.parent_workspace_id,
 				is_dev_workspace: w.is_dev_workspace,
@@ -171,7 +175,7 @@ export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 					{
 						id: 'admins',
 						name: 'Admins',
-						username: 'superadmin',
+						username: NON_MEMBER_USERNAME,
 						color: undefined,
 						operator_settings: undefined,
 						disabled: false

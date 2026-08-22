@@ -39499,6 +39499,7 @@
               "igroup.adduser",
               "igroup.removeuser",
               "variables.decrypt_secret",
+              "workspaces.read_encryption_key",
               "workspaces.edit_command_script",
               "workspaces.edit_deploy_to",
               "workspaces.edit_auto_invite_domain",

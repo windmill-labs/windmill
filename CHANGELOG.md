@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.794.1](https://github.com/windmill-labs/windmill/compare/v1.794.0...v1.794.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* **ci:** unbreak the windows test jobs and the discord comment relay ([#10799](https://github.com/windmill-labs/windmill/issues/10799)) ([5088e13](https://github.com/windmill-labs/windmill/commit/5088e1370537641a83ad86959c586945f6033414))
+* keep every value of a repeated multipart field ([#10800](https://github.com/windmill-labs/windmill/issues/10800)) ([e0510fe](https://github.com/windmill-labs/windmill/commit/e0510fea21006a06eee7eecd4587161970d7f4d5))
+
+## [1.794.0](https://github.com/windmill-labs/windmill/compare/v1.793.0...v1.794.0) (2026-08-21)
+
+
+### Features
+
+* inline login errors and a narrower single-column login card ([#10777](https://github.com/windmill-labs/windmill/issues/10777)) ([28b2ca6](https://github.com/windmill-labs/windmill/commit/28b2ca63672c916e07bd028eab07728d1aa4f0fe))
+* support application default credentials for gcp pub/sub triggers ([#10778](https://github.com/windmill-labs/windmill/issues/10778)) ([8e508ea](https://github.com/windmill-labs/windmill/commit/8e508ea01a1b41bd48b2ec3db29123430938f444))
+* upgrade bun to 1.4.0 and demote deno in the language picker ([#10784](https://github.com/windmill-labs/windmill/issues/10784)) ([d85050f](https://github.com/windmill-labs/windmill/commit/d85050f505b3ddc3f3c82f43dd3a9e4c32a1ee34))
+
+
+### Bug Fixes
+
+* apply the first script kind selection in the script editor ([#10789](https://github.com/windmill-labs/windmill/issues/10789)) ([75d0c29](https://github.com/windmill-labs/windmill/commit/75d0c29586a617f2cbfbf66720bdd0e47d6f92b4))
+* build the global chat's prompt identity from the operating workspace ([#10793](https://github.com/windmill-labs/windmill/issues/10793)) ([0b3dc3e](https://github.com/windmill-labs/windmill/commit/0b3dc3e5c9dd45847a26969f24ad33825445ea6a))
+* confine job tokens to workspace-scoped API routes ([#10631](https://github.com/windmill-labs/windmill/issues/10631)) ([9022dc9](https://github.com/windmill-labs/windmill/commit/9022dc9d440b95a4c45d22675f009acaf78daab7))
+* ground the chat's AI agent provider in the workspace's models ([#10774](https://github.com/windmill-labs/windmill/issues/10774)) ([449b1a6](https://github.com/windmill-labs/windmill/commit/449b1a69338479fb654308c83273613929a74fda))
+* make workspace preprocessor scripts selectable in flow preprocessor steps ([#10786](https://github.com/windmill-labs/windmill/issues/10786)) ([a9112b7](https://github.com/windmill-labs/windmill/commit/a9112b72a527af06a204827fbdff5ff9cb451f5d))
+* resolve a script path to its new version as soon as the lock lands ([#10794](https://github.com/windmill-labs/windmill/issues/10794)) ([3c8e4b4](https://github.com/windmill-labs/windmill/commit/3c8e4b43fd005db405f60794afca0e389445e350))
+* split the MCP script tools into createScript and updateScript ([#10783](https://github.com/windmill-labs/windmill/issues/10783)) ([92a454b](https://github.com/windmill-labs/windmill/commit/92a454b7a81cb1ecb98954387cbb8a361932775d))
+
 ## [1.793.0](https://github.com/windmill-labs/windmill/compare/v1.792.2...v1.793.0) (2026-08-20)
 
 

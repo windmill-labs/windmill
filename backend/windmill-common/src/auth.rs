@@ -588,6 +588,46 @@ pub fn ephemeral_script_token_label(permissioned_as: &str, created_by: &str) -> 
     }
 }
 
+/// Lifetime to mint an ephemeral job token with, resolved per workspace: a token narrower than
+/// the run it serves 401s the job mid-flight, and one wider is a credential nothing revokes.
+pub async fn job_token_expiry_secs(_db: &DB, _w_id: &str) -> u64 {
+    if let Some(override_secs) = *crate::worker::SCRIPT_TOKEN_EXPIRY_OVERRIDE {
+        return override_secs;
+    }
+    #[cfg(feature = "cloud")]
+    let premium = *crate::worker::CLOUD_HOSTED
+        && crate::workspaces::get_team_plan_status(_db, _w_id)
+            .await
+            .inspect_err(|err| {
+                tracing::error!(
+                    "Failed to get team plan status to size the job token for {_w_id}: {err:#}"
+                )
+            })
+            .map(|s| s.premium)
+            // Matches resolve_job_timeout: on a lookup failure assume the wider ceiling, so the
+            // token cannot come out shorter than the timeout the job is actually held to.
+            .unwrap_or(true);
+    #[cfg(not(feature = "cloud"))]
+    let premium = false;
+
+    job_token_expiry_from_premium(premium)
+}
+
+/// Cap on the setup slack below. Where the ceiling is already days, slack buys nothing and only
+/// widens the credential; an hour is what a dependency install realistically needs.
+const JOB_TOKEN_SETUP_SLACK_CAP_SECS: u64 = 3600;
+
+fn job_token_expiry_from_premium(cloud_premium_workspace: bool) -> u64 {
+    // The token's clock starts at pull, but resolve_job_timeout runs per handle_child, so setup
+    // (lock, install, bundle) spends a budget of its own before the run phase gets one. Slack
+    // covers the realistic case; pull-to-finish is not bounded by the ceiling at all.
+    let max_run = crate::worker::max_job_duration_secs(cloud_premium_workspace);
+    max_run
+        .saturating_add(max_run.min(JOB_TOKEN_SETUP_SLACK_CAP_SECS))
+        // create_jwt_token casts this to i64; a saturated value there mints an expired token.
+        .min(u32::MAX as u64)
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn create_token_for_owner(
     db: &DB,
@@ -771,10 +811,12 @@ pub mod aws {
 #[cfg(test)]
 mod tests {
     use super::{is_reserved_on_behalf_of_identity, is_user_token};
-    use super::{job_token_remaining_lifetime_secs, JWTAuthClaims, JOB_TOKEN_REFRESH_MARGIN_SECS};
+    use super::{job_token_expiry_from_premium, job_token_remaining_lifetime_secs};
+    use super::{JWTAuthClaims, JOB_TOKEN_REFRESH_MARGIN_SECS};
     use crate::users::{
         SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL,
     };
+    use crate::worker::max_job_duration_secs;
 
     fn job_jwt(exp_offset_secs: i64) -> String {
         let claims = JWTAuthClaims {
@@ -870,5 +912,15 @@ mod tests {
         assert!(!is_user_token(Some("Ephemeral-test")));
         assert!(!is_user_token(Some("ePhemeral-test")));
         assert!(!is_user_token(Some("EPHEMERAL-test")));
+    }
+
+    #[test]
+    fn job_token_outlives_the_longest_job_it_may_serve() {
+        for premium in [false, true] {
+            assert!(
+                job_token_expiry_from_premium(premium) > max_job_duration_secs(premium),
+                "token expiry must exceed the job ceiling (premium: {premium})"
+            );
+        }
     }
 }

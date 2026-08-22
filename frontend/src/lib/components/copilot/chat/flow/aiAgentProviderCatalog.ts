@@ -9,7 +9,9 @@ import {
 	type AiAgentProviderOption
 } from './aiAgentProviders'
 
-const AI_RESOURCE_TYPES = Object.keys(AI_PROVIDERS) as AIProvider[]
+// Read lazily: evaluating this at module scope makes `AI_PROVIDERS` a load-time requirement
+// for everything that reaches this module, the whole global chat included.
+const aiResourceTypes = () => Object.keys(AI_PROVIDERS) as AIProvider[]
 
 /** Kinds whose model listing `fetchAvailableModels` narrows before returning it: OpenAI and Azure
  * OpenAI keep only `gpt-`/`o`/`codex` ids (so a fine-tune never appears), Bedrock keeps text
@@ -121,7 +123,7 @@ async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
 	const [resources, aiConfig] = await Promise.all([
 		ResourceService.listResource({
 			workspace,
-			resourceType: AI_RESOURCE_TYPES.join(',')
+			resourceType: aiResourceTypes().join(',')
 		}).catch((err) => {
 			console.error('Could not list AI provider resources', err)
 			// The catalog no longer knows the workspace's resources, so nothing may be rejected for
@@ -148,7 +150,7 @@ async function loadCatalog(workspace: string): Promise<AiAgentProviderCatalog> {
 		resources,
 		new Set(configuredByPath.keys()),
 		aiConfig.default_model?.provider,
-		(resourceType) => AI_RESOURCE_TYPES.includes(resourceType as AIProvider)
+		(resourceType) => aiResourceTypes().includes(resourceType as AIProvider)
 	) as { kind: AIProvider; resourcePath: string }[]
 
 	const kept = candidates.slice(0, MAX_PROVIDER_RESOURCES)
