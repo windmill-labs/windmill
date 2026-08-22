@@ -2275,24 +2275,34 @@ export class AIChatManager {
 	private interruptedTurnMessages = (
 		collectedMessages: ChatCompletionMessageParam[],
 		partialReply: string,
-		// Content for the synthesized results of a batch caught mid-execution. Only
-		// a snapshot that has to outlive its turn passes it: a turn committed for a
-		// follow-up is better off truncating the batch so the model reruns it, since
-		// it is still live and nothing has been lost yet.
-		interruptedToolContent?: string
+		// Passed only by the mid-turn checkpoint, whose snapshot has to outlive its
+		// turn. A turn being committed for a follow-up wants neither: it is still
+		// live, so it is better off truncating a half-run batch and letting the
+		// model rerun it than reading results nothing produced.
+		snapshot?: {
+			/** Result to synthesize for the calls of a batch caught mid-execution. */
+			interruptedToolContent: string
+			/** True when partialReply is text arriving right now rather than the last
+			 *  text onMessageEnd flushed. Only the latter can be a stale duplicate of
+			 *  what the prefix already holds, so only it may be deduped away. */
+			textIsLive: boolean
+		}
 	): { messages: ChatCompletionMessageParam[]; keptPartialReply: boolean } => {
-		const prefix = interruptedToolContent
-			? closeInterruptedToolBatch(collectedMessages, interruptedToolContent)
+		const prefix = snapshot
+			? closeInterruptedToolBatch(collectedMessages, snapshot.interruptedToolContent)
 			: truncateToToolPairedPrefix(collectedMessages)
 		// partialReply can be stale — equal to text already committed inside the
-		// prefix (see its capture in onMessageEnd) — so only append when new.
+		// prefix (see its capture in onMessageEnd) — so only append when new. Live
+		// text is exempt: it provably is not in the prefix yet, and two iterations
+		// around a tool call can legitimately produce the same sentence twice.
 		const lastCommittedText = [...prefix]
 			.reverse()
 			.find(
 				(m): m is ChatCompletionMessageParam & { content: string } =>
 					m.role === 'assistant' && typeof m.content === 'string' && !!m.content.trim()
 			)?.content
-		const keptPartialReply = !!partialReply.trim() && partialReply !== lastCommittedText
+		const keptPartialReply =
+			!!partialReply.trim() && (!!snapshot?.textIsLive || partialReply !== lastCommittedText)
 		return {
 			messages: keptPartialReply
 				? [...this.messages, ...prefix, { role: 'assistant', content: partialReply }]
@@ -3030,21 +3040,21 @@ export class AIChatManager {
 			// collected, a card appearing, or the answer growing. A turn parked on a
 			// confirmation therefore costs nothing, while a long streamed answer keeps
 			// being captured as it grows rather than freezing at its first slice.
-			const shape = `${collectedMessages.length}:${this.displayMessages.length}:${this.currentReply.length}`
+			// The whole answer as received, not as painted: currentReply is only what
+			// the reveal has released, and a hidden tab pauses that loop while text
+			// keeps arriving — fingerprinting the painted text would stall the poll
+			// exactly when nobody is watching to notice. Reading `pending` leaves the
+			// animation alone, so no path here ever disturbs the typewriter.
+			const streaming = this.currentReply + this.replyReveal.pending
+			const shape = `${collectedMessages.length}:${this.displayMessages.length}:${streaming.length}`
 			if (!force && shape === checkpointedShape) return
-			// The reveal animation holds received-but-unshown text, and currentReply is
-			// only what it has released, so the leaving path has to drain it or persist
-			// a truncated answer. The polled path deliberately does not: flushing would
-			// snap the typewriter to the end on a page the reader is still watching.
-			if (force) this.replyReveal.flush()
-			// partialReply is the last text onMessageEnd flushed, already inside the
-			// prefix unless the turn ended on it; currentReply is the answer streaming
-			// right now, which onMessageEnd has not turned into a message yet.
-			const streaming = this.currentReply
 			const { messages, keptPartialReply } = this.interruptedTurnMessages(
 				collectedMessages,
+				// partialReply is the last text onMessageEnd flushed, already inside the
+				// prefix unless the turn ended on it; `streaming` is the answer arriving
+				// right now, which onMessageEnd has not turned into a message yet.
 				streaming || partialReply,
-				INTERRUPTED_TOOL_RESULT
+				{ interruptedToolContent: INTERRUPTED_TOOL_RESULT, textIsLive: !!streaming }
 			)
 			if (messages.length === this.messages.length) return
 			checkpointedShape = shape

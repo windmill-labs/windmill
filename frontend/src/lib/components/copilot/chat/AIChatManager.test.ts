@@ -1857,6 +1857,44 @@ describe('AIChatManager queued messages', () => {
 		expect(persisted).toEqual(['the first part', 'the first part and more'])
 	})
 
+	it('checkpoints a live reply that repeats an earlier segment verbatim', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		const repeated = 'Let me check that.'
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// The model said the same sentence before its tool call as it is saying
+			// after it — the staleness heuristic must not read the second one as a
+			// duplicate of the first and drop it.
+			config.addedMessages.push(
+				{
+					role: 'assistant' as const,
+					content: repeated,
+					tool_calls: [
+						{ id: 't1', type: 'function' as const, function: { name: 'do_thing', arguments: '{}' } }
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 't1', content: 'ok' }
+			)
+			manager.currentReply = repeated
+			leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'check the thing' })
+
+		const [display, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		expect(actual[actual.length - 1]).toMatchObject({ role: 'assistant', content: repeated })
+		expect(display[display.length - 1]).toMatchObject({ role: 'assistant', content: repeated })
+	})
+
 	it('checkpoints a turn to history when the page is hidden mid-generation', async () => {
 		const leavePage = stubHidingPage()
 		const manager = createManager()
