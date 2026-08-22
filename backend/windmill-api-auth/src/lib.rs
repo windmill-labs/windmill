@@ -631,8 +631,11 @@ fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> bool
     match (&caller.resource, &requested.resource) {
         // Caller is unrestricted on resources: covers everything.
         (None, _) => true,
-        // Caller is resource-restricted but the request is not: broader.
-        (Some(_), None) => false,
+        // Caller is resource-restricted but the request is not: broader, unless the
+        // caller lists `*` and so already spans every path. Kept in step with
+        // `ScopeDefinition::includes`, which accepts that same grant for a
+        // whole-collection read: what a token may exercise, it may also delegate.
+        (Some(caller_resources), None) => caller_resources.iter().any(|r| r == "*"),
         (Some(caller_resources), Some(requested_resources)) => {
             resource_set_contains(caller_resources, requested_resources)
         }
@@ -1810,6 +1813,20 @@ mod tests {
             opt_scopes(Some(vec!["users:read", "if_jobs:filter_tags:default"])).as_deref()
         )
         .is_ok());
+        // A `*` path grant spans the domain, so it may mint the unqualified form a
+        // whole-collection read requires; a listed path may not.
+        let wildcard = authed_with_scopes(Some(vec!["resources:read:*"]));
+        assert!(ensure_scopes_within_caller(
+            &wildcard,
+            opt_scopes(Some(vec!["resources:read"])).as_deref()
+        )
+        .is_ok());
+        let path_scoped = authed_with_scopes(Some(vec!["resources:read:f/team/db"]));
+        assert!(ensure_scopes_within_caller(
+            &path_scoped,
+            opt_scopes(Some(vec!["resources:read"])).as_deref()
+        )
+        .is_err());
         // Apps `write` covers `run`, so an app-editor token can mint the run-only
         // credential for the same app — but only within its own resource subtree,
         // and the equivalence stays Apps-only.

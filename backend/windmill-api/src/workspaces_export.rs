@@ -634,21 +634,25 @@ pub(crate) async fn tarball_workspace(
         skip_resources
     );
 
-    // The route is gated by workspaces:read, but exporting DECRYPTED secrets is a
-    // variable-read capability beyond workspace metadata. Require variables:read
-    // only on the plaintext-secret path: ordinary tarball pulls (structure and
-    // encrypted-only values) keep working with workspaces:read, and the workspace
-    // key itself takes an admin *and* an unscoped token (include_key), since it
-    // decrypts those same secrets offline. No-op for unscoped tokens.
-    let export_plain_secrets = plain_secret.or(plain_secrets).unwrap_or(false)
-        && !skip_secrets.unwrap_or(false)
-        && !skip_variables.unwrap_or(false);
-    if export_plain_secrets {
-        check_scopes(&authed, || "variables:read".to_string())?;
-    }
+    // The workspace key decrypts every secret offline, so it takes an admin *and* an
+    // unscoped token. Checked before the item scopes below so that a scoped token
+    // asking for the key is told about the key rather than about a scope no token
+    // holding the key would need anyway.
     if include_key.unwrap_or(false) {
         require_admin(authed.is_admin, &authed.username)?;
         windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
+    }
+
+    // The route is gated by workspaces:read, but the tarball also carries the item
+    // values that the per-item routes gate on their own domain (get_resource_value,
+    // get_variable). A whole-workspace export cannot be confined to a path, so it
+    // takes the unrestricted domain scope: a path-scoped token has to skip that kind.
+    // No-op for unscoped tokens.
+    if !skip_resources.unwrap_or(false) {
+        check_scopes(&authed, || "resources:read".to_string())?;
+    }
+    if !skip_variables.unwrap_or(false) {
+        check_scopes(&authed, || "variables:read".to_string())?;
     }
 
     // Opt-in behavior for surfacing per-resource ACLs on flow/app rows.
@@ -694,6 +698,10 @@ pub(crate) async fn tarball_workspace(
         }
         Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
+
+    let export_plain_secrets = plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+        && !skip_variables.unwrap_or(false);
 
     // Record what the export is about to disclose, once nothing left can reject the
     // request: an entry written before the gates above would claim a disclosure that
