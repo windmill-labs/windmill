@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { randomUUID } from '$lib/utils/uuid'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
-import { runChatLoop, truncateToToolPairedPrefix, type ChatLoopConfig } from './chatLoop'
+import {
+	closeInterruptedToolBatch,
+	runChatLoop,
+	truncateToToolPairedPrefix,
+	type ChatLoopConfig
+} from './chatLoop'
 import type { ReasoningProviderModel } from '../reasoningRegistry'
 
 const mocks = vi.hoisted(() => ({
@@ -552,6 +557,25 @@ const tool = (id: string): ChatCompletionMessageParam => ({
 	content: 'result'
 })
 const user = (content: string): ChatCompletionMessageParam => ({ role: 'user', content })
+
+describe('closeInterruptedToolBatch', () => {
+	it('keeps the answered half of a batch still executing, pairing the rest', () => {
+		// The model asked for two tools in one message; the first wrote a script
+		// (a real side effect) and the second is still going. Truncating would drop
+		// both, so the restored chat would not know the script exists.
+		const msgs = [assistantTools('a', 'b'), tool('a')]
+		expect(closeInterruptedToolBatch(msgs, 'stopped')).toEqual([
+			assistantTools('a', 'b'),
+			tool('a'),
+			{ role: 'tool', tool_call_id: 'b', content: 'stopped' }
+		])
+	})
+
+	it('leaves an already-paired transcript alone', () => {
+		const msgs = [assistantTools('a'), tool('a'), assistant('done')]
+		expect(closeInterruptedToolBatch(msgs, 'stopped')).toEqual(msgs)
+	})
+})
 
 describe('truncateToToolPairedPrefix', () => {
 	it('returns an empty array unchanged', () => {
