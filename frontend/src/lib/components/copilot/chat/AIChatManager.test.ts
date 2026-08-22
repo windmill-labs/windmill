@@ -1801,15 +1801,25 @@ describe('AIChatManager queued messages', () => {
 		expect(input.restoreInstructions).not.toHaveBeenCalled()
 	})
 
-	it('checkpoints a turn to history when the page is hidden mid-generation', async () => {
-		// This suite runs under the node env, so stand up the minimum document the
-		// manager needs to hear the page going away.
+	// This suite runs under the node env, so stand up the minimum document the
+	// manager needs to hear the page going away. Returns the registered listeners
+	// so a test can play the user leaving.
+	function stubHidingPage() {
 		const leavePage = new Set<() => void>()
 		vi.stubGlobal('document', {
 			visibilityState: 'hidden',
 			addEventListener: (_: string, fn: () => void) => leavePage.add(fn),
 			removeEventListener: (_: string, fn: () => void) => leavePage.delete(fn)
 		})
+		return leavePage
+	}
+
+	// Every checkpoint test installs a fake document; leaking one would make a
+	// single failure cascade through every later test in the file.
+	afterEach(() => vi.unstubAllGlobals())
+
+	it('checkpoints a turn to history when the page is hidden mid-generation', async () => {
+		const leavePage = stubHidingPage()
 		const manager = createManager()
 		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
 		const toolCall = (id: string, name: string) => ({
@@ -1864,7 +1874,57 @@ describe('AIChatManager queued messages', () => {
 			'tool',
 			'assistant'
 		])
-		vi.unstubAllGlobals()
+	})
+
+	it('stops checkpointing once the turn commits, so the transcript is never doubled', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		// The turn-end save is where the race lives: the outcome branch has already
+		// merged the turn into `manager.messages` and is awaiting this call, so a
+		// checkpoint landing here would append the same messages a second time.
+		let leaveDuringFinalSave: () => void = () => {}
+		const saveChat = vi
+			.spyOn(manager.historyManager, 'saveChat')
+			.mockImplementation(async () => leaveDuringFinalSave())
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			const collected = [
+				{
+					role: 'assistant' as const,
+					content: '',
+					tool_calls: [
+						{
+							id: 't1',
+							type: 'function' as const,
+							function: { name: 'write_script', arguments: '{}' }
+						}
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 't1', content: 'created' },
+				{ role: 'assistant' as const, content: 'done' }
+			]
+			config.addedMessages.push(...collected)
+			leaveDuringFinalSave = () => leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: collected,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'write a script' })
+		await Promise.resolve()
+
+		// A duplicated transcript repeats t1, which providers reject outright — so
+		// no persisted call may carry the same tool_call_id twice.
+		for (const [, messages] of saveChat.mock.calls as unknown as [
+			unknown,
+			ChatCompletionMessageParam[]
+		][]) {
+			const toolCallIds = messages.flatMap((m: any) => m.tool_calls?.map((c: any) => c.id) ?? [])
+			expect(toolCallIds).toEqual([...new Set(toolCallIds)])
+		}
+		expect(manager.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant'])
 	})
 
 	it('restores consumed DOM selector chips when a turn is cancelled before output', async () => {

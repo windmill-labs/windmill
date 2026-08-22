@@ -3000,6 +3000,14 @@ export class AIChatManager {
 		// that never became one.
 		const collectedMessages: ChatCompletionMessageParam[] = []
 		let partialReply = ''
+		// Once an outcome branch (commit/restore) took over, a later throw (e.g.
+		// from saveChat) must not make the catch commit the turn a second time.
+		let turnOutcomeHandled = false
+		let webSearchUnavailable = false
+		// Gates the queued-message flush below: only a cleanly committed turn
+		// auto-sends the next queued message. Cancel, error, and empty-response
+		// rollbacks leave it false so queued text is restored to the input.
+		let turnCommittedCleanly = false
 		// A turn's output only reaches history when the turn ends, so a tab closed or
 		// reloaded mid-turn would lose every step it had already taken. Persist what
 		// has landed so far WITHOUT committing it: the outcome branches below still
@@ -3013,22 +3021,37 @@ export class AIChatManager {
 			// both cost nothing, and the write rate follows steps taken, not time.
 			const shape = `${collectedMessages.length}:${this.displayMessages.length}`
 			if (!force && shape === checkpointedShape) return
-			// currentReply holds the answer text streaming right now; partialReply is
-			// the last text onMessageEnd flushed (already inside the prefix unless the
-			// turn ended on it), so it only stands in when nothing is streaming.
-			const { messages } = this.interruptedTurnMessages(
+			// partialReply is the last text onMessageEnd flushed, already inside the
+			// prefix unless the turn ended on it; currentReply is the answer streaming
+			// right now, which onMessageEnd has not turned into a message yet.
+			const streaming = this.currentReply
+			const { messages, keptPartialReply } = this.interruptedTurnMessages(
 				collectedMessages,
-				this.currentReply || partialReply
+				streaming || partialReply
 			)
 			if (messages.length === this.messages.length) return
 			checkpointedShape = shape
+			const display = this.settledToolDisplay(this.displayMessages, 'Interrupted')
+			// onMessageEnd is what appends the bubble for streamed text, and it resets
+			// currentReply when it does — so text still sitting there has no bubble yet
+			// and a checkpoint has to add one, or the reply comes back as context the
+			// reader cannot see.
+			const withStreamed =
+				streaming && keptPartialReply
+					? [...display, { role: 'assistant' as const, content: streaming }]
+					: display
 			// Best-effort: the turn-end save is the authoritative one, so a failed
 			// checkpoint must never break the turn it is only shadowing.
 			try {
 				await this.historyManager.saveChat(
-					this.settledToolDisplay(this.displayMessages, 'Interrupted'),
+					withStreamed,
 					messages,
-					this.contextUsage,
+					// No report describes this transcript: `contextUsage` still measures
+					// the pre-turn history while these messages already carry part of the
+					// turn. Storing it would under-report a restored chat by the whole
+					// partial turn — enough to skip the compaction its next send needs.
+					// Omitting drops the field, which is the "readers estimate" fallback.
+					undefined,
 					this.modifiedItems ? [...this.modifiedItems] : undefined
 				)
 			} catch (e) {
@@ -3047,14 +3070,16 @@ export class AIChatManager {
 			if (hideTarget?.visibilityState === 'hidden') void checkpointTurn(true)
 		}
 		hideTarget?.addEventListener('visibilitychange', checkpointOnHide)
-		// Once an outcome branch (commit/restore) took over, a later throw (e.g.
-		// from saveChat) must not make the catch commit the turn a second time.
-		let turnOutcomeHandled = false
-		let webSearchUnavailable = false
-		// Gates the queued-message flush below: only a cleanly committed turn
-		// auto-sends the next queued message. Cancel, error, and empty-response
-		// rollbacks leave it false so queued text is restored to the input.
-		let turnCommittedCleanly = false
+		// Checkpointing must stop the moment the loop hands back, not in `finally`:
+		// the outcome branches merge the turn into `this.messages` and only then
+		// await their save, so a checkpoint landing in that window would append the
+		// same collected messages to an already-committed transcript and, queued
+		// behind the real save, persist the duplicate. Idempotent — every exit path
+		// calls it.
+		const stopCheckpoints = () => {
+			clearInterval(checkpointTimer)
+			hideTarget?.removeEventListener('visibilitychange', checkpointOnHide)
+		}
 		try {
 			// A queued message carries its own context snapshot (contextOverride); use
 			// it verbatim and leave the live selection alone (it belongs to whatever the
@@ -3426,6 +3451,7 @@ export class AIChatManager {
 					webSearchUnavailable = true
 				}
 			})
+			stopCheckpoints()
 			const wasAborted = this.abortController?.signal.aborted ?? false
 			// Pure reasoning doesn't count as usable: it's not replayed as context,
 			// so a reasoning-only turn is as unsent as a literally empty one.
@@ -3537,6 +3563,7 @@ export class AIChatManager {
 				}
 			}
 		} catch (err) {
+			stopCheckpoints()
 			console.error(err)
 			// Request failure: keep the usable output as context for a follow-up.
 			// Skipped when the throw came from post-outcome code (e.g. saveChat) —
@@ -3595,8 +3622,9 @@ export class AIChatManager {
 			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
-			clearInterval(checkpointTimer)
-			hideTarget?.removeEventListener('visibilitychange', checkpointOnHide)
+			// Backstop for the paths that leave the try without reaching either call
+			// above (a pre-flight throw, an aborted compaction).
+			stopCheckpoints()
 			// Turn teardown: cancel any in-flight reveal frame and drop leftover
 			// backlog. onMessageEnd already flushed on every outcome, so this only
 			// releases the loop; it never discards uncommitted text.
