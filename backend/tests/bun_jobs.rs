@@ -539,6 +539,55 @@ export function main() {
     Ok(())
 }
 
+/// Node's ESM loader cannot see the named exports of a CommonJS package that cjs-module-lexer
+/// fails to analyze, so `//nodejs` scripts must not leave such packages as plain externals. The
+/// ESM-only import guards the other half: those must stay external, since `require`ing one throws
+/// on the node versions without require(esm).
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_nodejs_cjs_named_and_namespace_import(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"//nodejs
+import { chunk } from "lodash";
+import * as lodash from "lodash";
+import { nanoid } from "nanoid";
+
+export function main() {
+    return [chunk([1, 2, 3, 4], 2), lodash.chunk([1, 2], 1), typeof nanoid()];
+}
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    });
+
+    let result = run_job_in_new_worker_until_complete(&db, false, job, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(
+        result,
+        serde_json::json!([[[1, 2], [3, 4]], [[1], [2]], "string"])
+    );
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_nobundling_mode(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -2464,6 +2513,65 @@ export function main(name: string) {
         serde_json::json!("Hello from private package, World!")
     );
     Ok(())
+}
+
+/// A shimmed package is reached by `require()`, so the shim is only safe when nothing can make
+/// node's `require` land on a different entry than the `import` the classifier looked at. Bun's
+/// own conditions, `import`/`require`, and `--conditions` in the job's NODE_OPTIONS can each do
+/// that, so any condition at all disqualifies a manifest.
+#[test]
+fn test_node_externals_refuses_conditional_exports() {
+    use std::process::Command;
+    use windmill_worker::{BUN_PATH, NODE_EXTERNALS_PLUGIN};
+
+    let temp_dir = tempfile::tempdir().unwrap();
+    let dir = temp_dir.path();
+    let plugin = NODE_EXTERNALS_PLUGIN.replace("JOB_DIR", &dir.to_string_lossy());
+    std::fs::write(dir.join("externals.js"), plugin).unwrap();
+    std::fs::write(
+        dir.join("probe.js"),
+        r#"
+import { entryDependsOnCondition } from "./externals.js";
+const manifests = JSON.parse(await Bun.file("manifests.json").text());
+console.log(JSON.stringify(manifests.map((m) => entryDependsOnCondition(m))));
+"#,
+    )
+    .unwrap();
+    // Every entry a shimmable package may have, then every way one can vary by condition.
+    let manifests = serde_json::json!([
+        serde_json::Value::Null,
+        "./index.js",
+        { ".": "./index.js" },
+        { ".": { "default": "./index.js" }, "./sub": "./sub.js" },
+        { ".": { "bun": "./bun.js", "default": "./index.js" } },
+        { ".": { "import": "./esm.js", "require": "./cjs.js" } },
+        { ".": { "development": "./dev.js", "default": "./index.js" } },
+        { "./sub": { "node": "./node.js", "default": "./index.js" } },
+        { ".": [{ "browser": "./browser.js" }, "./index.js"] },
+    ]);
+    std::fs::write(
+        dir.join("manifests.json"),
+        serde_json::to_string(&manifests).unwrap(),
+    )
+    .unwrap();
+
+    let output = Command::new(BUN_PATH.as_str())
+        .args(["run", "probe.js"])
+        .current_dir(dir)
+        .output()
+        .expect("failed to run bun");
+    assert!(
+        output.status.success(),
+        "probe failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let verdicts: Vec<bool> =
+        serde_json::from_slice(String::from_utf8_lossy(&output.stdout).trim().as_bytes()).unwrap();
+    assert_eq!(
+        verdicts,
+        vec![false, false, false, false, true, true, true, true, true]
+    );
 }
 
 /// Tests for RELATIVE_BUN_BUILDER (loader_builder.bun.js)
