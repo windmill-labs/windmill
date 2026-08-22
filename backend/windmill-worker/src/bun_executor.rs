@@ -166,15 +166,17 @@ pub struct TsScriptEntry<'a> {
 ///   execd_preprocess:<json_args>    -> preprocess + execute the single registered script
 ///   exec:<path>:<json_args>         -> execute script by path (runner groups with multiple scripts)
 ///   exec_preprocess:<path>:<json>   -> preprocess + execute script by path
-///   execd_wac:<job_id>:<ckpt_file>:<json_args>
+///   execd_wac:<job_id>:<job_token>:<ckpt_file>:<json_args>
 ///                                   -> run one workflow-as-code round for the single
 ///                                      registered script, answering `wm_res[wac]:`
 ///   end                             -> exit
 #[cfg(any(feature = "private", test))]
 pub fn generate_multi_script_wrapper(scripts: &[TsScriptEntry<'_>], ext: &str) -> String {
     let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
+    // Echoed lines land in the job's own logs, and `execd_wac` carries that job's ephemeral
+    // token. Every other command is unaffected by the substitution.
     let print_lines = if is_debug {
-        r#"console.log("[debug] " + line);"#
+        r#"console.log("[debug] " + line.replace(/^(execd_wac:[^:]+:)[^:]+/, "$1<token redacted>"));"#
     } else {
         ""
     };
@@ -347,8 +349,9 @@ async function runWac(entry, jobId, jobToken, checkpointPath, argsJson) {
         }
         throw e;
     } finally {
-        process.env.WM_JOB_ID = prevJobId;
-        process.env.WM_TOKEN = prevToken;
+        // Assigning undefined would leave the literal string "undefined" behind.
+        if (prevJobId === undefined) { delete process.env.WM_JOB_ID; } else { process.env.WM_JOB_ID = prevJobId; }
+        if (prevToken === undefined) { delete process.env.WM_TOKEN; } else { process.env.WM_TOKEN = prevToken; }
         setClient();
     }
 }
@@ -3123,8 +3126,9 @@ pub async fn handle_wac_v2_output(
                                     version: flow_info.version,
                                     labels: flow_info.labels.clone(),
                                 };
-                                let on_behalf_of =
-                                    flow_info.on_behalf_of(&job.workspace_id, db).await?;
+                                let on_behalf_of = flow_info
+                                    .on_behalf_of(&job.workspace_id, db)
+                                    .await?;
                                 let step_args: HashMap<String, Box<RawValue>> = step
                                     .args
                                     .iter()
