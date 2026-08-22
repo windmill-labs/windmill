@@ -1914,34 +1914,30 @@ describe('AIChatManager queued messages', () => {
 		expect(imageIdx).toBeGreaterThan(resultIdx)
 	})
 
-	it('tells flushed-but-uncommitted text from text the parser already pushed', async () => {
+	it('does not repeat a preamble the parser has already pushed', async () => {
 		const leavePage = stubHidingPage()
 		const manager = createManager()
 		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
 		const preamble = 'Let me look that up.'
-		let lastSaved: ChatCompletionMessageParam[] = []
-		saveChat.mockImplementation(async (_display, messages) => {
-			lastSaved = messages as ChatCompletionMessageParam[]
-		})
-		let beforePush: ChatCompletionMessageParam[] = []
-		let afterPush: ChatCompletionMessageParam[] = []
 
 		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
-			// Parsers call onMessageEnd BEFORE pushing when text gives way to a tool
-			// call, and AFTER pushing when a message finishes. Only the second means
-			// the text is already in the transcript.
+			// A text-then-tool-call turn in parser order: the preamble is flushed when
+			// the tool call starts, pushed when the message completes, and only then
+			// do the tools run — the long window a checkpoint is most likely to land in.
 			manager.currentReply = preamble
-			config.callbacks.onMessageEnd() // pre-push flush: text is uncommitted
+			config.callbacks.onMessageEnd()
+			config.addedMessages.push(
+				{ role: 'assistant' as const, content: preamble },
+				{
+					role: 'assistant' as const,
+					content: '',
+					tool_calls: [
+						{ id: 't1', type: 'function' as const, function: { name: 'do_thing', arguments: '{}' } }
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 't1', content: 'ok' }
+			)
 			leavePage.forEach((fn) => fn())
-			beforePush = lastSaved
-
-			const answer = { role: 'assistant' as const, content: preamble }
-			config.addedMessages.push(answer)
-			manager.currentReply = preamble
-			config.callbacks.onMessageEnd() // post-push flush: text is committed
-			leavePage.forEach((fn) => fn())
-			afterPush = lastSaved
-
 			return {
 				addedMessages: config.addedMessages,
 				tokenUsage: { prompt: 0, completion: 0, total: 0 },
@@ -1951,10 +1947,12 @@ describe('AIChatManager queued messages', () => {
 
 		await manager.sendRequest({ instructions: 'look something up' })
 
-		// Uncommitted: the checkpoint has to carry it, or it is lost.
-		expect(beforePush.filter((m) => m.content === preamble)).toHaveLength(1)
-		// Committed: carrying it again would show the answer twice on reload.
-		expect(afterPush.filter((m) => m.content === preamble)).toHaveLength(1)
+		const [, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		// Reading flushed text back would show the preamble twice on reload; the
+		// transcript already holds it, so the checkpoint must take it from there.
+		expect(actual.filter((m) => m.content === preamble)).toHaveLength(1)
 	})
 
 	it('checkpoints a live reply that repeats an earlier segment verbatim', async () => {

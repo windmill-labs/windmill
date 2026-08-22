@@ -2282,9 +2282,6 @@ export class AIChatManager {
 		snapshot?: {
 			/** Result to synthesize for the calls of a batch caught mid-execution. */
 			interruptedToolContent: string
-			/** True when partialReply has not been folded into a message yet, so it
-			 *  cannot be the stale duplicate the dedup below exists to drop. */
-			textIsLive: boolean
 			/** Images a tool has produced that the turn has not yet turned into a
 			 *  message (see appendPendingToolImages). */
 			bufferedImages?: ChatCompletionMessageParam
@@ -2294,8 +2291,9 @@ export class AIChatManager {
 			? closeInterruptedToolBatch(collectedMessages, snapshot.interruptedToolContent)
 			: truncateToToolPairedPrefix(collectedMessages)
 		// partialReply can be stale — equal to text already committed inside the
-		// prefix — so only append when new. Live text is exempt: identical text can
-		// legitimately recur across iterations, so content alone cannot judge it.
+		// prefix — so only append when new. A snapshot is exempt: it passes only
+		// live streaming text, which is never in the prefix, and identical text can
+		// legitimately recur across iterations where content alone cannot judge it.
 		const lastCommittedText = [...prefix]
 			.reverse()
 			.find(
@@ -2303,7 +2301,7 @@ export class AIChatManager {
 					m.role === 'assistant' && typeof m.content === 'string' && !!m.content.trim()
 			)?.content
 		const keptPartialReply =
-			!!partialReply.trim() && (!!snapshot?.textIsLive || partialReply !== lastCommittedText)
+			!!partialReply.trim() && (!!snapshot || partialReply !== lastCommittedText)
 		// Images sit between the batch that produced them and whatever the model
 		// said next, matching where appendPendingToolImages puts them live.
 		const tail = snapshot?.bufferedImages ? [...prefix, snapshot.bufferedImages] : prefix
@@ -3025,10 +3023,6 @@ export class AIChatManager {
 		// that never became one.
 		const collectedMessages: ChatCompletionMessageParam[] = []
 		let partialReply = ''
-		// Whether partialReply is already in collectedMessages. Parsers call
-		// onMessageEnd both before pushing (text giving way to a tool call) and
-		// after (a finished message), so only the capture site can tell.
-		let partialReplyCommitted = false
 		// Once an outcome branch (commit/restore) took over, a later throw (e.g.
 		// from saveChat) must not make the catch commit the turn a second time.
 		let turnOutcomeHandled = false
@@ -3052,12 +3046,15 @@ export class AIChatManager {
 			// nothing and the rate follows steps taken rather than time.
 			const shape = `${collectedMessages.length}:${this.displayMessages.length}:${streaming.length}`
 			if (!force && shape === checkpointedShape) return
+			// Live text only. Text the parsers have flushed is theirs to push, and
+			// they do so before the tool execution a checkpoint is likely to land in
+			// — so reading it here would mean re-appending what the transcript
+			// already holds. The abort path still recovers it via partialReply.
 			const { messages, keptPartialReply } = this.interruptedTurnMessages(
 				collectedMessages,
-				streaming || partialReply,
+				streaming,
 				{
 					interruptedToolContent: INTERRUPTED_TOOL_RESULT,
-					textIsLive: !!streaming || !partialReplyCommitted,
 					// A screenshot's image becomes a message only once its whole batch
 					// does, so a batch closed mid-flight would restore a result
 					// announcing a screenshot the model cannot see. Read without
@@ -3410,8 +3407,6 @@ export class AIChatManager {
 						// deduped in commitInterruptedTurn.
 						if (this.currentReply) {
 							partialReply = this.currentReply
-							const last = collectedMessages[collectedMessages.length - 1]
-							partialReplyCommitted = last?.role === 'assistant' && last.content === partialReply
 						}
 						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
