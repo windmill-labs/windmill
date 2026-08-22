@@ -8,7 +8,7 @@
 	import { chatState } from './sharedChatState.svelte'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { aiChatManager } from './AIChatManager.svelte'
-	import { onDestroy } from 'svelte'
+	import { onDestroy, tick } from 'svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Menu } from 'lucide-svelte'
 	import CreatedResourceActionDrawers from './CreatedResourceActionDrawers.svelte'
@@ -69,11 +69,32 @@
 	const historyManager = aiChatManager.historyManager
 	historyManager.init()
 
+	let aiChat: AiChat | undefined = $state(undefined)
+
+	async function handleAiShortcut(e: KeyboardEvent) {
+		if (
+			e.repeat ||
+			disableAi ||
+			!(e.ctrlKey || e.metaKey) ||
+			!e.shiftKey ||
+			e.key.toLowerCase() !== 'l'
+		) {
+			return
+		}
+
+		e.preventDefault()
+		aiChatManager.toggleOpen()
+		await tick()
+		aiChat?.focusInput()
+	}
+
 	onDestroy(() => {
 		aiChatManager.cancel('aiChatLayout destroyed')
 		historyManager.close()
 	})
 </script>
+
+<svelte:window onkeydown={handleAiShortcut} />
 
 {#snippet burgerRow()}
 	<div
@@ -118,7 +139,7 @@
 				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
 			>
 				<div class="flex-1 min-h-0">
-					<AiChat />
+					<AiChat bind:this={aiChat} />
 				</div>
 				{#if showSessionsBetaBanner}
 					<SessionsBetaBanner variant="legacy" />
