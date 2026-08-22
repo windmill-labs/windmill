@@ -1914,6 +1914,49 @@ describe('AIChatManager queued messages', () => {
 		expect(imageIdx).toBeGreaterThan(resultIdx)
 	})
 
+	it('tells flushed-but-uncommitted text from text the parser already pushed', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		const preamble = 'Let me look that up.'
+		let lastSaved: ChatCompletionMessageParam[] = []
+		saveChat.mockImplementation(async (_display, messages) => {
+			lastSaved = messages as ChatCompletionMessageParam[]
+		})
+		let beforePush: ChatCompletionMessageParam[] = []
+		let afterPush: ChatCompletionMessageParam[] = []
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// Parsers call onMessageEnd BEFORE pushing when text gives way to a tool
+			// call, and AFTER pushing when a message finishes. Only the second means
+			// the text is already in the transcript.
+			manager.currentReply = preamble
+			config.callbacks.onMessageEnd() // pre-push flush: text is uncommitted
+			leavePage.forEach((fn) => fn())
+			beforePush = lastSaved
+
+			const answer = { role: 'assistant' as const, content: preamble }
+			config.addedMessages.push(answer)
+			manager.currentReply = preamble
+			config.callbacks.onMessageEnd() // post-push flush: text is committed
+			leavePage.forEach((fn) => fn())
+			afterPush = lastSaved
+
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'look something up' })
+
+		// Uncommitted: the checkpoint has to carry it, or it is lost.
+		expect(beforePush.filter((m) => m.content === preamble)).toHaveLength(1)
+		// Committed: carrying it again would show the answer twice on reload.
+		expect(afterPush.filter((m) => m.content === preamble)).toHaveLength(1)
+	})
+
 	it('checkpoints a live reply that repeats an earlier segment verbatim', async () => {
 		const leavePage = stubHidingPage()
 		const manager = createManager()

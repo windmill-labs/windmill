@@ -2276,10 +2276,9 @@ export class AIChatManager {
 	private interruptedTurnMessages = (
 		collectedMessages: ChatCompletionMessageParam[],
 		partialReply: string,
-		// Passed only by the mid-turn checkpoint, whose snapshot has to outlive its
-		// turn. A turn being committed for a follow-up wants neither: it is still
-		// live, so it is better off truncating a half-run batch and letting the
-		// model rerun it than reading results nothing produced.
+		// Passed only by the mid-turn checkpoint, whose result must outlive its turn.
+		// A turn committed for a follow-up is still live, so it would rather truncate
+		// a half-run batch and rerun it than read results nothing produced.
 		snapshot?: {
 			/** Result to synthesize for the calls of a batch caught mid-execution. */
 			interruptedToolContent: string
@@ -2295,9 +2294,8 @@ export class AIChatManager {
 			? closeInterruptedToolBatch(collectedMessages, snapshot.interruptedToolContent)
 			: truncateToToolPairedPrefix(collectedMessages)
 		// partialReply can be stale — equal to text already committed inside the
-		// prefix (see its capture in onMessageEnd) — so only append when new. Live
-		// text is exempt: it provably is not in the prefix yet, and two iterations
-		// around a tool call can legitimately produce the same sentence twice.
+		// prefix — so only append when new. Live text is exempt: identical text can
+		// legitimately recur across iterations, so content alone cannot judge it.
 		const lastCommittedText = [...prefix]
 			.reverse()
 			.find(
@@ -3027,11 +3025,10 @@ export class AIChatManager {
 		// that never became one.
 		const collectedMessages: ChatCompletionMessageParam[] = []
 		let partialReply = ''
-		// How much had been collected when partialReply was captured. The parser
-		// pushes that text as a message right after, so an unchanged count means it
-		// is still uncommitted — which is what tells a checkpoint the text is new
-		// rather than a stale copy of what the transcript already holds.
-		let partialReplyCollectedLen = -1
+		// Whether partialReply is already in collectedMessages. Parsers call
+		// onMessageEnd both before pushing (text giving way to a tool call) and
+		// after (a finished message), so only the capture site can tell.
+		let partialReplyCommitted = false
 		// Once an outcome branch (commit/restore) took over, a later throw (e.g.
 		// from saveChat) must not make the catch commit the turn a second time.
 		let turnOutcomeHandled = false
@@ -3040,48 +3037,40 @@ export class AIChatManager {
 		// auto-sends the next queued message. Cancel, error, and empty-response
 		// rollbacks leave it false so queued text is restored to the input.
 		let turnCommittedCleanly = false
-		// A turn's output only reaches history when the turn ends, so a tab closed or
-		// reloaded mid-turn would lose every step it had already taken. Persist what
-		// has landed so far WITHOUT committing it: the outcome branches below still
-		// need `this.messages` unmodified to roll the turn back. Whatever the
-		// outcome, their own save overwrites the last checkpoint.
+		// A turn's output only reaches history when the turn ends, so a tab closed
+		// mid-turn loses every step it had taken. Persist progress WITHOUT
+		// committing it: the outcome branches still need `this.messages`
+		// unmodified to roll the turn back, and their save overwrites this.
 		let checkpointedShape = ''
 		const checkpointTurn = async (force = false) => {
-			// Polled, but written only when the turn actually advanced — a message
-			// collected, a card appearing, or the answer growing. A turn parked on a
-			// confirmation therefore costs nothing, while a long streamed answer keeps
-			// being captured as it grows rather than freezing at its first slice.
-			// The whole answer as received, not as painted: currentReply is only what
-			// the reveal has released, and a hidden tab pauses that loop while text
-			// keeps arriving — fingerprinting the painted text would stall the poll
-			// exactly when nobody is watching to notice. Reading `pending` leaves the
-			// animation alone, so no path here ever disturbs the typewriter.
+			// Text as received, not as painted: a hidden tab pauses the reveal loop
+			// while text keeps arriving, so fingerprinting painted text would stall
+			// the poll exactly when nobody is watching. `pending` reads it without
+			// disturbing the animation.
 			const streaming = this.currentReply + this.replyReveal.pending
+			// Write only when the turn advanced, so a parked confirmation costs
+			// nothing and the rate follows steps taken rather than time.
 			const shape = `${collectedMessages.length}:${this.displayMessages.length}:${streaming.length}`
 			if (!force && shape === checkpointedShape) return
 			const { messages, keptPartialReply } = this.interruptedTurnMessages(
 				collectedMessages,
-				// `streaming` is the answer arriving right now; partialReply is the last
-				// text onMessageEnd flushed, which the parser folds into a message a tick
-				// later — until it has, that text is as uncommitted as streaming text.
 				streaming || partialReply,
 				{
 					interruptedToolContent: INTERRUPTED_TOOL_RESULT,
-					textIsLive: !!streaming || collectedMessages.length === partialReplyCollectedLen,
-					// A screenshot tool completes inside its batch but its image only
-					// becomes a message once the whole batch does, so a batch closed
-					// mid-flight would otherwise restore a result announcing a screenshot
-					// the model cannot see. Read the buffer without draining it.
+					textIsLive: !!streaming || !partialReplyCommitted,
+					// A screenshot's image becomes a message only once its whole batch
+					// does, so a batch closed mid-flight would restore a result
+					// announcing a screenshot the model cannot see. Read without
+					// draining: the live turn still owns the buffer.
 					bufferedImages: pendingToolImagesMessage([...this.pendingToolImages.values()].flat())
 				}
 			)
 			if (messages.length === this.messages.length) return
 			checkpointedShape = shape
 			const display = this.settledToolDisplay(this.displayMessages, 'Interrupted')
-			// onMessageEnd is what appends the bubble for streamed text, and it resets
-			// currentReply when it does — so text still sitting there has no bubble yet
-			// and a checkpoint has to add one, or the reply comes back as context the
-			// reader cannot see.
+			// onMessageEnd is what gives streamed text its bubble, and it clears
+			// currentReply doing so — text still there has none, and without one the
+			// reply returns as context the reader cannot see.
 			const withStreamed =
 				streaming && keptPartialReply
 					? [...display, { role: 'assistant' as const, content: streaming }]
@@ -3105,23 +3094,19 @@ export class AIChatManager {
 			}
 		}
 		const checkpointTimer = setInterval(() => void checkpointTurn(), CHECKPOINT_INTERVAL_MS)
-		// Leaving the page is the one moment worth a forced write, streamed text and
-		// all. `hidden` precedes pagehide on close, reload and navigation and, unlike
-		// pagehide, still runs a live document — though a navigation can still outrun
-		// the IndexedDB write, which is why the poll above carries the guarantee and
-		// this only narrows the gap. `document` is absent under SSR and the node test
-		// env, where a turn has no page to leave.
+		// `hidden` precedes pagehide on close, reload and navigation and still runs a
+		// live document, so it is the last point a write can land. A navigation can
+		// outrun it — the poll, not this, carries the guarantee. `document` is absent
+		// under SSR and the node test env.
 		const hideTarget = typeof document !== 'undefined' ? document : undefined
 		const checkpointOnHide = () => {
 			if (hideTarget?.visibilityState === 'hidden') void checkpointTurn(true)
 		}
 		hideTarget?.addEventListener('visibilitychange', checkpointOnHide)
-		// Checkpointing must stop the moment the loop hands back, not in `finally`:
-		// the outcome branches merge the turn into `this.messages` and only then
-		// await their save, so a checkpoint landing in that window would append the
-		// same collected messages to an already-committed transcript and, queued
-		// behind the real save, persist the duplicate. Idempotent — every exit path
-		// calls it.
+		// Must stop when the loop hands back, not in `finally`: the outcome branches
+		// merge the turn into `this.messages` before awaiting their save, so a
+		// checkpoint there would re-append the same messages and, queued behind that
+		// save, persist the duplicate. Idempotent — every exit path calls it.
 		const stopCheckpoints = () => {
 			clearInterval(checkpointTimer)
 			hideTarget?.removeEventListener('visibilitychange', checkpointOnHide)
@@ -3425,7 +3410,8 @@ export class AIChatManager {
 						// deduped in commitInterruptedTurn.
 						if (this.currentReply) {
 							partialReply = this.currentReply
-							partialReplyCollectedLen = collectedMessages.length
+							const last = collectedMessages[collectedMessages.length - 1]
+							partialReplyCommitted = last?.role === 'assistant' && last.content === partialReply
 						}
 						if (this.currentReply || this.currentReasoning) {
 							this.displayMessages = [
