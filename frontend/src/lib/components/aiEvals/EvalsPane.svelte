@@ -22,7 +22,7 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { onDestroy, untrack } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import {
 		Plus,
 		X,
@@ -39,10 +39,18 @@
 	import EvalRunsList from './EvalRunsList.svelte'
 	import EvalRunDialog from './EvalRunDialog.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
-	import { caseLabel } from './evalCaseUtils'
-	import type { EvalsLocation } from './evalRuns'
-	import { experimentName, subjectLabel } from './evalRuns'
-	import { formatDelta, formatScore, scorerLabel } from './evalScorers'
+	import {
+		caseLabel,
+		experimentName,
+		formatDelta,
+		formatScore,
+		scorerLabel,
+		subjectLabel,
+		type EvalsLocation
+	} from './evalUtils'
+
+	/** A dataset is capped at this many cases, so one page holds the whole set. */
+	const CASE_PAGE_SIZE = 1000
 
 	let {
 		agentPath,
@@ -50,8 +58,7 @@
 		editedConfig = undefined,
 		location = $bindable()
 	}: {
-		/** The agent under test. A dataset and its runs belong to an agent, so an agent that has
-		 * never been saved has nothing to hang them on. */
+		/** The agent under test. A dataset and its runs belong to an agent. */
 		agentPath: string
 		/** The workspace the opening editor operates on, which differs from the nav workspace in
 		 * fork and session editors. Every read and write targets it. */
@@ -60,8 +67,7 @@
 		 * offered on. Everywhere else the agent is what is deployed. */
 		editedConfig?: () => AgentDraft
 		/** The level the pane is on and the way out of it, reported up so the surface holding it
-		 * can put both in its header. Undefined at the root, which that surface already names.
-		 * The pane navigates; where that shows belongs to whoever owns the frame. */
+		 * can put both in its header. Undefined at the root, which that surface already names. */
 		location?: EvalsLocation
 	} = $props()
 
@@ -70,16 +76,14 @@
 	let dataset = $state<EvalDataset | undefined>(undefined)
 	let selectedDataset = $state<string | undefined>(undefined)
 	let experiments = $state<EvalExperiment[]>([])
-	// The drawer opens on the dataset's runs and a run is opened from there: what the table shows
-	// only means something once you have said which run you are reading. The run being read is
-	// `experimentId`; this is only whether one is.
+	// Whether a run is open. Which run is `experimentId`, which outlives closing it.
 	let viewingRun = $state(false)
 	let experimentId = $state<string | undefined>(undefined)
 	let baselineId = $state<string | undefined>(undefined)
 	let rows = $state<ExperimentRow[]>([])
 	// The dataset's cases as they are now, keyed by id. A row carries the case *as the experiment
-	// ran it*, which is what results must show and exactly what must not be written back: editing
-	// from a row would save a stale input and drop the fields a row does not carry.
+	// ran it*, so a row is never written back: that would save a stale input and drop the fields a
+	// row does not carry.
 	let storedCases = $state<Record<string, EvalCase>>({})
 	let means = $state<ScorerMean[]>([])
 	/** The version the agent is on now, against which a row's own version is stale or current. */
@@ -90,41 +94,28 @@
 	let scorers = $derived(dataset?.scorers ?? [])
 	let selectedCaseId = $state<string | undefined>(undefined)
 
-	// The dataset is edited on top of the runs rather than in among them: what a run measured and
-	// what the next one will are two different questions, and the table answers the first.
 	let datasetDrawer: EvalDatasetDrawer | undefined = $state()
-	// What to run is asked rather than assumed: which state of the agent, and against which
-	// dataset. Both cost a provider bill, and neither follows from where you were standing.
 	let runDialogOpen = $state(false)
-	// The dataset drawer was reached from the dialog, which had to give up the screen to it. Naming
-	// a dataset there is a detour on the way to a run, so the way back is taken for you.
 	let resumeRunDialog = $state(false)
 
 	let experiment = $derived(experiments.find((e) => e.id === experimentId))
 
-	// One agent, one history: runs of what is deployed and runs of the edits waiting on top of it
-	// are both this agent's, and each says which it was. Keeping them in separate lists would only
-	// hide the comparison that is the point of running the draft at all.
 	async function listSubjectExperiments(): Promise<EvalExperiment[]> {
 		if (!ws) return []
 		return await AiEvalsService.listAllExperiments({ workspace: ws, subjectPath: agentPath })
 	}
 
-	/** Whether the two lists the pane opens on have been read. Every empty state here is a
-	 *  statement — this agent has never been run, this workspace has no dataset — and neither is
-	 *  something to say while the answer is still on its way. */
+	/** Whether the two lists have been read. Every empty state here is a statement about the agent
+	 *  or the workspace, so none of them is said while the answer is still on its way. */
 	let runsLoaded = $state(false)
 	let datasetsLoaded = $state(false)
-	// A rejected initial load (no access, network) would otherwise leave the lists empty and render
-	// as "No dataset yet" — a real emptiness and a failed read must not look the same. Tracked per
-	// loader: the two run independently, so a successful reload of one must not clear the other's
-	// error.
+	// A rejected load would otherwise render as "No dataset yet": a real emptiness and a failed read
+	// must not look the same. Tracked per loader, so a successful reload of one keeps the other's.
 	let runsLoadError = $state(false)
 	let datasetsLoadError = $state(false)
 	let loadError = $derived(runsLoadError || datasetsLoadError)
 	let loaded = $derived(!ws || (runsLoaded && datasetsLoaded))
 
-	/** The agent's whole history, which is the screen the pane opens on. */
 	async function loadRuns() {
 		runsLoadError = false
 		try {
@@ -137,9 +128,6 @@
 		}
 	}
 
-	// Which dataset this subject was last worked in. Opening on someone else's dataset would read
-	// as this agent's history when it is not, but opening on the one you were in yesterday is
-	// exactly where you left off.
 	let lastDatasetKey = $derived(`evals:dataset:${ws}:${agentPath}`)
 	// Only ever written, never cleared: the pane mounts with nothing selected, and clearing on that
 	// would erase the memory a moment before the load that reads it.
@@ -148,7 +136,15 @@
 		try {
 			localStorage.setItem(lastDatasetKey, path)
 		} catch {
-			// Storage is a convenience here: a browser refusing it costs the memory, not the pane.
+			// Storage is a convenience: a browser refusing it costs the memory, not the pane.
+		}
+	}
+
+	function rememberedDataset(): string | undefined {
+		try {
+			return localStorage.getItem(lastDatasetKey) ?? undefined
+		} catch {
+			return undefined
 		}
 	}
 
@@ -160,32 +156,23 @@
 		} catch (e) {
 			datasetsLoadError = true
 			sendUserToast(`Failed to load the datasets: ${e}`, true)
-			datasetsLoaded = true
 			return
 		} finally {
 			datasetsLoaded = true
 		}
 		if (selectedDataset) return
-		let remembered: string | null = null
-		try {
-			remembered = localStorage.getItem(lastDatasetKey)
-		} catch {
-			// See above.
-		}
-		// Only if it is still there: a dataset that was deleted or is no longer readable must not
-		// leave the run dialog offering one that has gone. Brought into context rather than merely
-		// selected, so that what is selected is always something the pane has actually read.
+		const remembered = rememberedDataset()
+		// Only if it is still there, and brought into context rather than merely selected: what is
+		// selected is always a dataset the pane has actually read.
 		if (remembered && datasets.some((d) => d.path === remembered)) {
 			await useDataset(remembered)
 		}
 	}
 
 	/**
-	 * Bring a dataset into context: its metadata, its scorers and its cases.
-	 *
-	 * Called explicitly — opening a run, running one, editing one — rather than from an effect on
-	 * the selection. The load resets which run is being read, so an effect would race every caller
-	 * that sets the dataset and then opens a run of it.
+	 * Bring a dataset into context: its metadata, its scorers and its cases. Called explicitly
+	 * rather than from an effect on the selection: the load resets which run is being read, so an
+	 * effect would race every caller that sets the dataset and then opens a run of it.
 	 */
 	async function useDataset(path: string): Promise<boolean> {
 		selectedDataset = path
@@ -204,8 +191,6 @@
 			storedCases = {}
 			return false
 		}
-		// Deliberately not the pane's `loading`: opening a dataset to edit it happens over the runs
-		// list, and blanking that list to a skeleton makes the click read as navigation.
 		try {
 			const [row, cases] = await Promise.all([
 				AiEvalsService.getEvalDataset({ workspace: ws, path }),
@@ -217,9 +202,8 @@
 			return true
 		} catch (e) {
 			if (generation === loadGeneration) {
-				// The load failed, so what `dataset`/`storedCases` still hold is the previous dataset.
-				// Clear them rather than leave a caller (the edit drawer) to open on another dataset's
-				// cases and write them back under this path.
+				// A failed load leaves the previous dataset in hand: cleared, or the edit drawer opens
+				// on another dataset's cases and writes them back under this path.
 				dataset = undefined
 				storedCases = {}
 				sendUserToast(`Failed to load ${path}: ${e}`, true)
@@ -227,8 +211,6 @@
 			return false
 		}
 	}
-
-	const CASE_PAGE_SIZE = 1000
 
 	async function reloadCases() {
 		if (!ws || !selectedDataset) return
@@ -240,33 +222,19 @@
 		storedCases = Object.fromEntries(cases.cases.map((c) => [c.id, c]))
 	}
 
-	/**
-	 * What is on screen, and which request may write it.
-	 *
-	 * The run picker, the baseline picker and the 2s poller all call this, so responses overlap:
-	 * the generation drops a superseded one, and the key — which run, against which baseline —
-	 * empties the table when it changes, since one run's cells under another run's name is the one
-	 * thing a table of comparisons must never show.
-	 */
+	// The run picker, the baseline picker and the 2s poller all call this, so responses overlap:
+	// only the newest may write, or a superseded read replaces the table under the reader.
 	let resultsGeneration = 0
-	let renderedResults: string | undefined = undefined
-	let reportedResultsFailure: string | undefined = undefined
+	// Said once per failing streak: the poller comes back every 2s, and a run that cannot be read
+	// is a run that cannot be read again.
+	let resultsFailureReported = false
 
 	async function loadResults() {
 		const generation = ++resultsGeneration
 		if (!ws || !selectedDataset || !experimentId) {
 			rows = []
 			means = []
-			renderedResults = undefined
 			return
-		}
-		// Joined on a separator neither a path nor an id can contain, spelled as an escape:
-		// a raw NUL in the source makes this file binary to grep.
-		const key = [selectedDataset, experimentId, baselineId ?? ''].join('\u0000')
-		if (key !== renderedResults) {
-			rows = []
-			means = []
-			renderedResults = undefined
 		}
 		try {
 			const results = await AiEvalsService.experimentResults({
@@ -281,25 +249,20 @@
 			currentVersion = results.subject_current_version
 			deployedHash = results.subject_deployed_hash
 			if (dataset) dataset = { ...dataset, scorers: results.scorers }
-			renderedResults = key
-			reportedResultsFailure = undefined
+			resultsFailureReported = false
 		} catch (e) {
 			if (generation !== resultsGeneration) return
-			// Said once per run: the poller comes back every 2s, and a run that cannot be read is a
-			// run that cannot be read again.
-			if (reportedResultsFailure !== key) {
-				reportedResultsFailure = key
+			if (!resultsFailureReported) {
+				resultsFailureReported = true
 				sendUserToast(`Failed to read the run: ${e}`, true)
 			}
 		}
 	}
 
 	/**
-	 * What the table renders: every case of the dataset, in dataset order, carrying its result in
-	 * the selected experiment when there is one. A case list that only appeared once something had
-	 * been run would leave a dataset looking empty in exactly the state where you want to press
-	 * Run. Cases the experiment ran but the dataset no longer has keep their row at the end: the
-	 * run happened, and deleting the case does not unmake it.
+	 * Every case of the dataset, in dataset order, carrying its result in the selected experiment
+	 * when there is one. Cases the experiment ran but the dataset no longer has keep their row at
+	 * the end: the run happened, and deleting the case does not unmake it.
 	 */
 	let displayRows: ExperimentRow[] = $derived.by(() => {
 		const byCase = new Map(rows.map((row) => [row.case_id, row]))
@@ -307,7 +270,6 @@
 			(stored) =>
 				byCase.get(stored.id) ?? {
 					case_id: stored.id,
-					name: stored.name,
 					input: stored.input ?? {},
 					expected: stored.expected,
 					job_id: '',
@@ -318,35 +280,31 @@
 		return [...ordered, ...rows.filter((row) => !storedCases[row.case_id])]
 	})
 
-	/**
-	 * The version the agent is on right now, so a run's label can say it is of an earlier one.
-	 * Read on its own small endpoint rather than from the results, which harvest scores and read
-	 * every job; asked when the pane opens and when the tab comes back, which is when a save made
-	 * elsewhere is most likely waiting.
-	 */
+	/** The version the agent is on right now, so a run's label can say it is of an earlier one. Its
+	 *  own endpoint rather than the results, which harvest scores and read every job. */
 	async function readSubjectState() {
 		if (!ws || !agentPath || document.hidden) return
 		try {
 			const state = await AiEvalsService.evalSubjectState({ workspace: ws, path: agentPath })
 			currentVersion = state.version
 		} catch {
-			// The agent was deleted or is no longer readable: the table keeps what it last knew
-			// rather than claiming everything went stale.
+			// Deleted or no longer readable: the table keeps what it last knew.
 		}
 	}
-	$effect(() => {
-		agentPath
-		untrack(() => readSubjectState())
+	onMount(() => {
+		readSubjectState()
 	})
-	// Coming back to the tab is the moment an edit made elsewhere is most likely waiting, and the
-	// same is true of a run: the poller only arms for a run this pane already knows about, so one
-	// started from another tab would otherwise never appear on a list left open.
+	// Coming back to the tab is when an edit or a run made elsewhere is waiting: the poller only
+	// arms for a run this pane already knows about, so one started in another tab would otherwise
+	// never appear on a list left open.
 	$effect(() => {
-		const onFocus = () =>
+		const onFocus = () => {
+			if (document.hidden) return
 			untrack(() => {
 				readSubjectState()
 				refresh()
 			})
+		}
 		window.addEventListener('focus', onFocus)
 		document.addEventListener('visibilitychange', onFocus)
 		return () => {
@@ -374,21 +332,15 @@
 	})
 	onDestroy(() => poller && clearInterval(poller))
 
-	/**
-	 * Read what the run has produced so far. Nothing here drives it: a run answers and scores
-	 * itself on workers, so closing this pane costs the numbers nothing, and reopening it shows
-	 * where the run got to.
-	 */
-	// One pass at a time. The poller fires every 2s whether or not the last read came back, and
-	// every read supersedes the one before it — so a read slower than the interval would be
-	// discarded by the next one forever, and the table would never advance.
+	// One pass at a time: the poller fires every 2s whether or not the last read came back, and
+	// every read supersedes the one before it, so a read slower than the interval would be
+	// discarded by the next one forever and the table would never advance.
 	let refreshing = false
 	async function refresh() {
 		if (!ws || refreshing) return
 		refreshing = true
 		try {
-			// On the list, the run in flight is a row whose scores are still arriving; in a run, it
-			// is the table. Reading both would read every cell of a run nobody is looking at.
+			// Reading both would read every cell of a run nobody is looking at.
 			if (viewingRun) {
 				await loadResults()
 			} else {
@@ -399,32 +351,24 @@
 		}
 	}
 
-	/**
-	 * Opening a run is what the table is of, and a run of a dataset the pane is not in brings that
-	 * dataset with it: the table is the run's cells against that dataset's cases and columns.
-	 *
-	 * The run before it in the list is the obvious thing to compare against, offered rather than
-	 * imposed — the picker beside it can clear it. Reading the cells is left to the effect watching
-	 * which run is selected, so the list, the picker and a fresh run all open one the same way.
-	 */
+	/** Opens a run, bringing its dataset with it and offering the run before it as the baseline.
+	 *  Reading the cells is left to the effect on the selection, so every way in opens one alike. */
 	async function openRun(id: string) {
-		// Against the dataset that is loaded, not the one that is selected: the two are the same
-		// once a dataset has been brought into context, and skipping on the selection alone would
-		// leave a run open over a dataset whose cases and scorers were never read.
+		// Against the dataset that is loaded, not the one that is selected: skipping on the selection
+		// alone would leave a run open over a dataset whose cases and scorers were never read.
 		const target = experiments.find((e) => e.id === id)
 		if (target && target.dataset !== dataset?.path) {
 			await useDataset(target.dataset)
 		}
 		const index = experiments.findIndex((e) => e.id === id)
-		// Against the run before it *of the same dataset*: the list spans datasets, and a run of
-		// another set of cases is not a baseline for this one.
+		// The run before it *of the same dataset*: the list spans datasets, and a run of another set
+		// of cases is not a baseline for this one.
 		baselineId = experiments.slice(index + 1).find((e) => e.dataset === target?.dataset)?.id
 		experimentId = id
 		viewingRun = true
 		selectedCaseId = undefined
 	}
 
-	/** Runs a dataset against a chosen state of the agent, as the run dialog asked for it. */
 	async function runAll(runSubject: EvalSubject, path: string): Promise<boolean> {
 		if (!ws || !path) return false
 		running = true
@@ -442,11 +386,8 @@
 		// From here the run exists and is billing: what can still fail is reading it back, and
 		// saying "failed to run" to that invites a second, duplicate run.
 		try {
-			// Running a dataset is also choosing it: what you started is what the pane is now about.
 			if (path !== dataset?.path) await useDataset(path)
 			await loadRuns()
-			// Straight into the run that was just started: it is the one thing on screen that is
-			// still changing, and watching it is why you pressed Run.
 			await openRun(id)
 		} catch (e) {
 			sendUserToast(
@@ -456,37 +397,30 @@
 		} finally {
 			running = false
 		}
-		// The run was launched; a failed read-back above is reported but does not undo it.
 		return true
 	}
 
-	/** The dataset a run is of, once it has been created or moved: both are a different list of
-	 *  datasets and a different thing selected in it. */
 	async function selectSavedDataset(path: string) {
 		await loadDatasets()
 		await useDataset(path)
 	}
 
-	/** The columns changed: the dataset is re-read for them, and the run on screen is re-read
-	 *  through them — a pass line that moved re-reads every score already recorded. */
+	/** A pass line that moved re-reads every score already recorded, so the run on screen is
+	 *  re-read with the dataset. */
 	async function scorersChanged() {
 		if (selectedDataset) await loadDataset(selectedDataset)
 		await loadResults()
 		await loadRuns()
 	}
 
-	/** Curating the dataset changes what the table lists, and a case that was edited is a case the
-	 *  recorded runs no longer ran: the rows say so once they are read again. The runs list names
-	 *  the dataset and counts its cases, so it is re-read too — after a rename it would otherwise
-	 *  still name a path that no longer exists. */
+	/** The runs list names the dataset and counts its cases, so it is re-read too: after a rename it
+	 *  would otherwise still name a path that no longer exists. */
 	async function casesChanged() {
 		await reloadCases()
 		await loadResults()
 		await loadRuns()
 	}
 
-	/** A row of the table is a case as one run executed it, which is what its panel shows. Editing
-	 *  it is editing the dataset, one drawer up. */
 	function openCase(row: ExperimentRow) {
 		selectedCaseId = row.case_id
 	}
@@ -496,15 +430,11 @@
 	$effect(() => {
 		if (!ws) return
 		untrack(() => {
-			// The runs are the screen; the datasets are what the run dialog offers, and what the
-			// remembered one is checked against.
 			loadRuns()
 			loadDatasets()
 		})
 	})
 	$effect(() => {
-		// Picking a run is asking to see it, and picking a baseline is what turns every column into
-		// a comparison. Both are a different table.
 		experimentId
 		baselineId
 		untrack(() => {
@@ -515,31 +445,29 @@
 				baselineId = undefined
 				return
 			}
+			// Emptied before the read: one run's cells under another run's name is the one thing a
+			// table of comparisons must never show.
+			rows = []
+			means = []
+			resultsFailureReported = false
 			loadResults()
 		})
 	})
 
-	/**
-	 * What a run is called in the picker: the run it is, what ran it, and how many cases it holds.
-	 * What ran is named rather than marked, because a sigil beside a version is a legend nobody has.
-	 */
+	function subjectLabelOf(e: EvalExperiment): string {
+		return subjectLabel(e, deployedHash, currentVersion)
+	}
+
 	function experimentTitle(e: EvalExperiment): string {
 		return `${experimentName(e)} · ${subjectLabelOf(e)} · ${e.case_count}`
 	}
 
-	let subjectLabelOf = $derived((e: EvalExperiment) =>
-		subjectLabel(e, deployedHash, currentVersion)
-	)
-
-	/** Where the pane is, reported to whatever frames it. Named as the run picker names a run,
-	 *  without the case count: a header says where you are, not everything the row said. */
+	/** Where the pane is, reported to whatever frames it. */
 	$effect(() => {
-		const run = viewingRun ? experiments.find((e) => e.id === experimentId) : undefined
+		const run = viewingRun ? experiment : undefined
 		location = run
 			? {
 					label: `${experimentName(run)} · ${subjectLabelOf(run)}`,
-					// The panel showed a case of this run, so it closes with the run rather than hanging
-					// over the list that replaces it.
 					back: () => {
 						viewingRun = false
 						selectedCaseId = undefined
@@ -567,13 +495,8 @@
 		unavailable: { icon: Minus, class: 'text-tertiary', label: 'Not recorded' }
 	} as const
 
-	/**
-	 * The one number a column reports: how many cases pass, when it has a line to pass; how they
-	 * average when it does not. The other is in the header's tooltip.
-	 *
-	 * One line rather than both, because the header is as tall as the number of lines in it and the
-	 * first score landing must not move the table under the reader.
-	 */
+	/** The one number a column reports: how many cases pass, when it has a line to pass; how they
+	 *  average when it does not. The other is in the header's tooltip. */
 	function columnHeadline(
 		scorer: Scorer,
 		mean: ScorerMean | undefined
@@ -616,8 +539,10 @@
 		return parts.join(' · ')
 	}
 
+	// A status this build does not know is not a run in flight: falling back to `running` would spin
+	// a cell the poller has no reason to poll.
 	function statusOf(status: string) {
-		return STATUS[status as keyof typeof STATUS] ?? STATUS.running
+		return STATUS[status as keyof typeof STATUS] ?? STATUS.unavailable
 	}
 
 	/** The per-assertion results a script scorer reports, when it reports any. */
@@ -629,16 +554,8 @@
 </script>
 
 <div class="flex flex-col h-full min-h-0">
-	<!-- What you are looking at on the first row, what changes it on the second: two kinds of
-	     control that read badly interleaved, and the row of pickers no longer wraps.
-
-	     Nothing on the list: which run, and which dataset it was of, is what the rows say. The
-	     pickers belong to a run being read, so they arrive with one. -->
 	<div class="flex flex-wrap items-end gap-2 py-2">
 		{#if viewingRun}
-			<!-- Which run, and what it is read against, side by side: they are one question asked
-			     twice, and a comparison you cannot see the control for is one nobody knows they can
-			     make. The way back is in the dialog's header, which does not move with this row. -->
 			<Label label="Run" class="w-52 shrink">
 				<Select items={experimentItems} bind:value={experimentId} class="text-xs" />
 			</Label>
@@ -655,8 +572,6 @@
 		{/if}
 		<div class="grow"></div>
 		{#if viewingRun && experiment?.run_job_id}
-			<!-- The run is one flow, so it has a job: what it is doing, what it cost and what it
-			     logged are all there rather than reconstructed here. -->
 			<a
 				class="text-xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 pb-2"
 				href={`${base}/run/${experiment.run_job_id}?workspace=${ws}`}
@@ -667,10 +582,6 @@
 			</a>
 		{/if}
 		{#if !viewingRun && loaded && datasets.length > 0}
-			<!-- Beside starting a run rather than only inside the dialog that starts one: a dataset
-			     is a set someone curates between runs, and reaching it through the run they are not
-			     making yet is a detour. Secondary, because a run is what this screen is a list of.
-			     Absent until there is a dataset: the empty state below is then the one move. -->
 			<Button
 				unifiedSize="md"
 				variant="default"
@@ -681,10 +592,7 @@
 			</Button>
 			{#if experiments.length > 0}
 				<!-- Only once there is a list: with no runs the table offers this itself, where the
-				     first row would be. Named for what it opens rather than for what that then does:
-				     it asks which state of the agent and which dataset, and both cost a provider
-				     bill, so a button that reads as spending one on the way past would be lying
-				     about the click. -->
+				     first row would be. -->
 				<Button
 					unifiedSize="md"
 					variant="accent"
@@ -711,7 +619,6 @@
 							</span>
 						</div>
 					{:else if loaded && datasets.length === 0}
-						<!-- Nothing to run and nothing to have run: the first dataset is the only move. -->
 						<div class="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
 							<span class="text-sm text-emphasis">No dataset yet</span>
 							<span class="text-xs text-secondary max-w-md">
@@ -728,14 +635,12 @@
 							</Button>
 						</div>
 					{:else if !viewingRun || !loaded}
-						<!-- What this agent has already been measured at, across every dataset it has been
-						     measured on: a run is worth reading against the ones before it, and that is a
-						     list before it is a table. It is also what the pane shows while it reads: the
-						     table is the screen, and the states around it are answers it does not have yet. -->
 						<EvalRunsList
 							{experiments}
 							{datasets}
 							{loaded}
+							{deployedHash}
+							{currentVersion}
 							onOpen={(e) => openRun(e.id)}
 							onEditDataset={async (path) => {
 								if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
@@ -743,12 +648,7 @@
 							onNew={() => (runDialogOpen = true)}
 						/>
 					{:else}
-						<!-- Square against the panel: a rounded corner there reads as the table ending, when
-						     what is beside it is the row it opened. -->
 						<DataTable size="sm" tableFixed rounded={!selectedRow}>
-							<!-- A score column is as wide as a score and its column name need; the question and the
-							     answer share what is left. Sized rather than divided equally, because the text will
-							     take any width it is given and leave the numbers squeezed against each other. -->
 							<colgroup>
 								<col style="width: 24%" />
 								<col style="width: 32%" />
@@ -764,8 +664,7 @@
 										{@const mean = means.find((m) => m.scorer_id === scorer.id)}
 										{@const headline = columnHeadline(scorer, mean)}
 										<Cell head numeric last={index === scorers.length - 1}>
-											<!-- Two rows, always: the name, and the number under the name it is a number of.
-											     The second row keeps its height while there is nothing in it, so the table
+											<!-- The second row keeps its height while there is nothing in it, so the table
 											     does not move when the first score lands. -->
 											<div class="flex flex-col items-end min-w-0 w-full overflow-hidden">
 												<span
@@ -810,10 +709,6 @@
 											<span class="truncate block text-emphasis">{caseLabel(row)}</span>
 										</Cell>
 										<Cell last={scorers.length === 0}>
-											<!-- The answer, with what became of the job that produced it in front of it.
-											     One column rather than two: a status beside an empty cell says the same
-											     thing twice, and a status beside an answer says nothing the answer does
-											     not. The spin is on the icon, not on the cell around it. -->
 											<span
 												class="flex items-center gap-1.5 min-w-0"
 												title={row.subject_version
@@ -838,9 +733,6 @@
 														<Loader2 size={13} class="animate-spin text-blue-500" />
 													</span>
 												{:else if cell?.score != undefined}
-													<!-- The number is the verdict; why it was given is the part worth reading, so
-													     it is one hover away rather than in a browser tooltip that arrives after a
-													     second and wraps at 80 columns. -->
 													<Popover placement="left">
 														{#snippet text()}
 															<div class="flex flex-col gap-2 max-w-80 text-left">
@@ -883,8 +775,6 @@
 														</span>
 													</Popover>
 												{:else if cell?.not_applicable}
-													<!-- A verdict, so it is said rather than left as the dash of a cell
-													     nothing reached. The column's mean is of the cases it measured. -->
 													<Popover placement="left" disablePopup={!cell.reason}>
 														{#snippet text()}
 															<span class="text-xs max-w-80 text-left">{cell.reason}</span>
@@ -917,16 +807,11 @@
 				<Pane size={40} minSize={25}>
 					<div class="h-full overflow-auto flex flex-col">
 						<div class="flex items-start gap-2 px-3 py-2 border-b">
-							<!-- The case itself, in full: it is the question this panel is about, and the
-							     table beside it is where it is abbreviated. -->
 							<span class="text-xs font-semibold text-emphasis break-words">
 								{openRow.input?.user_message ?? caseLabel(openRow)}
 							</span>
 							<div class="grow"></div>
 							{#if openRow.job_id}
-								<!-- Over the panel rather than over the answer: the job is this case as this run
-								     executed it, the agent and the scorers that read it, which is everything the
-								     panel is showing and not the answer alone. -->
 								<a
 									class="text-2xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 mt-0.5"
 									href={`${base}/run/${openRow.job_id}?workspace=${ws}`}
@@ -956,9 +841,6 @@
 								</Label>
 							{/if}
 							{#if scorers.length > 0 && openRow.scores.length > 0}
-								<!-- What each column made of this case, and why. A scorer is a step inside the
-								     case's own job, which the panel's header opens; what is worth having here is
-								     the number with the reasoning beside it. -->
 								<Label label="Scores">
 									<div class="flex flex-col divide-y border rounded-md">
 										{#each scorers as scorer (scorer.id)}
@@ -1004,8 +886,6 @@
 								</Label>
 							{/if}
 							{#if experiment && (openRow.job_id || openRow.output != undefined)}
-								<!-- The answer as the run recorded it, which is what the agent returned and not
-								     what the job as a whole did. -->
 								<div class="rounded-md border border-light overflow-hidden">
 									<div
 										class="flex items-center gap-2 px-2 py-1 border-b border-light bg-surface-secondary"
@@ -1016,14 +896,10 @@
 									</div>
 									<div class="p-2">
 										{#if openRow.output != undefined}
-											<!-- Rendered: an agent writes prose, and its own headings and lists are how it
-											     meant the answer to be read. -->
 											<div class="text-xs text-secondary break-words">
 												<GfmMarkdown md={openRow.output} noPadding />
 											</div>
 										{:else if openRow.status === 'running'}
-											<!-- A wait, not an answer: the word alone sat exactly where the answer goes
-											     and read as one. -->
 											<span class="text-xs text-tertiary inline-flex items-center gap-1.5">
 												<Loader2 size={12} class="animate-spin text-blue-500" />
 												Running

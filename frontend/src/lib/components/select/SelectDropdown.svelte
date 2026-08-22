@@ -145,13 +145,14 @@
 					}}
 				>
 					{@render startSnippet?.({ item, close: () => (open = false) })}
-					<!-- Label and subtitle are one block: with an `endSnippet` the button is a flex row,
-					     and a subtitle outside this would sit beside the row's actions instead of under
-					     the name it belongs to. -->
-					<div class={twMerge('min-w-0', itemLabelWrapperClasses)}>
-						<div class="truncate">{item.label || '\xa0'}</div>
+					<!-- Label and subtitle stay one block so that, with an `endSnippet` making the button a
+					     flex row, the subtitle sits under the name rather than beside the row's actions. -->
+					<div class="min-w-0 flex-1">
+						<span class={itemLabelWrapperClasses}>
+							{item.label || '\xa0'}
+						</span>
 						{#if item.subtitle}
-							<div class="text-2xs text-secondary truncate">{item.subtitle}</div>
+							<div class="text-2xs text-secondary">{item.subtitle}</div>
 						{/if}
 					</div>
 					{#if item.__is_create}

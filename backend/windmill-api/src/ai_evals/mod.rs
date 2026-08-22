@@ -1,27 +1,13 @@
 //! Eval datasets for reusable AI agents.
 //!
-//! A dataset is a curated set of cases: the inputs an agent is expected to handle, and what it was
-//! expected to answer. Datasets, cases and experiments are rows (`eval_dataset`, `eval_case`,
-//! `eval_experiment`, `eval_experiment_case`), so a dataset is permissioned, cascaded and queried
-//! like any other workspace object.
+//! Five tables: `eval_dataset` and the `eval_case` rows it holds are the curated inputs;
+//! `eval_experiment`, `eval_experiment_case` and `eval_score` are one run of them, written once
+//! and only ever read afterwards.
 //!
-//! A run's trajectory is not stored here: the tool calls, their arguments and their results belong
-//! to the jobs that made them, and `job_id` is the way to them. What the results table is made of
-//! is — each cell's answer, its outcome and every scorer's verdict are copied onto the run's rows
-//! the first time they can be read, since jobs have their own retention and a recorded run has to
-//! outlive the jobs that produced it.
-//!
-//! Reads and writes of a dataset and its cases both go through `user_db`, so row-level security is
-//! the authority throughout: `eval_dataset` carries the usual read and write policies, and
-//! `eval_case` carries a read policy derived from its dataset (`see_parent_dataset`) plus write
-//! policies that check the dataset is *writable* (`eval_dataset_writable`, in the migration). A
-//! dataset and its cases therefore move in one transaction, governed by those policies, with no
-//! access decided a second time in Rust.
-//!
-//! The experiment tables are the exception. Their rows are written from two places — a launch,
-//! which holds dataset write, and the harvest, which holds only *read* of the run it copies onto
-//! its own rows — so they carry read policies only and are written on the unrestricted pool after
-//! the API has checked the appropriate access. See `run_experiment` and `collect_experiment`.
+//! Datasets and cases go through `user_db`, so row-level security is the only access authority:
+//! `eval_case`'s policies derive from its dataset's (`eval_dataset_writable`, in the migration).
+//! The experiment tables carry read policies only and are written on the unrestricted pool after
+//! the API has checked access — see `run_experiment` and `collect_experiment`.
 
 use axum::{
     extract::{Path, Query},
@@ -35,7 +21,7 @@ use uuid::Uuid;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
-    utils::{paginate, Pagination},
+    utils::{check_proper_path, paginate, Pagination},
 };
 
 use crate::db::{ApiAuthed, DB};
@@ -65,7 +51,6 @@ pub fn workspaced_service() -> Router {
         .route("/datasets/create", post(create_dataset))
         .route("/datasets/get/{*path}", get(get_dataset))
         .route("/datasets/update/{*path}", post(update_dataset))
-        .route("/datasets/delete/{*path}", post(delete_dataset))
         .route("/cases/list/{*path}", get(list_cases))
         .route("/scorer_defaults", get(scorer_defaults))
         .route("/run_payload", get(run_payload))
@@ -77,9 +62,8 @@ pub fn workspaced_service() -> Router {
         .route("/experiments/results/{*path}", get(experiment_results))
 }
 
-/// What `eval_dataset.summary` holds. Checked here rather than left to the column: a value the
-/// column refuses comes back as an internal database error, which tells the caller nothing about
-/// which field was too long. The path is bounded by `check_proper_path`.
+/// Checked here rather than left to the column, whose own refusal comes back as an internal
+/// database error naming no field.
 const MAX_DATASET_SUMMARY_CHARS: usize = 1000;
 
 fn check_summary(summary: Option<&str>) -> Result<()> {
@@ -95,44 +79,22 @@ fn check_summary(summary: Option<&str>) -> Result<()> {
     }
 }
 
-/// Dataset paths are Windmill paths, so the folder they live in is what grants access to them.
-fn check_path(path: &str) -> Result<()> {
-    // The canonical Windmill path validator, so a dataset path is one the normal editor can also
-    // save and rename — a hand-rolled check let spaces and query characters through, which the
-    // `proper_id` shape (and every other object) rejects. It bounds length and requires
-    // `u/`/`f/`/`g/` with alphanumeric/`_`/`-` segments.
-    windmill_common::utils::check_proper_path(path)
-}
-
-/// A case is text: a message and the answer it was expected to produce. Attachments are S3
-/// references rather than inline bytes, so nothing here is meant to be large. The caps exist so that one mistake — a whole file pasted into a message, a capture
-/// loop left running — cannot grow a dataset past what a listing can load.
-
+/// A case is text — attachments are S3 references rather than inline bytes.
 const MAX_CASE_BYTES: usize = 256 * 1024;
-/// The whole dataset's cases together, so 1 000 cases at the per-case cap cannot add up to a
-/// dataset a listing or a run must hold hundreds of megabytes of at once. Cases are text —
-/// attachments are S3 references — so this is generous for real use and only bites the pathological.
+/// The whole case set together, so cases at the per-case cap cannot add up to a dataset a listing
+/// or a run must hold hundreds of megabytes of at once.
 const MAX_DATASET_BYTES: usize = 16 * 1024 * 1024;
 /// Also what a listing returns in one page, so a dataset is always read whole: the editor holds
-/// every case at once and writes them together, and half a set on screen is a Save that looks
-/// like it dropped the rest.
+/// every case at once and writes them together, and half a set on screen is a Save that drops the
+/// rest.
 const MAX_CASES_PER_DATASET: i64 = 1_000;
 
-/// Newest first, and only this many: the list feeds a picker, and a dataset that has been run
-/// nightly for a year would otherwise send back every run of it.
 const MAX_EXPERIMENTS_LISTED: i64 = 100;
 
-/// Enough to cover the scorers a workspace actually reuses, few enough to stay a list you read
-/// rather than one you search.
 const MAX_RECENT_SCORERS: usize = 12;
 
-/// A run scores every case by every column, so the work a dataset schedules is cases × scorers;
-/// this keeps one request from fanning out past what a results table can show anyway.
+/// A run's work is cases × scorers, so this bounds how far one request fans out.
 const MAX_SCORERS_PER_DATASET: usize = 20;
-
-/// A run answers every case of its dataset in one flow; more cases than this is a dataset to
-/// split, not a run to start.
-const MAX_CASES_PER_RUN: usize = 1_000;
 
 /// The dataset a write was aimed at is gone. Raised from the foreign key rather than from a
 /// preceding existence check, so a dataset deleted mid-request cannot slip between the two.
@@ -140,8 +102,8 @@ fn is_missing_dataset(e: &sqlx::Error) -> bool {
     e.as_database_error().and_then(|d| d.code()).as_deref() == Some("23503")
 }
 
-/// A `user_db` write the row-level policies refused surfaces as SQLSTATE 42501 (`insufficient
-/// privilege`), whose message names the table and the policy. Turn it into one about access.
+/// A `user_db` write the row-level policies refused surfaces as SQLSTATE 42501, whose message
+/// names the table and the policy. Turn it into one about access.
 fn map_rls_denied(path: &str, action: &str, e: sqlx::Error) -> Error {
     if e.as_database_error().and_then(|d| d.code()).as_deref() == Some("42501") {
         return Error::NotAuthorized(format!("Not allowed to {} eval dataset {}", action, path));
@@ -176,6 +138,35 @@ async fn write_refused(authed: &ApiAuthed, user_db: &UserDB, w_id: &str, path: &
     }
 }
 
+/// One `eval_dataset` row, from the columns every read of the table selects.
+fn dataset_from_row(
+    path: String,
+    summary: Option<String>,
+    scorers: serde_json::Value,
+    created_at: DateTime<Utc>,
+    created_by: String,
+    edited_at: DateTime<Utc>,
+    edited_by: String,
+) -> Result<EvalDataset> {
+    Ok(EvalDataset {
+        path,
+        summary,
+        scorers: parse_scorers(scorers)?,
+        created_at,
+        created_by,
+        edited_at,
+        edited_by,
+    })
+}
+
+/// A dataset's columns. Only this module writes them, through serde, so a value that does not
+/// parse is corruption rather than input: defaulting to no columns would let the next save mint
+/// fresh scorer ids and orphan every score already recorded.
+pub(crate) fn parse_scorers(scorers: serde_json::Value) -> Result<Vec<Scorer>> {
+    serde_json::from_value(scorers)
+        .map_err(|e| Error::internal_err(format!("eval dataset scorers are not readable: {e}")))
+}
+
 /// Read the dataset the request names, through `user_db` so that a caller who cannot see it gets
 /// the same answer as one asking for a dataset that does not exist.
 async fn read_dataset(
@@ -184,7 +175,7 @@ async fn read_dataset(
     w_id: &str,
     path: &str,
 ) -> Result<EvalDataset> {
-    check_path(path)?;
+    check_proper_path(path)?;
     let mut tx = user_db.clone().begin(authed).await?;
     let row = sqlx::query!(
         "SELECT path, summary, scorers, created_at, created_by,
@@ -197,30 +188,28 @@ async fn read_dataset(
     .await?;
     tx.commit().await?;
     let row = row.ok_or_else(|| Error::NotFound(format!("Eval dataset {} not found", path)))?;
-    Ok(EvalDataset {
-        path: row.path,
-        summary: row.summary,
-        scorers: serde_json::from_value(row.scorers).unwrap_or_default(),
-        created_at: row.created_at,
-        created_by: row.created_by,
-        edited_at: row.edited_at,
-        edited_by: row.edited_by,
-    })
+    dataset_from_row(
+        row.path,
+        row.summary,
+        row.scorers,
+        row.created_at,
+        row.created_by,
+        row.edited_at,
+        row.edited_by,
+    )
 }
 
 /// The dataset and its cases as one snapshot, so a launch cannot record the cases from before an
-/// edit beside the scorers from after it — a dataset state that never existed. One transaction is
-/// not enough on its own: `user_db` runs at READ COMMITTED, where each statement takes a fresh
-/// snapshot, so the row is taken `FOR UPDATE` — which an atomic edit's own `FOR UPDATE`, and a
-/// case write's foreign-key lock, both conflict with — pinning the cases against change until the
-/// read commits. `Err(NotFound)` when the dataset is not there for this caller to read for a run.
+/// edit beside the scorers from after it. One transaction is not enough: `user_db` runs at READ
+/// COMMITTED, where each statement takes a fresh snapshot, so the row is taken `FOR UPDATE` —
+/// which an edit's own `FOR UPDATE` and a case write's foreign-key lock both conflict with.
 pub(crate) async fn read_dataset_and_cases(
     authed: &ApiAuthed,
     user_db: &UserDB,
     w_id: &str,
     path: &str,
 ) -> Result<(EvalDataset, Vec<EvalCase>)> {
-    check_path(path)?;
+    check_proper_path(path)?;
     let mut tx = user_db.clone().begin(authed).await?;
     let row = sqlx::query!(
         "SELECT path, summary, scorers, created_at, created_by, edited_at, edited_by
@@ -235,7 +224,7 @@ pub(crate) async fn read_dataset_and_cases(
         return Err(Error::NotFound(format!("Eval dataset {} not found", path)));
     };
     let case_rows = sqlx::query!(
-        "SELECT id, name, input, expected, created_at, created_by
+        "SELECT id, input, expected, created_at, created_by
          FROM eval_case
          WHERE workspace_id = $1 AND dataset_path = $2
          ORDER BY created_at, id",
@@ -245,21 +234,20 @@ pub(crate) async fn read_dataset_and_cases(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    let dataset = EvalDataset {
-        path: row.path,
-        summary: row.summary,
-        scorers: serde_json::from_value(row.scorers).unwrap_or_default(),
-        created_at: row.created_at,
-        created_by: row.created_by,
-        edited_at: row.edited_at,
-        edited_by: row.edited_by,
-    };
+    let dataset = dataset_from_row(
+        row.path,
+        row.summary,
+        row.scorers,
+        row.created_at,
+        row.created_by,
+        row.edited_at,
+        row.edited_by,
+    )?;
     let cases = case_rows
         .into_iter()
         .map(|row| {
             Ok(EvalCase {
                 id: row.id,
-                name: row.name,
                 input: serde_json::from_value(row.input)?,
                 expected: opt_to_raw(row.expected)?,
                 created_at: row.created_at,
@@ -274,15 +262,15 @@ pub(crate) async fn read_dataset_and_cases(
 /// them.
 ///
 /// `SELECT … FOR UPDATE` applies `eval_dataset`'s UPDATE policies on top of its SELECT policies,
-/// so the row itself answers who may write it. A grant in `extra_perms` is honoured without being
-/// mirrored here, where a copy could drift.
+/// so the row itself answers who may write it, and a grant in `extra_perms` is honoured without
+/// being mirrored here.
 async fn require_dataset_writable(
     authed: &ApiAuthed,
     user_db: &UserDB,
     w_id: &str,
     path: &str,
 ) -> Result<()> {
-    check_path(path)?;
+    check_proper_path(path)?;
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot modify eval datasets".to_string(),
@@ -304,45 +292,21 @@ async fn require_dataset_writable(
     }
 }
 
-/// jsonb columns are read as `serde_json::Value` and handed on as `RawValue`, which is what the
-/// case shape stores: a case's `expected` is arbitrary user JSON that this module never looks
-/// inside.
-fn to_raw(value: serde_json::Value) -> Result<Box<RawValue>> {
-    Ok(serde_json::value::to_raw_value(&value)?)
-}
-
-fn from_raw(value: &RawValue) -> Result<serde_json::Value> {
-    Ok(serde_json::from_str(value.get())?)
-}
-
+/// jsonb columns are read as `serde_json::Value` and handed on as `RawValue`: a case's `expected`
+/// is arbitrary user JSON that this module never looks inside.
 fn opt_to_raw(value: Option<serde_json::Value>) -> Result<Option<Box<RawValue>>> {
-    value.map(to_raw).transpose()
+    value
+        .map(|v| Ok(serde_json::value::to_raw_value(&v)?))
+        .transpose()
 }
 
 fn opt_from_raw(value: Option<&Box<RawValue>>) -> Result<Option<serde_json::Value>> {
-    value.map(|v| from_raw(v)).transpose()
+    value
+        .map(|v| Ok(serde_json::from_str(v.get())?))
+        .transpose()
 }
 
-/// What `eval_case.name` holds. Checked here rather than left to the column, because a case is
-/// written after the dataset it belongs to: a name the column refuses would commit the dataset and
-/// then fail its cases, leaving an empty dataset that a retry says already exists.
-const MAX_CASE_NAME_CHARS: usize = 255;
-
-/// Everything a case carries that a caller supplied, weighed against what the row can hold.
-fn check_case(
-    name: Option<&str>,
-    input: &EvalCaseInput,
-    expected: Option<&Box<RawValue>>,
-) -> Result<()> {
-    if let Some(name) = name {
-        if name.chars().count() > MAX_CASE_NAME_CHARS {
-            return Err(Error::BadRequest(format!(
-                "This eval case's name is {} characters, over the {} the column holds.",
-                name.chars().count(),
-                MAX_CASE_NAME_CHARS
-            )));
-        }
-    }
+fn check_case(input: &EvalCaseInput, expected: Option<&Box<RawValue>>) -> Result<()> {
     // The shape the agent step reads its attachments in, checked when the case is written rather
     // than when a run deserialises the step's arguments, which is after the case was queued.
     if let Some(attachments) = &input.user_attachments {
@@ -366,8 +330,21 @@ fn case_bytes(input: &EvalCaseInput, expected: Option<&Box<RawValue>>) -> Result
     Ok(bytes)
 }
 
-/// Refuse a whole case set whose bytes exceed the dataset cap, before any of it is written.
-pub(crate) fn check_dataset_bytes(total: usize) -> Result<()> {
+/// What a whole case set can be refused for, before any of it is written.
+fn check_case_set<'a>(
+    cases: impl ExactSizeIterator<Item = (&'a EvalCaseInput, Option<&'a Box<RawValue>>)>,
+) -> Result<()> {
+    if cases.len() as i64 > MAX_CASES_PER_DATASET {
+        return Err(Error::BadRequest(format!(
+            "An eval dataset holds at most {} cases. Split them into several datasets.",
+            MAX_CASES_PER_DATASET
+        )));
+    }
+    let mut total = 0usize;
+    for (input, expected) in cases {
+        check_case(input, expected)?;
+        total += case_bytes(input, expected)?;
+    }
     if total > MAX_DATASET_BYTES {
         return Err(Error::BadRequest(format!(
             "This dataset is {} KiB of cases, over the {} KiB limit. Attachments belong in \
@@ -391,7 +368,3 @@ fn check_case_size(input: &EvalCaseInput, expected: Option<&Box<RawValue>>) -> R
     }
     Ok(())
 }
-
-// -----------------------------------------------------------------------------------------------
-// Datasets
-// -----------------------------------------------------------------------------------------------

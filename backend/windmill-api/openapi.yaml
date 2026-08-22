@@ -11840,23 +11840,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/ai_evals/datasets/delete/{path}:
-    post:
-      summary: delete an eval dataset and all its cases
-      operationId: deleteEvalDataset
-      tags:
-        - ai_evals
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: eval dataset deleted
-          content:
-            text/plain:
-              schema:
-                type: string
-
   /w/{workspace}/ai_evals/cases/list/{path}:
     get:
       summary: list the cases of an eval dataset
@@ -11875,15 +11858,12 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [cases, total]
+                required: [cases]
                 properties:
                   cases:
                     type: array
                     items:
                       $ref: "#/components/schemas/EvalCase"
-                  total:
-                    type: integer
-                    description: number of cases in the dataset, before pagination
   /w/{workspace}/ai_evals/subject_state:
     get:
       summary: what the agent under test is right now
@@ -26514,9 +26494,6 @@ components:
     NewEvalCase:
       type: object
       properties:
-        name:
-          type: string
-          maxLength: 255
         input:
           $ref: "#/components/schemas/EvalCaseInput"
         expected:
@@ -26696,8 +26673,6 @@ components:
         case_id:
           type: string
           format: uuid
-        name:
-          type: string
         input:
           $ref: "#/components/schemas/EvalCaseInput"
         expected: {}

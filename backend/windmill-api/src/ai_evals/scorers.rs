@@ -14,20 +14,17 @@ pub struct Scorer {
     /// The column header. Defaults to the kind, or the last segment of the path.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// A score at or above this counts as a pass, and the column reports a pass rate beside its
-    /// mean. Deliberately outside `definition`: where the line sits is an interpretation of the
-    /// score rather than part of producing it, so moving it re-reads every score already
-    /// recorded instead of invalidating them.
+    /// A score at or above this counts as a pass. Deliberately outside `definition`: where the
+    /// line sits interprets a score rather than produces it, so moving it re-reads every score
+    /// already recorded instead of invalidating them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pass_if: Option<f64>,
     #[serde(flatten)]
     pub def: ScorerDef,
 }
 
-/// Two kinds, both runnables, so every column is the same sort of thing: something with a path, a
-/// version, and code you can open. A judge is an `ai_agent` resource sent the run to grade; a
-/// script receives the run as an argument. Both are created in one click from a template, which is
-/// what keeps the choice between them about how you want to score rather than about setup cost.
+/// A judge is an `ai_agent` resource sent the run to grade; a script receives the run as an
+/// argument. Both are runnables, so every column has a path, a version and code you can open.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScorerDef {
@@ -59,8 +56,8 @@ impl ScorerDef {
 }
 
 impl Scorer {
-    /// Whether a score counts as a pass. `None` when the column has no threshold, which is what
-    /// keeps a column of plain numbers from being rendered as if it had one.
+    /// Whether a score counts as a pass. `None` when the column has no threshold, which keeps a
+    /// column of plain numbers from being rendered as if it had one.
     pub fn passed(&self, score: Option<f64>) -> Option<bool> {
         match (self.pass_if, score) {
             (Some(threshold), Some(score)) => Some(score >= threshold),
@@ -68,9 +65,9 @@ impl Scorer {
         }
     }
 
-    /// What produced a score. Recorded with it so a comparison can say the scorer changed instead
-    /// of letting that change read as a difference between two agents. `resolved` is the script
-    /// hash or resource version that actually ran, which the path alone does not pin.
+    /// What produced a score, recorded with it so a comparison can say the scorer changed instead
+    /// of letting that read as a difference between two agents. `resolved` is the script hash or
+    /// resource version that actually ran, which the path alone does not pin.
     pub fn definition(&self, resolved: Option<&str>) -> String {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
@@ -85,11 +82,12 @@ impl Scorer {
     }
 }
 
+const MAX_SCORER_NAME_CHARS: usize = 120;
+
 /// Ids are assigned here rather than trusted from the client: an id is kept only when it names a
-/// column the dataset already has, so a column that was removed cannot come back under its old id
-/// and inherit the scores recorded against it, and two columns cannot share one id and merge two
-/// scorers' history into one. Anything else is minted, as a valid flow module identifier, which
-/// the scoring flows it is baked into require (see `scorer_module_id`).
+/// column the dataset already has, so a removed column cannot come back and inherit the scores
+/// recorded against it. Anything else is minted as a valid flow module identifier, which the
+/// scoring flows it is baked into require (see `scorer_module_id`).
 pub(crate) fn assign_scorer_ids(
     scorers: &mut Vec<Scorer>,
     existing: &std::collections::HashSet<String>,
@@ -107,15 +105,15 @@ pub(crate) fn assign_scorer_ids(
             seen.insert(scorer.id.clone());
         }
         if let Some(name) = &scorer.name {
-            if name.chars().count() > 120 {
+            if name.chars().count() > MAX_SCORER_NAME_CHARS {
                 return Err(Error::BadRequest(format!(
-                    "Scorer name {} is too long, 120 characters at most",
-                    name
+                    "Scorer name {} is too long, {} characters at most",
+                    name, MAX_SCORER_NAME_CHARS
                 )));
             }
         }
-        // A pass line is read against a score, and a score is 0 to 1, so a threshold outside that
-        // range would pass everything or nothing regardless of what the scorer measured.
+        // A score is 0 to 1, so a threshold outside that range would pass everything or nothing
+        // regardless of what the scorer measured.
         if let Some(pass_if) = scorer.pass_if {
             if !(0.0..=1.0).contains(&pass_if) {
                 return Err(Error::BadRequest(format!(
@@ -162,8 +160,7 @@ pub struct RecentScorersQuery {
     pub kind: Option<String>,
 }
 
-/// The scorers already in use in this workspace, most recently edited dataset first, for picking
-/// one rather than retyping its path.
+/// The scorers already in use in this workspace, most recently edited dataset first.
 ///
 /// Filtered twice through `user_db`: a scorer appears only if its dataset does, and the runnable
 /// is checked the same way, so the list is scorers the caller could actually run.
@@ -185,8 +182,7 @@ pub async fn recent_scorers(
     let mut seen = std::collections::HashSet::new();
     let mut recent: Vec<RecentScorer> = vec![];
     for row in datasets {
-        let scorers: Vec<Scorer> = serde_json::from_value(row.scorers).unwrap_or_default();
-        for scorer in scorers {
+        for scorer in parse_scorers(row.scorers)? {
             if query
                 .kind
                 .as_deref()
@@ -201,8 +197,7 @@ pub async fn recent_scorers(
         }
     }
     // Readability is resolved over every candidate, then the list is cut: an unreadable scorer must
-    // not take a slot a readable one further down would have filled, leaving the picker looking
-    // emptier than the workspace is.
+    // not take a slot a readable one further down would have filled.
     let script_paths = recent
         .iter()
         .filter(|r| matches!(r.scorer.def, ScorerDef::Script { .. }))
@@ -249,9 +244,8 @@ pub async fn recent_scorers(
 mod tests {
     use super::*;
 
-    /// The definition hash is what tells a comparison that the scorer changed. The path alone
-    /// would miss an edit to the script itself, which is the most common way a column stops
-    /// meaning what it meant.
+    /// The definition hash is what tells a comparison that the scorer changed; the path alone
+    /// would miss an edit to the script itself.
     #[test]
     fn definition_moves_with_the_runnable_and_not_with_its_name() {
         let script = |path: &str, name: Option<&str>| Scorer {
@@ -281,9 +275,8 @@ mod tests {
             agent.definition(Some("1")),
             script("f/e/s", None).definition(Some("1"))
         );
-        // Where the pass line sits reads a score rather than produces one. If it entered the hash,
-        // setting a threshold would mark every score already recorded as coming from a different
-        // scorer, and the pass rate it exists to give would arrive with the whole column flagged.
+        // If the pass line entered the hash, setting a threshold would mark every score already
+        // recorded as coming from a different scorer.
         let mut thresholded = script("f/e/s", None);
         thresholded.pass_if = Some(0.7);
         assert_eq!(

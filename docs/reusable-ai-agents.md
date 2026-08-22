@@ -28,6 +28,11 @@ In the flow editor, the AI agent step's **Step Input** tab shows a single read-o
 (*linked to <path>*, with the inherited brain + tools and an explanatory tooltip) plus
 *Edit* (fork into the editable step, Save changes upserts back and re-links) and *Unlink*
 (fork the resolved config — including any `tool_inputs` — back into the step as a one-off).
+While editing, the step is the only copy of the edits: Cancel drops them and re-links (asking
+first when there is something to drop), and the unsaved-changes badge opens a diff against the
+deployed agent whose Discard changes is Cancel without the question. What a fork is an edit of,
+and the deployed baseline the edits are judged against, live in `agentEditStore` (in memory), so
+a reload brings the step back as a standalone agent with no path to save back to.
 A linked agent's tools appear as display-only graph tool nodes (clicking one selects the
 agent step); below the step's inputs, each tool gets a section with the standard schema-aware
 input editors (prop picker included) and a read-only view of its code — edits persist into

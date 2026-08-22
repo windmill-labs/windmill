@@ -3,7 +3,6 @@ import type { FlowModule } from '$lib/gen'
 import {
 	getAgentEdit,
 	getAgentEditingPath,
-	markAgentEditSettled,
 	setAgentEditingPath,
 	reanchorAgentEditsAcross
 } from './agentEditStore.svelte'
@@ -59,15 +58,10 @@ describe('reanchorAgentEditsAcross', () => {
 		expect(getAgentEditingPath(newNested)).toBe('f/agents/nested')
 	})
 
-	it('carries the baselines and the settled flag with the path', () => {
+	it('carries the deployed baseline with the path', () => {
 		const tools: object[] = [tool('t1')]
 		let modules = [agentFork('a', tools)]
-		setAgentEditingPath(tools, 'f/agents/one', {
-			deployedConfig: '{"d":1}',
-			forkedConfig: '{"f":1}'
-		})
-		expect(getAgentEdit(tools)?.settled).toBeUndefined()
-		markAgentEditSettled(tools)
+		setAgentEditingPath(tools, 'f/agents/one', { deployedConfig: '{"d":1}' })
 
 		reanchorAgentEditsAcross(
 			() => modules,
@@ -78,9 +72,7 @@ describe('reanchorAgentEditsAcross', () => {
 
 		expect(getAgentEdit((modules[0].value as any).tools)).toEqual({
 			path: 'f/agents/one',
-			deployedConfig: '{"d":1}',
-			forkedConfig: '{"f":1}',
-			settled: true
+			deployedConfig: '{"d":1}'
 		})
 	})
 

@@ -11,30 +11,28 @@
 	import MissingWorkerTagAlert from '$lib/components/jobs/MissingWorkerTagAlert.svelte'
 	import { Pencil, Play, Plus } from 'lucide-svelte'
 	import { untrack } from 'svelte'
+	import { datasetSummary } from './evalUtils'
 
 	let {
 		open = $bindable(),
 		workspace,
 		agentPath,
 		datasets,
-		/** The dataset to open on: the one last worked in, or the one a run was read from. */
 		defaultDataset,
-		/** The edits in the step, when opened from an agent being edited — the one option the
-		 *  history cannot show. */
 		editedConfig = undefined,
 		running = false,
 		onRun,
 		onEditDataset,
 		onNewDataset
 	}: {
-		/** Bound by every caller: the surface that opens this owns whether it is open. */
 		open: boolean
 		workspace: string | undefined
 		agentPath: string
 		datasets: EvalDataset[]
+		/** The dataset to open on: the one last worked in, or the one a run was read from. */
 		defaultDataset: string | undefined
 		/** Opened from an agent being edited: the edits, as the step holds them when Run is
-		 *  pressed. Offered — and preselected — as a subject of their own. */
+		 *  pressed. Offered, and preselected, as a subject of their own. */
 		editedConfig?: () => AgentDraft
 		running?: boolean
 		onRun: (subject: EvalSubject, dataset: string) => boolean | void | Promise<boolean | void>
@@ -45,16 +43,12 @@
 	/** What to run: `draft`, `deployed`, or an earlier version's number. One value for the whole
 	 *  choice, so the toggle and the overflow menu cannot disagree about what was chosen. */
 	let choice = $state<string>('deployed')
-	/** Whether the edits are on offer: only when the dialog was opened from an agent being edited,
-	 *  whose edits are what is under test. Anywhere else the agent is what is deployed — the same
-	 *  reading a flow step linking it makes. */
+	/** Whether the edits are on offer: only when opened from an agent being edited. */
 	let hasDraft = $derived(editedConfig !== undefined)
 	let dataset = $state<string | undefined>(undefined)
 	let hoveringDataset = $state(false)
-	/** Set while the dialog is standing aside for the dataset drawer, which it is brought back
-	 *  from: naming a dataset is a detour on the way to a run, and what was already chosen for that
-	 *  run survives it. Holds the pane's dataset as it was on the way out, so coming back onto a
-	 *  different one is read as the detour's answer and adopted. */
+	/** Set while the dialog stands aside for the dataset drawer, holding the pane's dataset as it
+	 *  was on the way out: coming back onto a different one is the detour's answer, and adopted. */
 	let steppedAside = $state<{ dataset: string | undefined } | undefined>(undefined)
 
 	/** Hands the screen to the dataset drawer, to be given back when it closes. */
@@ -77,7 +71,6 @@
 				created_at: v.created_at
 			}))
 		} catch (e) {
-			// The history is an offer, not the dialog: a run of what is deployed needs none of it.
 			versions = []
 			sendUserToast(`Could not read ${agentPath}'s versions: ${e}`, true)
 		}
@@ -86,35 +79,30 @@
 	$effect(() => {
 		if (!open) return
 		untrack(() => {
-			// Asked again either way: a version saved during the detour is one of the things you
-			// might have left to do.
 			loadVersions()
 			const aside = steppedAside
 			steppedAside = undefined
 			if (aside) {
-				// Back from the drawer, on what it was opened for: a dataset created or edited there
-				// moves the pane onto it, and anything else leaves the field as it was left.
+				// Back from the drawer: a dataset created or edited there moves the pane onto it, and
+				// anything else leaves the field as it was left.
 				if (defaultDataset !== aside.dataset) dataset = defaultDataset
 				return
 			}
-			// Seeded on every open: the dataset you were last in, and whichever state of the agent
-			// there is most reason to measure — edits waiting are why you came.
-			// Only a dataset this agent has actually been worked in. Falling back to whichever came
-			// first offered someone else's set as though it were the obvious one.
+			// Seeded on every open: the dataset last worked in, and the state of the agent there is
+			// most reason to measure.
 			dataset = defaultDataset
 			choice = hasDraft ? 'draft' : 'deployed'
 		})
 	})
 
 	let latest = $derived(versions[0]?.version)
-	// Everything but the newest: the newest is what `deployed` reads, so offering it here would be
-	// offering the same run under two names.
+	// Everything but the newest, which is what `deployed` reads: offering it here would offer the
+	// same run under two names.
 	let olderVersions = $derived(versions.slice(1))
 	let olderItems = $derived(
 		olderVersions.map((v) => ({ label: `v${v.version}`, value: String(v.version) }))
 	)
-	/** Whether the choice came out of the overflow menu, which then shows it and drops its own
-	 *  label: the version you picked is worth more room in the group than the word "More". */
+	/** Whether the choice came out of the overflow menu, which then shows it and drops its label. */
 	let pickedOlder = $derived(olderItems.some((i) => i.value === choice))
 
 	let datasetItems = $derived(
@@ -125,8 +113,6 @@
 					d.path.startsWith(`${agentPath}_`) || d.path.startsWith(`${agentPath}/`) ? 0 : 1
 				return own(a) - own(b) || a.path.localeCompare(b.path)
 			})
-			// Named by what it is for, with the path under it: a path is how you tell two of them
-			// apart, and a summary is how you know which one you meant.
 			.map((d) => ({
 				label: d.summary || d.path,
 				value: d.path,
@@ -142,11 +128,10 @@
 		return { kind: 'agent_version', path: agentPath, version: Number(choice) }
 	}
 
-	/** What the closed field reads. The list stacks the summary over the path, which a one-line
-	 *  field cannot do, so it says both the other way round: a summary names the one you meant and
-	 *  the path is how you tell two of them apart. */
+	/** What the closed field reads: the list stacks the summary over the path, which one line
+	 *  cannot do, so it says both the other way round. */
 	function datasetFieldText(text: string, path: unknown): string {
-		const summary = datasets.find((d) => d.path === path)?.summary
+		const summary = datasetSummary(datasets, path)
 		return summary ? `${summary} (${path})` : text
 	}
 </script>
@@ -157,8 +142,6 @@
 			label="Agent version"
 			tooltip="Whichever you pick is read once, when the run starts, and every case runs that same configuration. Deploying an edit part-way through changes what the next run measures, never this one."
 		>
-			<!-- The two worth naming are the two you are choosing between while editing; every
-			     earlier version is one click further, since running one is a deliberate act. -->
 			<ToggleButtonGroup bind:selected={choice} class="w-fit">
 				{#snippet children({ item })}
 					{#if hasDraft}
@@ -191,12 +174,8 @@
 			</ToggleButtonGroup>
 		</Label>
 
-		<!-- The pencil rides the field itself, as a resource picker's does: the dataset you are about
-		     to measure against is exactly when you notice a case is missing from it. -->
 		<Label label="Dataset" tooltip="The set of cases the agent is measured on.">
 			{#if datasets.length === 0}
-				<!-- There is nothing to pick from and one thing to do, so it is the only thing offered:
-				     a run is of a dataset, and this agent has none. -->
 				<div class="flex flex-col items-start gap-2">
 					<span class="text-xs text-secondary">
 						A run measures the agent on a set of cases, and there is no set yet.
@@ -225,8 +204,6 @@
 						class="text-xs w-full"
 						transformInputSelectedText={datasetFieldText}
 					>
-						<!-- The way into a dataset from the row that names it, as a resource picker does: what
-				     you are about to measure is exactly when you notice a case is missing. -->
 						{#snippet endSnippet({ item, close })}
 							<Button
 								variant="subtle"
@@ -278,10 +255,8 @@
 			{/if}
 		</Label>
 
-		<!-- Said here rather than discovered from a run that never starts: a run ends with a native
-		     job that records what it produced, and scored datasets assemble each iteration with
-		     another. That tag belongs to the `native` worker group rather than the default one, and
-		     nothing serving it means the run queues rather than fails. -->
+		<!-- A run ends with a native job, whose tag belongs to the `native` worker group rather than
+		     the default one: nothing serving it means the run queues rather than fails. -->
 		<MissingWorkerTagAlert tag="nativets" subject="Eval runs" {workspace} />
 	</div>
 	{#snippet actions()}

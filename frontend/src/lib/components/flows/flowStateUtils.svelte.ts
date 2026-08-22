@@ -190,28 +190,23 @@ export async function createAiAgent(
 	const providerValue = storedConfig ?? { kind: 'openai', resource: '', model: '' }
 
 	// A step linked to a saved agent reads its brain and tools from the resource, so it carries only
-	// the flow-local inputs. Seeding `provider`/`output_type` here would leave transforms the linked
-	// step never reads, and that AgentResourceBar strips on its next link change.
+	// the flow-local inputs: seeding `provider`/`output_type` would leave transforms it never reads.
 	const aiAgentFlowModules: FlowModule = {
 		id,
-		value: agentPath
-			? {
-					type: 'aiagent',
-					agent: agentPath,
-					tools: [],
-					input_transforms: {
-						user_message: { type: 'static', value: undefined }
-					}
-				}
-			: {
-					type: 'aiagent',
-					tools: [],
-					input_transforms: {
-						provider: { type: 'static', value: providerValue },
-						output_type: { type: 'static', value: 'text' },
-						user_message: { type: 'static', value: undefined }
-					}
-				}
+		value: {
+			type: 'aiagent',
+			...(agentPath ? { agent: agentPath } : {}),
+			tools: [],
+			input_transforms: {
+				...(agentPath
+					? {}
+					: {
+							provider: { type: 'static', value: providerValue },
+							output_type: { type: 'static', value: 'text' }
+						}),
+				user_message: { type: 'static', value: undefined }
+			}
+		}
 	}
 
 	const flowModuleState = await loadFlowModuleState(aiAgentFlowModules)

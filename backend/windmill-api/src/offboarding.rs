@@ -299,7 +299,7 @@ async fn get_offboard_preview(
     let ref_eval_datasets = sqlx::query_scalar!(
         "SELECT path FROM eval_dataset
          WHERE scorers::text LIKE $1 AND NOT path LIKE $2 AND workspace_id = $3",
-        &format!("%u/{}/%", username),
+        &ref_pattern,
         &user_prefix,
         w_id
     )
@@ -338,8 +338,8 @@ async fn get_offboard_preview(
             resources,
             variables,
             schedules,
-            triggers,
             eval_datasets,
+            triggers,
         },
         executing_on_behalf: OffboardAffectedPaths {
             scripts: obo_scripts,
@@ -986,11 +986,9 @@ async fn offboard_user_from_workspace<'c>(
     .unwrap_or(0);
 
     // ---- eval datasets ----
-    // Paths move to the target like every other object; the foreign keys cascade the cases and
-    // experiments, and the JSONB paths the cascade cannot reach — an experiment's subject (the
-    // agent a run was of) and a dataset's scorers (script/agent paths) — are rewritten to the same
-    // target, since those runnables move with the user. Authorship (`created_by`) stays historical,
-    // as it does for a reassigned resource.
+    // The foreign keys cascade the rename onto cases and experiments; the paths held inside JSONB
+    // (an experiment's subject, a dataset's scorers) are rewritten separately since the cascade
+    // cannot reach them and those runnables move with the user.
     let eval_datasets_reassigned = sqlx::query_scalar!(
         r#"WITH updated AS (
             UPDATE eval_dataset SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\1')

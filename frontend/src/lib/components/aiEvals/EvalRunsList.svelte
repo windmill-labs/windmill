@@ -9,36 +9,35 @@
 	import { Button } from '$lib/components/common'
 	import { Bot, Code2, Loader2, Plus } from 'lucide-svelte'
 	import type { EvalDataset, EvalExperiment, ExperimentScore } from '$lib/gen'
-	import { formatScore } from './evalScorers'
-	import { experimentName, subjectLabel } from './evalRuns'
+	import { datasetSummary, experimentName, formatScore, subjectLabel } from './evalUtils'
 
 	let {
 		experiments,
 		datasets,
 		loaded,
+		deployedHash = undefined,
+		currentVersion = undefined,
 		onOpen,
 		onEditDataset,
 		onNew
 	}: {
 		/** Every run of this agent, newest first, whichever dataset each is of. */
 		experiments: EvalExperiment[]
-		/** Whether the list has been read. An empty table says the agent has never been run, which
-		 *  is only true once someone has looked. */
+		/** Whether the list has been read: an empty table is a statement about the agent. */
 		loaded: boolean
 		/** The workspace's datasets, for naming the one a run is of by what it is for. */
 		datasets: EvalDataset[]
+		/** What the agent hashes to as deployed, and the version it is on: they resolve a run of
+		 *  edits that were later saved, so a run is labelled here as the run picker labels it. */
+		deployedHash?: string
+		currentVersion?: number
 		onOpen: (experiment: EvalExperiment) => void
 		onEditDataset: (dataset: string) => void
-		/** Starts the first run, from the table that has none to show. */
 		onNew: () => void
 	} = $props()
 
-	function datasetSummary(path: string): string | undefined {
-		return datasets.find((d) => d.path === path)?.summary || undefined
-	}
-
 	/** The one number a column reports: a pass rate where it has a line to pass, the mean where it
-	 *  does not. The same headline the column shows over the table of that run. */
+	 *  does not. */
 	function headline(score: ExperimentScore): string | undefined {
 		if (score.pass_rate != undefined) return `${Math.round(score.pass_rate * 100)}%`
 		return score.mean == undefined ? undefined : formatScore(score.mean)
@@ -55,8 +54,6 @@
 	</colgroup>
 	<Head>
 		<tr>
-			<!-- What ran, then what it ran against, then what came of it: a run is only a number
-			     beside a dataset, so the two belong together and the scores follow from them. -->
 			<Cell head first>Run</Cell>
 			<Cell head>Dataset</Cell>
 			<Cell head numeric>Cases</Cell>
@@ -66,23 +63,20 @@
 	</Head>
 	<tbody class="divide-y">
 		{#each experiments as experiment (experiment.id)}
-			<!-- Hoverable because it is: the row opens the run, and a row that reacts to the pointer
-			     is the only thing that says so. -->
 			<Row hoverable on:click={() => onOpen(experiment)}>
 				<Cell first>
-					<!-- What ran beside which run it was: two runs are only comparable because each says
-					     what it executed. -->
 					<div class="flex flex-col min-w-0">
 						<div class="flex items-center gap-1.5 min-w-0">
 							<span class="truncate text-emphasis font-medium">{experimentName(experiment)}</span>
-							<Badge color="gray" class="shrink-0">{subjectLabel(experiment)}</Badge>
+							<Badge color="gray" class="shrink-0">
+								{subjectLabel(experiment, deployedHash, currentVersion)}
+							</Badge>
 						</div>
 						<span class="text-2xs text-tertiary truncate">{experiment.created_by}</span>
 					</div>
 				</Cell>
 				<Cell>
-					<!-- The dataset a run is of, and the way into it: what a run measured and what the
-					     next one will are the same question asked a day apart. -->
+					{@const summary = datasetSummary(datasets, experiment.dataset)}
 					<Button
 						variant="subtle"
 						unifiedSize="sm"
@@ -95,9 +89,9 @@
 						}}
 					>
 						<span class="text-xs text-secondary truncate leading-tight">
-							{datasetSummary(experiment.dataset) || experiment.dataset}
+							{summary || experiment.dataset}
 						</span>
-						{#if datasetSummary(experiment.dataset)}
+						{#if summary}
 							<span class="text-2xs text-tertiary truncate leading-tight">
 								{experiment.dataset}
 							</span>
@@ -108,9 +102,6 @@
 					<span class="tabular-nums text-secondary">{experiment.case_count}</span>
 				</Cell>
 				<Cell>
-					<!-- One badge per column of the dataset that ran, named: a run measured by three
-					     scorers answered three different questions, and one number would be their average
-					     rather than an answer to any of them. -->
 					<div class="flex flex-wrap gap-1 min-w-0">
 						{#each experiment.scores ?? [] as score (score.scorer_id)}
 							{@const value = headline(score)}
@@ -125,9 +116,6 @@
 									{#if value != undefined}
 										<span class="tabular-nums font-semibold text-emphasis">{value}</span>
 									{:else if score.failed > 0}
-										<!-- A column that ran and produced nothing. Said here rather than left as a
-										     dash: a run whose judge failed throughout is a run to look at, and a
-										     column that is missing from the row reads as one that was never asked. -->
 										<span class="text-red-500">failed</span>
 									{:else if experiment.running}
 										<Loader2 size={11} class="animate-spin text-blue-500 self-center" />
@@ -144,8 +132,6 @@
 									scoring
 								</span>
 							{:else}
-								<!-- Nothing scored this run, rather than a column still scoring it: a dataset
-								     with no scorers, or scorers added after the run happened. -->
 								<span class="text-2xs text-tertiary">not scored</span>
 							{/if}
 						{/if}
@@ -173,8 +159,6 @@
 							A run answers every case of a dataset and scores the answers. Each one is kept, so the
 							next has something to be compared against.
 						</span>
-						<!-- Where the first row would be: an empty table's one move belongs in it rather than
-						     above it, where it reads as a control over rows that are not there. -->
 						<Button unifiedSize="md" variant="accent" startIcon={{ icon: Plus }} onclick={onNew}>
 							New evaluation
 						</Button>

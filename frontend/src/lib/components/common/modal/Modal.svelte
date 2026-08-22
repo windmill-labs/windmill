@@ -31,16 +31,12 @@
 		style?: string
 		cancelText?: string | undefined
 		kind?: 'button' | 'X'
-		/** Where you are inside the dialog, as a breadcrumb replacing the title. The whole path,
-		 * the dialog's own root included: the root is the title, so listing it again below the
-		 * title would make a level out of the place the title already names. A dialog showing its
-		 * root passes nothing and keeps its plain title. The header is the one part of the surface
-		 * that does not move, which is why the way back belongs in it rather than in a control each
-		 * body places for itself. */
+		/** Where you are inside the dialog, as a breadcrumb replacing the title: the whole path,
+		 * the dialog's own root first. A dialog at its root passes nothing (or one level) and keeps
+		 * its plain title; ancestors with an `onclick` are the way back, which Escape also takes. */
 		trail?: ModalTrailSegment[]
-		/** A line under the title saying what the dialog is for. In the header rather than at the
-		 * top of the body: it describes the surface, not whatever the body currently holds, so it
-		 * does not scroll away with it. */
+		/** A line under the title saying what the dialog is for; in the header so it does not
+		 * scroll away with the body. */
 		description?: string
 		/** Make the dialog fill the height it is anchored to and lay its body out as a flex
 		 * column, so content can size itself with `h-full` / `flex-1 min-h-0`. Off by default:
@@ -85,12 +81,10 @@
 	const posClass = $derived(hostEl ? 'absolute' : 'fixed')
 	const hostActive = overlayHostActive()
 
-	// The title is the root of the path, so a dialog at its root is a one-segment breadcrumb.
-	const segments = $derived(trail?.length ? trail : [{ label: title, onclick: undefined }])
-
-	// The level under the one you are on, when there is one: what both Escape and the back control
-	// return to.
-	const back = $derived(trail && trail.length > 1 ? trail[trail.length - 2] : undefined)
+	// A trail of one level is the dialog at its root, which the plain title already shows.
+	const crumbs = $derived(trail && trail.length > 1 ? trail : undefined)
+	// The level under the one you are on: what Escape and the back chevron return to.
+	const back = $derived(crumbs?.[crumbs.length - 2])
 
 	const dispatch = createEventDispatcher()
 
@@ -114,9 +108,8 @@
 	function onKeyDown(event: KeyboardEvent) {
 		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
 		if (!hostActive()) return
-		// This dialog keeps Escape for itself (`preventEscape` below), so nothing else arbitrates
-		// between it and whatever is stacked over it: without this, a drawer opened from inside the
-		// dialog would take Escape and the dialog would act on it too.
+		// `preventEscape` below keeps Escape for this dialog, so nothing else arbitrates between it
+		// and an overlay stacked over it (a drawer opened from inside): ask before acting.
 		if (!disposable?.isTopmost()) return
 		if (open) {
 			switch (event.key) {
@@ -128,9 +121,8 @@
 				case 'Escape': {
 					event.stopPropagation()
 					event.preventDefault()
-					// Inside a dialog that holds levels, Escape leaves the level rather than the
-					// dialog: closing outright would throw away the surface someone navigated into,
-					// which is the one thing they did not ask for. It still closes at the root.
+					// Inside a dialog that holds levels, Escape leaves the level, not the dialog; it
+					// still closes at the root.
 					if (back?.onclick) {
 						back.onclick()
 					} else {
@@ -149,9 +141,7 @@
 
 <svelte:window onkeydowncapture={onKeyDown} />
 
-<!-- The level you would return to wears the chevron rather than a control of its own beside the
-     path: both would point at the same place, and the way back is a level of the path, not a
-     second thing to find. -->
+<!-- The level you would return to wears the back chevron; there is no separate back control. -->
 {#snippet crumb(segment: ModalTrailSegment, isBack: boolean)}
 	<Button
 		variant="subtle"
@@ -162,8 +152,7 @@
 		btnClasses="group !px-0 !font-normal text-secondary hover:text-emphasis hover:!bg-transparent gap-0.5 min-w-0"
 	>
 		{#if isBack}
-			<!-- Pulled left so the label sits about where it would without it: the header is read as
-			     a title, and a title that steps sideways as you navigate reads as a different one. -->
+			<!-- Pulled left so the label stays about where the title sits at the root. -->
 			<ChevronLeft size={18} class="shrink-0 -ml-1" />
 		{/if}
 		<span class="truncate group-hover:underline">{segment.label}</span>
@@ -172,11 +161,8 @@
 
 <Disposable bind:open bind:this={disposable} preventEscape {minZIndex}>
 	{#snippet children({ zIndex })}
-		<!-- Always portalled, as Drawer is: to the enclosing pane when one claims it, to `body`
-		     otherwise. Rendered in place it inherits whatever the caller happens to sit inside, and
-		     one `transform`, `filter` or `overflow` anywhere above it confines a dialog that is
-		     meant to cover the app — the nav rail then paints over it, and its own edges are clipped
-		     to a box it never asked for. -->
+		<!-- Always portalled, as Drawer is: rendered in place, any `transform`, `filter` or
+		     `overflow` on an ancestor confines the dialog and the nav rail paints over it. -->
 		<ConditionalPortal condition target={hostEl} class={hostEl ? 'contents' : undefined}>
 			{#if open}
 				<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -225,58 +211,66 @@
 									<!-- min-w-0: without it this flex item takes its content's min-content width and
 									     stretches the modal past its max-width instead of letting content shrink. -->
 									<div class="text-left flex-1 min-w-0 {fillHeight ? 'flex flex-col min-h-0' : ''}">
-										<!-- pr-8 under `kind="X"`: the close button is positioned against the
-										     dialog rather than laid out in this row, so a long trail would
-										     otherwise run under it. -->
-										<div
-											class="flex flex-row items-center justify-between gap-2 min-w-0 {kind === 'X'
-												? 'pr-8'
-												: ''}"
-										>
-											<!-- leading-7 throughout, the heading included: an h3 carries a line-height
-											     of its own, so without it the row is six pixels shorter at the root than
-											     it is one level in, and the whole header steps as you navigate. -->
-											<nav
-												aria-label="Breadcrumb"
-												class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold leading-7"
+										{#if crumbs}
+											<!-- pr-8 under `kind="X"`: the close button is absolutely positioned, so a
+											     long trail would otherwise run under it. -->
+											<div
+												class="flex flex-row items-center justify-between gap-2 min-w-0 {kind ===
+												'X'
+													? 'pr-8'
+													: ''}"
 											>
-												{#each segments as segment, i (i)}
-													{#if i === 1}
-														{@render titleBadge?.()}
-													{/if}
-													{#if i > 0}
-														<ChevronRight size={18} class="text-tertiary shrink-0" />
-													{/if}
-													{#if i === 0}
-														<!-- flex, so the link inside is laid out rather than placed on a line: an
-													     inline child with an icon in it sits on the baseline and leaves room
-													     under it for a descender, which makes the row three pixels taller one
-													     level in than it is at the root. -->
-														<h3
-															class="shrink-0 leading-7 flex items-center {segment.onclick
-																? ''
-																: 'text-emphasis'}"
-														>
-															{#if segment.onclick}
-																{@render crumb(segment, i === segments.length - 2)}
-															{:else}
+												<!-- leading-7 on the row and the heading alike, so the header is the same
+												     height at the root as one level in. -->
+												<nav
+													aria-label="Breadcrumb"
+													class="flex flex-row items-center gap-1 min-w-0 text-lg font-semibold leading-7"
+												>
+													{#each crumbs as segment, i (i)}
+														{#if i === 1}
+															{@render titleBadge?.()}
+														{/if}
+														{#if i > 0}
+															<ChevronRight size={18} class="text-tertiary shrink-0" />
+														{/if}
+														{#if i === 0}
+															<!-- flex: an inline child holding an icon sits on the baseline and adds
+														     descender room, which would make the row taller than at the root. -->
+															<h3
+																class="shrink-0 leading-7 flex items-center {segment.onclick
+																	? ''
+																	: 'text-emphasis'}"
+															>
+																{#if segment.onclick}
+																	{@render crumb(segment, i === crumbs.length - 2)}
+																{:else}
+																	{segment.label}
+																{/if}
+															</h3>
+														{:else if segment.onclick}
+															{@render crumb(segment, i === crumbs.length - 2)}
+														{:else}
+															<span class="text-emphasis truncate" aria-current="page">
 																{segment.label}
-															{/if}
-														</h3>
-													{:else if segment.onclick}
-														{@render crumb(segment, i === segments.length - 2)}
-													{:else}
-														<span class="text-emphasis truncate" aria-current="page">
-															{segment.label}
-														</span>
-													{/if}
-												{/each}
-												{#if segments.length === 1}
+															</span>
+														{/if}
+													{/each}
+												</nav>
+												{@render settings?.()}
+											</div>
+										{:else}
+											<div class="flex flex-row items-center justify-between">
+												<h3
+													class="text-emphasis text-lg font-semibold {titleBadge
+														? 'flex items-center gap-1'
+														: ''}"
+												>
+													{title}
 													{@render titleBadge?.()}
-												{/if}
-											</nav>
-											{@render settings?.()}
-										</div>
+												</h3>
+												{@render settings?.()}
+											</div>
+										{/if}
 
 										{#if description}
 											<p class="mt-1 text-xs text-secondary">{description}</p>

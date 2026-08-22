@@ -7,7 +7,7 @@
 	import { multilineCellColDef } from '$lib/components/apps/components/display/table/multilineCellEditor'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { untrack } from 'svelte'
-	import type { CaseDraft } from './evalCaseUtils'
+	import type { CaseDraft } from './evalUtils'
 
 	let {
 		cases = $bindable(),
@@ -19,8 +19,7 @@
 		cases: CaseDraft[]
 		/** Asked before a row goes, since a stored case has runs that executed it. */
 		onRemove: (c: CaseDraft) => void
-		/** The cases are being written. An edit made now would be one the request already left
-		 *  behind, and the drawer closes on the response, so it would go without being saved. */
+		/** The cases are being written: an edit made now is one the request already left behind. */
 		locked?: boolean
 		/** A cell opened or closed. Reported up so Save can be pressed for an edit the list does not
 		 *  hold yet: the press is what commits the cell, so it has to reach a live button. */
@@ -29,8 +28,6 @@
 
 	type Row = { id: string; question: string; expected: string }
 
-	/** A stored answer is text or JSON; a cell is text either way, and what it parses to is what
-	 *  the case carries. Shown as formatted JSON so a structured answer is readable. */
 	function expectedToText(value: unknown): string {
 		if (value == undefined) return ''
 		return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
@@ -51,9 +48,6 @@
 	const defaultColDef = {
 		flex: 1,
 		minWidth: 120,
-		// A case is prose, so a cell has to be able to hold a newline. The editor stays the height
-		// of the row until one is added, which is what the rest of this app's grids look like while
-		// you type in them.
 		...multilineCellColDef
 	}
 
@@ -64,9 +58,6 @@
 			rowData: untrack(() => cases.map(toRow)),
 			columnDefs: columnDefs(),
 			defaultColDef: { ...defaultColDef, editable: untrack(() => !locked) },
-			// The rows are held here rather than fetched, so the grid virtualises them: a dataset is
-			// capped at a thousand cases, and a row per case in the DOM is what makes a table that
-			// size stop responding.
 			onCellValueChanged: (e) => {
 				const target = cases.find((c) => c.id === (e.data as Row).id)
 				if (!target) return
@@ -84,8 +75,7 @@
 		})
 	}
 
-	/** Text that parses as JSON is stored as JSON, so a structured answer can be written by hand
-	 *  rather than only produced by a run. */
+	/** Text that parses as JSON is stored as JSON, so a structured answer can be written by hand. */
 	function setExpected(c: CaseDraft, text: string) {
 		const trimmed = text.trim()
 		if (!trimmed) {
@@ -106,8 +96,6 @@
 				{ field: 'expected', headerName: 'Expected', flex: 2 }
 			] as any,
 			onDelete: (values) => {
-				// Locked for the same reason the cells are: the list is being written, and a row
-				// dropped now is one the request already left behind.
 				if (locked) return
 				const target = cases.find((c) => c.id === (values as Row).id)
 				if (target) onRemove(target)
@@ -115,9 +103,8 @@
 		})
 	}
 
-	// Keyed on which cases are in the list rather than on what is in them: the grid already holds
-	// every edit that came out of it, and pushing rows back on each keystroke would reset the cell
-	// being typed in.
+	// Keyed on which cases are in the list rather than on what is in them: pushing rows back on
+	// each keystroke would reset the cell being typed in.
 	let rowKey = $derived(cases.map((c) => c.id).join(','))
 	$effect(() => {
 		rowKey
@@ -129,17 +116,12 @@
 		untrack(() => api?.updateGridOptions({ defaultColDef: { ...defaultColDef, editable } }))
 	})
 
-	/**
-	 * Commit whatever cell is open into `cases`, and wait for it to land there.
-	 *
-	 * Called by the drawer before it reads the list to save it: a cell someone is still typing in
-	 * when they press Save is an edit they made, and it has to be in the list the press writes.
-	 */
+	/** Commit whatever cell is open into `cases`, and wait for it to land there: the drawer reads
+	 *  the list to save it, and a cell still being typed in is an edit that press is saving. */
 	export async function flush() {
 		api?.stopEditing()
-		// The commit reaches `cases` through the grid's own event queue, which is a macrotask away:
-		// reading the list in the same turn — or after a microtask — reads it as it was before the
-		// cell was typed in, which is exactly the edit being saved.
+		// The commit reaches `cases` through the grid's own event queue, a macrotask away: reading in
+		// the same turn, or after a microtask, reads the list as it was before the cell was typed in.
 		await new Promise((resolve) => setTimeout(resolve, 0))
 	}
 </script>

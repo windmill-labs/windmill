@@ -287,7 +287,7 @@
 					<div class="p-2 text-xs text-tertiary">
 						{savedAgents.length > 0
 							? 'No saved agent matches this search'
-							: 'No saved agent in this workspace yet. Configure a blank one, then Save as agent to reuse it.'}
+							: 'No saved agent in this workspace yet. Configure a blank one, then Save as reusable agent to reuse it.'}
 					</div>
 				{/if}
 			</div>

@@ -8,12 +8,12 @@ pub(crate) enum ResolvedScorer {
 }
 
 /// The runnable a scorer names, resolved through the caller's *own* database so a run can only
-/// execute code the caller may read — a scorer is added with a bare path and nothing checks read
-/// access there, and the flow that runs it stores only the path — and pinned so a redeploy midway
-/// through a run cannot swap the code out from under a score labelled with the old version.
+/// execute code the caller may read: a scorer is added with a bare path and nothing checks read
+/// access there.
 ///
 /// Returns the definition to record and what to run: a script by its deployed hash to pin, or a
-/// judge by the configuration to inline. Anything the caller cannot read is refused here.
+/// judge by the configuration to inline, so a redeploy midway through a run cannot swap the code
+/// out from under a score labelled with the old version.
 pub(crate) async fn resolve_scorer(
     user_db: &UserDB,
     authed: &ApiAuthed,
@@ -23,8 +23,7 @@ pub(crate) async fn resolve_scorer(
     match &scorer.def {
         ScorerDef::Script { path } => {
             // The latest *deployed* hash (no draft, no failed deploy), through the canonical helper
-            // so the version a scorer pins is the one everything else runs. Read as the caller, on a
-            // `user_db` transaction, so a run can only pin a script the caller may read.
+            // so the version a scorer pins is the one everything else runs.
             let mut tx = user_db.clone().begin(authed).await?;
             let hash = windmill_common::get_latest_script_hash(&mut *tx, path, w_id).await?;
             tx.commit().await?;
@@ -39,10 +38,6 @@ pub(crate) async fn resolve_scorer(
                 ResolvedScorer::Script { hash },
             ))
         }
-        // The judge's configuration and version in one read, as the caller: a run inlines only a
-        // judge the caller may read (a linked step would run as that caller and fail anyway) and of
-        // exactly the type it needs, and the version it records is the version it inlined — not a
-        // number a concurrent deploy could pair with a different configuration.
         ScorerDef::Agent { path } => {
             let Some((config, version)) = readable_agent_state(authed, user_db, w_id, path).await?
             else {
@@ -61,10 +56,6 @@ pub(crate) async fn resolve_scorer(
 
 /// Bring a run's record up to date with the flow that executed it: which iteration answered which
 /// case, what the agent answered, and what its scorers returned.
-///
-/// The flow runs on workers that know nothing about these tables, so two things call this: the
-/// run's own last step, which is what records a run nobody watched, and reading a run, which is
-/// what covers a flow that never reached that step.
 ///
 /// `answers` is what separates the two callers: a listing reports each run's score aggregates and
 /// never shows an answer, so harvesting them there reads a column of every case of every listed
@@ -85,11 +76,8 @@ pub(crate) async fn sync_run(
     Ok(())
 }
 
-/// Give a terminal status to cases the run never spawned an iteration for. A case with no `job_id`
-/// has nothing to read an answer or a score out of, so it would report "running" indefinitely —
-/// which is right while the run is in flight, and wrong once the run is over. Only settles once
-/// the outer run job has reached `v2_job_completed`; while it is still running, an unspawned case
-/// is one whose iteration has yet to be created.
+/// Give a terminal status to cases the run never spawned an iteration for: with no `job_id` there
+/// is nothing to read an answer or a score out of, so they would report "running" indefinitely.
 async fn settle_unspawned_cases(
     db: &DB,
     w_id: &str,
@@ -97,10 +85,9 @@ async fn settle_unspawned_cases(
     run_job_id: Uuid,
 ) -> Result<()> {
     // Only a run that has reached `v2_job_completed` is settled from here. A job absent from the
-    // tables is as likely mid-launch — the experiment is committed before its job is pushed, so a
-    // runs-list poll can catch that window — as aged out, and settling then would cancel the cases
-    // of a run about to start. A cancelled run lands in `v2_job_completed` with its own status, so
-    // the case that matters, a cancel before an iteration spawned, is still covered.
+    // tables is as likely mid-launch — the experiment is committed before its job is pushed — as
+    // aged out, and settling then would cancel the cases of a run about to start. A cancelled run
+    // lands in `v2_job_completed`, so a cancel before an iteration spawned is still covered.
     let Some(terminal_status) = sqlx::query_scalar!(
         "SELECT status::text AS \"status!\" FROM v2_job_completed WHERE id = $1 AND workspace_id = $2",
         run_job_id,
@@ -120,8 +107,7 @@ async fn settle_unspawned_cases(
     )
     .fetch_all(db)
     .await?;
-    // The score cells of a case that never ran have no job to read a verdict out of either, so they
-    // are settled alongside it rather than left reading "pending" under a run that is over.
+    // The score cells of a case that never ran have no job to read a verdict out of either.
     if !settled.is_empty() {
         sqlx::query!(
             "UPDATE eval_score SET error = 'The case did not run'
@@ -137,11 +123,11 @@ async fn settle_unspawned_cases(
 }
 
 /// In-flight reads of what a case's agent step produced. Each is several queries and a run holds
-/// up to `MAX_CASES_PER_RUN` cases, so they go a few at a time rather than one after another.
+/// up to `MAX_CASES_PER_DATASET` cases, so they go a few at a time.
 const HARVEST_CONCURRENCY: usize = 8;
 
 /// Cases whose scorer results are read in one query: every scorer of every case in the batch, so
-/// the batch is what keeps a run's worth of judge conversations from being held at once.
+/// the batch bounds how much of a run's worth of judge conversations is held at once.
 const HARVEST_BATCH_CASES: usize = 100;
 
 /// Copy what each iteration produced into its row: the agent's answer, whether producing it
@@ -226,11 +212,9 @@ async fn record_case_answers(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
     Ok(())
 }
 
-/// The agent step's result, with "there is none" kept apart from "it could not be read".
-///
-/// The distinction is what makes settling a row safe: a lookup that failed for any other reason —
-/// a database error, a malformed flow status — must not be recorded as a case that produced no
-/// answer, because nothing reads that row again.
+/// The agent step's result, with "there is none" kept apart from "it could not be read": a lookup
+/// that failed for any other reason must not be recorded as a case that produced no answer,
+/// because nothing reads that row again.
 pub(crate) async fn agent_result(
     db: &DB,
     w_id: &str,
@@ -252,9 +236,8 @@ pub(crate) async fn agent_result(
 }
 
 /// Match each case to the iteration that ran it. The flow engine mints those job ids, so the case
-/// they belong to is read back from the iteration's own arguments — the case is what the loop
-/// iterates over, so it is there by construction, and it survives iterations finishing in any
-/// order.
+/// they belong to is read back from the iteration's own arguments, which survives iterations
+/// finishing in any order.
 async fn backfill_case_jobs(
     db: &DB,
     w_id: &str,
@@ -302,14 +285,10 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
         return Ok(());
     }
 
-    // The scorer results of the pending cases are read a batch of cases at a time, keyed by case
-    // job and scorer module. A live run is read every couple of seconds and a full one is up to
-    // MAX_CASES_PER_RUN × MAX_SCORERS_PER_DATASET cells, so the job tree is walked in SQL rather
-    // than once per cell; and a judge's result is its whole conversation, so the batch is what
-    // bounds how much of that is held at once. The shape is `build_run_flow`'s: a scorer is the
-    // one module of its own branch of the scoring step, so its job's parent is that branch and the
-    // branch's parent is the case. A step that has not finished has no completed row and its cell
-    // stays pending.
+    // The job tree is walked in SQL rather than once per cell: a live run is read every couple of
+    // seconds and a full one is up to MAX_CASES_PER_DATASET × MAX_SCORERS_PER_DATASET cells. The
+    // shape is `build_run_flow`'s: a scorer is the one module of its own branch of the scoring
+    // step, so its job's parent is that branch and the branch's parent is the case.
     let mut case_jobs: Vec<Uuid> = pending.iter().map(|row| row.job_id).collect();
     case_jobs.sort();
     case_jobs.dedup();
@@ -360,12 +339,10 @@ async fn harvest_flow_scores(db: &DB, w_id: &str, experiment_id: Uuid) -> Result
                 ));
                 continue;
             }
-            // What to say when the job is over and this scorer left nothing: the two are different
-            // states, and a cell reading "no answer to score" beside an Answer column that plainly
-            // shows one is the report being wrong rather than the run. Only `record_case_answers`
-            // tells them apart and the listing syncs without it, so there is a wording to settle
-            // on only once it has run. `None` withholds the sentence, not the harvest: a scorer
-            // that returned a number is read and recorded either way.
+            // What to say when the job is over and this scorer left nothing. Only
+            // `record_case_answers` tells the two states apart and a listing syncs without it, so
+            // `None` withholds the sentence — not the harvest: a scorer that returned a number is
+            // read and recorded either way.
             let missing = row.answered.map(|answered| {
                 if answered {
                     "This scorer did not run for the case"
@@ -444,9 +421,9 @@ fn settle_verdict(
         Some(value) => {
             let verdict = extract_verdict(value);
             match verdict {
-                // A score is a fraction: both templates document 0 to 1, the mean and the pass
-                // rate read it as one, so a number outside that range is a scorer bug recorded as
-                // an error rather than a value that would quietly skew the column.
+                // A score is a fraction: the mean and the pass rate read it as one, so a number
+                // outside that range is recorded as an error rather than a value that would
+                // quietly skew the column.
                 Verdict { score: Some(score), .. } if !(0.0..=1.0).contains(&score) => (
                     Verdict::default(),
                     Some(format!(
@@ -455,7 +432,7 @@ fn settle_verdict(
                     )),
                 ),
                 // A number in range, or the scorer saying this case is not one it measures. Both
-                // are answers, so both are recorded and neither is an error.
+                // are answers, so neither is an error.
                 Verdict { score: Some(_), .. } | Verdict { not_applicable: true, .. } => {
                     (verdict, None)
                 }
@@ -486,7 +463,7 @@ fn settle_verdict(
 /// The score and reason read straight out of text that failed to parse as JSON. Deliberately not a
 /// second JSON parser: it looks for the two keys and takes what follows, which is what survives a
 /// model writing an unescaped quote in the middle of a sentence.
-fn salvage_verdict(text: &str) -> (Option<f64>, Option<String>, Option<serde_json::Value>) {
+fn salvage_verdict(text: &str) -> (Option<f64>, Option<String>) {
     fn after_key<'a>(text: &'a str, key: &str) -> Option<&'a str> {
         let start = text.find(key)? + key.len();
         Some(text[start..].trim_start().strip_prefix(':')?.trim_start())
@@ -518,7 +495,7 @@ fn salvage_verdict(text: &str) -> (Option<f64>, Option<String>, Option<serde_jso
         })
         .filter(|reason| !reason.is_empty());
 
-    (score, reason, None)
+    (score, reason)
 }
 
 /// A fenced code block as the model wrote it, reduced to what is inside the fence. The opening
@@ -536,9 +513,8 @@ fn unfence(text: &str) -> &str {
 }
 
 /// What a scorer said about one run. `not_applicable` is the scorer declining to measure this
-/// case rather than failing to: an explicit `{"score": null}`, which is what Braintrust's scorers
-/// return for the same thing. A bare `null` stays an error, since a scorer that forgot to return
-/// is indistinguishable from one that returned nothing on purpose.
+/// case: an explicit `{"score": null}`. A bare `null` stays an error, since a scorer that forgot
+/// to return is indistinguishable from one that returned nothing on purpose.
 #[derive(Default)]
 struct Verdict {
     score: Option<f64>,
@@ -572,8 +548,7 @@ fn extract_verdict(value: &RawValue) -> Verdict {
     }
     let serde_json::Value::Object(map) = &parsed else {
         // A judge often answers with JSON inside a string, and often fences it as markdown even
-        // when told to reply with JSON only. Both are the model doing what it was asked; refusing
-        // to read them is what turns a good verdict into "no number to plot".
+        // when told to reply with JSON only.
         if let serde_json::Value::String(text) = &parsed {
             let text = unfence(text);
             if let Ok(inner) = serde_json::from_str::<serde_json::Value>(text) {
@@ -582,11 +557,11 @@ fn extract_verdict(value: &RawValue) -> Verdict {
                 }
             }
             // Nearly JSON: a judge that quotes the agent inside its own reason writes those quotes
-            // unescaped, which is invalid and is also the most ordinary thing for it to say. The
+            // unescaped, which is invalid and also the most ordinary thing for it to say. The
             // number is what the column plots, so it is read out of the text rather than lost with
             // the object around it.
-            let (score, reason, checks) = salvage_verdict(text);
-            return Verdict { score, reason, checks, not_applicable: false };
+            let (score, reason) = salvage_verdict(text);
+            return Verdict { score, reason, checks: None, not_applicable: false };
         }
         return Verdict::default();
     };
@@ -633,7 +608,7 @@ mod tests {
 
     /// A scorer's answer arrives in whatever shape its runnable returns: a script's bare value or
     /// object, or a judge's answer wrapped in `output` and often stringified. A shape that goes
-    /// unrecognised is a silently empty cell, not an error.
+    /// unrecognised is a silently empty cell rather than an error.
     #[test]
     fn extract_verdict_reads_every_documented_scorer_shape() {
         let score = |json: &str| extract_verdict(&raw(json)).score;
@@ -655,8 +630,7 @@ mod tests {
         );
         assert_eq!(score("{\"output\": \"```\\n0.6\\n```\"}"), Some(0.6));
 
-        // A judge quoting the agent inside its own reason, which is invalid JSON and the most
-        // ordinary sentence for it to write. The number is what the column plots, so it survives.
+        // A judge quoting the agent inside its own reason, which is invalid JSON.
         let quoted = extract_verdict(&raw(
             r#"{"output": "{\"score\": 0.8, \"reason\": \"invented context (\"stop asking me\", never said) here\"}"}"#,
         ));
@@ -706,9 +680,9 @@ mod tests {
         assert_eq!(v.score, None);
     }
 
-    /// A scorer saying it has nothing to measure on a case, which is a verdict rather than a
-    /// failure: the cell is left out of the mean instead of counted as a zero. Spelled out, so a
-    /// scorer that returns nothing at all is still an error rather than silently excused.
+    /// A scorer saying it has nothing to measure on a case is a verdict rather than a failure: the
+    /// cell is left out of the mean instead of counted as a zero. Spelled out, so a scorer that
+    /// returns nothing at all is still an error rather than silently excused.
     #[test]
     fn an_explicit_null_score_is_not_applicable_rather_than_missing() {
         let na = extract_verdict(&raw(r#"{"score": null, "reason": "no sources to cite"}"#));

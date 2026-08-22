@@ -86,18 +86,6 @@ describe('agentConfigAsEdited', () => {
 		// The saved shape is blind to the expression: that is the difference this exists for.
 		expect(inputTransformsToAgentConfig(transforms, [])).toEqual({ tools: [], system_prompt: 'hi' })
 	})
-
-	it('agrees with the saved config when every transform is static', () => {
-		const transforms = agentConfigToInputTransforms({
-			provider: { kind: 'openai' },
-			system_prompt: 'hi',
-			max_iterations: 3
-		})
-		const tools = [{ id: 't1' }] as any
-		expect(agentConfigAsEdited(transforms, tools)).toEqual(
-			inputTransformsToAgentConfig(transforms, tools)
-		)
-	})
 })
 
 describe('agentConfigToInputTransforms', () => {

@@ -1,6 +1,5 @@
 /* MultilineCellEditor: a popup positioned over the cell, so it has to paint the cell's own frame
-   rather than inherit it. Sized and bordered like the inline editor the other columns use, and
-   grown by the editor itself as lines are added. */
+   rather than inherit it. */
 .ag-theme-alpine .wm-multiline-cell-editor,
 .ag-theme-alpine-dark .wm-multiline-cell-editor {
 	background-color: var(--ag-background-color);
@@ -16,8 +15,7 @@
 	border-radius: 3px;
 	outline: none;
 	resize: none;
-	/* Past this it scrolls rather than growing: a cell can hold far more text than the grid it is
-	   in is tall, and an editor the height of the whole document is not an editor. */
+	/* Past this it scrolls rather than growing. */
 	max-height: 40vh;
 	overflow-y: auto;
 	background-color: var(--ag-background-color);

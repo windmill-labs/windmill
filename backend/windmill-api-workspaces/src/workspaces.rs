@@ -5999,8 +5999,8 @@ async fn clone_eval_datasets(
     // A new id per cloned case: `eval_case`'s primary key is the id alone, unique across the whole
     // table, so copying it would collide with the source's own rows.
     sqlx::query!(
-        "INSERT INTO eval_case (workspace_id, dataset_path, name, input, expected, created_at, created_by)
-         SELECT $2, dataset_path, name, input, expected, created_at, created_by
+        "INSERT INTO eval_case (workspace_id, dataset_path, input, expected, created_at, created_by)
+         SELECT $2, dataset_path, input, expected, created_at, created_by
          FROM eval_case WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,

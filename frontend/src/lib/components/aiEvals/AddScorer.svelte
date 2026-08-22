@@ -19,10 +19,9 @@
 	import { loadStoredConfig } from '$lib/components/aiProviderStorage'
 	import { sendUserToast } from '$lib/toast'
 	import { onMount, untrack } from 'svelte'
-	import { summaryToName } from '$lib/utils'
 	import { Bot, Code2 } from 'lucide-svelte'
 	import type { RecentScorersResponse } from '$lib/gen'
-	import type { ScorerKind } from './evalScorers'
+	import { datasetSummary, parseThreshold, summaryToName, type ScorerKind } from './evalUtils'
 
 	let {
 		workspace,
@@ -38,17 +37,13 @@
 		/** The workspace's datasets, for naming the one a reusable scorer already measures. */
 		datasets: EvalDataset[]
 		kind: ScorerKind
-		/** Writing a scorer and picking one that exists are different jobs with different fields,
-		 *  so they are different forms rather than one with half of it below a divider. */
 		mode: 'new' | 'existing'
 		onAdd: (scorer: Scorer) => Promise<void>
 		/** Opens the script editor on what was just created, by hash. */
 		onEditScript: (hash: string) => void
 	} = $props()
 
-	/** What a scorer of this kind is called before it is called anything else. Prefilled rather
-	 *  than left empty: it names the column and derives the path, so an empty one is two decisions
-	 *  before the first score. */
+	/** Prefilled rather than left empty: it names the column and derives the path. */
 	const DEFAULT_SUMMARY: Record<ScorerKind, string> = {
 		agent: 'AI judge',
 		script: 'Code scorer'
@@ -56,11 +51,8 @@
 
 	let path = $state('')
 	let pathError = $state('')
-	// What the column is for. It names the runnable, as a script's summary names its path, and it is
-	// what the column header shows instead of the last segment of a path.
-	// Seeded from the kind this form was opened for. The drawer keys the form on every open, so the
-	// initial value is the whole of it — hence `untrack` rather than a derived that would fight the
-	// reader's own typing.
+	// Seeded from the kind, and only seeded: the drawer keys the form on every open, so the initial
+	// value is the whole of it, where a derived would fight the reader's own typing.
 	let summary = $state(untrack(() => DEFAULT_SUMMARY[kind]))
 	let pathDirty = $state(false)
 	let pathInput: Path | undefined = $state(undefined)
@@ -73,38 +65,19 @@
 	})
 	/** The dataset's own name, which every scorer of it is named under. */
 	let datasetName = $derived(datasetPath.split('/').pop() ?? datasetPath)
-	/** What a dataset is for, where it says so: the path names it either way. */
-	function datasetSummary(path: string): string | undefined {
-		return datasets.find((d) => d.path === path)?.summary || undefined
-	}
 	let prompt = $state('')
 	let provider = $state<ProviderConfig | undefined>(loadStoredConfig())
 	let template = $state('')
 	let existing = $state<string | undefined>(undefined)
-	// A column is a number, and optionally a number with a line through it. The line is where the
-	// column stops reporting how good an answer was and starts reporting whether it was good
-	// enough, which is the question most datasets are actually asking.
 	let passIf = $state('')
-	// Not a truthiness test: the number input coerces `passIf` to a number, so a valid threshold of
-	// 0 (which the server accepts) would read as empty and be dropped. Empty is `''` or null.
-	let threshold = $derived.by(() => {
-		if (passIf === '' || passIf == null) return undefined
-		const n = Number(passIf)
-		return Number.isNaN(n) ? undefined : n
-	})
-	// The server refuses a threshold outside 0 to 1; catch it here so an invalid one blocks the
-	// form rather than being caught only after the judge or script has already been created.
-	let thresholdError = $derived(threshold !== undefined && (threshold < 0 || threshold > 1))
+	let threshold = $derived(parseThreshold(passIf))
 	let busy = $state(false)
 	let seeded = $state(false)
-	// The scorers this workspace already uses, so a new dataset does not start by retyping the
-	// path of the judge you wrote last week. Filtered server-side to what the caller can read.
+	/** The scorers this workspace already uses, filtered server-side to what the caller can read. */
 	let recent = $state<RecentScorersResponse>([])
-	/** Which list to pick from. Starts on the scorers already measuring something, which is what
-	 *  "reuse" usually means; it falls back to the workspace when there are none. */
+	/** Which list to pick from. Starts on the scorers already measuring something. */
 	let source = $state<'recent' | 'any'>('recent')
-	/** The row picked out of that list. Picking is not adding: what the drawer holds is only added
-	 *  when its own button says so, as everything else in this drawer is. */
+	/** The row picked out of that list. Picking is not adding: the drawer's own button adds. */
 	let picked = $state<RecentScorersResponse[number] | undefined>(undefined)
 	let usingRecent = $derived(source === 'recent' && recent.length > 0)
 
@@ -121,7 +94,7 @@ Expected: the case's expected value`
 			!busy &&
 			!!path &&
 			!pathError &&
-			!thresholdError &&
+			!threshold.error &&
 			(kind === 'script' || (modelReady && !!prompt))
 	)
 
@@ -163,8 +136,7 @@ Expected: the case's expected value`
 	/**
 	 * The shape a verdict has to arrive in. Asking for it in the prompt leaves the model free to
 	 * quote the agent inside its own reason and break the JSON around it; an output schema is the
-	 * provider enforcing the shape instead. Windmill delivers it whichever way the model takes it,
-	 * so there is no list of models to keep here.
+	 * provider enforcing the shape instead.
 	 */
 	const VERDICT_SCHEMA = {
 		$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -192,7 +164,7 @@ Expected: the case's expected value`
 				}
 			}
 		})
-		await onAdd({ kind: 'agent', path, name: summary || undefined, pass_if: threshold })
+		await onAdd({ kind: 'agent', path, name: summary || undefined, pass_if: threshold.value })
 	}
 
 	async function createScript() {
@@ -206,9 +178,7 @@ Expected: the case's expected value`
 				language: 'bun'
 			}
 		})
-		await onAdd({ kind: 'script', path, name: summary || undefined, pass_if: threshold })
-		// The template is a starting point, so the editor opens on it: writing the assertions is
-		// the actual work, and it happens over the table rather than after hunting for the file.
+		await onAdd({ kind: 'script', path, name: summary || undefined, pass_if: threshold.value })
 		onEditScript(hash)
 	}
 
@@ -228,16 +198,16 @@ Expected: the case's expected value`
 				kind: picked.kind,
 				path: picked.path,
 				name: picked.name,
-				pass_if: threshold ?? picked.pass_if
+				pass_if: threshold.value ?? picked.pass_if
 			})
 			return
 		}
 		if (!existing) return
-		await onAdd({ kind, path: existing, name: summary || undefined, pass_if: threshold })
+		await onAdd({ kind, path: existing, name: summary || undefined, pass_if: threshold.value })
 	}
 
 	/** The drawer's own button drives the form, so what it says and whether it can be pressed are
-	 *  read from here: one action at the top of the drawer, as every other drawer has. */
+	 *  read from here. */
 	export function submitState(): {
 		label: string
 		disabled: boolean
@@ -329,7 +299,7 @@ Expected: the case's expected value`
 			<TextInput
 				bind:value={passIf}
 				size="sm"
-				error={thresholdError}
+				error={threshold.error}
 				inputProps={{ placeholder: '0.7', type: 'number', min: 0, max: 1, step: 0.05 }}
 			/>
 		</Label>
@@ -343,8 +313,6 @@ Expected: the case's expected value`
 				label="Grading prompt"
 				tooltip="Stored on the agent, so it can be rewritten later without touching the dataset."
 			>
-				<!-- Between the label and the field, as a step's inputs put theirs: which half of the
-				     conversation this is is the thing to know before writing it. -->
 				<span class="text-xs text-secondary">
 					The judge's system prompt: how to score, written once for every case.
 				</span>
@@ -372,9 +340,6 @@ Expected: the case's expected value`
 			</Label>
 		{/if}
 	{:else}
-		<!-- One source at a time: the ones already measuring something and everything else in the
-	     workspace answer the same question, and side by side the shorter list reads as a preamble
-	     to the picker rather than as the answer it usually is. -->
 		{#if recent.length > 0}
 			<ToggleButtonGroup bind:selected={source} class="w-fit">
 				{#snippet children({ item })}
@@ -397,10 +362,7 @@ Expected: the case's expected value`
 		{#if usingRecent}
 			<div class="flex flex-col divide-y border rounded-md">
 				{#each recent as scorer (scorer.path)}
-					<!-- Named the way it is named everywhere else: what kind of thing it is, what it is
-				     called, the path under it, and the dataset it already measures on the right. A
-				     scorer with no name of its own is its path, so saying that twice was saying
-				     nothing twice. -->
+					{@const measures = datasetSummary(datasets, scorer.dataset)}
 					<Button
 						variant="subtle"
 						unifiedSize="sm"
@@ -429,12 +391,9 @@ Expected: the case's expected value`
 							class="flex items-center gap-1.5 text-2xs text-tertiary min-w-0 shrink"
 							title={scorer.dataset}
 						>
-							<!-- What the dataset is for over what it is called, as the list on the left reads
-							     and as a dataset is named everywhere else it is listed. No icon: every row has a
-							     dataset, so a glyph would distinguish nothing, and datasets carry none elsewhere. -->
 							<span class="flex flex-col min-w-0 text-right">
-								{#if datasetSummary(scorer.dataset)}
-									<span class="truncate leading-tight">{datasetSummary(scorer.dataset)}</span>
+								{#if measures}
+									<span class="truncate leading-tight">{measures}</span>
 								{/if}
 								<span class="truncate leading-tight">{scorer.dataset}</span>
 							</span>

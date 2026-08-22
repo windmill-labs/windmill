@@ -30,12 +30,7 @@
 		clearLinkedAgentTools,
 		linkedToolsScope
 	} from '../linkedAgentToolsStore.svelte'
-	import {
-		getAgentEdit,
-		getAgentEditingPath,
-		markAgentEditSettled,
-		setAgentEditingPath
-	} from '../agentEditStore.svelte'
+	import { getAgentEdit, getAgentEditingPath, setAgentEditingPath } from '../agentEditStore.svelte'
 	import { claimLinkedToolsFetch } from '../flowState'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
@@ -91,8 +86,6 @@
 	// A linked agent is rigid and read-only: its brain and tools come from the resource. We
 	// load them here for display, and probe the provider resource so we can warn when it isn't
 	// accessible in this workspace (the user then needs to unlink/fork or gain access).
-	// The deployed agent and nothing else: a linked step runs what is deployed, and so does
-	// everything on this card. Edit forks that into the step, which is where edits live until saved.
 	let linkedResource = resource(
 		() => ({ ws, path: agent }),
 		async ({ ws, path }): Promise<LinkedInfo> => {
@@ -144,15 +137,12 @@
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
 	/** The agent the card is about: the one this step links to, or the one being edited. */
 	let cardPath = $derived(agent ?? editingPath)
-	// Evals belong to the agent, not to the step, so they open over the flow rather than as one of
-	// the step's tabs: what you go there to read is a history of runs, not a setting of this step.
 	let evalsOpen = $state(false)
 	// Bumped on every write to the resource, so a save that leaves the card on the same agent still
 	// refetches the version it just minted.
 	let writes = $state(0)
-	// An eval run is recorded against a version, so the card names the one this agent's runs will
-	// carry. The resource does not hold it; its newest history entry does, because recording is a
-	// database trigger on every write.
+	// The version eval runs are recorded against. The resource does not hold it; its newest history
+	// entry does, since recording is a database trigger on every write.
 	let versionResource = resource(
 		() => ({ ws, path: cardPath, writes }),
 		async ({ ws, path }): Promise<{ ws?: string; path?: string; version?: number }> => {
@@ -209,8 +199,6 @@
 		return tool.summary || tool.value?.tool_type || tool.id
 	}
 
-	// What the agent is, rather than which agent it is: a strip that sits above every tab says the
-	// second by default and the first when asked.
 	let showDetail = $state(false)
 
 	function openSave() {
@@ -383,7 +371,7 @@
 	// into the shared agent instead of surviving the re-link.
 	async function forkFromResource(
 		foldOverrides: boolean
-	): Promise<{ path: string; deployedConfig: string; forkedConfig: string } | undefined> {
+	): Promise<{ path: string; deployedConfig: string } | undefined> {
 		if (!ws || !agent) {
 			return undefined
 		}
@@ -405,19 +393,12 @@
 				local[key] = inputTransforms[key]
 			}
 		}
-		// What the agent holds, as the same round trip the edits are compared in: opening the editor
-		// normalises the configuration, and a normalisation is not an edit. Comparing against the
-		// resource's own JSON would compare key order too.
-		const deployedConfig = JSON.stringify(
-			agentConfigAsEdited({ ...agentConfigToInputTransforms(cfg), ...local }, cfg.tools ?? [])
-		)
-
-		const brain = agentConfigToInputTransforms(cfg)
-		inputTransforms = { ...brain, ...local }
+		const forkedInputs = { ...agentConfigToInputTransforms(cfg), ...local }
 		const forkedTools = cfg.tools ?? []
-		// What was written into the step, which is what the settle gate waits to see before it
-		// treats a change as an edit.
-		const forkedConfig = JSON.stringify(agentConfigAsEdited(inputTransforms, forkedTools))
+		// The baseline edits are judged against, in the form `currentConfig` takes: comparing
+		// against the resource's own JSON would count key order as an edit.
+		const deployedConfig = JSON.stringify(agentConfigAsEdited(forkedInputs, forkedTools))
+		inputTransforms = forkedInputs
 		if (foldOverrides) {
 			for (const tool of forkedTools) {
 				const overrides = toolInputs?.[tool.id]
@@ -429,7 +410,7 @@
 		}
 		tools = forkedTools
 		agent = undefined
-		return { path, deployedConfig, forkedConfig }
+		return { path, deployedConfig }
 	}
 
 	// Unlink forks the agent into this step so it can diverge here. It does not write back.
@@ -464,13 +445,9 @@
 		}
 	}
 
-	/**
-	 * The edits as a run of them executes them: the step's brain transforms as authored,
-	 * expressions included, and its tools. Nothing is saved anywhere for this — the step is the
-	 * only copy of the edits, and evals opened from the editing card read it when Run is pressed.
-	 * The flow-local inputs are left out: a case supplies them, and leaving them out is what lets
-	 * the server recognise a run of edits that were later deployed as a run of that version.
-	 */
+	/** The edits as a run of them executes them: the step's brain transforms as authored
+	 *  (expressions included) and its tools. Flow-local inputs are left out: a case supplies them,
+	 *  and that is what lets the server recognise a run of later-deployed edits as that version. */
 	function editedConfig(): AgentDraft {
 		const brain: Record<string, InputTransform> = {}
 		for (const [key, transform] of Object.entries(inputTransforms ?? {})) {
@@ -486,40 +463,16 @@
 
 	/** The configuration the step holds now, in the form it is compared with the deployed agent in.
 	 *  Expressions count: the saved config cannot hold one, but a run of the edits executes it and
-	 *  Cancel drops it, so it is as much an edit as a value. */
+	 *  Cancel drops it. */
 	let currentConfig = $derived(JSON.stringify(agentConfigAsEdited(inputTransforms, tools)))
-	/** The agent as deployed, in the same form. It lives with the edit session rather than here —
-	 *  as does what was written into the step when the editor opened — so an editor mounted
-	 *  part-way through a session still has its baselines. */
+	/** The agent as deployed, in the same form; kept on the edit session so an editor mounted
+	 *  part-way through still has it. */
 	let deployedConfig = $derived(editing?.deployedConfig)
-	/** The step is holding the configuration that was forked into it, so what it holds from here is
-	 *  what someone did to it. */
-	let forkSettled = $derived(editing?.settled ?? false)
-	// The fork is written into the step through bound props, so it arrives over several states:
-	// the first ones read back are the step part-way through being forked, not anything anyone
-	// edited. It has landed once what the step holds is what was forked into it, and only from
-	// there is a difference an edit. Recorded on the session, because only the editor that saw it
-	// land can say so, and one mounted later must not wait for it again.
-	$effect(() => {
-		// Both read here: the session is set after the fork is written, and the settle has to be
-		// looked for again at that point, not only on the next change to the configuration.
-		const session = editing
-		const config = currentConfig
-		const marker = tools
-		untrack(() => {
-			if (!session || session.settled) return
-			if (config === session.forkedConfig) markAgentEditSettled(marker)
-		})
-	})
-	/** Whether what is in the editor differs from the agent it is an edit of. */
-	let edited = $derived(
-		forkSettled && deployedConfig !== undefined && currentConfig !== deployedConfig
-	)
+	let edited = $derived(deployedConfig !== undefined && currentConfig !== deployedConfig)
 
 	let diffDrawer: DiffDrawer | undefined = $state()
-	/** What differs from deployed, in the drawer every other unsaved change shows its diff in. Both
-	 *  sides are snapshotted at click time: the current one is the step's live state, and the
-	 *  drawer would otherwise go on re-reading it while the user keeps typing behind it. */
+	// Both sides snapshotted at click time: the drawer would otherwise keep re-reading the live
+	// step while the user types behind it.
 	function showDiff() {
 		if (!deployedConfig) return
 		diffDrawer?.openDrawer()
@@ -540,11 +493,9 @@
 		})
 	}
 
-	/** Cancel is asking to be sure when there is something to lose. */
 	let confirmCancel = $state(false)
-	// Cancel drops the edits and re-links the step, leaving the agent untouched: nothing is saved
-	// anywhere on the way out, so it asks first when there are edits to drop. Diverging from the
-	// agent is Unlink's job, on the linked card.
+	// Cancel drops the edits and re-links the step without saving anything, so it asks first when
+	// there are edits to drop.
 	function cancelEdit() {
 		const path = editingPath
 		if (!path) return
@@ -569,8 +520,7 @@
 <div class="px-2 xl:px-4 py-1.5 border-b border-light">
 	{#if agent}
 		<div class="rounded-md border border-light bg-surface-tertiary px-3 py-2">
-			<!-- The line is the control: clicking it says what the agent is. Only the path leaves for
-			     the resource, and the buttons do their own thing, so both stop here. -->
+			<!-- The whole line toggles the detail; the link and the buttons stop propagation. -->
 			<div
 				class="flex items-center gap-2 cursor-pointer"
 				role="button"
@@ -585,8 +535,6 @@
 				}}
 			>
 				<Bot size={16} class="text-primary shrink-0" />
-				<!-- The link is as wide as the path and no wider: the rest of the line belongs to the
-				     card, which is what makes clicking it expand rather than navigate. -->
 				<div class="min-w-0 flex-1 flex items-center gap-2">
 					<a
 						class="truncate text-xs font-medium hover:underline"
@@ -602,8 +550,6 @@
 				</div>
 				<div class="flex items-center gap-1 shrink-0">
 					{#if brainParams.length > 0 || inheritedTools.length > 0}
-						<!-- Kept beside the line it opens: a card that only expands when you happen to click
-						     it is a card nobody knows expands. -->
 						<span class="text-tertiary">
 							{#if showDetail}
 								<ChevronUp size={14} />
@@ -617,7 +563,7 @@
 						variant="default"
 						startIcon={{ icon: FlaskConical }}
 						title="Run this agent against a dataset of cases"
-						on:click={(e) => {
+						onclick={(e) => {
 							e.stopPropagation()
 							evalsOpen = true
 						}}
@@ -630,7 +576,7 @@
 						startIcon={{ icon: Pencil }}
 						iconOnly
 						title="Edit the saved agent (updates it everywhere it's used)"
-						on:click={(e) => {
+						onclick={(e) => {
 							e.stopPropagation()
 							editAgent()
 						}}
@@ -641,7 +587,7 @@
 						startIcon={{ icon: Unlink }}
 						iconOnly
 						title="Unlink (fork an editable copy into just this step)"
-						on:click={(e) => {
+						onclick={(e) => {
 							e.stopPropagation()
 							unlink()
 						}}
@@ -679,8 +625,6 @@
 			</div>
 		{/if}
 	{:else if editingPath}
-		<!-- What saving does is the consequence worth reading, so it is under the agent it is about
-		     rather than under an icon. The buttons sit against both lines. -->
 		<div
 			class="rounded-md border border-light bg-surface-tertiary px-3 py-1.5 flex flex-col gap-1.5"
 		>
@@ -695,7 +639,6 @@
 							</Badge>
 						{/if}
 						{#if edited}
-							<!-- The badge is the way to the diff: it is what says there is one. -->
 							<Badge
 								color="yellow"
 								class="shrink-0"
@@ -716,9 +659,6 @@
 						</Tooltip>
 					</div>
 				</div>
-				<!-- Beside what it is about: evals of an agent being edited run the edits, so it
-				     belongs to the line naming them rather than to the row that keeps or discards
-				     them. -->
 				<Button
 					unifiedSize="sm"
 					variant="default"
@@ -730,10 +670,6 @@
 					Evals
 				</Button>
 			</div>
-			<!-- Deciding the edits' fate gets a row of its own: at this width it was wrapping into
-			     the line that names them, and the two are not the same question. The badge above
-			     says there are unsaved changes and shows them; this row is what can be done about
-			     them. -->
 			<div class="flex items-center justify-end gap-1">
 				<Button unifiedSize="sm" variant="default" disabled={saving} onclick={cancelEdit}>
 					Cancel

@@ -12,16 +12,10 @@ import type { FlowModule } from '$lib/gen'
 export type AgentEdit = {
 	/** The agent the fork is an edit of, which "Save changes" writes back to. */
 	path: string
-	/** The agent as deployed and what was forked into the step, both in the form the editor
-	 *  compares them in. Kept with the path rather than in the editor: the editor can unmount
-	 *  mid-session, and without a baseline it cannot tell an edit from the deployed value — and
-	 *  Cancel would then drop the edits as though nothing had been changed. */
+	/** The agent as deployed, in the form the editor compares edits in. Kept here rather than in
+	 *  the editor, which can unmount mid-session and would otherwise lose the baseline that tells
+	 *  an edit from the deployed value. */
 	deployedConfig?: string
-	forkedConfig?: string
-	/** The step has read back what was forked into it, so what it holds from here is an edit. The
-	 *  fork lands through bound props over several states, and only an editor that saw it land
-	 *  can say so; an editor mounted afterwards must not wait for it again. */
-	settled?: boolean
 }
 
 type Entry = AgentEdit & { marker: object }
@@ -36,12 +30,7 @@ export function getAgentEdit(marker: object | undefined): AgentEdit | undefined 
 	if (!entry) return undefined
 	// Without the marker: a caller that hands the edit back to `setAgentEditingPath` for another
 	// marker must not smuggle the old one along.
-	return {
-		path: entry.path,
-		deployedConfig: entry.deployedConfig,
-		forkedConfig: entry.forkedConfig,
-		settled: entry.settled
-	}
+	return { path: entry.path, deployedConfig: entry.deployedConfig }
 }
 
 export function getAgentEditingPath(marker: object | undefined): string | undefined {
@@ -56,11 +45,6 @@ export function setAgentEditingPath(
 	if (!marker) return
 	const rest = entries.filter((e) => e.marker !== marker)
 	entries = path ? [...rest.slice(-(MAX_ENTRIES - 1)), { marker, path, ...details }] : rest
-}
-
-export function markAgentEditSettled(marker: object | undefined) {
-	if (!marker) return
-	entries = entries.map((e) => (e.marker === marker ? { ...e, settled: true } : e))
 }
 
 // Carry edit state across a wholesale clone of the flow: the clone replaces every `tools` array

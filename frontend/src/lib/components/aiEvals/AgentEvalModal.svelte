@@ -2,7 +2,7 @@
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import type { AgentDraft } from '$lib/gen'
-	import type { EvalsLocation } from './evalRuns'
+	import type { EvalsLocation } from './evalUtils'
 	import EvalsPane from './EvalsPane.svelte'
 
 	let {
@@ -11,10 +11,8 @@
 		opWorkspace = undefined,
 		editedConfig = undefined
 	}: {
-		/** The agent under test. A dataset and its runs belong to a saved agent, so without one
-		 * the dialog can only say so. */
+		/** The agent under test. A dataset and its runs belong to a saved agent. */
 		agentPath?: string
-		/** Bound by every caller: the surface that opens this owns whether it is open. */
 		open: boolean
 		/** The workspace the opening editor operates on, which differs from the nav workspace in
 		 * fork and session editors. Every read and write targets it. */
@@ -24,15 +22,11 @@
 		editedConfig?: () => AgentDraft
 	} = $props()
 
-	// The dialog is what the breadcrumb's first segment names, so the path is composed here from
-	// the dialog's own title and whatever level the pane reports being on.
 	const TITLE = 'Evals'
 	let location = $state<EvalsLocation | undefined>(undefined)
 	let trail = $derived(
 		location ? [{ label: TITLE, onclick: location.back }, { label: location.label }] : undefined
 	)
-	// Says what the dialog is for, so it belongs to the dialog's own name and goes when you
-	// navigate past it: a level in is about one run, not about what runs are.
 	let description = $derived(
 		location
 			? undefined
@@ -40,11 +34,7 @@
 	)
 </script>
 
-<!-- A dialog rather than a drawer: what it holds is a screen of its own — a history, then a run of
-     it — read across its full width, not a panel beside the thing you came from. `fillHeight` so
-     the table inside can size itself against the dialog instead of growing it. -->
-<!-- `kind="X"` because there is nothing to cancel: what is inside is read and acted on, not filled
-     in. The `sm:` widths are what actually win — the dialog's own are breakpoint-prefixed. -->
+<!-- The `sm:` widths are what actually win: the dialog's own are breakpoint-prefixed. -->
 <Modal
 	title={TITLE}
 	{trail}
@@ -55,8 +45,6 @@
 	fillHeight
 >
 	{#snippet titleBadge()}
-		<!-- Beside the title rather than on the button that opens it: every way in lands here, so
-		     this is the one place that says it once. -->
 		<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
 	{/snippet}
 	<div class="h-full min-h-0">

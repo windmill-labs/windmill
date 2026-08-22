@@ -26,8 +26,6 @@ pub struct EvalCaseInput {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EvalCase {
     pub id: Uuid,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
     pub input: EvalCaseInput,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected: Option<Box<RawValue>>,
@@ -39,8 +37,6 @@ pub struct EvalCase {
 /// a client cannot forge provenance or collide with an existing case.
 #[derive(Deserialize, Debug)]
 pub struct NewEvalCase {
-    #[serde(default)]
-    pub name: Option<String>,
     #[serde(default)]
     pub input: EvalCaseInput,
     #[serde(default)]
@@ -54,18 +50,15 @@ pub struct CreateDataset {
     pub summary: Option<String>,
     #[serde(default)]
     pub scorers: Vec<Scorer>,
-    /// The cases to create it holding. A case is a row of the dataset, so unlike a scorer it
-    /// cannot be written before there is a dataset for it to be a row of; sending them with the
-    /// dataset is what lets one be assembled in a single act rather than created empty and filled
-    /// in afterwards.
+    /// The cases to create it holding. A case cannot be written before there is a dataset for it
+    /// to be a row of, so they are sent with it rather than added afterwards.
     #[serde(default)]
     pub cases: Vec<NewEvalCase>,
 }
 
 #[derive(Deserialize)]
 pub struct EditDataset {
-    /// Renames the dataset. Its cases and experiments follow through the foreign keys, so a
-    /// rename is a rename rather than a copy that leaves history behind.
+    /// Renames the dataset. Its cases and experiments follow through the foreign keys.
     #[serde(default)]
     pub path: Option<String>,
     #[serde(default)]
@@ -85,8 +78,6 @@ pub struct SaveCase {
     #[serde(default)]
     pub id: Option<Uuid>,
     #[serde(default)]
-    pub name: Option<String>,
-    #[serde(default)]
     pub input: EvalCaseInput,
     #[serde(default)]
     pub expected: Option<Box<RawValue>>,
@@ -95,11 +86,7 @@ pub struct SaveCase {
 #[derive(Serialize)]
 pub struct ListCasesResponse {
     pub cases: Vec<EvalCase>,
-    pub total: usize,
 }
-// -----------------------------------------------------------------------------------------------
-// Paths and permissions
-// -----------------------------------------------------------------------------------------------
 
 pub async fn list_datasets(
     authed: ApiAuthed,
@@ -118,16 +105,18 @@ pub async fn list_datasets(
     tx.commit().await?;
     Ok(Json(
         rows.into_iter()
-            .map(|row| EvalDataset {
-                path: row.path,
-                summary: row.summary,
-                scorers: serde_json::from_value(row.scorers).unwrap_or_default(),
-                created_at: row.created_at,
-                created_by: row.created_by,
-                edited_at: row.edited_at,
-                edited_by: row.edited_by,
+            .map(|row| {
+                dataset_from_row(
+                    row.path,
+                    row.summary,
+                    row.scorers,
+                    row.created_at,
+                    row.created_by,
+                    row.edited_at,
+                    row.edited_by,
+                )
             })
-            .collect(),
+            .collect::<Result<Vec<_>>>()?,
     ))
 }
 
@@ -137,32 +126,25 @@ pub async fn create_dataset(
     Path(w_id): Path<String>,
     Json(payload): Json<CreateDataset>,
 ) -> Result<String> {
-    check_path(&payload.path)?;
+    check_proper_path(&payload.path)?;
     check_summary(payload.summary.as_deref())?;
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot create eval datasets".to_string(),
         ));
     }
-    // The dataset and its cases are written in one `user_db` transaction: the row's insert policy
-    // gates the dataset, the cases' insert policy gates each case, and the two land together or
-    // not at all. Nothing decides access a second time in Rust.
-    if payload.cases.len() as i64 > MAX_CASES_PER_DATASET {
-        return Err(Error::BadRequest(format!(
-            "An eval dataset holds at most {} cases. Split them into several datasets.",
-            MAX_CASES_PER_DATASET
-        )));
-    }
-    let mut total = 0usize;
-    for case in &payload.cases {
-        check_case(case.name.as_deref(), &case.input, case.expected.as_ref())?;
-        total += case_bytes(&case.input, case.expected.as_ref())?;
-    }
-    check_dataset_bytes(total)?;
+    check_case_set(
+        payload
+            .cases
+            .iter()
+            .map(|case| (&case.input, case.expected.as_ref())),
+    )?;
     let mut scorers = payload.scorers;
     // A dataset being created has no columns yet, so every id is minted.
     assign_scorer_ids(&mut scorers, &std::collections::HashSet::new())?;
     let scorers = serde_json::to_value(&scorers)?;
+    // One `user_db` transaction: the row's insert policy gates the dataset, the cases' insert
+    // policy gates each case, and the two land together or not at all.
     let mut tx = user_db.begin(&authed).await?;
     // A path already taken returns no row; a path the caller may not create raises the insert
     // policy, which `map_rls_denied` turns into an access error.
@@ -194,11 +176,10 @@ pub async fn create_dataset(
             // ORDER BY created_at, id would otherwise tie-break a same-transaction batch on the
             // random uuid id.
             "INSERT INTO eval_case
-                    (workspace_id, dataset_path, name, input, expected, created_by, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp())",
+                    (workspace_id, dataset_path, input, expected, created_by, created_at)
+                 VALUES ($1, $2, $3, $4, $5, clock_timestamp())",
             w_id,
             payload.path,
-            case.name,
             serde_json::to_value(&case.input)?,
             opt_from_raw(case.expected.as_ref())?,
             authed.username,
@@ -220,8 +201,7 @@ pub async fn get_dataset(
 }
 
 /// An edit is one transaction: the rename, the summary, the columns and the cases land together
-/// or not at all, so a case the list no longer holds, or a name already taken, refuses the whole
-/// save rather than half of it.
+/// or not at all.
 pub async fn update_dataset(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -236,12 +216,11 @@ pub async fn update_dataset(
     check_summary(payload.summary.as_deref())?;
     let new_path = match payload.path.filter(|p| *p != path) {
         Some(new_path) => {
-            check_path(&new_path)?;
-            // A rename is owner-only, as for every other renamable object (update_resource does the
-            // same). RLS write access — which a shared dataset's extra_perms grants — is enough to
-            // edit a dataset's contents but not to move it into another namespace: the UPDATE
-            // policies carry no explicit WITH CHECK, so Postgres reuses their USING, and the row's
-            // own extra_perms travels with the rename and would satisfy it for any destination.
+            check_proper_path(&new_path)?;
+            // A rename is owner-only, as for every other renamable object. RLS write access is not
+            // enough: the UPDATE policies carry no explicit WITH CHECK, so Postgres reuses their
+            // USING, and the row's own extra_perms travels with the rename and would satisfy it
+            // for any destination.
             windmill_api_auth::require_owner_of_path(&authed, &path)?;
             Some(new_path)
         }
@@ -250,15 +229,10 @@ pub async fn update_dataset(
     if let Some(cases) = &payload.cases {
         check_cases(cases)?;
     }
-    // The whole edit is one `user_db` transaction, governed by the row-level policies throughout:
-    // the row is read `FOR UPDATE` (its UPDATE policy decides who may), the columns it holds are
-    // read under that lock so a concurrent edit cannot restore a removed scorer's id, and the
-    // cases move under the (possibly new) name through the case write policies. Who may write a
-    // dataset's contents is left to those policies; who may *rename* it is the owner check above.
+    // One `user_db` transaction, governed by the row-level policies throughout. The row is read
+    // `FOR UPDATE` — its UPDATE policy decides who may — which also pins its cases, so a
+    // concurrent edit cannot restore a removed scorer's id or interleave with the case write.
     let mut tx = user_db.clone().begin(&authed).await?;
-    // The case advisory lock, in the same order `write_cases` takes it below (re-entrantly), so
-    // two concurrent edits of one dataset serialize on its case set rather than interleaving.
-    lock_dataset_cases(&mut tx, &w_id, &path).await?;
     let current = sqlx::query_scalar!(
         "SELECT scorers FROM eval_dataset WHERE workspace_id = $1 AND path = $2 FOR UPDATE",
         w_id,
@@ -271,9 +245,7 @@ pub async fn update_dataset(
         return Err(write_refused(&authed, &user_db, &w_id, &path).await);
     };
     let existing: std::collections::HashSet<String> =
-        serde_json::from_value::<Vec<Scorer>>(current)
-            .map(|scorers| scorers.into_iter().map(|s| s.id).collect())
-            .unwrap_or_default();
+        parse_scorers(current)?.into_iter().map(|s| s.id).collect();
     let scorers = match payload.scorers {
         Some(mut scorers) => {
             assign_scorer_ids(&mut scorers, &existing)?;
@@ -321,70 +293,34 @@ pub async fn update_dataset(
     Ok(format!("Updated eval dataset {}", updated))
 }
 
-/// The cases, the experiments and their recorded case sets go with the dataset, through the
-/// foreign keys. The jobs those experiments produced are not touched: they are jobs, with their
-/// own retention, and a run that happened is not undone by curating the dataset away.
-pub async fn delete_dataset(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Path((w_id, path)): Path<(String, String)>,
-) -> Result<String> {
-    check_path(&path)?;
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete eval datasets".to_string(),
-        ));
-    }
-    let mut tx = user_db.clone().begin(&authed).await?;
-    let deleted = sqlx::query_scalar!(
-        "DELETE FROM eval_dataset WHERE workspace_id = $1 AND path = $2 RETURNING path",
-        w_id,
-        path
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    if deleted.is_none() {
-        return Err(write_refused(&authed, &user_db, &w_id, &path).await);
-    }
-    Ok(format!("Deleted eval dataset {}", path))
-}
-
 // -----------------------------------------------------------------------------------------------
 // Cases
 // -----------------------------------------------------------------------------------------------
 
-pub(crate) async fn read_cases(
-    authed: &ApiAuthed,
-    user_db: &UserDB,
+async fn read_cases(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     w_id: &str,
     dataset: &str,
-    page: Option<(usize, usize)>,
+    per_page: usize,
+    offset: usize,
 ) -> Result<Vec<EvalCase>> {
-    let (limit, offset) = match page {
-        Some((per_page, offset)) => (per_page as i64, offset as i64),
-        None => (i64::MAX, 0),
-    };
-    let mut tx = user_db.clone().begin(authed).await?;
     let rows = sqlx::query!(
-        "SELECT id, name, input, expected, created_at, created_by
+        "SELECT id, input, expected, created_at, created_by
          FROM eval_case
          WHERE workspace_id = $1 AND dataset_path = $2
          ORDER BY created_at, id
          LIMIT $3 OFFSET $4",
         w_id,
         dataset,
-        limit,
-        offset
+        per_page as i64,
+        offset as i64
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
-    tx.commit().await?;
     rows.into_iter()
         .map(|row| {
             Ok(EvalCase {
                 id: row.id,
-                name: row.name,
                 input: serde_json::from_value(row.input)?,
                 expected: opt_to_raw(row.expected)?,
                 created_at: row.created_at,
@@ -400,56 +336,33 @@ pub async fn list_cases(
     Path((w_id, path)): Path<(String, String)>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<ListCasesResponse> {
-    // Reading the dataset first so an unknown or unreadable one is a 404 rather than an empty
-    // dataset: the case rows are invisible in both cases.
-    read_dataset(&authed, &user_db, &w_id, &path).await?;
+    check_proper_path(&path)?;
     let (per_page, offset) = paginate(pagination);
-    let cases = read_cases(&authed, &user_db, &w_id, &path, Some((per_page, offset))).await?;
     let mut tx = user_db.begin(&authed).await?;
-    let total = sqlx::query_scalar!(
-        "SELECT count(*) AS \"count!\" FROM eval_case WHERE workspace_id = $1 AND dataset_path = $2",
+    // The dataset first, so an unknown or unreadable one is a 404 rather than an empty dataset:
+    // the case rows are invisible in both cases.
+    let dataset = sqlx::query_scalar!(
+        "SELECT path FROM eval_dataset WHERE workspace_id = $1 AND path = $2",
         w_id,
         path
     )
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
+    if dataset.is_none() {
+        return Err(Error::NotFound(format!("Eval dataset {} not found", path)));
+    }
+    let cases = read_cases(&mut tx, &w_id, &path, per_page, offset).await?;
     tx.commit().await?;
-    Ok(Json(ListCasesResponse { cases, total: total as usize }))
-}
-
-/// Serializes concurrent whole-set writes of a dataset's cases, held for the rest of the
-/// transaction: two edits would otherwise each delete what its own list does not hold before either
-/// inserts, leaving the union of both rather than either.
-async fn lock_dataset_cases(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    w_id: &str,
-    path: &str,
-) -> Result<()> {
-    sqlx::query!(
-        "SELECT pg_advisory_xact_lock(hashtext('ai_eval_cases:' || $1 || '/' || $2))",
-        w_id,
-        path
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    Ok(Json(ListCasesResponse { cases }))
 }
 
 /// What a whole list of cases can be refused for, before any of it is written.
 fn check_cases(cases: &[SaveCase]) -> Result<()> {
-    // The list is what the dataset holds afterwards, so its own length is the count to weigh.
-    if cases.len() as i64 > MAX_CASES_PER_DATASET {
-        return Err(Error::BadRequest(format!(
-            "An eval dataset holds at most {} cases. Split them into several datasets.",
-            MAX_CASES_PER_DATASET
-        )));
-    }
-    let mut total = 0usize;
-    for case in cases {
-        check_case(case.name.as_deref(), &case.input, case.expected.as_ref())?;
-        total += case_bytes(&case.input, case.expected.as_ref())?;
-    }
-    check_dataset_bytes(total)?;
+    check_case_set(
+        cases
+            .iter()
+            .map(|case| (&case.input, case.expected.as_ref())),
+    )?;
     // One row per id: the same id twice would write one row twice and return a list longer than
     // the dataset it describes, and the save would read as having kept a case it dropped.
     let mut ids: Vec<Uuid> = cases.iter().filter_map(|c| c.id).collect();
@@ -473,7 +386,6 @@ async fn write_cases(
     cases: &[SaveCase],
     username: &str,
 ) -> Result<Vec<Uuid>> {
-    lock_dataset_cases(tx, w_id, path).await?;
     let kept: Vec<Uuid> = cases.iter().filter_map(|c| c.id).collect();
     sqlx::query!(
         "DELETE FROM eval_case
@@ -491,13 +403,12 @@ async fn write_cases(
         let expected = opt_from_raw(case.expected.as_ref())?;
         let id = match case.id {
             Some(id) => sqlx::query_scalar!(
-                "UPDATE eval_case SET name = $4, input = $5, expected = $6
+                "UPDATE eval_case SET input = $4, expected = $5
                  WHERE workspace_id = $1 AND dataset_path = $2 AND id = $3
                  RETURNING id",
                 w_id,
                 path,
                 id,
-                case.name,
                 input,
                 expected,
             )
@@ -507,12 +418,11 @@ async fn write_cases(
             None => sqlx::query_scalar!(
                 // clock_timestamp() keeps a same-transaction batch in insertion order on reload.
                 "INSERT INTO eval_case
-                    (workspace_id, dataset_path, name, input, expected, created_by, created_at)
-                 VALUES ($1, $2, $3, $4, $5, $6, clock_timestamp())
+                    (workspace_id, dataset_path, input, expected, created_by, created_at)
+                 VALUES ($1, $2, $3, $4, $5, clock_timestamp())
                  RETURNING id",
                 w_id,
                 path,
-                case.name,
                 input,
                 expected,
                 username,
@@ -531,7 +441,3 @@ async fn write_cases(
     }
     Ok(ids)
 }
-
-// -----------------------------------------------------------------------------------------------
-// Standalone runs
-// -----------------------------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, name, input, expected, created_at, created_by\n         FROM eval_case\n         WHERE workspace_id = $1 AND dataset_path = $2\n         ORDER BY created_at, id",
+  "query": "SELECT id, input, expected, created_at, created_by\n         FROM eval_case\n         WHERE workspace_id = $1 AND dataset_path = $2\n         ORDER BY created_at, id",
   "describe": {
     "columns": [
       {
@@ -10,26 +10,21 @@
       },
       {
         "ordinal": 1,
-        "name": "name",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 2,
         "name": "input",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "expected",
         "type_info": "Jsonb"
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "created_by",
         "type_info": "Varchar"
       }
@@ -42,12 +37,11 @@
     },
     "nullable": [
       false,
-      true,
       false,
       true,
       false,
       false
     ]
   },
-  "hash": "cc6bd4cce803d8fa3d5a36781116001e5d365c4fb2d44c5bdbfe3135f8805139"
+  "hash": "5329ce41bbdc36698ea059fec5f05ded7dfe1c64517289ad67028001417d30a3"
 }

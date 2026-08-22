@@ -27,7 +27,6 @@ CREATE TABLE eval_case (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workspace_id VARCHAR(50) NOT NULL,
     dataset_path VARCHAR(255) NOT NULL,
-    name VARCHAR(255) NULL,
     -- {user_message, user_attachments}
     input JSONB NOT NULL DEFAULT '{}',
     expected JSONB NULL,
@@ -174,7 +173,6 @@ CREATE TABLE eval_experiment_case (
     experiment_id UUID NOT NULL REFERENCES eval_experiment (id) ON DELETE CASCADE,
     ordinal INT NOT NULL,
     case_id UUID NOT NULL,
-    name VARCHAR(255) NULL,
     input JSONB NOT NULL DEFAULT '{}',
     expected JSONB NULL,
     -- The iteration of the run's flow that answered this case. Minted by the flow engine, so the

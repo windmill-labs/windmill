@@ -23,7 +23,7 @@
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 	import AddScorer from './AddScorer.svelte'
-	import { kindLabel, scorerLabel, type ScorerKind } from './evalScorers'
+	import { kindLabel, parseThreshold, scorerLabel, type ScorerKind } from './evalUtils'
 
 	let {
 		workspace,
@@ -38,13 +38,11 @@
 		datasetPath: string | undefined
 		/** The workspace's datasets, for naming the one a reusable scorer already measures. */
 		datasets: EvalDataset[]
-		/** The saved dataset, absent until there is one. Its absence is what says to collect rather
-		 * than to save. */
+		/** The saved dataset, absent until there is one: its absence says to collect, not to save. */
 		dataset: EvalDataset | undefined
 		/** The columns a dataset that does not exist yet is collecting. There is no row to write
 		 * them to, so they are held here and sent with the dataset that is about to be created. */
 		pending?: Scorer[]
-		/** The columns changed, so what every run of this dataset reports changed with them. */
 		onChanged: () => void | Promise<void>
 	} = $props()
 
@@ -57,15 +55,11 @@
 	let addScorerForm: AddScorer | undefined = $state()
 	let scriptEditorDrawer: ScriptEditorDrawer | undefined = $state()
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
-	// The kind and whether it is being written or picked are chosen before the drawer opens: one
-	// form asking both is a form with three quarters of it greyed out.
 	let scorerKind = $state<ScorerKind>('agent')
 	let scorerMode = $state<'new' | 'existing'>('new')
 	let scorerFormGeneration = $state(0)
 	let removingScorer = $state<Scorer | undefined>(undefined)
 
-	// What a column is called and where its pass line sits: the two things about a scorer that are
-	// not its code.
 	let settingsDrawer: Drawer | undefined = $state()
 	let settingsScorer = $state<Scorer | undefined>(undefined)
 	let settingsName = $state('')
@@ -102,10 +96,9 @@
 
 	async function addScorer(scorer: Scorer) {
 		try {
-			// A pending column (New dataset, no row yet) is identified by this id in the list until the
-			// dataset is created; the server mints its own over it, since a create holds no columns to
-			// keep an id for. Without it every pending scorer shares `undefined` and edits to one hit
-			// all of them.
+			// A pending column is identified by this id until the dataset is created and the server
+			// mints its own: without it every pending scorer shares `undefined`, and an edit to one
+			// hits all of them.
 			await saveScorers([...scorers, { ...scorer, id: scorer.id ?? randomUUID() }])
 			scorerDrawer?.closeDrawer()
 		} catch (e) {
@@ -113,8 +106,7 @@
 		}
 	}
 
-	/** Editing a column is editing the runnable it points at, so it opens here rather than sending
-	 *  you to another tab to find it. */
+	/** Editing a column is editing the runnable it points at. */
 	async function editScorer(scorer: Scorer) {
 		if (!workspace) return
 		if (scorer.kind === 'agent') {
@@ -122,8 +114,7 @@
 			return
 		}
 		try {
-			// The editor opens a script by hash, so the latest one is resolved here; saving writes a
-			// new version, which is a new definition of that column.
+			// The editor opens a script by hash, so the latest one is resolved here.
 			const script = await ScriptService.getScriptByPath({ workspace, path: scorer.path })
 			scriptEditorDrawer?.openDrawer(script.hash, onChanged)
 		} catch (e) {
@@ -138,34 +129,19 @@
 		settingsDrawer?.openDrawer()
 	}
 
-	// A pass threshold is a score, so it lives in 0..=1 — the same bound the server enforces on
-	// save. Caught here so an out-of-range value blocks the field rather than surfacing as a
-	// failed save.
-	let thresholdError = $derived(
-		settingsThreshold.trim() !== '' &&
-			(Number.isNaN(Number(settingsThreshold)) ||
-				Number(settingsThreshold) < 0 ||
-				Number(settingsThreshold) > 1)
-	)
+	let threshold = $derived(parseThreshold(settingsThreshold))
 
-	/** Where the pass line sits is an interpretation of the scores rather than part of producing
-	 *  them, so moving it re-reads the runs already recorded instead of asking for them again. The
-	 *  name is the column header only: it is a copy taken when the scorer was added, so the
+	/** The name is the column header only: it is a copy taken when the scorer was added, so the
 	 *  runnable keeps whatever it is called on its own. */
 	async function saveSettings() {
 		const target = settingsScorer
-		if (!target || thresholdError) return
-		const threshold = settingsThreshold.trim()
+		if (!target || threshold.error) return
 		savingSettings = true
 		try {
 			await saveScorers(
 				scorers.map((s) =>
 					s.id === target.id
-						? {
-								...s,
-								name: settingsName.trim() || undefined,
-								pass_if: threshold === '' ? undefined : Number(threshold)
-							}
+						? { ...s, name: settingsName.trim() || undefined, pass_if: threshold.value }
 						: s
 				)
 			)
@@ -183,9 +159,6 @@
 		<span class="text-xs font-semibold text-emphasis">Scorers</span>
 		<span class="text-2xs text-tertiary">{scorers.length}</span>
 		<div class="grow"></div>
-		<!-- Four entries rather than two: writing one and picking one that already exists are
-		     different jobs, and which of the two you are doing is the first thing the form needs to
-		     know. -->
 		<DropdownV2
 			items={[
 				{ displayName: 'New AI judge', icon: Bot, action: () => openAdd('agent', 'new') },
@@ -233,8 +206,6 @@
 						{:else}
 							<Code2 size={13} class="text-tertiary shrink-0" />
 						{/if}
-						<!-- What the column is called, with what it points at under it: the name is this
-						     dataset's own, and the path is how you tell two of them apart. -->
 						<div class="flex flex-col min-w-0 grow">
 							<span class="text-xs text-emphasis truncate leading-tight">
 								{scorerLabel(scorer)}
@@ -297,8 +268,6 @@
 			{/key}
 		{/if}
 		{#snippet actions()}
-			<!-- The one action of the drawer, where every other drawer keeps it: the form below is
-			     what to write or which one to pick, and pressing this is what makes it a column. -->
 			{@const state = addScorerForm?.submitState()}
 			<Button
 				unifiedSize="md"
@@ -318,8 +287,6 @@
 	<DrawerContent title="Scorer settings" on:close={() => settingsDrawer?.closeDrawer()}>
 		{#if settingsScorer}
 			<div class="flex flex-col gap-6">
-				<!-- What the column points at, as a link to it: it is a runnable of its own, and the
-				     one thing about it these fields cannot change. -->
 				<Label label={kindLabel(settingsScorer.kind)}>
 					<a
 						class="flex items-center gap-1.5 text-xs min-w-0 hover:underline w-fit"
@@ -340,7 +307,6 @@
 					</a>
 				</Label>
 				<Label label="Name">
-					<!-- Between the label and the field, as a step's inputs put theirs. -->
 					<span class="text-xs text-secondary">
 						What the column is called here. This dataset's own name for the scorer, so it does not
 						rename the {settingsScorer.kind === 'agent' ? 'agent' : 'script'} it points at.
@@ -357,7 +323,7 @@
 					</span>
 					<TextInput
 						bind:value={settingsThreshold}
-						error={thresholdError}
+						error={threshold.error}
 						inputProps={{ placeholder: 'No threshold' }}
 					/>
 				</Label>
@@ -368,7 +334,7 @@
 				unifiedSize="md"
 				variant="accent"
 				loading={savingSettings}
-				disabled={savingSettings || thresholdError}
+				disabled={savingSettings || threshold.error}
 				onclick={saveSettings}
 			>
 				Save
@@ -377,12 +343,8 @@
 	</DrawerContent>
 </Drawer>
 
-<!-- Saving here writes a new version of the script, which is a new definition of that column:
-     re-reading the results is what makes the table say so. -->
 <ScriptEditorDrawer bind:this={scriptEditorDrawer} />
 
-<!-- Deploying a judge agent moves what the column measures with, and restoring an older one moves
-     it back: both are read again rather than left on screen as they were. -->
 <ResourceEditorDrawer
 	bind:this={resourceEditorDrawer}
 	{workspace}

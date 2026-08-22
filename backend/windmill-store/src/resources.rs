@@ -2197,8 +2197,7 @@ async fn set_resource_value(
 
 #[derive(Serialize)]
 struct ResourceVersion {
-    /// How a version is addressed. Unique across the table, so it says nothing about how many
-    /// times this resource has been saved — `version` is what a version is called.
+    /// Addresses a version; `version` is the per-resource number it is presented by.
     id: i64,
     version: i64,
     created_at: chrono::DateTime<chrono::Utc>,

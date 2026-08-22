@@ -1,7 +1,5 @@
--- `id` is one identity sequence for the whole table, so a resource's versions are numbered by
--- every other resource's writes: an agent saved nine times reads v4 … v24, and the gaps count
--- writes in workspaces the reader cannot see. `id` stays the address — routes, restores and stored
--- references all address a version by it — and `version` is the number a resource is presented by.
+-- `id` is one identity sequence for the whole table and stays how a version is addressed;
+-- `version` is the resource's own count, which is what a version is presented by.
 ALTER TABLE resource_version ADD COLUMN version BIGINT;
 
 UPDATE resource_version rv SET version = ranked.rn

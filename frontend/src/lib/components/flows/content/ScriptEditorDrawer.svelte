@@ -184,10 +184,9 @@
 		checkForUnsavedChanges()
 	}}
 >
-	<!-- Inside the drawer, not beside it. The drawer is portalled to the body and stacked well
-	     above the page, so a modal rendered from wherever this component happens to be mounted is
-	     trapped under it by any positioned ancestor with a z-index of its own — which the flow
-	     editor's split panes have, leaving the drawer impossible to close. -->
+	<!-- Inside the portalled drawer: rendered where this component is mounted, the modal is trapped
+	     under it by any positioned ancestor with its own z-index (the flow editor's split panes),
+	     and the drawer cannot be closed. -->
 	<ConfirmationModal
 		open={unsavedModalOpen}
 		title="Unsaved changes detected"

@@ -1,8 +1,6 @@
 use super::*;
 
-/// What every scorer is handed, whether it is a judge prompt, a script or a flow. An agent is
-/// judged on its behaviour, so the final answer is the smaller half of the evidence: the calls it
-/// made, with their arguments and results, are the rest.
+/// What every scorer is handed: the answer, and the calls the agent made to reach it.
 ///
 /// Built from the job the run already stored, which is what lets a scorer added later score an
 /// experiment that has already run.
@@ -130,9 +128,8 @@ async fn build_run_payload(
                     None,
                 )),
                 // An MCP call runs inside the agent rather than as a job, so its arguments are on
-                // the action itself. Its result and success live in a later `role: "tool"` message
-                // rather than a child-job row, and are not surfaced to scorers yet: a beta
-                // limitation — an agent scored on its MCP tool outputs is a follow-up.
+                // the action itself. Its result lives in a later `role: "tool"` message rather
+                // than a child-job row, and is not surfaced to scorers yet.
                 Some("mcp_tool_call") => calls.push((
                     action
                         .get("function_name")
@@ -153,13 +150,10 @@ async fn build_run_payload(
     let call_job_ids: Vec<Uuid> = calls.iter().filter_map(|(_, id, _)| *id).collect();
     let mut jobs = std::collections::HashMap::new();
     if !call_job_ids.is_empty() {
-        // The schema comes from the script the call actually ran, which is the only version a
-        // check on its arguments may fairly be made against.
-        //
         // Constrained to the agent step's own children rather than to the workspace: these ids
         // come out of a job result, so a caller who can run a flow can put any id there. A tool
         // call is pushed as a child of the agent that made it, which is what makes that the
-        // boundary — anything else named here is some other job, and is not read.
+        // boundary.
         let rows = sqlx::query!(
             "SELECT j.id, j.args AS \"args: sqlx::types::Json<Box<RawValue>>\",
                     c.result AS \"result: sqlx::types::Json<Box<RawValue>>\",
@@ -201,10 +195,9 @@ async fn build_run_payload(
                 schema: row.and_then(|r| r.schema.as_ref()).map(|s| s.0.clone()),
             });
         }
-        // A failed call's error is its (already truncated) result restated. `render_tool_calls`
-        // shows `error` and not `result` for a failed call, so the judge's context carries the
-        // payload once and bounded; `result` stays on the raw call for a script scorer, which reads
-        // `error` to detect the failure and `result` for what it returned.
+        // The already truncated result restated. `render_tool_calls` shows `error` and not
+        // `result` for a failed call, so the judge's context carries the payload once and bounded;
+        // `result` stays on the raw call for a script scorer.
         let error = failed
             .then(|| result.as_ref().map(|r| r.get().to_string()))
             .flatten();
@@ -246,10 +239,8 @@ pub struct RunPayloadResponse {
 
 /// Assemble the payload for one answered case, for the step that feeds the scorers.
 ///
-/// Exists because the scorers run inside the run's own flow, where the tool calls are jobs the
-/// flow cannot read: their arguments, results, statuses, durations and schemas are what turns an
-/// answer into a trajectory to grade. The case itself is read from the job's arguments rather
-/// than from the experiment, so this works for an iteration whose row has not been filled in yet.
+/// The case is read from the job's arguments rather than from the experiment, so this works for an
+/// iteration whose row has not been filled in yet.
 pub async fn run_payload(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -291,8 +282,7 @@ pub async fn run_payload(
 
     // The agent step's own status and duration, never the iteration's: the iteration goes on to
     // assemble this payload and run the scorers, so a scorer reading the iteration's duration
-    // would be measuring itself. It is also the only reading available while the iteration doing
-    // the asking is still running.
+    // would be measuring itself.
     let agent_job = agent_step_job(&db, &w_id, query.job_id)
         .await?
         .unwrap_or(query.job_id);

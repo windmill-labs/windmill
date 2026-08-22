@@ -6,16 +6,14 @@ pub struct EvalExperiment {
     pub id: Uuid,
     pub dataset: String,
     pub subject: EvalSubject,
-    /// This subject's nth run of this dataset, allocated once and never reused. What an
-    /// experiment is called: "Run 7" survives history being pruned, which a position computed
-    /// when the list is read would not.
+    /// This subject's nth run of this dataset, allocated once and never reused: "Run 7" survives
+    /// history being pruned, which a position computed when the list is read would not.
     pub run_number: i32,
     /// The flow executing the run: one job holding every case and its scores.
     pub run_job_id: Uuid,
     pub case_count: i64,
-    /// What the run scored, one entry per scorer that produced a number. Carried on the run
-    /// itself so a list of runs can say what each one scored without reading every cell of every
-    /// one of them. Empty on a run whose scores have not been read yet.
+    /// What the run scored, one entry per scorer that produced a number. Carried on the run so a
+    /// list can say what each one scored without reading every cell of every one of them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scores: Vec<ExperimentScore>,
     /// Whether the flow executing this run is still going. What makes a list of runs worth
@@ -42,28 +40,22 @@ pub struct ExperimentScore {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pass_rate: Option<f64>,
     pub scored: i64,
-    /// How many of this run's cells the column failed on. A column that failed on all of them has
-    /// no number to report and is still one of the columns that ran, which is the difference
-    /// between a headline of nothing and no headline at all.
+    /// How many of this run's cells the column failed on. A column that failed on all of them
+    /// still ran, which is the difference between a headline of nothing and no headline at all.
     pub failed: i64,
 }
 
 #[derive(Deserialize)]
 pub struct ListExperimentsQuery {
-    /// Restrict to one agent's runs, which is what a pane opened on an agent shows: the dataset
-    /// may have been run against several, and another agent's numbers are not this agent's
-    /// history. Both what was deployed and what was drafted are that agent's history, so this
-    /// does not discriminate by kind.
+    /// Restrict to one agent's runs. Both what was deployed and what was drafted are that agent's
+    /// history, so this does not discriminate by kind.
     #[serde(default)]
     pub subject_path: Option<String>,
 }
 
 /// Every run of this agent, across every dataset it has been measured on.
 ///
-/// The list is one agent's history rather than one dataset's, because "has this agent got better"
-/// is not a question about a dataset — and a run names the dataset it is of, so a table spanning
-/// them stays readable. Filtered to the datasets the caller can read by `user_db`: a run is
-/// visible exactly when the dataset it belongs to is.
+/// Filtered by `user_db`: a run is visible exactly when the dataset it belongs to is.
 pub async fn list_all_experiments(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -107,32 +99,19 @@ pub async fn list_all_experiments(
         .collect::<Result<Vec<_>>>()?;
 
     resolve_listed_drafts(&authed, &db, &user_db, &w_id, &mut experiments).await?;
-    let scorers = scorers_of_listed(&authed, &user_db, &w_id, &experiments).await?;
-    enrich_listed_runs(&db, &w_id, &mut experiments, &scorers).await?;
-    Ok(Json(experiments))
-}
-
-/// What a listed run carries beyond its own row: whether it is still going, the scores it has
-/// produced, and — for those not collected yet — a read of the flow that holds them.
-async fn enrich_listed_runs(
-    db: &DB,
-    w_id: &str,
-    experiments: &mut [EvalExperiment],
-    scorers_by_dataset: &std::collections::HashMap<String, Vec<Scorer>>,
-) -> Result<()> {
-    mark_running(db, w_id, experiments).await?;
-    sync_listed_runs(db, w_id, experiments).await?;
-    let mut scores = experiment_scores(db, experiments, scorers_by_dataset).await?;
+    let scorers_by_dataset = scorers_of_listed(&authed, &user_db, &w_id, &experiments).await?;
+    mark_running(&db, &w_id, &mut experiments).await?;
+    sync_listed_runs(&db, &w_id, &experiments).await?;
+    let mut scores = experiment_scores(&db, &experiments, &scorers_by_dataset).await?;
     for experiment in experiments.iter_mut() {
         experiment.scores = scores.remove(&experiment.id).unwrap_or_default();
     }
-    Ok(())
+    Ok(Json(experiments))
 }
 
-/// Which listed runs are still going, read from the flows executing them.
-///
-/// A run whose flow is no longer there at all is over: jobs have their own retention, and reading
-/// a missing one as unfinished would leave every run older than it spinning.
+/// Which listed runs are still going, read from the flows executing them. A run whose flow is no
+/// longer there at all is over: jobs have their own retention, and reading a missing one as
+/// unfinished would leave every run older than it spinning.
 async fn mark_running(db: &DB, w_id: &str, experiments: &mut [EvalExperiment]) -> Result<()> {
     let job_ids: Vec<Uuid> = experiments.iter().map(|e| e.run_job_id).collect();
     if job_ids.is_empty() {
@@ -155,10 +134,8 @@ async fn mark_running(db: &DB, w_id: &str, experiments: &mut [EvalExperiment]) -
     Ok(())
 }
 
-/// A run of a draft whose edits have since been deployed is a run of that version, and the list
-/// is where it is most visible: two runs both labelled as edits, one of them long since shipped,
-/// is exactly the confusion the version is recorded to prevent. Resolved once per subject rather
-/// than once per run, because a listing is usually one agent's history.
+/// A run of a draft whose edits have since been deployed is a run of that version. Resolved once
+/// per subject rather than once per run, because a listing is usually one agent's history.
 async fn resolve_listed_drafts(
     authed: &ApiAuthed,
     db: &DB,
@@ -195,11 +172,9 @@ async fn resolve_listed_drafts(
     Ok(())
 }
 
-/// How many of the listed runs a single list call will read out of their flows. A run's scores
-/// live in its flow until something reads them into `eval_score`, so a run nobody has opened has
-/// nothing to report — this is what makes the list report it anyway, and the cap is what keeps a
-/// long history from turning one list call into a hundred flow reads. Newest first, because a run
-/// worth waiting for is the one just started.
+/// How many listed runs one list call reads out of their flows. A run's scores live in its flow
+/// until something reads them into `eval_score`, so an unopened run has nothing to report; the cap
+/// keeps a long history from turning one list call into a hundred flow reads.
 const MAX_RUNS_SYNCED_PER_LIST: usize = 10;
 
 /// Read the flows of listed runs that still have scores to collect. Runs already collected are
@@ -235,10 +210,9 @@ async fn sync_listed_runs(db: &DB, w_id: &str, experiments: &[EvalExperiment]) -
 
 /// Every listed run's per-scorer headline, in one grouped query.
 ///
-/// The thresholds come from each run's own dataset as its scorers are *now*, so moving a pass line
-/// re-reads the runs already recorded rather than asking for them again — the same reading the
-/// table gives a single run. They are joined in per (run, scorer) rather than per scorer, because a
-/// list spanning datasets is a list of runs whose columns are not the same columns.
+/// Thresholds come from each run's own dataset as its scorers are *now*, joined per (run, scorer)
+/// rather than per scorer: a list spanning datasets is a list of runs whose columns are not the
+/// same columns.
 async fn experiment_scores(
     db: &DB,
     experiments: &[EvalExperiment],
@@ -308,9 +282,9 @@ async fn experiment_scores(
             .map(|s| s.as_slice())
             .unwrap_or(&[])
         {
-            // A column with no cells at all on this run is a column added after it: it has nothing
-            // to say about a run it never saw. One that has cells is reported even where none of
-            // them produced a number, which is what a column that failed throughout looks like.
+            // A column with no cells at all on this run is one added after it. A column that has
+            // cells is reported even where none produced a number, which is what a column that
+            // failed throughout looks like.
             let Some((mean, scored, failed, passed, has_threshold)) =
                 headline.get(&(experiment.id, scorer.id.clone()))
             else {
@@ -360,15 +334,9 @@ async fn scorers_of_listed(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            (
-                row.path,
-                serde_json::from_value::<Vec<Scorer>>(row.scorers).unwrap_or_default(),
-            )
-        })
-        .collect())
+    rows.into_iter()
+        .map(|row| Ok((row.path, parse_scorers(row.scorers)?)))
+        .collect()
 }
 
 #[derive(Deserialize)]
@@ -412,8 +380,6 @@ pub struct CellScore {
 #[derive(Serialize)]
 pub struct ExperimentRow {
     pub case_id: Uuid,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
     pub input: EvalCaseInput,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected: Option<Box<RawValue>>,
@@ -421,11 +387,10 @@ pub struct ExperimentRow {
     /// reaching this case, which reads as a case still to run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub job_id: Option<Uuid>,
-    /// What happened to the answer: the iteration's own `success`, `failure`, `canceled` or
-    /// `skipped` once it has finished, and until then the agent step's, since the answer is
-    /// written before the scorers that keep the iteration running have read it. `running` while
-    /// the agent is still answering, and `unavailable` for a case whose job was retained away
-    /// before anything read what it produced.
+    /// What happened to the answer: the iteration's own `success`/`failure`/`canceled`/`skipped`
+    /// once it has finished, and until then the agent step's, since the answer is written before
+    /// the scorers that keep the iteration running have read it. `unavailable` for a case whose
+    /// job was retained away before anything read what it produced.
     pub status: String,
     /// The agent's answer, which is what a table cell shows. The whole trajectory stays
     /// reachable through `job_id`, so the row carries the text rather than the result object.
@@ -435,9 +400,8 @@ pub struct ExperimentRow {
     /// the table says instead of averaging two versions silently.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject_version: Option<i64>,
-    /// For a run of unsaved edits, the hash of the configuration this cell ran. Edits move without
-    /// a version changing, so this is what identifies what ran — and what `resolve_deployed_draft`
-    /// matches against the agent as deployed to recognise a run whose edits were later saved.
+    /// For a run of unsaved edits, the hash of the configuration this cell ran: edits move without
+    /// a version changing, and `resolve_deployed_draft` matches this against what is deployed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject_draft_hash: Option<String>,
     /// One entry per scorer of the dataset, in column order.
@@ -454,8 +418,7 @@ pub struct ScorerMean {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub baseline_mean: Option<f64>,
     /// The share of scored cells that passed, for a column with a threshold. Reported beside the
-    /// mean rather than instead of it: a pass rate says how many cases are good enough, and a
-    /// mean says by how much, and neither answers the other's question.
+    /// mean rather than instead of it: neither number answers the other's question.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pass_rate: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -479,13 +442,11 @@ pub struct ExperimentResults {
     /// Cells scoring lower than the baseline, across every column.
     pub regressed: usize,
     /// The version the subject is on now. A row that ran against an earlier one describes an
-    /// agent that no longer exists, which is the difference between a stale number and a wrong
-    /// one.
+    /// agent that no longer exists.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject_current_version: Option<i64>,
     /// What the agent hashes to as deployed. A run of unsaved edits carrying this hash ran exactly
-    /// what is deployed now — the edits were saved — so it is a run of that version rather than
-    /// of edits, and saying otherwise would strand it.
+    /// what is deployed now — the edits were saved — so it is a run of that version.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subject_deployed_hash: Option<String>,
 }
@@ -598,9 +559,9 @@ async fn resolve_deployed_draft(
     // The hash stays: it is what identifies the configuration, and what this resolution rests on.
     experiment.subject.kind = EvalSubjectKind::Agent;
     experiment.subject.version = Some(version);
-    // Both writes in one transaction: the experiment and its cells describe the same run, and a
-    // failure between them would leave the experiment promoted to a version while its cells stayed
-    // a draft's — a split that no later read repairs, since the experiment is no longer a draft.
+    // Both writes in one transaction: a failure between them would leave the experiment promoted
+    // to a version while its cells stayed a draft's, a split no later read repairs since the
+    // experiment is no longer a draft.
     let mut tx = db.begin().await?;
     sqlx::query!(
         "UPDATE eval_experiment
@@ -616,8 +577,7 @@ async fn resolve_deployed_draft(
     )
     .execute(&mut *tx)
     .await?;
-    // The cells that ran that configuration are dated by the version too. Their hash has served
-    // its purpose — it was what dated a cell with no version to name it by — and leaving it would
+    // The cells that ran that configuration are dated by the version too; leaving their hash would
     // make the run go on reading as a draft's after the next deployment.
     sqlx::query!(
         "UPDATE eval_experiment_case
@@ -635,14 +595,9 @@ async fn resolve_deployed_draft(
 
 /// Record what a run produced, from inside the run: the last step of a run's own flow calls this.
 ///
-/// Nothing else drives these tables — the flow executes on workers that know nothing about them —
-/// so without this a run is only ever collected by someone looking at it, and one started and left
-/// would lose its answers and scores to the jobs' retention.
-///
-/// Gated on reading the run rather than on writing its dataset, which is the rule for everything
-/// else here, because this writes nothing a reader could not already cause: it is the same harvest
-/// `experiment_results` performs behind the same check, over the run's own cells, and it reports a
-/// count rather than any of what it read.
+/// Gated on reading the run rather than on writing its dataset, unlike everything else here: it is
+/// the same harvest `experiment_results` performs behind the same check, over the run's own cells,
+/// and it reports a count rather than any of what it read.
 pub async fn collect_experiment(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -680,10 +635,8 @@ pub struct ExperimentId {
 }
 
 /// Collect a run for a reader, without letting the collection decide whether the read succeeds.
-///
 /// `collect_experiment` propagates instead: it is the run reporting on itself, and a failure there
-/// is worth surfacing to the step that called it. Displaying a run is the opposite case — whatever
-/// is already recorded is what the table is of.
+/// is worth surfacing to the step that called it.
 async fn collect_quietly(db: &DB, w_id: &str, experiment_id: Uuid, run_job_id: Uuid) {
     if let Err(e) = sync_run(db, w_id, experiment_id, run_job_id, true).await {
         tracing::warn!("could not collect eval run {}: {e:#}", experiment_id);
@@ -691,8 +644,8 @@ async fn collect_quietly(db: &DB, w_id: &str, experiment_id: Uuid, run_job_id: U
 }
 
 /// The rows a results table is built from. The job ids come out of `eval_experiment_case`, which
-/// only this module writes, so they can be read on the unrestricted pool: the caller's access was
-/// established by the dataset read below, and the ids are not caller-supplied.
+/// only this module writes, so they can be read on the unrestricted pool once the dataset read
+/// below has established the caller's access.
 pub async fn experiment_results(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -700,21 +653,16 @@ pub async fn experiment_results(
     Path((w_id, dataset)): Path<(String, String)>,
     Query(query): Query<ExperimentRef>,
 ) -> JsonResult<ExperimentResults> {
-    // The rows carry what the run's jobs produced, which `jobs:read` is what gates. `UserDB`
-    // settles who may see the dataset; a token's scopes are a separate question, and `run_payload`
-    // asks it of the same class of data.
+    // The rows carry what the run's jobs produced, which `jobs:read` gates. `UserDB` settles who
+    // may see the dataset; a token's scopes are a separate question.
     check_scopes(&authed, || "jobs:read".to_string())?;
     let dataset_row = read_dataset(&authed, &user_db, &w_id, &dataset).await?;
     let scorers = dataset_row.scorers;
 
     let mut experiment = read_experiment(&db, &w_id, &dataset, query.id).await?;
-    // What the run has produced so far is read into its rows here, so an answer and a score
-    // outlive the jobs that produced them rather than being recomputed from jobs that may have
-    // been retained away.
-    //
-    // Best-effort on this path: collecting is what the run's own step is for, and a cell that
-    // could not be read — a job retained away between the iteration and its children — must not
-    // take the whole table down with it. The rows already recorded are still the run.
+    // Best-effort: collecting is what the run's own step is for, and a cell that could not be read
+    // — a job retained away between the iteration and its children — must not take the whole table
+    // down with it. The rows already recorded are still the run.
     collect_quietly(&db, &w_id, query.id, experiment.run_job_id).await;
     let scores = load_scores(&db, query.id).await?;
 
@@ -741,7 +689,7 @@ pub async fn experiment_results(
     };
 
     let case_rows = sqlx::query!(
-        "SELECT ordinal, case_id, name, input, expected, job_id, subject_version,
+        "SELECT ordinal, case_id, input, expected, job_id, subject_version,
                 subject_draft_hash, output, answered, status
          FROM eval_experiment_case
          WHERE experiment_id = $1 ORDER BY ordinal",
@@ -809,9 +757,9 @@ pub async fn experiment_results(
                     .transpose()?,
                 error: current.and_then(|c| c.error.clone()),
                 not_applicable: current.map(|c| c.not_applicable).unwrap_or(false),
-                // A row exists because the run was launched with this scorer, so an empty one is
-                // a score still to come — whether a scoring job is producing it or the run is.
-                // Unless the scorer has already answered that this case is not one it measures.
+                // A row exists because the run was launched with this scorer, so an empty one is a
+                // score still to come, unless the scorer has already said this case is not one it
+                // measures.
                 pending: current
                     .map(|c| c.score.is_none() && c.error.is_none() && !c.not_applicable)
                     .unwrap_or(false),
@@ -822,13 +770,11 @@ pub async fn experiment_results(
         }
         rows.push(ExperimentRow {
             case_id: case.case_id,
-            name: case.name,
             input: serde_json::from_value(case.input)?,
             expected: opt_to_raw(case.expected)?,
-            // The iteration's verdict once it has one, since that is the whole of what happened to
-            // the case. While it is still running, the agent step's: the answer is written before
-            // the scorers read it, and a spinner beside an answer that is already there reads as
-            // an answer still being written.
+            // The iteration's verdict once it has one. While it is still running, the agent step's:
+            // the answer is written before the scorers read it, and a spinner beside an answer
+            // already there reads as an answer still being written.
             status: case
                 .status
                 .or_else(|| {
@@ -862,11 +808,8 @@ pub async fn experiment_results(
         })
         .collect();
 
-    // What the subject is now: the version it is on, and what it hashes to as deployed. Read as
-    // the caller, so a viewer who can see the dataset but not the agent gets neither — the "since
-    // deployed" label just does not resolve for them, rather than the agent's version and config
-    // fingerprint leaking past its own read permission. This matches subject_state, which gates
-    // the same version on agent readability.
+    // Read as the caller, so a viewer who can see the dataset but not the agent gets neither: the
+    // agent's version and configuration fingerprint must not leak past its own read permission.
     let (subject_deployed_hash, subject_current_version) =
         match readable_agent_state(&authed, &user_db, &w_id, &experiment.subject.path).await? {
             Some((config, version)) => (Some(draft_hash(&config)), Some(version)),

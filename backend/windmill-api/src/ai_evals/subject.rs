@@ -8,14 +8,13 @@ pub struct EvalSubject {
     pub kind: EvalSubjectKind,
     /// The agent resource under test.
     pub path: String,
-    /// Which version of the agent, counted per path: how many times it had been saved. For a
-    /// pinned run this says what to inline and is the request's to choose; otherwise it is the
-    /// version the run was enqueued against, recorded so the run stays attributable.
+    /// Which version of the agent, counted per path: how many times it had been saved. The
+    /// request's to choose for a pinned run, and otherwise the version the run was enqueued
+    /// against.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<i64>,
     /// The agent's unsaved edits, as the editor holds them. Present exactly when `kind` is
-    /// `agent_draft` — carried by the request, since the edits exist nowhere else — and it is the
-    /// whole definition of what ran.
+    /// `agent_draft`, since the edits exist nowhere else.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<AgentDraft>,
     /// Hash of that configuration. A draft moves without the version moving, so this is the only
@@ -74,14 +73,11 @@ fn default_subject_kind() -> EvalSubjectKind {
 #[serde(rename_all = "snake_case")]
 pub enum EvalSubjectKind {
     Agent,
-    /// A saved agent's unsaved edits, as the editor holds them. Carried by the request and
-    /// inlined, because a linked step resolves the resource live and so would run what the edits
-    /// replace. Its own subject, so its runs never mix with the deployed agent's history.
+    /// A saved agent's unsaved edits, carried by the request and inlined: a linked step resolves
+    /// the resource live and so would run what the edits replace.
     AgentDraft,
-    /// One past version of a saved agent, read out of its history and inlined the same way a draft
-    /// is — a linked step resolves the resource live, so pinning is exactly what it cannot
-    /// express. `version` says which, and it is the request's rather than the server's here: it is
-    /// the whole content of the choice.
+    /// One past version of a saved agent, inlined for the same reason. `version` says which, and
+    /// it is the request's to choose rather than the server's.
     AgentVersion,
 }
 
@@ -97,16 +93,15 @@ pub struct AgentDraft {
 }
 
 impl EvalSubject {
-    /// What is recorded of a subject: enough to say what ran, without the configuration itself,
-    /// which is large and already described by its hash.
+    /// What is recorded of a subject: enough to say what ran, without the configuration itself.
     pub(crate) fn stamp(&self) -> EvalSubject {
         EvalSubject {
             kind: self.kind.clone(),
             path: self.path.clone(),
             version: self.version,
             draft: None,
-            // Kept when there is no configuration to hash: a subject read back from a run's own
-            // stamp carries the hash and not the draft, and recomputing would erase it.
+            // A subject read back from a run's own stamp carries the hash and not the draft, so
+            // the existing hash is kept rather than recomputed from nothing.
             draft_hash: self
                 .draft
                 .as_ref()
@@ -128,22 +123,17 @@ pub struct SubjectState {
     pub version: Option<i64>,
 }
 
-/// What the agent is right now: the version it is deployed at.
-///
-/// Small on purpose. The results endpoint reports the same thing, but it harvests scores and
-/// reads every job to do it, so it is not something to ask for on its own.
+/// The version the agent is deployed at. Small on purpose: the results endpoint reports the same
+/// thing, but it harvests scores and reads every job to do it.
 pub async fn subject_state(
     authed: ApiAuthed,
-    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Query(query): Query<SubjectStateQuery>,
 ) -> JsonResult<SubjectState> {
-    require_agent(&authed, &user_db, &w_id, &query.path).await?;
-    let version = current_resource_version(&db, &w_id, &query.path).await?;
-    Ok(Json(SubjectState { version }))
+    let Some((_, version)) = readable_agent_state(&authed, &user_db, &w_id, &query.path).await?
+    else {
+        return Err(Error::NotFound(format!("Agent {} not found", query.path)));
+    };
+    Ok(Json(SubjectState { version: Some(version) }))
 }
-
-// -----------------------------------------------------------------------------------------------
-// Scoring
-// -----------------------------------------------------------------------------------------------

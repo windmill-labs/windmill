@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE eval_case SET name = $4, input = $5, expected = $6\n                 WHERE workspace_id = $1 AND dataset_path = $2 AND id = $3\n                 RETURNING id",
+  "query": "UPDATE eval_case SET input = $4, expected = $5\n                 WHERE workspace_id = $1 AND dataset_path = $2 AND id = $3\n                 RETURNING id",
   "describe": {
     "columns": [
       {
@@ -14,7 +14,6 @@
         "Text",
         "Text",
         "Uuid",
-        "Varchar",
         "Jsonb",
         "Jsonb"
       ]
@@ -23,5 +22,5 @@
       false
     ]
   },
-  "hash": "b9672136d075f61bbf526d8a988e2b596de43949ee5dafc1f532cddd507c8f3b"
+  "hash": "61773dd5d5952607eddfacb1717126a87ee5dc4bd6664eaf31c2c0096fea08db"
 }

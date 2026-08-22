@@ -8,12 +8,11 @@
 	import Path from '$lib/components/Path.svelte'
 	import { AiEvalsService, type EvalCase, type EvalDataset, type Scorer } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { summaryToName } from '$lib/utils'
 	import { Plus } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import EvalCasesGrid from './EvalCasesGrid.svelte'
 	import EvalScorers from './EvalScorers.svelte'
-	import { caseLabel, emptyCase, fromStoredCase, type CaseDraft } from './evalCaseUtils'
+	import { caseLabel, emptyCase, fromStoredCase, summaryToName, type CaseDraft } from './evalUtils'
 	import { randomUUID } from '$lib/utils/uuid'
 
 	let {
@@ -43,10 +42,8 @@
 		onCreated: (path: string) => void | Promise<void>
 		onRenamed: (path: string) => void | Promise<void>
 		onCasesChanged: () => void | Promise<void>
-		/** The columns changed, which changes what every run of this dataset reports. */
 		onScorersChanged: () => void | Promise<void>
-		/** The drawer is done, whether it saved anything or not: what opened it decides whether
-		 *  there is somewhere to go back to. */
+		/** The drawer is done, whether it saved anything or not. */
 		onClosed?: () => void
 	} = $props()
 
@@ -63,15 +60,13 @@
 	let formGeneration = $state(0)
 	let creating = $state(false)
 	let saving = $state(false)
-	/** The drawer is writing the dataset, by either route. The cases are what is being written,
-	 *  so nothing may change them until it lands. */
+	/** The drawer is writing the dataset, by either route: nothing may change until it lands. */
 	let writing = $derived(creating || saving)
 	/** The columns chosen while naming a dataset that does not exist yet, sent with the create. */
 	let pendingScorers = $state<Scorer[]>([])
-	/** The drawer's own copy of the cases, which is what the editor edits. Nothing here is written
-	 *  until Save: a case is a row of a set being curated, and a set half saved while someone is
-	 *  still typing in it is not a state anyone asked for. Ids that are not in `storedIds` are the
-	 *  drawer's own, given to cases it is holding for a dataset that has yet to be told about them. */
+	/** The drawer's own copy of the cases, which is what the editor edits and what Save writes.
+	 *  Ids that are not in `storedIds` are the drawer's own, given to cases it is holding for a
+	 *  dataset that has yet to be told about them. */
 	let workingCases = $state<CaseDraft[]>([])
 	let storedIds = $state<Set<string>>(new Set())
 
@@ -96,8 +91,7 @@
 		// The grid is rebuilt per open and reports afresh; a cell left open when the drawer closed
 		// would otherwise leave Save live over a set nothing has changed.
 		casesEditing = false
-		// Cleared per open: what was collected for a dataset that was never created belongs to that
-		// attempt, not to the next one.
+		// What was collected for a dataset that was never created belongs to that attempt.
 		pendingScorers = []
 		workingCases = next === 'edit' ? cases.map((c) => fromStoredCase(c) as CaseDraft) : []
 		storedIds = new Set(next === 'edit' ? cases.map((c) => c.id) : [])
@@ -107,12 +101,8 @@
 			// A dataset that has a path keeps it: the summary names one that does not have one yet.
 			pathDirty = true
 		} else {
-			// Both seeded rather than left empty: an empty path makes the picker invent a random
-			// name, a dataset named after the agent it tests sorts with the agent's own, and a
-			// dataset with no summary is one the tables can only call by its path.
-			// Left underived so the summary keeps driving the path: renaming it to what the set is
-			// actually for renames the path with it, and the seeds are what that rule already
-			// produces for "Dataset N".
+			// Seeded rather than left empty: an empty path makes the picker invent a random name.
+			// Left underived so the summary keeps driving the path.
 			const index = nextDatasetIndex()
 			path = `${agentPath}_dataset_${index}`
 			summary = `Dataset ${index}`
@@ -122,22 +112,16 @@
 		drawer?.openDrawer()
 	}
 
-	/** The summary names the dataset, as it does a script: what it is for is the thing you know
-	 *  first, and a path derived from it beats one you have to invent. Until the path is typed in,
-	 *  after which it is the reader's. */
+	/** The summary names the dataset, as it does a script, until the path is typed in. */
 	$effect(() => {
 		const current = summary
 		untrack(() => {
 			if (pathDirty || !current) return
-			// Named after the agent as well as after itself, so it sorts with the agent's own and reads
-			// as belonging to it. The whole path stays editable.
 			const agentName = agentPath.split('/').pop() ?? agentPath
 			pathInput?.setName(`${agentName}_${summaryToName(current)}`)
 		})
 	})
 
-	/** Creates the dataset the first case needs. Naming it is a decision worth making after you
-	 *  know what is in it, so it is made for you here and renamed from this same drawer. */
 	async function createDataset() {
 		if (!workspace || !path || pathError) return
 		await casesGrid?.flush()
@@ -150,8 +134,6 @@
 				requestBody: {
 					path: created,
 					summary: submittedSummary,
-					// What was written for it while it was being named: the dataset arrives holding it
-					// rather than being created empty and then edited to hold what was already chosen.
 					scorers: pendingScorers,
 					cases: workingCases.map(({ id: _id, ...rest }) => rest)
 				}
@@ -161,10 +143,9 @@
 			creating = false
 			return
 		}
-		// Move the pane onto the created dataset before closing: closing reopens the Run dialog this
-		// drawer was stepped aside from, and that dialog reads the pane's selected dataset as it
-		// opens, so the selection has to land first. A refresh that fails must still not read as a
-		// create that failed, or the retry hits "already exists".
+		// The pane moves onto the created dataset before the drawer closes: closing reopens the Run
+		// dialog, which reads the pane's selection as it opens. A refresh that fails must still not
+		// read as a create that failed, or the retry hits "already exists".
 		try {
 			await onCreated(created)
 		} catch (e) {
@@ -177,20 +158,17 @@
 		creating = false
 	}
 
-	/** The cases as the drawer now holds them, for the save: what it added, what it changed and
-	 *  what it dropped. A local id is the drawer's own, for a row the dataset has never been told
-	 *  about, and goes out as no id. */
+	/** The cases as the drawer now holds them. A local id is the drawer's own, for a row the
+	 *  dataset has never been told about, and goes out as no id. */
 	function casesToSave() {
 		return $state.snapshot(workingCases).map((c) => ({
 			id: c.id != undefined && storedIds.has(c.id) ? c.id : undefined,
-			name: c.name,
 			input: c.input,
 			expected: c.expected
 		}))
 	}
 
-	/** Renaming moves the dataset: its cases and experiments follow it through the foreign keys.
-	 *  One request carries the rename, the summary and the cases, so a rename the server refuses
+	/** One request carries the rename, the summary and the cases, so a rename the server refuses
 	 *  refuses the case edits with it instead of leaving them written under the old name. */
 	async function saveDataset() {
 		if (!workspace || !datasetPath || !dataset || !path || pathError) return
@@ -216,11 +194,9 @@
 			saving = false
 			return
 		}
-		// Move the pane onto the saved name before closing: closing reopens the Run dialog this
-		// drawer was stepped aside from, and that dialog reads the pane's selected dataset as it
-		// opens, so the selection has to land first — and a re-read under the old name is a 404 on a
-		// save that succeeded. A refresh that fails must still not read as a save that failed, or
-		// the retry renames from the obsolete path.
+		// The pane moves onto the saved name before the drawer closes: a re-read under the old name
+		// is a 404 on a save that succeeded. A refresh that fails must still not read as a save that
+		// failed, or the retry renames from the obsolete path.
 		try {
 			await onRenamed(submitted.path)
 			await onCasesChanged()
@@ -234,8 +210,6 @@
 		saving = false
 	}
 
-	/** Adding a case puts a row in the list the drawer is holding. It reaches the dataset when the
-	 *  drawer is saved, like every other edit made here. */
 	function addCase() {
 		workingCases = [...workingCases, { ...emptyCase(), id: randomUUID() }]
 	}
@@ -245,8 +219,7 @@
 	}
 
 	/** A row the dataset has never been told about goes without being asked about: what the
-	 *  confirmation warns of is the runs that executed the case, and nothing has executed one that
-	 *  was added a moment ago. */
+	 *  confirmation warns of is the runs that executed the case, and nothing has executed this one. */
 	function removeCase(c: CaseDraft) {
 		if (c.id != undefined && !storedIds.has(c.id)) {
 			deleteCase(c.id)
@@ -277,10 +250,10 @@
 		title="Delete this case"
 		confirmationText="Delete"
 		on:canceled={() => (removingCase = undefined)}
-		on:confirmed={async () => {
+		on:confirmed={() => {
 			const target = removingCase
 			removingCase = undefined
-			if (target?.id) await deleteCase(target.id)
+			if (target?.id) deleteCase(target.id)
 		}}
 	>
 		<span class="text-sm">
@@ -293,20 +266,14 @@
 		on:close={() => drawer?.closeDrawer()}
 	>
 		<div class="flex flex-col gap-6 h-full min-h-0">
-			<!-- On the page rather than under an icon: it says what the drawer is for, which is worth
-			     reading once without being asked for. -->
 			<span class="text-xs text-secondary">
 				{mode === 'edit'
 					? 'The cases this agent is measured on. Editing them leaves the runs that already executed them as they were.'
 					: 'A set of cases to measure this agent on, and the scorers that read them.'}
 			</span>
-			<!-- Keyed so the path field is seeded for the dataset it was opened for, rather than
-			     carrying the one before it. -->
 			{#key formGeneration}
-				<!-- Locked while the dataset is being written, for the same reason the cases are: what
-				     was submitted is what lands, and a name typed after the click would otherwise go
-				     without being saved — or worse, be the one the drawer navigates to. `inert` rather
-				     than each field's `disabled`, which `Path` owns as its own transient state. -->
+				<!-- `inert` rather than each field's `disabled`, which `Path` owns as its own transient
+				     state. -->
 				<div class="flex flex-col gap-6" inert={writing}>
 					<Label label="Summary">
 						<TextInput
@@ -335,12 +302,8 @@
 				</div>
 			{/key}
 
-			<!-- What the dataset measures with, before what it measures: a column applies to every
-			     case, and a case is read against every column. Offered while naming a new one too:
-			     a scorer is a runnable of its own, so it needs the dataset's name but not its row,
-			     and the list is carried into the dataset that creating this makes. -->
-			<!-- Locked while the dataset is written, like the cases and the name: a scorer added after
-			     the click is not in the request the click built, and the drawer closes on it. -->
+			<!-- Offered while naming a new dataset too: a scorer is a runnable of its own, so it needs
+			     the dataset's name but not its row, and the list is carried into the create. -->
 			<div inert={writing}>
 				<EvalScorers
 					{workspace}
@@ -351,8 +314,6 @@
 					onChanged={onScorersChanged}
 				/>
 			</div>
-			<!-- Written while naming a new dataset too: a case cannot be stored without one, so these
-			     are held in the drawer and created with it. -->
 			<div class="flex flex-col gap-2 grow min-h-0">
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-semibold text-emphasis">Cases</span>
@@ -368,10 +329,6 @@
 						Add a case
 					</Button>
 				</div>
-				<!-- The whole set on screen, edited where it is read: curating a dataset is comparing
-				     cases against each other, which a pane showing one at a time cannot be asked to do.
-				     The same grid the data tables are edited in, so a set of rows is edited the one way
-				     this app edits rows. -->
 				<div class="grow min-h-0">
 					<EvalCasesGrid
 						bind:this={casesGrid}
