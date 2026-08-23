@@ -129,6 +129,12 @@ export type DraftConflictInfo = {
 	localLastSync: string | null
 }
 
+/** Where an item went after someone moved it, as reported by a refused save. */
+export type DraftMovedInfo = {
+	movedTo: string
+	movedBy: string | undefined
+}
+
 export type UserDraftLastSyncQuery = {
 	workspace: string
 	itemKind: UserDraftItemKind
@@ -215,6 +221,14 @@ const syncLocked = new Map<string, (() => void) | undefined>()
 const conflicts = new SvelteMap<string, DraftConflictInfo>()
 
 /**
+ * Keys whose item was MOVED out from under an editor still bound to the old
+ * path. The server refuses the write (saving would plant a phantom draft-only
+ * item where the item no longer is) and answers with where it went; read via
+ * `getMove(query)` to prompt the user over there.
+ */
+const moves = new SvelteMap<string, DraftMovedInfo>()
+
+/**
  * Draft keys whose last save threw (network / 5xx) → extracted error
  * message. Cleared on the next success. Drives the AutosaveIndicator's
  * "Save failed" label so a silent failure can't masquerade as "Saved".
@@ -294,6 +308,14 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 				force: opts.force ?? false
 			}
 		})
+		if (resp.status === 'moved') {
+			// Nothing was written. Like a conflict, `lastSync` stays put so the
+			// state survives every retry until the user acts on it.
+			if (resp.moved_to) {
+				moves.set(key, { movedTo: resp.moved_to, movedBy: resp.moved_by })
+			}
+			return
+		}
 		if (resp.status === 'conflict') {
 			// Someone advanced the row past our `last_sync`. Park the
 			// snapshot for the UI; do NOT touch `lastSync` — the next save
@@ -317,6 +339,7 @@ async function postSave(opts: UserDraftDbSyncerSaveOpts): Promise<void> {
 		// free instead of maintaining a separate source of truth.
 		setLocalDraftHint(opts.workspace, opts.itemKind, opts.path, opts.value !== null)
 		conflicts.delete(key)
+		moves.delete(key)
 		failures.delete(key)
 		// Clear pending only if it's still the opts we just saved — a
 		// newer `save()` that arrived during the POST replaces the entry
@@ -537,6 +560,7 @@ export const UserDraftDbSyncer = {
 		}
 		// Back in sync with the server: clear any conflict / failure.
 		conflicts.delete(key)
+		moves.delete(key)
 		failures.delete(key)
 	},
 
@@ -612,6 +636,22 @@ export const UserDraftDbSyncer = {
 	 */
 	clearConflict(query: UserDraftLastSyncQuery): void {
 		conflicts.delete(draftKey(query.workspace, query.itemKind, query.path))
+	},
+
+	/** Reactive "the item moved away from this path" snapshot, if any. */
+	getMove(query: UserDraftLastSyncQuery): {
+		readonly move: DraftMovedInfo | undefined
+	} {
+		const key = draftKey(query.workspace, query.itemKind, query.path)
+		return {
+			get move() {
+				return moves.get(key)
+			}
+		}
+	},
+
+	clearMove(query: UserDraftLastSyncQuery): void {
+		moves.delete(draftKey(query.workspace, query.itemKind, query.path))
 	},
 
 	/**

@@ -106,6 +106,10 @@
 	 *  (our draft is behind the latest deploy). Cleared between loads to re-fire. */
 	let draftSavedAt = $state<string | undefined>(undefined)
 	let deployedAt = $state<string | undefined>(undefined)
+	/** Hash the draft forked from, and the deployed head — the script equivalent
+	 *  of the flow/app version pair. */
+	let draftBaseHash = $state<string | undefined>(undefined)
+	let deployedHeadHash = $state<string | undefined>(undefined)
 
 	// Remounts ScriptBuilder on nav: false while a reload runs, true once data is
 	// ready. A synchronous `{#key}` swap instead races Monaco's init against the
@@ -150,6 +154,8 @@
 			loadedFromDraft = false
 			draftSavedAt = undefined
 			deployedAt = undefined
+			draftBaseHash = undefined
+			deployedHeadHash = undefined
 			// Brand-new script: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			const templatePath = page.url.searchParams.get('template')
@@ -323,6 +329,11 @@
 			// field level: the draft supplies editor state (content, summary, …),
 			// the deployed supplies metadata it lacks (hash, version markers).
 			const { draft: draftFromBackend, ...deployedScript } = backendScript as any
+			// Exact staleness, preferred over the timestamps: a draft carried across
+			// a move keeps its old save time while the move mints a fresh deploy, so
+			// the timestamps alone would call every carried draft stale.
+			draftBaseHash = draftFromBackend?.parent_hash as string | undefined
+			deployedHeadHash = backendScript.hash as string | undefined
 			const effectiveScript: EditableScript = draftFromBackend
 				? { ...deployedScript, ...draftFromBackend }
 				: (deployedScript as EditableScript)
@@ -464,6 +475,8 @@
 	bind:othersModalOpen
 	{draftSavedAt}
 	{deployedAt}
+	draftBaseVersion={draftBaseHash}
+	deployedHeadVersion={deployedHeadHash}
 	onLoadLatestDeploy={async () => {
 		// stopSync-bracketed; see restoreDeployed for the race.
 		if (!$workspaceStore) return
