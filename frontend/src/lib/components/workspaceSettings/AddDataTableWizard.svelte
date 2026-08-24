@@ -782,12 +782,14 @@
 
 	/**
 	 * Whether closing would throw away work. A failed run counts: its inputs are still editable
-	 * and it may have left something behind, and so does a setup that succeeded with its
-	 * appended step still failing. A run in flight cannot be closed at all, and one that
-	 * finished cleanly has nothing left to lose.
+	 * and it may have left something behind. A run in flight cannot be closed at all, and one
+	 * that made its data table has nothing left to lose — including when `onFinishAlso` failed
+	 * afterwards, because the table is real and working and the caller owns what is left. The
+	 * import step, the only caller that passes one, shows that failure on its own row with a
+	 * way to run it again and will not let Finish through while it stands.
 	 */
 	function hasUnfinishedIntent(): boolean {
-		return wiz.provider !== undefined && !run.running && (!run.result?.ok || finishAlsoFailed)
+		return wiz.provider !== undefined && !run.running && !run.result?.ok
 	}
 
 	/** Backdrop, Escape and the close button all arrive here. */
