@@ -915,6 +915,16 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Alert on zombie job restarts',
+			description:
+				'Send critical alerts when a zombie job or flow is detected and automatically restarted. Zombie jobs that exhaust all their restart attempts always alert.',
+			key: 'critical_alerts_on_zombie_job_restart',
+			fieldType: 'boolean',
+			storage: 'setting',
+			defaultValue: () => true,
+			ee_only: ''
+		},
+		{
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',

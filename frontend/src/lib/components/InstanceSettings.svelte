@@ -132,11 +132,13 @@
 		}
 		applyFormDefaults(nvalues)
 
-		// Apply select/select_python defaults so initialValues matches what InstanceSetting's $effect does
+		// Apply defaults so initialValues matches what InstanceSetting's $effect does
 		for (const category of settingsKeys) {
 			for (const s of settings[category]) {
 				if (
-					(s.fieldType === 'select' || s.fieldType === 'select_python') &&
+					(s.fieldType === 'select' ||
+						s.fieldType === 'select_python' ||
+						s.fieldType === 'boolean') &&
 					nvalues[s.key] == undefined &&
 					s.defaultValue
 				) {
