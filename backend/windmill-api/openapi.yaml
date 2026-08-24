@@ -24767,6 +24767,37 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/hub/projects/{slug}/discard_update:
+    post:
+      summary: discard the pending update to a published hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body. The published project is
+        left untouched.
+      operationId: discardHubProjectUpdate
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/hub/project:
     get:
       summary: get the hub project linked to a workspace folder

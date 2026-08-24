@@ -40,6 +40,7 @@
 		Zap
 	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 
 	// Folder name (no `f/`) this project is scoped to; provided by the /folders launcher.
@@ -61,6 +62,9 @@
 	// Inline pipeline graph above the item list, collapsed by default so the
 	// selection list stays the first thing in view.
 	let pipelineGraphOpen = $state(false)
+	// Discarding throws away every item pushed for the update and any recording made
+	// for it, none of which can be recovered.
+	let confirmDiscardUpdate = $state(false)
 	let resourceDrawer = $state<Drawer | undefined>()
 	let triggerDrawer = $state<Drawer | undefined>()
 	let bundleDrawer = $state<Drawer | undefined>()
@@ -146,6 +150,22 @@
 </script>
 
 {#if deployHub.session}
+	{@const session = deployHub.session}
+	<ConfirmationModal
+		open={confirmDiscardUpdate}
+		title="Discard update"
+		confirmationText="Discard"
+		onConfirmed={async () => {
+			confirmDiscardUpdate = false
+			await session.discardUpdate()
+		}}
+		onCanceled={() => (confirmDiscardUpdate = false)}
+	>
+		<span>
+			Discard this update? Everything pushed for it, including recordings made for it, is deleted
+			and cannot be recovered. Your published project is unaffected.
+		</span>
+	</ConfirmationModal>
 	{#key deployHub.session}
 		{@const s = deployHub.session}
 		<div>
@@ -271,7 +291,7 @@
 										unifiedSize="sm"
 										loading={s.discardingUpdate}
 										startIcon={{ icon: X }}
-										onclick={s.discardUpdate}
+										onclick={() => (confirmDiscardUpdate = true)}
 									>
 										Discard update
 									</Button>
