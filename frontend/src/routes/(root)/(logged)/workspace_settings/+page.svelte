@@ -1475,22 +1475,24 @@
 									so it is never invoiced separately. Manage billing, seats, and quotas from the
 									parent workspace's settings.
 								</Alert>
-								{#if plan === 'team'}
+								{#if plan}
 									<div class="mt-4">
 										<Alert type="warning" title="This workspace has its own subscription">
-											It is on a team plan that is billed on its own, so this workspace is paid for
+											It is on a paid plan that is billed on its own, so this workspace is paid for
 											twice. Cancel that subscription in the customer portal to keep only
 											<b>{currentWorkspace.parent_workspace_id}</b>'s plan. This workspace keeps
 											running either way, on the parent's plan.
-											<div class="mt-3 flex">
-												<Button
-													endIcon={{ icon: ExternalLink }}
-													variant="accent"
-													href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal"
-												>
-													Customer portal
-												</Button>
-											</div>
+											{#if customer_id}
+												<div class="mt-3 flex">
+													<Button
+														endIcon={{ icon: ExternalLink }}
+														variant="accent"
+														href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal"
+													>
+														Customer portal
+													</Button>
+												</div>
+											{/if}
 										</Alert>
 									</div>
 								{/if}

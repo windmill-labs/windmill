@@ -5,10 +5,19 @@
 
 -- Who is billable. Service accounts cannot log in and do not take a seat; a disabled member is
 -- not billed either.
+-- This is the cloud, per-workspace rule. EE license seats are a different model and are counted by
+-- `count_offline_potential_seats`: distinct emails instance-wide, author-anywhere-wins, pending
+-- invites included. Reusing this view for those would quietly under-count them.
 CREATE OR REPLACE VIEW billable_member AS
     SELECT workspace_id, email, username, operator
     FROM usr
     WHERE NOT disabled AND NOT is_service_account;
+
+-- Objects created after the one-time GRANT ALL in 20250205131523 need explicit grants: ALTER
+-- DEFAULT PRIVILEGES only covers objects created by the role that set them. Without these the
+-- application role cannot read the view, and every caller of `billable_seats()` fails.
+GRANT ALL ON billable_member TO windmill_user;
+GRANT ALL ON billable_member TO windmill_admin;
 
 -- How billable members become seats: a developer is a whole seat, an operator is half of one.
 CREATE OR REPLACE FUNCTION billable_seats(w_id TEXT) RETURNS BIGINT AS $$

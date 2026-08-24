@@ -7181,9 +7181,13 @@ async fn reject_attach_of_subscribed_workspace(db: &DB, dev_w_id: &str) -> Resul
     .fetch_optional(db)
     .await?
     .flatten();
-    if plan.as_deref() == Some("team") {
+    // Any plan, not just `'team'`: the column is written by the subscription webhook, and a plan
+    // value it does not write yet would otherwise walk straight past this. An enterprise
+    // arrangement is deliberately not covered — it sets `premium` without a plan and has no
+    // self-serve portal, so refusing there would be a dead end rather than something to act on.
+    if plan.is_some() {
         return Err(Error::BadRequest(format!(
-            "Workspace {dev_w_id} is on its own team plan. A dev or fork workspace runs on its parent's plan and is never invoiced separately, so cancel that subscription from its own billing settings before attaching it."
+            "Workspace {dev_w_id} is on a paid plan of its own. A dev or fork workspace runs on its parent's plan and is never invoiced separately, so cancel that subscription from its own billing settings before attaching it."
         )));
     }
     Ok(())
@@ -7215,8 +7219,8 @@ mod attach_billing_guard_tests {
 
         let err = reject_attach_of_subscribed_workspace(&db, "subscribed")
             .await
-            .expect_err("a workspace on its own team plan must not be attachable");
-        assert!(err.to_string().contains("its own team plan"), "{err}");
+            .expect_err("a workspace on a paid plan of its own must not be attachable");
+        assert!(err.to_string().contains("paid plan of its own"), "{err}");
 
         // Cancelling clears `plan` but keeps `customer_id`, so the plan column is what decides.
         reject_attach_of_subscribed_workspace(&db, "cancelled")
