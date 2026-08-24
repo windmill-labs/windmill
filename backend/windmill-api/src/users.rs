@@ -9,6 +9,7 @@
 // Re-export everything from windmill-api-users
 pub use windmill_api_users::users::*;
 
+use windmill_common::db::BeginCancelSafe;
 use std::sync::Arc;
 
 use crate::db::{ApiAuthed, OptJobAuthed};
@@ -184,7 +185,7 @@ async fn rename_user(
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let username_conflict = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 and email != $2 UNION SELECT 1 FROM password WHERE username = $1 UNION SELECT 1 FROM pending_user WHERE username = $1)",
@@ -885,7 +886,7 @@ async fn reset_password(
         ));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Find the token and verify it's not expired
     let magic_link = sqlx::query!(

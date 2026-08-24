@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use windmill_api_auth::{check_scopes, is_instance_admin, require_instance_admin, ApiAuthed};
 use windmill_common::{
     db::{UserDB, DB},
@@ -75,7 +76,7 @@ async fn prune_concurrency_group(
             "Only administrators can delete concurrency groups".to_string(),
         ));
     }
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let concurrency_group = sqlx::query_as::<_, (String, i64)>(
         "SELECT concurrency_id, (select COUNT(*) from jsonb_object_keys(job_uuids)) as n_job_uuids FROM concurrency_counter WHERE concurrency_id = $1 FOR UPDATE",

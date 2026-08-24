@@ -8,6 +8,7 @@
 
 //! Job execution primitives: push, cancel, tag/license checks, wait-for-result.
 
+use windmill_common::db::BeginCancelSafe;
 use axum::{
     response::{IntoResponse, Response},
     Json,
@@ -91,7 +92,7 @@ pub async fn cancel_jobs(
 ) -> error::JsonResult<Vec<Uuid>> {
     let mut uuids = vec![];
     tracing::info!("Cancelling jobs: {:?}", jobs);
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let trivial_jobs =  sqlx::query!("INSERT INTO v2_job_completed AS cj
                    ( workspace_id
                    , id
@@ -134,7 +135,7 @@ pub async fn cancel_jobs(
             continue;
         }
         match tokio::time::timeout(tokio::time::Duration::from_secs(5), async move {
-            let tx = db.begin().await?;
+            let tx = db.begin_cancel_safe().await?;
             let (tx, _) = cancel_job(
                 username,
                 None,
@@ -196,7 +197,7 @@ impl Drop for Guard {
             tracing::info!("http connection broke, marking job {id} as canceled");
             tokio::spawn(async move {
                 let cancel_f = async {
-                    let tx = db.begin().await?;
+                    let tx = db.begin_cancel_safe().await?;
                     let (tx, _) = cancel_job(
                         &username,
                         Some("http connection broke".to_string()),

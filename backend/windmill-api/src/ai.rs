@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use crate::db::{ApiAuthed, DB};
 use crate::utils::check_scopes;
 
@@ -791,7 +792,7 @@ fn proxy_request_to_request_builder(
 }
 
 async fn audit_global_ai_request(db: &DB, authed: &ApiAuthed) -> Result<()> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     audit_log(
         &mut *tx,
@@ -1169,7 +1170,7 @@ async fn proxy(
 
     // Handle GoogleAI (Gemini) using the native Gemini API
     if matches!(proxy_mode, ProxyExecutionMode::NativeGoogleAi) {
-        let mut tx = db.begin().await?;
+        let mut tx = db.begin_cancel_safe().await?;
         audit_log(
             &mut *tx,
             &authed,
@@ -1207,7 +1208,7 @@ async fn proxy(
     // Handle Bedrock-specific logic when the feature is enabled
     #[cfg(feature = "bedrock")]
     if matches!(proxy_mode, ProxyExecutionMode::NativeAwsBedrock) {
-        let mut tx = db.begin().await?;
+        let mut tx = db.begin_cancel_safe().await?;
         audit_log(
             &mut *tx,
             &authed,
@@ -1270,7 +1271,7 @@ async fn proxy(
 
     let response = request.send().await.map_err(to_anyhow)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     audit_log(
         &mut *tx,

@@ -5,6 +5,7 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
+use windmill_common::db::BeginCancelSafe;
 use anyhow::Context;
 use monitor::{
     load_base_url, load_otel, reload_critical_alerts_on_db_oversize,
@@ -2401,7 +2402,7 @@ async fn coordinate_restart_delay(
 
     let now = chrono::Utc::now();
 
-    let mut tx = db.begin().await.context("begin restart coordination tx")?;
+    let mut tx = db.begin_cancel_safe().await.context("begin restart coordination tx")?;
 
     // Serialize access across all instances
     sqlx::query("SELECT pg_advisory_xact_lock($1)")

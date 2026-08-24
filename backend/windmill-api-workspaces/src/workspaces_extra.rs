@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use std::collections::HashMap;
 
 use windmill_api_auth::{require_super_admin, ApiAuthed};
@@ -54,7 +55,7 @@ pub(crate) async fn change_workspace_id(
         require_admin(authed.is_admin, &authed.username)?;
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // A rename rewrites the workspace's dev flag and reparents its children, so it decides on the
     // same state the pairing handlers do: without this lock a concurrent create/attach could commit
@@ -926,7 +927,7 @@ pub(crate) async fn delete_workspace(
         ));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
         && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
     {
@@ -1294,7 +1295,7 @@ pub async fn drop_forked_datatable_databases(
 ) -> Result<Json<Vec<String>>> {
     // Same permission check as delete_workspace: fork owner or super admin
     let is_fork = workspace_is_fork(&db, &w_id).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
         && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
     {
@@ -1451,7 +1452,7 @@ pub async fn drop_forked_ducklake_namespaces(
     Path(w_id): Path<String>,
 ) -> Result<Json<Vec<String>>> {
     let is_fork = workspace_is_fork(&db, &w_id).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     if !(is_fork && is_workspace_owner(&authed, &w_id, &mut tx).await?)
         && !windmill_api_auth::is_super_admin_authed(&db, &authed).await?
     {

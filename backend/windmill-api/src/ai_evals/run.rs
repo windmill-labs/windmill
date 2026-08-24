@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use super::*;
 
 /// Node id of the agent step. The answer is read back by this id, so it is part of the stored
@@ -639,7 +640,7 @@ pub async fn run_experiment(
 
     // Recorded before the job is queued, so a launch that dies partway leaves an experiment naming
     // a job that never started rather than a flow no experiment accounts for and nothing collects.
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let experiment_id = new_run(
         &mut tx,
         &w_id,

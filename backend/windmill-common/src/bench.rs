@@ -1,3 +1,4 @@
+use crate::db::BeginCancelSafe;
 use crate::{
     worker::{write_file, WINDMILL_DIR},
     DB,
@@ -265,7 +266,7 @@ pub async fn benchmark_init(benchmark_jobs: i32, db: &DB) {
             .await
             .unwrap_or_else(|e| panic!("failed to clean up v2_job: {e:#}"));
 
-        let mut tx = db.begin().await.unwrap();
+        let mut tx = db.begin_cancel_safe().await.unwrap();
         match benchmark_kind.as_str() {
             "dedicated" => {
                 // you need to create the script first, check https://github.com/windmill-labs/windmill/blob/b76a92cfe454c686f005c65f534e29e039f3c706/benchmarks/lib.ts#L47

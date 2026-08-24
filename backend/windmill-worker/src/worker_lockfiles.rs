@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fs::{create_dir_all, remove_dir_all};
@@ -755,7 +756,7 @@ pub async fn handle_flow_dependency_job(
     let mut dependency_map = match tokio::time::timeout(
         std::time::Duration::from_secs(15),
         async {
-            let mut tx = db.begin().await?;
+            let mut tx = db.begin_cancel_safe().await?;
 
             let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
                 &job.workspace_id,
@@ -917,7 +918,7 @@ pub async fn handle_flow_dependency_job(
             Done,
         }
         let phase3 = tokio::time::timeout(std::time::Duration::from_secs(30), async {
-            let mut tx = db.begin().await?;
+            let mut tx = db.begin_cancel_safe().await?;
 
             // Counterpart to phase 1's conditional dissolve.
             if triggered_by_relative_import {
@@ -2142,7 +2143,7 @@ async fn lock_modules_app(
                                         .patch(
                                             referenced_paths.clone(),
                                             container_id.unwrap_or_default(),
-                                            db.begin().await?,
+                                            db.begin_cancel_safe().await?,
                                         )
                                         .await?
                                         .commit()
@@ -2161,7 +2162,7 @@ async fn lock_modules_app(
                                         .patch(
                                             referenced_paths.clone(),
                                             container_id.unwrap_or_default(),
-                                            db.begin().await?,
+                                            db.begin_cancel_safe().await?,
                                         )
                                         .await?
                                         .commit()
@@ -2207,7 +2208,7 @@ async fn lock_modules_app(
                                         .patch(
                                             referenced_paths.clone(),
                                             container_id.unwrap_or_default(),
-                                            db.begin().await?,
+                                            db.begin_cancel_safe().await?,
                                         )
                                         .await?
                                         .commit()
@@ -2442,7 +2443,7 @@ pub async fn handle_app_dependency_job(
 
         // TODO: Dissolve in the end?
         dependency_map
-            .dissolve(db.begin().await?)
+            .dissolve(db.begin_cancel_safe().await?)
             .await
             .commit()
             .await?;

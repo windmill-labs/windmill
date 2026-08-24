@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use crate::db::{ApiAuthed, DB};
 use axum::{
     extract::{Extension, Json, Path},
@@ -156,7 +157,7 @@ async fn update_shared_ui(
     let files_json = serde_json::to_value(&payload.files)
         .map_err(|e| Error::internal_err(format!("serializing files: {e}")))?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query!(
         r#"INSERT INTO workspace_shared_ui (workspace_id, files, version, edited_at, edited_by)
            VALUES ($1, $2, 1, now(), $3)

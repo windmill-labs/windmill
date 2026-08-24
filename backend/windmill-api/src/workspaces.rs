@@ -8,6 +8,7 @@
 
 // Re-export everything from windmill-api-workspaces
 pub use windmill_api_workspaces::workspaces::*;
+use windmill_common::db::BeginCancelSafe;
 use windmill_api_workspaces::workspaces::{build_copilot_settings_state, InstanceAISummary};
 
 use crate::ai::{invalidate_ai_request_cache_for_workspace, AIConfig};
@@ -110,7 +111,7 @@ async fn edit_copilot_config(
 
     ai_config.validate_model_pricing()?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!(
         "UPDATE workspace_settings SET ai_config = $1 WHERE workspace_id = $2",

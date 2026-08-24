@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use std::future::Future;
 use std::time::Duration;
 use std::{collections::HashMap, sync::Arc, vec};
@@ -595,7 +596,7 @@ async fn cancel_persistent_script_jobs_internal<'c>(
     w_id: &str,
     db: &Pool<Postgres>,
 ) -> error::Result<Vec<Uuid>> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
@@ -1160,7 +1161,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let serialized_result = result.serialized_json();
     let sanitized_result = strip_json_nul(serialized_result.as_ref());
 
-    let mut tx = db.begin().warn_after_seconds(10).await?;
+    let mut tx = db.begin_cancel_safe().warn_after_seconds(10).await?;
 
     let duration =  sqlx::query_scalar!(
             "INSERT INTO v2_job_completed AS cj
@@ -3824,7 +3825,7 @@ impl PulledJobResult {
                 // otherwise let a zombie re-pull see its own prior claim and keep only
                 // its own args (dropping the siblings it had claimed). One transaction
                 // makes the claim and the merged-args write commit together (or neither).
-                let mut tx = db.begin().await?;
+                let mut tx = db.begin_cancel_safe().await?;
                 // Emitted AFTER the transaction commits — writing logs via a second pool
                 // connection while the claim tx + row locks are held risks pool-exhaustion
                 // stalls under concurrent debounced pulls.
@@ -5187,7 +5188,7 @@ impl<'c> PushIsolationLevel<'c> {
     pub async fn into_tx(self) -> error::Result<Transaction<'c, Postgres>> {
         match self {
             PushIsolationLevel::Isolated(db, authed) => Ok((db.begin(&authed).await?).into()),
-            PushIsolationLevel::IsolatedRoot(db) => Ok(db.begin().await?),
+            PushIsolationLevel::IsolatedRoot(db) => Ok(db.begin_cancel_safe().await?),
             PushIsolationLevel::Transaction(tx) => Ok(tx),
         }
     }

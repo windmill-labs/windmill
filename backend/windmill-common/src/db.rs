@@ -4,6 +4,42 @@ use crate::audit::AuditAuthor;
 
 pub type DB = Pool<Postgres>;
 
+/// `Pool::begin` is not cancel-safe, and on Postgres it is the one place where losing the
+/// race corrupts the pool rather than just the caller.
+///
+/// sqlx sends `BEGIN` and only increments the transaction depth its rollback-on-drop guard
+/// keys on once the round trip returns (`sqlx-postgres/src/transaction.rs`). A future
+/// cancelled in between — a disconnecting API client, a `tokio::time::timeout`, an aborted
+/// task — therefore leaves the session inside a transaction that nothing will ever roll
+/// back, and sqlx hands that connection to the next borrower, whose statements then run
+/// inside it and hold its locks.
+///
+/// Upstream has known about it since 2022 (launchbadge/sqlx#2054) and fixed it for SQLite
+/// only, so it is ours to work around.
+pub trait BeginCancelSafe {
+    /// Begins a transaction that a cancelled caller cannot leak.
+    fn begin_cancel_safe(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Transaction<'static, Postgres>, sqlx::Error>> + Send;
+}
+
+impl BeginCancelSafe for Pool<Postgres> {
+    fn begin_cancel_safe(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Transaction<'static, Postgres>, sqlx::Error>> + Send
+    {
+        let db = self.clone();
+        async move {
+            // Dropping a `JoinHandle` detaches its task rather than aborting it, so a
+            // cancelled caller still leaves the `Transaction` to be built and then dropped
+            // — and dropping one at depth 1 is what queues the `ROLLBACK`.
+            tokio::spawn(async move { db.begin().await })
+                .await
+                .map_err(|_| sqlx::Error::WorkerCrashed)?
+        }
+    }
+}
+
 /// Workspace ID resolved by gateway middleware (stored in request extensions).
 /// Used by auth to resolve workspace when the URL path doesn't contain one.
 #[derive(Clone, Debug)]
@@ -187,7 +223,7 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c DbWithOptAuthed<'d, T> {
                 DbWithOptAuthed::UserDB { authed, user_db, .. } => {
                     user_db.clone().begin(&**authed).await
                 }
-                DbWithOptAuthed::DB { db, .. } => db.clone().begin().await,
+                DbWithOptAuthed::DB { db, .. } => db.clone().begin_cancel_safe().await,
             }
         })
     }
@@ -200,7 +236,7 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c DbWithOptAuthed<'d, T> {
                 DbWithOptAuthed::UserDB { authed, user_db, .. } => {
                     user_db.clone().begin(&**authed).await
                 }
-                DbWithOptAuthed::DB { db, .. } => db.clone().begin().await,
+                DbWithOptAuthed::DB { db, .. } => db.clone().begin_cancel_safe().await,
             }
         })
     }
@@ -230,7 +266,7 @@ impl UserDB {
         //     folders_write
         // );
 
-        let mut tx = self.db.begin().await?;
+        let mut tx = self.db.begin_cancel_safe().await?;
 
         if let Some(schema) = PG_SCHEMA.as_ref() {
             // SAFETY: `schema` is an operator-controlled environment variable (PG_SCHEMA), set at deploy time and never user-supplied.

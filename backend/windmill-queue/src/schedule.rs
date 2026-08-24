@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use crate::push;
 use crate::PushIsolationLevel;
 use anyhow::Context;
@@ -636,7 +637,7 @@ pub enum RearmOutcome {
 /// callers (the monitor's reconciliation pass) only. A caller acting for a user
 /// MUST already have enforced their permissions on `w_id` and `path`.
 pub async fn rearm_schedule(db: &DB, w_id: &str, path: &str) -> Result<RearmOutcome> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     // Lock the row for the whole push: an edit or a disable committing between the
     // read and the push would otherwise leave a queued occurrence for a schedule
     // that is disabled, or one built from superseded settings.

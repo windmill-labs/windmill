@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use crate::ai::stream_event_processor::StreamEventProcessor;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
@@ -459,7 +460,7 @@ async fn execute_windmill_tool(
         }
     };
 
-    let mut tx = ctx.db.begin().await?;
+    let mut tx = ctx.db.begin_cancel_safe().await?;
 
     let job_perms =
         windmill_common::auth::get_job_perms(&mut *tx, &ctx.job.id, &ctx.job.workspace_id)

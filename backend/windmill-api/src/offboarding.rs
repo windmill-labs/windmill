@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use std::collections::HashMap;
 
 use crate::db::{ApiAuthed, OptJobAuthed};
@@ -427,7 +428,7 @@ pub(crate) async fn offboard_workspace_user(
         ))
     })?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let summary = offboard_user_from_workspace(
         &mut tx,
@@ -564,7 +565,7 @@ pub(crate) async fn offboard_global_user(
         }));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let mut total_summary = OffboardSummary {
         scripts_reassigned: 0,

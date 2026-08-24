@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use axum::{
     extract::{Extension, Path, Query},
     routing::{get, post},
@@ -187,7 +188,7 @@ async fn update_config(
         }
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query!(
         "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = EXCLUDED.config",
         &name,
@@ -217,7 +218,7 @@ async fn delete_config(
 ) -> error::Result<String> {
     require_devops_role(&db, &authed).await?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let deleted = sqlx::query!("DELETE FROM config WHERE name = $1 RETURNING name", name)
         .fetch_all(&mut *tx)

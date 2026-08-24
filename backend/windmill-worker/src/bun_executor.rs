@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 #[cfg(feature = "deno_core")]
 use std::time::Instant;
 use std::{
@@ -2813,7 +2814,7 @@ pub async fn handle_wac_v2_output(
             // Step 1: Save checkpoint, suspend parent, and seed child checkpoints
             // in a single transaction — all BEFORE children become visible.
             {
-                let mut tx = db.begin().await?;
+                let mut tx = db.begin_cancel_safe().await?;
 
                 // Update checkpoint with pending steps
                 update_checkpoint_for_dispatch(&mut checkpoint, &steps, &mode, &job_ids);
@@ -3202,7 +3203,7 @@ pub async fn handle_wac_v2_output(
                 job_ids: serde_json::Map::new(),
             });
 
-            let mut tx = db.begin().await?;
+            let mut tx = db.begin_cancel_safe().await?;
 
             // Save checkpoint
             let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
@@ -3397,7 +3398,7 @@ pub async fn handle_wac_v2_output(
                 job_ids: serde_json::Map::new(),
             });
 
-            let mut tx = db.begin().await?;
+            let mut tx = db.begin_cancel_safe().await?;
 
             // Save checkpoint
             let status_json = serde_json::to_value(&checkpoint).map_err(|e| {
@@ -3492,7 +3493,7 @@ pub async fn handle_wac_v2_output(
             // into `persist_inline_checkpoint_delta` preserves the original
             // atomicity from before the shared-helper refactor.
             let source_hash = job.runnable_id.map(|h| h.0.to_string());
-            let mut tx = db.begin().await?;
+            let mut tx = db.begin_cancel_safe().await?;
 
             crate::wac_executor::persist_inline_checkpoint_delta(
                 &mut tx,

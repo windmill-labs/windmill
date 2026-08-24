@@ -10,6 +10,7 @@
 //! management, and the workspace-merge diff helper. Split out of `workspaces.rs`
 //! to keep that file focused on core workspace configuration.
 
+use windmill_common::db::BeginCancelSafe;
 use crate::workspaces::{pg_dump_database, ItemComparison};
 
 use axum::{
@@ -834,7 +835,7 @@ async fn disable_datatable_migrations(
 ) -> Result<String> {
     require_datatable_migrations_manager(&db, &authed).await?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let updated = sqlx::query_scalar!(
         "UPDATE workspace_settings \
@@ -1098,7 +1099,7 @@ async fn create_datatable_migration(
     validate_migration_name(&payload.name)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let timestamp = insert_datatable_migration_def(
         &mut tx,
         &w_id,
@@ -1390,7 +1391,7 @@ async fn generate_initial_datatable_migration(
     // than a `_wm_migrations` version with no definition that the UI can't
     // clear). The narrow window where it briefly shows "not run" is benign:
     // running it would just no-op/fail harmlessly against the existing schema.
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let timestamp =
         insert_datatable_migration_def(&mut tx, &w_id, &datatable_name, "initial", &code_up, None)
             .await?;
@@ -1861,7 +1862,7 @@ mod tests {
         seed_migration(&pool, &w_id, "sa", 5000, "sa_mig").await;
         seed_migration(&pool, &w_id, "sb", 5000, "sb_mig").await;
 
-        let mut tx = pool.begin().await.unwrap();
+        let mut tx = pool.begin_cancel_safe().await.unwrap();
         let mut changed = cascade_datatable_migration_renames_and_deletes(
             &pool,
             &mut tx,
@@ -1919,7 +1920,7 @@ mod tests {
         seed_migration(&pool, &src, "customers", 2, "add_index").await;
         seed_migration(&pool, &src, "orders", 3, "create_orders").await;
 
-        let mut tx = pool.begin().await.unwrap();
+        let mut tx = pool.begin_cancel_safe().await.unwrap();
         clone_datatable_migrations(&mut tx, &src, &dst)
             .await
             .unwrap();

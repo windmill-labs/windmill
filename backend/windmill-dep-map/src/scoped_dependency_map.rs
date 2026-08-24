@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use serde::Serialize;
 use sqlx::PgExecutor;
 use tokio::sync::RwLock;
@@ -422,7 +423,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
             {
                 let (sd, smd) = cache::script::fetch(&db.clone().into(), r.hash.into()).await?;
                 let mut dmap = ScopedDependencyMap::fetch(w_id, &r.path, "script", db).await?;
-                let mut tx = db.begin().await?;
+                let mut tx = db.begin_cancel_safe().await?;
 
                 tx = dmap
                 .patch(
@@ -446,7 +447,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
 
                     let mut dmap = ScopedDependencyMap::fetch(w_id, &r.path, "flow", db).await?;
 
-                    let mut tx = db.begin().await?;
+                    let mut tx = db.begin_cancel_safe().await?;
                     let mut to_process = vec![];
                     let flow_value = flow_data.value();
                     let mut modules_to_check = flow_value.modules.iter().collect::<Vec<_>>();
@@ -504,7 +505,7 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
                     .await?;
 
                     let mut dmap = ScopedDependencyMap::fetch(w_id, &r.path, "app", db).await?;
-                    let mut tx = db.begin().await?;
+                    let mut tx = db.begin_cancel_safe().await?;
                     let mut to_process = vec![];
                     traverse_app_inline_scripts(&value, None, &mut |ais, id| {
                         to_process.push((

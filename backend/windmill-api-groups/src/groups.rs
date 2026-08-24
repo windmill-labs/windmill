@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use windmill_api_auth::{require_super_admin, ApiAuthed};
 use windmill_common::DB;
 
@@ -300,7 +301,7 @@ async fn create_igroup(
     use uuid::Uuid;
 
     require_super_admin(&db, &authed).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let normalized_name = convert_name(&ng.name);
 
@@ -465,7 +466,7 @@ async fn update_igroup(
     Json(igroup_update): Json<IGroupUpdate>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin_cancel_safe().await?;
 
     let exists_opt = sqlx::query("SELECT 1 FROM instance_group WHERE name = $1")
         .bind(name.clone())
@@ -657,7 +658,7 @@ async fn delete_igroup(
     Path(name): Path<String>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin_cancel_safe().await?;
 
     // FOR UPDATE: the group row is the group-level mutex, taken before the workspace
     // advisory locks (see reconcile_workspace_instance_groups).
@@ -972,7 +973,7 @@ async fn add_user_igroup(
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
 
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin_cancel_safe().await?;
 
     // FOR UPDATE: the group row is the group-level mutex, taken before the workspace
     // advisory locks (see reconcile_workspace_instance_groups).
@@ -1048,7 +1049,7 @@ struct WorkspaceInfo {
     role: String,
 }
 async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin_cancel_safe().await?;
 
     let groups = sqlx::query_as!(
         IGroup,
@@ -1064,7 +1065,7 @@ async fn list_igroups(Extension(db): Extension<DB>) -> JsonResult<Vec<IGroup>> {
 async fn list_igroups_with_workspaces(
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<IGroupWithWorkspaces>> {
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin_cancel_safe().await?;
 
     // Get all instance groups with their emails first
     let groups = sqlx::query_as!(
@@ -1190,7 +1191,7 @@ async fn remove_user_igroup(
     Json(Email { email }): Json<Email>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // FOR UPDATE: the group row is the group-level mutex, taken before the workspace
     // advisory locks (see reconcile_workspace_instance_groups).
@@ -1331,7 +1332,7 @@ async fn export_igroups(
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<ExportedIGroup>> {
     require_super_admin(&db, &authed).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let igroups = sqlx::query_as!(
         ExportedIGroup,
         "SELECT name, summary, array_remove(array_agg(email_to_igroup.email), null) as emails, id, scim_display_name, external_id, instance_role FROM email_to_igroup RIGHT JOIN instance_group ON instance_group.name = email_to_igroup.igroup GROUP BY name",
@@ -1367,7 +1368,7 @@ async fn overwrite_igroups(
     Json(igroups): Json<Vec<ExportedIGroup>>,
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // The import replaces the whole group catalog, so the whole-table lock is its
     // group-mutex phase, taken first like every path's group locks (see

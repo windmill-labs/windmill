@@ -5,6 +5,7 @@ pub mod scoped_dependency_map;
 pub mod trigger_dependents;
 pub mod workspace_dependencies;
 
+use windmill_common::db::BeginCancelSafe;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 
@@ -146,7 +147,7 @@ pub async fn process_relative_imports(
 
     // TODO: Should be moved into handle_dependency_job body to be more consistent with how flows and apps are handled
     {
-        let mut tx = db.begin().await?;
+        let mut tx = db.begin_cancel_safe().await?;
         let mut dependency_map = ScopedDependencyMap::fetch_maybe_rearranged(
             &w_id,
             script_path,

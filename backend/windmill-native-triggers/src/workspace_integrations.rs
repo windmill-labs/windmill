@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use axum::Router;
 
 #[cfg(feature = "native_trigger")]
@@ -430,7 +431,7 @@ async fn list_integrations(
     Path(workspace_id): Path<String>,
 ) -> JsonResult<Vec<WorkspaceIntegrations>> {
     require_admin(authed.is_admin, &workspace_id)?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let integrations = sqlx::query_as!(
         WorkspaceIntegrations,
         r#"

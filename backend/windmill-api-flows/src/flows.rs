@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use std::collections::HashMap;
 
 use axum::response::IntoResponse;
@@ -1589,7 +1590,7 @@ async fn get_deployment_status(
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<DeploymentStatus> {
     let path = path.to_path();
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let status_o = sqlx::query!(
         "SELECT f.lock_error_logs, dm.job_id
          FROM flow f

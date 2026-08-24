@@ -8,6 +8,7 @@
 
 #![allow(non_snake_case)]
 
+use windmill_common::db::BeginCancelSafe;
 use sqlx::{Postgres, Transaction};
 
 use std::sync::atomic::AtomicBool;
@@ -611,7 +612,7 @@ async fn list_invites(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> JsonResult<Vec<WorkspaceInvite>> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let rows = sqlx::query_as!(
         WorkspaceInvite,
         "SELECT
@@ -652,7 +653,7 @@ async fn logout(
         cookie.set_domain(COOKIE_DOMAIN.clone().unwrap());
     }
     cookies.remove(cookie);
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let t_hash = windmill_common::auth::hash_token(&token);
     let t_prefix = token.get(..TOKEN_PREFIX_LEN).unwrap_or(&token);
 
@@ -976,7 +977,7 @@ async fn whois(
 //     Json(nu): Json<NewInviteCode>,
 // ) -> Result<(StatusCode, String)> {
 
-//     let mut tx = db.begin().await?;
+//     let mut tx = db.begin_cancel_safe().await?;
 //     require_super_admin(&mut *tx, email).await?;
 
 //     sqlx::query!(
@@ -1002,7 +1003,7 @@ async fn decline_invite(
     Extension(db): Extension<DB>,
     Json(nu): Json<DeclineInvite>,
 ) -> Result<(StatusCode, String)> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let is_admin = sqlx::query_scalar!(
         "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin",
@@ -1048,7 +1049,7 @@ async fn accept_invite(
     Extension(db): Extension<DB>,
     Json(nu): Json<AcceptInvite>,
 ) -> Result<(StatusCode, String)> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let r = sqlx::query!(
         "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin, operator",
@@ -1235,7 +1236,7 @@ async fn join_workspace<'c>(
 
 async fn leave_instance(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query!("DELETE FROM password WHERE email = $1", &authed.email)
         .execute(&mut *tx)
         .await?;
@@ -1282,7 +1283,7 @@ async fn update_workspace_user(
     Path((w_id, username_to_update)): Path<(String, String)>,
     Json(eu): Json<EditWorkspaceUser>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     require_admin(authed.is_admin, &authed.username)?;
 
@@ -1328,7 +1329,7 @@ async fn convert_user_to_group(
     Path((w_id, username_to_convert)): Path<(String, String)>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Get user email and current status
     let user_info = sqlx::query!(
@@ -1477,7 +1478,7 @@ async fn update_user(
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let mut new_super_admin: Option<bool> = None;
     if let Some(sa) = eu.is_super_admin {
@@ -1653,7 +1654,7 @@ async fn delete_user(
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_delete)
         .execute(&mut *tx)
@@ -1773,7 +1774,7 @@ async fn change_user_email(
         }
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // FOR UPDATE serializes concurrent moves of *this* account. Two moves of different accounts
     // onto the same destination are stopped by the `password` primary key instead, which is why the
@@ -2548,7 +2549,7 @@ async fn delete_workspace_user(
     Extension(db): Extension<DB>,
     Path((w_id, username_to_delete)): Path<(String, String)>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Locked so that the authorization below and the delete it guards see the same row.
     let target = sqlx::query!(
@@ -2609,7 +2610,7 @@ async fn set_login_type(
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!(
         "UPDATE password SET login_type = $1 WHERE email = $2",
@@ -2664,7 +2665,7 @@ async fn login(
 
     windmill_common::login_rate_limit::check_and_increment_login_attempt(&headers, &email)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let audit_author = AuditAuthor {
         email: email.clone(),
         username: email.clone(),
@@ -2774,7 +2775,7 @@ async fn refresh_token(
         }
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let super_admin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1 AND disabled = false",
@@ -2925,7 +2926,7 @@ async fn create_token(
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let token = create_token_internal(&mut *tx, &db, &authed, token_config).await?;
 
@@ -2981,7 +2982,7 @@ async fn impersonate(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!(
         "INSERT INTO token
@@ -3105,7 +3106,7 @@ async fn delete_token(
     Path(token_prefix): Path<String>,
 ) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let tokens_deleted: Vec<String> = sqlx::query_scalar(
         "DELETE FROM token
@@ -3156,7 +3157,7 @@ async fn update_token_scopes(
     forbid_elevated_job_token(&db, &authed.email, authed.job_id).await?;
     windmill_api_auth::ensure_scopes_within_caller(&authed, req.scopes.as_deref())?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let updated: Option<String> = sqlx::query_scalar!(
         "UPDATE token SET scopes = $1
@@ -3230,7 +3231,7 @@ async fn update_token_label(
         )));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Only user-created tokens may be relabeled — system tokens carry the
     // load-bearing labels described above. This SQL mirrors the canonical
@@ -3283,7 +3284,7 @@ async fn leave_workspace(
     authed: ApiAuthed,
 ) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,
@@ -3429,7 +3430,7 @@ async fn get_instance_username_info(
     Extension(db): Extension<DB>,
 ) -> JsonResult<InstanceUsernameInfo> {
     require_super_admin(&db, &authed).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let instance_username = match sqlx::query_scalar!(
         "SELECT username FROM password WHERE email = $1",
         &user_email
@@ -3500,7 +3501,7 @@ async fn export_global_users(
 ) -> JsonResult<Vec<ExportedGlobalUser>> {
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let users = sqlx::query_as!(
         ExportedGlobalUser,
         "SELECT email, password_hash, login_type, super_admin, verified, name, company, first_time_user, username FROM password"
@@ -3540,7 +3541,7 @@ async fn overwrite_global_users(
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query!("DELETE FROM password")
         .execute(&mut *tx)
         .await?;

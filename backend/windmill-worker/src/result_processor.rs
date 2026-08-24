@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 #[cfg(feature = "otel")]
 use opentelemetry::trace::FutureExt;
 
@@ -1966,7 +1967,7 @@ pub(crate) async fn handle_wac_child_completion(
     let result_json = serde_json::to_value(&result_value)
         .map_err(|e| error::Error::InternalErr(format!("Failed to serialize step result: {e}")))?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Merge the completed step into the checkpoint.
     // Uses `|| jsonb_build_object(key, value)` so concurrent children on

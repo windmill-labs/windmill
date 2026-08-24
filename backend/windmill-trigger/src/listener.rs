@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use crate::{
@@ -390,7 +391,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             // lock spans both writes.
             let mut history_err = None;
             let report_status = async {
-                let mut tx = db.begin().await?;
+                let mut tx = db.begin_cancel_safe().await?;
                 // SAFETY: Self::TABLE_NAME is a compile-time constant.
                 let rows = sqlx::query(&format!(
                     r#"

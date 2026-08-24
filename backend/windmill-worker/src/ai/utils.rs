@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use anyhow::Context;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
@@ -210,7 +211,7 @@ pub async fn add_message_to_conversation(
     step_name: &Option<String>,
     success: bool,
 ) -> Result<(), Error> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     add_message_to_conversation_tx(
         &mut tx,
         *conversation_id,

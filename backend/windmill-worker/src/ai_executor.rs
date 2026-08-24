@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -2034,7 +2035,7 @@ async fn cleanup_orphaned_tool_jobs(
             }
         };
 
-        let tx = match db.begin().await {
+        let tx = match db.begin_cancel_safe().await {
             Ok(tx) => tx,
             Err(e) => {
                 tracing::error!(

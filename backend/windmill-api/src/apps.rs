@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 
 /*
@@ -1366,7 +1367,7 @@ async fn mint_raw_app_sdk_token(
         // session lacks.
         Some(authed.read_only),
     );
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let token = create_token_internal(&mut *tx, db, authed, token_config).await?;
     tx.commit().await?;
     Ok((token, expiration))
@@ -1580,7 +1581,7 @@ pub async fn mint_app_embed_token(
             // session lacks.
             Some(authed.read_only),
         );
-        let mut tx = db.begin().await?;
+        let mut tx = db.begin_cancel_safe().await?;
         let token = create_token_internal(&mut *tx, db, authed, token_config).await?;
         tx.commit().await?;
         Some((token, expiration))

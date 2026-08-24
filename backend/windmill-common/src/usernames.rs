@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::db::BeginCancelSafe;
 use regex::Regex;
 use sqlx::{Postgres, Transaction};
 
@@ -59,7 +60,7 @@ pub async fn generate_instance_wide_unique_username<'c>(
 }
 
 pub async fn generate_instance_username_for_all_users(db: &DB) -> error::Result<()> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let users = sqlx::query!(r#"SELECT p.email as "email!", u.username as "username?" FROM password p LEFT JOIN usr u ON p.email = u.email WHERE p.username IS NULL AND (SELECT COUNT(DISTINCT username) FROM usr WHERE email = p.email) <= 1"#)
         .fetch_all(&mut *tx)
         .await?;

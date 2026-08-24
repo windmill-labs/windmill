@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use std::cell::RefCell;
 use std::env;
 use std::ffi::{c_char, c_uint, CStr, CString};
@@ -1280,7 +1281,7 @@ async fn record_asset_schema_best_effort(
     snapshot_id: Option<i64>,
     job_id: Uuid,
 ) -> anyhow::Result<()> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     windmill_common::materialization::record_asset_schema(
         &mut tx,
         w_id,

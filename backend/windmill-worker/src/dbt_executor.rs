@@ -8,6 +8,7 @@
 //! while the run is in flight, and the structured job result comes from
 //! `run_results.json` at the end.
 
+use windmill_common::db::BeginCancelSafe;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -688,7 +689,7 @@ pub(crate) async fn dbt_dep(
         // No warehouse identity, so nothing can be ingested — but this version's
         // rows must still go, or a descriptor moved to its own profiles.yml keeps
         // claiming relations it no longer describes.
-        let mut tx = db.begin().await?;
+        let mut tx = db.begin_cancel_safe().await?;
         // Clearing is a publication too: an older job that no longer describes the
         // script must not wipe a newer deploy's graph.
         let published = claim_graph_publication(&mut tx, w_id, script_path, publisher).await?;
@@ -3104,7 +3105,7 @@ async fn run_parse_only(
                 result.graph_job = stored.then_some(job.id);
             }
             None => {
-                let mut tx = db.begin().await?;
+                let mut tx = db.begin_cancel_safe().await?;
                 windmill_common::dbt_manifest::replace_dbt_editor_graph(
                     &mut tx,
                     &job.workspace_id,
@@ -3268,7 +3269,7 @@ async fn persist_ingest(
         // deploys nothing and must not touch what a deploy wrote.
         return Ok(false);
     };
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     // Deletion only soft-updates `script`, so re-inserting would republish model
     // SQL a user deleted. NOT `archived`: every redeploy archives the parent, and
     // treating that as deletion would deny v1 the graph its own runs render. An

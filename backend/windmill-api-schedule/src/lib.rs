@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use axum::{
     extract::{Extension, Path, Query},
     routing::{delete, get, post},
@@ -1087,7 +1088,7 @@ async fn exists_schedule(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let res = windmill_queue::schedule::exists_schedule(&mut tx, w_id, path).await?;
     tx.commit().await?;
     Ok(Json(res))
@@ -1482,7 +1483,7 @@ async fn set_default_error_handler(
         // connections a concurrent edit could interleave, leaving the
         // id-ordered drawer showing the wrong latest change, and a failed
         // insert would leave the schedules rewritten with nothing recording it.
-        let mut tx = db.begin().await?;
+        let mut tx = db.begin_cancel_safe().await?;
         let updated_schedules: Vec<String>;
         match payload.handler_type {
             HandlerType::Error => {

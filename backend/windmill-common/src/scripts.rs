@@ -8,6 +8,7 @@
 
 pub use windmill_types::scripts::*;
 
+use crate::db::BeginCancelSafe;
 use crate::{
     error::{to_anyhow, Error},
     runnable_settings::{self},
@@ -369,7 +370,7 @@ pub async fn clone_script<'c>(
     deployment_message: Option<String>,
     db: &DB,
 ) -> crate::error::Result<ClonedScript> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let s = if let Some(s) = fetch_script_for_update(path, w_id, &mut *tx).await? {
         s
     } else {

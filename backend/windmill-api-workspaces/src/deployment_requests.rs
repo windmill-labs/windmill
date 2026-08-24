@@ -10,6 +10,7 @@
 //! Email dispatch happens via `send_email_if_possible`, which is a no-op on
 //! OSS builds.
 
+use windmill_common::db::BeginCancelSafe;
 use axum::{
     extract::{Extension, Path},
     http::StatusCode,
@@ -283,7 +284,7 @@ async fn create_deployment_request(
         ));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let request_id_row = sqlx::query!(
         r#"
@@ -399,7 +400,7 @@ async fn cancel_deployment_request(
         ));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let rows_affected = sqlx::query!(
         "UPDATE workspace_fork_deployment_request SET closed_at = now(), closed_reason = 'cancelled' WHERE id = $1 AND closed_at IS NULL",
         id,
@@ -499,7 +500,7 @@ async fn close_deployment_request_merged(
         ));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let rows_affected = sqlx::query!(
         "UPDATE workspace_fork_deployment_request SET closed_at = now(), closed_reason = 'merged' WHERE id = $1 AND closed_at IS NULL",
         id,
@@ -641,7 +642,7 @@ async fn create_deployment_request_comment(
         None
     };
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let row = sqlx::query!(
         r#"
             INSERT INTO workspace_fork_deployment_request_comment

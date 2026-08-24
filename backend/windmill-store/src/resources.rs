@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use dashmap::DashMap;
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -2419,7 +2420,7 @@ async fn clear_resource_history(
         return Err(Error::NotFound(format!("Resource {} not found", path)));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let deleted = sqlx::query!(
         "DELETE FROM resource_version rv
          WHERE rv.workspace_id = $1 AND rv.path = $2

@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use axum::extract::Multipart;
 use windmill_api_auth::{
     auth::{list_tokens_internal, AuthCache, TruncatedTokenWithEmail},
@@ -3447,7 +3448,7 @@ async fn get_script_by_hash(
     let mut tx = if query_auth.authed.is_some_and(|x| x) {
         user_db.begin(&authed).await?
     } else {
-        db.begin().await?
+        db.begin_cancel_safe().await?
     };
     let r = get_script_by_hash_internal(
         &mut tx,
@@ -3476,7 +3477,7 @@ async fn raw_script_by_hash(
     Extension(db): Extension<DB>,
     Path((w_id, hash_str)): Path<(String, String)>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let hash = ScriptHash(to_i64(hash_str.strip_suffix(".ts").ok_or_else(|| {
         Error::BadRequest("Raw script path must end with .ts".to_string())
     })?)?);
@@ -3496,7 +3497,7 @@ async fn get_deployment_status(
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<DeploymentStatus> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let status_o = sqlx::query!(
         "SELECT s.lock, s.lock_error_logs, dm.job_id
          FROM script s
@@ -3961,7 +3962,7 @@ async fn delete_scripts_bulk(
         return Err(Error::PermissionDenied(msg));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Capture scripts for trashbin per path before bulk delete
     for path in &request.paths {

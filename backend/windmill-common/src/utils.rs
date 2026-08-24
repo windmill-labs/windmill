@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use crate::db::BeginCancelSafe;
 use crate::auth::is_devops_email;
 use crate::ee_oss::LICENSE_KEY_ID;
 #[cfg(feature = "enterprise")]
@@ -1426,7 +1427,7 @@ pub async fn get_custom_pg_instance_replication_password(db: &DB) -> Result<Stri
     // serialize concurrent workers: otherwise two callers both rotate, and the second
     // rotation invalidates the password the first already returned. Rotating and reading in
     // one locked transaction keeps the decision atomic.
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtext('custom_instance_replication_pwd'))")
         .execute(&mut *tx)
         .await?;

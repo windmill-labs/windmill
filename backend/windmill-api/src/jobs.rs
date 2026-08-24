@@ -11,6 +11,7 @@ pub use windmill_api_jobs::query::*;
 pub use windmill_api_jobs::types::*;
 pub use windmill_api_sse::*;
 
+use windmill_common::db::BeginCancelSafe;
 use axum::body::Body;
 use futures::{StreamExt, TryFutureExt};
 use itertools::Itertools;
@@ -551,7 +552,7 @@ async fn get_job_public_view_token(
 
     // The link is stateless and permanent, so the mint is the only moment this is
     // observable: audit it unconditionally rather than through the opt-in job-view log.
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     audit_log(
         &mut *tx,
         &AuditAuthor::from(&authed),
@@ -608,7 +609,7 @@ async fn cancel_job_api(
         require_job_update_read_access(&db, &user_db, authed, &w_id, &id, None).await?;
     }
 
-    let tx = db.begin().await?;
+    let tx = db.begin_cancel_safe().await?;
 
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
         Some(authed) => (authed).into(),
@@ -770,7 +771,7 @@ async fn force_cancel(
         require_job_update_read_access(&db, &user_db, authed, &w_id, &target, None).await?;
     }
 
-    let tx = db.begin().await?;
+    let tx = db.begin_cancel_safe().await?;
 
     let audit_author: AuditAuthor = match opt_authed.as_ref() {
         Some(authed) => (authed).into(),
@@ -4507,7 +4508,7 @@ pub async fn resume_suspended_flow_as_owner(
     Path((w_id, flow_id)): Path<(String, Uuid)>,
     QueryOrBody(value): QueryOrBody<serde_json::Value>,
 ) -> error::Result<StatusCode> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let (flow, job_id, is_wac) = get_suspended_flow_info(flow_id, &mut tx).await?;
 
@@ -4624,7 +4625,7 @@ async fn resume_suspended(
         ));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Resolve the suspended flow (works for both WAC and classic flows)
     let (flow, resume_job_id, is_wac) = get_suspended_flow_info(job_id, &mut tx).await?;
@@ -5132,7 +5133,7 @@ async fn resume_suspended_job_internal(
     } else {
         authed.as_ref().map(|x| x.username.clone())
     };
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin_cancel_safe().await?;
 
     // Inside the transaction that inserts the row and moves the suspend counter:
     // validating earlier would let the workflow resolve this step and suspend on the
@@ -5852,7 +5853,7 @@ pub async fn get_wac_approval_urls(
     // behind it and sees this key rather than racing past an earlier read. Upsert
     // because a workflow can mint before any step has checkpointed, and a bare
     // UPDATE would silently match nothing and leave the link unbound.
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query(
         "INSERT INTO v2_job_status (id, workflow_as_code_status)
          VALUES ($1, jsonb_build_object('_minted_approval_keys',
@@ -7281,7 +7282,7 @@ pub async fn wac_inline_checkpoint(
     })?;
     let source_hash = runnable_id.map(|h| h.to_string());
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let failure = windmill_common::wac::persist_inline_checkpoint_delta(
         &mut tx,
         &job_id,

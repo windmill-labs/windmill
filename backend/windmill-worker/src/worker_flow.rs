@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -756,7 +757,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             _ => false,
         };
 
-        let mut tx = db.begin().await?;
+        let mut tx = db.begin_cancel_safe().await?;
 
         add_time!(bench, "process module status START");
 
@@ -2245,7 +2246,7 @@ async fn add_tool_message_to_conversation(
                 };
 
                 // Insert new assistant message
-                let mut tx = db.begin().await?;
+                let mut tx = db.begin_cancel_safe().await?;
                 add_message_to_conversation_tx(
                     &mut tx,
                     conversation_id,
@@ -2884,7 +2885,7 @@ pub async fn handle_flow(
             let mini_job = MiniCompletedJob::from(flow_job.clone());
             let runnable_path = flow_job.runnable_path.as_ref().unwrap().clone();
             let schedule_push_result = (|| async {
-                let tx = db.begin().warn_after_seconds(5).await
+                let tx = db.begin_cancel_safe().warn_after_seconds(5).await
                     .map_err(|e| Error::internal_err(format!("begin tx for schedule push: {e:#}")))?;
                 let (tx, schedule_push_err) = try_schedule_next_job(
                     db,
@@ -2929,7 +2930,7 @@ pub async fn handle_flow(
                     // so once the flow is gone nothing reaches this code again.
                     let mut history_lost = None;
                     let disable_result = async {
-                        let mut tx = db.begin().await?;
+                        let mut tx = db.begin_cancel_safe().await?;
                         let rows = sqlx::query!(
                             "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
                             err.to_string(),
@@ -3407,7 +3408,7 @@ async fn push_next_flow_job(
         FlowStatusModule::WaitingForPriorSteps { .. } | FlowStatusModule::WaitingForEvents { .. }
     ) {
         if let Some((suspend, last)) = needs_resume(&flow, &status) {
-            let mut tx = db.begin().warn_after_seconds(3).await?;
+            let mut tx = db.begin_cancel_safe().warn_after_seconds(3).await?;
 
             /* Lock this row to prevent the suspend column getting out out of sync
              * if a resume message arrives after we fetch and count them here.
@@ -4169,7 +4170,7 @@ async fn push_next_flow_job(
     };
     let len = job_payloads.len();
 
-    let mut tx = db.begin().warn_after_seconds(3).await?;
+    let mut tx = db.begin_cancel_safe().warn_after_seconds(3).await?;
     let nargs = args.as_ref();
     for (i, payload_tag) in job_payloads.into_iter().enumerate() {
         if i % 100 == 0 && i != 0 {
@@ -4915,7 +4916,7 @@ async fn push_next_flow_job(
 //     same_worker_tx: Sender<Uuid>,
 //     base_internal_url: &str,
 // ) -> error::Result<()> {
-//     let mut tx = db.begin().await?;
+//     let mut tx = db.begin_cancel_safe().await?;
 
 //     let next_step = i
 //         .checked_add(1)

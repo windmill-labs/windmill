@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use crate::db::{ApiAuthed, DB};
 use axum::{
     extract::{Extension, Json, Path},
@@ -208,7 +209,7 @@ async fn upload_skills(
     }
     let names = collect_upload_names(&payload.skills)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let counts = sqlx::query!(
         r#"SELECT
                COUNT(*)::bigint AS "total!",
@@ -268,7 +269,7 @@ async fn delete_skill(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let deleted = sqlx::query_scalar!(
         "DELETE FROM ai_skill WHERE workspace_id = $1 AND name = $2 RETURNING name",
         &w_id,

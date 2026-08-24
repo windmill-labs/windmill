@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use async_trait::async_trait;
 use reqwest::Method;
 use serde_json::value::RawValue;
@@ -568,7 +569,7 @@ async fn try_renew_channel_locked(
         .renew_channel(workspace_id, &fresh_trigger, db)
         .await?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Past this point a new Google channel exists. Any failure leaks it.
     if let Err(e) = update_native_trigger_service_config(

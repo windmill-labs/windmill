@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use serde::{Deserialize, Serialize};
 use windmill_common::{
     cache::workspace_dependencies::EXISTS_CACHE_TIMEOUT, error, scripts::ScriptLang,
@@ -71,7 +72,7 @@ impl NewWorkspaceDependencies {
             }
         };
 
-        let mut tx = db.begin().await?;
+        let mut tx = db.begin_cancel_safe().await?;
         let prev_description = sqlx::query_scalar!(
             "
                 UPDATE workspace_dependencies

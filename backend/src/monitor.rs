@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 #[cfg(feature = "oauth2")]
 use std::collections::HashMap;
 use std::{
@@ -1837,7 +1838,7 @@ async fn cleanup_scheduled_job_deletions(db: &Pool<Postgres>) {
 
     let mut total_deleted = 0u64;
     for batch_num in 0..MAX_BATCHES {
-        let mut tx = match db.begin().await {
+        let mut tx = match db.begin_cancel_safe().await {
             Ok(tx) => tx,
             Err(e) => {
                 tracing::error!("Error starting transaction for scheduled job deletion: {e:?}");
@@ -1976,7 +1977,7 @@ async fn delete_expired_jobs_batch(
     only_workspace: Option<&str>,
     exclude_workspaces: Option<&[String]>,
 ) -> error::Result<(usize, Option<DateTime<Utc>>)> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Fetch active ROOT job IDs that started before the retention period. We only care about
     // these because their child jobs could be old enough to be deletion candidates.
@@ -4191,7 +4192,7 @@ async fn reconcile_unarmed_schedules(db: &Pool<Postgres>) {
     // rollback a dropped `Transaction` performs — so cancellation can't strand it.
     // The tx is held open only to own the lock; the scan and re-arm run on separate
     // pool connections.
-    let mut lock_tx = match db.begin().await {
+    let mut lock_tx = match db.begin_cancel_safe().await {
         Ok(tx) => tx,
         Err(e) => {
             tracing::error!("schedule reconcile: failed to begin lock tx: {e:#}");
@@ -5043,7 +5044,7 @@ async fn cancel_stale_job(
     workspace_id: String,
     scheduled_for: DateTime<Utc>,
 ) -> error::Result<()> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     tracing::error!(
         "Stale job detected: {} in workspace {} with tag {} (scheduled for: {}) . Cancelling it.",
         id,
@@ -5410,7 +5411,7 @@ async fn force_complete_zombie_job(
         "name": "ExecutionErr",
     });
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!(
         "INSERT INTO v2_job_completed
@@ -5663,7 +5664,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             tracing::error!(error_message);
             report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None).await;
             // if the flow hasn't started and is a zombie, we can simply restart it
-            let mut tx = db.begin().await?;
+            let mut tx = db.begin_cancel_safe().await?;
 
             let concurrency_key =
                 sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", flow.id)
@@ -6126,7 +6127,7 @@ async fn cancel_zombie_flow_job(
     workspace_id: &str,
     message: String,
 ) -> Result<(), error::Error> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     tracing::error!(
         "zombie flow detected: {} in workspace {}. Cancelling it.",
         id,

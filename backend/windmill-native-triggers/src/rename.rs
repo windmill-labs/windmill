@@ -1,5 +1,6 @@
 //! Keeping native triggers usable when their runnable is renamed.
 
+use windmill_common::db::BeginCancelSafe;
 use std::collections::HashMap;
 
 use windmill_api_auth::ApiAuthed;
@@ -140,7 +141,7 @@ async fn reregister_one<T: External>(
     // The token is scoped to the runnable path and only its hash is kept, so pointing the webhook
     // at the new path means minting a replacement rather than reusing the old one. Commit it
     // before handing it out: a service may call back the moment it accepts the new URL.
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let webhook_token = new_webhook_token(
         &mut tx,
         db,
@@ -177,7 +178,7 @@ async fn reregister_one<T: External>(
         )
     })?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let applied = record_reregistration(
         &mut *tx,

@@ -1,3 +1,4 @@
+use windmill_common::db::BeginCancelSafe;
 use super::*;
 
 /// One run of a dataset: written once when the dataset is run, and only ever read afterwards.
@@ -562,7 +563,7 @@ async fn resolve_deployed_draft(
     // Both writes in one transaction: a failure between them would leave the experiment promoted
     // to a version while its cells stayed a draft's, a split no later read repairs since the
     // experiment is no longer a draft.
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query!(
         "UPDATE eval_experiment
          SET subject = jsonb_set(

@@ -17,6 +17,7 @@
  * the status endpoint — not just the one that happened to receive the POST.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -460,7 +461,7 @@ async fn delete_expired_jobs_batch(
     only_workspace: Option<&str>,
     exclude_workspaces: Option<&[String]>,
 ) -> error::Result<(usize, Vec<String>, Option<DateTime<Utc>>)> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let active_root_job_ids: Vec<Uuid> = sqlx::query_scalar!(
         "SELECT q.id FROM v2_job_queue q

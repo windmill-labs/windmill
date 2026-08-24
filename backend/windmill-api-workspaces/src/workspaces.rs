@@ -6,6 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use windmill_common::db::BeginCancelSafe;
 use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, require_devops_role, require_instance_admin,
     require_is_writer, require_super_admin, ApiAuthed,
@@ -1466,7 +1467,7 @@ async fn edit_slack_command(
     Json(es): Json<EditCommandScript>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     if es.slack_command_script.is_some() {
         let exists_slack_command_with_team_id = sqlx::query_scalar!(
@@ -1614,7 +1615,7 @@ async fn set_slack_oauth_config(
         ));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!(
         "UPDATE workspace_settings
@@ -1662,7 +1663,7 @@ async fn delete_slack_oauth_config(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!(
         "UPDATE workspace_settings
@@ -1798,7 +1799,7 @@ async fn edit_webhook(
         ));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     if let Some(webhook) = &ew.webhook {
         sqlx::query!(
@@ -1909,7 +1910,7 @@ async fn edit_dbt_warehouses(
         .map(|m| serde_json::to_value(m))
         .transpose()
         .map_err(|e| Error::internal_err(format!("serializing the dbt warehouses: {e}")))?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     audit_log(
         &mut *tx,
         &authed,
@@ -1941,7 +1942,7 @@ async fn edit_large_file_storage_config(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let args_for_audit = format!("{:?}", new_config.large_file_storage);
     audit_log(
@@ -3064,7 +3065,7 @@ async fn edit_ducklake_config(
         }
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let args_for_audit = format!("{:?}", new_config.settings);
     audit_log(
@@ -3150,7 +3151,7 @@ async fn edit_datatable_config(
     require_admin(is_admin, &username)?;
     let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let old_datatables: HashMap<String, DataTable> = serde_json::from_value(
         sqlx::query_scalar!(
@@ -3608,7 +3609,7 @@ async fn edit_git_sync_config(
     require_admin(is_admin, &username)?;
     check_git_sync_access(&db, &w_id).await?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let args_for_audit = format!("{:?}", new_config.git_sync_settings);
     audit_log(
@@ -3916,7 +3917,7 @@ async fn edit_git_sync_repository(
         ));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // First, get the current git sync settings. `FOR UPDATE` because this
     // read-modify-writes the whole `git_sync` blob: the webhook reconciler writes
@@ -4096,7 +4097,7 @@ async fn delete_git_sync_repository(
         ));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // First, get the current git sync settings. `FOR UPDATE` because this
     // read-modify-writes the whole `git_sync` blob: the webhook reconciler writes
@@ -4238,7 +4239,7 @@ async fn edit_deploy_ui_config(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let args_for_audit = format!("{:?}", new_config.deploy_ui_settings);
     audit_log(
         &mut *tx,
@@ -4304,7 +4305,7 @@ async fn edit_default_scripts(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     audit_log(
         &mut *tx,
@@ -4355,7 +4356,7 @@ async fn get_default_scripts(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Option<serde_json::Value>> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let default_scripts = sqlx::query_scalar!(
         "SELECT default_scripts FROM workspace_settings WHERE workspace_id = $1",
         &w_id
@@ -4386,7 +4387,7 @@ async fn edit_default_app(
 
     require_admin(is_admin, &username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let args_for_audit = format!("{:?}", new_config.default_app_path);
     audit_log(
@@ -4474,7 +4475,7 @@ async fn edit_error_handler(
     // Normalize to new format (handles both old CLI and new CLI requests)
     let ee = ee.into_normalized();
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     if let Some(fallback_to_instance_alerts) = ee.fallback_to_instance_alerts {
         if fallback_to_instance_alerts {
@@ -4608,7 +4609,7 @@ async fn edit_success_handler(
     // Normalize to new format (handles both old CLI and new CLI requests)
     let es = es.into_normalized();
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query_as!(
         Group,
@@ -4687,7 +4688,7 @@ async fn set_environment_variable(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     match value {
         Some(value) => {
@@ -4821,7 +4822,7 @@ async fn set_encryption_key(
     // Build the previous cipher before the transaction (reads from cache/pool)
     let previous_encryption_key = build_crypt(&db, w_id.as_str()).await?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!(
         "UPDATE workspace_key SET key = $1 WHERE workspace_id = $2",
@@ -5030,7 +5031,7 @@ async fn user_workspaces(
     Extension(db): Extension<DB>,
     ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<WorkspaceList> {
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let workspaces = sqlx::query_as!(
         UserWorkspace,
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
@@ -5304,7 +5305,7 @@ async fn create_workspace(
 
     validate_workspace_name(&nw.name)?;
 
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin_cancel_safe().await?;
 
     check_w_id_conflict(&mut tx, &nw.id).await?;
     sqlx::query!(
@@ -7333,7 +7334,7 @@ async fn create_workspace_fork(
         ensure_no_existing_dev_workspace(&db, &parent_workspace_id).await?;
     }
 
-    let mut tx: Transaction<'_, Postgres> = db.begin().await?;
+    let mut tx: Transaction<'_, Postgres> = db.begin_cancel_safe().await?;
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's
@@ -7660,7 +7661,7 @@ async fn attach_dev_workspace(
         )));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     // Everything above ran outside a transaction, so prod's eligibility and the chain's labels could
     // have changed under us: re-decide both here, under the pairing lock.
     lock_dev_pairing(&mut tx, &[&prod_w_id, &dev_w_id]).await?;
@@ -7873,7 +7874,7 @@ async fn detach_dev_workspace(
 
     let dev_w_id = req.dev_workspace_id;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     // Under the pairing lock, so a dev workspace cannot appear beneath this one between the check
     // below and the update.
     lock_dev_pairing(&mut tx, &[&prod_w_id, &dev_w_id]).await?;
@@ -7965,7 +7966,7 @@ async fn edit_workspace(
     Json(ew): Json<EditWorkspace>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query!(
         "UPDATE workspace SET name = $1, owner = $2 WHERE id = $3",
         ew.name,
@@ -8002,7 +8003,7 @@ pub(crate) async fn archive_workspace_impl(
     dev_lock_parent: Option<&str>,
 ) -> Result<(usize, usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     // Unconditionally, before reading any pairing state: whether this workspace is a dev, and whether
     // it has one, is exactly what a concurrent attach changes, so gating the lock on the caller's
     // `dev_lock_parent` would skip it on the strength of the value the race invalidates.
@@ -8172,7 +8173,7 @@ async fn archive_workspace(
         archive_workspace_impl(&db, &w_id, &authed.username, dev_lock_parent.as_deref()).await?;
 
     // Audit log
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     let mut audit_params = HashMap::new();
     audit_params.insert("disabled_schedules", schedules_count.to_string());
     audit_params.insert("canceled_jobs", canceled_count.to_string());
@@ -8233,7 +8234,7 @@ async fn leave_workspace(
     authed: ApiAuthed,
 ) -> Result<String> {
     windmill_api_auth::forbid_job_token_account_destruction(&authed)?;
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND email = $2",
         &w_id,
@@ -8272,7 +8273,7 @@ async fn unarchive_workspace(
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     sqlx::query!("UPDATE workspace SET deleted = false WHERE id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
@@ -8343,7 +8344,7 @@ async fn invite_user(
         return Err(Error::BadRequest(msg));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let already_in_workspace = sqlx::query_scalar!(
         "SELECT EXISTS (SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)",
@@ -8495,7 +8496,7 @@ async fn add_user(
         return Err(Error::BadRequest(msg));
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let already_exists_email = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2)",
@@ -8659,7 +8660,7 @@ async fn delete_invite(
 ) -> Result<(StatusCode, String)> {
     require_admin(is_admin, &username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!(
         "DELETE FROM workspace_invite WHERE
@@ -8862,7 +8863,7 @@ async fn change_workspace_name(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!(
         "UPDATE workspace SET name = $1 WHERE id = $2",
@@ -8909,7 +8910,7 @@ async fn change_workspace_color(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     sqlx::query!(
         "UPDATE workspace_settings SET color = $1 WHERE workspace_id = $2",
@@ -9063,7 +9064,7 @@ async fn update_operator_settings(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     let settings_json = serde_json::json!(settings);
 
@@ -9526,7 +9527,7 @@ async fn create_protection_rule(
     require_admin(authed.is_admin, &authed.username)?;
     reject_reserved_rule_name(&req.name)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Check if rule with this name already exists
     let exists = sqlx::query_scalar!(
@@ -9622,7 +9623,7 @@ async fn update_protection_rule(
         reject_reserved_rule_name(new_name)?;
     }
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Check if rule exists
     let exists = sqlx::query_scalar!(
@@ -9721,7 +9722,7 @@ async fn delete_protection_rule(
     require_admin(authed.is_admin, &authed.username)?;
     reject_reserved_rule_name(&rule_name)?;
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
 
     // Delete the rule
     let result = sqlx::query!(
@@ -10611,7 +10612,7 @@ async fn seed_full_diff_scan(
     let kinds: Vec<String> = candidates.iter().map(|(k, _)| k.clone()).collect();
     let paths: Vec<String> = candidates.iter().map(|(_, p)| p.clone()).collect();
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     lock_workspace_pair(&mut tx, &w_id, &target_workspace_id).await?;
     // Re-checked under the lock: the pair may have been linked since the check above,
     // and `attach_dev_workspace` clears the arbitrary rows as it links. Seeding after

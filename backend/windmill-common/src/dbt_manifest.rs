@@ -53,6 +53,7 @@
 //! for the script it just ran. A new call site that cannot name where it
 //! authorized is a bug.
 
+use crate::db::BeginCancelSafe;
 use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
@@ -300,7 +301,7 @@ pub async fn prune_dbt_run_graphs(
     // In ONE transaction with the orphan sweep: a restart in the gap leaves graph
     // rows whose marker is gone, and since the sweep runs only when a marker went,
     // every later call computes `retired == 0` and skips them for good.
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin_cancel_safe().await?;
     // Ordered by the script's own `created_at`, so "newest" is the newest deploy
     // and not the newest ingest: a late-finishing job must not promote an old
     // version. Scoped to one (workspace, path), which the path index serves.
