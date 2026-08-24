@@ -294,23 +294,47 @@ impl<'b> DbExecutor<'b> for &'b mut PgConnection {
 /// Guards the pool against a Postgres session left inside a transaction sqlx is not
 /// tracking.
 ///
-/// sqlx only queues its rollback-on-drop once `begin()` has returned, so a future
-/// cancelled while `BEGIN` is still in flight — a disconnecting API client, a
-/// `tokio::time::timeout`, an aborted task — hands the connection back with the
-/// transaction still open server-side. sqlx's on-release `ping` is a bare
-/// `wait_until_ready` that reports such a connection as healthy, so it is reused: the
-/// next borrower's statements silently run inside that transaction and hold their locks
-/// for as long as it lives, and the first error turns the session into
-/// `idle in transaction (aborted)`, after which every unrelated query on it fails with
-/// `25P02` until `max_lifetime` recycles it half an hour later.
+/// # How a connection gets into that state
 ///
-/// Rolling back on every checkout would add a round trip to every query, which measured at
-/// about a third of the throughput on small ones, so the reset is armed only once Postgres
-/// has reported a state that proves a connection is carrying such leftover state.
+/// sqlx queues its rollback-on-drop only once `begin()` has returned: the guard keys on a
+/// transaction depth raised *after* the `BEGIN` round trip. A future cancelled in between —
+/// a disconnecting API client, a `tokio::time::timeout`, an aborted task — therefore leaves
+/// the server in a transaction with nothing queued to end it. sqlx's on-release `ping` is a
+/// bare `wait_until_ready`: it drains the `ReadyForQuery` but never inspects its
+/// transaction-status byte, so the connection is judged healthy and reused. The next
+/// borrower's statements then run inside that transaction and hold its locks for as long as
+/// it lives, and the first error turns the session into `idle in transaction (aborted)`,
+/// after which *every* unrelated query on that connection fails with `25P02`. Nothing in
+/// sqlx recovers it — the depth is still zero, so no rollback is ever queued — and
+/// `idle_in_transaction_session_timeout` never fires on a connection that is in constant
+/// use, leaving `max_lifetime` half an hour later as the only cure.
 ///
-/// The reset runs on **acquire** rather than release: the connection that reports the first
-/// `25P02` is released before its error has been converted, so a release-side hook would let
-/// exactly that connection back into the idle queue uncleaned.
+/// # Why the check is armed rather than always on
+///
+/// Postgres reports transaction status on every response, but sqlx keeps it private
+/// (`PgConnection::in_transaction` is `pub(crate)`, and the public `is_in_transaction`
+/// returns the client-side depth, which is precisely the value that is wrong here). Without
+/// it, the only way to know is to issue a `ROLLBACK`, and doing that on every checkout costs
+/// a round trip per query — about a third of the throughput on small ones. So it is armed
+/// only once Postgres has reported a state that proves a connection is carrying leftover
+/// transaction state, and disarms itself after [`RESET_WINDOW`].
+///
+/// # Why on acquire rather than release
+///
+/// The connection that reports the first `25P02` is released *before* the caller has
+/// converted that error, so a release-side hook would let exactly that connection back into
+/// the idle queue uncleaned. Cleaning on checkout has the same cost and no such gap.
+///
+/// # Why best-effort detection is enough
+///
+/// Arming is process-wide, not per-query: the flag covers a pool shared by everything in the
+/// process, so it does not matter *which* caller notices a poisoned connection, only that
+/// one does. [`note_sqlx_error`] is reached from the two conversions a `sqlx::Error` usually
+/// passes through, which is most queries; a caller that instead formats the error into a
+/// message never converts it and reports nothing. That only delays arming until the next
+/// converting query touches the same pool — on a worker the job poller alone does so every
+/// few tens of milliseconds. Adding calls at individual query sites is therefore not the
+/// pattern; it would suggest a per-site contract that does not exist.
 pub mod connection_reset {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::LazyLock;
@@ -368,13 +392,9 @@ pub mod connection_reset {
     }
 
     /// Arms the reset when an error proves a session is stuck in an aborted transaction.
-    /// `Error`'s `From<sqlx::Error>` and `to_anyhow` call this, so it covers `?` into a
-    /// `windmill_common::error::Result` and an explicit `map_err(to_anyhow)`. Everything
-    /// else has to call it: `?` into an `anyhow::Result` goes through anyhow's own `From`,
-    /// and a caller that inspects the `sqlx::Error` in place — formatting it into a
-    /// message, matching on it — never converts it at all. A poisoned connection reported
-    /// only down one of those paths goes unnoticed until something else reports it.
-    pub fn note_sqlx_error(err: &sqlx::Error) {
+    /// Called from `Error`'s `From<sqlx::Error>` and from `to_anyhow`; see the module docs
+    /// for why those two are enough and why individual query sites should not call it.
+    pub(crate) fn note_sqlx_error(err: &sqlx::Error) {
         let sqlx::Error::Database(db_err) = err else {
             return;
         };
