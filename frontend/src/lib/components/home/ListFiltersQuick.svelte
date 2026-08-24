@@ -49,8 +49,9 @@
 				startIcon={icon}
 				unifiedSize="sm"
 				btnClasses="justify-start"
+				title={filter}
 			>
-				{filter}
+				<span class="truncate">{filter}</span>
 			</Button>
 		</div>
 	{/each}

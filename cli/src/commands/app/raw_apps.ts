@@ -1,5 +1,6 @@
 import { requireLogin } from "../../core/auth.ts";
 import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import { mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
@@ -16,7 +17,7 @@ import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
 import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
-import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
+import { APP_BACKEND_FOLDER, RECORDINGS_FOLDER } from "./app_metadata.ts";
 import { writeIfChanged } from "../../utils/utils.ts";
 import { yamlOptions } from "../sync/sync.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
@@ -143,7 +144,8 @@ function getRunnableIdFromCodeFile(fileName: string): string | undefined {
  * Returns an empty object if the backend folder doesn't exist.
  *
  * @param backendPath - Path to the backend folder
- * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
+ * @param defaultTs - TypeScript runtime a bare `.ts` denotes. Must match what
+ *   newRawAppPathAssigner used to write the file, or the round-trip relabels it.
  */
 export async function loadRunnablesFromBackend(
   backendPath: string,
@@ -317,6 +319,12 @@ async function collectAppFiles(
         ) {
           continue;
         }
+        // Session recordings, which the dev server only ever writes at the app
+        // root. Matched there alone, so an app of its own with a `recordings/`
+        // component folder still ships it.
+        if (basePath === "/" && entry.name === RECORDINGS_FOLDER) {
+          continue;
+        }
         await readDirRecursive(fullPath + SEP, relativePath + "/");
       } else if (entry.isFile()) {
         // Skip generated/metadata files that shouldn't be part of the app
@@ -344,6 +352,7 @@ export async function pushRawApp(
   remotePath: string,
   localPath: string,
   message?: string,
+  defaultTs: "bun" | "deno" = "bun",
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -377,7 +386,10 @@ export async function pushRawApp(
   // Load runnables from separate YAML files in the backend folder
   // Falls back to reading from raw_app.yaml if no separate files exist (backward compat)
   const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
-  const runnablesFromBackend = await loadRunnablesFromBackend(backendPath);
+  const runnablesFromBackend = await loadRunnablesFromBackend(
+    backendPath,
+    defaultTs,
+  );
 
   let runnables: Record<string, any>;
   if (Object.keys(runnablesFromBackend).length > 0) {
@@ -539,7 +551,14 @@ async function pushRawAppCommand(
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  const merged = await mergeConfigWithConfigFile(opts);
 
-  await pushRawApp(workspace.workspaceId, remotePath, filePath);
+  await pushRawApp(
+    workspace.workspaceId,
+    remotePath,
+    filePath,
+    undefined,
+    merged.defaultTs,
+  );
   log.info(colors.bold.underline.green("Raw app pushed"));
 }

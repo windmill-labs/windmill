@@ -22,7 +22,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -361,7 +361,18 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !triggers?.length}
-				<div class="text-center text-sm font-semibold text-emphasis mt-2"> No routes </div>
+				<EmptyState
+					icon={Route}
+					title="No custom HTTP routes yet"
+					description="Every script and flow already has a canonical HTTP endpoint attached to it. These are additional parametrizable ones."
+					action={{
+						label: 'Add a route',
+						icon: Plus,
+						onClick: () => routeEditor?.openNew(false),
+						aiId: 'routes-empty-add',
+						aiDescription: 'Add route'
+					}}
+				/>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}

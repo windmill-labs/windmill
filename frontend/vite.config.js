@@ -16,6 +16,63 @@ const uiBuilderStaticPresent = existsSync(
 	fileURLToPath(new URL('static/ui_builder/app-preview.html', import.meta.url))
 )
 
+/**
+ * Fail the build if the emitted chunks import each other in a cycle.
+ *
+ * A chunk's imports all evaluate before its own body, so in a cycle one member runs
+ * while another has initialized nothing: its `const`/`class` exports read as
+ * `undefined` and the app dies on load with "X is not a constructor" behind
+ * SvelteKit's default 500 page. The module graph being acyclic is not enough —
+ * chunk *grouping* alone can create one. See docs/frontend-import-cycles.md.
+ */
+function assertAcyclicChunks() {
+	return {
+		name: 'wm-assert-acyclic-chunks',
+		generateBundle(_options, bundle) {
+			const imports = new Map()
+			for (const [file, chunk] of Object.entries(bundle)) {
+				if (chunk.type === 'chunk') imports.set(file, chunk.imports ?? [])
+			}
+			const state = new Map() // file -> 'visiting' | 'done'
+			const describe = (file) => {
+				const chunk = bundle[file]
+				const ids = chunk.moduleIds ?? Object.keys(chunk.modules ?? {})
+				const own = ids.filter((id) => id.includes('/src/')).map((id) => id.split('/src/')[1])
+				const shown = own.slice(0, 6).join(', ')
+				return `  ${file}\n      ${shown}${own.length > 6 ? `, +${own.length - 6} more` : ''}`
+			}
+			for (const root of imports.keys()) {
+				if (state.get(root)) continue
+				const stack = [[root, 0]]
+				const path = [root]
+				state.set(root, 'visiting')
+				while (stack.length) {
+					const frame = stack[stack.length - 1]
+					const deps = imports.get(frame[0]) ?? []
+					if (frame[1] >= deps.length) {
+						state.set(path.pop(), 'done')
+						stack.pop()
+						continue
+					}
+					const dep = deps[frame[1]++]
+					if (state.get(dep) === 'visiting') {
+						const cycle = path.slice(path.indexOf(dep)).concat(dep)
+						this.error(
+							`Cyclic chunk imports — this ships a runtime crash, see docs/frontend-import-cycles.md:\n` +
+								cycle.map(describe).join('\n   ->\n')
+						)
+					}
+					if (!state.has(dep) && imports.has(dep)) {
+						state.set(dep, 'visiting')
+						path.push(dep)
+						stack.push([dep, 0])
+					}
+				}
+			}
+		}
+	}
+}
+
 const remoteUrl =
 	process.env.REMOTE ??
 	(process.env.BACKEND_PORT
@@ -127,7 +184,12 @@ const config = {
 		}
 	},
 	preview: { port: 3001 },
-	plugins: [sveltekit(), ...(process.env.HTTPS === 'true' ? [mkcert()] : []), plugin],
+	plugins: [
+		sveltekit(),
+		...(process.env.HTTPS === 'true' ? [mkcert()] : []),
+		plugin,
+		assertAcyclicChunks()
+	],
 	define: { __pkg__: version },
 	optimizeDeps: {
 		include: ['highlight.js', 'highlight.js/lib/core', 'monaco-vim'],
@@ -147,6 +209,19 @@ const config = {
 		dedupe: ['vscode', 'monaco-editor']
 	},
 	assetsInclude: ['**/*.wasm'],
+	build: {
+		rollupOptions: {
+			output: {
+				// src/lib/gen is a self-contained generated client and a leaf of the module
+				// graph. Left alone the bundler splits it — index.ts in one chunk, the
+				// 12k-line schemas.gen.ts in another beside app code that imports back —
+				// which makes the *chunk* graph cyclic where the module graph is not, and
+				// modules then evaluate against uninitialized bindings. See
+				// docs/frontend-import-cycles.md.
+				advancedChunks: { groups: [{ name: 'gen', test: /[\\/]src[\\/]lib[\\/]gen[\\/]/ }] }
+			}
+		}
+	},
 	test: {
 		expect: { requireAssertions: true },
 		projects: [

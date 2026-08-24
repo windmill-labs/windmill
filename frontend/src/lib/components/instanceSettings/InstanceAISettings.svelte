@@ -145,5 +145,8 @@
 		link="https://www.windmill.dev/docs/core_concepts/ai_generation"
 		promptScope="instance"
 		customSave={handleCustomSave}
+		onSave={(savedConfig) => {
+			initialConfig = savedConfig
+		}}
 	/>
 {/if}

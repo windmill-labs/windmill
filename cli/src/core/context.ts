@@ -22,8 +22,11 @@ import {
   readConfigFile,
   findWorkspaceByGitBranch,
   getEffectiveWorkspaceId,
+  getWmillYamlPath,
   WorkspaceEntryConfig,
 } from "./conf.ts";
+import { existsSync, realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
   getCurrentGitBranch,
   getOriginalBranchForWorkspaceForks,
@@ -741,6 +744,92 @@ export async function tryResolveVersion(
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Directory the local tree mirrors the workspace from: the one holding
+ * wmill.yaml. Not `process.cwd()` — that only lands there once a config read
+ * has chdir'd into it, which `--remote` and fully-flagged invocations skip.
+ */
+function syncRoot(): string {
+  const wmillYaml = getWmillYamlPath();
+  return wmillYaml ? dirname(wmillYaml) : process.cwd();
+}
+
+/**
+ * Re-express a user-supplied file or folder argument as a path relative to the
+ * sync root, so the Windmill path derived from it is the same whatever shape
+ * the argument had (`./f/a/b.ts`, `/abs/repo/f/a/b.ts`, `b.ts` from inside
+ * `f/a`).
+ *
+ * `cwdBeforeConfig` must be the working directory as it was *before* the
+ * command read wmill.yaml: reading it chdirs into the directory holding it, and
+ * a relative argument was written against the directory the user was in.
+ * Arguments are resolved against that directory first and the sync root second,
+ * so both readings work.
+ *
+ * Resolving the sync root leaves the process in it, which is what makes the
+ * returned path readable by the caller — keep that in step if this ever stops
+ * going through `getWmillYamlPath`.
+ */
+export function toSyncRootRelativePath(
+  arg: string,
+  cwdBeforeConfig: string
+): string {
+  const root = syncRoot();
+  const candidates = isAbsolute(arg)
+    ? [arg]
+    : [resolve(cwdBeforeConfig, arg), resolve(root, arg)];
+  // A descriptor-less dbt project is named by a file that is deliberately not
+  // there, so an argument existing under neither reading is still a real one if
+  // the directory holding it is; only a path whose directory is missing too
+  // falls through to the sync-root reading for the caller to reject.
+  const abs =
+    candidates.find((c) => existsSync(c)) ??
+    candidates.find((c) => existsSync(dirname(c))) ??
+    candidates.at(-1)!;
+  const rel = relative(root, abs);
+  if (rel === "") return ".";
+  if (!rel.startsWith("..")) return rel;
+  // `relative` is purely lexical, so a root reached through a symlink (macOS'
+  // /var -> /private/var, a symlinked checkout) makes an absolute argument look
+  // like it escapes the tree. Resolve links only then, so a symlinked file
+  // *inside* the tree keeps the path it is filed under.
+  try {
+    const resolved = relative(realpathSync(root), realpathOfNamed(abs));
+    return resolved === "" ? "." : resolved;
+  } catch {
+    return rel;
+  }
+}
+
+/**
+ * `realpathSync` needs its target to exist, and a dbt descriptor deliberately
+ * does not. The directory naming it does, so resolve that and reattach.
+ */
+function realpathOfNamed(p: string): string {
+  return existsSync(p)
+    ? realpathSync(p)
+    : join(realpathSync(dirname(p)), basename(p));
+}
+
+/** Windmill workspace path: `u|f|g` followed by at least a folder and a name. */
+const REMOTE_PATH_RE = /^[ufg](\/[^/]+){2,}$/;
+
+/**
+ * Guard the Windmill path a preview run is pushed under. A preview job carries
+ * no runnable of its own, so this path is the only identity it has: it is what
+ * `WM_JOB_PATH` reports, what the runs page links to, and what relative imports
+ * inside the previewed code resolve against.
+ */
+export function assertRemotePath(remotePath: string, arg: string): void {
+  if (REMOTE_PATH_RE.test(remotePath)) return;
+  throw new Error(
+    `Cannot derive a Windmill path from '${arg}'` +
+      (remotePath ? ` (it maps to '${remotePath}')` : "") +
+      `: a preview runs under the path of the file it previews, which must sit inside the ` +
+      `wmill.yaml root and be of the form <u|g|f>/<username|group|folder>/<name>.`
+  );
 }
 
 export function validatePath(path: string): boolean {

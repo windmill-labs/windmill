@@ -157,8 +157,10 @@ export async function getAnthropicCompletion(
 
 	const client = options?.anthropicClient ?? workspaceAIClients.getAnthropicClient()
 
-	// Adds output_config.effort + adaptive thinking when an effort is set;
-	// no-op otherwise. Returns the base shape unchanged when off.
+	// An effort adds output_config.effort + adaptive thinking; the off sentinel
+	// adds an explicit thinking disable instead. An unset effort leaves the base
+	// shape untouched, which is itself off on the models that only think when
+	// asked.
 	const anthropicParams = applyReasoningToConfig(
 		{
 			model: config.model,

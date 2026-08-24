@@ -262,8 +262,12 @@ pub struct GlobalSettings {
     pub preview_tags_override: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_build_binary_on_deploy: Option<bool>,
 
     // String settings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_build_binary_tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1320,7 +1324,9 @@ pub async fn sync_global_settings_declarative(
                 serde_json::Value::Object(_) => "an object",
                 _ => "a non-string value",
             };
-            return Err(anyhow::anyhow!("{webhook_key} must be a URL string, got {kind}"));
+            return Err(anyhow::anyhow!(
+                "{webhook_key} must be a URL string, got {kind}"
+            ));
         }
     }
 

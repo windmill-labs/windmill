@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM v2_job_queue q JOIN v2_job j ON j.id = q.id\n                            WHERE q.id = $1 AND j.workspace_id = $2 AND q.tag = ANY($3))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ed421d15d2f9883196619418b3ebd7c687900b66cd8c3a173f2e3410e4ed86d9"
+}

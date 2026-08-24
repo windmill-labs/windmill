@@ -16,6 +16,19 @@ export function sessionTargetHref(target: SessionTarget | undefined): string | u
 	return `${base}/${seg}/${target.path}`
 }
 
+// Point a preview tab's URL at a place inside the previewed editor (the flow
+// step to select). The params are not part of the item's identity — every tab
+// resolver strips the query (see previewRouter's stripBase) — so they only ever
+// steer where the editor opens. No-op without params.
+export function withPreviewParams(
+	url: string | undefined,
+	params: Record<string, string> | undefined
+): string | undefined {
+	if (!url || !params) return url
+	const qs = new URLSearchParams(params).toString()
+	return qs ? `${url}${url.includes('?') ? '&' : '?'}${qs}` : url
+}
+
 // Force the global sidebar off in the previewed page (the sessions page already
 // has its own navigation rail) by setting Windmill's `nomenubar` query flag.
 // A session deliberately never switches the global workspaceStore, so the iframe

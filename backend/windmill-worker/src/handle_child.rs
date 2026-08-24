@@ -50,7 +50,7 @@ use futures::{
 };
 
 use crate::common::{resolve_job_timeout, OccupancyMetrics, StreamNotifier};
-use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit};
+use crate::job_logger::{append_job_logs, append_result_stream, append_with_limit, strip_nul};
 use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
@@ -89,6 +89,18 @@ async fn kill_process_tree(pid: Option<u32>) -> Result<(), String> {
 
 pub struct HandleChildResult {
     pub result_stream: Option<String>,
+    /// Last non-empty line the child wrote to **stdout**, unmasked, for executors
+    /// whose result convention is "last line of stdout" and that have no wrapper
+    /// script to tee it to a file (sandboxed containers). stderr is excluded: the two
+    /// pipes are merged by a fair `select`, so their relative order is arbitrary — a
+    /// diagnostic on stderr must not be able to win over the real result.
+    pub last_line: Option<String>,
+}
+
+/// A line read from a child, tagged with the pipe it came from.
+struct OutputLine {
+    stderr: bool,
+    line: String,
 }
 
 /// - wait until child exits and return with exit status
@@ -125,13 +137,17 @@ pub async fn handle_child(
     let pid = child.id();
     #[cfg(target_os = "linux")]
     if let Some(pid) = pid {
+        let oom_score_adj = *windmill_common::worker::JOB_OOM_SCORE_ADJ;
         // procfs handles writes synchronously in-kernel; no fsync (it returns
         // EINVAL on procfs files).
-        match std::fs::write(format!("/proc/{pid}/oom_score_adj"), b"1000") {
+        match std::fs::write(
+            format!("/proc/{pid}/oom_score_adj"),
+            oom_score_adj.to_string(),
+        ) {
             Ok(()) => {}
             Err(e) => {
                 tracing::error!(
-                    "Failed to set oom_score_adj=1000 for pid {pid}: {e:#}. \
+                    "Failed to set oom_score_adj={oom_score_adj} for pid {pid}: {e:#}. \
                     OOM killer may target the worker instead of this job"
                 );
             }
@@ -307,6 +323,7 @@ pub async fn handle_child(
     };
 
     let mut stream_result = Vec::new();
+    let mut last_line = String::new();
     /* a future that reads output from the child and appends to the database */
     let lines = write_lines(
         output,
@@ -321,6 +338,7 @@ pub async fn handle_child(
         child_name,
         &mut stream_result,
         stream_notifier,
+        Some(&mut last_line),
     )
     .instrument(trace_span!("child_lines"));
 
@@ -335,7 +353,10 @@ pub async fn handle_child(
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
             "logs or result reached limit. (current max size: {MAX_RESULT_SIZE} characters)"
         ))),
-        Ok(Ok(status)) => process_status(&child_name, status, stream_result),
+        Ok(Ok(status)) => process_status(&child_name, status, stream_result).map(|mut r| {
+            r.last_line = (!last_line.is_empty()).then_some(last_line);
+            r
+        }),
         Ok(Err(kill_reason)) => match kill_reason {
             KillReason::AlreadyCompleted => {
                 Err(Error::AlreadyCompleted("Job already completed".to_string()))
@@ -350,8 +371,8 @@ pub async fn handle_child(
 
 pub const WAC_STEP_PREFIX: &str = "WM_WAC_STEP: ";
 
-pub async fn write_lines(
-    output: impl stream::Stream<Item = io::Result<String>> + Send,
+async fn write_lines(
+    output: impl stream::Stream<Item = io::Result<OutputLine>> + Send,
     job_id: &Uuid,
     w_id: &str,
     worker: &str,
@@ -363,6 +384,7 @@ pub async fn write_lines(
     child_name: &str,
     stream_result: &mut Vec<String>,
     stream_notifier: Option<StreamNotifier>,
+    mut last_line: Option<&mut String>,
 ) {
     let max_log_size = if *CLOUD_HOSTED {
         MAX_RESULT_SIZE
@@ -430,24 +452,26 @@ pub async fn write_lines(
 
         while let Some(line) = read_lines.next().await {
             match line {
-                Ok(line) => {
+                Ok(OutputLine { stderr, line }) => {
                     if line.is_empty() {
                         continue;
                     }
-                    let line = if let Some(ref snap) = mask_snapshot {
-                        match snap.mask(&line) {
-                            std::borrow::Cow::Owned(masked) => masked,
-                            std::borrow::Cow::Borrowed(_) => line,
-                        }
-                    } else {
-                        line
-                    };
+                    // Masking is a log concern only: `mask` also appends a multi-line
+                    // notice, which would end up inside a captured result. Keep `line`
+                    // raw and log `logged`.
+                    let masked = mask_snapshot
+                        .as_ref()
+                        .and_then(|snap| match snap.mask(&line) {
+                            std::borrow::Cow::Owned(masked) => Some(masked),
+                            std::borrow::Cow::Borrowed(_) => None,
+                        });
+                    let logged = masked.as_deref().unwrap_or(line.as_str());
                     if *OTEL_JOB_LOGS {
-                        if let Some(otel_suffix) = line.strip_prefix(OTEL_PREFIX) {
+                        if let Some(otel_suffix) = logged.strip_prefix(OTEL_PREFIX) {
                             tracing::event!(tracing::Level::INFO, otel_suffix);
                         }
                     }
-                    if let Some(step_json) = line.strip_prefix(WAC_STEP_PREFIX) {
+                    if let Some(step_json) = logged.strip_prefix(WAC_STEP_PREFIX) {
                         // Real-time WAC step start marker — fire-and-forget DB write
                         let conn = conn.clone();
                         let job_id = job_id.clone();
@@ -460,7 +484,7 @@ pub async fn write_lines(
                         });
                         continue;
                     }
-                    if let Some(stream) = extract_stream_from_logs(&line) {
+                    if let Some(stream) = extract_stream_from_logs(logged) {
                         let len = stream.len();
                         if log_remaining >= len {
                             log_remaining -= len;
@@ -470,7 +494,15 @@ pub async fn write_lines(
                             log_remaining = 0;
                         }
                     } else {
-                        append_with_limit(&mut joined, &line, &mut log_remaining);
+                        if let Some(buf) = last_line.as_mut() {
+                            if !stderr && !line.trim().is_empty() {
+                                buf.clear();
+                                // Same NUL scrub the log path applies: Postgres rejects
+                                // a NUL in the resulting jsonb too.
+                                buf.push_str(&strip_nul(&line));
+                            }
+                        }
+                        append_with_limit(&mut joined, logged, &mut log_remaining);
                     }
                     if log_remaining == 0 {
                         tracing::info!(%job_id, "Too many logs lines for job {job_id}");
@@ -687,6 +719,68 @@ pub(crate) async fn get_mem_peak(pid: Option<u32>, nsjail: bool) -> i32 {
     } else {
         // rand::random::<i32>() % 100 // to remove - used to fake memory data on MacOS
         -3
+    }
+}
+
+/// The job state a command run outside the main script needs to stay
+/// cancellable. `dbt deps` can hang on an unreachable package endpoint and
+/// `dbt parse`/`ls` on a warehouse handshake, so running them detached would
+/// hold a worker slot past a cancel or a timeout.
+pub struct JobCtx<'a> {
+    pub mem_peak: &'a mut i32,
+    pub canceled_by: &'a mut Option<CanceledBy>,
+    pub occupancy_metrics: &'a mut OccupancyMetrics,
+    pub worker_name: &'a str,
+    pub deadline: JobDeadline,
+}
+
+impl JobCtx<'_> {
+    /// What is left of the job's wall clock, for the phase about to start.
+    pub fn timeout(&self) -> Option<i32> {
+        self.deadline.remaining_secs()
+    }
+}
+
+/// One wall clock for a job that runs several subprocesses in sequence.
+///
+/// Both `handle_child` and `run_future_with_polling_update_job_poller` resolve
+/// the timeout they are handed into a fresh duration, so handing each phase the
+/// job's full timeout lets a job with N phases run for N times it. Resolved
+/// once at the start, then spent down.
+#[derive(Clone, Copy)]
+pub struct JobDeadline(Option<Instant>);
+
+impl JobDeadline {
+    pub async fn start(
+        conn: &Connection,
+        w_id: &str,
+        job_id: Uuid,
+        custom_timeout: Option<i32>,
+    ) -> Self {
+        let (d, _, _) = resolve_job_timeout(conn, w_id, job_id, custom_timeout).await;
+        Self(Some(Instant::now() + d))
+    }
+
+    /// Whether the job's wall clock is already spent.
+    ///
+    /// Distinct from `remaining_secs`, which deliberately never reports zero:
+    /// an expired budget still has to hand the next phase a positive timeout so
+    /// the poller fires. A caller deciding whether to START more work needs the
+    /// honest answer.
+    pub fn is_expired(&self) -> bool {
+        self.0.is_some_and(|d| d <= Instant::now())
+    }
+
+    pub fn remaining_secs(&self) -> Option<i32> {
+        let deadline = self.0?;
+        // A non-positive timeout reads as "unset" downstream, so an expired
+        // budget must still ask for a positive one and let the poller fire.
+        Some(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .as_secs()
+                .clamp(1, i32::MAX as u64) as i32,
+        )
     }
 }
 
@@ -963,7 +1057,7 @@ fn child_joined_output_stream(
     child: &mut Box<dyn TokioChildWrapper>,
     job_id: Uuid,
     w_id: String,
-) -> impl stream::FusedStream<Item = io::Result<String>> {
+) -> impl stream::FusedStream<Item = io::Result<OutputLine>> {
     let stderr = child
         .stderr()
         .take()
@@ -977,8 +1071,10 @@ fn child_joined_output_stream(
     let stdout = BufReader::new(stdout).lines();
     let stderr = BufReader::new(stderr).lines();
     stream::select(
-        lines_to_stream(stderr, true, job_id.clone(), w_id.clone()),
-        lines_to_stream(stdout, false, job_id, w_id),
+        lines_to_stream(stderr, true, job_id.clone(), w_id.clone())
+            .map(|l| l.map(|line| OutputLine { stderr: true, line })),
+        lines_to_stream(stdout, false, job_id, w_id)
+            .map(|l| l.map(|line| OutputLine { stderr: false, line })),
     )
 }
 
@@ -1007,6 +1103,7 @@ pub fn process_status(
             } else {
                 Some(stream_result.join(""))
             },
+            last_line: None,
         })
     } else if let Some(code) = status.code() {
         Err(error::Error::ExitStatus(program.to_string(), code))
@@ -1023,5 +1120,21 @@ pub fn process_status(
         return Err(error::Error::ExecutionErr(String::from(
             "process terminated by signal",
         )));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A non-positive timeout means "unset" to `resolve_job_timeout`, so an
+    // exhausted budget that reported 0 would hand the next phase no deadline at
+    // all — the opposite of what running out of time should do.
+    #[test]
+    fn an_exhausted_budget_still_asks_for_a_positive_timeout() {
+        let spent = JobDeadline(Some(Instant::now() - Duration::from_secs(30)));
+        assert_eq!(spent.remaining_secs(), Some(1));
+        let left = JobDeadline(Some(Instant::now() + Duration::from_secs(120)));
+        assert!(matches!(left.remaining_secs(), Some(s) if (118..=120).contains(&s)));
     }
 }

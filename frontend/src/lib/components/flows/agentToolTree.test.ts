@@ -105,6 +105,20 @@ describe('collectFlowNodeIds', () => {
 	})
 })
 
+describe('malformed module trees', () => {
+	it('leaves a non-array branches to the schema check instead of throwing', () => {
+		// The traversal now runs on model-produced JSON before it is validated, and every flow
+		// write path depends on reaching the schema error rather than "branches is not iterable".
+		expect(() =>
+			collectProviderlessAgentIds([
+				{ id: 'a', value: { type: 'branchall', branches: {} } },
+				{ id: 'b', value: { type: 'branchone', default: null, branches: 'nope' } },
+				{ id: 'c', value: { type: 'branchall', branches: [null, { modules: undefined }] } }
+			])
+		).not.toThrow()
+	})
+})
+
 describe('collectProviderlessAgentIds', () => {
 	const provider = { type: 'static', value: { kind: 'openai', model: 'gpt-4o' } }
 	const agent = (id: string, value: Record<string, unknown>) => ({

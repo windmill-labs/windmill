@@ -22,6 +22,11 @@ pub struct BuildRequestArgs<'a> {
     pub user_message: &'a str,
     pub attachments: Option<&'a [S3Object]>,
     pub has_websearch: bool,
+    /// Routing hint for the provider's prompt cache. Requests sharing a prompt prefix
+    /// must reuse one key to land on the same cache, so it is derived from what pins
+    /// the prefix (the step), never from the request. `None` retries a key the
+    /// endpoint rejected.
+    pub prompt_cache_key: Option<&'a str>,
 }
 
 /// Response from AI provider

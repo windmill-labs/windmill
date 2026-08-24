@@ -15,8 +15,8 @@ use crate::common::{cached_result_path, get_root_job_id, save_in_cache, transfor
 use crate::js_eval::{eval_timeout, IdContext};
 use crate::worker_utils::get_tag_and_concurrency;
 use crate::{
-    JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, UpdateFlow,
-    KEEP_JOB_DIR,
+    JobCompletedSender, PreviousResult, SameWorkerSender, SendResultPayload, StepFailureKind,
+    UpdateFlow, KEEP_JOB_DIR,
 };
 
 use anyhow::Context;
@@ -51,7 +51,6 @@ use windmill_common::runnable_settings::{
     ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettingsTrait,
 };
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
-use windmill_common::users::username_to_permissioned_as;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::{error_to_value, to_raw_value, Connection};
 use windmill_common::{
@@ -170,7 +169,7 @@ pub async fn update_flow_status_after_job_completion(
     canceled_by: Option<CanceledBy>,
     result: Arc<Box<RawValue>>,
     flow_job_duration: Option<FlowJobDuration>,
-    unrecoverable: bool,
+    step_failure: StepFailureKind,
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
@@ -193,7 +192,7 @@ pub async fn update_flow_status_after_job_completion(
         stop_early_override,
         has_triggered_error_handler: false,
     };
-    let mut unrecoverable = unrecoverable;
+    let mut step_failure = step_failure;
     loop {
         potentially_crash_for_testing();
         let nrec = match Box::pin(update_flow_status_after_job_completion_internal(
@@ -206,7 +205,7 @@ pub async fn update_flow_status_after_job_completion(
             rec.canceled_by,
             rec.flow_job_duration.clone(),
             rec.result,
-            unrecoverable,
+            step_failure,
             same_worker_tx,
             worker_dir,
             rec.stop_early_override,
@@ -235,7 +234,7 @@ pub async fn update_flow_status_after_job_completion(
                     Arc::new(to_raw_value(&Json(&WrappedError {
                         error: json!(e.to_string()),
                     }))),
-                    true,
+                    StepFailureKind::Unrecoverable,
                     same_worker_tx,
                     worker_dir,
                     rec.stop_early_override,
@@ -250,7 +249,7 @@ pub async fn update_flow_status_after_job_completion(
                 .await?
             }
         };
-        unrecoverable = false;
+        step_failure = StepFailureKind::Normal;
 
         match nrec {
             UpdateFlowStatusAfterJobCompletion::Done(job) => {
@@ -422,7 +421,7 @@ pub async fn update_flow_status_after_job_completion_internal(
     canceled_by: Option<CanceledBy>,
     mut flow_job_duration: Option<FlowJobDuration>,
     result: Arc<Box<RawValue>>,
-    unrecoverable: bool,
+    step_failure: StepFailureKind,
     same_worker_tx: &SameWorkerSender,
     worker_dir: &str,
     stop_early_override: Option<bool>,
@@ -1299,11 +1298,11 @@ pub async fn update_flow_status_after_job_completion_internal(
                         }),
                     )
                 } else {
-                    // An unrecoverable failure (worker crash/OOM) must reach the error handler
-                    // even on a continue_on_error step, so don't advance the step counter past
-                    // the failed module — otherwise the flow would silently continue to the next
-                    // step and hide the worker death.
-                    let inc = if !unrecoverable && continue_on_error {
+                    // A failure the module's error policy does not describe must reach the error
+                    // handler even on a continue_on_error step, so don't advance the step
+                    // counter past the failed module — otherwise the flow would silently
+                    // continue to the next step and hide it.
+                    let inc = if step_failure.honors_step_error_policy() && continue_on_error {
                         let retry = current_module
                             .as_ref()
                             .and_then(|x| x.retry.clone())
@@ -1742,19 +1741,20 @@ pub async fn update_flow_status_after_job_completion_internal(
         // enclosing job/subflow. Detect that case and treat the flow as successful.
         let recoverable_failure_at_last_step = !success
             && is_last_step
-            && !unrecoverable
+            && step_failure.honors_step_error_policy()
             && (skip_seq_branch_failure || skip_loop_failures || continue_on_error);
 
         let should_continue_flow = match success {
             _ if stop_early => stop_early_err_msg.is_some() && flow_value.failure_module.is_some(), // if stop_early_err_msg some, we want to trigger the error handler before stopping the flow, if any
             _ if flow_job.is_canceled() => false,
             true => !is_last_step,
-            // An unrecoverable failure (a step killed by a worker crash/OOM and surfaced by
-            // the zombie handler, or an error raised while updating the flow status itself)
-            // must not be retried or silently skipped, but it should still trigger the flow's
-            // error handler: an OOM/worker death is precisely when the error handler is expected
-            // to run. Continue the flow only to reach the failure module, never to retry.
-            false if unrecoverable => {
+            // A failure the module's error policy does not describe (a worker crash/OOM
+            // surfaced by the zombie handler, an error raised while updating the flow status,
+            // a suspend gate that ended without approval) must not be retried or silently
+            // skipped, but it should still trigger the flow's error handler — that is
+            // precisely when the error handler is expected to run. Continue the flow only to
+            // reach the failure module, never to retry.
+            false if !step_failure.honors_step_error_policy() => {
                 !is_failure_step
                     && !has_triggered_error_handler
                     && flow_value.failure_module.is_some()
@@ -1777,7 +1777,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             success = true;
         }
 
-        tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, unrecoverable = %unrecoverable,
+        tracing::info!(id = %flow_job.id, root_id = %job_root, success = %success, stop_early = %stop_early, is_last_step = %is_last_step, step_failure = ?step_failure,
              skip_seq_branch_failure = %skip_seq_branch_failure, skip_loop_failures = %skip_loop_failures,
              current_module_id = %current_module.map(|x| x.id.clone()).unwrap_or_default(),
             continue_on_error = %continue_on_error, should_continue_flow = %should_continue_flow, "computed if flow should continue");
@@ -2109,7 +2109,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             worker_name,
             flow_runners,
             &killpill_rx,
-            unrecoverable,
+            step_failure,
         ))
         .warn_after_seconds(10)
         .await
@@ -2800,10 +2800,9 @@ pub async fn handle_flow(
     worker_name: &str,
     flow_runners: Option<Arc<FlowRunners>>,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
-    // The previous step failed unrecoverably (e.g. a worker crash/OOM surfaced by the
-    // zombie handler). The next pushed step can only be the error handler (failure
-    // module), and it must not be pinned to the dead worker via same_worker.
-    unrecoverable: bool,
+    // How the step this flow is resuming from failed, which bounds what may be pushed next:
+    // see [`StepFailureKind`].
+    step_failure: StepFailureKind,
 ) -> anyhow::Result<()> {
     let flow = flow_data.value();
 
@@ -2924,20 +2923,55 @@ pub async fn handle_flow(
                     // its own disable write failed. Retry it: rearm_schedule turns
                     // these into NoOp, so without disabling here the schedule would
                     // stay enabled yet never run.
-                    if let Err(disable_err) = sqlx::query!(
-                        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                        err.to_string(),
-                        &flow_job.workspace_id,
-                        &schedule.path
-                    )
-                    .execute(db)
-                    .await
-                    {
+                    // Contract on `record_in_disable_tx`. Worth knowing here:
+                    // this is the last chance to disable, because a flow
+                    // schedule arms its next occurrence when the flow *starts*,
+                    // so once the flow is gone nothing reaches this code again.
+                    let mut history_lost = None;
+                    let disable_result = async {
+                        let mut tx = db.begin().await?;
+                        let rows = sqlx::query!(
+                            "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
+                            err.to_string(),
+                            &flow_job.workspace_id,
+                            &schedule.path
+                        )
+                        .execute(&mut *tx)
+                        .await?
+                        .rows_affected();
+                        if rows > 0 {
+                            history_lost = windmill_common::trigger_history::record_in_disable_tx(
+                                &mut tx,
+                                windmill_queue::jobs::schedule_auto_disable_event(
+                                    &flow_job.workspace_id,
+                                    &schedule.path,
+                                    &err.to_string(),
+                                ),
+                            )
+                            .await;
+                        }
+                        tx.commit().await?;
+                        Ok::<(), Error>(())
+                    }
+                    .await;
+
+                    if let Err(disable_err) = disable_result {
                         report_error_to_workspace_handler_or_critical_side_channel(
                             &mini_job,
                             db,
                             format!(
                                 "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                                schedule.path,
+                            ),
+                        )
+                        .await;
+                    }
+                    if let Some(history_err) = history_lost {
+                        report_error_to_workspace_handler_or_critical_side_channel(
+                            &mini_job,
+                            db,
+                            format!(
+                                "Disabled schedule {} but could not record it in the trigger history: {history_err}",
                                 schedule.path,
                             ),
                         )
@@ -2985,7 +3019,7 @@ pub async fn handle_flow(
             flow_runners.clone(),
             job_completed_tx.clone(),
             &killpill_rx,
-            unrecoverable,
+            step_failure,
         ))
         .warn_after_seconds(10)
         .await?;
@@ -3168,10 +3202,9 @@ async fn push_next_flow_job(
     flow_runners: Option<Arc<FlowRunners>>,
     job_completed_tx: JobCompletedSender,
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
-    // The prior step failed unrecoverably (worker crash/OOM). The only step pushed
-    // from here is the error handler, which must run on a live worker rather than
-    // being pinned to the dead one via same_worker / dedicated runners.
-    unrecoverable: bool,
+    // How the prior step failed, which bounds what may be pushed next: see
+    // [`StepFailureKind`].
+    step_failure: StepFailureKind,
 ) -> error::Result<PushNextFlowJob> {
     let job_root = flow_job
         .flow_innermost_root_job
@@ -3232,6 +3265,7 @@ async fn push_next_flow_job(
             w_id: flow_job.workspace_id.clone(),
             worker_dir: worker_dir.to_string(),
             token: client.token.clone(),
+            step_failure,
         })));
     }
 
@@ -3286,6 +3320,7 @@ async fn push_next_flow_job(
                             w_id: flow_job.workspace_id.clone(),
                             worker_dir: worker_dir.to_string(),
                             token: client.token.clone(),
+                            step_failure,
                         }
                     )));
                 }
@@ -3330,6 +3365,7 @@ async fn push_next_flow_job(
                     w_id: flow_job.workspace_id.clone(),
                     worker_dir: worker_dir.to_string(),
                     token: client.token.clone(),
+                    step_failure,
                 })));
             }
         }
@@ -3662,6 +3698,7 @@ async fn push_next_flow_job(
                     w_id: flow_job.workspace_id.clone(),
                     worker_dir: worker_dir.to_string(),
                     token: client.token.clone(),
+                    step_failure: StepFailureKind::SuspendNotApproved,
                 })));
             }
         }
@@ -3731,10 +3768,11 @@ async fn push_next_flow_job(
         }
     };
 
-    // An unrecoverable failure (worker crash/OOM) must not be retried — the original worker
-    // and its state are gone — so skip retry evaluation and fall straight through to the
-    // failure module below.
-    let retry = if !unrecoverable && matches!(&status_module, FlowStatusModule::Failure { .. },) {
+    // Retry is a policy on the step's own execution: skip it for a failure the step did not
+    // produce by running, and fall straight through to the failure module below.
+    let retry = if step_failure.honors_step_error_policy()
+        && matches!(&status_module, FlowStatusModule::Failure { .. },)
+    {
         let retry = &module.retry.clone().unwrap_or_default();
         evaluate_retry(
             retry,
@@ -3749,13 +3787,13 @@ async fn push_next_flow_job(
         None
     };
     let get_args_from_id = match &status_module {
-        // `|| unrecoverable`: a worker crash/OOM routes to the failure module even on a
-        // continue_on_error step (whose failures are normally tolerated), matching the
-        // `unrecoverable` decision in update_flow_status_after_job_completion_internal.
+        // `|| !honors_step_error_policy()`: such a failure routes to the failure module even
+        // on a continue_on_error step (whose failures are normally tolerated), matching the
+        // decision in update_flow_status_after_job_completion_internal.
         FlowStatusModule::Failure { job, .. }
             if retry.as_ref().is_some()
                 || !module.continue_on_error.is_some_and(|x| x)
-                || unrecoverable =>
+                || !step_failure.honors_step_error_policy() =>
         {
             if let Some((fail_count, retry_in)) = retry {
                 tracing::debug!(
@@ -4076,7 +4114,7 @@ async fn push_next_flow_job(
                 None,
                 result,
                 None,
-                false,
+                StepFailureKind::Normal,
                 same_worker_tx,
                 worker_dir,
                 None,
@@ -4104,7 +4142,7 @@ async fn push_next_flow_job(
             .as_ref()
             .is_some_and(|fr| fr.job_id == flow_job.id);
 
-    let continue_with_runners = !unrecoverable
+    let continue_with_runners = step_failure.keeps_worker_pin()
         && (start_runners || (flow_runners.is_some() && !do_not_pass_runners))
         && module.suspend.is_none()
         && module.sleep.is_none();
@@ -4114,10 +4152,10 @@ async fn push_next_flow_job(
     let job_same_worker = flow_job.same_worker
         && matches!(flow_job.kind, JobKind::Flow)
         && flow_job.runnable_id.is_some();
-    // After an unrecoverable failure the original worker is gone, so the error handler
-    // step is pushed as a regular queued job (any live worker can pick it up) instead of
-    // being signaled to the dead worker via same_worker — which would strand it forever.
-    let continue_on_same_worker = !unrecoverable
+    // Without a worker worth pinning to, the error handler step is pushed as a regular queued
+    // job (any live worker can pick it up) instead of being signaled via same_worker to a
+    // worker that may be dead — which would strand it forever.
+    let continue_on_same_worker = step_failure.keeps_worker_pin()
         && (flow.same_worker || job_same_worker)
         && module.suspend.is_none()
         && module.sleep.is_none();
@@ -4344,10 +4382,17 @@ async fn push_next_flow_job(
         let flow_root_job = get_root_job_id(&flow_job);
 
         // forward root job permissions to the new job
-        let job_perms: Option<Authed> =
-            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id)
-                .await?
-                .map(|x| x.into());
+        let root_job_perms =
+            get_job_perms(&mut *tx, &flow_root_job, &flow_job.workspace_id).await?;
+        // The end user is a property of whoever triggered the root run, so every step (and
+        // transitively every subflow's step) must see the same WM_END_USER_EMAIL as the run.
+        // It is read from the root's `job_perms` rather than off `flow_job`: only a freshly
+        // pulled job carries `permissioned_as_end_user_email`, and every step past the first
+        // is pushed from a flow job re-fetched by `get_mini_pulled_job`, which does not.
+        let end_user_email = root_job_perms
+            .as_ref()
+            .and_then(|x| x.end_user_email.clone());
+        let job_perms: Option<Authed> = root_job_perms.map(|x| x.into());
 
         tracing::debug!(id = %flow_job.id, root_id = %job_root, "computed perms for job {i} of {len}");
         let tag = resolve_flow_step_tag(
@@ -4376,11 +4421,13 @@ async fn push_next_flow_job(
             .as_deref()
             .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
         {
+            let is_super_admin =
+                windmill_common::auth::is_super_admin_email(db, email).await?;
             check_tag_available_for_workspace_internal(
                 db,
                 &flow_job.workspace_id,
                 tag_str,
-                email,
+                is_super_admin,
                 None, // no token for flow substeps so no scopes so no scope_tags
             )
             .warn_after_seconds_with_sql(
@@ -4425,6 +4472,7 @@ async fn push_next_flow_job(
                 "job-span-{}",
                 flow_job.flow_innermost_root_job.unwrap_or(flow_job.id)
             )),
+            None,
             scheduled_for_o,
             flow_job.schedule_path(),
             Some(flow_job.id),
@@ -4441,7 +4489,7 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
             continue_with_runners,
-            None,
+            end_user_email,
             None,
             None,
         )
@@ -6035,13 +6083,9 @@ async fn flow_to_payload(
     w_id: &str,
     db: &DB,
 ) -> Result<JobPayloadWithTag, Error> {
-    let FlowVersionInfo { version, on_behalf_of_email, edited_by, tag, .. } =
-        get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
-    let on_behalf_of = if let Some(email) = on_behalf_of_email {
-        Some(OnBehalfOf { email, permissioned_as: username_to_permissioned_as(&edited_by) })
-    } else {
-        None
-    };
+    let flow_info = get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
+    let on_behalf_of = flow_info.on_behalf_of(w_id, &db).await?;
+    let FlowVersionInfo { version, tag, .. } = flow_info;
     let payload = JobPayload::Flow {
         path,
         dedicated_worker: None,
@@ -6107,6 +6151,13 @@ pub async fn script_to_payload(
         } else {
             let hash = script_hash.unwrap();
 
+            let script_info = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
+                .await?
+                .prefetch_cached(&db)
+                .await?;
+            let on_behalf_of = script_info
+                .on_behalf_of(&flow_job.workspace_id, db)
+                .await?;
             let ScriptHashInfo {
                 tag,
                 cache_ttl,
@@ -6116,24 +6167,10 @@ pub async fn script_to_payload(
                 delete_after_use,
                 delete_after_secs,
                 timeout,
-                on_behalf_of_email,
-                created_by,
                 runnable_settings:
                     ScriptRunnableSettingsInline { concurrency_settings, debouncing_settings },
                 ..
-            } = get_script_info_for_hash(None, db, &flow_job.workspace_id, hash.0)
-                .await?
-                .prefetch_cached(&db)
-                .await?;
-
-            let on_behalf_of = if let Some(email) = on_behalf_of_email {
-                Some(OnBehalfOf {
-                    email,
-                    permissioned_as: username_to_permissioned_as(&created_by),
-                })
-            } else {
-                None
-            };
+            } = script_info;
             (
                 JobPayload::ScriptHash {
                     hash,

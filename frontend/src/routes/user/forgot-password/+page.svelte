@@ -1,12 +1,9 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { WindmillIcon } from '$lib/components/icons'
-	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { UserService } from '$lib/gen'
 	import LoginPageHeader from '$lib/components/LoginPageHeader.svelte'
-	import { enterpriseLicense, whitelabelNameStore } from '$lib/stores'
 
 	let email = $state('')
 	let loading = $state(false)
@@ -42,16 +39,11 @@
 	}
 </script>
 
-<div
-	class="flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative bg-surface-secondary h-screen"
->
+<!-- Anchored to the top, not centered: the card grows when the password form opens or an
+	error appears, and centering would slide the mark and the fields under the pointer. -->
+<div class="flex flex-col pt-24 pb-12 sm:px-6 lg:px-8 relative bg-surface-secondary min-h-screen">
 	<LoginPageHeader />
-	<div class="sm:mx-auto sm:w-full sm:max-w-md">
-		<div class="mx-auto flex justify-center">
-			{#if !$enterpriseLicense || !$whitelabelNameStore}
-				<WindmillIcon height="80px" width="80px" spin="slow" />
-			{/if}
-		</div>
+	<div class="sm:mx-auto sm:w-full sm:max-w-sm">
 		<h2 class="mt-6 text-center text-2xl font-semibold tracking-tight text-emphasis">
 			Reset password
 		</h2>
@@ -60,10 +52,7 @@
 		</p>
 	</div>
 
-	<div class="mt-8 sm:mx-auto sm:w-full sm:max-w-xl mb-48">
-		<div class="flex justify-end">
-			<DarkModeToggle forcedDarkMode={false} />
-		</div>
+	<div class="mt-6 sm:mx-auto sm:w-full sm:max-w-sm">
 		<div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
 			{#if submitted}
 				<div class="text-center space-y-4">

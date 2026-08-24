@@ -25,6 +25,7 @@
 	import { base } from '$lib/base'
 	import AIPromptsModal from '$lib/components/settings/AIPromptsModal.svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
+	import { thinkingPreferences } from './thinkingPreferences.svelte'
 	import {
 		getReasoningCapability,
 		resolveEffectiveReasoning,
@@ -377,6 +378,19 @@
 					<div class="text-2xs text-tertiary mt-0.5">Not supported by this model</div>
 				</div>
 			{/if}
+
+			<!-- A reading preference rather than a model parameter: it applies to every
+			     chat in this browser, including thinking already in the transcript. -->
+			<MenuItem
+				{item}
+				class="w-full flex items-center gap-2 px-3 py-1.5 text-left font-normal hover:bg-surface-hover data-[highlighted]:bg-surface-hover rounded-sm transition-colors cursor-pointer"
+				onClick={() => (thinkingPreferences.expandByDefault = !thinkingPreferences.expandByDefault)}
+			>
+				<span class="truncate grow min-w-0 text-2xs text-secondary">Always expand thinking</span>
+				{#if thinkingPreferences.expandByDefault}
+					<Check size={14} class="shrink-0 text-primary" />
+				{/if}
+			</MenuItem>
 		</div>
 	{/snippet}
 </DropdownV2>

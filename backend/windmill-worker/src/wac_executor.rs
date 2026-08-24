@@ -4,6 +4,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use windmill_common::error::{self, Error};
+use windmill_common::scripts::ScriptLang;
 use windmill_common::DB;
 
 // Checkpoint model + persistence primitives live in windmill-common so the
@@ -345,4 +346,44 @@ pub fn is_wac_v2_py(code: &str) -> bool {
         }
     }
     has_wmill_import && has_workflow_decorator
+}
+
+/// Whether `content` is a workflow-as-code v2 entrypoint, for the languages whose
+/// executor routes it through the WAC runner.
+///
+/// Mirrors exactly what `handle_bun_job` / `handle_python_job` test: a language
+/// missing here (Deno) runs a WAC-shaped script as a plain `main`, so claiming it
+/// is WAC would deny it paths it uses correctly today.
+pub fn is_wac_v2(lang: Option<ScriptLang>, content: &str) -> bool {
+    match lang {
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => is_wac_v2_ts(content),
+        Some(ScriptLang::Python3) => is_wac_v2_py(content),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WAC_TS: &str = r#"import { task, workflow } from "windmill-client";
+export default workflow(async function main(x: number) { return x; });"#;
+    const WAC_PY: &str = "import wmill\n@workflow\ndef main(x: int):\n    return x\n";
+
+    /// Callers use this to decide whether a script may run somewhere that only knows how
+    /// to call `main`. Widening it to a language whose executor ignores WAC (Deno) would
+    /// take that path away from scripts that use it correctly, and narrowing it would let
+    /// a workflow reach a runner that cannot run it.
+    #[test]
+    fn only_the_languages_whose_executor_runs_wac_report_it() {
+        assert!(is_wac_v2(Some(ScriptLang::Bun), WAC_TS));
+        assert!(is_wac_v2(Some(ScriptLang::Bunnative), WAC_TS));
+        assert!(is_wac_v2(Some(ScriptLang::Python3), WAC_PY));
+        assert!(!is_wac_v2(Some(ScriptLang::Deno), WAC_TS));
+        assert!(!is_wac_v2(None, WAC_TS));
+        assert!(!is_wac_v2(
+            Some(ScriptLang::Bun),
+            "export async function main() {}"
+        ));
+    }
 }

@@ -162,6 +162,27 @@ impl DeployedObject {
         }
     }
 
+    /// The repo-relative path git sync syncs on: what the sync item carries, and
+    /// therefore what the CLI turns into `--extra-includes` globs and `git add`
+    /// pathspecs.
+    ///
+    /// It only differs from [`Self::get_path`] for data table migrations, whose
+    /// object path (`<datatable>/<version>_<name>`, the `workspace_diff` key) is
+    /// relative to the `migrations/datatable/` prefix the workspace export writes
+    /// them under. Without the prefix the CLI derives globs that match no file,
+    /// so nothing gets staged and the push silently commits nothing.
+    pub fn get_git_sync_path(&self) -> String {
+        match self {
+            DeployedObject::DatatableMigration { path } => {
+                format!("migrations/datatable/{path}")
+            }
+            _ => self.get_path(),
+        }
+    }
+
+    /// Whether the object skips the repo's include/exclude path filters. True for
+    /// every kind that lives outside the `f/`/`u/` path namespaces those filters
+    /// are written against — the object-type filter is what governs them instead.
     pub fn get_ignore_regex_filter(&self) -> bool {
         match self {
             Self::User { .. }
@@ -169,7 +190,8 @@ impl DeployedObject {
             | Self::ResourceType { .. }
             | Self::Settings { .. }
             | Self::Key { .. }
-            | Self::WorkspaceDependencies { .. } => true,
+            | Self::WorkspaceDependencies { .. }
+            | Self::DatatableMigration { .. } => true,
             _ => false,
         }
     }
@@ -238,6 +260,165 @@ impl DeployedObject {
     }
 }
 
+/// Record, from the request that made it, that a rename left `vacated` empty.
+/// Only its path and kind are read, so build it naming the path the rename left.
+///
+/// A deploy whose metadata is handled by its dependency job needs this: that job
+/// runs at an unknown remove from the write, and the row it would write is
+/// deleted as soon as the two workspaces agree on the path — so a claim it made
+/// could reappear later against an item the parent has since recreated. Call
+/// once the rename has committed; the tally reads what the path holds now.
+pub async fn tally_rename_vacated_path(
+    db: &DB,
+    w_id: &str,
+    vacated: DeployedObject,
+) -> windmill_common::error::Result<()> {
+    tally_deployed_object_changes(
+        w_id,
+        &vacated,
+        db,
+        None,
+        windmill_common::deploy_origin::current(),
+    )
+    .await
+}
+
+/// Item kinds whose `workspace_diff` path is the `path` column of a table named
+/// after the kind. Interpolated into SQL, so it must stay a hardcoded allowlist —
+/// and, unlike the `sqlx::query!` arms below, a wrong name here is not a compile
+/// error, so `workspace_comparison.rs` sweeps this list against a live database.
+pub const PATH_KEYED_TABLES: &[&str] = &[
+    "resource",
+    "variable",
+    "schedule",
+    "http_trigger",
+    "websocket_trigger",
+    "kafka_trigger",
+    "nats_trigger",
+    "postgres_trigger",
+    "mqtt_trigger",
+    "amqp_trigger",
+    "sqs_trigger",
+    "gcp_trigger",
+    "azure_trigger",
+    "email_trigger",
+];
+
+/// What the deploy event that just committed did to `path`: [`DeployEventKind::Write`]
+/// if the workspace still holds an item there, [`DeployEventKind::Delete`] if it does
+/// not. `None` for a kind this does not know how to probe, so an unmapped kind is
+/// recorded as no evidence rather than as a deletion.
+///
+/// Existence mirrors the comparison's (`compare_two_*`): an archived script or flow
+/// counts as absent. Runs on `&db` (no RLS) — the caller is a post-commit tally, not
+/// a user-facing read.
+pub async fn probe_deploy_event_kind(
+    db: &DB,
+    w_id: &str,
+    kind: &str,
+    path: &str,
+) -> windmill_common::error::Result<Option<windmill_common::deploy_origin::DeployEventKind>> {
+    use windmill_common::deploy_origin::DeployEventKind;
+
+    let exists: Option<bool> = match kind {
+        "script" => Some(
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND archived = false)",
+                w_id,
+                path
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false),
+        ),
+        "flow" => Some(
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 AND archived = false)",
+                w_id,
+                path
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false),
+        ),
+        // Raw apps live in the `app` table too, keyed by path like a regular app.
+        "app" | "raw_app" => Some(
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM app WHERE workspace_id = $1 AND path = $2)",
+                w_id,
+                path
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false),
+        ),
+        "folder" => {
+            let name = path.strip_prefix("f/").unwrap_or(path);
+            Some(
+                sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM folder WHERE workspace_id = $1 AND name = $2)",
+                    w_id,
+                    name
+                )
+                .fetch_one(db)
+                .await?
+                .unwrap_or(false),
+            )
+        }
+        "resource_type" => Some(
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = $1 AND name = $2)",
+                w_id,
+                path
+            )
+            .fetch_one(db)
+            .await?
+            .unwrap_or(false),
+        ),
+        // Identified by (datatable, timestamp), which survives a rename of the
+        // migration's `name` segment; the full path does not.
+        "datatable_migration" => match path
+            .split_once('/')
+            .and_then(|(dt, rest)| Some((dt, rest.split_once('_')?.0.parse::<i64>().ok()?)))
+        {
+            Some((datatable, timestamp)) => Some(
+                sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM datatable_migrations \
+                     WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3)",
+                    w_id,
+                    datatable,
+                    timestamp
+                )
+                .fetch_one(db)
+                .await?
+                .unwrap_or(false),
+            ),
+            None => None,
+        },
+        k if PATH_KEYED_TABLES.contains(&k) => {
+            // SAFETY: `k` comes from the hardcoded PATH_KEYED_TABLES allowlist.
+            let sql =
+                format!("SELECT EXISTS(SELECT 1 FROM {k} WHERE workspace_id = $1 AND path = $2)");
+            Some(
+                sqlx::query_scalar(&sql)
+                    .bind(w_id)
+                    .bind(path)
+                    .fetch_one(db)
+                    .await?,
+            )
+        }
+        _ => None,
+    };
+
+    Ok(exists.map(|exists| {
+        if exists {
+            DeployEventKind::Write
+        } else {
+            DeployEventKind::Delete
+        }
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,6 +478,32 @@ mod tests {
         assert_eq!(obj.get_path(), "workspace-dependencies/python");
     }
 
+    // --- DeployedObject::get_git_sync_path tests ---
+
+    #[test]
+    fn test_get_git_sync_path_datatable_migration_is_repo_relative() {
+        let obj = DeployedObject::DatatableMigration {
+            path: "mydb/20260101000000_add_users".to_string(),
+        };
+        // The object path keys `workspace_diff`; the git-sync path must carry the
+        // export's prefix or the CLI stages nothing.
+        assert_eq!(obj.get_path(), "mydb/20260101000000_add_users");
+        assert_eq!(
+            obj.get_git_sync_path(),
+            "migrations/datatable/mydb/20260101000000_add_users"
+        );
+    }
+
+    #[test]
+    fn test_get_git_sync_path_defaults_to_object_path() {
+        let obj = DeployedObject::Script {
+            hash: ScriptHash(123),
+            path: "f/folder/script".to_string(),
+            parent_path: None,
+        };
+        assert_eq!(obj.get_git_sync_path(), obj.get_path());
+    }
+
     // --- DeployedObject::get_ignore_regex_filter tests ---
 
     #[test]
@@ -333,6 +540,17 @@ mod tests {
     fn test_ignore_regex_filter_workspace_dependencies() {
         let obj = DeployedObject::WorkspaceDependencies {
             path: "workspace-dependencies/python".to_string(),
+        };
+        assert!(obj.get_ignore_regex_filter());
+    }
+
+    #[test]
+    fn test_ignore_regex_filter_datatable_migration() {
+        // `migrations/datatable/**` is outside the `f/`/`u/` namespaces the path
+        // filters are written against; the `datatablemigration` include type is
+        // what governs these.
+        let obj = DeployedObject::DatatableMigration {
+            path: "mydb/20260101000000_add_users".to_string(),
         };
         assert!(obj.get_ignore_regex_filter());
     }

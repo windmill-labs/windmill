@@ -64,19 +64,25 @@ pub async fn resolve_folder_default_permissioned_as(
     Ok(None)
 }
 
-/// Email-valued variant of [`resolve_folder_default_permissioned_as`]. Used by
-/// flows and scripts which store `on_behalf_of_email` rather than `permissioned_as`.
-pub async fn resolve_folder_default_on_behalf_of_email(
+/// On-behalf-of variant of [`resolve_folder_default_permissioned_as`], for flows and
+/// scripts which store the identity as an `(email, permissioned_as)` pair.
+///
+/// Reads folder rules through the non-RLS pool and authorizes nothing: callers must already
+/// be authorized for `w_id`.
+pub async fn resolve_folder_default_on_behalf_of(
     db: &Pool<Postgres>,
     w_id: &str,
     path: &str,
-) -> Result<Option<String>> {
+) -> Result<Option<(String, String)>> {
     let Some(permissioned_as) = resolve_folder_default_permissioned_as(db, w_id, path).await?
     else {
         return Ok(None);
     };
-    let email = crate::users::get_email_from_permissioned_as(&permissioned_as, w_id, db).await?;
-    Ok(Some(email))
+    // Uncached: this pair is written straight onto the runnable, where a stale address would
+    // contradict the principal it is stored beside.
+    let email =
+        crate::users::get_email_from_permissioned_as_uncached(&permissioned_as, w_id, db).await?;
+    Ok(Some((email, permissioned_as)))
 }
 
 async fn ensure_permissioned_as_exists(

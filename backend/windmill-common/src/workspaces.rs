@@ -70,6 +70,7 @@ bitflags::bitflags! {
         const DISABLE_WORKSPACE_FORKING =           1 << 1;
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
+        const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
     }
 }
 
@@ -81,6 +82,7 @@ pub enum ProtectionRuleKind {
     DisableWorkspaceForking,
     RestrictDeployToDeployers,
     RestrictAnonymousAppDeployment,
+    RestrictPublicRunSharing,
 }
 
 impl ProtectionRuleKind {
@@ -98,6 +100,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 ProtectionRules::RESTRICT_ANONYMOUS_APP_DEPLOYMENT
             }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                ProtectionRules::RESTRICT_PUBLIC_RUN_SHARING
+            }
         }
     }
 
@@ -112,6 +117,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 "Making an app publicly accessible without login (anonymous execution mode) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                "Sharing a run publicly (readable without login) is restricted in this workspace"
             }
         }
     }
@@ -167,7 +175,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28809/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28911/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -175,7 +183,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28809/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28808/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28910/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -310,7 +318,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitRepositorySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude_types_override: Option<Vec<ObjectType>>,
@@ -508,7 +516,7 @@ impl AutoPullSettings {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitSyncSettings {
     pub include_path: Vec<String>,
     pub include_type: Vec<ObjectType>,
@@ -1438,16 +1446,22 @@ async fn get_datatable_resource_inner(
             serde_json::to_value(&pg_creds)
                 .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
         } else {
+            // Name the data table too: the caller asked for one by name, and a bare
+            // "resource f/x/y does not exist" leaves them to work out which one points at it.
             transform_json_unchecked(
                 &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
                 w_id,
                 db,
             )
-            .await?
+            .await
+            .map_err(|e| match e {
+                Error::NotFound(m) => Error::NotFound(format!("data table {name}: {m}")),
+                e => e,
+            })?
         };
 
     // The role logs in as itself rather than through `SET ROLE`, which a script
-    // could `RESET ROLE` its way back out of and regain root's privileges.
+    // could `RESET ROLE` its way back out of and regain admin's privileges.
     if let Some((pg_rolename, pg_password)) = role_override {
         let creds = db_resource.as_object_mut().ok_or_else(|| {
             Error::internal_err(format!(
@@ -1818,6 +1832,124 @@ pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result
     Ok(chain)
 }
 
+lazy_static::lazy_static! {
+    /// workspace id -> (root workspace id, expiry ts). Read once per job start, so correctness
+    /// rests on the invalidation rather than on the TTL: every mutation that can change the answer
+    /// sweeps the ids it touches through `windmill_queue::tags::invalidate_fork_parent_cache` and
+    /// broadcasts on `FORK_LINEAGE_CHANGE_CHANNEL`. A process that receives no broadcast — an agent
+    /// worker polls no notify events — has only the TTL, and takes the shorter one.
+    static ref ROOT_WORKSPACE_CACHE: Cache<String, (String, i64)> = Cache::new(5000);
+}
+
+const ROOT_WORKSPACE_CACHE_TTL_S: i64 = 300;
+/// An agent worker consumes no `notify_event`, so no sweep ever reaches its cache and the TTL is
+/// the whole invalidation story there. Hold its entries for the same 60s the other lineage caches
+/// (`FORK_ANCESTOR_CHAIN_CACHE`, `BILLING_WORKSPACE_CACHE`) accept as their staleness bound,
+/// rather than the long TTL that only a broadcast-fed process has earned.
+const ROOT_WORKSPACE_AGENT_CACHE_TTL_S: i64 = 60;
+/// An id the walk finds nothing for is cached far more briefly than a resolved one: it becomes
+/// resolvable the moment its workspace row lands, and creating a workspace is not a lineage change,
+/// so no sweep would drop the entry.
+const ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S: i64 = 30;
+
+/// Drop the cached root workspace of one id. Called for every id whose lineage-derived caches are
+/// swept, so it needs no call site of its own — see
+/// `windmill_queue::tags::invalidate_fork_parent_cache`.
+pub fn invalidate_root_workspace_cache(w_id: &str) {
+    ROOT_WORKSPACE_CACHE.remove(w_id);
+}
+
+/// Drop every cached root workspace: the answer depends on the whole ancestor chain, so a mutation
+/// that reshapes the tree moves an unbounded set of descendants.
+pub fn clear_root_workspace_cache() {
+    ROOT_WORKSPACE_CACHE.clear();
+}
+
+/// Nearest ancestor-or-self of `w_id` that is an environment of its own: a root ("prod") workspace
+/// or a dev workspace. Equal to `w_id` for either of those, and to the standing workspace a
+/// throwaway fork was forked from otherwise. Exposed to jobs as `WM_ROOT_WORKSPACE`.
+///
+/// Falls back to `w_id` when the chain cannot be resolved (unknown id, broken or cyclic chain,
+/// failed lookup).
+///
+/// Not the same question as `get_billing_workspace_id`, which walks all the way to the parentless
+/// root: a fork under a dev workspace bills to prod but belongs to the dev environment.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn root_workspace_id(conn: &crate::worker::Connection, w_id: &str) -> String {
+    let now = chrono::Utc::now().timestamp();
+    let cached = ROOT_WORKSPACE_CACHE.get(w_id);
+    if let Some((root, expiry)) = &cached {
+        if *expiry > now {
+            return root.clone();
+        }
+    }
+
+    let (resolved, fresh_ttl) = match conn {
+        crate::worker::Connection::Sql(db) => (
+            lookup_root_workspace_id(db, w_id).await,
+            ROOT_WORKSPACE_CACHE_TTL_S,
+        ),
+        crate::worker::Connection::Http(client) => (
+            client
+                .get::<Option<String>>(&format!("/api/w/{w_id}/agent_workers/root_workspace"))
+                .await
+                .map_err(Error::from),
+            ROOT_WORKSPACE_AGENT_CACHE_TTL_S,
+        ),
+    };
+
+    let (root, ttl) = match resolved {
+        Ok(Some(root)) => (root, fresh_ttl),
+        Ok(None) => (w_id.to_string(), ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S),
+        // A failed lookup is NOT cached, for the reason `lookup_tag_workspace` gives: the fallback
+        // is indistinguishable from a legitimate answer, so pinning one failure would make every
+        // job in a fork report the fork as its own environment until the entry expired. The expired
+        // entry is still the last answer this process actually resolved, so prefer it to that
+        // fallback — an agent talking to a server too old to serve the route would otherwise
+        // demote every fork to itself for the whole rolling upgrade.
+        Err(e) => {
+            tracing::warn!("failed to resolve root workspace of {w_id}: {e:#}");
+            return cached
+                .map(|(root, _)| root)
+                .unwrap_or_else(|| w_id.to_string());
+        }
+    };
+    ROOT_WORKSPACE_CACHE.insert(w_id.to_string(), (root.clone(), now + ttl));
+    root
+}
+
+/// Uncached lookup behind [`root_workspace_id`]. `None` when the chain resolves to nothing: an
+/// unknown id, or a (malformed) cycle that saturates the depth bound — the same cycle-safety
+/// backstop convention as [`fork_ancestor_chain`].
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code). Answering for an arbitrary
+/// id discloses that the workspace exists and which environment it belongs to.
+pub async fn lookup_root_workspace_id(db: &crate::DB, w_id: &str) -> Result<Option<String>> {
+    sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, is_dev_workspace, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT id AS "id!" FROM chain
+            WHERE parent_workspace_id IS NULL OR is_dev_workspace
+            ORDER BY depth LIMIT 1
+        "#,
+        w_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving root workspace of {w_id}: {e:#}")))
+}
+
 /// Resolve which live descendant workspace (and its inherited repo entry) a git
 /// branch pushed to `parent_repo_path` — a git-sync repo on `parent_w_id`
 /// tracking `expected_base` — deploys to via parent-managed fork sync, or `None`
@@ -1863,10 +1995,12 @@ pub async fn resolve_fork_branch_target(
         .fetch_optional(db)
         .await?
     } else if branch != expected_base {
-        // Environment-label branch (`dev`/`staging`) of a dev-workspace child.
-        // Dev workspaces only exist directly under a root, so no recursion here.
-        // The tracked-branch guard keeps a label that collides with the tracked
-        // branch from double-routing (the parent's own pull already covers it).
+        // Environment-label branch (`dev`, `staging`, ...) of a dev-workspace child.
+        // Direct children only: a dev nested under another dev is parent-managed
+        // by that dev, which holds no auto-pull config of its own, so no branch
+        // pushed to this repo routes to it. The tracked-branch guard keeps a
+        // label that collides with the tracked branch from double-routing (the
+        // parent's own pull already covers it).
         sqlx::query_scalar!(
             "SELECT id FROM workspace \
              WHERE parent_workspace_id = $1 AND NOT deleted AND is_dev_workspace \
@@ -2433,25 +2567,32 @@ async fn transform_json_unchecked(
             serde_json::Value::Array(transformed_array)
         }
         serde_json::Value::String(s) if s.starts_with("$res:") => {
+            // A reference to something that was deleted is the common failure here, and
+            // `fetch_one` reports it as "no rows returned by a query that expected to
+            // return at least one row" -- which names neither what was missing nor where.
+            let path = &s[5..];
             let resource = sqlx::query_scalar!(
                 "SELECT value AS \"value!: _\" FROM resource WHERE workspace_id = $1 AND path = $2",
                 &w_id,
-                &s[5..]
+                path
             )
-            .fetch_one(db)
+            .fetch_optional(db)
             .await
-            .map_err(to_anyhow)?;
+            .map_err(to_anyhow)?
+            .ok_or_else(|| Error::NotFound(format!("resource {path} does not exist")))?;
             transform_json_unchecked(&resource, w_id, db).await?
         }
         serde_json::Value::String(s) if s.starts_with("$var:") => {
+            let path = &s[5..];
             let (value, is_secret): (String, bool) = sqlx::query_as(
                 "SELECT value, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
             )
             .bind(&w_id)
-            .bind(&s[5..])
-            .fetch_one(db)
+            .bind(path)
+            .fetch_optional(db)
             .await
-            .map_err(to_anyhow)?;
+            .map_err(to_anyhow)?
+            .ok_or_else(|| Error::NotFound(format!("variable {path} does not exist")))?;
             let value = if is_secret {
                 if is_external_stored_value(&value) {
                     get_secret_value(db, w_id, &s[5..], &value).await?
@@ -3029,4 +3170,144 @@ mod tests {
         assert!(msg.contains("staging"), "{msg}");
         assert!(msg.contains("tab=windmill_data_tables"), "{msg}");
     }
+
+    #[test]
+    fn test_dbt_warehouse_name_length_bound() {
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN)).is_ok());
+        assert!(validate_dbt_warehouse_name(&"a".repeat(MAX_DBT_WAREHOUSE_NAME_LEN + 1)).is_err());
+    }
+}
+
+/// Whether a workspace configures this warehouse, without resolving it.
+///
+/// For the one caller that needs the NAME and nothing else: a project bringing
+/// its own `profiles.yml` names a warehouse to say where its assets belong, and
+/// decrypting a connection it will never open to answer that would be waste.
+///
+/// NO AUTHORIZATION, like the resolver it delegates to: it reads workspace
+/// settings for whatever `w_id` it is given, so callers MUST already be scoped
+/// to that workspace.
+pub async fn dbt_warehouse_exists(db: &DB, w_id: &str, warehouse: &str) -> Result<()> {
+    dbt_warehouse_resource(db, w_id, warehouse)
+        .await
+        .map(|_| ())
+}
+
+/// The longest warehouse name a workspace may configure.
+///
+/// It is the first segment of every `dbt://<warehouse>/<schema>/<name>` key, and
+/// those land in `asset.path`, a VARCHAR(255). A name near that width would push
+/// ordinary relations past the column, and the ingest's own bound would then
+/// skip them — a graph quietly missing models. 64 leaves room for two 63-char
+/// identifiers, which is Postgres's own limit; warehouses that allow longer ones
+/// still rely on that ingest bound as the backstop.
+pub const MAX_DBT_WAREHOUSE_NAME_LEN: usize = 64;
+
+/// A warehouse name is a URL path segment for a worker with no database, so a
+/// name that could re-cut the path (or the query) is refused — at every place a
+/// name enters, not only where one is written, since a descriptor names one too.
+pub fn validate_dbt_warehouse_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is not a usable dbt warehouse name: use letters, digits, `_` and `-`"
+        )));
+    }
+    if name.chars().count() > MAX_DBT_WAREHOUSE_NAME_LEN {
+        return Err(Error::BadRequest(format!(
+            "`{name}` is too long for a dbt warehouse name (max {MAX_DBT_WAREHOUSE_NAME_LEN}): it \
+             prefixes every asset path this warehouse's models are keyed on"
+        )));
+    }
+    Ok(())
+}
+
+/// A dbt warehouse's resolved connection: the value a `profiles.yml` is rendered
+/// from, and the target the workspace names for it.
+///
+/// Carries CREDENTIALS. dbt is unpermissioned by design (docs/dbt-runtime.md,
+/// Decision 24), so this is served to a running job rather than gated on the
+/// runner's access to the resource — but it must never reach a route a user can
+/// browse.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct DbtWarehouseConnection {
+    pub value: serde_json::Value,
+    /// Omitted rather than null when absent, so the wire shape matches the
+    /// schema generated clients validate against.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// What the value IS, which its shape cannot say: a `dbt_profile`'s value is a
+    /// `profiles.yml` output block and every other type's is a connection to translate,
+    /// and both are objects carrying a `type`. Defaulted so a worker still resolves
+    /// against a server predating the field — which serves no `dbt_profile` anyway.
+    #[serde(default)]
+    pub resource_type: String,
+}
+
+/// The resource type whose value is a `profiles.yml` output block, taken as it
+/// is rather than translated.
+pub const DBT_PROFILE_RESOURCE_TYPE: &str = "dbt_profile";
+
+/// The warehouse a dbt project runs against, by name — `main` when the
+/// descriptor names none.
+///
+/// NO AUTHORIZATION: reads workspace settings for whatever `w_id` it is given.
+/// Callers MUST already be scoped to that workspace — a running job, or a route
+/// that checked its token. What it returns is a POINTER; resolving it is a
+/// separate step, and dbt warehouses are unpermissioned there (Decision 24), so
+/// the pointer is not the last line of defence. A descriptor cannot name a
+/// resource at all, which is what makes the workspace the only place a
+/// warehouse is configured — and
+/// what lets asset identity key on the NAME (`dbt://main/analytics/orders`),
+/// one spelling every project on that warehouse shares.
+pub async fn dbt_warehouse_resource(
+    db: &DB,
+    w_id: &str,
+    warehouse: &str,
+) -> Result<(String, Option<String>)> {
+    let cfg = sqlx::query_scalar!(
+        "SELECT dbt_warehouses FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .unwrap_or(serde_json::Value::Null);
+    let entry = cfg.get(warehouse).cloned().ok_or_else(|| {
+        let configured = cfg
+            .as_object()
+            .map(|o| o.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        Error::NotFound(if configured.is_empty() {
+            format!(
+                "no dbt warehouse is configured for this workspace — an admin adds one under \
+                 Settings → dbt, and a project reaches it by name (`{warehouse}` here)"
+            )
+        } else {
+            format!(
+                "dbt warehouse `{warehouse}` is not configured for this workspace (configured: \
+                 {})",
+                configured.join(", ")
+            )
+        })
+    })?;
+    let path = entry
+        .get("resource_path")
+        .and_then(|p| p.as_str())
+        .ok_or_else(|| {
+            Error::internal_err(format!(
+                "dbt warehouse `{warehouse}` names no resource_path"
+            ))
+        })?;
+    // Stored with or without the prefix, like the storage configs; the caller
+    // resolves a bare path.
+    let path = path.strip_prefix("$res:").unwrap_or(path).to_string();
+    let target = entry
+        .get("target")
+        .and_then(|t| t.as_str())
+        .map(|t| t.to_string());
+    Ok((path, target))
 }
