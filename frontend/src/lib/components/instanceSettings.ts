@@ -915,13 +915,12 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'Alert on zombie job restarts',
+			label: 'Mute zombie job restart alerts',
 			description:
-				'Send critical alerts when a zombie job or flow is detected and automatically restarted. Jobs that exhaust all their restart attempts, and flows cancelled after hanging between steps, always alert.',
-			key: 'critical_alerts_on_zombie_job_restart',
+				'Stop sending critical alerts when a zombie job or flow is detected and automatically restarted. Jobs that exhaust all their restart attempts, and flows cancelled after hanging between steps, keep alerting.',
+			key: 'critical_alert_mute_zombie_job_restart',
 			fieldType: 'boolean',
 			storage: 'setting',
-			defaultValue: () => true,
 			ee_only: ''
 		},
 		{

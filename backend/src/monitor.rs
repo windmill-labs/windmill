@@ -55,7 +55,7 @@ use windmill_common::{
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
-        CRITICAL_ALERTS_ON_ZOMBIE_JOB_RESTART_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
         DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
@@ -96,8 +96,8 @@ use windmill_common::{
         WORKSPACE_MAX_QUEUED_JOBS_DEFAULT,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
-    CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERTS_ON_ZOMBIE_JOB_RESTART,
-    CRITICAL_ALERT_MUTE_UI_ENABLED, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
+    CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED,
+    CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
     HUB_BASE_URL, JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES,
     JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
     MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
@@ -274,9 +274,9 @@ pub async fn initial_load(
         |v| async move { apply_critical_alerts_on_token_expiry_setting(v) },
     );
     pass.setting(
-        CRITICAL_ALERTS_ON_ZOMBIE_JOB_RESTART_SETTING,
+        CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
         true,
-        |v| async move { apply_critical_alerts_on_zombie_job_restart_setting(v) },
+        |v| async move { apply_critical_alert_mute_zombie_job_restart_setting(v) },
     );
 
     if let Some(db) = conn.as_sql() {
@@ -1075,25 +1075,27 @@ pub fn apply_critical_alerts_on_token_expiry_setting(value: Option<serde_json::V
     }
 }
 
-pub async fn reload_critical_alerts_on_zombie_job_restart_setting(
+pub async fn reload_critical_alert_mute_zombie_job_restart_setting(
     conn: &Connection,
 ) -> error::Result<()> {
     let v = load_value_from_global_settings_with_conn(
         conn,
-        CRITICAL_ALERTS_ON_ZOMBIE_JOB_RESTART_SETTING,
+        CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
         true,
     )
     .await?;
-    apply_critical_alerts_on_zombie_job_restart_setting(v);
+    apply_critical_alert_mute_zombie_job_restart_setting(v);
     Ok(())
 }
 
-pub fn apply_critical_alerts_on_zombie_job_restart_setting(value: Option<serde_json::Value>) {
+pub fn apply_critical_alert_mute_zombie_job_restart_setting(value: Option<serde_json::Value>) {
     match value {
         Some(serde_json::Value::Bool(t)) => {
-            CRITICAL_ALERTS_ON_ZOMBIE_JOB_RESTART.store(t, Ordering::Relaxed)
+            CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.store(t, Ordering::Relaxed)
         }
-        None => CRITICAL_ALERTS_ON_ZOMBIE_JOB_RESTART.store(true, Ordering::Relaxed),
+        // Deleting the row must un-mute: keeping the last value would leave an instance
+        // silently muted until the next restart.
+        None => CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.store(false, Ordering::Relaxed),
         _ => (),
     };
 }
@@ -5212,10 +5214,10 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             .execute(db)
             .await;
             tracing::error!(critical_error_message);
-            // A restart that still has attempts left is self-healing, so it is opt-out noise on
-            // instances with flaky workers. Exhausting the attempts is a real failure and always
+            // A restart that still has attempts left is self-healing, so an operator can mute it on
+            // an instance with flaky workers. Exhausting the attempts is a real failure and always
             // alerts.
-            if !restart || CRITICAL_ALERTS_ON_ZOMBIE_JOB_RESTART.load(Ordering::Relaxed) {
+            if !restart || !CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.load(Ordering::Relaxed) {
                 report_critical_error(
                     critical_error_message,
                     db.clone(),
@@ -5694,7 +5696,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                 flow.id, flow.workspace_id
             );
             tracing::error!(error_message);
-            if CRITICAL_ALERTS_ON_ZOMBIE_JOB_RESTART.load(Ordering::Relaxed) {
+            if !CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.load(Ordering::Relaxed) {
                 report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None)
                     .await;
             }

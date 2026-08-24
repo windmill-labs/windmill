@@ -213,9 +213,7 @@
 
 	$effect(() => {
 		if (
-			(setting.fieldType == 'select' ||
-				setting.fieldType == 'select_python' ||
-				setting.fieldType == 'boolean') &&
+			(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
 			$values[setting.key] == undefined &&
 			setting.defaultValue
 		) {
