@@ -10,11 +10,13 @@
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
+		ClipboardList,
 		FileText,
 		Folder,
 		Hand,
 		HistoryIcon,
 		MousePointer2,
+		Plug,
 		Plus,
 		TextSelect,
 		X,
@@ -25,10 +27,13 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pendingUserAction, pendingUserActionDetail, type DisplayMessage } from './shared'
+	import { PLAN_MODE_TEXT_COLOR, PLAN_MODE_TRIGGER_CLASS } from './planMode'
+	import { PLAN_MODE_MESSAGES } from './planModeMessages'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
+	import McpConnections from './McpConnections.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -57,46 +62,79 @@
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const aiChatManager = getAiChatManager()
-	// `label` is shown in the dropdown; `shortLabel` (when set) is shown in the
-	// compact trigger pill to save horizontal space.
-	type AutonomyModeOption = { label: string; shortLabel?: string; mode: AIAutonomyMode }
+	// One row per autonomy posture, in picker order, so adding one touches only this
+	// table. `isAvailable` hides the postures that would do nothing in the current AI
+	// mode, which is why the picker can be shorter than this list.
+	type AutonomyAvailability = {
+		autoAcceptEditsAvailable: boolean
+		autoAcceptToolConfirmationsAvailable: boolean
+		planModeAvailable: boolean
+	}
+	type AutonomyModeOption = {
+		mode: AIAutonomyMode
+		label: string
+		shortLabel?: string
+		icon: typeof Hand
+		iconColor: string
+		/** Tints the whole trigger, not just its icon. Only plan mode needs it. */
+		triggerClass?: string
+		tooltip: (a: AutonomyAvailability) => string
+		isAvailable: (a: AutonomyAvailability) => boolean
+	}
+	// The one posture available everywhere, so also the fallback for a mode the
+	// current AI mode does not offer.
+	const askPermissionOption: AutonomyModeOption = {
+		mode: AIAutonomyMode.DEFAULT,
+		label: 'Ask permission',
+		icon: Hand,
+		iconColor: 'text-secondary',
+		tooltip: (a) =>
+			a.autoAcceptEditsAvailable
+				? 'Requires confirmation for edits and tool calls.'
+				: 'Requires confirmation for tool calls.',
+		isAvailable: () => true
+	}
 	const autonomyModeOptions: AutonomyModeOption[] = [
-		{ label: 'Ask permission', mode: AIAutonomyMode.DEFAULT },
-		{ label: 'Auto-accept edits', mode: AIAutonomyMode.ACCEPT_EDIT },
-		{ label: 'Yolo (bypass permissions)', shortLabel: 'Yolo', mode: AIAutonomyMode.YOLO }
+		{
+			mode: AIAutonomyMode.PLAN,
+			label: 'Plan (read-only)',
+			shortLabel: 'Plan',
+			icon: ClipboardList,
+			iconColor: PLAN_MODE_TEXT_COLOR,
+			triggerClass: PLAN_MODE_TRIGGER_CLASS,
+			tooltip: () =>
+				'Read-only: the assistant researches and drafts a plan for your approval before it can change anything.',
+			isAvailable: (a) => a.planModeAvailable
+		},
+		askPermissionOption,
+		{
+			mode: AIAutonomyMode.ACCEPT_EDIT,
+			label: 'Auto-accept edits',
+			icon: ChevronsRight,
+			iconColor: 'text-accent',
+			tooltip: () =>
+				'Automatically accepts script and flow edits. Tool calls still ask for confirmation.',
+			isAvailable: (a) => a.autoAcceptEditsAvailable
+		},
+		{
+			mode: AIAutonomyMode.YOLO,
+			label: 'Yolo (bypass permissions)',
+			shortLabel: 'Yolo',
+			icon: ChevronsRight,
+			iconColor: 'text-red-500',
+			tooltip: (a) =>
+				a.autoAcceptEditsAvailable
+					? 'Automatically accepts script and flow edits plus tool confirmations.'
+					: 'Automatically accepts tool confirmations.',
+			isAvailable: (a) => a.autoAcceptToolConfirmationsAvailable
+		}
 	]
+	const autonomyModeOption = (mode: AIAutonomyMode) =>
+		autonomyModeOptions.find((o) => o.mode === mode) ?? askPermissionOption
 	const autonomyModeLabel = (mode: AIAutonomyMode) => {
-		const option = autonomyModeOptions.find((o) => o.mode === mode) ?? autonomyModeOptions[0]
+		const option = autonomyModeOption(mode)
 		return option.shortLabel ?? option.label
 	}
-	// "Auto-accept edits" only applies where script/flow edits can be accepted,
-	// "Bypass permissions" only where tool confirmations exist; filter the picker
-	// to the levels that actually do something in the current mode.
-	const isAutonomyModeAvailable = (
-		mode: AIAutonomyMode,
-		autoAcceptEditsAvailable: boolean,
-		autoAcceptToolConfirmationsAvailable: boolean
-	) => {
-		switch (mode) {
-			case AIAutonomyMode.DEFAULT:
-				return true
-			case AIAutonomyMode.ACCEPT_EDIT:
-				return autoAcceptEditsAvailable
-			case AIAutonomyMode.YOLO:
-				return autoAcceptToolConfirmationsAvailable
-		}
-		return false
-	}
-	// Ask-permission holds (raised hand); auto-accept/bypass fast-forward. Color
-	// ramps from muted (ask) to accent (auto-accept) to red (bypass).
-	const autonomyModeIcon = (mode: AIAutonomyMode) =>
-		mode === AIAutonomyMode.DEFAULT ? Hand : ChevronsRight
-	const autonomyModeIconColor = (mode: AIAutonomyMode) =>
-		mode === AIAutonomyMode.YOLO
-			? 'text-red-500'
-			: mode === AIAutonomyMode.DEFAULT
-				? 'text-secondary'
-				: 'text-accent'
 
 	let {
 		messages,
@@ -153,6 +191,8 @@
 	} = $props()
 
 	let aiChatInput: AIChatInput | undefined = $state()
+	let mcpConnections: McpConnections | undefined = $state()
+	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 
 	// Escape stops the generation when focus is on the chat (or parked on
@@ -451,14 +491,13 @@
 		if (input.files && input.files.length > 0) void handleAddFiles(input.files)
 		input.value = ''
 	}
-	const availableAutonomyModeOptions = $derived.by(() =>
-		autonomyModeOptions.filter((option) =>
-			isAutonomyModeAvailable(
-				option.mode,
-				aiChatManager.autoAcceptEditsAvailable,
-				aiChatManager.autoAcceptToolConfirmationsAvailable
-			)
-		)
+	const autonomyAvailability = $derived({
+		autoAcceptEditsAvailable: aiChatManager.autoAcceptEditsAvailable,
+		autoAcceptToolConfirmationsAvailable: aiChatManager.autoAcceptToolConfirmationsAvailable,
+		planModeAvailable: aiChatManager.planModeAvailable
+	})
+	const availableAutonomyModeOptions = $derived(
+		autonomyModeOptions.filter((option) => option.isAvailable(autonomyAvailability))
 	)
 	// Fall back to ask-permission when the persisted mode isn't applicable in the
 	// current AI mode (e.g. auto-accept edits while in a mode without edits).
@@ -468,22 +507,7 @@
 			: AIAutonomyMode.DEFAULT
 	)
 	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
-	const autonomyModeTooltip = $derived.by(() => {
-		switch (effectiveAutonomyMode) {
-			case AIAutonomyMode.ACCEPT_EDIT:
-				return 'Automatically accepts script and flow edits. Tool calls still ask for confirmation.'
-			case AIAutonomyMode.YOLO:
-				if (!aiChatManager.autoAcceptEditsAvailable) {
-					return 'Automatically accepts tool confirmations.'
-				}
-				return 'Automatically accepts script and flow edits plus tool confirmations.'
-			default:
-				if (!aiChatManager.autoAcceptEditsAvailable) {
-					return 'Requires confirmation for tool calls.'
-				}
-				return 'Requires confirmation for edits and tool calls.'
-		}
-	})
+	const effectiveAutonomyModeOption = $derived(autonomyModeOption(effectiveAutonomyMode))
 
 	// The typing-dots indicator implies the AI is busy, which is misleading while
 	// the loop is parked on the user; surface a text pill instead so users know to
@@ -843,11 +867,14 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						{#if canAttachFiles}
 							<DropdownV2
-								items={() => [
+								items={async () => [
 									{
 										displayName: 'Attach file or image',
 										icon: FileText,
-										action: () => linkFiles()
+										action: () => {
+											plusMenuOpen = false
+											linkFiles()
+										}
 									},
 									{
 										// A real (live) link needs the File System Access API; without it the
@@ -857,11 +884,26 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										tooltip: canUseFsAccess
 											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
 											: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
-										action: () => linkFolder()
-									}
+										action: () => {
+											plusMenuOpen = false
+											linkFolder()
+										}
+									},
+									...(aiChatManager.mode === AIMode.GLOBAL && mcpConnections
+										? [
+												{
+													displayName: 'MCP connections',
+													icon: Plug,
+													separatorTop: true,
+													submenuItems: await mcpConnections.menuItems(() => (plusMenuOpen = false))
+												}
+											]
+										: [])
 								]}
 								placement="bottom-start"
 								fixedHeight={false}
+								closeOnItemClick={false}
+								bind:open={plusMenuOpen}
 							>
 								{#snippet buttonReplacement()}
 									<Tooltip small placement="top">
@@ -926,10 +968,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										nonCaptureEvent
 										unifiedSize="2xs"
 										variant="default"
-										title={autonomyModeTooltip}
+										title={effectiveAutonomyModeOption.tooltip(autonomyAvailability)}
+										btnClasses={effectiveAutonomyModeOption.triggerClass ?? ''}
 										startIcon={{
-											icon: autonomyModeIcon(effectiveAutonomyMode),
-											classes: autonomyModeIconColor(effectiveAutonomyMode)
+											icon: effectiveAutonomyModeOption.icon,
+											classes: effectiveAutonomyModeOption.iconColor
 										}}
 										endIcon={{ icon: ChevronDown }}
 									>
@@ -937,6 +980,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									</Button>
 								{/snippet}
 							</DropdownV2>
+						{/if}
+						{#if effectiveAutonomyMode === AIAutonomyMode.PLAN}
+							<span class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.modeNote}</span>
 						{/if}
 						{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && aiChatManager.autoAcceptToolConfirmationsAvailable}
 							<Tooltip small placement="top">
@@ -992,6 +1038,9 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						<ContextUsageIndicator />
 						<AIChatModelSettings />
+						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<McpConnections bind:this={mcpConnections} />
+						{/if}
 
 						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.inspectorElement}

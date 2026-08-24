@@ -11,10 +11,11 @@
 	const derivedHeight = $derived(size ? size : height)
 </script>
 
+<!-- #E44D26 shield / #F16529 lit face per the W3C HTML5 logo, w3.org/html/logo (downloads/HTML5_Logo.svg). -->
 <svg
 	width={derivedWidth}
 	height={derivedHeight}
-	viewBox="0 0 32 32"
+	viewBox="0.727 1.727 30.545 30.545"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 >

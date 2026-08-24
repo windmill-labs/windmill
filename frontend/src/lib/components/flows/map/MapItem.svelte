@@ -7,10 +7,8 @@
 	import { prettyLanguage } from '$lib/common'
 	import { msToSec, type Item } from '$lib/utils'
 	import FlowJobsMenu from './FlowJobsMenu.svelte'
-	import {
-		isTriggerStep,
-		type OnSelectedIteration
-	} from '$lib/components/graph/graphBuilder.svelte'
+	import { type OnSelectedIteration } from '$lib/components/graph/graphBuilder.svelte'
+	import { describeStepSettings } from '$lib/components/flows/flowStepSettings'
 	import { checkIfParentLoop } from '$lib/components/flows/utils.svelte'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { twMerge } from 'tailwind-merge'
@@ -24,6 +22,9 @@
 		insertable: boolean
 		moduleAction: ModuleActionInfo | undefined
 		annotation?: string | undefined
+		annotationTitle?: string | undefined
+		sideAnnotation?: string | undefined
+		sideAnnotationTitle?: string | undefined
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
@@ -57,6 +58,9 @@
 		insertable,
 		moduleAction = undefined,
 		annotation = undefined,
+		annotationTitle = undefined,
+		sideAnnotation = undefined,
+		sideAnnotationTitle = undefined,
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
@@ -86,14 +90,8 @@
 
 	let itemProps = $derived({
 		selected: selectionManager && selectionManager.isNodeSelected(mod.id),
-		retry: mod.retry?.constant != undefined || mod.retry?.exponential != undefined,
-		earlyStop: mod.stop_after_if != undefined || mod.stop_after_all_iters_if != undefined,
-		skip: Boolean(mod.skip_if),
-		suspend: Boolean(mod.suspend),
-		sleep: Boolean(mod.sleep),
-		cache: Boolean(mod.cache_ttl),
 		mock: mod.mock,
-		concurrency: Boolean(mod?.value?.['concurrent_limit'])
+		settings: describeStepSettings(mod).filter((s) => s.configured)
 	})
 
 	let parentLoop = $derived(
@@ -142,8 +140,17 @@
 				{msToSec(duration_ms)}s
 			</div>
 		{/if}
+		{#if sideAnnotation && sideAnnotation != ''}
+			<div
+				title={sideAnnotationTitle}
+				class="nodrag nopan absolute z-10 left-full ml-2 top-1/2 -translate-y-1/2 whitespace-nowrap text-2xs text-tertiary cursor-default"
+			>
+				{sideAnnotation}
+			</div>
+		{/if}
 		{#if annotation && annotation != ''}
 			<div
+				title={annotationTitle}
 				class={twMerge(
 					'absolute z-10 left-0 -top-5 center-center text-primary',
 					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''
@@ -212,6 +219,11 @@
 					on:delete
 					on:move
 					on:pointerdown={handlePointerDown}
+					onUpdateMock={(mock) => {
+						mod.mock = mock
+						onUpdateMock?.({ id: mod.id, mock })
+					}}
+					alwaysShowOutputPicker
 					{...itemProps}
 					id={mod.id}
 					label={mod.summary || 'Run one branch'}
@@ -232,6 +244,11 @@
 					on:delete
 					on:move
 					on:pointerdown={handlePointerDown}
+					onUpdateMock={(mock) => {
+						mod.mock = mock
+						onUpdateMock?.({ id: mod.id, mock })
+					}}
+					alwaysShowOutputPicker
 					id={mod.id}
 					{...itemProps}
 					label={mod.summary || `Run all branches${mod.value.parallel ? ' (parallel)' : ''}`}
@@ -253,8 +270,6 @@
 					on:delete
 					on:move
 					onUpdateMock={(mock) => {
-						console.log('onUpdateMock', mock)
-
 						mod.mock = mock
 						onUpdateMock?.({ id: mod.id, mock })
 					}}
@@ -274,7 +289,6 @@
 							? `Inline ${prettyLanguage(mod.value.language)}`
 							: 'To be defined')}
 					path={`path` in mod.value ? mod.value.path : ''}
-					isTrigger={isTriggerStep(mod)}
 					alwaysShowOutputPicker={!mod.id.startsWith('subflow:') && mod.id !== 'preprocessor'}
 					loopStatus={parentLoop ? { type: 'inside', flow: parentLoop.type } : undefined}
 					inputTransform={mod.value.type !== 'identity' ? mod.value.input_transforms : undefined}

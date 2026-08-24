@@ -465,7 +465,7 @@ describe('fork mode', () => {
 		expect(byPath['f/a/b'].status).toBe('modified')
 		expect(byPath['f/a/new'].status).toBe('only_in_fork')
 		expect(byPath['f/a/new'].patch).not.toContain('parent-ws')
-		expect(byPath['f/a/gone'].status).toBe('deleted_in_fork')
+		expect(byPath['f/a/gone'].status).toBe('only_in_parent')
 		// One-sided entries fetch only the existing side: 2 + 1 + 1 calls.
 		expect(getItemValue).toHaveBeenCalledTimes(4)
 	})

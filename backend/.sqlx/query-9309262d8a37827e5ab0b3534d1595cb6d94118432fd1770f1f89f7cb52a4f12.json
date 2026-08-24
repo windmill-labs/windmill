@@ -1,0 +1,134 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH live AS (\n             -- The graph is stored per deployed VERSION, so this endpoint — which\n             -- describes the project as it is now — takes the newest live one per\n             -- path. Resolved once here rather than per row: a correlated lookup\n             -- on every node is what makes these queries fall over.\n             SELECT * FROM (\n               SELECT DISTINCT ON (s.path) s.path, s.hash\n                 FROM script s\n                WHERE $5::text IS NULL AND s.workspace_id = $1 AND s.language = 'dbt'\n                  AND ($3::bigint IS NULL OR s.hash = $3)\n                  -- A pinned version may be archived by now; that is precisely\n                  -- the case a historical run needs, so the liveness filter\n                  -- applies only when picking the current one.\n                  AND ($3::bigint IS NOT NULL OR (s.deleted = false AND s.archived = false))\n                ORDER BY s.path, s.created_at DESC\n             ) cur\n             UNION ALL\n             -- A pinned run names its own version, so `script` is not consulted:\n             -- under RLS it would answer for the CALLER's grants on the project,\n             -- emptying the graph for a share-link viewer who is entitled to the\n             -- run but not the script. A NULL hash here is a job that names no\n             -- version at all — an editor buffer parse — and matches only the\n             -- version-less rows that parse stored.\n             SELECT $5::text, $3::bigint WHERE $5::text IS NOT NULL\n           ),\n           -- The run's own snapshot when it left one, the version's graph\n           -- otherwise. A static descriptor never snapshots, so all of its runs\n           -- fall through to the same rows. Existence comes from the marker, not\n           -- from a node row: a dynamic run that disabled every model has a\n           -- snapshot whose graph is legitimately empty.\n           chosen AS (\n             -- No visibility check on the job here: reaching this with a job at\n             -- all means the caller passed `require_job_read_access` for it, and\n             -- re-deciding it under plain RLS can only DISAGREE with that answer\n             -- — silently, by falling back to the deployed graph rather than\n             -- erroring. A share-link viewer is entitled to the run and would be\n             -- shown a different run's model set. See `asset_graph_for`.\n             SELECT CASE WHEN $4::uuid IS NOT NULL AND EXISTS (\n                      SELECT 1 FROM dbt_graph_snapshot g\n                       WHERE g.workspace_id = $1 AND g.job_id = $4)\n                    THEN $4::uuid\n                    ELSE '00000000-0000-0000-0000-000000000000'::uuid END AS job_id\n           ),\n           scoped AS (\n             SELECT n.script_path, n.unique_id FROM dbt_node n\n              -- `=` still, with the NULL-to-NULL case spelled out and gated on\n              -- the pin: a version-less row's hash is NULL on both sides, which\n              -- `=` never matches, but `IS NOT DISTINCT FROM` would cost the\n              -- equality its index bound on the UNPINNED workspace graph — the\n              -- hot path. Unpinned, `$5` is NULL and the second arm folds away.\n              JOIN live l ON l.path = n.script_path\n                         AND (n.script_hash = l.hash\n                              OR ($5::text IS NOT NULL AND l.hash IS NULL\n                                  AND n.script_hash IS NULL))\n              JOIN chosen ch ON ch.job_id = n.job_id\n              WHERE n.workspace_id = $1 AND n.asset_path IS NOT NULL\n                -- Unpinned, the scope is the relations in view: `asset` says\n                -- which of them this folder touches. Pinned, that table is the\n                -- WRONG scope — it holds one row set per path, describing the\n                -- current deploy, so a model this version had and the current one\n                -- dropped would be filtered out of its own run's graph. The\n                -- pinned graph's nodes are the scope. Keyed on the pin rather\n                -- than on the hash: an editor parse pins without naming one, and\n                -- its models are precisely the ones `asset` does not know yet.\n                AND ($3::bigint IS NOT NULL OR $5::text IS NOT NULL\n                     OR n.asset_path IN (\n                  SELECT path FROM asset\n                   WHERE workspace_id = $1 AND kind = 'dbt'\n                     AND ($2::text IS NULL OR usage_path LIKE $2)))\n           )\n           SELECT n.script_path AS \"script_path!\", n.unique_id AS \"unique_id!\",\n                  n.resource_type AS \"resource_type!\", n.name AS \"name!\", n.asset_path,\n                  n.materialized, n.materialize_strategy, n.tags AS \"tags!\", n.description,\n                  n.test_kind, n.test_column, n.test_args, n.severity, n.attached_node,\n                  n.columns, n.freshness,\n                  n.raw_code, n.original_file_path,\n                  -- Whether the caller may read the project this row describes.\n                  -- The query deliberately reaches outside the requested folder\n                  -- so an in-scope consumer can explain the relation it reads,\n                  -- and `dbt_node` carries no RLS of its own; the relation's\n                  -- SHAPE is fine to answer that way, everything the project's\n                  -- author WROTE is not. Applied in Rust, over one predicate, so\n                  -- the fields it covers are named in one place. This runs in the\n                  -- authed transaction, so `script`'s RLS answers it. Matched on\n                  -- the HASH as well: `extra_perms` is per row, so a path\n                  -- recreated with narrower ones leaves the archived version\n                  -- readable, and a path-only probe would answer for THAT grant\n                  -- while returning this version's source.\n                  --\n                  -- A version-less row has no `script` row to ask, and needs\n                  -- none: it exists only because this caller's own parse job\n                  -- created it from a buffer they wrote, and the unpinned `live`\n                  -- branch — fed from `script` — can never join to one.\n                  (n.script_hash IS NULL OR EXISTS (\n                      SELECT 1 FROM script sc\n                       WHERE sc.workspace_id = n.workspace_id AND sc.path = n.script_path\n                         AND sc.hash = n.script_hash\n                  )) AS \"script_visible!\"\n             FROM dbt_node n\n             JOIN live l ON l.path = n.script_path\n                        AND (n.script_hash = l.hash\n                             OR ($5::text IS NOT NULL AND l.hash IS NULL\n                                 AND n.script_hash IS NULL))\n             -- Every join onto `dbt_node` needs this, not just the scoping CTE:\n             -- `job_id` is part of the key, so without it each model comes back\n             -- once per retained snapshot plus once for the version's graph.\n             JOIN chosen ch ON ch.job_id = n.job_id\n            WHERE n.workspace_id = $1\n              -- Joined on BOTH columns: a dbt `unique_id` is project-local, so\n              -- two projects with the same model name would otherwise pull each\n              -- other's rows.\n              AND (EXISTS (SELECT 1 FROM scoped s\n                            WHERE s.script_path = n.script_path\n                              AND s.unique_id = n.unique_id)\n                   OR EXISTS (SELECT 1 FROM scoped s\n                               WHERE s.script_path = n.script_path\n                                 AND s.unique_id = n.attached_node))\n            ORDER BY n.script_path, n.unique_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "script_path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "unique_id!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "resource_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "asset_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "materialized",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "materialize_strategy",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "tags!",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "test_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "test_column",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "test_args",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 12,
+        "name": "severity",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "attached_node",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "columns",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 15,
+        "name": "freshness",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 16,
+        "name": "raw_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "original_file_path",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "script_visible!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "9309262d8a37827e5ab0b3534d1595cb6d94118432fd1770f1f89f7cb52a4f12"
+}

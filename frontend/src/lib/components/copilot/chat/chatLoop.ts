@@ -14,7 +14,11 @@ import {
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
 import { modelSupportsVision, usesAnthropicMessagesApi } from '../modelConfig'
 import { boundImagePartBytes, stripImagePartsFromMessages } from './imageUtils'
-import { getOpenAIResponsesCompletion, parseOpenAIResponsesCompletion } from './openai-responses'
+import {
+	buildPromptCacheKey,
+	getOpenAIResponsesCompletion,
+	parseOpenAIResponsesCompletion
+} from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
@@ -73,11 +77,16 @@ export interface ChatLoopConfig {
 		helpers: any,
 		modelProvider: ReasoningProviderModel
 	) => Promise<void>
+	/** Fired for each completed provider response, before the loop continues. The
+	 * loop can fail or be aborted at any iteration, so spend has to be handed over
+	 * as it happens — a callback only at the end would discard everything the
+	 * earlier iterations were already billed for. */
+	onUsage?: (usage: ChatTokenUsage, modelProvider: ReasoningProviderModel) => void
 }
 
 export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
-	/** Sum of usage across all loop iterations (suitable for cost accounting). */
+	/** Sum of usage across all loop iterations. */
 	tokenUsage: ChatTokenUsage
 	lastIterationUsage: ChatTokenUsage | null
 	hitMaxIterations: boolean
@@ -130,11 +139,25 @@ const WEB_SEARCH_UNAVAILABLE_STATUS_CODES = new Set([400, 403, 404])
 const unsupportedReasoningSummaryCache = new Set<string>()
 const REASONING_SUMMARY_UNAVAILABLE_STATUS_CODES = new Set([400, 403])
 
+// A gateway that validates the request body strictly rejects `prompt_cache_key`
+// outright, so it is a property of the endpoint the credentials point at, not of the
+// model. Same in-memory reasoning as above: a reload re-probes.
+const unsupportedPromptCacheKeyCache = new Set<string>()
+
 function getWebSearchCacheKey(workspace: string, modelProvider: ReasoningProviderModel): string {
 	return [workspace, modelProvider.provider, modelProvider.model].join(':')
 }
 
 function getReasoningSummaryCacheKey(
+	workspace: string,
+	modelProvider: ReasoningProviderModel
+): string {
+	return [workspace, modelProvider.provider].join(':')
+}
+
+// Keyed without the model, like the reasoning-summary probe: a body-validation refusal
+// belongs to the endpoint, so switching models must not re-pay the failed round trip.
+function getPromptCacheKeySupportKey(
 	workspace: string,
 	modelProvider: ReasoningProviderModel
 ): string {
@@ -251,6 +274,25 @@ function shouldRetryWithoutReasoningSummary(err: unknown): boolean {
 	)
 }
 
+// An OpenAI-compatible gateway that validates the body strictly names the offending
+// field, whether it calls it an unrecognized argument or an unexpected additional
+// property.
+function shouldRetryWithoutPromptCacheKey(err: unknown): boolean {
+	const status = getErrorStatus(err)
+	if (status !== undefined && status !== 400) {
+		return false
+	}
+	if (getErrorParam(err) === 'prompt_cache_key') {
+		return true
+	}
+	return getErrorText(err).includes('prompt_cache_key')
+}
+
+function markPromptCacheKeyUnsupported(cacheKey: string, err: unknown) {
+	unsupportedPromptCacheKeyCache.add(cacheKey)
+	console.warn('prompt_cache_key rejected; retrying without prompt caching hints:', err)
+}
+
 function markReasoningSummaryUnsupported(
 	cacheKey: string,
 	err: unknown,
@@ -291,6 +333,20 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 	let lastIterationUsage: ChatTokenUsage | null = null
 	let iterations = 0
 	let hitMaxIterations = false
+	// The model of the iteration currently in flight; re-read per iteration like
+	// `config.modelProvider` itself, so usage is attributed to the model that
+	// actually served it rather than to whatever is selected when the loop ends.
+	let iterationModel: ReasoningProviderModel | undefined
+
+	// Reported as the provider's usage arrives, not when the parser returns: a parser
+	// waits on tool execution, which can wait on a person, and a tab closed in that
+	// gap would drop a response that was already billed. Accounting for the turn's
+	// own totals stays on the return path, where every parser reports uniformly.
+	const reportUsage = (usage: ChatTokenUsage | null | undefined) => {
+		if (usage && iterationModel) {
+			config.onUsage?.(usage, iterationModel)
+		}
+	}
 
 	const trackUsage = (usage: ChatTokenUsage | null | undefined) => {
 		tokenUsage = addChatTokenUsage(tokenUsage, usage)
@@ -314,6 +370,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const helpers = config.helpers
 		const systemMessage = config.systemMessage
 		const modelProvider = config.modelProvider
+		iterationModel = modelProvider
 		const webSearchCacheKey = getWebSearchCacheKey(workspace, modelProvider)
 		const webSearch =
 			(config.webSearch ?? true) &&
@@ -349,7 +406,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
-		const parseOptions = { workspace, provider: modelProvider.provider }
+		const parseOptions = {
+			workspace,
+			provider: modelProvider.provider,
+			onTokenUsage: reportUsage
+		}
 
 		if (isOpenAI) {
 			const reasoningSummaryCacheKey = getReasoningSummaryCacheKey(workspace, modelProvider)
@@ -359,6 +420,13 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			let reasoningSummary =
 				resolveEffectiveReasoning(modelProvider) !== undefined &&
 				!unsupportedReasoningSummaryCache.has(reasoningSummaryCacheKey)
+
+			// One key for the whole chat surface: every iteration opens with the same
+			// system prompt and tool definitions, and each one extends the previous
+			// iteration's prefix, so they all belong on the same cache.
+			const promptCacheKey = buildPromptCacheKey('chat', modelProvider, workspace)
+			const promptCacheSupportKey = getPromptCacheKeySupportKey(workspace, modelProvider)
+			let usePromptCacheKey = !unsupportedPromptCacheKeyCache.has(promptCacheSupportKey)
 
 			const runOpenAIResponses = async (useWebSearch: boolean): Promise<boolean> => {
 				const completion = await getOpenAIResponsesCompletion(
@@ -370,7 +438,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						openaiClient: clients.openai,
 						webSearch: useWebSearch,
 						reasoningEffort,
-						reasoningSummary
+						reasoningSummary,
+						promptCacheKey: usePromptCacheKey ? promptCacheKey : undefined
 					}
 				)
 				const continueCompletion = await parseOpenAIResponsesCompletion(
@@ -389,9 +458,10 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			let useCompletionsApi = skipResponsesApi
 			if (!skipResponsesApi) {
 				// Retry the Responses call disabling whichever optional feature the
-				// provider rejected (reasoning summary, web search) in the order the
-				// errors arrive — a turn can hit both, either one first. Each retry
-				// permanently disables one feature, so this loops at most twice.
+				// provider rejected (reasoning summary, web search, prompt cache key) in
+				// the order the errors arrive — a turn can hit several, any one first.
+				// Each retry permanently disables one feature, so this loops at most
+				// once per feature.
 				let useWebSearch = webSearch
 				let outcome: 'break' | 'continue' | undefined
 				let fallbackError: unknown
@@ -409,6 +479,9 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 						} else if (useWebSearch && shouldRetryWithoutWebSearch(err)) {
 							markWebSearchUnsupported(webSearchCacheKey, err, config.onWebSearchUnavailable)
 							useWebSearch = false
+						} else if (usePromptCacheKey && shouldRetryWithoutPromptCacheKey(err)) {
+							markPromptCacheKeyUnsupported(promptCacheSupportKey, err)
+							usePromptCacheKey = false
 						} else {
 							fallbackError = err
 							break
@@ -501,7 +574,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			const completion = await getCompletion(messageParams, abortController, toolDefs, {
 				forceModelProvider: modelProvider,
 				openaiClient: clients.openai,
-				reasoningEffort
+				reasoningEffort,
+				promptCaching: true
 			})
 			if (completion) {
 				const continueCompletion = await parseOpenAICompletion(

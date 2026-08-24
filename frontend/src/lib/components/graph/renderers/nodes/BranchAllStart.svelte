@@ -7,17 +7,19 @@
 	import type { BranchAllStartN } from '../../graphBuilder.svelte'
 	import { getGraphContext } from '../../graphContext'
 	import { computeBorderStatus } from '../utils'
+	import { getFlowRunStatusContext } from '../../flowRunStatus.svelte'
 	interface Props {
 		data: BranchAllStartN['data']
 		id: string
 	}
 
 	let { data, id }: Props = $props()
+	const flowRunStatus = getFlowRunStatusContext()
 
 	const { selectionManager } = getGraphContext()
 
 	let borderStatus = $derived(
-		computeBorderStatus(data.branchIndex, 'branchall', data.flowModuleState)
+		computeBorderStatus(data.branchIndex, 'branchall', flowRunStatus?.getModuleState(data.id))
 	)
 </script>
 

@@ -200,7 +200,14 @@ pub struct AzureTriggerConfig {
 #[cfg(all(feature = "enterprise", feature = "gcp_trigger", feature = "private"))]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GcpTriggerConfig {
-    pub gcp_resource_path: String,
+    /// `None` selects application default credentials. Deliberately not `empty_as_none`: unlike
+    /// every other field here, absent does not mean "unset" but "use the instance's own identity",
+    /// so a blank string left behind by a half-filled form must stay distinguishable and be
+    /// rejected rather than silently selecting the privileged mode.
+    #[serde(default)]
+    pub gcp_resource_path: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub project_id: Option<String>,
     pub subscription_mode: GcpSubscriptionMode,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub subscription_id: Option<String>,
@@ -424,11 +431,24 @@ async fn set_gcp_trigger_config(
         return Err(Error::BadRequest("Invalid GCP Pub/Sub config".to_string()));
     };
 
+    if gcp_config
+        .gcp_resource_path
+        .as_deref()
+        .is_some_and(|path| path.trim().is_empty())
+    {
+        return Err(Error::BadRequest(
+            "GCP resource path cannot be empty. Remove the field entirely to use application \
+             default credentials."
+                .to_string(),
+        ));
+    }
+
     let config = manage_google_subscription(
         authed,
         db,
         w_id,
-        &gcp_config.gcp_resource_path,
+        gcp_config.gcp_resource_path.as_deref(),
+        gcp_config.project_id.as_deref(),
         &capture_config.path,
         &gcp_config.topic_id,
         &mut gcp_config.subscription_id,
@@ -722,17 +742,21 @@ async fn get_capture(
 async fn delete_capture(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((_, id)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<()> {
     let mut tx = user_db.begin(&authed).await?;
+    // capture RLS only keys on the path segment, so without workspace_id an id from
+    // another workspace whose path collides with the caller's grants would be deleted.
     sqlx::query!(
         r#"
-        DELETE FROM 
+        DELETE FROM
             capture
-        WHERE 
+        WHERE
             id = $1
+            AND workspace_id = $2
         "#,
-        id
+        id,
+        &w_id,
     )
     .execute(&mut *tx)
     .await?;
@@ -1047,7 +1071,7 @@ async fn gcp_payload(
         user_db.clone(),
         authed.clone(),
         &headers,
-        &gcp_trigger_config.gcp_resource_path,
+        gcp_trigger_config.gcp_resource_path.as_deref(),
         &w_id,
         config.delivery_config.as_ref().unwrap(),
     )

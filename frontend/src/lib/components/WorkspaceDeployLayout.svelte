@@ -85,7 +85,10 @@
 	}: Props = $props()
 
 	let selectableItems = $derived(items.filter(selectablePredicate))
-	let hasSelectableItems = $derived(selectableItems.length > 0)
+	// "Select all" is a bulk action, so it lives or dies by the bulk-selectable set:
+	// a list of nothing but bulk-excluded rows would otherwise offer an enabled
+	// control that selects nothing. Each such row is still selectable on its own.
+	let hasSelectableItems = $derived(selectableItems.some((i) => !bulkExcluded(i)))
 
 	// Plain row click and the checkbox both toggle this row in/out — multi-select
 	// is the default, no modifier needed.
@@ -195,6 +198,13 @@
 					{#if showGroupHeaders}
 						{@const selectable = groupSelectable(group)}
 						{@const selectedCount = selectable.filter((i) => selectedItems.includes(i.key)).length}
+						<!-- The label counts every ticked row, bulk-excluded ones included: those
+						     are deployed like any other, and reporting only the bulk-selectable
+						     ones would contradict the deploy button. The checkbox above keeps its
+						     own count, which must ignore them to reach a full-checked state. -->
+						{@const selectedInGroup = group.items.filter((i) =>
+							selectedItems.includes(i.key)
+						).length}
 						<!-- The disabled-state hint lives on the row: a disabled Checkbox is
 						     pointer-events-none, so a title on the input would never show. -->
 						<div
@@ -219,8 +229,8 @@
 							{/if}
 							<span class="text-xs font-semibold text-secondary truncate">{group.label}</span>
 							<span class="text-2xs text-tertiary whitespace-nowrap">
-								{group.items.length} item{group.items.length !== 1 ? 's' : ''}{selectedCount > 0
-									? ` · ${selectedCount} selected`
+								{group.items.length} item{group.items.length !== 1 ? 's' : ''}{selectedInGroup > 0
+									? ` · ${selectedInGroup} selected`
 									: ''}
 							</span>
 							{#if groupActions}

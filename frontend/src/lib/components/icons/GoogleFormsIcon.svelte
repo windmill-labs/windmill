@@ -1,31 +1,64 @@
 <script lang="ts">
+	import { randomUUID } from '$lib/utils/uuid'
+
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
+
+	// SVG ids are document-global: several instances on one page would share the first one's defs.
+	const uid = randomUUID()
 </script>
 
+<!-- #5746E3 (with #7372FE / #969DFF / #B8C0FF) / no dark variant, per Google's own Forms product icon at www.gstatic.com/images/branding/productlogos/forms_2026/v2/web/192px.svg. Google's brand guidelines forbid modifying or recolouring its product icons. -->
 <svg
 	x="0px"
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 168 168"
+	viewBox="12.955 12.955 166.091 166.091"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 >
-	<path
-		d="M103.228 42.5L125.987 46.8009L144.728 42.5L103.228 1L97.5024 20.6748L103.228 42.5Z"
-		fill="#56368A"
-	/>
-	<path
-		d="M103.227 42.5V1H35.3182C29.0649 1 24 6.06489 24 12.3182V155.682C24 161.935 29.0649 167 35.3182 167H133.409C139.662 167 144.727 161.935 144.727 155.682V42.5H103.227Z"
-		fill="#7248B9"
-	/>
-	<path
-		d="M56.0683 120.784C52.9463 120.784 50.4092 118.247 50.4092 115.125C50.4092 112.003 52.9463 109.466 56.0683 109.466C59.1902 109.466 61.7274 112.003 61.7274 115.125C61.7274 118.247 59.1902 120.784 56.0683 120.784ZM56.0683 98.1478C52.9463 98.1478 50.4092 95.6106 50.4092 92.4887C50.4092 89.3668 52.9463 86.8296 56.0683 86.8296C59.1902 86.8296 61.7274 89.3668 61.7274 92.4887C61.7274 95.6106 59.1902 98.1478 56.0683 98.1478ZM56.0683 75.5114C52.9463 75.5114 50.4092 72.9743 50.4092 69.8523C50.4092 66.7304 52.9463 64.1932 56.0683 64.1932C59.1902 64.1932 61.7274 66.7304 61.7274 69.8523C61.7274 72.9743 59.1902 75.5114 56.0683 75.5114ZM118.318 119.841H71.1592V110.409H118.318V119.841ZM118.318 97.2046H71.1592V87.7728H118.318V97.2046ZM118.318 74.5682H71.1592V65.1364H118.318V74.5682Z"
-		fill="white"
-	/>
+	<rect width="102" height="50" x="70" y="121" fill="#969dff" rx="25" />
+	<rect width="50" height="50" x="20" y="121" fill="#b8c0ff" rx="25" />
+	<rect width="50" height="50" x="20" y="71" fill="#5746e3" rx="25" />
+	<rect width="102" height="50" x="70" y="71" fill="#5746e3" rx="25" />
+	<mask
+		id="gforms-mask-{uid}"
+		width="102"
+		height="50"
+		x="70"
+		y="21"
+		maskUnits="userSpaceOnUse"
+		style="mask-type:alpha"
+	>
+		<rect width="102" height="50" x="70" y="21" fill="#5f54f4" rx="25" />
+	</mask>
+	<g mask="url(#gforms-mask-{uid})">
+		<rect width="102" height="50" x="70" y="21" fill="#7372fe" rx="25" />
+		<g filter="url(#gforms-blur-{uid})">
+			<circle cx="56" cy="46" r="36" fill="#64afff" />
+		</g>
+	</g>
+	<rect width="50" height="50" x="20" y="21" fill="#7372fe" rx="25" />
+	<path stroke="#fff" stroke-linecap="round" stroke-width="12" d="M95 46h52" />
+	<circle cx="45" cy="46" r="12" fill="#fff" />
+	<defs>
+		<filter
+			id="gforms-blur-{uid}"
+			width="111.47"
+			height="111.47"
+			x="0.27"
+			y="-9.74"
+			color-interpolation-filters="sRGB"
+			filterUnits="userSpaceOnUse"
+		>
+			<feFlood flood-opacity="0" result="BackgroundImageFix" />
+			<feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+			<feGaussianBlur result="effect1_foregroundBlur" stdDeviation="9.87" />
+		</filter>
+	</defs>
 </svg>

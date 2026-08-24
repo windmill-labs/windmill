@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eval_case\n                    (workspace_id, dataset_path, input, expected, created_by, created_at)\n                 VALUES ($1, $2, $3, $4, $5, clock_timestamp())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Jsonb",
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "db19932d940b2467147eb2c13b059f2ec33b0c83b5c4a332a4b6e54d2591767c"
+}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte'
+	import { tickPainted } from '$lib/utils/paint'
 	import WebsocketTriggerEditorInner from './WebsocketTriggerEditorInner.svelte'
 	import type { Snippet } from 'svelte'
 
@@ -20,7 +20,7 @@
 	let open = $state(false)
 	export async function openEdit(ePath: string, isFlow: boolean) {
 		open = true
-		await tick()
+		await tickPainted()
 		drawer?.openEdit(ePath, isFlow)
 	}
 
@@ -30,7 +30,7 @@
 		defaultValues?: Record<string, any>
 	) {
 		open = true
-		await tick()
+		await tickPainted()
 		drawer?.openNew(is_flow, initial_script_path, defaultValues)
 	}
 

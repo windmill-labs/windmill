@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM dbt_run_state\n                  WHERE workspace_id = $1 AND script_path = $2 AND permissioned_as = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b2dd773eebe0005eb4220f19e6a01aa9d12e461a89243bd0b651d1e5b837b6f4"
+}

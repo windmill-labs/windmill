@@ -21,6 +21,7 @@
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
 
 	import DetailPageLayout from '$lib/components/details/DetailPageLayout.svelte'
+	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
@@ -76,7 +77,12 @@
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import {
+		buildForkEditUrl,
+		editInForkAllowed,
+		editInForkLabel,
+		onEditInForkClick
+	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	let flow: Flow | undefined = $state()
@@ -315,9 +321,11 @@
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
+					onClick: (e: Event | undefined) =>
+						onEditInForkClick(e, 'flow', flow.path, { hasHref: true }),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
-					startIcon: GitFork
+					startIcon: Pen
 				}
 			})
 		}
@@ -600,6 +608,11 @@
 			{#if $workspaceStore && flow}
 				<Star kind="flow" path={flow.path} summary={flow.summary} />
 			{/if}
+			<OnBehalfOfBadge
+				onBehalfOf={flow?.on_behalf_of}
+				onBehalfOfEmail={flow?.on_behalf_of_email}
+				kind="flow"
+			/>
 			{#if flow?.value?.priority != undefined}
 				<div class="hidden md:block">
 					<HeaderBadge color="blue" variant="outlined" size="xs">
@@ -734,6 +747,7 @@
 											goto(`/flows/edit/${flow?.path}`)
 										}}
 										runnableType="flow"
+										path={flow?.path}
 									/>
 								{/if}
 

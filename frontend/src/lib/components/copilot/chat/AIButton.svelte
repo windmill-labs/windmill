@@ -6,23 +6,35 @@
 	import DarkPopover from '$lib/components/Popover.svelte'
 	import { ExternalLink, MessagesSquare } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import type { ComponentProps } from 'svelte'
 
 	let {
 		togglePanel,
 		btnClasses,
-		label = 'Open in AI session'
+		btnProps,
+		label = 'Open in AI session',
+		tooltip
 	}: {
 		togglePanel: () => void
 		btnClasses?: string
+		/** Overrides for the host's button styling (an editor toolbar sizes and
+		 * flattens it to match its neighbours). `btnClasses` still wins. */
+		btnProps?: ComponentProps<typeof Button>
 		/** Tooltip + accessible text of the icon-only button. */
 		label?: string
+		/** Hover text, when the label alone doesn't say where the button leads.
+		 * A host that renamed the button ("AI Fix") uses this to keep "in a new
+		 * AI session" discoverable. Defaults to `label`. */
+		tooltip?: string
 	} = $props()
+
+	const hoverText = $derived(tooltip ?? label)
 </script>
 
 {#if $copilotInfo.enabled}
 	<DarkPopover>
 		{#snippet text()}
-			{label}
+			{hoverText}
 		{/snippet}
 		{@render button({ onPress: () => togglePanel() })}
 	</DarkPopover>
@@ -58,6 +70,7 @@
 		onClick={onPress}
 		startIcon={{ icon: MessagesSquare }}
 		iconOnly
+		{...btnProps}
 		{btnClasses}
 	>
 		{label}

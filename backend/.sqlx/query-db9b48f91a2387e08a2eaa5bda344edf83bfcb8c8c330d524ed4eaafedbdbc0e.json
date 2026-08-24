@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO global_settings (name, value) VALUES ($1, $2)\n         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value\n         WHERE jsonb_typeof(global_settings.value) <> 'string'\n         RETURNING value",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "db9b48f91a2387e08a2eaa5bda344edf83bfcb8c8c330d524ed4eaafedbdbc0e"
+}

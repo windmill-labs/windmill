@@ -1,12 +1,22 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg {width} {height} viewBox="0 0 24 24" fill="#14CC80" xmlns="http://www.w3.org/2000/svg">
-<path d="M23.613 8.143l-7.668-3.856v7.712l7.668-3.855zM8.166 15.857V8.143L.387 4.287V12l7.78 3.857zM.183 3.958a.382.382 0 01.377-.017l7.606 3.771 7.607-3.771a.386.386 0 01.346 0l7.668 3.857a.386.386 0 01.213.345v7.71a.388.388 0 01-.213.346l-7.668 3.86a.389.389 0 01-.562-.345v-7.09l-7.219 3.58a.392.392 0 01-.344 0L.215 12.346A.387.387 0 010 12V4.287a.385.385 0 01.183-.329z"/>
+<!-- #14CC80 / #30F2A2 per buildkite.com/about/brand-assets. Buildkite ships a single mark "for any context", so there is no per-theme variant, and asks that it not be altered. -->
+<svg
+	{width}
+	{height}
+	viewBox="-1.091 -1.091 26.182 26.182"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
+	<path fill="#30F2A2" d="M0 4v8l8 4V8L0 4Z" />
+	<path fill="#14CC80" d="M8 8v8l8-4V4L8 8Z" />
+	<path fill="#30F2A2" d="M16 4v8l8-4-8-4Z" />
+	<path fill="#14CC80" d="M16 12v8l8-4V8l-8 4Z" />
 </svg>

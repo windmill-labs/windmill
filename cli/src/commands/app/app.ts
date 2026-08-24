@@ -12,10 +12,11 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { ListableApp, Policy } from "../../../gen/types.gen.ts";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
-import { getWmillYamlPath } from "../../core/conf.ts";
+import { getWmillYamlPath, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
 import lintCommand from "./lint.ts";
+import bundleCommand from "./bundle_command.ts";
 import newCommand from "./new.ts";
 import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
@@ -402,7 +403,14 @@ async function push(
 
   if (isRawAppByName || hasRawAppYaml) {
     const { pushRawApp } = await import("./raw_apps.ts");
-    await pushRawApp(workspace.workspaceId, remotePath, absoluteFilePath);
+    const merged = await mergeConfigWithConfigFile(opts);
+    await pushRawApp(
+      workspace.workspaceId,
+      remotePath,
+      absoluteFilePath,
+      undefined,
+      merged.defaultTs,
+    );
     log.info(colors.bold.underline.green("Raw app pushed"));
   } else {
     await pushApp(workspace.workspaceId, remotePath, absoluteFilePath);
@@ -429,6 +437,7 @@ const command = new Command()
   .action(push as any)
   .command("dev", devCommand)
   .command("lint", lintCommand)
+  .command("bundle", bundleCommand)
   .command("new", newCommand)
   .command("generate-agents", generateAgentsCommand)
   .command(

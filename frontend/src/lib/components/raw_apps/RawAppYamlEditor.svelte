@@ -25,14 +25,7 @@
 		onApply: (update: RawAppYamlUpdate) => void
 	}
 
-	let {
-		drawer = $bindable(),
-		summary,
-		files,
-		runnables,
-		data,
-		onApply
-	}: Props = $props()
+	let { drawer = $bindable(), summary, files, runnables, data, onApply }: Props = $props()
 
 	let code = $state('')
 	let initialCode = $state('')
@@ -106,6 +99,7 @@
 					minHeight={editorHeight}
 					bind:code
 					lang="yaml"
+					leadingChangeSync
 				/>
 			</div>
 		{/await}

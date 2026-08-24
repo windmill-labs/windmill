@@ -26,7 +26,8 @@ type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userWorkspaces, workspaceStore } from '$lib/stores'
-import { loadCopilot, copilotWorkspace } from '$lib/aiStore'
+import { copilotWorkspace } from '$lib/aiStore'
+import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { emptySchema, type StateStore } from '$lib/utils'
 import {
 	commitSessionWorkspace,
@@ -47,14 +48,17 @@ import {
 	describePreview,
 	hydratePreviewTabs,
 	previewTargetForSessionTarget,
-	selectPreviewTabsToClose
+	selectPreviewTabsToClose,
+	whereIs
 } from './sessionPreviewTabs.svelte'
 import {
-	matchReusablePage,
 	parsePreviewItemRoute,
+	previewLocationContext,
 	previewLocationLabel,
+	promptSafe,
 	resolvePreviewTab
 } from './previewRouter'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -359,6 +363,20 @@ function createRuntime(session: Session): SessionRuntime {
 			pendingForkOf: s.pending_fork?.parent_workspace_id
 		}
 	}
+	// What the side panel is showing, stamped on each user message so the chat
+	// knows the page (and the row whose drawer is open) without spending a
+	// get_preview_status round-trip. Live editors are skipped: they register
+	// themselves as the ACTIVE EDITOR through UserDraft's live-draft registry.
+	manager.activePreviewResolver = () => {
+		const owner = getRuntime(session.id)?.previewTabs
+		// What is on screen, not merely which tab is selected: the rule tells the model
+		// to resolve "this page" and "it" against this block, and a collapsed panel would
+		// point those at a page the user cannot see.
+		const tab = owner?.displayedTab
+		if (!tab) return undefined
+		if (resolvePreviewTab(tab.url).kind !== 'iframe') return undefined
+		return previewLocationContext(whereIs(tab))
+	}
 	// Pre-flight: materialise the (still-transient) session, then commit
 	// the workspace (creating a staged fork if needed) before any send.
 	// AIChatManager awaits this so the first message hits a persisted
@@ -479,15 +497,8 @@ function createRuntime(session: Session): SessionRuntime {
 		})
 	}
 
-	manager.openArtifact = (id, name) => {
-		// Capture before open() un-collapses / re-activates: flash only when the tab
-		// was already the displayed one (nothing else visibly changes).
-		const wasDisplayed = !previewTabs.collapsed
-		const prevActive = previewTabs.activeId
-		const { status } = previewTabs.open({ type: 'artifact', id, name })
-		if (status === 'focused' && wasDisplayed && previewTabs.activeId === prevActive) {
-			previewTabs.pulseFocus(previewTabs.activeId)
-		}
+	manager.openArtifact = (id, name, version) => {
+		previewTabs.open({ type: 'artifact', id, name, version })
 	}
 	manager.closeArtifact = (id) => previewTabs.closeArtifact(id)
 	// Key the store before any configureGlobalMode runs, so a new session's first create shows at once.
@@ -1009,13 +1020,19 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path }) => {
 	// they are live so the model's next turn doesn't race ahead and hit an
 	// "Unknown tool call" error on the first node it tries to build.
 	if (kind === 'pipeline') {
+		const folder = normalizePipelineFolder(path)
 		const ready = await runtime.manager.waitForPipelineHelpers()
 		// A backgrounded session's preview tab does not mount, so its editor never
 		// registers — don't claim success, or the model calls build_pipeline_node
 		// into the void. Tell it the tools aren't available and how to recover.
 		if (!ready) {
-			return `Opened the pipeline preview for "${path}", but its editor tools (build_pipeline_node / edit_pipeline_node) have not registered — this usually means this session is not the one currently displayed. Do NOT call build_pipeline_node yet: ask the user to open/focus this session's pipeline preview, then retry open_preview.`
+			return `Opened the pipeline preview for folder "${folder}", but its editor tools (build_pipeline_node / edit_pipeline_node) have not registered — this usually means this session is not the one currently displayed. Do NOT call build_pipeline_node yet: ask the user to open/focus this session's pipeline preview, then retry open_preview.`
 		}
+		// Spell out the node-path prefix: a node built off the folder name alone (or
+		// off the owner path twice over) is rejected by build_pipeline_node.
+		return `${
+			result.status === 'focused' ? 'Focused the' : 'Opened the'
+		} pipeline editor for folder "${folder}" in the side panel. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
 	}
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`
@@ -1031,40 +1048,18 @@ setOpenPagePreviewHandler(({ sessionId: callerSessionId, href, label, newTab }) 
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return undefined
 	const owner = getOrCreateRuntime(session).previewTabs
-	// Re-point the tab already showing this page (matched ignoring query/hash) so a
-	// filter change updates it in place instead of spawning a duplicate — unless the
-	// user asked for a separate tab. open() dedupes on the exact URL, so differing
-	// filters would otherwise always open a new tab.
-	const targetPage = matchReusablePage(href)
-	if (!newTab && targetPage) {
-		const existing = owner.tabs.find(
-			(t) => matchReusablePage(t.loc || t.url)?.path === targetPage.path
-		)
-		if (existing) {
-			// A target identical to what the tab already shows produces no navigation
-			// signal at all, so a drawer-opening hash (an edit drawer the user closed)
-			// would silently not re-fire — force a load. Hashless targets need no
-			// reload: focusing the already-correct view is enough.
-			const unchanged = href.includes('#') && (existing.loc || existing.url) === href
-			owner.select(existing.id)
-			owner.navigate({ type: 'page', href, label })
-			owner.setCollapsed(false)
-			if (unchanged) {
-				owner.pulseReload(existing.id)
-				return `Re-opened the ${label} preview tab on the requested view.`
-			}
-			return `Updated the ${label} preview tab with the new filters.`
-		}
-	}
-	const result = owner.open({ type: 'page', href, label })
+	// open() owns the whole decision — which tab already shows this page, whether the
+	// requested view differs from what it shows, and whether a forced load is needed to
+	// re-fire a drawer. Deciding any of that again here means two predicates for one
+	// question, and the report going out of step with what actually happened.
+	const result = owner.open({ type: 'page', href, label }, { forceNewTab: newTab })
 	if (result.status === 'focused') {
-		// Same no-signal situation as above: open() only reports 'focused' when a
-		// tab already shows this exact URL.
-		if (href.includes('#')) {
-			const shown = owner.tabs.find((t) => (t.loc || t.url) === href)
-			if (shown) owner.pulseReload(shown.id)
-		}
-		return `A preview tab is already showing ${label} — focused it and applied the filters.`
+		return `A preview tab is already showing ${label} — focused it.`
+	}
+	// The tab count did not change: saying "opened a new tab" would leave the model
+	// believing in a tab that does not exist, and offering to close it.
+	if (result.status === 'retargeted') {
+		return `Updated the ${label} preview tab with the requested view.`
 	}
 	return `Opened ${label} in a new preview tab in the side panel.`
 })
@@ -1078,7 +1073,9 @@ setGetPreviewStatusHandler((callerSessionId) => {
 	const session = sessionState.sessions.find((s) => s.id === sessionId)
 	if (!session) return 'No active session; the preview panel is unavailable.'
 	const owner = getOrCreateRuntime(session).previewTabs
-	return describePreview(owner.tabs, owner.activeId)
+	// `displayedTab` is the one place that decides what the user can see; the ACTIVE
+	// PREVIEW block reads it too, so the two descriptions cannot contradict each other.
+	return describePreview(owner.tabs, owner.activeId, !!owner.displayedTab)
 })
 
 // close_page dispatches here to close preview tabs in the calling session's
@@ -1092,7 +1089,7 @@ setClosePreviewTabsHandler(({ sessionId: callerSessionId, all, match }) => {
 	const owner = getOrCreateRuntime(session).previewTabs
 	if (owner.tabs.length === 0) return 'The preview panel has no open tabs.'
 
-	const labelFor = (t: (typeof owner.tabs)[number]) => previewLocationLabel(t.loc || t.url)
+	const labelFor = (t: (typeof owner.tabs)[number]) => promptSafe(previewLocationLabel(whereIs(t)))
 	// Resolve the doomed tabs to ids up front — close() re-indexes on each call.
 	const doomed = selectPreviewTabsToClose(owner.tabs, { all, match })
 	if (doomed.length === 0) {

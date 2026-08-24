@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft (workspace_id, path, typ, value, created_at, email)\n         SELECT $2, path, typ,\n                CASE WHEN typ IN ('script', 'flow')\n                     THEN to_json(to_jsonb(value) - 'on_behalf_of')\n                     ELSE value END,\n                created_at, email\n         FROM draft\n         WHERE workspace_id = $1 AND (email = $3 OR email IS NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "87afd5289e54b6accda8a399ec3c66df3d19217059f62903be3c74eadb9c15d5"
+}

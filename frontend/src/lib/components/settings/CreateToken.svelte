@@ -173,7 +173,9 @@
 </script>
 
 <div>
-	<div class="p-4 rounded-md mb-6 min-w-min bg-surface-tertiary">
+	<!-- Stays bounded by the panel width: a content-driven width (min-w-min) would let a long
+	     scope chip stretch this card and push the rest of the form out of view. -->
+	<div class="p-4 rounded-md mb-6 bg-surface-tertiary">
 		<h3 class="pb-2 font-semibold text-emphasis text-sm">{title}</h3>
 
 		{#if showMcpMode && !mcpOnly}

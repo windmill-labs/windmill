@@ -12768,13 +12768,12 @@
     "/w/{workspace}/scripts/create": {
       "post": {
         "summary": "create script",
-        "description": "Creates a new script when the path does not already exist.\nCreates a new version of an existing script when called with the same path and the current `parent_hash`.\n",
+        "description": "Creates a new script at a path that does not already hold one.\nSupplying `parent_hash` instead deploys a new version of the script that hash names, and a `path` differing from that version's moves the script there. `POST /w/{workspace}/scripts/update/{path}` does the same, naming the superseded version in its URL.\n",
         "operationId": "createScript",
         "x-mcp-tool": true,
-        "x-mcp-instructions": "To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history.",
+        "x-mcp-instructions": "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on.",
         "x-mcp-tool-include-fields": [
           "path",
-          "parent_hash",
           "content",
           "language",
           "summary",
@@ -12805,6 +12804,60 @@
         "responses": {
           "201": {
             "description": "script created",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "x-mcp-tool-description": "Creates a script at a path that does not already hold one."
+      }
+    },
+    "/w/{workspace}/scripts/update/{path}": {
+      "post": {
+        "summary": "update script",
+        "description": "Deploys a new version of the script at `path`, which must already hold one.\nThe body's `path` is the destination: the same path leaves the script where it\nis, a different one moves it there and archives the old path.\n",
+        "operationId": "updateScript",
+        "x-mcp-tool": true,
+        "x-mcp-instructions": "Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on.",
+        "x-mcp-tool-include-fields": [
+          "path",
+          "content",
+          "language",
+          "summary",
+          "description",
+          "kind",
+          "tag",
+          "deployment_message"
+        ],
+        "tags": [
+          "script"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "$ref": "#/components/parameters/ScriptPath"
+          }
+        ],
+        "requestBody": {
+          "description": "The new version of the script, whose `path` is where it should end up.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewScript"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "new script version created",
             "content": {
               "text/plain": {
                 "schema": {
@@ -31386,8 +31439,24 @@
             }
           },
           {
+            "name": "search",
+            "in": "query",
+            "description": "Match keys by path prefix, case-sensitively, on the raw key rather than per path segment (so \"a/file1\" matches \"a/file1000\"). Pushed down to the storage provider as a seek; resume with the returned next_marker.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "storage",
             "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "s3_resource_path",
+            "in": "query",
+            "description": "When set, list the files of this object storage resource instead of the workspace storage",
             "schema": {
               "type": "string"
             }
@@ -31416,6 +31485,100 @@
                   },
                   "required": [
                     "windmill_large_files"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/w/{workspace}/job_helpers/list_stored_files_paged": {
+      "get": {
+        "summary": "List one page of a single folder level in a workspace object storage",
+        "operationId": "listStoredFilesPaged",
+        "tags": [
+          "helpers"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/WorkspaceId"
+          },
+          {
+            "name": "prefix",
+            "in": "query",
+            "description": "Folder to list; empty for the bucket root, otherwise must end with '/'",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "max_keys",
+            "in": "query",
+            "description": "Maximum number of folders and files combined",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 100
+            }
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "description": "Opaque token from a previous response, to continue listing the same folder",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "storage",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "s3_resource_path",
+            "in": "query",
+            "description": "When set, list the files of this object storage resource instead of the workspace storage",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "One page of folders and files at this level",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "folders": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/StorageFolder"
+                      }
+                    },
+                    "files": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/StorageFile"
+                      }
+                    },
+                    "next_page_token": {
+                      "type": "string",
+                      "description": "When set, more entries remain at this level"
+                    },
+                    "restricted_access": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "folders",
+                    "files",
+                    "restricted_access"
                   ]
                 }
               }
@@ -37058,7 +37221,8 @@
           "trigger",
           "settings",
           "key",
-          "workspacedependencies"
+          "workspacedependencies",
+          "datatablemigration"
         ]
       },
       "AIProviderModel": {
@@ -37477,7 +37641,8 @@
             "type": "string"
           },
           "parent_hash": {
-            "type": "string"
+            "type": "string",
+            "description": "The hash of the version this one supersedes: deploying with it archives that version and chains the new one onto its history, and a `path` differing from the superseded version's moves the script there."
           },
           "auto_parent": {
             "type": "boolean",
@@ -39334,6 +39499,7 @@
               "igroup.adduser",
               "igroup.removeuser",
               "variables.decrypt_secret",
+              "workspaces.read_encryption_key",
               "workspaces.edit_command_script",
               "workspaces.edit_deploy_to",
               "workspaces.edit_auto_invite_domain",
@@ -48448,6 +48614,44 @@
         },
         "required": [
           "type"
+        ]
+      },
+      "StorageFolder": {
+        "type": "object",
+        "properties": {
+          "prefix": {
+            "type": "string",
+            "description": "Full key prefix of the folder, ending with '/'"
+          },
+          "name": {
+            "type": "string",
+            "description": "Last path segment, without the trailing '/'"
+          }
+        },
+        "required": [
+          "prefix",
+          "name"
+        ]
+      },
+      "StorageFile": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "last_modified": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "name"
         ]
       }
     }

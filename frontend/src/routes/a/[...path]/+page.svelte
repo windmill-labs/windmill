@@ -61,7 +61,7 @@
 
 	// Embedder side: validate access (main session cookie or shared JWT) and mint
 	// a scoped embed token for the opaque iframe (WIN-2006).
-	async function fetchEmbedToken(): Promise<{ token?: string }> {
+	async function fetchEmbedToken(opts?: { sdkConsent?: boolean }): Promise<{ token?: string }> {
 		if (parsedCustomPath.jwt) {
 			OpenAPI.TOKEN = 'jwt_ext_' + parsedCustomPath.jwt
 		}
@@ -69,8 +69,9 @@
 		if (typeof OpenAPI.TOKEN === 'string' && OpenAPI.TOKEN) {
 			headers['Authorization'] = `Bearer ${OpenAPI.TOKEN}`
 		}
+		const consent = opts?.sdkConsent ? '?sdk_consent=true' : ''
 		const res = await fetch(
-			`${OpenAPI.BASE}/apps_u/embed_token_by_custom_path/${parsedCustomPath.path}`,
+			`${OpenAPI.BASE}/apps_u/embed_token_by_custom_path/${parsedCustomPath.path}${consent}`,
 			{ headers }
 		)
 		if (!res.ok) {

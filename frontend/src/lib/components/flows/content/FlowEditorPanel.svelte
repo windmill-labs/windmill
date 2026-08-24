@@ -2,6 +2,7 @@
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import FlowModuleWrapper from './FlowModuleWrapper.svelte'
+	import { moduleSlot, savedModuleById } from '../moduleSlot'
 	import FlowSettings from './FlowSettings.svelte'
 	import FlowInput from './FlowInput.svelte'
 	import FlowFailureModule from './FlowFailureModule.svelte'
@@ -14,6 +15,7 @@
 	import { handleSelectTriggerFromKind, type Trigger } from '$lib/components/triggers/utils'
 	import { computeMissingInputWarnings } from '../missingInputWarnings'
 	import FlowResult from './FlowResult.svelte'
+	import ExpandedSubflowStep from './ExpandedSubflowStep.svelte'
 	import type { StateStore } from '$lib/utils'
 	import FlowSelectionPanel from './FlowSelectionPanel.svelte'
 	import {
@@ -123,7 +125,7 @@
 		{noEditor}
 		disabled={disabledFlowInputs}
 		on:openTriggers={(ev) => {
-			selectionManager.selectId('Trigger')
+			selectionManager.selectId('Trigger', { openPanel: true })
 			handleSelectTriggerFromKind(triggersState, triggersCount, savedFlow?.path, ev.detail.kind)
 			showCaptureHint.set(true)
 		}}
@@ -176,9 +178,10 @@
 		{onDeployTrigger}
 	/>
 {:else if selectedId?.startsWith('subflow:')}
-	<div class="p-4"
-		>Selected step is witin an expanded subflow and is not directly editable in the flow editor</div
-	>
+	<ExpandedSubflowStep
+		{selectedId}
+		onSubflowUpdated={() => flowModuleSchemaMap?.reloadExpandedSubflows()}
+	/>
 {:else}
 	{@const dup = checkDup(flowStore.val.value.modules)}
 	{#if dup}
@@ -186,12 +189,13 @@
 	{:else}
 		{#key selectedId}
 			{#each flowStore.val.value.modules as flowModule, index (flowModule.id ?? index)}
+				{@const slot = moduleSlot(() => flowStore.val.value.modules, flowModule.id, flowModule)}
 				<FlowModuleWrapper
 					{noEditor}
-					bind:flowModule={flowStore.val.value.modules[index]}
+					bind:flowModule={slot.get, slot.set}
 					previousModule={flowStore.val.value.modules[index - 1]}
 					{enableAi}
-					savedModule={savedFlow?.value.modules[index]}
+					savedModule={savedModuleById(savedFlow?.value.modules, flowModule.id)}
 					{forceTestTab}
 					{highlightArg}
 				/>

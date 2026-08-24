@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "groups",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 5,
+        "name": "folders",
+        "type_info": "JsonbArray"
+      },
+      {
+        "ordinal": 6,
+        "name": "end_user_email",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "3e869b95799300dff973a3c858f823a2872e33a360ff5a02169e4e80ce3d3b7b"
+}

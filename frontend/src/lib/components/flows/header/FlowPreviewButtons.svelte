@@ -169,7 +169,12 @@
 </Button>
 
 {#if !loading}
-	<Drawer bind:open={previewOpen} size="75%" {preventEscape} alwaysOpen={deferContent}>
+	<Drawer
+		bind:open={previewOpen}
+		size="75%"
+		{preventEscape}
+		alwaysOpen={deferContent}
+	>
 		<FlowPreviewContent
 			bind:this={flowPreviewContent}
 			open={previewOpen}
