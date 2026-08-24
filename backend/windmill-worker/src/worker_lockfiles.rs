@@ -199,6 +199,7 @@ async fn handle_build_binary_job(
                 worker_name,
                 base_internal_url,
                 occupancy_metrics,
+                script_data.modules.as_ref(),
             )
             .await?
         }
@@ -214,6 +215,7 @@ async fn handle_build_binary_job(
                 worker_name,
                 base_internal_url,
                 occupancy_metrics,
+                script_data.modules.as_ref(),
             )
             .await?
         }
@@ -235,6 +237,7 @@ async fn handle_build_binary_job(
                 worker_name,
                 base_internal_url,
                 occupancy_metrics,
+                script_data.modules.as_ref(),
             )
             .await?
         }
@@ -3169,6 +3172,7 @@ async fn capture_dependency_job(
                         &token,
                         &mut Some(occupancy_metrics),
                         temp_script_refs,
+                        modules,
                     )
                     .await?;
                 }

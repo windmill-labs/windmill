@@ -950,6 +950,39 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
+/// Appends the cache-key contribution of a runnable's inline modules to `input_src`.
+///
+/// `write_module_files` puts module content in the job dir, where the build inlines it
+/// into the artifact, so a key that leaves it out lets one runnable's modules be served
+/// to another whose main content and lockfile happen to match — across workspaces, the
+/// artifact cache being global and keyed on content alone.
+///
+/// Every field is length-prefixed: without that, two different module maps can concatenate
+/// to the same bytes (`{"a": "bc"}` and `{"ab": "c"}`) and share a cache slot again.
+pub(crate) fn push_modules_cache_key(
+    input_src: &mut String,
+    modules: Option<&std::collections::HashMap<String, ScriptModule>>,
+) {
+    let Some(modules) = modules.filter(|m| !m.is_empty()) else {
+        return;
+    };
+    let mut entries: Vec<(&String, &ScriptModule)> = modules.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    input_src.push_str(&format!(":modules:{}", entries.len()));
+    for (path, module) in entries {
+        let lang = module.language.as_str();
+        let lock = module.lock.as_deref().unwrap_or("");
+        input_src.push_str(&format!(
+            ":{}:{path}:{}:{lang}:{}:{}:{}:{lock}",
+            path.len(),
+            lang.len(),
+            module.content.len(),
+            module.content,
+            lock.len(),
+        ));
+    }
+}
+
 pub fn is_sandboxing_enabled() -> bool {
     if !*DISABLE_NSJAIL {
         return true;
@@ -5651,6 +5684,34 @@ mod write_module_files_tests {
         ScriptModule { content: content.to_string(), language: ScriptLang::Python3, lock: None }
     }
 
+    /// Every language's artifact cache key funnels module content through this, so an
+    /// ambiguous encoding puts two different scripts back in one cache slot.
+    #[test]
+    fn module_cache_key_cannot_be_re_cut_into_another_map() {
+        fn key(entries: &[(&str, &str)]) -> String {
+            let map: HashMap<String, ScriptModule> = entries
+                .iter()
+                .map(|(p, c)| (p.to_string(), module(c)))
+                .collect();
+            let mut out = String::new();
+            push_modules_cache_key(&mut out, Some(&map));
+            out
+        }
+
+        // Naive `path + content` concatenation renders both of these as "abc".
+        assert_ne!(key(&[("a", "bc")]), key(&[("ab", "c")]));
+        // Splitting one module into two must not read back as the joined one.
+        assert_ne!(key(&[("a", "b"), ("c", "d")]), key(&[("ac", "bd")]));
+        // Iteration order of the map must not move the key.
+        assert_eq!(key(&[("a", "1"), ("b", "2")]), key(&[("b", "2"), ("a", "1")]));
+
+        // No modules leaves the key untouched, so existing artifacts stay valid.
+        let mut untouched = "code+lock".to_string();
+        push_modules_cache_key(&mut untouched, None);
+        push_modules_cache_key(&mut untouched, Some(&HashMap::new()));
+        assert_eq!(untouched, "code+lock");
+    }
+
     #[test]
     fn contained_relative_path_rejects_traversal_and_absolute() {
         assert!(is_contained_relative_path("u/admin/pkg"));
@@ -6380,6 +6441,7 @@ mount {{
                 envs,
                 occupancy_metrics,
                 maybe_lock,
+                modules.as_ref(),
             ))
             .await
         }
@@ -6509,6 +6571,7 @@ mount {{
                     worker_name,
                     envs,
                     occupancy_metrics,
+                    modules.as_ref(),
                 ))
                 .await
             }
@@ -6567,6 +6630,7 @@ mount {{
                 worker_name,
                 envs,
                 occupancy_metrics,
+                modules.as_ref(),
             ))
             .await
         }
@@ -6631,6 +6695,7 @@ mount {{
                     worker_name,
                     envs,
                     occupancy_metrics,
+                    modules: modules.as_ref(),
                 }))
                 .await
             }

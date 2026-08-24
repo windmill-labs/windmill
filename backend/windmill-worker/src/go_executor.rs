@@ -230,8 +230,16 @@ fn go_runtime_int32(v: &str) -> Option<i32> {
 
 /// Cache key of a Go build. The run path and the deploy-time prebuild must derive it the
 /// same way or the prebuilt binary is never found and gets rebuilt on first run.
-fn go_cache_key(code: &str, maybe_lock: &MaybeLock) -> String {
-    calculate_hash(&format!("{}{:?}v2", code, maybe_lock))
+fn go_cache_key(
+    code: &str,
+    maybe_lock: &MaybeLock,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    // A module whose path starts with `go/` lands inside the module dir this builds, so
+    // its content ends up in the binary the key names.
+    let mut key_input = format!("{}{:?}v2", code, maybe_lock);
+    crate::worker::push_modules_cache_key(&mut key_input, modules);
+    calculate_hash(&key_input)
 }
 
 /// Install the deps, generate the entrypoint wrapper, `go build`, and push the binary to
@@ -459,9 +467,10 @@ pub async fn prebuild_go_binary(
     worker_name: &str,
     base_internal_url: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<Option<String>, Error> {
     let maybe_lock = MaybeLock::Resolved { lock: lock.to_string() };
-    let hash = go_cache_key(code, &maybe_lock);
+    let hash = go_cache_key(code, &maybe_lock, modules);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
     if crate::global_cache::exists_in_object_store(&remote_path).await {
         return Ok(None);
@@ -512,6 +521,7 @@ pub async fn handle_go_job(
     envs: HashMap<String, String>,
     occupation_metrics: &mut OccupancyMetrics,
     maybe_lock: MaybeLock,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<Box<RawValue>, Error> {
     //go does not like executing modules at temp root
     let job_dir = &format!("{job_dir}/go");
@@ -520,7 +530,7 @@ pub async fn handle_go_job(
         .create(&job_dir)
         .expect("could not create go job dir");
 
-    let hash = go_cache_key(inner_content, &maybe_lock);
+    let hash = go_cache_key(inner_content, &maybe_lock, modules);
     let bin_path = format!("{}/{hash}", *GO_BIN_CACHE_DIR);
     let remote_path = format!("{GO_OBJECT_STORE_PREFIX}{hash}");
     let (cache, cache_logs) = crate::global_cache::load_cache(&bin_path, &remote_path, false).await;

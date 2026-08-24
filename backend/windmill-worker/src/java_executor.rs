@@ -66,6 +66,7 @@ pub(crate) struct JobHandlerInput<'a> {
     pub requirements_o: Option<&'a String>,
     pub shared_mount: &'a str,
     pub worker_name: &'a str,
+    pub modules: Option<&'a HashMap<String, windmill_common::scripts::ScriptModule>>,
 }
 
 pub async fn handle_java_job<'a>(mut args: JobHandlerInput<'a>) -> Result<Box<RawValue>, Error> {
@@ -612,25 +613,34 @@ async fn compile<'a>(
         inner_content,
         requirements_o,
         parent_runnable_path,
+        modules,
         ..
     }: &mut JobHandlerInput<'a>,
     classpath: &'a str,
     // plugins: Vec<&'a str>,
 ) -> Result<(), Error> {
-    fn compute_hash(code: &str, requirements_o: Option<&String>) -> String {
-        calculate_hash(&format!(
+    // The cached artifact is the whole `target/` dir, and companion modules are written
+    // into the job dir before this runs, so their content can land in it.
+    fn compute_hash(
+        code: &str,
+        requirements_o: Option<&String>,
+        modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+    ) -> String {
+        let mut key_input = format!(
             "{}{}",
             code,
             requirements_o
                 .as_ref()
                 .map(|x| x.to_string())
                 .unwrap_or_default()
-        ))
+        );
+        crate::worker::push_modules_cache_key(&mut key_input, modules);
+        calculate_hash(&key_input)
     }
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
     let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
-    let mut hash = compute_hash(inner_content, *requirements_o);
+    let mut hash = compute_hash(inner_content, *requirements_o, *modules);
     hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");
