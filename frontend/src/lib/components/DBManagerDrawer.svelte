@@ -262,7 +262,9 @@
 									size="md"
 								/>
 							{/if}
-							{#if usableRoles.current?.enabled && roleItems.length > 0}
+							<!-- A single usable role is not a choice: the picker would only restate
+							     what the connection already is. -->
+							{#if usableRoles.current?.enabled && roleItems.length > 1}
 								<Select
 									transformInputSelectedText={(s) => `Role: ${s}`}
 									items={roleItems}
