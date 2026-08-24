@@ -18,8 +18,9 @@
 	import { userStore, workspaceStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { Button, Alert, Skeleton } from '$lib/components/common'
-	import { LoaderCircle, Plus } from 'lucide-svelte'
+	import { Button, Alert, EmptyState, Skeleton } from '$lib/components/common'
+	import { LoaderCircle, Plus, Webhook } from 'lucide-svelte'
+	import { GithubIcon, GoogleIcon, NextcloudIcon } from '$lib/components/icons'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
 	import { page } from '$app/state'
@@ -30,6 +31,11 @@
 
 	const serviceName = $derived(page.params.service_name as NativeServiceName)
 	const serviceConfig = $derived(getServiceConfig(serviceName))
+	const serviceIcons: Partial<Record<NativeServiceName, any>> = {
+		nextcloud: NextcloudIcon,
+		google: GoogleIcon,
+		github: GithubIcon
+	}
 
 	let triggers: TriggerW[] = $state([])
 	let loading = $state(true)
@@ -264,9 +270,19 @@
 						<Skeleton layout={[[6], 0.4]} />
 					{/each}
 				{:else if !triggers?.length}
-					<div class="text-center text-sm font-semibold text-emphasis mt-2">
-						No {serviceConfig?.serviceDisplayName || serviceName} triggers
-					</div>
+					<EmptyState
+						icon={serviceIcons[serviceName] ?? Webhook}
+						title="No {serviceConfig?.serviceDisplayName || serviceName} triggers yet"
+						description="{serviceConfig?.serviceDisplayName ||
+							serviceName} manages these triggers on its side, so events reach Windmill without a worker polling for them."
+						action={{
+							label: `Add a ${serviceConfig?.serviceDisplayName || serviceName} trigger`,
+							icon: Plus,
+							onClick: () => editor?.openNew(),
+							aiId: 'native-triggers-empty-add',
+							aiDescription: 'Add native trigger'
+						}}
+					/>
 				{:else if items?.length}
 					<NativeTriggerTable
 						service={serviceName}

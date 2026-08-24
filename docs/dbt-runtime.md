@@ -31,7 +31,7 @@ the dominant way dbt is orchestrated today.
 | 6 | Multiple run configs | Per-run `select` on one script; N scripts means N projects |
 | 7 | Run-time `select` | Descriptor default plus run-arg override |
 | 8 | Credentials | Workspace warehouses, plus `profiles.yml` passthrough. A descriptor never names a resource. See below |
-| 9 | Adapter mappings | postgres, redshift, mysql, snowflake, bigquery, databricks; others via the project's own `profiles.yml` |
+| 9 | Adapter mappings | postgres, redshift, mysql, snowflake, bigquery, databricks translate from their Windmill resource; **every** adapter dbt has is reachable from a `dbt_profile` resource, or the project's own `profiles.yml` |
 | 10 | Private repo auth | Not applicable: the project is synced, not fetched |
 | 11 | Asset kind | `dbt://<warehouse>/<schema>/<name>` — keyed on the relation, not on dbt's node id. See below |
 | 12 | Graph refresh | Deploy-time, re-ingested per run only when the descriptor is dynamic, plus an explicit `parse` of the editor's buffer. See below |
@@ -122,11 +122,19 @@ salesforce) is CE. Gating any of the others would make reaching a warehouse
 through dbt stricter than reaching it natively, which is backwards.
 
 Those two are *recognized* (for the gate and for the pip package the 1.x
-engine's venv needs), not rendered from a resource: an `oracledb` resource is
-`{user, password, database}` with no host/protocol/service, and dbt-sqlserver
-needs an ODBC `driver` the images do not install. Both reach their warehouse
-through the project's own `profiles.yml`, which is also how duckdb, clickhouse
-and salesforce work.
+engine's venv needs), but no Windmill connection resource translates into them:
+an `oracledb` resource is `{user, password, database}` with no
+host/protocol/service, and dbt-sqlserver needs an ODBC `driver` the images do not
+install. They reach their warehouse through a `dbt_profile` resource or the
+project's own `profiles.yml`, which is also how duckdb, clickhouse and salesforce
+work.
+
+Recognition is what the gate keys on, and it survives the open adapter set: a
+`dbt_profile` stating `sqlserver`, `mssql` or `oracle` resolves to the same
+`KnownAdapter` a resource type would, so it is gated identically. An adapter
+Windmill has never heard of is never enterprise — the boundary mirrors the two
+native warehouse languages, and an adapter with no Windmill runtime behind it is
+not one of them.
 
 The gate almost never fires in practice: `dbt-core-2x` supports neither adapter,
 so it can only apply to `dbt-core-1x` with one of those two.
@@ -219,6 +227,65 @@ A descriptor names a warehouse by NAME (`profile.warehouse`, `main` when it name
 none) and cannot name a resource. Admins configure the warehouses under Settings
 → dbt, where each entry points at a resource, exactly as `large_file_storage`
 points at the object-storage resource and a DuckLake names its catalog.
+
+**What a warehouse may point at.** Either a Windmill connection resource whose
+type `render_profile` translates (`postgresql`, `redshift`, `mysql`, `snowflake`,
+`snowflake_oauth`, `bigquery`, `gcp_service_account`, `databricks`), or a
+**`dbt_profile`** resource, whose VALUE IS one entry of that file's `outputs`
+map — `type` included, nothing lifted out or renamed. A block is copied from a
+working `profiles.yml` and pasted in, which is the whole point: a type that asked
+the user to restructure their block first would be doing the translation this
+exists to avoid. Its schema declares no properties, so the resource form renders
+one JSON editor over the value (`ResourceForm.svelte`). The picker is
+constrained to exactly these (`WAREHOUSE_RESOURCE_TYPES`); anything else has no
+way to become a target at all, which is why an unconstrained picker was a trap:
+it offered slack and github resources for a field that can only be a warehouse.
+
+The two exist for different reasons. A Windmill resource is the ergonomic path
+and is shared with everything else that connects to that warehouse, but it is
+*not* a dbt target: each adapter arm translates the fields Windmill's resource
+happens to carry into the keys dbt reads, so only what an arm covers can be
+expressed, and an adapter with no arm cannot be reached from one at all.
+`dbt_profile` inverts that — nothing is translated, so any adapter and any key it
+documents works.
+
+Which of the two a value is cannot be read off the value: both are objects with a
+`type`, and Windmill's bigquery resource is a service-account JSON that says
+`type: service_account`. So the warehouse carries its resource's TYPE
+(`DbtWarehouseConnection.resource_type`), and that is also what finally makes
+decision 9's "the resource type name is the authority" true at runtime rather
+than aspirational — the translated path resolved its adapter by sniffing
+connection fields until it had the name.
+
+**`dbt_profile` is open, deliberately.** Its `type` is not checked against a list:
+`DbtAdapter` carries an optional `KnownAdapter` beside the name, so the eleven
+adapters Windmill has facts about (a field mapping, a pip package, the license
+gate) keep them, and every other adapter dbt has — `trino`, `athena`, `spark`,
+whatever ships next — is carried by name and rendered, licensed and identified
+without Windmill knowing anything about it. A closed list would have made
+"whatever dbt supports" mean "whatever this enum lists", and each new adapter a
+Windmill release. The name is constrained to `[a-z0-9_-]` starting alphanumeric
+*because* it is open: it reaches a pip requirement and a venv path on the host,
+where a leading `-` is a flag and a `/` is a path segment.
+
+**Installing one is a separate question from using one.** `dbt-core-1x` fetches
+`dbt-<name>` from PyPI, `dbt-` is not a reserved prefix there, and that install
+runs through `run_tool` — outside the nsjail ordinary Python dependency
+installation uses, with uv executing a source distribution's PEP 517 backend. An
+unbounded name would therefore let a script author publish `dbt-<x>` and run code
+as the worker, on the one dependency path that is not sandboxed. So
+`ensure_adapter_installable` gates that install on `PUBLISHED_ADAPTERS` plus
+whatever an operator lists in `DBT_EXTRA_ADAPTERS`: the author chooses which
+adapter to use, the admin decides which packages this instance trusts. Nothing
+else is gated — a profile still renders for any adapter, and `dbt-core-2x` and
+`fusion` carry their adapters in the binary, install nothing, and take any
+`type` at all.
+
+Two keys are not passed through: `type` (Windmill writes the adapter's own dbt
+spelling) and `root_certificate_pem`, which is a PEM body rather than the path
+dbt hands the driver — it is written beside `profiles.yml` and pointed at by
+`sslrootcert`, as it is for a translated postgres resource. `profile.schema` and
+`threads` from the descriptor override their block keys rather than joining them.
 
 Three things follow, and they are the reason for the rule rather than
 consequences to work around.

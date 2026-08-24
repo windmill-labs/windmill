@@ -57,15 +57,20 @@ interface AIProviderDetails {
 	defaultModels: string[]
 }
 
+// The first entry is what a new workspace is created with (see
+// CreateWorkspaceInner), so each list leads with the balanced tier rather than
+// the frontier model. The gpt-5 family is deprecated (retires 2026-12-11) but
+// still served, so it stays in the list below the 5.6 models.
 const OPENAI_MODELS = [
+	'gpt-5.6-terra',
+	'gpt-5.6-sol',
+	'gpt-5.6-luna',
 	'gpt-5',
 	'gpt-5-mini',
-	'gpt-5-nano',
 	'gpt-4o',
 	'gpt-4o-mini',
 	'o4-mini',
-	'o3',
-	'o3-mini'
+	'o3'
 ]
 
 export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
@@ -75,17 +80,18 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	anthropic: {
 		label: 'Anthropic',
-		defaultModels: ['claude-sonnet-4-6', 'claude-3-5-haiku-latest']
+		defaultModels: ['claude-sonnet-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-haiku-4-5']
 	},
 	googleai: {
 		label: 'Google AI',
 		defaultModels: [
-			'gemini-2.5-flash',
+			'gemini-3.6-flash',
+			'gemini-3.5-flash',
+			'gemini-3.1-pro-preview',
+			'gemini-3.5-flash-lite',
+			'gemini-3.1-flash-lite',
 			'gemini-2.5-pro',
-			'gemini-2.5-flash-lite',
-			'gemini-3-flash',
-			'gemini-3.1-pro',
-			'gemini-3.1-flash-lite'
+			'gemini-2.5-flash'
 		]
 	},
 	azure_openai: {
@@ -95,25 +101,26 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	azure_foundry: {
 		label: 'Azure AI Foundry',
 		defaultModels: [
-			'gpt-4o',
-			'gpt-4o-mini',
-			'DeepSeek-R1',
+			'gpt-5.6-terra',
+			'gpt-5.6-sol',
+			'claude-sonnet-5',
+			'claude-opus-5',
+			'DeepSeek-V4-Pro',
 			'Llama-3.3-70B-Instruct',
-			'Phi-4',
-			'Mistral-Large-2411'
+			'Phi-4'
 		]
 	},
 	mistral: {
 		label: 'Mistral',
-		defaultModels: ['codestral-latest']
+		defaultModels: ['mistral-medium-latest', 'codestral-latest']
 	},
 	deepseek: {
 		label: 'DeepSeek',
-		defaultModels: ['deepseek-v4-pro', 'deepseek-chat', 'deepseek-reasoner']
+		defaultModels: ['deepseek-v4-pro', 'deepseek-v4-flash']
 	},
 	groq: {
 		label: 'Groq',
-		defaultModels: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
+		defaultModels: ['openai/gpt-oss-120b', 'openai/gpt-oss-20b']
 	},
 	openrouter: {
 		label: 'OpenRouter',
@@ -125,7 +132,11 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	},
 	aws_bedrock: {
 		label: 'AWS Bedrock',
-		defaultModels: ['global.anthropic.claude-haiku-4-5-20251001-v1:0']
+		defaultModels: [
+			'global.anthropic.claude-sonnet-5',
+			'global.anthropic.claude-opus-5',
+			'global.anthropic.claude-haiku-4-5-20251001-v1:0'
+		]
 	},
 	customai: {
 		label: 'Custom AI',
@@ -145,11 +156,23 @@ export interface ModelResponse {
 	}
 }
 
+/** `boundedJson` is imported only when a caller asks for a cap: this module is already slow to
+ * load, and a static edge is paid by every importer. */
+async function readListing(response: Response, maxBytes: number | undefined): Promise<unknown> {
+	if (maxBytes === undefined) {
+		return response.json()
+	}
+	const { readJsonWithLimit } = await import('./boundedJson')
+	return readJsonWithLimit(response, maxBytes)
+}
+
 export async function fetchAvailableModels(
 	resourcePath: string,
 	workspace: string,
 	provider: AIProvider,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	/** Cap on the listing response, for callers that fetch without a user asking. */
+	maxBytes?: number
 ): Promise<string[]> {
 	// Handle AWS Bedrock separately (needs both foundation-models and inference-profiles)
 	if (provider === 'aws_bedrock') {
@@ -175,7 +198,7 @@ export async function fetchAvailableModels(
 			throw new Error('Failed to fetch foundation models for AWS Bedrock')
 		}
 
-		const foundationModelsData = (await foundationModelsResp.json()) as {
+		const foundationModelsData = (await readListing(foundationModelsResp, maxBytes)) as {
 			modelSummaries: Array<{
 				modelId: string
 				modelArn: string
@@ -192,7 +215,7 @@ export async function fetchAvailableModels(
 		}> = []
 
 		if (inferenceProfilesResp.ok) {
-			const inferenceProfilesData = (await inferenceProfilesResp.json()) as {
+			const inferenceProfilesData = (await readListing(inferenceProfilesResp, maxBytes)) as {
 				inferenceProfileSummaries: Array<{
 					inferenceProfileId: string
 					models: Array<{ modelArn: string }>
@@ -247,7 +270,7 @@ export async function fetchAvailableModels(
 		throw new Error(`Failed to fetch models for provider ${provider}`)
 	}
 
-	const data = (await models.json()) as { data: ModelResponse[] }
+	const data = (await readListing(models, maxBytes)) as { data: ModelResponse[] }
 	if (data.data.length > 0) {
 		const sortFunc = (provider: AIProvider) => (a: string, b: string) => {
 			// First prioritize models in defaultModels array
@@ -295,9 +318,19 @@ export function getModelMaxTokens(provider: AIProvider, model: string) {
 	) {
 		return 100000
 	} else if (
+		// Raising this further would also raise the worst case of the
+		// non-streaming completion path, which the Anthropic SDK refuses once
+		// the request could run past ~10 minutes.
 		model.includes('claude-sonnet') ||
+		model.includes('claude-haiku') ||
+		model.includes('claude-fable') ||
+		model.includes('claude-mythos') ||
+		// Opus only from 4.5 on. Opus 4.1 and older cap at 32K and fall through
+		// to the row below. Dots are normalized because OpenRouter writes
+		// `anthropic/claude-opus-4.5` where Anthropic writes `claude-opus-4-5`.
+		/claude-opus-(4-(5|6|7|8)|5)(?!\d)/.test(model.replace(/\./g, '-')) ||
 		model.includes('gemini-2.5') ||
-		model.includes('claude-haiku')
+		model.includes('gemini-3')
 	) {
 		return 64000
 	} else if (model.includes('gpt-4.1')) {

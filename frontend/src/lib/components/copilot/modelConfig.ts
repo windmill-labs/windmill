@@ -65,13 +65,16 @@ export function requiresMaxCompletionTokens(model: string) {
 // name found in the bare model id wins, so vendor-namespaced and date-suffixed
 // ids (anthropic.claude-sonnet-4-6-...-v1:0, gpt-5.2-2026-01-01) still resolve.
 // Conservative family fallbacks sit below the explicit entries; models not
-// listed at all resolve to undefined, which disables auto-trimming and the
-// indicator denominator.
+// listed at all resolve to undefined. Consumers that need a number regardless
+// (trim/compaction, the usage indicator) go through getModelContextWindow,
+// whose conservative 128K fallback keeps a limit enforced and is surfaced to
+// the user as an assumed window.
 const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
 	// base ids (claude-sonnet-4-20250514) fall through to 200K
 	['claude-fable-5', 1_000_000],
+	['claude-mythos-5', 1_000_000],
 	['claude-opus-5', 1_000_000],
 	['claude-sonnet-5', 1_000_000],
 	['claude-opus-4-8', 1_000_000],
@@ -80,7 +83,8 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['claude-sonnet-4-6', 1_000_000],
 	['claude', 200_000],
 	// OpenAI — gpt-5 covers the base family (-mini / -nano) and the 5.1/5.2
-	// revisions, all 400K; only 5.4+ moved to 1M
+	// revisions, all 400K; 5.4/5.5 moved to 1M and 5.6 to 1.05M
+	['gpt-5.6', 1_050_000],
 	['gpt-5.5', 1_000_000],
 	['gpt-5.4', 1_000_000],
 	['gpt-5', 400_000],
@@ -92,13 +96,21 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['gemini-3.1', 1_000_000],
 	['gemini-3', 1_000_000],
 	['gemini-2.5', 1_000_000],
-	// DeepSeek — the V4 family is 1M; deepseek-chat / deepseek-reasoner are
-	// aliases of V4-Flash since April 2026
+	// DeepSeek — the V4 family (pro / flash) is 1M. The deepseek-chat /
+	// deepseek-reasoner aliases were retired 2026-07-24 but can still sit in a
+	// saved selection, so they keep resolving to the window they had.
 	['deepseek-v4', 1_000_000],
 	['deepseek-chat', 1_000_000],
 	['deepseek-reasoner', 1_000_000],
 	['deepseek', 128_000],
-	// Others
+	// Alibaba — Qwen3-Max is 256K. No qwen family fallback: variant windows range
+	// from 8K (character models) to 1M, too wide for even a conservative guess
+	['qwen3-max', 256_000],
+	// Others — Mistral Medium 3.5 is 256K, reachable under both its version and
+	// the `-latest` alias. There is deliberately no `mistral-medium` family row:
+	// pinned older snapshots are 128K, and over-claiming a window overflows it.
+	['mistral-medium-3.5', 256_000],
+	['mistral-medium-latest', 256_000],
 	['llama', 128_000],
 	['codestral', 32_000]
 ]
@@ -182,7 +194,7 @@ const TEXT_ONLY_MODELS = new Set([
 	'groq:llama-3.3-70b-versatile',
 	'groq:llama-3.1-8b-instant',
 	// gpt-oss (text-only everywhere it is hosted) — on groq it succeeds the two
-	// llama defaults above, which retire 2026-08-16
+	// llama entries above, which retire 2026-08-16
 	'groq:openai/gpt-oss-120b',
 	'groq:openai/gpt-oss-20b',
 	'openrouter:openai/gpt-oss-120b',

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.778.0"
+version = "1.795.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.778.0"
+version = "1.795.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -433,7 +433,9 @@ tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
 tower-cookies = "^0.11"
 serde = "^1"
-serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
+# 1.0.151 introduced RawValue::from_string_unchecked, which the SQL executors use
+# to avoid re-parsing every collected row.
+serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] }
 serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
@@ -520,7 +522,10 @@ rustls-pemfile = "2.2.0"
 # only used with special deno_core_mac feature to prevent ffi issue on macos, requires libffi to be installed
 libffi-sys = { version = "2.3.0", features = ["system"]}
 
-google-cloud-pubsub = "0.30.0"
+# `external-account` is off in the crate's defaults, which compiles out the token source for
+# Workload Identity Federation credentials — the keyless setup for running outside GCP. Without it
+# an ADC file of that type is rejected as an unsupported account type.
+google-cloud-pubsub = { version = "0.30.0", features = ["external-account"] }
 google-cloud-googleapis = {version = "0.16.1", features = ["pubsub"]}
 # TODO: remove once deno fixes the issue on their end
 # https://github.com/denoland/deno/issues/28557
@@ -568,7 +573,12 @@ dashmap = "6.1.0"
 gosyn = "0.2.6"
 bytes = "1.4.0"
 gethostname = "0.4.3"
-wasm-bindgen = "=0.2.103"
+# Not pinned exactly: the excluded `parsers/windmill-parser-wasm` workspace pins
+# =0.2.103 to match its vendored `cli/wasm/*` artifacts, yet path-depends on
+# sibling parser crates that inherit this requirement from here. Two exact pins
+# on the same semver range cannot both resolve, so keep this a range and let each
+# workspace's lockfile settle it (here, js-sys forces 0.2.108).
+wasm-bindgen = "0.2"
 serde-wasm-bindgen = "^0"
 wasm-bindgen-test = "^0"
 convert_case = "0.6.0"
@@ -612,7 +622,7 @@ nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
 globset = "0.4.16"
 croner = "2.2.0"
-rmcp = { version = "=0.15.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "=3.1.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 rquickjs = { version = "0.11", features = ["futures", "parallel", "macro"] }
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
 

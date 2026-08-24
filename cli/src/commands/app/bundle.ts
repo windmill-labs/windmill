@@ -80,6 +80,51 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
   }
 }
 
+/** What an `import()` matches — the point being that it never matches "require". */
+const ESM_CONDITIONS = ["node", "import", "default"];
+
+/**
+ * Walks one subpath of an exports map the way Node's ESM resolver would: first
+ * key in declaration order whose condition an `import()` matches wins.
+ */
+function esmConditionTarget(subpath: unknown): string | undefined {
+  if (typeof subpath === "string") return subpath;
+  if (!subpath || typeof subpath !== "object" || Array.isArray(subpath)) {
+    return undefined;
+  }
+  for (const [condition, target] of Object.entries(subpath)) {
+    if (!ESM_CONDITIONS.includes(condition)) continue;
+    const entry = esmConditionTarget(target);
+    if (entry) return entry;
+  }
+  return undefined;
+}
+
+/**
+ * `require.resolve` answers with the `require` condition, which Svelte maps at a
+ * minified UMD bundle. Only the CJS loader can read that file's exports, so
+ * `import()`ing it yields a namespace holding nothing but `default` and every
+ * named export reads undefined. The exports map is the only place to ask for the
+ * ESM entry instead — `require.resolve` takes no conditions.
+ */
+function resolveAppSvelteCompiler(appDir: string): string {
+  const requireFromApp = createRequire(
+    path.join(path.resolve(appDir), "package.json")
+  );
+  try {
+    const pkgPath = requireFromApp.resolve("svelte/package.json");
+    const exportsMap = JSON.parse(readTextFileSync(pkgPath))?.exports;
+    const target = esmConditionTarget(exportsMap?.["./compiler"]);
+    if (target?.startsWith(".")) {
+      const entry = path.resolve(path.dirname(pkgPath), target);
+      if (fs.existsSync(entry)) return entry;
+    }
+  } catch {
+    // No exports map to read (or an unexpected shape) — let the CJS resolver try.
+  }
+  return requireFromApp.resolve("svelte/compiler");
+}
+
 /**
  * Loads the Svelte compiler out of the *app's* node_modules.
  *
@@ -94,15 +139,14 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
  * Falls back to the CLI's own compiler when the app has none resolvable.
  */
 export async function loadSvelteCompiler(appDir: string): Promise<any> {
+  let mod: any;
   try {
-    const requireFromApp = createRequire(
-      path.join(path.resolve(appDir), "package.json")
-    );
-    const entry = requireFromApp.resolve("svelte/compiler");
-    return await import(pathToFileURL(entry).href);
+    mod = await import(pathToFileURL(resolveAppSvelteCompiler(appDir)).href);
   } catch {
-    return await import("svelte/compiler");
+    mod = await import("svelte/compiler");
   }
+  // A CJS entry still imports as a namespace whose only key is `default`.
+  return typeof mod?.compile === "function" ? mod : (mod?.default ?? mod);
 }
 
 /**

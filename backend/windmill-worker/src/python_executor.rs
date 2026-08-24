@@ -62,19 +62,7 @@ lazy_static::lazy_static! {
     static ref PY_CONCURRENT_DOWNLOADS: usize =
     var("PY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
 
-    // uv's HTTP request timeout (seconds). spawn_uv_install uses env_clear(), so a
-    // UV_HTTP_TIMEOUT set on the worker is dropped unless forwarded explicitly.
-    // Only forwarded when set; otherwise uv keeps its own default. Lets operators
-    // raise it for slow/contended private registries ("operation timed out").
-    static ref UV_HTTP_TIMEOUT: Option<String> =
-    var("UV_HTTP_TIMEOUT").ok().filter(|v| !v.is_empty());
-
-
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
-
-    static ref TRUSTED_HOST: Option<String> = var("PY_TRUSTED_HOST").ok().or(var("PIP_TRUSTED_HOST").ok());
-    pub static ref INDEX_CERT: Option<String> = var("PY_INDEX_CERT").ok().or(var("PIP_INDEX_CERT").ok());
-    pub static ref NATIVE_CERT: bool = var("PY_NATIVE_CERT").ok().or(var("UV_NATIVE_TLS").ok()).map(|flag| flag == "true").unwrap_or(false);
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
@@ -163,9 +151,10 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override,
     worker_utils::ping_job_status,
-    PyV, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH,
-    TZ_ENV, UV_CACHE_DIR, UV_EXCLUDE_NEWER, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
+    PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
+    NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
+    PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TRUSTED_HOST, TZ_ENV, UV_CACHE_DIR,
+    UV_EXCLUDE_NEWER, UV_HTTP_TIMEOUT, UV_INDEX_STRATEGY, UV_PYTHON_INSTALL_MIRROR,
 };
 use windmill_common::client::AuthedClient;
 

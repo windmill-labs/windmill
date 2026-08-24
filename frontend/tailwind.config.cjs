@@ -451,7 +451,9 @@ const config = {
 		},
 		fontFamily: {
 			// add double quotes if there is space in font name
-			main: ['Inter', 'sans-serif'],
+			// 'Noto Color Emoji' sits after Inter so it only ever picks up codepoints Inter
+			// lacks. See the @font-face block in src/lib/assets/app.css for why it is bundled.
+			main: ['Inter', '"Noto Color Emoji"', 'sans-serif'],
 			mono: [
 				'ui-monospace',
 				'SFMono-Regular',
@@ -549,11 +551,16 @@ const config = {
 			animation: {
 				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite',
 				'zoom-in': 'zoom-in 0.25s ease-in-out',
-				'fade-out': 'fade-out 1s ease-in-out'
+				'fade-out': 'fade-out 1s ease-in-out',
+				shake: 'shake 0.2s linear both'
 			},
 			keyframes: {
 				'spin-counter-clockwise': {
 					to: { transform: 'rotate(-360deg)' }
+				},
+				shake: {
+					'25%, 75%': { transform: 'translateX(-2px)' },
+					'50%': { transform: 'translateX(2px)' }
 				},
 				'zoom-in': {
 					'0%': { transform: 'scale(0.95)' },

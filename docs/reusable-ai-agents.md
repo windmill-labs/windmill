@@ -50,6 +50,26 @@ tool starting can run the changed definition, or fail if the tool was removed. P
 carrying the resolved definition into the child job rather than its id. Inline (unlinked) agents are
 unaffected: their tools live in the flow value, which is snapshotted with the run.
 
+## Version history
+
+Editing a resource appends a row to `resource_version` (all types except `state` and `cache`,
+which the platform rewrites on every job), so an agent's prompt, model and tool set can be
+diffed and restored from the resource editor's History drawer. Restoring writes the old value
+forward as a new version rather than rewinding, keeping the history append-only.
+
+History captures the resource, not its transitive closure. A `$var:`/`$res:` reference is stored
+as the reference, so two versions can be byte-identical while the agent behaves differently
+because the referenced variable changed underneath them. Anything comparing agent runs across
+versions has to account for that.
+
+A superseded value is retained for up to 100 versions. Values written through the UI keep their
+secrets in linked variables, but one pushed by `wmill` or written by `setResource` can hold an
+inline credential, and overwriting it no longer removes it from the database — anyone who can
+read the resource can read it from the history. Rotating such a credential therefore does not
+erase the old one on its own — follow the rotation with **Clear past versions** in the History
+drawer, which drops every version but the current value for that one resource. Secret *variables*
+are deliberately not versioned at all for the same reason.
+
 ## Dependencies and locks
 
 A linked step carries `tools: []`, and no dependency job ever visits the `ai_agent` resource, so the

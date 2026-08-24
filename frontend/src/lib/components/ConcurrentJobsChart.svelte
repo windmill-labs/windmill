@@ -15,6 +15,7 @@
 	import type { CompletedJob, ExtendedJobs } from '$lib/gen'
 	import { getDbClockNow } from '$lib/forLater'
 	import { Line } from '$lib/components/chartjs-wrappers/chartJs'
+	import { timeTicksWithDate } from '$lib/components/chartjs-wrappers/timeTicks'
 
 	interface Props {
 		extendedJobs?: ExtendedJobs | undefined
@@ -236,7 +237,7 @@
 				},
 				min: minMaxTimes.min,
 				max: minMaxTimes.max,
-				ticks: { maxRotation: 0, minRotation: 0 }
+				ticks: timeTicksWithDate(minMaxTimes.min, minMaxTimes.max)
 			},
 			y: {
 				grid: {

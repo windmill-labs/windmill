@@ -8,7 +8,6 @@
 		createBranches,
 		createLoop,
 		createWhileLoop,
-		deleteFlowStateById,
 		emptyModule,
 		pickScript,
 		pickFlow,
@@ -17,6 +16,7 @@
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils.svelte'
+	import { stepSettingDefaults } from '../flowStepSettings'
 
 	import { dfs } from '../dfs'
 	import { nextId, copyId } from '../flowModuleNextId'
@@ -35,6 +35,7 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
 	import { findModuleInFlow } from '../flowTree'
+	import { addBranch as addBranchOp, removeBranch as removeBranchOp } from '../branchOps'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
 	import { refreshFlowStateStore } from '../flowStoreRefresh.svelte'
@@ -203,15 +204,12 @@
 		flowStateStore.val[module.id] = state
 
 		if (kind == 'approval') {
-			module.suspend = { required_events: 1, timeout: 1800 }
+			module.suspend = stepSettingDefaults('suspend')
 		} else if (kind == 'trigger') {
-			module.stop_after_if = {
-				expr: '!result || (Array.isArray(result) && result.length == 0)',
-				skip_if_stopped: true
-			}
+			module.stop_after_if = stepSettingDefaults('early-stop', 'trigger')
 		} else if (kind == 'end') {
 			module.summary = 'Terminate flow'
-			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
+			module.stop_after_if = stepSettingDefaults('early-stop', 'end')
 		}
 
 		return module
@@ -272,40 +270,11 @@
 	}
 
 	export async function addBranch(id: string) {
-		push(history, flowStore.val)
-		let module = findModuleById(id)
-
-		if (!module) {
-			throw new Error(`Node ${id} not found`)
-		}
-
-		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-			module.value.branches.splice(module.value.branches.length, 0, {
-				summary: '',
-				expr: 'false',
-				modules: []
-			})
-		}
+		addBranchOp(id, { flowStore, history })
 	}
 
 	export function removeBranch(id: string, index: number) {
-		push(history, flowStore.val)
-		let module = findModuleById(id)
-
-		if (!module) {
-			throw new Error(`Node ${id} not found`)
-		}
-
-		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-			const offset = module.value.type === 'branchone' ? 1 : 0
-
-			if (module.value.branches[index - offset]?.modules) {
-				const leaves = dfs(module.value.branches[index - offset].modules, (mod) => mod.id)
-				leaves.forEach((leafId: string) => deleteFlowStateById(leafId, flowStateStore))
-			}
-
-			module.value.branches.splice(index - offset, 1)
-		}
+		removeBranchOp(id, index, { flowStore, flowStateStore, history })
 	}
 
 	// A single delete can have several consequences at once (emptied groups *and*
@@ -349,6 +318,10 @@
 
 	export function enableNotes(): void {
 		graph?.enableNotes?.()
+	}
+
+	export function reloadExpandedSubflows(): void {
+		graph?.reloadExpandedSubflows?.()
 	}
 
 	function toggleNoteMode() {
@@ -764,7 +737,9 @@
 							toolKind
 						)
 						const id = tools[tools.length - 1].id
-						selectionManager.selectId(id)
+						// Reveal the new tool's config right away — in modal (unanchored)
+						// panel mode its editor is otherwise hidden behind the graph.
+						selectionManager.selectId(id, { openPanel: true })
 					}
 					refreshFlowStateStore(flowStore)
 					dispatch('change')
@@ -823,7 +798,9 @@
 					{ extraModules, displayState: groupDisplayState }
 				)
 
-				selectionManager.selectId(module.id)
+				// Inserting is a deliberate "now edit this": in modal mode the new step's
+				// editor is otherwise hidden behind the graph.
+				selectionManager.selectId(module.id, { openPanel: true })
 
 				if (detail.inlineScript?.instructions) {
 					dispatch('generateStep', {
@@ -950,7 +927,7 @@
 
 				targetModules.splice(targetIndex + 1, 0, clone)
 				refreshFlowStateStore(flowStore)
-				selectionManager.selectId(clone.id)
+				selectionManager.selectId(clone.id, { openPanel: true })
 			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)

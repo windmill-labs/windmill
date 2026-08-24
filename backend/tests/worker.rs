@@ -587,6 +587,69 @@ async fn test_deno_flow_same_worker(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
     Ok(())
 }
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_same_worker_survives_empty_branch(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server: ApiServer = ApiServer::start(db.clone()).await?;
+
+    // No branch matches and the default is empty, so `a` completes without spawning a job and
+    // hands the flow back over the UpdateFlow channel. `b` must still be pinned to the worker.
+    let flow: FlowValue = serde_json::from_value(json!({
+        "same_worker": true,
+        "modules": [
+            {
+                "id": "a",
+                "value": {
+                    "type": "branchone",
+                    "branches": [{
+                        "expr": "false",
+                        "modules": [{
+                            "id": "c",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "deno",
+                                "content": "export function main(){ return 1 }",
+                            }
+                        }]
+                    }],
+                    "default": []
+                }
+            },
+            {
+                "id": "b",
+                "value": {
+                    "type": "rawscript",
+                    "language": "deno",
+                    "content": "export function main(){ return 42 }",
+                }
+            }
+        ]
+    }))
+    .unwrap();
+
+    let job = run_job_in_new_worker_until_complete(
+        &db,
+        false,
+        JobPayload::RawFlow { value: flow, path: None, restarted_from: None },
+        server.addr.port(),
+    )
+    .await;
+    assert_eq!(job.json_result().unwrap(), json!(42));
+
+    let same_worker: Option<bool> = sqlx::query_scalar(
+        "SELECT same_worker FROM v2_job WHERE parent_job = $1 AND flow_step_id = 'b'",
+    )
+    .bind(job.id)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(same_worker, Some(true));
+
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_flow_result_by_id(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -3992,7 +4055,7 @@ async fn test_failure_module(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 /// Push `flow`, run it on a real worker until its first step is running, then simulate
 /// `monitor::handle_zombie_jobs` reaping that step unrecoverably (its worker crashed/OOM'd)
-/// by calling `handle_job_error(..., unrecoverable = true, ...)` exactly as the monitor does.
+/// by calling `handle_job_error(..., StepFailureKind::Unrecoverable, ...)` exactly as the monitor does.
 /// Returns the flow's completed result.
 #[cfg(feature = "deno_core")]
 async fn run_flow_until_step_running_then_fail_unrecoverably(
@@ -4007,7 +4070,7 @@ async fn run_flow_until_step_running_then_fail_unrecoverably(
     use windmill_common::client::AuthedClient;
     use windmill_common::KillpillSender;
     use windmill_queue::{get_queued_job_v2, MiniCompletedJob, SameWorkerPayload};
-    use windmill_worker::{JobCompletedSender, SameWorkerSender};
+    use windmill_worker::{JobCompletedSender, SameWorkerSender, StepFailureKind};
 
     let flow_id =
         RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
@@ -4072,7 +4135,7 @@ async fn run_flow_until_step_running_then_fail_unrecoverably(
                 windmill_common::error::Error::ExecutionErr(
                     "simulated worker OOM crash".to_string(),
                 ),
-                true, // unrecoverable
+                StepFailureKind::Unrecoverable,
                 Some(&sw_tx),
                 "",
                 "test-monitor",
@@ -4366,7 +4429,9 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
                         "lock": null,
                         "path": null,
                         "type": "rawscript",
-                        "content": "import * as wmill from \"https://deno.land/x/windmill@v1.50.0/mod.ts\"\n\nexport async function main() {\n  return wmill\n}\n",
+                        // Any remote specifier exercises deno lock generation; jsr is the
+                        // registry Deno maintains, so prefer it over `deno.land/x`.
+                        "content": "import { encodeBase64 } from \"jsr:@std/encoding@1/base64\"\n\nexport async function main() {\n  return encodeBase64(\"test\")\n}\n",
                         "language": "deno",
                         "input_transforms": {}
                     },
@@ -4418,33 +4483,58 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
         &format!("http://localhost:{port}"),
         "SECRET_TOKEN".to_owned(),
     );
-    client
-        .create_flow(
-            "test-workspace",
-            &CreateFlowBody {
-                open_flow_w_path: windmill_api_client::types::OpenFlowWPath {
-                    open_flow: flow,
-                    path: "g/all/flow_lock_all".to_owned(),
-                    tag: None,
-                    ws_error_handler_muted: None,
-                    priority: None,
-                    dedicated_worker: None,
-                    timeout: None,
-                    visible_to_runner_only: None,
-                    on_behalf_of_email: None,
+    // Every module resolves a dependency from an external registry, and a registry failure
+    // writes `lock: null` for that module and fails the job — which the assertion below can
+    // only report as a module dump. So retry once, and keep the job's own error: without it
+    // a registry outage is indistinguishable from a broken locker.
+    let mut locked_path = None;
+    let mut last_error = None;
+    for attempt in 0..2 {
+        let path = format!(
+            "g/all/flow_lock_all{}",
+            if attempt == 0 { "" } else { "_retry" }
+        );
+        client
+            .create_flow(
+                "test-workspace",
+                &CreateFlowBody {
+                    open_flow_w_path: windmill_api_client::types::OpenFlowWPath {
+                        open_flow: flow.clone(),
+                        path: path.clone(),
+                        tag: None,
+                        ws_error_handler_muted: None,
+                        priority: None,
+                        dedicated_worker: None,
+                        timeout: None,
+                        visible_to_runner_only: None,
+                        on_behalf_of_email: None,
+                    },
+                    deployment_message: None,
+                    draft_only: None,
                 },
-                deployment_message: None,
-                draft_only: None,
-            },
-        )
-        .await
-        .unwrap();
-    let mut str = listen_for_completed_jobs(&db).await;
-    let listen_first_job = str.next();
-    in_test_worker(&db, listen_first_job, port).await;
+            )
+            .await
+            .unwrap();
+        let mut str = listen_for_completed_jobs(&db).await;
+        let listen_first_job = str.next();
+        let uuid = in_test_worker(&db, listen_first_job, port)
+            .await
+            .expect("the flow dependency job should complete");
+        let job = completed_job(uuid, &db).await;
+        if job.success {
+            locked_path = Some(path);
+            break;
+        }
+        last_error = Some(job.result);
+    }
+    let Some(locked_path) = locked_path else {
+        panic!(
+            "flow dependency job failed to lock every module, twice. Last error: {last_error:?}"
+        );
+    };
 
     let modules = client
-        .get_flow_by_path("test-workspace", "g/all/flow_lock_all", None)
+        .get_flow_by_path("test-workspace", &locked_path, None)
         .await
         .unwrap()
         .open_flow
@@ -5434,25 +5524,25 @@ async fn test_fork_marker_tag_admission_through_lineage(db: Pool<Postgres>) -> a
         "bare(test-workspace)".to_string(),
     ])));
 
-    // test2 is not a superadmin, who would bypass the scope check entirely.
-    let email = "test2@windmill.dev";
+    // A non-superadmin caller (a superadmin would bypass the scope check entirely).
+    let is_super_admin = false;
 
     for (w_id, tag) in [("test-workspace", "bare"), ("test-workspace", "forky")] {
         assert!(
-            check_tag_available_for_workspace_internal(&db, w_id, tag, email, None)
+            check_tag_available_for_workspace_internal(&db, w_id, tag, is_super_admin, None)
                 .await
                 .is_ok(),
             "{tag} should be available in the workspace it names"
         );
     }
     assert!(
-        check_tag_available_for_workspace_internal(&db, fork, "forky", email, None)
+        check_tag_available_for_workspace_internal(&db, fork, "forky", is_super_admin, None)
             .await
             .is_ok(),
         "a `*` tag must be granted to a fork through its parent lineage"
     );
     assert!(
-        check_tag_available_for_workspace_internal(&db, fork, "bare", email, None)
+        check_tag_available_for_workspace_internal(&db, fork, "bare", is_super_admin, None)
             .await
             .is_err(),
         "an unmarked tag must not reach a fork of the workspace it names"

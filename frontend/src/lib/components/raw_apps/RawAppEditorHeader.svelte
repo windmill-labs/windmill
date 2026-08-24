@@ -72,7 +72,7 @@
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import { stripRawAppDiffNoise } from './utils'
 	import type { RawAppData } from './dataTableRefUtils'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 
 	// async function hash(message) {
@@ -892,7 +892,7 @@
 									{
 										label: editInForkLabel(opWorkspace, $userWorkspaces),
 										onClick: () => {
-											window.open(buildForkEditUrl('raw_app', appPath))
+											openEditInFork('raw_app', appPath, opWorkspace)
 										}
 									}
 								]

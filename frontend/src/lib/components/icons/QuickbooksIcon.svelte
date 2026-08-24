@@ -7,11 +7,12 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #2CA01C per the QuickBooks logo SVG on intuit.com's press room. Intuit forbids altering the mark. -->
 <svg
 	fill="#2CA01C"
 	{width}
 	{height}
-	viewBox="0 0 14 14"
+	viewBox="0.437 0.437 13.125 13.125"
 	role="img"
 	focusable="false"
 	aria-hidden="true"

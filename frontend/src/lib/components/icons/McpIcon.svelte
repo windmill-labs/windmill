@@ -7,12 +7,14 @@
 	let { height = 24, width = 24 }: Props = $props()
 </script>
 
+<!-- #000000 / #FFFFFF per modelcontextprotocol/modelcontextprotocol. -->
 <svg
+	class="text-[#000000] dark:text-[#FFFFFF]"
 	fill="currentColor"
 	fill-rule="evenodd"
 	{height}
 	style="flex:none;line-height:1"
-	viewBox="0 0 24 24"
+	viewBox="-1.065 -1.088 26.131 26.131"
 	{width}
 	xmlns="http://www.w3.org/2000/svg"
 	><title>ModelContextProtocol</title><path

@@ -60,7 +60,8 @@ async fn get_warehouse(
                     "the dbt warehouse `{name}` points at `{resource_path}`, which does not exist"
                 ))
             })?;
-            return Ok(Json(DbtWarehouseConnection { value, target }));
+            let resource_type = warehouse_resource_type(&db, &w_id, &resource_path).await?;
+            return Ok(Json(DbtWarehouseConnection { value, target, resource_type }));
         }
         return Err(Error::BadRequest(
             "this route resolves a dbt warehouse for a running job and needs a job token"
@@ -102,7 +103,22 @@ async fn get_warehouse(
             "the dbt warehouse `{name}` points at `{resource_path}`, which does not exist"
         ))
     })?;
-    Ok(Json(DbtWarehouseConnection { value, target }))
+    let resource_type = warehouse_resource_type(&db, &w_id, &resource_path).await?;
+    Ok(Json(DbtWarehouseConnection { value, target, resource_type }))
+}
+
+/// A warehouse resource's type, which decides whether its value is translated
+/// into a `profiles.yml` target or taken as one. Read separately from the value
+/// because the interpolating loader returns the value alone.
+async fn warehouse_resource_type(db: &DB, w_id: &str, path: &str) -> Result<String> {
+    sqlx::query_scalar!(
+        "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("the dbt warehouse points at `{path}`, which does not exist")))
 }
 
 /// A settled node's state, for a worker that cannot write the database.

@@ -61,6 +61,13 @@
 		refreshFlowStateStore(flowStore)
 	}
 
+	function deleteFailureModule() {
+		flowStore.val.value.failure_module = undefined
+		// The panel has to land somewhere once the error handler is gone, but that is a
+		// consequence of the delete — not a request to see the flow's settings.
+		selectionManager.selectId('settings-metadata', { openPanel: false })
+	}
+
 	const smallFailureModule = $derived(!(failureModuleId && diffManager && moduleAction) && compact)
 </script>
 
@@ -103,10 +110,7 @@
 					title="Delete failure script"
 					type="button"
 					class="ml-1"
-					onclick={() => {
-						flowStore.val.value.failure_module = undefined
-						selectionManager.selectId('settings-metadata')
-					}}
+					onclick={deleteFailureModule}
 				>
 					<X size={12} />
 				</button>
@@ -117,10 +121,7 @@
 				title="Delete failure script"
 				type="button"
 				class="absolute -top-1.5 -right-1.5 rounded-full bg-surface border border-border p-0.5 hover:bg-surface-hover"
-				onclick={() => {
-					flowStore.val.value.failure_module = undefined
-					selectionManager.selectId('settings-metadata')
-				}}
+				onclick={deleteFailureModule}
 			>
 				<X size={10} />
 			</button>

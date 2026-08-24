@@ -17,15 +17,41 @@ use crate::server::endpoints::{
 use crate::server::tools::create_tool_from_item;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Content, Implementation, InitializeRequestParams,
-    InitializeResult, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
-    ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo,
+    CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
+    Implementation, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
+    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
+    ServerCapabilities, ServerInfo,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::ErrorData;
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+/// Protocol revisions this server is willing to speak. `2026-07-28` is served
+/// statelessly with per-request metadata; the older revisions keep the
+/// `initialize` handshake, so both eras are answered on the same endpoint.
+const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
+    ProtocolVersion::V_2024_11_05,
+    ProtocolVersion::V_2025_03_26,
+    ProtocolVersion::V_2025_06_18,
+    ProtocolVersion::V_2025_11_25,
+    ProtocolVersion::V_2026_07_28,
+];
+
+/// SEP-2549 cache hints, required on every list result at `2026-07-28` — rmcp
+/// leaves them unset, and a strict client rejects the response without them.
+///
+/// Zero because nothing here is cacheable: the listing is rebuilt from the
+/// workspace's scripts and flows, which change at any time, and this server
+/// advertises no `listChanged` capability, so a client that cached a stale list
+/// would have no way to learn it had gone stale.
+const LIST_TTL_MS: u64 = 0;
+/// Every listing is filtered by the caller's token scopes and workspace
+/// membership, so no two callers necessarily see the same tools — a shared
+/// cache entry would leak one token's view to another.
+const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
 
 // Re-export from http crate for extracting request parts
 use http::request::Parts as HttpParts;
@@ -139,11 +165,32 @@ enum EndpointPathPolicy {
     /// Reads/writes the script/flow named by the listed path arguments. The
     /// endpoint scope grants the capability; when the token also carries path
     /// patterns for `kind`, every listed argument must match them.
-    PathArgs { kind: &'static str, fields: &'static [&'static str] },
+    ///
+    /// `optional_fields` is for a destination path the tool lets the caller omit, where
+    /// absent means "leave it where it is": requiring it would refuse every call that
+    /// does not move anything. Absent or empty, it is filled in from the argument it
+    /// pairs with before the request is built, so the item stays where it is without
+    /// the endpoint having to accept a body that omits its own path. Names are the ones
+    /// the tool exposes, so a body path colliding with the URL's is `path__body` — the
+    /// URL path keeps the plain name (see `generate_mcp_tools.py`).
+    PathArgs {
+        kind: &'static str,
+        fields: &'static [&'static str],
+        /// `(destination, source)` pairs: a destination path the tool lets the caller
+        /// omit, and the argument it means when omitted.
+        optional_fields: &'static [(&'static str, &'static str)],
+    },
     /// Affects scripts without taking a checkable path (delete-by-hash) or
     /// executes arbitrary code (preview). Unavailable to path-confined tokens —
     /// allowing these would bypass the path patterns entirely.
     Unconfinable(&'static str),
+}
+
+/// Whether `endpoint_path_policy` confines this tool's paths. Public so the crate that
+/// owns the generated endpoint catalogue can assert every path-addressed script/flow
+/// tool is covered: one that is not falls through to no confinement at all.
+pub fn has_endpoint_path_policy(endpoint_name: &str) -> bool {
+    endpoint_path_policy(endpoint_name).is_some()
 }
 
 fn endpoint_path_policy(endpoint_name: &str) -> Option<EndpointPathPolicy> {
@@ -152,14 +199,24 @@ fn endpoint_path_policy(endpoint_name: &str) -> Option<EndpointPathPolicy> {
         "runScriptByPath" => Some(RunByPath("script")),
         "runFlowByPath" => Some(RunByPath("flow")),
         "getScriptByPath" | "deleteScriptByPath" | "createScript" => {
-            Some(PathArgs { kind: "script", fields: &["path"] })
+            Some(PathArgs { kind: "script", fields: &["path"], optional_fields: &[] })
         }
         "getFlowByPath" | "deleteFlowByPath" | "createFlow" => {
-            Some(PathArgs { kind: "flow", fields: &["path"] })
+            Some(PathArgs { kind: "flow", fields: &["path"], optional_fields: &[] })
         }
-        // updateFlow addresses the flow via the URL path and can move it to the
-        // path given in the body — both must stay within scope.
-        "updateFlow" => Some(PathArgs { kind: "flow", fields: &["path__path", "path__body"] }),
+        // These address the item via the URL path and can move it to the path given
+        // in the body — both must stay within scope, and the body one only binds
+        // when supplied, since omitting it is how a caller updates in place.
+        "updateScript" => Some(PathArgs {
+            kind: "script",
+            fields: &["path"],
+            optional_fields: &[("path__body", "path")],
+        }),
+        "updateFlow" => Some(PathArgs {
+            kind: "flow",
+            fields: &["path"],
+            optional_fields: &[("path__body", "path")],
+        }),
         "deleteScriptByHash" | "runScriptPreviewAndWaitResult" => Some(Unconfinable("script")),
         _ => None,
     }
@@ -231,9 +288,37 @@ fn endpoint_tool_in_scope(
 fn authorize_endpoint_call(
     scope_config: &crate::common::scope::McpScopeConfig,
     endpoint_tool: &EndpointTool,
-    args: &Value,
+    args: &mut Value,
     read_only: bool,
 ) -> Result<(), ErrorData> {
+    // A destination the caller omitted, or left empty because it had to fill in every
+    // argument, means "leave the item where it is". Resolved to the path the item is
+    // already at, so the endpoint receives a body naming its own path rather than one
+    // that omits it, and so `update_flow` cannot read the empty string as the empty
+    // path and move the flow there. The confinement below then sees a destination
+    // equal to the source, which it already has to allow.
+    if let Some(EndpointPathPolicy::PathArgs { optional_fields, .. }) =
+        endpoint_path_policy(&endpoint_tool.name)
+    {
+        for (destination, source) in optional_fields {
+            let unset = args
+                .get(destination)
+                .is_none_or(|v| !v.as_str().is_some_and(|s| !s.is_empty()));
+            let Some(current) = args
+                .get(source)
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+            else {
+                continue;
+            };
+            if unset {
+                if let Some(obj) = args.as_object_mut() {
+                    obj.insert(destination.to_string(), Value::String(current));
+                }
+            }
+        }
+    }
+
     match endpoint_path_policy(&endpoint_tool.name) {
         Some(EndpointPathPolicy::RunByPath(kind)) => {
             let path = require_path_arg(endpoint_tool, args, "path")?;
@@ -258,11 +343,19 @@ fn authorize_endpoint_call(
                 ));
             }
             match policy {
-                Some(EndpointPathPolicy::PathArgs { kind, fields })
+                Some(EndpointPathPolicy::PathArgs { kind, fields, optional_fields })
                     if path_confined(scope_config, kind) =>
                 {
-                    for field in fields {
-                        let path = require_path_arg(endpoint_tool, args, field)?;
+                    // Filled in above when omitted, so each one names a real path.
+                    let supplied = optional_fields
+                        .iter()
+                        .filter_map(|(field, _)| args.get(field).and_then(|v| v.as_str()).map(Ok));
+                    for path in fields
+                        .iter()
+                        .map(|field| require_path_arg(endpoint_tool, args, field))
+                        .chain(supplied)
+                    {
+                        let path = path?;
                         if !scope_config.is_allowed(kind, path) {
                             return Err(ErrorData::internal_error(
                                 format!("Access denied: {} '{}' not in token scope", kind, path),
@@ -307,24 +400,26 @@ fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -
 
 impl<B: McpBackend> ServerHandler for Runner<B> {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: ProtocolVersion::default(),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: Implementation::from_build_env(),
-            instructions: Some(
+        // Not `Implementation::from_build_env()`: its `env!` expands inside rmcp, so it
+        // would name the SDK crate rather than this server.
+        let server_info = Implementation::new("windmill", env!("CARGO_PKG_VERSION"))
+            .with_title("Windmill")
+            .with_website_url("https://windmill.dev");
+
+        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
+            .with_server_info(server_info)
+            .with_instructions(
                 "This server provides a list of scripts and flows the user can run on Windmill. \
-                 Each flow and script is a tool callable with their respective arguments."
-                    .to_string(),
-            ),
-        }
+                 Each flow and script is a tool callable with their respective arguments.",
+            )
     }
 
-    async fn initialize(
-        &self,
-        _request: InitializeRequestParams,
-        _context: RequestContext<RoleServer>,
-    ) -> Result<InitializeResult, ErrorData> {
-        Ok(self.get_info())
+    /// Pinned rather than left to rmcp's default (every version the SDK knows), so a
+    /// future SDK revision cannot start advertising a version this server has not been
+    /// exercised against. Bounds `initialize` negotiation, `server/discover`, and
+    /// per-request version validation alike.
+    fn supported_protocol_versions(&self) -> Cow<'static, [ProtocolVersion]> {
+        Cow::Borrowed(SUPPORTED_PROTOCOL_VERSIONS)
     }
 
     async fn list_tools(
@@ -359,7 +454,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         &self,
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> Result<CallToolResponse, ErrorData> {
         let (auth, mode) = Self::extract_context(&context)?;
 
         // Parse MCP scopes for authorization
@@ -370,7 +465,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
 
-        match mode {
+        // Every tool here runs to completion in one round trip: none of them ask the
+        // client for input, so the MRTR variants of `CallToolResponse` are never built.
+        let result = match mode {
             McpMode::Single(workspace_id) => {
                 self.call_tool_single(
                     &auth,
@@ -386,7 +483,8 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                 self.call_tool_multi(&auth, &token, &scope_config, read_only, request.name, args)
                     .await
             }
-        }
+        }?;
+        Ok(result.into())
     }
 
     async fn list_resources(
@@ -394,7 +492,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        Ok(ListResourcesResult { resources: vec![], next_cursor: None, meta: None })
+        Ok(ListResourcesResult::with_all_items(vec![])
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
     }
 
     async fn list_prompts(
@@ -402,7 +502,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, ErrorData> {
-        Ok(ListPromptsResult::default())
+        Ok(ListPromptsResult::default()
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
     }
 
     async fn list_resource_templates(
@@ -410,7 +512,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, ErrorData> {
-        Ok(ListResourceTemplatesResult::default())
+        Ok(ListResourceTemplatesResult::default()
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
     }
 }
 
@@ -547,7 +651,9 @@ impl<B: McpBackend> Runner<B> {
             tools.push(endpoint_tool_to_mcp_tool(&endpoint_tool));
         }
 
-        Ok(ListToolsResult { tools, next_cursor: None, meta: None })
+        Ok(ListToolsResult::with_all_items(tools)
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
     }
 
     /// Handle a tool call for a single, bound workspace.
@@ -566,16 +672,18 @@ impl<B: McpBackend> Runner<B> {
             if endpoint_tool.name.as_ref() == name.as_ref() {
                 // Authorize against the token's MCP scopes and read-only flag,
                 // including the run-by-path path check (shared with multi mode).
-                authorize_endpoint_call(scope_config, endpoint_tool, &args, read_only)?;
+                let mut args = args;
+                authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
-                // This is an endpoint tool, call via backend
+                // This is an endpoint tool, call via backend. The backend's own error
+                // code is kept: a client that retries an internal error would loop on
+                // arguments the endpoint rejected.
                 let result = self
                     .backend
                     .call_endpoint(auth, workspace_id, endpoint_tool, args)
-                    .await
-                    .map_err(|e| ErrorData::internal_error(e.message, None))?;
+                    .await?;
 
-                return Ok(CallToolResult::success(vec![Content::text(
+                return Ok(CallToolResult::success(vec![ContentBlock::text(
                     truncate_tool_result(
                         serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
                     ),
@@ -699,7 +807,7 @@ impl<B: McpBackend> Runner<B> {
         };
 
         match result {
-            Ok(value) => Ok(CallToolResult::success(vec![Content::text(
+            Ok(value) => Ok(CallToolResult::success(vec![ContentBlock::text(
                 truncate_tool_result(
                     serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string()),
                 ),
@@ -733,7 +841,9 @@ impl<B: McpBackend> Runner<B> {
             tools.push(endpoint_tool_to_mcp_tool_multi(&endpoint_tool));
         }
 
-        ListToolsResult { tools, next_cursor: None, meta: None }
+        ListToolsResult::with_all_items(tools)
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE)
     }
 
     /// Handle a tool call for a multi-workspace session. `base_auth` is the
@@ -746,7 +856,7 @@ impl<B: McpBackend> Runner<B> {
         scope_config: &crate::common::scope::McpScopeConfig,
         read_only: bool,
         name: std::borrow::Cow<'static, str>,
-        args: Value,
+        mut args: Value,
     ) -> Result<CallToolResult, ErrorData> {
         if name.as_ref() == "list_workspaces" {
             let workspaces = self
@@ -754,7 +864,7 @@ impl<B: McpBackend> Runner<B> {
                 .list_accessible_workspaces(base_auth)
                 .await
                 .map_err(|e| ErrorData::internal_error(e.message, None))?;
-            return Ok(CallToolResult::success(vec![Content::text(
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::to_string_pretty(&workspaces).unwrap_or_else(|_| "[]".to_string()),
             )]));
         }
@@ -781,7 +891,7 @@ impl<B: McpBackend> Runner<B> {
         // checked against the script/flow scope for that path — the endpoint
         // scope alone would let a granular token run items outside its allowed
         // paths.
-        authorize_endpoint_call(scope_config, endpoint_tool, &args, read_only)?;
+        authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
         // Workspace-scoped endpoints need an explicit target workspace and a
         // per-workspace auth; global endpoints (e.g. docs) use the base identity.
@@ -824,10 +934,9 @@ impl<B: McpBackend> Runner<B> {
         let result = self
             .backend
             .call_endpoint(&resolved_auth, &workspace_id, endpoint_tool, args)
-            .await
-            .map_err(|e| ErrorData::internal_error(e.message, None))?;
+            .await?;
 
-        Ok(CallToolResult::success(vec![Content::text(
+        Ok(CallToolResult::success(vec![ContentBlock::text(
             truncate_tool_result(
                 serde_json::to_string_pretty(&result).unwrap_or_else(|_| "{}".to_string()),
             ),
@@ -874,20 +983,26 @@ mod tests {
         ]);
         let tool = ep("runScriptByPath", "POST");
 
-        assert!(
-            authorize_endpoint_call(&config, &tool, &json!({"path": "f/team/deploy"}), false)
-                .is_ok()
-        );
-        assert!(
-            authorize_endpoint_call(&config, &tool, &json!({"path": "f/secret/admin"}), false)
-                .is_err()
-        );
+        assert!(authorize_endpoint_call(
+            &config,
+            &tool,
+            &mut json!({"path": "f/team/deploy"}),
+            false
+        )
+        .is_ok());
+        assert!(authorize_endpoint_call(
+            &config,
+            &tool,
+            &mut json!({"path": "f/secret/admin"}),
+            false
+        )
+        .is_err());
     }
 
     #[test]
     fn run_by_path_call_requires_path_arg() {
         let tool = ep("runFlowByPath", "POST");
-        assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &tool, &json!({}), false).is_err());
+        assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &tool, &mut json!({}), false).is_err());
     }
 
     #[test]
@@ -897,14 +1012,14 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &ep("runFlowByPath", "POST"),
-            &json!({"path": "f/team/x"}),
+            &mut json!({"path": "f/team/x"}),
             false
         )
         .is_ok());
         assert!(authorize_endpoint_call(
             &config,
             &ep("runScriptByPath", "POST"),
-            &json!({"path": "f/team/x"}),
+            &mut json!({"path": "f/team/x"}),
             false
         )
         .is_err());
@@ -916,7 +1031,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &cfg(&["mcp:endpoints:getVariable"]),
             &get_var,
-            &json!({"path": "u/a/b"}),
+            &mut json!({"path": "u/a/b"}),
             false
         )
         .is_ok());
@@ -924,12 +1039,14 @@ mod tests {
         assert!(authorize_endpoint_call(
             &cfg(&["mcp:scripts:f/team/*"]),
             &get_var,
-            &json!({"path": "u/a/b"}),
+            &mut json!({"path": "u/a/b"}),
             false
         )
         .is_err());
         // mcp:all (non-granular) allows any endpoint.
-        assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &get_var, &json!({}), false).is_ok());
+        assert!(
+            authorize_endpoint_call(&cfg(&["mcp:all"]), &get_var, &mut json!({}), false).is_ok()
+        );
     }
 
     #[test]
@@ -938,14 +1055,14 @@ mod tests {
         assert!(authorize_endpoint_call(
             &cfg(&["mcp:all"]),
             &ep("createResource", "POST"),
-            &json!({}),
+            &mut json!({}),
             true
         )
         .is_err());
         assert!(authorize_endpoint_call(
             &cfg(&["mcp:all"]),
             &ep("getVariable", "GET"),
-            &json!({"path": "u/a/b"}),
+            &mut json!({"path": "u/a/b"}),
             true
         )
         .is_ok());
@@ -986,30 +1103,30 @@ mod tests {
         for name in ["getScriptByPath", "deleteScriptByPath", "createScript"] {
             let tool = ep(name, "POST");
             assert!(
-                authorize_endpoint_call(&config, &tool, &json!({"path": "f/team/x"}), false)
+                authorize_endpoint_call(&config, &tool, &mut json!({"path": "f/team/x"}), false)
                     .is_ok(),
                 "{name} should allow in-scope path"
             );
             assert!(
-                authorize_endpoint_call(&config, &tool, &json!({"path": "f/secret/x"}), false)
+                authorize_endpoint_call(&config, &tool, &mut json!({"path": "f/secret/x"}), false)
                     .is_err(),
                 "{name} should deny out-of-scope path"
             );
             // Confinement can't be verified without the path argument.
             assert!(
-                authorize_endpoint_call(&config, &tool, &json!({}), false).is_err(),
+                authorize_endpoint_call(&config, &tool, &mut json!({}), false).is_err(),
                 "{name} should require the path argument when confined"
             );
         }
         for name in ["getFlowByPath", "deleteFlowByPath", "createFlow"] {
             let tool = ep(name, "POST");
             assert!(
-                authorize_endpoint_call(&config, &tool, &json!({"path": "f/team/x"}), false)
+                authorize_endpoint_call(&config, &tool, &mut json!({"path": "f/team/x"}), false)
                     .is_ok(),
                 "{name} should allow in-scope path"
             );
             assert!(
-                authorize_endpoint_call(&config, &tool, &json!({"path": "f/secret/x"}), false)
+                authorize_endpoint_call(&config, &tool, &mut json!({"path": "f/secret/x"}), false)
                     .is_err(),
                 "{name} should deny out-of-scope path"
             );
@@ -1025,7 +1142,7 @@ mod tests {
             assert!(authorize_endpoint_call(
                 &config,
                 &ep(name, "POST"),
-                &json!({"path": "f/anywhere/x"}),
+                &mut json!({"path": "f/anywhere/x"}),
                 false
             )
             .is_ok());
@@ -1035,7 +1152,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &star,
             &ep("createScript", "POST"),
-            &json!({"path": "f/anywhere/x"}),
+            &mut json!({"path": "f/anywhere/x"}),
             false
         )
         .is_ok());
@@ -1050,7 +1167,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &tool,
-            &json!({"path__path": "f/team/a", "path__body": "f/team/b"}),
+            &mut json!({"path": "f/team/a", "path__body": "f/team/b"}),
             false
         )
         .is_ok());
@@ -1058,7 +1175,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &tool,
-            &json!({"path__path": "f/team/a", "path__body": "f/secret/a"}),
+            &mut json!({"path": "f/team/a", "path__body": "f/secret/a"}),
             false
         )
         .is_err());
@@ -1066,10 +1183,85 @@ mod tests {
         assert!(authorize_endpoint_call(
             &config,
             &tool,
-            &json!({"path__path": "f/secret/a", "path__body": "f/team/a"}),
+            &mut json!({"path": "f/secret/a", "path__body": "f/team/a"}),
             false
         )
         .is_err());
+    }
+
+    // updateScript has updateFlow's shape, and the destination it can move a script
+    // to is optional: omitting it updates in place, so requiring it would refuse
+    // every call that moves nothing.
+    #[test]
+    fn update_script_confines_target_and_optional_destination() {
+        let config = cfg(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]);
+        let tool = ep("updateScript", "POST");
+        for mut args in [
+            json!({"path": "f/team/a"}),
+            json!({"path": "f/team/a", "path__body": "f/team/b"}),
+            // Empty destination reads as absent, the same way the handler reads it.
+            json!({"path": "f/team/a", "path__body": ""}),
+        ] {
+            assert!(
+                authorize_endpoint_call(&config, &tool, &mut args, false).is_ok(),
+                "in-scope update should be allowed: {args}"
+            );
+        }
+        for mut args in [
+            // Deploying over a script outside the allowed folder.
+            json!({"path": "f/secret/a"}),
+            // Moving one out of it.
+            json!({"path": "f/team/a", "path__body": "f/secret/a"}),
+        ] {
+            assert!(
+                authorize_endpoint_call(&config, &tool, &mut args, false).is_err(),
+                "out-of-scope update should be denied: {args}"
+            );
+        }
+    }
+
+    /// A destination the caller omitted, or left empty because it had to fill in every
+    /// argument, is filled in with the path the item is already at. The endpoint then
+    /// never receives a body that omits its own path, and `update_flow` never receives
+    /// the empty string, which it would read as the empty path and move the flow there.
+    #[test]
+    fn an_unset_optional_destination_becomes_the_current_path() {
+        for tool in ["updateScript", "updateFlow"] {
+            let kind_scope = if tool == "updateScript" {
+                "mcp:scripts:f/team/*"
+            } else {
+                "mcp:flows:f/team/*"
+            };
+            for mut args in [
+                json!({"path": "f/team/a", "summary": "s"}),
+                json!({"path": "f/team/a", "path__body": "", "summary": "s"}),
+                json!({"path": "f/team/a", "path__body": null, "summary": "s"}),
+            ] {
+                authorize_endpoint_call(
+                    &cfg(&[kind_scope, "mcp:endpoints:*"]),
+                    &ep(tool, "POST"),
+                    &mut args,
+                    false,
+                )
+                .unwrap_or_else(|e| panic!("{tool} should allow an unset destination: {e:?}"));
+                assert_eq!(
+                    args,
+                    json!({"path": "f/team/a", "path__body": "f/team/a", "summary": "s"}),
+                    "{tool} should fill the destination in with the current path"
+                );
+            }
+        }
+
+        // A destination that names somewhere else is left for the confinement to check.
+        let mut args = json!({"path": "f/team/a", "path__body": "f/team/b"});
+        authorize_endpoint_call(
+            &cfg(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]),
+            &ep("updateScript", "POST"),
+            &mut args,
+            false,
+        )
+        .unwrap();
+        assert_eq!(args["path__body"], "f/team/b");
     }
 
     // Tools that can't be path-checked (delete-by-hash) or execute arbitrary
@@ -1080,14 +1272,19 @@ mod tests {
         let confined = cfg(&["mcp:scripts:f/team/*", "mcp:endpoints:*"]);
         for name in ["deleteScriptByHash", "runScriptPreviewAndWaitResult"] {
             let tool = ep(name, "POST");
-            assert!(authorize_endpoint_call(&confined, &tool, &json!({}), false).is_err());
+            assert!(authorize_endpoint_call(&confined, &tool, &mut json!({}), false).is_err());
             assert!(!endpoint_tool_in_scope(&confined, &tool));
             // Without script path patterns the tools stay available.
+            assert!(authorize_endpoint_call(
+                &cfg(&["mcp:endpoints:*"]),
+                &tool,
+                &mut json!({}),
+                false
+            )
+            .is_ok());
             assert!(
-                authorize_endpoint_call(&cfg(&["mcp:endpoints:*"]), &tool, &json!({}), false)
-                    .is_ok()
+                authorize_endpoint_call(&cfg(&["mcp:all"]), &tool, &mut json!({}), false).is_ok()
             );
-            assert!(authorize_endpoint_call(&cfg(&["mcp:all"]), &tool, &json!({}), false).is_ok());
             assert!(endpoint_tool_in_scope(&cfg(&["mcp:endpoints:*"]), &tool));
         }
         // Flow-only confinement doesn't affect script-kind unconfinable tools.
@@ -1095,7 +1292,7 @@ mod tests {
         assert!(authorize_endpoint_call(
             &flow_confined,
             &ep("deleteScriptByHash", "POST"),
-            &json!({}),
+            &mut json!({}),
             false
         )
         .is_ok());

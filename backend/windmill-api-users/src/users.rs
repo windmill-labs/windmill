@@ -27,7 +27,10 @@ use axum::{
     Json, Router,
 };
 use hyper::{header::LOCATION, StatusCode};
-use windmill_api_auth::{forbid_superadmin_job_token, require_super_admin, OptJobAuthed};
+use windmill_api_auth::{
+    forbid_elevated_job_token, forbid_job_token_account_destruction, forbid_superadmin_job_token,
+    require_super_admin, OptJobAuthed,
+};
 use windmill_common::usernames::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
@@ -46,6 +49,7 @@ use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{safe_token_prefix, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
+use windmill_common::per_minute_counter::PerMinuteCounter;
 use windmill_common::users::truncate_token;
 use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{
@@ -67,41 +71,24 @@ use windmill_git_sync::handle_deployment_metadata;
 
 pub const COOKIE_PATH: &str = "/";
 
-const TOKEN_CREATE_LIMIT_PER_MINUTE: i32 = 10;
+const TOKEN_CREATE_LIMIT_PER_MINUTE: u32 = 10;
 
-struct TokenRateLimitEntry {
-    count: i32,
-    minute_bucket: i64,
-}
-
-static TOKEN_CREATE_RATE_LIMIT: LazyLock<dashmap::DashMap<String, TokenRateLimitEntry>> =
-    LazyLock::new(dashmap::DashMap::new);
+static TOKEN_CREATE_RATE_LIMIT: LazyLock<PerMinuteCounter<String>> =
+    LazyLock::new(PerMinuteCounter::new);
 
 fn check_token_create_rate_limit(username: &str) -> Result<()> {
     if !*CLOUD_HOSTED {
         return Ok(());
     }
 
-    let current_minute = chrono::Utc::now().timestamp() / 60;
-
-    let mut entry = TOKEN_CREATE_RATE_LIMIT
-        .entry(username.to_string())
-        .or_insert(TokenRateLimitEntry { count: 0, minute_bucket: current_minute });
-
-    if entry.minute_bucket != current_minute {
-        entry.count = 0;
-        entry.minute_bucket = current_minute;
+    if TOKEN_CREATE_RATE_LIMIT.try_increment(username.to_string(), TOKEN_CREATE_LIMIT_PER_MINUTE) {
+        return Ok(());
     }
 
-    if entry.count >= TOKEN_CREATE_LIMIT_PER_MINUTE {
-        return Err(Error::Generic(
-            StatusCode::TOO_MANY_REQUESTS,
-            "Too many token creation requests. Please try again later.".to_string(),
-        ));
-    }
-
-    entry.count += 1;
-    Ok(())
+    Err(Error::Generic(
+        StatusCode::TOO_MANY_REQUESTS,
+        "Too many token creation requests. Please try again later.".to_string(),
+    ))
 }
 
 pub fn workspaced_service() -> Router {
@@ -413,6 +400,7 @@ async fn list_users(
         SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account
           FROM usr
          WHERE workspace_id = $1
+         ORDER BY email
          ",
         w_id
     )
@@ -442,7 +430,7 @@ async fn list_addable_instance_users(
     Path(w_id): Path<String>,
     Query(AddableInstanceUsersQuery { search, per_page }): Query<AddableInstanceUsersQuery>,
 ) -> JsonResult<Vec<AddableInstanceUser>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let per_page = per_page.unwrap_or(10).clamp(1, 100);
     // An absent search yields '%%', which matches every row.
     let search = format!(
@@ -515,7 +503,7 @@ async fn list_users_as_super_admin(
     Query(pagination): Query<Pagination>,
     Query(ActiveUsersOnly { active_only }): Query<ActiveUsersOnly>,
 ) -> JsonResult<Vec<GlobalUserInfo>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let per_page = pagination.per_page.unwrap_or(10000).max(1);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
 
@@ -1246,6 +1234,7 @@ async fn join_workspace<'c>(
 }
 
 async fn leave_instance(Extension(db): Extension<DB>, authed: ApiAuthed) -> Result<String> {
+    forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
     sqlx::query!("DELETE FROM password WHERE email = $1", &authed.email)
         .execute(&mut *tx)
@@ -1385,7 +1374,7 @@ async fn convert_user_to_group(
         ));
     }
 
-    // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
+    // Determine the group with highest precedence (same logic as reconcile_workspace_instance_groups)
     let roles: std::collections::HashMap<String, String> =
         if let Some(roles_json) = &eligible_groups[0].instance_groups_roles {
             serde_json::from_value(roles_json.clone()).unwrap_or_default()
@@ -1486,7 +1475,7 @@ async fn update_user(
     Extension(db): Extension<DB>,
     Json(eu): Json<EditUser>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
@@ -1662,7 +1651,7 @@ async fn delete_user(
     Path(email_to_delete): Path<String>,
     Extension(db): Extension<DB>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
@@ -1743,7 +1732,7 @@ async fn change_user_email(
     Extension(db): Extension<DB>,
     Json(ce): Json<ChangeUserEmail>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     // The target is matched verbatim (accounts predating email normalization can hold uppercase),
@@ -2312,12 +2301,10 @@ async fn change_user_email(
     // Read back inside the transaction: the address is derived at dispatch through a cache
     // that nothing else evicts, so without this a job pushed in the next 60s would resolve
     // the old address and with it the wrong superadmin flag and instance groups.
-    let memberships = sqlx::query_scalar!(
-        "SELECT workspace_id FROM usr WHERE email = $1",
-        &new_email
-    )
-    .fetch_all(&mut *tx)
-    .await?;
+    let memberships =
+        sqlx::query_scalar!("SELECT workspace_id FROM usr WHERE email = $1", &new_email)
+            .fetch_all(&mut *tx)
+            .await?;
 
     tx.commit().await?;
 
@@ -2619,7 +2606,7 @@ async fn set_login_type(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(et): Json<EditLoginType>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
 
@@ -2762,6 +2749,18 @@ async fn refresh_token(
     authed: ApiAuthed,
     cookies: Cookies,
 ) -> Result<String> {
+    // The session token minted below is database-backed and carries no job provenance,
+    // so a job token that exchanged itself for one would shed the `job_id` every
+    // `$WM_TOKEN` cap keys off (GHSA-hfh4-cx4h-3fcr). Only a browser session refreshes.
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN). If a script \
+             genuinely needs a token of its own, create a dedicated token from the User \
+             settings drawer (the 'Tokens' section), store it as a secret, and use that \
+             token explicitly instead of $WM_TOKEN."
+                .to_string(),
+        ));
+    }
     if let Some(thresh_s) = query.if_expiring_in_less_than_s {
         let t_hash = windmill_common::auth::hash_token(&token);
         let not_expired = sqlx::query_scalar!("SELECT true FROM token WHERE token_hash = $1 and expiration IS NOT NULL and expiration > now() + $2::int * '1 sec'::interval", &t_hash, thresh_s)
@@ -2905,7 +2904,7 @@ async fn create_token(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
-    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     check_token_create_rate_limit(&authed.username)?;
 
     // `username_override_from_label` trusts a server-minted label to name the entity acting,
@@ -2949,7 +2948,7 @@ async fn impersonate(
     } else {
         Some(&token)
     };
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
 
     if new_token.impersonate_email.is_none() {
@@ -3104,6 +3103,7 @@ async fn delete_token(
     authed: ApiAuthed,
     Path(token_prefix): Path<String>,
 ) -> Result<String> {
+    forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
 
     let tokens_deleted: Vec<String> = sqlx::query_scalar(
@@ -3148,6 +3148,11 @@ async fn update_token_scopes(
     Path(token_prefix): Path<String>,
     Json(req): Json<UpdateTokenScopesRequest>,
 ) -> Result<String> {
+    // Widening is what makes a narrowly-scoped mint (app embed, raw-app SDK, MCP
+    // OAuth) recoverable as a general credential: a job token is unscoped, so the
+    // caller check below would let it clear the scopes of any token sharing its
+    // email (GHSA-hfh4-cx4h-3fcr).
+    forbid_elevated_job_token(&db, &authed.email, authed.job_id).await?;
     windmill_api_auth::ensure_scopes_within_caller(&authed, req.scopes.as_deref())?;
 
     let mut tx = db.begin().await?;
@@ -3276,6 +3281,7 @@ async fn leave_workspace(
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> Result<String> {
+    forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
@@ -3417,11 +3423,11 @@ struct WorkspaceUsernameInfo {
     username: String,
 }
 async fn get_instance_username_info(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Path(user_email): Path<String>,
     Extension(db): Extension<DB>,
 ) -> JsonResult<InstanceUsernameInfo> {
-    require_super_admin(&db, &email).await?;
+    require_super_admin(&db, &authed).await?;
     let mut tx = db.begin().await?;
     let instance_username = match sqlx::query_scalar!(
         "SELECT username FROM password WHERE email = $1",
@@ -3491,7 +3497,7 @@ async fn export_global_users(
     authed: ApiAuthed,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
 ) -> JsonResult<Vec<ExportedGlobalUser>> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
     let users = sqlx::query_as!(
@@ -3531,7 +3537,7 @@ async fn overwrite_global_users(
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(users): Json<Vec<ExportedGlobalUser>>,
 ) -> Result<String> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
     let mut tx = db.begin().await?;
     sqlx::query!("DELETE FROM password")

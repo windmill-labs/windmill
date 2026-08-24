@@ -95,6 +95,7 @@
 	import OpenInSessionButton, {
 		type OpenInSessionSource
 	} from './sessions/OpenInSessionButton.svelte'
+	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -125,9 +126,7 @@
 	import { deepEqual } from 'fast-equals'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 	import { resource, watch } from 'runed'
-	import { createScriptRecording } from './recording/scriptRecording.svelte'
-	import { setActiveRecording } from './recording/flowRecording.svelte'
-	import type { ScriptRecording } from './recording/types'
+	import { buildScriptRecording, downloadRecordingJson } from './recording/runRecording'
 	import DropdownV2 from './DropdownV2.svelte'
 
 	interface Props {
@@ -279,6 +278,14 @@
 	}: Props = $props()
 
 	let opWs = $derived(workspaceOverride ?? $workspaceStore)
+
+	// Publish this editor's hand-off for AI entry points below it (the preview
+	// panel's "AI Fix"), withheld under `disableAi` so an embed that turned AI off
+	// gets no entry point that navigates its host to /sessions. Shadows an
+	// ancestor's hand-off deliberately: ScriptEditorDrawer mounts this without a
+	// `sessionOpen`, and falling through to FlowBuilder's would answer "fix this
+	// script" by opening the flow and abandoning the drawer's unsaved content.
+	setOpenInSessionHandoff({ source: () => (disableAi ? undefined : sessionOpen) })
 
 	$effect(() => {
 		onTestStateChange?.(testIsLoading)
@@ -743,9 +750,21 @@
 	let pastPreviewsRequest: ReturnType<typeof JobService.listCompletedJobs> | undefined
 	let validCode = $state(true)
 
-	// Recording
-	let scriptRecording = createScriptRecording()
-	let lastRecording: ScriptRecording | undefined = $state(undefined)
+	// Recording: nothing is captured live — a "record" run just remembers the
+	// completed job id plus the code/args/schema as they were at run time, and
+	// the recording is built from the completed job on download.
+	let recordingArmed = false
+	let lastRecordingJobId: string | undefined = $state(undefined)
+	let recordingMeta:
+		| {
+				scriptPath: string
+				code: string
+				language: string
+				args: Record<string, any>
+				schema?: Record<string, any>
+		  }
+		| undefined = undefined
+	let downloadingRecording = $state(false)
 
 	let wsProvider: WebsocketProvider | undefined = $state(undefined)
 	let yContent: Y.Text | undefined = $state(undefined)
@@ -857,8 +876,8 @@
 		// keep the latest choice as the active mode.
 		if (opts?.cascade !== undefined) cascadeDownstream = opts.cascade
 		// Discard any previous recording when running a normal test
-		if (!scriptRecording.active) {
-			lastRecording = undefined
+		if (!recordingArmed) {
+			lastRecordingJobId = undefined
 		}
 		// Not defined if JobProgressBar not loaded
 		jobProgressBar?.reset()
@@ -900,19 +919,20 @@
 			undefined,
 			undefined,
 			{
-				done(_x) {
-					if (scriptRecording.active) {
-						lastRecording = scriptRecording.stop()
-						setActiveRecording(undefined)
+				done(x) {
+					if (recordingArmed) {
+						recordingArmed = false
+						lastRecordingJobId = x?.id
 					}
 					if (historyTabActive) {
 						loadPastTests()
 					}
 				},
-				doneError({ error }) {
-					if (scriptRecording.active) {
-						lastRecording = scriptRecording.stop()
-						setActiveRecording(undefined)
+				doneError({ id, error }) {
+					// A failed run is still a completed job and records fine.
+					if (recordingArmed) {
+						recordingArmed = false
+						lastRecordingJobId = id
 					}
 					console.error(error)
 				}
@@ -931,15 +951,31 @@
 	}
 
 	async function recordAndTest() {
-		lastRecording = undefined
-		scriptRecording.start(path ?? '', code, lang ?? '', args ?? {}, schema)
-		setActiveRecording(scriptRecording)
+		lastRecordingJobId = undefined
+		recordingMeta = {
+			scriptPath: path ?? '',
+			code,
+			language: lang ?? '',
+			args: JSON.parse(JSON.stringify(args ?? {})),
+			schema: schema ? JSON.parse(JSON.stringify(schema)) : undefined
+		}
+		recordingArmed = true
 		await runTest()
 	}
 
-	function downloadRecording() {
-		if (lastRecording) {
-			scriptRecording.download(lastRecording)
+	async function downloadRecording() {
+		if (!lastRecordingJobId || !recordingMeta || downloadingRecording) return
+		downloadingRecording = true
+		try {
+			const recording = await buildScriptRecording(opWs!, lastRecordingJobId, recordingMeta)
+			downloadRecordingJson(
+				recording,
+				`script-recording-${(recording.script_path || 'untitled').replace(/\//g, '-')}`
+			)
+		} catch (e: any) {
+			sendUserToast('Could not build the recording', true, undefined, e?.toString())
+		} finally {
+			downloadingRecording = false
 		}
 	}
 
@@ -2014,12 +2050,13 @@
 												{/if}
 											{/if}
 										</div>
-										{#if lastRecording}
+										{#if lastRecordingJobId}
 											<Button
 												on:click={downloadRecording}
 												unifiedSize="md"
 												startIcon={{ icon: Download }}
 												iconOnly
+												loading={downloadingRecording}
 												title="Download recording"
 											/>
 										{/if}
@@ -2242,14 +2279,10 @@
 							</div>
 						{:else}
 							{#key previewLayout}
-								<Splitpanes
-									horizontal={previewLayout !== 'bottom'}
-									class="!max-h-[calc(100%-{debugMode && isDebuggableScript
-										? '83'
-										: previewLayout === 'bottom'
-											? '0'
-											: '43'}px)]"
-								>
+								<!-- min-h-0 lets this shrink to the space the header row leaves it. Without it the
+								     100% height wins, the panes settle one header too tall, and any reflow during a
+								     run snaps them up and back. -->
+								<Splitpanes horizontal={previewLayout !== 'bottom'} class="min-h-0">
 									<Pane size={previewLayout === 'bottom' ? 40 : 33}>
 										{#if previewLayout === 'bottom' && !(debugMode && isDebuggableScript)}
 											<div class="px-3 pt-2 pb-1 flex items-center gap-2">
@@ -2762,6 +2795,11 @@
 			awareness={wsProvider?.awareness}
 			on:change={(e) => {
 				if (activeModuleTab === null) {
+					// `editorCode`, not the payload: `setCode` dispatches the string it was
+					// handed, but Monaco may have normalized it (EOL) while applying it, and
+					// the re-entrant `updateCode` that runs inside `setCode` has already put
+					// that normalized text here. Taking the payload would leave `code`
+					// disagreeing with the buffer.
 					code = editorCode
 					lastSyncedCode = code
 					inferSchema(e.detail)

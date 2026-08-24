@@ -87,6 +87,7 @@
 				{flowStateStore}
 				{disableAi}
 				{...props}
+				customUi={{ modalPanel: false, ...props.customUi }}
 				liveEditorDraftStoragePath={draftStoragePath || undefined}
 			/>
 		{/if}

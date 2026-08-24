@@ -47,7 +47,8 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { buildForkEditUrl, editInForkAllowed, editInForkLabel } from '$lib/utils/editInFork'
+	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
+	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
@@ -253,17 +254,7 @@
 					{/if}
 				{/if}
 				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !script.canWrite)}
-					<div>
-						<Button
-							variant={!showEditButton ? 'default' : 'subtle'}
-							wrapperClasses="w-32"
-							unifiedSize="md"
-							startIcon={{ icon: GitFork }}
-							href={buildForkEditUrl('script', script.path)}
-						>
-							{editInForkLabel($workspaceStore, $userWorkspaces)}
-						</Button>
-					</div>
+					<EditInForkButton itemType="script" path={script.path} />
 				{/if}
 			{/if}
 		</span>
@@ -336,8 +327,10 @@
 					},
 					{
 						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
-						icon: GitFork,
-						href: buildForkEditUrl('script', script.path),
+						icon: Pen,
+						// No `href`: the handler resolves the destination asynchronously, and a melt
+						// menu item's anchor navigates before a delegated onclick can preventDefault it.
+						action: (e) => onEditInForkClick(e, 'script', script.path),
 						hide:
 							$userStore?.operator ||
 							isCloudHosted() ||
