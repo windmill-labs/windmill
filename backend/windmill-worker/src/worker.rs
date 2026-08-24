@@ -950,37 +950,49 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
-/// Appends the cache-key contribution of a runnable's inline modules to `input_src`.
+/// Folds a runnable's inline modules into `base`, the pre-hash input of a build artifact's
+/// cache key.
 ///
 /// `write_module_files` puts module content in the job dir, where the build inlines it
 /// into the artifact, so a key that leaves it out lets one runnable's modules be served
 /// to another whose main content and lockfile happen to match — across workspaces, the
 /// artifact cache being global and keyed on content alone.
 ///
-/// Every field is length-prefixed: without that, two different module maps can concatenate
-/// to the same bytes (`{"a": "bc"}` and `{"ab": "c"}`) and share a cache slot again.
-pub(crate) fn push_modules_cache_key(
-    input_src: &mut String,
+/// `base` is hashed before the module block is appended, rather than concatenated with it.
+/// It ends in caller-controlled bytes (a preview job supplies its own lockfile), so plain
+/// concatenation would let one spell out another runnable's module block and reach its
+/// cache slot. A runnable with no modules keeps `base` untouched, so every artifact cached
+/// before modules entered the key stays reachable.
+///
+/// Only the path and content may key the artifact, because they are all the build reads.
+/// `ScriptModule::lock` especially must stay out: deploy regenerates it *after* the
+/// parent has prebuilt, so keying on it would move the key out from under every
+/// prebuilt artifact and no run would ever find one.
+pub(crate) fn fold_modules_into_cache_key(
+    base: String,
     modules: Option<&std::collections::HashMap<String, ScriptModule>>,
-) {
+) -> String {
     let Some(modules) = modules.filter(|m| !m.is_empty()) else {
-        return;
+        return base;
     };
     let mut entries: Vec<(&String, &ScriptModule)> = modules.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
-    input_src.push_str(&format!(":modules:{}", entries.len()));
+    // Both fields are length-prefixed: without that, two different module maps can
+    // concatenate to the same bytes (`{"a": "bc"}` and `{"ab": "c"}`) and share a slot.
+    let mut out = format!(
+        "{}:modules:{}",
+        windmill_common::utils::calculate_hash(&base),
+        entries.len()
+    );
     for (path, module) in entries {
-        let lang = module.language.as_str();
-        let lock = module.lock.as_deref().unwrap_or("");
-        input_src.push_str(&format!(
-            ":{}:{path}:{}:{lang}:{}:{}:{}:{lock}",
+        out.push_str(&format!(
+            ":{}:{path}:{}:{}",
             path.len(),
-            lang.len(),
             module.content.len(),
             module.content,
-            lock.len(),
         ));
     }
+    out
 }
 
 pub fn is_sandboxing_enabled() -> bool {
@@ -5693,9 +5705,7 @@ mod write_module_files_tests {
                 .iter()
                 .map(|(p, c)| (p.to_string(), module(c)))
                 .collect();
-            let mut out = String::new();
-            push_modules_cache_key(&mut out, Some(&map));
-            out
+            fold_modules_into_cache_key("base".to_string(), Some(&map))
         }
 
         // Naive `path + content` concatenation renders both of these as "abc".
@@ -5703,13 +5713,57 @@ mod write_module_files_tests {
         // Splitting one module into two must not read back as the joined one.
         assert_ne!(key(&[("a", "b"), ("c", "d")]), key(&[("ac", "bd")]));
         // Iteration order of the map must not move the key.
-        assert_eq!(key(&[("a", "1"), ("b", "2")]), key(&[("b", "2"), ("a", "1")]));
+        assert_eq!(
+            key(&[("a", "1"), ("b", "2")]),
+            key(&[("b", "2"), ("a", "1")])
+        );
 
         // No modules leaves the key untouched, so existing artifacts stay valid.
-        let mut untouched = "code+lock".to_string();
-        push_modules_cache_key(&mut untouched, None);
-        push_modules_cache_key(&mut untouched, Some(&HashMap::new()));
-        assert_eq!(untouched, "code+lock");
+        assert_eq!(
+            fold_modules_into_cache_key("code+lock".to_string(), None),
+            "code+lock"
+        );
+        assert_eq!(
+            fold_modules_into_cache_key("code+lock".to_string(), Some(&HashMap::new())),
+            "code+lock"
+        );
+    }
+
+    /// A preview supplies its own lockfile, so `base` ends in caller-controlled bytes. If
+    /// the module block were concatenated onto it, a lock spelling out another runnable's
+    /// block would reach that runnable's cache slot.
+    #[test]
+    fn module_cache_key_base_cannot_be_extended_into_the_module_block() {
+        let modules = HashMap::from([("h.ts".to_string(), module("evil"))]);
+        let victim = fold_modules_into_cache_key("code+lock".to_string(), Some(&modules));
+
+        // The forger appends the victim's whole module block to their own lockfile and
+        // declares no modules of their own.
+        let forged_tail = victim
+            .strip_prefix(&windmill_common::utils::calculate_hash("code+lock"))
+            .unwrap();
+        let forged = fold_modules_into_cache_key(format!("code+lock{forged_tail}"), None);
+
+        assert_ne!(victim, forged);
+    }
+
+    /// Deploy fills a module's lock in after the parent has prebuilt, so a key that moved
+    /// with it would leave every prebuilt artifact unreachable by the runs it was built for.
+    #[test]
+    fn module_cache_key_ignores_the_lock_deploy_fills_in_later() {
+        let prebuild = fold_modules_into_cache_key(
+            "base".to_string(),
+            Some(&HashMap::from([("h.ts".to_string(), module("x"))])),
+        );
+
+        let mut locked = module("x");
+        locked.lock = Some("{}\n//bun.lock\n<empty>".to_string());
+        let after_deploy = fold_modules_into_cache_key(
+            "base".to_string(),
+            Some(&HashMap::from([("h.ts".to_string(), locked)])),
+        );
+
+        assert_eq!(prebuild, after_deploy);
     }
 
     #[test]

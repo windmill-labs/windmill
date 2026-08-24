@@ -237,9 +237,8 @@ fn go_cache_key(
 ) -> String {
     // A module whose path starts with `go/` lands inside the module dir this builds, so
     // its content ends up in the binary the key names.
-    let mut key_input = format!("{}{:?}v2", code, maybe_lock);
-    crate::worker::push_modules_cache_key(&mut key_input, modules);
-    calculate_hash(&key_input)
+    let base = format!("{}{:?}v2", code, maybe_lock);
+    calculate_hash(&crate::worker::fold_modules_into_cache_key(base, modules))
 }
 
 /// Install the deps, generate the entrypoint wrapper, `go build`, and push the binary to

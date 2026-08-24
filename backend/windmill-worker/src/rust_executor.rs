@@ -608,11 +608,7 @@ async fn rust_cache_key(
     w_id: &str,
     modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> String {
-    // Companion modules are written into the crate dir and compiled into the binary this
-    // key names, so leaving them out shares one script's binary with another.
-    let mut key_input = code.to_string();
-    crate::worker::push_modules_cache_key(&mut key_input, modules);
-    let mut hash = compute_rust_hash(&key_input, requirements_o);
+    let mut hash = compute_rust_hash(code, requirements_o, modules);
     hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
     hash
 }
@@ -662,15 +658,22 @@ pub async fn prebuild_rust_binary(
     Ok(Some(logs))
 }
 
-pub fn compute_rust_hash(code: &str, requirements_o: Option<&String>) -> String {
-    calculate_hash(&format!(
+pub fn compute_rust_hash(
+    code: &str,
+    requirements_o: Option<&String>,
+    // Companion modules are written into the crate dir and compiled into the binary this
+    // key names, so leaving them out shares one script's binary with another.
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    let base = format!(
         "{}{}",
         code,
         requirements_o
             .as_ref()
             .map(|x| x.to_string())
             .unwrap_or_default()
-    ))
+    );
+    calculate_hash(&crate::worker::fold_modules_into_cache_key(base, modules))
 }
 
 #[tracing::instrument(level = "trace", skip_all)]

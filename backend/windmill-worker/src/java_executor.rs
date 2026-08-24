@@ -626,7 +626,7 @@ async fn compile<'a>(
         requirements_o: Option<&String>,
         modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
     ) -> String {
-        let mut key_input = format!(
+        let base = format!(
             "{}{}",
             code,
             requirements_o
@@ -634,8 +634,7 @@ async fn compile<'a>(
                 .map(|x| x.to_string())
                 .unwrap_or_default()
         );
-        crate::worker::push_modules_cache_key(&mut key_input, modules);
-        calculate_hash(&key_input)
+        calculate_hash(&crate::worker::fold_modules_into_cache_key(base, modules))
     }
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;

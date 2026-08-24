@@ -3158,7 +3158,12 @@ async fn capture_dependency_job(
             )
             .await?
             {
-                if !wd_exist {
+                // Nothing here writes the module files (that is the run path's
+                // `write_module_files`), so a bundle built now resolves a multi-file
+                // script's relative imports remotely instead of from its modules.
+                // Caching that under a key naming those modules would serve the wrong
+                // code to every run; leave a multi-file script to build on first run.
+                if !wd_exist && modules.map_or(true, |m| m.is_empty()) {
                     crate::bun_executor::prebundle_bun_script(
                         job_raw_code,
                         &lock,

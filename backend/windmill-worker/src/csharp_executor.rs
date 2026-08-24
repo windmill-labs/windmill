@@ -80,14 +80,13 @@ async fn csharp_cache_key(
 ) -> String {
     // The SDK project globs every `.cs` under the job dir, so companion modules are
     // compiled into the binary this key names and have to be part of it.
-    let mut key_input = format!(
+    let base = format!(
         "{}{}{}",
         code,
         requirements_o.unwrap_or(""),
         DOTNET_TARGET_FRAMEWORK.as_str()
     );
-    crate::worker::push_modules_cache_key(&mut key_input, modules);
-    let mut hash = calculate_hash(&key_input);
+    let mut hash = calculate_hash(&crate::worker::fold_modules_into_cache_key(base, modules));
     hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
     hash
 }

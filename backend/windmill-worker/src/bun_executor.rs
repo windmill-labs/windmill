@@ -1448,10 +1448,6 @@ pub async fn compute_bundle_local_and_remote_path(
 ) -> (String, String) {
     let mut input_src = format!("{inner_content}{lock}",);
 
-    // The loader resolves relative imports against the module files in the job dir, so
-    // their content is inlined into the bundle this key names.
-    crate::worker::push_modules_cache_key(&mut input_src, modules);
-
     if let Some(db) = db {
         // The bundle inlines the whole transitive relative-import closure, so a
         // new deployed version of ANY script in it must change the key.
@@ -1477,6 +1473,10 @@ pub async fn compute_bundle_local_and_remote_path(
 
     let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
     input_src.push_str(&ws_suffix);
+
+    // The loader resolves relative imports against the module files in the job dir, so
+    // their content is inlined into the bundle this key names.
+    let input_src = crate::worker::fold_modules_into_cache_key(input_src, modules);
     let hash = windmill_common::utils::calculate_hash(&input_src);
     let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 
