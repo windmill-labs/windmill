@@ -77,11 +77,28 @@
 		viewOpen = true
 	}
 
+	const DOWN_TEMPLATE = 'BEGIN;\n\n-- Add your down migration here\n\nEND;'
+
 	function startAddDownMigration() {
 		// Same transaction frame the new-migration modal starts from, so the down
 		// applies atomically.
-		downDraft = 'BEGIN;\n\n-- Add your down migration here\n\nEND;'
+		downDraft = DOWN_TEMPLATE
 		addingDown = true
+	}
+
+	// Saving the bare template would attach a down that reverts nothing, and a
+	// down can only be attached once — the upsert refuses to correct it later on a
+	// migration that has already run. So require an actual statement inside the
+	// transaction frame, not just comments.
+	function hasStatement(sql: string): boolean {
+		return (
+			sql
+				.replace(/--[^\n]*/g, '')
+				.replace(/\/\*[\s\S]*?\*\//g, '')
+				.replace(/\b(BEGIN|START\s+TRANSACTION|COMMIT|END)\b/gi, '')
+				.replace(/;/g, '')
+				.trim() !== ''
+		)
 	}
 
 	// Attach a down migration to one that has none. Only the down is sent back;
@@ -104,11 +121,11 @@
 			})
 			sendUserToast('Down migration saved')
 			addingDown = false
+			// Show the saved down straight away: `loadMigrations` swallows its own
+			// errors, so re-reading the migration from the refreshed list could hand
+			// back the pre-save entry and bounce the tab to its empty state.
+			viewMigration = { ...m, code_down: downDraft }
 			await loadMigrations()
-			viewMigration = migrations.find((x) => x.timestamp === m.timestamp) ?? {
-				...m,
-				code_down: downDraft
-			}
 		} catch (e: any) {
 			sendUserToast(`Failed to save down migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
@@ -603,7 +620,7 @@
 								<Button
 									variant="accent"
 									size="sm"
-									disabled={savingDown || downDraft.trim() === ''}
+									disabled={savingDown || !hasStatement(downDraft)}
 									on:click={saveDownMigration}
 								>
 									Save
