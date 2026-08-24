@@ -328,7 +328,15 @@
 				{/if}
 			</span>
 		{/snippet}
-		<ImportWizardSteps {step} hasSetup={setupNeeded || step === 4} />
+		<!-- Once the run is gone, the import step behind us has nothing to resume and would
+		     offer to run the whole bundle again — over items already in, or over a create
+		     whose workspace now exists. That is only reachable after a reload on step 4, so
+		     the floor rises exactly then. -->
+		<ImportWizardSteps
+			{step}
+			hasSetup={setupNeeded || step === 4}
+			lowestStep={step === 4 && !execution ? 4 : 1}
+		/>
 
 		{#if step === 1}
 			<div class="flex flex-col gap-6">
@@ -513,7 +521,13 @@
 				setupPending={setupNeeded}
 				{setupUndecided}
 				onFolderChange={(folder) => go({ folder }, 3, { replace: true })}
-				onFinish={() => (setupNeeded ? go({}, 4) : finish())}
+				onFinish={() =>
+					setupNeeded
+						? // Replaces rather than pushes: after a reload on step 4 the run is gone, and
+							// a step-3 entry in history is a browser-Back route to the same fresh import
+							// the stepper is now blocked from reaching.
+							go({}, 4, { replace: true })
+						: finish()}
 				onBack={() => go({}, 2)}
 				onExecution={(e) => (execution = e)}
 				resume={execution}

@@ -17,9 +17,17 @@
 		step: WizardStep
 		/** Whether this import has a setup step at all — most projects do not. */
 		hasSetup?: boolean
+		/**
+		 * The lowest step still worth returning to. Defaults to the first. The page raises it
+		 * past the import once that import has landed and the run behind it can no longer be
+		 * recovered — after a reload on the setup step, where the executor was in memory and
+		 * the parking a clean finish cleared. Step 3 would otherwise mount with nothing to
+		 * resume and offer to run the whole bundle again.
+		 */
+		lowestStep?: number
 	}
 
-	let { step, hasSetup = false }: Props = $props()
+	let { step, hasSetup = false, lowestStep = 1 }: Props = $props()
 
 	// Most projects ship no data table migrations, so the wizard is three steps and
 	// says so. A fourth appears only once there is something to configure.
@@ -32,6 +40,10 @@
 	// skip ahead, since each step decides what the next one asks.
 	function onStepClick(index: number) {
 		if (index >= step - 1) return
+		if (index + 1 < lowestStep) {
+			sendUserToast('The project is already imported. There is nothing to go back to.', true)
+			return
+		}
 		// An import in flight owns the page: stepping back unmounts the step that is
 		// awaiting the migration review, which would leave the run with no controls
 		// and no way to resolve.

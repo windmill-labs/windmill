@@ -104,6 +104,19 @@ describe('abandoning mid-import', () => {
 		expect(resumableImport('calendly', 'ws-a')).toBe(true)
 	})
 
+	it('stops the migrate row spinning when it is abandoned mid-migration', async () => {
+		const run = new ImportExecution(PLAN, deps)
+		// Abandon once the write loop has started, which is where `onMigrationsStart` has
+		// already flipped the row to running in a real run.
+		hooks.afterFirstItem = () => {
+			run.abandon()
+		}
+		await run.run()
+		// A row left on `running` reads as work still in progress on a run that has stopped.
+		expect(run.tasks.some((t) => t.status === 'running')).toBe(false)
+		expect(run.done).toBe(false)
+	})
+
 	it('clears it on a clean finish, so a later import reaches its own create', async () => {
 		parkImport({ slug: 'calendly', workspaceId: 'ws-a' })
 		const run = new ImportExecution(PLAN, deps)
