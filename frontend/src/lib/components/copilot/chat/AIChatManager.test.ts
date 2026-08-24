@@ -2273,6 +2273,37 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.queuedMessage).toBe('')
 	})
 
+	it('refuses to switch conversation while a turn is running', async () => {
+		const manager = createManager(createInputMock())
+		const loadStored = vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-b',
+			title: 'Chat B',
+			displayMessages: [{ role: 'user', content: 'belongs to chat B', index: 0 }],
+			actualMessages: [{ role: 'user', content: 'belongs to chat B' }],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// The user opens History mid-turn. Swapping the transcript in underneath
+			// the turn makes the commit below land on a foreign one — and when the
+			// loaded chat is this one, on top of its own checkpoint.
+			await manager.loadPastChat('chat-b')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'belongs to chat A' })
+
+		expect(loadStored).not.toHaveBeenCalled()
+		expect(manager.messages.map((m) => m.content)).toEqual(['belongs to chat A', 'done'])
+	})
+
 	it('clears attachments on New chat / load past chat (non-session), keeps them in a session', async () => {
 		const txt = (n: string) => new File(['hello\n'], n, { type: 'text/plain' })
 
