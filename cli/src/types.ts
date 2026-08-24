@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseContent } from "./utils/yaml.ts";
+import { isDbtDescriptorPath } from "./utils/resource_folders.ts";
 import { pushApp } from "./commands/app/app.ts";
 import { pushFolder } from "./commands/folder/folder.ts";
 import { pushFlow } from "./commands/flow/flow.ts";
@@ -34,6 +35,7 @@ import {
   buildFolderPath,
   isScriptModulePath,
 } from "./utils/resource_folders.ts";
+import { isSharedLockPath } from "./utils/script_common.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -174,6 +176,21 @@ function redactString(s: string): string {
   return s.slice(0, 5) + "*".repeat(s.length - 5);
 }
 
+export interface PushObjOptions {
+  /** Optional commit/update message */
+  message?: string;
+  /** The original local file path (used for branch-specific resource file resolution) */
+  originalLocalPath?: string;
+  /** Identity to attribute the push to, for the types that carry one */
+  permissionedAsContext?: PermissionedAsContext;
+  /** Whether the item is workspace-specific */
+  wsSpecific?: boolean;
+  /** encryption_key push: non-interactive flag and explicit re-encryption choice */
+  keyPushOpts?: PushWorkspaceKeyOptions;
+  /** TypeScript runtime a bare `.ts` denotes, for raw-app runnables */
+  defaultTs?: "bun" | "deno";
+}
+
 /**
  * Pushes an object to the workspace server based on its type
  * @param workspace - The workspace ID to push to
@@ -182,9 +199,7 @@ function redactString(s: string): string {
  * @param newObj - The new object state to push
  * @param plainSecrets - Whether to store secrets in plain text
  * @param alreadySynced - Array to track already synced items
- * @param message - Optional commit/update message
- * @param originalLocalPath - The original local file path (used for branch-specific resource file resolution)
- * @param keyPushOpts - Options for the encryption_key push: non-interactive flag and explicit re-encryption choice
+ * @param opts - Per-type extras; see PushObjOptions
  */
 export async function pushObj(
   workspace: string,
@@ -193,12 +208,16 @@ export async function pushObj(
   newObj: any,
   plainSecrets: boolean,
   alreadySynced: string[],
-  message?: string,
-  originalLocalPath?: string,
-  permissionedAsContext?: PermissionedAsContext,
-  wsSpecific?: boolean,
-  keyPushOpts?: PushWorkspaceKeyOptions,
+  opts: PushObjOptions = {},
 ) {
+  const {
+    message,
+    originalLocalPath,
+    permissionedAsContext,
+    wsSpecific,
+    keyPushOpts,
+    defaultTs,
+  } = opts;
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
@@ -212,7 +231,7 @@ export async function pushObj(
     if (!rawAppName) {
       throw new Error(`Could not extract raw app name from path: ${p}`);
     }
-    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message);
+    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message, defaultTs);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
@@ -226,7 +245,7 @@ export async function pushObj(
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
       alreadySynced.push(p);
-      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific);
+      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific, true);
     }
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);
@@ -348,6 +367,7 @@ export function getTypeStrFromPath(
   | "group"
   | "settings"
   | "encryption_key"
+  | "shared_lock"
   | "workspace_dependencies" {
   if (isDatatableMigrationPath(p)) {
     return "datatable_migration";
@@ -363,6 +383,10 @@ export function getTypeStrFromPath(
   }
   if (isRawAppPath(p)) {
     return "raw_app";
+  }
+  // A repo-side artifact of `dedupeLockfiles`: it has no object on the server.
+  if (isSharedLockPath(p)) {
+    return "shared_lock";
   }
   if (p.startsWith("dependencies" + SEP)) {
     return "workspace_dependencies";
@@ -388,7 +412,11 @@ export function getTypeStrFromPath(
     parsed.ext == ".rb" ||
     parsed.ext == ".r" ||
     // for related places search: ADD_NEW_LANG
-    (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook")
+    (parsed.ext == ".yml" && parsed.name.split(".").pop() == "playbook") ||
+    // A dbt descriptor is `<project>__dbt/wm_dbt.yaml`. Without this it reads
+    // as one of the CLI's own `.yaml` metadata files and a pull writes the
+    // script's metadata and lock but never its content.
+    isDbtDescriptorPath(p)
   ) {
     return "script";
   }

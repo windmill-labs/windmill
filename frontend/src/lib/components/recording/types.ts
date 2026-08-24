@@ -1,28 +1,39 @@
 import type { AssetKind, Job, OpenFlow } from '$lib/gen'
 import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
+import type { RawAppInteractionKind } from './rawAppSnapshot'
 
+/** One synthesized job-update event fed to JobLoader's replay path. `t` is
+ * milliseconds on the recording clock (zero = root job start). Never stored in
+ * a recording file — streams are synthesized from the completed jobs at play
+ * time (see `replayStream.ts`). */
 export type RecordedEvent = {
 	t: number
 	data: Record<string, any>
 }
 
+/** A job's synthesized replay stream: the job as it looked before running,
+ * plus the events that progressively bring it to its completed state. */
 export type RecordedJob = {
 	initial_job: Job
 	events: RecordedEvent[]
 }
 
 export type FlowRecording = {
-	version: 1
+	version: 2
 	type?: 'flow'
 	recorded_at: string
 	flow_path: string
 	total_duration_ms: number
-	jobs: Record<string, RecordedJob>
+	root_job_id: string
+	/** The run's completed jobs (root + sub-jobs, nested flows included),
+	 * fetched after completion with their logs and results. Replay streams are
+	 * synthesized from their timestamps. */
+	jobs: Record<string, Job>
 	flow?: OpenFlow
 }
 
 export type ScriptRecording = {
-	version: 1
+	version: 2
 	type: 'script'
 	recorded_at: string
 	script_path: string
@@ -31,7 +42,8 @@ export type ScriptRecording = {
 	language: string
 	args: Record<string, any>
 	schema?: Record<string, any>
-	job: RecordedJob
+	/** The completed job, fetched after the run with its logs and result. */
+	job: Job
 }
 
 /** Per-node status inside a recorded cascade frame (mirror of
@@ -70,7 +82,7 @@ export type PipelineAssetSample = {
 }
 
 export type PipelineRecording = {
-	version: 1
+	version: 2
 	type: 'pipeline'
 	recorded_at: string
 	folder: string
@@ -79,9 +91,10 @@ export type PipelineRecording = {
 	graph: AssetGraphResponse
 	/** Ordered cascade status snapshots driving the node animation. */
 	timeline: PipelineTimelineFrame[]
-	/** Per-node job streams (initial job + SSE events), keyed by job id, so the
-	 * player can replay each node's logs/result/args offline via JobLoader. */
-	jobs: Record<string, RecordedJob>
+	/** Each node's completed job, keyed by job id, fetched after the run with
+	 * its logs and result. The player synthesizes a replay stream per node so
+	 * its logs/result replay offline via JobLoader. */
+	jobs: Record<string, Job>
 	/** Per-asset data samples captured after the run, keyed by `${kind}:${path}`,
 	 * so asset nodes are inspectable offline in the player. */
 	assetSamples?: Record<string, PipelineAssetSample>
@@ -97,13 +110,40 @@ export type PipelineRecordedCode = {
 	language: string
 }
 
-/** Minimal interface that both flow and script recording stores implement */
-export interface ActiveRecording {
-	recordInitialJob(jobId: string, job: Job): void
-	recordEvent(jobId: string, data: Record<string, any>): void
+/** One user interaction in a raw-app session recording. `before`/`after` index
+ * into {@link RawAppRecording.frames}: the DOM the user acted on, and the DOM
+ * once the app settled. Either may be absent when the snapshot budget ran out. */
+export type RawAppStep = {
+	t: number
+	kind: RawAppInteractionKind
+	/** One-line description shown in the player, e.g. `Clicked button "Save"`. */
+	label: string
+	/** The element as a user would name it, e.g. `button "Save"`. */
+	target: string
+	selector?: string
+	value?: string
+	before?: number
+	after?: number
 }
 
-/** Shape needed by JobLoader replay — a map of job ID to recorded data */
+export type RawAppRecording = {
+	version: 1
+	type: 'app'
+	recorded_at: string
+	app_path: string
+	workspace?: string
+	total_duration_ms: number
+	/** Size of the app viewport at record time, replayed at the same scale. */
+	viewport: { width: number; height: number }
+	/** Deduplicated, self-contained DOM snapshots referenced by the steps. */
+	frames: string[]
+	steps: RawAppStep[]
+	/** Set when a limit cut the recording short: the snapshot budget (later steps
+	 * ship without frames) or the step cap (later interactions are absent). */
+	truncated?: boolean
+}
+
+/** Shape needed by JobLoader replay — a map of job ID to its replay stream */
 export interface ActiveReplayData {
 	jobs: Record<string, RecordedJob>
 }

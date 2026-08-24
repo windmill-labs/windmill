@@ -4,15 +4,11 @@ import type { SelectionManager } from '$lib/components/graph/selectionUtils.svel
 import type { FlowStructureNode } from '$lib/components/graph/flowStructure'
 import type { OpenFlow } from '$lib/gen'
 import { push, type History } from '$lib/history.svelte'
-import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 import type { StateStore } from '$lib/utils'
-import {
-	createDeletePlan,
-	removeDeletePlanTools,
-	type DeletePlan
-} from './flowDeleteUtils'
+import { createDeletePlan, removeDeletePlanTools, type DeletePlan } from './flowDeleteUtils'
 import type { FlowState } from './flowState'
 import { deleteFlowStateById } from './flowStateUtils.svelte'
+import { refreshFlowStateStore } from './flowStoreRefresh.svelte'
 
 export type PreparedDeleteRequest = {
 	plan: DeletePlan
@@ -60,7 +56,9 @@ export function executeDeletePlan(
 	if (plan.selection.kind === 'clear') {
 		args.selectionManager.clearSelection()
 	} else {
-		args.selectionManager.selectId(plan.selection.id)
+		// Whatever remains selected after a delete was not asked for, so it must not
+		// pop the modal panel open.
+		args.selectionManager.selectId(plan.selection.id, { openPanel: false })
 	}
 
 	if (plan.targets.some((target) => target.kind === 'preprocessor')) {
@@ -76,7 +74,7 @@ export function executeDeletePlan(
 		deleteFlowStateById(id, args.flowStateStore)
 	}
 
-	refreshStateStore(args.flowStore)
+	refreshFlowStateStore(args.flowStore)
 
 	if (plan.inputIds.length === 1) {
 		args.onDelete?.(plan.targets[0].id)

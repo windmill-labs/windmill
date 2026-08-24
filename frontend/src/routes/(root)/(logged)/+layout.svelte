@@ -16,19 +16,19 @@
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import SettingsMenu from '$lib/components/sidebar/SettingsMenu.svelte'
+	import SidebarUsage from '$lib/components/sidebar/SidebarUsage.svelte'
 	import SidebarScrollArea from '$lib/components/sidebar/SidebarScrollArea.svelte'
 	import { SIDEBAR_BG, SIDEBAR_BG_DARK } from '$lib/components/sidebar/sidebarChrome'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import ForkConflictModal from '$lib/components/ForkConflictModal.svelte'
+	import UpdateDevWorkspaceModal from '$lib/components/UpdateDevWorkspaceModal.svelte'
 	import {
 		enterpriseLicense,
-		isPremiumStore,
 		superadmin,
-		usageStore,
-		workspaceUsageStore,
 		userStore,
 		workspaceStore,
 		userWorkspaces,
+		usersWorkspaceStore,
 		type UserExt,
 		defaultScripts,
 		hubBaseUrlStore,
@@ -39,7 +39,11 @@
 		whitelabelNameStore,
 		globalDbManagerDrawer,
 		globalForkModal,
-		globalS3FilePickerExplorer
+		globalS3FilePickerExplorer,
+		nonMemberWorkspaces,
+		setNonMemberWorkspaces,
+		clearNonMemberWorkspaces,
+		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -59,6 +63,7 @@
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
 	import { PanelLeftClose, PanelLeftOpen, Home, Play, Search, WandSparkles } from 'lucide-svelte'
 	import { getUserExt } from '$lib/user'
+	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
@@ -66,6 +71,7 @@
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
 	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
+	import { createUsageResources, registerUsageResources } from '$lib/usage.svelte'
 	import { purgeLegacyUserDrafts } from '$lib/userDraftLegacyMigration'
 	import { migrateUserDraftsToDb } from '$lib/userDraftDbMigration'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
@@ -77,7 +83,7 @@
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { parsePreviewItemRoute } from '$lib/components/sessions/previewRouter'
+	import { parsePreviewItemRoute } from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
 	import { currentWorkspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
@@ -102,6 +108,15 @@
 
 	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
+	// Owned here because the logged-in layout is the app's lifetime: it outlives every
+	// in-app navigation, so the counters and tier resolve once per workspace rather than
+	// per mounting component, and no detached `$effect.root` is needed to hold them.
+	registerUsageResources(
+		createUsageResources({
+			workspace: () => $workspaceStore,
+			user: () => $userStore
+		})
+	)
 	let menuOpen = $state(false)
 	// Set by the workspace⇄session switch before it navigates, so the mobile menu
 	// drawer stays open across a mode toggle (unlike a normal link navigation,
@@ -301,6 +316,16 @@
 				}
 			}
 			const user = await getUserExt(workspace)
+			// getUserExt resolves to undefined on failure, so a user is the only proof of a
+			// session: without it a cancelled SSO round trip would claim the "Last used" badge.
+			if (user) confirmPendingLoginMethod()
+			// Every workspace change starts a fetch without cancelling the one before it,
+			// so a slow response can land after a faster one for the workspace the user
+			// has since moved to. The store must describe the active workspace: letting a
+			// superseded response write would leave every role gate reading the one we left.
+			if ($workspaceStore !== workspace) {
+				return
+			}
 			if (!deepEqual(user, $userStore)) {
 				userStore.set(user)
 			}
@@ -313,16 +338,6 @@
 				if (user?.username) localStorage.setItem('username', user.username)
 			} catch (e) {
 				console.error('Could not persist username to local storage', e)
-			}
-			// Populate for all members (not just admins) so non-admin developers also get premium-gated
-			// affordances like the fork entry points on cloud. The `is_premium` endpoint is a boolean
-			// and no longer admin-gated. Best-effort: a failure here must not block user-store init.
-			if (isCloudHosted()) {
-				try {
-					isPremiumStore.set(await WorkspaceService.getIsPremium({ workspace }))
-				} catch (e) {
-					console.error('Could not fetch premium status', e)
-				}
 			}
 		} else {
 			userStore.set(undefined)
@@ -415,8 +430,10 @@
 		// This ensures the cross-origin isolation headers are fetched from the server
 		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
 		const toPath = navigation.to?.url.pathname
-		if (toPath && (toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))) {
-			const currentPath = navigation.from?.url.pathname
+		const currentPath = navigation.from?.url.pathname
+		const isEditorPath = (p: string | undefined) =>
+			!!p && (p.startsWith('/apps_raw/add') || p.startsWith('/apps_raw/edit'))
+		if (isEditorPath(toPath)) {
 			// Reload if we're not on an apps_raw path, or if we're on the raw app viewer
 			// (/apps_raw/get/): the viewer doesn't have cross-origin isolation headers, so
 			// we need a full reload to fetch them for the editor.
@@ -424,6 +441,20 @@
 				navigation.cancel()
 				window.location.href = navigation.to!.url.href
 			}
+		} else if (toPath && isEditorPath(currentPath)) {
+			// Reverse of the guard above: leaving the isolated editor document must
+			// also fully reload, or its COEP header sticks for the rest of the SPA
+			// session and blocks CORP-less cross-origin subresources (e.g. images in
+			// a viewed app — see needs_cross_origin_isolation in static_assets.rs).
+			// Key off the path, never `window.crossOriginIsolated`: a deployment may
+			// isolate the whole site (frontend/static/_headers does, for Cloudflare
+			// Pages), and there the flag is true on every page — turning every
+			// navigation into a full page load, while the reload it forces cannot
+			// clear an isolation the next document asserts too. Among the routes this
+			// layout governs, only the editor is served the headers, so entering it is
+			// the only way into an isolated document here.
+			navigation.cancel()
+			window.location.href = navigation.to!.url.href
 		}
 	})
 
@@ -431,21 +462,11 @@
 
 	function onLoad() {
 		loadFavorites()
-		loadUsage()
 		syncTutorialsTodos()
 		loadHubBaseUrl()
 		loadWsBaseUrl()
 		loadDisableHub()
 		loadUsedTriggerKinds()
-	}
-
-	async function loadUsage() {
-		if (isCloudHosted() && $workspaceStore) {
-			$usageStore = await UserService.getUsage()
-			$workspaceUsageStore = await WorkspaceService.getWorkspaceUsage({
-				workspace: $workspaceStore!
-			})
-		}
 	}
 
 	async function loadHubBaseUrl() {
@@ -606,8 +627,15 @@
 			timeout = undefined
 		} else if (!u) {
 			timeout = setTimeout(async () => {
-				if (!$userStore && $workspaceStore) {
-					$userStore = await getUserExt($workspaceStore)
+				const ws = $workspaceStore
+				if (!$userStore && ws) {
+					const user = await getUserExt(ws)
+					// Recovers the workspace that was left without a role. A switch
+					// mid-flight has already started the fetch for the new one, so this
+					// answer describes the workspace we left.
+					if ($workspaceStore === ws) {
+						$userStore = user
+					}
 				}
 			}, 5000)
 		}
@@ -686,34 +714,70 @@
 	$effect(() => {
 		const ws = $workspaceStore
 		const list = $userWorkspaces
+		const memberships = $usersWorkspaceStore?.workspaces
+		const resolvedFor = $nonMemberWorkspaces?.forWorkspace
 		const isSuperadmin = $superadmin
-		untrack(() => void recordCurrentForkParent(ws, list, isSuperadmin))
+		untrack(() => void resolveCurrentWorkspace(ws, list, memberships, resolvedFor, isSuperadmin))
 	})
 
-	// A superadmin can open a fork they aren't a member of, including a prefixless
-	// dev workspace. The membership-gated list omits it, so `recordForkParent` can't
-	// see its parent — fetch it directly so the deleted-fork recovery still works.
-	async function recordCurrentForkParent(
+	// A superadmin can open a fork they aren't a member of, including a prefixless dev
+	// workspace, and only `getWorkspaceAsSuperAdmin` will hand back its lineage (see
+	// `nonMemberWorkspaces`). Membership is decided against the raw list, not
+	// `$userWorkspaces`: that one already carries what this resolves, so checking it
+	// would clear and re-fetch the entry on every pass.
+	async function resolveCurrentWorkspace(
 		ws: string | undefined,
 		list: typeof $userWorkspaces,
+		memberships: UserWorkspace[] | undefined,
+		resolvedFor: string | undefined,
 		isSuperadmin: string | false | undefined
 	): Promise<void> {
-		if (!ws) return
-		if (list.some((w) => w.id === ws)) {
-			recordForkParent(ws, list)
+		// Leaving every workspace (deleting the one you were in) has to drop the cache too:
+		// the other two paths below only fire once another workspace is open, and until then
+		// the workspace picker would keep offering the one that just went away.
+		if (!ws) {
+			clearNonMemberWorkspaces()
 			return
 		}
-		if (!isSuperadmin) return
+		if (list.some((w) => w.id === ws)) {
+			recordForkParent(ws, list)
+		}
+		// Absence from a list that hasn't arrived yet says nothing about membership.
+		if (memberships == undefined || resolvedFor === ws) return
+		if (memberships.some((w) => w.id === ws)) {
+			clearNonMemberWorkspaces()
+			return
+		}
+		// This effect re-runs while a fetch is in flight, and no such pass can see the
+		// result yet.
+		if (!isSuperadmin || resolvingWorkspace === ws) return
+		resolvingWorkspace = ws
 		try {
 			const workspace = await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: ws })
-			if (workspace.parent_workspace_id) {
-				rememberForkParent(ws, workspace.parent_workspace_id)
+			const parentId = workspace.parent_workspace_id
+			// The fork UI names the parent, which a superadmin is just as likely not to be
+			// a member of. One hop only: nothing above the parent is displayed.
+			const parent =
+				parentId && !memberships.some((w) => w.id === parentId)
+					? await WorkspaceService.getWorkspaceAsSuperAdmin({ workspace: parentId })
+					: undefined
+			// A switch during the fetch already resolved (or cleared) the store for the
+			// workspace now open; this answer describes the one we left.
+			if ($workspaceStore !== ws) return
+			setNonMemberWorkspaces(ws, parent ? [workspace, parent] : [workspace])
+			if (parentId) {
+				rememberForkParent(ws, parentId)
 			}
 		} catch {
-			// Best-effort: if we can't resolve the parent, recovery falls back to the
+			// Best-effort: if we can't resolve the workspace, recovery falls back to the
 			// workspace picker rather than the parent redirect.
+		} finally {
+			if (resolvingWorkspace === ws) {
+				resolvingWorkspace = undefined
+			}
 		}
 	}
+	let resolvingWorkspace: string | undefined = undefined
 	$effect(() => {
 		$workspaceStore && untrack(() => onLoad())
 	})
@@ -1018,6 +1082,10 @@
 										</SidebarScrollArea>
 									{/if}
 
+									<div class="w-52">
+										<SidebarUsage isCollapsed={false} />
+									</div>
+
 									<div class="px-4 pt-3 pb-3.5 w-52">
 										{@render brandMark(false)}
 									</div>
@@ -1036,7 +1104,7 @@
 						style:width="{railWidth}rem"
 					>
 						<div
-							class="flex-1 flex flex-col min-h-0 h-screen shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151]"
+							class="flex-1 flex flex-col min-h-0 h-screen shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))] dark:shadow-[inset_-1px_0_0_0_#374151] [html.github-dark_&]:shadow-[inset_-1px_0_0_0_rgb(var(--color-border-light))]"
 							style:background-color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}
 						>
 							{#if !isCollapsed}
@@ -1151,6 +1219,10 @@
 									</div>
 								</SidebarScrollArea>
 							{/if}
+
+							<div class="flex-shrink-0">
+								<SidebarUsage {isCollapsed} />
+							</div>
 
 							<div
 								class="flex-shrink-0 flex pt-3 pb-3.5 {isCollapsed
@@ -1318,6 +1390,7 @@
 				{children}
 				noPadding={devOnly || menuHidden}
 				disableAi={globalAiEnabled && !$userStore?.operator ? true : sessionMode}
+				loadAiConfig={!sessionMode}
 				showSessionsBetaBanner={!$userStore?.operator}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
@@ -1341,6 +1414,8 @@
 {/if}
 
 <ForkConflictModal />
+
+<UpdateDevWorkspaceModal />
 
 <Modal2
 	title="Forking {$workspaceStore}"

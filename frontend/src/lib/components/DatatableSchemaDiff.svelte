@@ -13,7 +13,9 @@
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { userWorkspaces } from '$lib/stores'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 	import { runScriptAndPollResult } from '$lib/components/jobs/utils'
+	import { writingJobOptions } from '$lib/components/jobs/writingJob'
 	import YAML from 'yaml'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -32,6 +34,11 @@
 	}
 
 	let { currentWorkspaceId, parentWorkspaceId }: Props = $props()
+
+	let currentNoun = $derived(
+		childWorkspaceNoun($userWorkspaces.find((w) => w.id === currentWorkspaceId))
+	)
+	let currentNounCap = $derived(currentNoun.charAt(0).toUpperCase() + currentNoun.slice(1))
 
 	let loading = $state(true)
 	let error: string | undefined = $state(undefined)
@@ -228,14 +235,17 @@
 					throw runErr
 				}
 			} else {
-				await runScriptAndPollResult({
-					workspace: targetWorkspace,
-					requestBody: {
-						args: { database: `datatable://${dtName}` },
-						language: 'postgresql',
-						content: migrationSql
-					}
-				})
+				await runScriptAndPollResult(
+					{
+						workspace: targetWorkspace,
+						requestBody: {
+							args: { database: `datatable://${dtName}` },
+							language: 'postgresql',
+							content: migrationSql
+						}
+					},
+					writingJobOptions
+				)
 			}
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
@@ -317,8 +327,9 @@
 							<div class="border-t divide-y">
 								{#if diff.aheadChanges.length > 0}
 									<div class="px-3 py-1.5">
-										<div class="text-2xs font-semibold text-blue-500 mb-1">Fork changes (ahead)</div
-										>
+										<div class="text-2xs font-semibold text-blue-500 mb-1">
+											{currentNounCap} changes (ahead)
+										</div>
 										{#each diff.aheadChanges as change}
 											<div class="flex items-center gap-2 text-xs py-0.5">
 												{#if change.kind === 'added'}
@@ -389,8 +400,8 @@
 		<DrawerContent
 			on:close={() => (drawerOpen = false)}
 			title="{drawerChange.schemaName}.{drawerChange.tableName} ({drawerDirection === 'ahead'
-				? 'Fork → Parent'
-				: 'Parent → Fork'})"
+				? `${currentNounCap} → Parent`
+				: `Parent → ${currentNounCap}`})"
 		>
 			{#snippet actions()}
 				<Button
@@ -418,7 +429,7 @@
 				<!-- Diff section -->
 				<div style="height: 45%;">
 					<div class="py-1.5 text-2xs font-semibold text-secondary">
-						Schema diff (parent ↔ fork)
+						Schema diff (parent ↔ {currentNoun})
 					</div>
 					<div class="h-[calc(100%-28px)] border rounded-md overflow-clip">
 						{#await import('$lib/components/DiffEditor.svelte')}

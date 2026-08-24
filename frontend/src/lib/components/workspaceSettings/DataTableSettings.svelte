@@ -51,7 +51,7 @@
 </script>
 
 <script lang="ts">
-	import { Plus } from 'lucide-svelte'
+	import { Plus, PlugZap } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
 
@@ -66,10 +66,19 @@
 	import Row from '../table/Row.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { isCustomInstanceDbEnabled, getUnusedInstanceDbName } from './utils.svelte'
+	import {
+		isCustomInstanceDbEnabled,
+		getUnusedInstanceDbName,
+		isDataTableWizardEnabled
+	} from './utils.svelte'
 	import { random_adj } from '../random_positive_adjetive'
 	import { sendUserToast } from '$lib/toast'
-	import { SettingService, WorkspaceService, type GetSettingsResponse } from '$lib/gen'
+	import {
+		SettingService,
+		WorkspaceService,
+		type GetSettingsResponse,
+		type TestDataTableConnectionResponse
+	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
@@ -82,13 +91,51 @@
 	import { clone } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
 	import { isCloudHosted } from '$lib/cloud'
+	import AddDataTableWizard from './AddDataTableWizard.svelte'
+	import { takeParkedWizard, type WizardResume } from './wizardParking'
+	import { Database } from 'lucide-svelte'
+	import { onMount } from 'svelte'
 
 	type Props = {
 		dataTableSettings: DataTableSettingsType
 	}
 
 	let { dataTableSettings = $bindable() }: Props = $props()
+
+	// Result of the last "Test connection", shown under the table: the grant
+	// statements have to stay selectable, which rules out a toast.
+	let connectionCheck = $state<
+		| {
+				name: string
+				loading: boolean
+				report?: TestDataTableConnectionResponse
+				error?: string
+		  }
+		| undefined
+	>(undefined)
+
+	// Identifies the request the single result slot is waiting on. The data table
+	// name is not enough: A -> B -> A leaves two A requests in flight, and the
+	// first to be issued can be the last to land.
+	let latestCheck = 0
+
+	async function testConnection(name: string) {
+		const check = ++latestCheck
+		connectionCheck = { name, loading: true }
+		try {
+			const report = await WorkspaceService.testDataTableConnection({
+				workspace: $workspaceStore ?? '',
+				datatableName: name
+			})
+			if (check !== latestCheck) return
+			connectionCheck = { name, loading: false, report }
+		} catch (err) {
+			if (check !== latestCheck) return
+			connectionCheck = { name, loading: false, error: err?.body ?? err?.message ?? String(err) }
+		}
+	}
 
 	let tableHeadNames = ['Name', 'Database', '', ''] as const
 	let tableHeadTooltips: Partial<Record<(typeof tableHeadNames)[number], string | undefined>> = {
@@ -117,6 +164,8 @@
 		return getUnusedInstanceDbName('dt', $workspaceStore ?? '', usedNames)
 	}
 
+	// Kept for the flag-off path: adding a data table is a row in this table that the user
+	// fills in and saves, rather than a wizard.
 	function onNewDataTable() {
 		const name = tempSettings.dataTables.some((d) => d.name === 'main')
 			? `${random_adj()}_datatable`
@@ -172,6 +221,37 @@
 		}
 	}
 
+	const wizardEnabled = isDataTableWizardEnabled()
+	let wizardOpen = $state(false)
+	/** Opened through the wizard's own `open()`, which is what sets a fresh run up. */
+	let wizard: { open: (parked?: WizardResume) => void } | undefined = $state(undefined)
+	let wizardResume: WizardResume | undefined = $state(undefined)
+
+	// Supabase sends the user back here after authorizing; pick the wizard back up where it
+	// was rather than making them start again.
+	onMount(() => {
+		if (!wizardEnabled) return
+		const parked = takeParkedWizard()
+		if (parked) {
+			wizardResume = parked
+			// Handed in, not left to the `resume` prop: the wizard rebuilds the run synchronously
+			// inside this call, and a parked run that arrived late would come back as a fresh one.
+			wizard?.open(parked)
+		}
+	})
+
+	/**
+	 * The wizard persists what it creates, so the server is authoritative afterwards and the
+	 * whole baseline comes from it. `tempSettings` derives from that baseline, so this discards
+	 * uncommitted edits in the table -- which is why the wizard cannot be opened while there
+	 * are any (see the disabled entry points below).
+	 */
+	async function reloadAfterWizard() {
+		const s = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+		dataTableSettings = convertDataTableSettingsFromBackend(s.datatable)
+		wizardResume = undefined
+	}
+
 	let confirmationModal = createAsyncConfirmationModal()
 	let dirtyMap = $derived.by(() => {
 		const map: Record<string, boolean> = {}
@@ -202,7 +282,7 @@
 
 <SettingsPageHeader
 	title="Data tables"
-	description="Store relational data out of the box. Interact with a fully managed PostgreSQL database directly from the Windmill SDK."
+	description="Relational storage the whole workspace shares under one name. Scripts, flows and apps address it as <span class='font-mono'>datatable://main</span> instead of picking a PostgreSQL resource, so nobody needs access to the credentials to query it, and you can point that name at another database without touching a line of code. Browse and edit tables, and version schema changes as migrations, from here."
 	link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
 />
 
@@ -213,6 +293,8 @@
 		or Neon) instead.
 	</Alert>
 {/if}
+
+<MissingWorkerTagAlert tag="postgresql" subject="Browsing and querying data tables" class="mb-4" />
 
 <DataTable>
 	<Head>
@@ -232,9 +314,37 @@
 	<tbody class="divide-y bg-surface-tertiary">
 		{#if tempSettings.dataTables.length == 0}
 			<Row>
-				<Cell colspan={tableHeadNames.length} class="text-center py-6">
-					No data table in this workspace yet
-				</Cell>
+				{#if wizardEnabled}
+					<Cell colspan={tableHeadNames.length} class="py-8">
+						<div class="flex flex-col items-center gap-3 text-center">
+							<Database size={24} class="text-secondary" />
+							<div class="flex flex-col gap-1 items-center">
+								<span class="font-semibold text-sm">No data table yet</span>
+								<p class="text-xs text-secondary max-w-sm">
+									Give your scripts a database to store and query data.
+									{#if isCloudHosted()}
+										Set one up free in about a minute.
+									{:else}
+										Use the Windmill database, or bring your own.
+									{/if}
+								</p>
+							</div>
+							<Button
+								size="sm"
+								variant="accent"
+								disabled={hasUnsavedChanges}
+								title={hasUnsavedChanges ? 'Save or discard your changes first' : undefined}
+								on:click={() => wizard?.open()}
+							>
+								Add a data table
+							</Button>
+						</div>
+					</Cell>
+				{:else}
+					<Cell colspan={tableHeadNames.length} class="text-center py-6">
+						No data table in this workspace yet
+					</Cell>
+				{/if}
 			</Row>
 		{/if}
 		{#each tempSettings.dataTables as dataTable, dataTableIndex (dataTable.id)}
@@ -305,6 +415,17 @@
 							datatable={dataTable.name}
 							disabled={!!dirtyMap[dataTable.name]}
 						/>
+						<Button
+							size="xs"
+							color="light"
+							variant="border"
+							startIcon={{ icon: PlugZap }}
+							iconOnly
+							disabled={!!dirtyMap[dataTable.name]}
+							loading={connectionCheck?.name === dataTable.name && connectionCheck.loading}
+							title="Test connection: check the database is reachable and its user can create tables"
+							on:click={() => testConnection(dataTable.name)}
+						/>
 						{#if dirtyMap[dataTable.name]}
 							<Popover
 								openOnHover
@@ -331,17 +452,92 @@
 				</Cell>
 			</Row>
 		{/each}
-		<Row class="!border-0">
-			<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
-				<div class="flex justify-center">
-					<Button size="sm" btnClasses="max-w-fit" variant="default" on:click={onNewDataTable}>
-						<Plus /> New Data Table
-					</Button>
-				</div>
-			</Cell>
-		</Row>
+		{#if !wizardEnabled || tempSettings.dataTables.length > 0}
+			<Row class="!border-0">
+				<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
+					<div class="flex justify-center">
+						<Button
+							size="sm"
+							btnClasses="max-w-fit"
+							variant="default"
+							disabled={wizardEnabled && hasUnsavedChanges}
+							title={wizardEnabled && hasUnsavedChanges
+								? 'Save or discard your changes first'
+								: undefined}
+							on:click={() => (wizardEnabled ? wizard?.open() : onNewDataTable())}
+						>
+							<Plus />
+							{wizardEnabled ? 'Add a data table' : 'New Data Table'}
+						</Button>
+					</div>
+				</Cell>
+			</Row>
+		{/if}
 	</tbody>
 </DataTable>
+
+{#if connectionCheck && !connectionCheck.loading}
+	{@const report = connectionCheck.report}
+	{#if connectionCheck.error}
+		<Alert type="error" title="Could not connect to {connectionCheck.name}" class="mt-4" size="xs">
+			{connectionCheck.error}
+		</Alert>
+	{:else if report}
+		{@const fullyPrivileged = report.can_create_table && report.can_create_schema}
+		<Alert
+			type={fullyPrivileged ? 'success' : 'warning'}
+			title={fullyPrivileged
+				? `${connectionCheck.name} is reachable and its user can create tables and schemas`
+				: `${connectionCheck.name} is reachable but its user is missing privileges`}
+			class="mt-4"
+			size="xs"
+		>
+			<div class="flex flex-col gap-2">
+				<div>
+					Connects as <span class="font-mono">{report.user}</span>{#if report.schema}, resolving
+						unqualified statements to schema <span class="font-mono">{report.schema}</span>{/if}.
+				</div>
+				{#if report.suggested_search_path}
+					<div>
+						Its search_path resolves to no schema, so unqualified statements fail with
+						<span class="font-mono">no schema has been selected to create in</span> whatever
+						privileges the role holds. Point it at one, e.g.
+						<span class="font-mono select-all">{report.suggested_search_path}</span>.
+					</div>
+				{/if}
+				<ul class="list-disc list-inside">
+					<li>
+						Create tables{report.schema ? ` in ${report.schema}` : ''}:
+						<span class="font-semibold">{report.can_create_table ? 'yes' : 'no'}</span>
+					</li>
+					<li>
+						Create schemas:
+						<span class="font-semibold">{report.can_create_schema ? 'yes' : 'no'}</span>
+					</li>
+					<li>
+						Migration bookkeeping table exists:
+						<span class="font-semibold">{report.migrations_table_exists ? 'yes' : 'no'}</span>
+					</li>
+				</ul>
+				{#if report.suggested_grants.length > 0}
+					<div>
+						Windmill connects as the role that lacks these privileges, so it cannot grant them
+						itself. Run as a schema owner or superuser on that database:
+					</div>
+					<pre class="whitespace-pre-wrap select-all text-xs"
+						>{report.suggested_grants.map((g) => `${g};`).join('\n')}</pre
+					>
+					{#if report.schema && !report.can_create_table && !report.migrations_table_exists}
+						<div>
+							Alternatively, create the <span class="font-mono">_wm_migrations</span> bookkeeping table
+							yourself and grant only SELECT, INSERT, UPDATE, DELETE on it.
+						</div>
+					{/if}
+				{/if}
+			</div>
+		</Alert>
+	{/if}
+{/if}
 
 <SettingsFooter
 	class="mt-8"
@@ -352,3 +548,28 @@
 />
 
 <ConfirmationModal {...confirmationModal.props} />
+
+{#if wizardEnabled}
+	<AddDataTableWizard
+		bind:this={wizard}
+		bind:opened={
+			() => wizardOpen,
+			(v) => {
+				wizardOpen = v
+				// Drop the parked run once the wizard closes: leaving it set would force the next
+				// open straight back to the Supabase setup step.
+				if (!v) wizardResume = undefined
+			}
+		}
+		existingNames={tempSettings.dataTables.map((d) => d.name)}
+		existingDataTables={tempSettings.dataTables.map((d) => ({
+			name: d.name,
+			resourcePath: d.database.resource_path
+		}))}
+		resume={wizardResume}
+		onDone={reloadAfterWizard}
+		{customInstanceDbs}
+		{confirmationModal}
+		{defaultInstanceDbName}
+	/>
+{/if}

@@ -7,12 +7,10 @@ import {
 	RawAppService,
 	ResourceService,
 	ScriptService,
-	WorkspaceService,
 	ScheduleService
 } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { sleep, emptySchema } from '$lib/utils'
-import { computeSecretUrl } from '$lib/components/apps/editor/appDeploy.svelte'
 import {
 	buildProjectBundle,
 	buildPathMap,
@@ -37,6 +35,14 @@ import {
 	type GeneratedMigration
 } from './projectMigrations'
 import type { Kind } from '$lib/utils_deployable'
+import {
+	canRecord,
+	canRecordSession,
+	inputResourceTypes,
+	mergeAppTableOrigin,
+	HIDDEN_RESOURCE_TYPES,
+	type DeployItem
+} from './deployToHubItems'
 import type { AssetGraphResponse } from '$lib/components/assets/AssetGraph/types'
 import {
 	CASCADE_JOB_TIMEOUT_MS,
@@ -44,7 +50,8 @@ import {
 	DATA_ASSET_KINDS
 } from '$lib/components/assets/AssetGraph/cascadeRun'
 import { capturePipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
-import type { PipelineRecording } from '$lib/components/recording/types'
+import { buildFlowRecording, buildScriptRecording } from '$lib/components/recording/runRecording'
+import type { PipelineRecording, RawAppRecording } from '$lib/components/recording/types'
 import {
 	TRIGGER_KINDS,
 	listAllWorkspaceTriggers,
@@ -56,48 +63,14 @@ import {
 } from '../triggers/workspaceTriggersList'
 
 export type Phase = 'predeploy' | 'draft' | 'under_review' | 'live'
-export type RecStatus = 'none' | 'recorded'
-export interface DeployItem {
-	key: string
-	path: string
-	kind: Kind
-	summary?: string
-	rec: RecStatus
-	published?: boolean
-	publicUrl?: string
-	[k: string]: unknown
-}
-
-export const canRecord = (k: Kind) => k === 'script' || k === 'flow'
-// Legacy raw apps live only in the `raw_app` table, but the iframe share flow
-// drives AppService (the `app` table), so it can only target apps stored there.
-export const canShareAsIframe = (it: DeployItem): boolean =>
-	it.kind === 'app' || (it.kind === 'raw_app' && it.appTable === true)
-
-// Hub rehydration only carries draft membership, not the live share state of an
-// app. Copy the public-execution flag, public URL, and app-table origin from the
-// loaded workspace items onto matching draft items so a still-public app keeps its
-// Public badge, Unpublish, and iframe controls after its draft is reopened. Returns
-// the original array unchanged when nothing needs merging (stable reference).
-export function mergeShareState(
-	draftItems: DeployItem[],
-	workspaceItems: DeployItem[]
-): DeployItem[] {
-	if (draftItems.length === 0 || workspaceItems.length === 0) return draftItems
-	const byKey = new Map(workspaceItems.map((w) => [w.key, w]))
-	let changed = false
-	const merged = draftItems.map((d) => {
-		const w = byKey.get(d.key)
-		if (!w) return d
-		if (w.published !== d.published || w.publicUrl !== d.publicUrl || w.appTable !== d.appTable) {
-			changed = true
-			return { ...d, published: w.published, publicUrl: w.publicUrl, appTable: w.appTable }
-		}
-		return d
-	})
-	return changed ? merged : draftItems
-}
-
+// Re-exported so the publish-flow components keep one import site.
+export {
+	canRecord,
+	canRecordSession,
+	mergeAppTableOrigin,
+	type DeployItem,
+	type RecStatus
+} from './deployToHubItems'
 export function sanitizeSlug(s: string): string {
 	return s
 		.toLowerCase()
@@ -122,8 +95,6 @@ const ITEM_KIND_ROUTE: Record<ItemKind, string> = {
 	raw_app: 'apps_raw/get'
 }
 
-const HIDDEN_RESOURCE_TYPES = new Set(['app_theme', 'state', 'cache'])
-
 // Prune a folder's asset graph to a set of scripts so a pipeline recording only
 // runs, renders and samples the project's included members — a deselected branch
 // (its nodes, code, logs/results and table samples) never enters the recording.
@@ -142,20 +113,6 @@ function pruneGraphToScripts(graph: AssetGraphResponse, scripts: Set<string>): A
 		(t) => scripts.has(t.runnable_path) && scripts.has(t.producer_path)
 	)
 	return { assets, runnables, edges, triggers, macro_edges, test_edges }
-}
-
-function typesFromSchema(schema: any): string[] {
-	const out = new Set<string>()
-	const props = schema?.properties
-	if (props && typeof props === 'object') {
-		for (const key of Object.keys(props)) {
-			const fmt = props[key]?.format
-			if (typeof fmt === 'string' && fmt.startsWith('resource-')) {
-				out.add(fmt.slice('resource-'.length))
-			}
-		}
-	}
-	return [...out]
 }
 
 type DependencyUsage =
@@ -201,7 +158,6 @@ export class DeployToHubSession {
 	schedulePreviews = $state<Record<string, string[]>>({})
 	manualDeselected = $state<Set<string>>(new Set())
 	loading = $state(false)
-	workspaceRateLimit = $state<number | undefined>(undefined)
 	deploymentStatus = $state<
 		Record<string, { status: 'loading' | 'deployed' | 'failed'; error?: string }>
 	>({})
@@ -217,6 +173,9 @@ export class DeployToHubSession {
 	runResult = $state<unknown>(undefined)
 	runError = $state<string | undefined>(undefined)
 	recordings = $state<Record<string, string>>({})
+	// Recent successful runs of the record target: a recording is built from any
+	// completed run, so an existing one can be picked instead of running again.
+	pastRuns = $state<{ id: string; started_at?: string; duration_ms?: number }[]>([])
 
 	// Project-level data-pipeline recording. Unlike script/flow recordings (one
 	// job per item) a pipeline is the whole folder cascade, so it gets a single
@@ -227,9 +186,6 @@ export class DeployToHubSession {
 	pipelineRecordingResult = $state<PipelineRecording | undefined>(undefined)
 	pipelineRunError = $state<string | undefined>(undefined)
 	pipelineRecorded = $state(false)
-
-	publishTarget = $state<DeployItem | undefined>()
-	publishing = $state(false)
 
 	hubName = $state('')
 	hubSummary = $state('')
@@ -252,6 +208,14 @@ export class DeployToHubSession {
 	// Bumped whenever the drafts are (re)generated, to re-key the Monaco editors so
 	// they pick up the fresh SQL (Monaco doesn't sync external `code` changes).
 	migrationsGeneration = $state(0)
+
+	// Resource type names declared by the workspace, used to tell a real type from
+	// an arbitrary `resource-<x>` arg format. Stays undefined until the list loads.
+	resourceTypeNames = $state<Set<string> | undefined>(undefined)
+	// Resource types the user explicitly opted into publishing. Opt-in, never
+	// derived from the selection: exporting a type definition to the Hub is a
+	// deliberate act, so the default is to export none.
+	exportedResourceTypes = $state<Set<string>>(new Set())
 
 	bundlePreview = $state<ProjectBundle | undefined>(undefined)
 	detectingResources = $state(false)
@@ -291,9 +255,24 @@ export class DeployToHubSession {
 
 	load() {
 		void this.#loadWorkspace()
+		void this.#loadResourceTypeNames()
 		void this.#loadTriggers()
 		void this.rehydrateFromHub()
 		void this.#loadPipelineGraph()
+	}
+
+	// Deliberately not `resourceTypesStore.getResourceTypes()`: its error path
+	// resolves to a non-empty `['error_fetching_names']`, which here would read as
+	// a real catalog and filter out every legitimate type. A failure must leave the
+	// catalog unset so validation stays off.
+	async #loadResourceTypeNames() {
+		try {
+			const names = await ResourceService.listResourceTypeNames({ workspace: this.workspace })
+			if (this.#disposed) return
+			this.resourceTypeNames = new Set(names)
+		} catch (e: any) {
+			console.error('failed to load resource type names, resource type validation is off', e)
+		}
 	}
 
 	filteredWorkspaceItems = $derived(
@@ -301,9 +280,9 @@ export class DeployToHubSession {
 	)
 	// Derived (not merged at load time) so it settles regardless of which of the
 	// racing loads (#loadWorkspace / rehydrateFromHub) finishes last.
-	draftItemsWithLocalState = $derived(mergeShareState(this.draftItems, this.workspaceItems))
+	draftItemsWithOrigin = $derived(mergeAppTableOrigin(this.draftItems, this.workspaceItems))
 	items = $derived(
-		this.phase === 'predeploy' ? this.filteredWorkspaceItems : this.draftItemsWithLocalState
+		this.phase === 'predeploy' ? this.filteredWorkspaceItems : this.draftItemsWithOrigin
 	)
 	selectedItems = $derived(
 		this.phase === 'predeploy'
@@ -315,7 +294,9 @@ export class DeployToHubSession {
 		this.phase === 'predeploy' &&
 			this.selectedItemKeys.length === this.filteredWorkspaceItems.length
 	)
-	recordableItems = $derived(this.items.filter((i) => canRecord(i.kind)))
+	// A raw app's recorded session counts towards the project's recordings just as
+	// a script's captured run does — both are what a visitor replays.
+	recordableItems = $derived(this.items.filter((i) => canRecord(i.kind) || canRecordSession(i)))
 	allRecorded = $derived(
 		this.recordableItems.length > 0 && this.recordableItems.every((i) => i.rec === 'recorded')
 	)
@@ -404,8 +385,7 @@ export class DeployToHubSession {
 					itemPath: it.path
 				})
 			}
-			for (const t of typesFromSchema(it.schema)) {
-				if (HIDDEN_RESOURCE_TYPES.has(t)) continue
+			for (const t of inputResourceTypes(it.schema, this.resourceTypeNames)) {
 				ensure(t).usages.push({ role: 'input', label, kind: it.kind, itemPath: it.path })
 			}
 		}
@@ -431,6 +411,22 @@ export class DeployToHubSession {
 		}
 		return [...byType.values()].sort((a, b) => a.resource_type.localeCompare(b.resource_type))
 	})
+
+	// Only the types the user ticked, restricted to what the current selection
+	// actually depends on — deselecting the last item that used a type drops it
+	// from the export without the user having to untick it.
+	exportedDependencyTypes = $derived(
+		this.dependencyTypes
+			.map((d) => d.resource_type)
+			.filter((rt) => this.exportedResourceTypes.has(rt))
+	)
+
+	toggleResourceTypeExport = (resource_type: string) => {
+		const next = new Set(this.exportedResourceTypes)
+		if (next.has(resource_type)) next.delete(resource_type)
+		else next.add(resource_type)
+		this.exportedResourceTypes = next
+	}
 
 	toggleItem = (item: { key: string }) => {
 		const next = new Set(this.manualDeselected)
@@ -479,23 +475,16 @@ export class DeployToHubSession {
 		const workspace = this.workspace
 		this.loading = true
 		try {
-			const [apps, rawApps, flows, scripts, settings] = await Promise.all([
+			const [apps, rawApps, flows, scripts] = await Promise.all([
 				this.#listAllPages((p) => AppService.listApps({ workspace, ...p })),
 				this.#listAllPages((p) => RawAppService.listRawApps({ workspace, ...p })),
 				this.#listAllPages((p) => FlowService.listFlows({ workspace, ...p })),
-				this.#listAllPages((p) => ScriptService.listScripts({ workspace, ...p })),
-				WorkspaceService.getSettings({ workspace }).catch(() => undefined)
+				this.#listAllPages((p) => ScriptService.listScripts({ workspace, ...p }))
 			])
 			if (this.#disposed) return
 
-			this.workspaceRateLimit = settings?.public_app_execution_limit_per_minute
-
 			const next: DeployItem[] = []
-			const publicApps = apps.filter((a) => a.execution_mode === 'anonymous')
-			const publicUrls = await Promise.all(publicApps.map((a) => this.#resolvePublicUrl(a.path)))
-			const publicUrlByPath = new Map(publicApps.map((a, i) => [a.path, publicUrls[i]]))
 			for (const a of apps) {
-				const isPublic = a.execution_mode === 'anonymous'
 				// Raw apps live in the `app` table (value = files/runnables) but must be
 				// published to the Hub as raw apps, not low-code apps.
 				const isRaw = (a as any).raw_app === true
@@ -505,9 +494,7 @@ export class DeployToHubSession {
 					kind: isRaw ? 'raw_app' : 'app',
 					appTable: isRaw || undefined,
 					summary: a.summary,
-					rec: 'none',
-					published: isPublic,
-					publicUrl: isPublic ? publicUrlByPath.get(a.path) : undefined
+					rec: 'none'
 				})
 			}
 			for (const a of rawApps) {
@@ -568,15 +555,6 @@ export class DeployToHubSession {
 			this.triggerDiscoveryFailed = failedKinds.length > 0
 		} finally {
 			if (!this.#disposed && tok === this.#triggerLoadTok) this.triggersLoading = false
-		}
-	}
-
-	async #resolvePublicUrl(path: string): Promise<string | undefined> {
-		try {
-			const secret = await AppService.getPublicSecretOfApp({ workspace: this.workspace, path })
-			return computeSecretUrl(secret)
-		} catch {
-			return undefined
 		}
 	}
 
@@ -877,9 +855,13 @@ export class DeployToHubSession {
 		if (this.deploying || this.triggersLoading || this.triggerDiscoveryFailed) return
 		this.deploying = true
 		try {
+			// Captured at click time rather than read in #deployAll, which only runs
+			// after the draft request resolves: what gets published must be what was
+			// ticked on confirmation, whatever mutates `exportedResourceTypes` after.
+			const exportedTypes = new Set(this.exportedResourceTypes)
 			if (!(await this.#createDraft())) return
 			onDraftCreated?.()
-			await this.#deployAll()
+			await this.#deployAll(exportedTypes)
 		} finally {
 			this.deploying = false
 		}
@@ -1098,7 +1080,7 @@ export class DeployToHubSession {
 		return results.reduce((a: number, b) => a + b, 0)
 	}
 
-	async #deployAll() {
+	async #deployAll(exportedTypes: Set<string>) {
 		const slug = this.hubSlug
 		// Snapshot the selection up-front: `selectedItems`/`relevantTriggers` are
 		// derived from live workspace data and `migrationDrafts` is edited in the
@@ -1146,14 +1128,22 @@ export class DeployToHubSession {
 			// was replaced (workspace/folder switch) in the meantime.
 			if (this.#disposed) return
 
-			// Types come from $res: stubs AND schema inputs (resource-<type>).
-			const inputTypes = bundle.items
-				.flatMap((i) => typesFromSchema(i.schema))
-				.filter((t) => !HIDDEN_RESOURCE_TYPES.has(t))
+			// Types come from $res: stubs AND schema inputs (resource-<type>). A stub's
+			// type is declared by an existing resource, so it needs no validation; an
+			// input's is a free-form format string, so it does.
+			const inputTypes = bundle.items.flatMap((i) =>
+				inputResourceTypes(i.schema, this.resourceTypeNames)
+			)
 			const types = [
 				...new Set([...bundle.resourceStubs.map((s) => s.resource_type), ...inputTypes])
 			]
-			const depFailures = await this.#pushResourceTypes(slug, types)
+			// Only the types the user ticked are published. The others still get their
+			// stub below, so a fork knows which credential to fill; only the type
+			// definition itself stays out of the Hub.
+			const depFailures = await this.#pushResourceTypes(
+				slug,
+				types.filter((t) => exportedTypes.has(t))
+			)
 
 			// Input-type deps with no path get a conventional f/<slug>/<type> stub.
 			const stubsByPath = new Map<string, { path: string; resource_type: string }>()
@@ -1198,33 +1188,6 @@ export class DeployToHubSession {
 					}
 				}
 			}
-			// A re-bundle clears the Hub-side embed (idempotent replace), so re-push it
-			// for any raw app that is already public — keeps the live iframe in sync
-			// without forcing an unpublish/share round-trip. Updates by hub id, safe in parallel.
-			const embedResults = await Promise.all(
-				bundle.items
-					.filter((it) => it.kind === 'raw_app')
-					.map(async (it) => {
-						const hubId = this.hubItemIds[`${it.kind}:${it.path}`]
-						const src = itemsSnapshot.find((i) => i.kind === 'raw_app' && i.path === it.path)
-						if (!hubId || !src?.published) return 0
-						// The re-bundle cleared the embed; a public raw app with no resolved URL
-						// can't have its iframe restored, so it's an incomplete publish too —
-						// count it (like a push failure) so the draft can't become submit-ready.
-						if (!src.publicUrl) {
-							sendUserToast(`Cannot restore the iframe for ${it.path}: missing public URL`, true)
-							return 1
-						}
-						try {
-							await this.#pushRawAppEmbed(hubId, src.publicUrl)
-							return 0
-						} catch (e: any) {
-							sendUserToast(`Failed to sync iframe for ${it.path}: ${e?.message ?? e}`, true)
-							return 1
-						}
-					})
-			)
-			failures += embedResults.reduce((a: number, b) => a + b, 0)
 			if (this.#disposed) return
 			try {
 				await this.#pushTriggers(slug, resourcePathMap, triggersSnapshot)
@@ -1262,7 +1225,10 @@ export class DeployToHubSession {
 					this.hubHasRemoteLogo = this.hubLogo !== null
 					this.hubLogo = undefined
 				} catch (e: any) {
-					sendUserToast(`Logo ${this.hubLogo ? 'upload' : 'removal'} failed: ${e?.message ?? e}`, true)
+					sendUserToast(
+						`Logo ${this.hubLogo ? 'upload' : 'removal'} failed: ${e?.message ?? e}`,
+						true
+					)
 					failures++
 				}
 			}
@@ -1365,6 +1331,8 @@ export class DeployToHubSession {
 		this.runJobId = undefined
 		this.runResult = undefined
 		this.runError = undefined
+		this.pastRuns = []
+		this.#loadPastRuns(it, tok)
 		try {
 			if (it.kind === 'script') {
 				const s = await ScriptService.getScriptByPath({
@@ -1389,6 +1357,45 @@ export class DeployToHubSession {
 	/** Invalidate any in-flight record run/poll (record drawer closed). */
 	cancelRecordRun = () => {
 		this.#recordRunTok++
+	}
+
+	/** Recent successful runs of the target, so one can be recorded as-is.
+	 * Best-effort — an empty list just means the drawer only offers a fresh run. */
+	async #loadPastRuns(it: DeployItem, tok: number) {
+		if (it.kind !== 'script' && it.kind !== 'flow') return
+		try {
+			const runs = await JobService.listCompletedJobs({
+				workspace: this.workspace,
+				jobKinds: it.kind === 'script' ? 'script' : 'flow',
+				scriptPathExact: it.path,
+				status: 'success',
+				// Standalone runs only — a script that also runs as a flow step would
+				// otherwise list its child jobs.
+				hasNullParent: true,
+				orderDesc: true,
+				perPage: 5
+			})
+			if (tok !== this.#recordRunTok) return
+			this.pastRuns = runs.map((j) => ({
+				id: j.id,
+				started_at: j.started_at,
+				duration_ms: j.duration_ms
+			}))
+		} catch {
+			// best-effort
+		}
+	}
+
+	/** Adopt an existing successful run as the one to save: recordings are built
+	 * from completed jobs, so it goes through the exact same save path as a
+	 * fresh run. No token bump — there is no poll to cancel (the picker is
+	 * hidden while a run is in flight) and bumping would strand `openRecord`'s
+	 * still-loading schema fetch on "Loading schema…" forever. */
+	useExistingRun = (jobId: string) => {
+		this.runJobId = jobId
+		this.runState = 'success'
+		this.runResult = undefined
+		this.runError = undefined
 	}
 
 	runJob = async () => {
@@ -1465,68 +1472,91 @@ export class DeployToHubSession {
 
 	async #buildScriptRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
-		const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
-		const job = await JobService.getCompletedJob({ workspace, id: jobId })
-		const initial_job = { ...(job as any), type: 'CompletedJob' }
-		const events = [{ t: 0, data: { completed: true, job: initial_job } }]
-		const duration = (initial_job.duration_ms as number) ?? 0
-		return {
-			version: 1,
-			type: 'script' as const,
-			recorded_at: new Date().toISOString(),
-			script_path: it.path,
-			total_duration_ms: duration,
+		// Pin the code to the version the run executed — the picker can select a
+		// run older than the currently deployed script, and publishing current
+		// code with an old run's logs/result would misrepresent both.
+		const job = (await JobService.getJob({ workspace, id: jobId })) as any
+		let s = job.script_hash
+			? await ScriptService.getScriptByHash({ workspace, hash: job.script_hash }).catch(
+					() => undefined
+				)
+			: undefined
+		if (!s) {
+			s = await ScriptService.getScriptByPath({ workspace, path: it.path })
+			sendUserToast(
+				"The run's script version could not be resolved — the recording pairs it with the current code, which may not match what ran.",
+				true
+			)
+		}
+		return await buildScriptRecording(workspace, jobId, {
+			scriptPath: it.path,
 			code: s.content,
 			language: s.language,
-			args: (job.args ?? {}) as Record<string, any>,
-			schema: s.schema,
-			job: { initial_job, events }
-		}
+			schema: s.schema as Record<string, any> | undefined
+		})
 	}
 
 	async #buildFlowRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
-		const f = await FlowService.getFlowByPath({ workspace, path: it.path })
-		const root = (await JobService.getCompletedJob({ workspace, id: jobId })) as any
-		const jobs: Record<string, { initial_job: any; events: any[] }> = {}
-		const collect = async (j: any) => {
-			const stamped = { ...j, type: 'CompletedJob' }
-			jobs[j.id] = {
-				initial_job: stamped,
-				events: [{ t: 0, data: { completed: true, job: stamped } }]
-			}
-			const modules = (j.flow_status?.modules ?? []).filter(
-				(m: any) => m.job && typeof m.job === 'string'
-			)
-			// Sub-jobs at the same level are independent reads.
-			await Promise.all(
-				modules.map(async (m: any) => {
-					try {
-						const sub = (await JobService.getCompletedJob({ workspace, id: m.job })) as any
-						await collect(sub)
-					} catch {
-						/* sub-job missing — skip */
-					}
-				})
+		// Pin the definition (value, schema) to the version the run executed —
+		// the recorded statuses reference its module ids and the recorded args
+		// its input schema, so the current flow may not match. The job's
+		// script_hash is the flow version id.
+		const root = (await JobService.getJob({ workspace, id: jobId })) as any
+		let flow: { value: unknown; schema?: unknown; summary?: string } | undefined
+		if (root.script_hash) {
+			flow = await FlowService.getFlowVersion({
+				workspace,
+				version: parseInt(root.script_hash, 16)
+			}).catch(() => undefined)
+		}
+		if (!flow && root.raw_flow) {
+			// The API materialized the executed value on the job; the input schema
+			// has to come from the current flow, which may have drifted.
+			const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+			flow = { value: root.raw_flow, schema: f.schema, summary: f.summary }
+			sendUserToast(
+				"The run's flow version could not be resolved — the recording uses the executed graph but the current input schema, which may not match the recorded arguments.",
+				true
 			)
 		}
-		await collect(root)
-		return {
-			version: 1,
-			recorded_at: new Date().toISOString(),
-			flow_path: it.path,
-			total_duration_ms: (root.duration_ms as number) ?? 0,
-			flow: {
-				path: it.path,
-				value: f.value,
-				schema: f.schema ?? { type: 'object', properties: {}, required: [] },
-				summary: f.summary ?? '',
-				archived: false,
-				edited_at: '',
-				edited_by: '',
-				extra_perms: {}
+		if (!flow) {
+			const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+			flow = f
+			sendUserToast(
+				"The run's flow version could not be resolved — the recording pairs it with the current definition, which may not match what ran.",
+				true
+			)
+		}
+		return await buildFlowRecording(workspace, jobId, it.path, {
+			value: flow.value as any,
+			schema: (flow.schema as Record<string, unknown> | undefined) ?? {
+				type: 'object',
+				properties: {},
+				required: []
 			},
-			jobs
+			summary: flow.summary ?? ''
+		})
+	}
+
+	/** Save a recorded raw-app session as that app's Hub recording. */
+	async saveAppRecording(it: DeployItem, recording: RawAppRecording): Promise<boolean> {
+		const hubId = this.hubItemIds[it.key]
+		if (!hubId) {
+			sendUserToast(`Push the bundle to the Hub first before saving recordings`, true)
+			return false
+		}
+		try {
+			await this.#postHub(`/hub/raw_apps/${hubId}/recording`, {
+				recording,
+				project_slug: this.hubSlug
+			})
+			this.#patchItem(it.key, { rec: 'recorded' })
+			sendUserToast(`Recording saved — ${recording.steps.length} steps`)
+			return true
+		} catch (e: any) {
+			sendUserToast(`Failed to save recording: ${e?.message ?? e}`, true)
+			return false
 		}
 	}
 
@@ -1686,88 +1716,6 @@ export class DeployToHubSession {
 		} catch (e: any) {
 			sendUserToast(`Failed to save pipeline recording: ${e?.message ?? e}`, true)
 			return false
-		}
-	}
-
-	// Set the Hub raw app's live-iframe URL (or clear it with null). The Hub renders
-	// from external_embed_url; project_slug scopes ownership.
-	async #pushRawAppEmbed(hubId: number, url: string | null) {
-		await this.#postHub(`/hub/raw_apps/${hubId}/embed`, {
-			external_embed_url: url,
-			project_slug: this.hubSlug
-		})
-	}
-
-	// Flip an app/raw app between public (anonymous) and private (publisher) and keep
-	// the Hub raw-app iframe in sync. Returns the resolved public URL when shared.
-	async #setAppShared(it: DeployItem, shared: boolean): Promise<string | null> {
-		const workspace = this.workspace
-		const hubId = it.kind === 'raw_app' ? this.hubItemIds[it.key] : undefined
-		// Sharing a raw app as an iframe needs its Hub item to wire the embed. Fail
-		// before flipping the app public so it can't be left anonymous with no embed.
-		if (shared && it.kind === 'raw_app' && !hubId) {
-			throw new Error('Push the bundle to the Hub first to share the live iframe')
-		}
-		const app = await AppService.getAppByPath({ workspace, path: it.path })
-		const prevMode = (app.policy?.execution_mode ?? 'publisher') as 'anonymous' | 'publisher'
-		const nextMode = (shared ? 'anonymous' : 'publisher') as 'anonymous' | 'publisher'
-		const setMode = (mode: 'anonymous' | 'publisher', message: string) =>
-			AppService.updateApp({
-				workspace,
-				path: it.path,
-				requestBody: {
-					policy: { ...(app.policy ?? {}), execution_mode: mode },
-					deployment_message: message
-				}
-			})
-		// Undo the policy flip so the app's public state stays consistent when a later
-		// step of the share fails. Best-effort: a revert failure must not mask the cause.
-		const rollback = () => setMode(prevMode, 'Revert iframe share').catch(() => {})
-		await setMode(nextMode, shared ? 'Share as iframe' : 'Unshare iframe')
-		const url = shared ? ((await this.#resolvePublicUrl(it.path)) ?? null) : null
-		// A share with no resolvable public URL is incomplete (no embeddable link, no
-		// Unpublish control); don't leave the app anonymous while reporting success.
-		if (shared && url === null) {
-			await rollback()
-			throw new Error(`Could not resolve the public URL for ${it.path}`)
-		}
-		if (hubId && it.kind === 'raw_app' && (!shared || url)) {
-			try {
-				await this.#pushRawAppEmbed(hubId, shared ? url : null)
-			} catch (e) {
-				await rollback()
-				throw e
-			}
-		}
-		return url
-	}
-
-	/** Make the publish target public. Returns true on success. */
-	async confirmPublish(): Promise<boolean> {
-		const it = this.publishTarget
-		if (!it || !canShareAsIframe(it)) return false
-		this.publishing = true
-		try {
-			const url = await this.#setAppShared(it, true)
-			this.#patchItem(it.key, { published: true, publicUrl: url ?? undefined })
-			sendUserToast(`${it.path} is now public`)
-			return true
-		} catch (e: any) {
-			sendUserToast(`Failed to publish: ${e?.message ?? e}`, true)
-			return false
-		} finally {
-			this.publishing = false
-		}
-	}
-
-	unpublishApp = async (it: DeployItem) => {
-		if (!canShareAsIframe(it)) return
-		try {
-			await this.#setAppShared(it, false)
-			this.#patchItem(it.key, { published: false, publicUrl: undefined })
-			sendUserToast('App unpublished')
-		} catch (e: any) {
-			sendUserToast(`Failed to unpublish: ${e?.message ?? e}`, true)
 		}
 	}
 }

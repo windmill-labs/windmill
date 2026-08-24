@@ -508,6 +508,10 @@ pub async fn create_pg_publication(
                             query.push_str(")");
                         }
 
+                        // A row filter has no bind parameter, so it goes in raw. Publication
+                        // DDL must therefore keep running through `Client::execute`, whose
+                        // `Parse` refuses more than one command: under `simple_query` or
+                        // `batch_execute` a filter could stack statements.
                         if let Some(where_clause) = &table.where_clause {
                             query.push_str(" WHERE (");
                             query.push_str(where_clause);

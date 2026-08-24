@@ -3,14 +3,18 @@ import { goto } from '$lib/navigation'
 import { workspaceStore } from '$lib/stores'
 import {
 	createSession,
-	queueAutoSendPrompt,
 	selectSession,
 	sessionInCurrentFamily,
 	sessionState,
+	setSessionAutoSend,
+	setSessionDraftPrompt,
 	setSessionPendingWorkspace,
 	type SessionTarget
 } from './sessionState.svelte'
-import { sessionTargetHref } from './sessionMode.svelte'
+import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
+// Type-only: erased at compile time, so the component graph stays out of this
+// navigation seam (see the dynamic import in openEditorInSession).
+import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
 
 // The session/navigation switch turns the global rail into either the workspace
 // navigation (navigation mode) or the sessions sidebar (session mode). Session
@@ -50,19 +54,6 @@ export async function enterSessionMode(opts?: { replace?: boolean }): Promise<vo
 	})
 }
 
-// Start a fresh AI session from a prompt composed elsewhere (e.g. the home page
-// composer) and auto-send it, then route into session mode. The prompt is queued
-// as a one-shot auto-send intent that SessionWrapper fires once the session's
-// chat is ready (mounted + copilot loaded). No-op routing is fine for a blank
-// prompt; callers guard.
-export async function startSessionWithPrompt(prompt: string): Promise<void> {
-	const session = createSession()
-	const text = prompt.trim()
-	if (text) queueAutoSendPrompt(session.id, text)
-	selectSession(session.id)
-	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
-}
-
 // Exit session mode: back to the last navigation route (home as a fallback).
 export async function exitSessionMode(): Promise<void> {
 	let target = lastNavRoute || '/'
@@ -84,17 +75,46 @@ export async function exitSessionMode(): Promise<void> {
 // so the caller MUST persist any unsaved edits first (e.g. save a draft) for the
 // preview to reflect the live state. `workspaceId` scopes the session to the
 // editor's workspace (instead of createSession's root default) so it opens the
-// same flow/script the user was editing.
+// same flow/script the user was editing. `previewParams` ride on the tab URL to
+// tell the previewed editor where to open (a flow's `selected` step).
 export async function openEditorInSession(
 	target: SessionTarget,
-	workspaceId?: string
+	workspaceId?: string,
+	previewParams?: Record<string, string>,
+	opts?: { seedPrompt?: string; autoSend?: boolean }
 ): Promise<void> {
-	// Seed the fresh session's preview with a single tab on `target` so it opens
-	// straight onto the editor the caller wants (resetSessionPreviewTabs also
-	// writes through a live runtime if one already exists for this id).
+	await openInSession(
+		withPreviewParams(sessionTargetHref(target), previewParams),
+		workspaceId,
+		opts
+	)
+}
+
+// Open a fresh AI session showing a workspace page (Runs, a trigger list) in its
+// preview. A page is not an editable item, so callers hand over the in-app href
+// they want the tab to load rather than a SessionTarget.
+export async function openPageInSession(
+	href: string,
+	workspaceId?: string,
+	opts?: { seedPrompt?: string; autoSend?: boolean }
+): Promise<void> {
+	await openInSession(href, workspaceId, opts)
+}
+
+async function openInSession(
+	url: string | undefined,
+	workspaceId?: string,
+	opts?: { seedPrompt?: string; autoSend?: boolean }
+): Promise<void> {
+	// Seed the fresh session's preview with a single tab on `url` so it opens
+	// straight onto what the caller wants (resetSessionPreviewTabs also writes
+	// through a live runtime if one already exists for this id).
 	const session = createSession()
 	if (workspaceId) setSessionPendingWorkspace(session.id, workspaceId)
-	const url = sessionTargetHref(target)
+	if (opts?.seedPrompt) {
+		setSessionDraftPrompt(session.id, opts.seedPrompt)
+		if (opts.autoSend) setSessionAutoSend(session.id)
+	}
 	if (url) {
 		// Dynamic import: a static one would drag the runtime's heavy graph
 		// (chat manager → monaco) into this thin navigation seam, breaking its
@@ -102,6 +122,52 @@ export async function openEditorInSession(
 		const { resetSessionPreviewTabs } = await import('./sessionRuntime.svelte')
 		resetSessionPreviewTabs(session.id, url)
 	}
+	selectSession(session.id)
+	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
+}
+
+// Open an editor's own hand-off, running its `beforeOpen` (which persists the
+// draft the preview loads) first. Callers that drive the hand-off imperatively
+// go through this rather than `openEditorInSession` so they cannot skip that
+// step; `OpenInSessionButton` is the declarative equivalent.
+export async function openSourceInSession(
+	source: OpenInSessionSource,
+	overrides?: { previewParams?: Record<string, string>; seedPrompt?: string; autoSend?: boolean }
+): Promise<void> {
+	await source.beforeOpen?.()
+	const opts = {
+		seedPrompt: overrides?.seedPrompt ?? source.seedPrompt,
+		autoSend: overrides?.autoSend ?? source.autoSend
+	}
+	if (source.target) {
+		await openEditorInSession(
+			source.target,
+			source.workspaceId,
+			overrides?.previewParams ?? source.previewParams,
+			opts
+		)
+		return
+	}
+	const href = source.page?.()
+	if (href) await openPageInSession(href, source.workspaceId, opts)
+}
+
+// Open a fresh session on no particular item, with `prompt` pre-filled in the
+// composer. For entry points that carry a question rather than a target (the
+// global search's "Ask AI"). Always a new session rather than the most recent
+// one (`enterSessionMode`), so the seed cannot overwrite a prompt the user has
+// already typed into a session they are mid-way through.
+export async function startSessionWithPrompt(
+	prompt: string,
+	opts?: { autoSend?: boolean }
+): Promise<void> {
+	// No setSessionPendingWorkspace: createSession already picked the workspace,
+	// steering off a root the user cannot deploy to onto its dev. Overwriting it
+	// with the raw current workspace would land the session where it cannot edit.
+	const session = createSession()
+	setSessionDraftPrompt(session.id, prompt)
+	// An empty prompt has nothing to send; leave the composer focused instead.
+	if (opts?.autoSend && prompt.trim()) setSessionAutoSend(session.id)
 	selectSession(session.id)
 	await goto(`/sessions?session_name=${encodeURIComponent(session.name)}`)
 }

@@ -277,11 +277,12 @@ fn new_app(path: &str, summary: &str) -> serde_json::Value {
 
 /// A single list request; returns the ordered `type:path` identifiers.
 async fn list_once(port: u16, query: &str) -> Vec<String> {
+    list_once_as(port, query, "SECRET_TOKEN").await
+}
+
+async fn list_once_as(port: u16, query: &str, token: &str) -> Vec<String> {
     let url = format!("http://localhost:{port}/api/w/test-workspace/runnables/list?{query}");
-    let resp = authed(client().get(&url), "SECRET_TOKEN")
-        .send()
-        .await
-        .unwrap();
+    let resp = authed(client().get(&url), token).send().await.unwrap();
     assert_eq!(resp.status(), 200, "list should succeed for {query}");
     let body: serde_json::Value = resp.json().await.unwrap();
     body["items"]
@@ -378,6 +379,22 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         "search must substring-match the summary only"
     );
 
+    // Terms may sit apart and span the summary and the path — what the homepage's
+    // fuzzy ranking accepts but a single contiguous ILIKE would withhold.
+    assert_eq!(
+        list_once(port, "search=deploy%20one").await,
+        vec!["script:f/alpha/one".to_string()],
+        "terms may sit apart, in the summary and the path"
+    );
+
+    // The three rules that bound it, each pinned by a query that must return nothing:
+    // terms hold their order, every term must appear, and a query of pure separators
+    // is a search that matches nothing rather than no search at all.
+    for query in ["search=one%20deploy", "search=deploy%20beta", "search=%20"] {
+        let none = list_once(port, query).await;
+        assert!(none.is_empty(), "{query} must match nothing, got {none:?}");
+    }
+
     // kinds filter selects a single kind.
     let flows = list_once(port, "kinds=flow").await;
     assert_eq!(flows, vec!["flow:f/alpha/flowy".to_string()], "kinds=flow");
@@ -388,6 +405,110 @@ async fn test_runnables_search_and_kind_filters(db: Pool<Postgres>) -> anyhow::R
         scripts.len(),
         4,
         "kinds=script -> 4 scripts, got {scripts:?}"
+    );
+
+    // Seeded last: the counts above are asserted exactly.
+    // Without a summary the haystack is the bare path, so such a row stays findable.
+    let r = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script("f/alpha/unsummarized", ""))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 201, "create: {}", r.text().await?);
+    assert_eq!(
+        list_once(port, "search=alpha%20unsummarized").await,
+        vec!["script:f/alpha/unsummarized".to_string()],
+        "a row with no summary is searchable by its path"
+    );
+
+    // A draft is named by the path typed in the editor, so that is what a search has
+    // to match — never the generated `draft_<uuid>` it is parked at.
+    let r = authed(
+        client().post(format!(
+            "{base}/drafts/update/script/u/test-user/draft_9f2a"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "value": { "path": "f/beta/typed_name", "summary": "" } }))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 200, "save draft: {}", r.text().await?);
+    assert_eq!(
+        list_once(port, "search=beta%20typed&include_draft_only=true").await,
+        vec!["script:u/test-user/draft_9f2a".to_string()],
+        "a draft-only row is searchable by its typed path"
+    );
+    let by_storage_path = list_once(port, "search=9f2a&include_draft_only=true").await;
+    assert!(
+        by_storage_path.is_empty(),
+        "the draft_<uuid> path is not searchable, got {by_storage_path:?}"
+    );
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_operator_sees_flows_and_apps(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // A folder the operator can read, holding one runnable of each kind.
+    let r = authed(
+        client().post(format!("{base}/folders/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "name": "opview",
+        "owners": ["u/test-user"],
+        "extra_perms": { "u/test-user-3": false },
+    }))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 200, "create folder: {}", r.text().await?);
+
+    let r = authed(
+        client().post(format!("{base}/scripts/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_script("f/opview/s", "Op script"))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 201, "create script: {}", r.text().await?);
+    let r = authed(
+        client().post(format!("{base}/flows/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_flow("f/opview/f", "Op flow"))
+    .send()
+    .await?;
+    assert_eq!(r.status(), 201, "create flow: {}", r.text().await?);
+    let r = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
+        .json(&new_app("f/opview/a", "Op app"))
+        .send()
+        .await?;
+    assert_eq!(r.status(), 201, "create app: {}", r.text().await?);
+
+    sqlx::query(
+        "UPDATE usr SET operator = true, role = 'Operator' WHERE workspace_id = 'test-workspace' AND username = 'test-user-3'",
+    )
+    .execute(&db)
+    .await?;
+
+    // Operators run flows and apps, so the homepage listing must return them, not
+    // scripts alone.
+    let mut items = list_once_as(port, "", "SECRET_TOKEN_3").await;
+    items.sort();
+    assert_eq!(
+        items,
+        vec![
+            "app:f/opview/a".to_string(),
+            "flow:f/opview/f".to_string(),
+            "script:f/opview/s".to_string(),
+        ],
+        "an operator must see every kind they have read access to"
     );
     Ok(())
 }

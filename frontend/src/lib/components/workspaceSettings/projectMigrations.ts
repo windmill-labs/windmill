@@ -19,6 +19,7 @@ import {
 	type DatabaseSchema
 } from '$lib/components/datatableSchemaSql'
 import { WorkspaceService } from '$lib/gen'
+import { apiErrorMessage } from '$lib/utils'
 import type { FetchedItem } from './projectBundle'
 
 export interface GeneratedMigration {
@@ -229,14 +230,7 @@ function orderByFkDependency(schema: DatabaseSchema, tables: ResolvedTable[]): R
 // Pull a readable one-line message out of an API error for embedding in a SQL
 // comment (collapse whitespace so it can't break out of the `--` line).
 function errorText(e: any): string {
-	const body = e?.body
-	const raw =
-		typeof body === 'string' && body.trim()
-			? body
-			: body && typeof body === 'object'
-				? (body.error?.message ?? body.message ?? JSON.stringify(body))
-				: (e?.message ?? String(e))
-	return String(raw).replace(/\s+/g, ' ').trim()
+	return apiErrorMessage(e).replace(/\s+/g, ' ').trim()
 }
 
 /**

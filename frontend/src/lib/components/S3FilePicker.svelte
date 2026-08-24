@@ -18,6 +18,11 @@
 		selectedFileKey?: { s3: string; storage?: string } | undefined
 		folderOnly?: boolean
 		regexFilter?: RegExp | undefined
+		/**
+		 * Expand one folder level at a time. Turn off to keep listing every key up
+		 * front, which is what lets `regexFilter` prune folders with no match.
+		 */
+		lazyFolders?: boolean
 		/** Workspace to browse S3 storage in — the acting workspace of the editor that
 		 * opened the picker, else the nav workspace. */
 		workspace?: string | undefined
@@ -33,6 +38,7 @@
 		selectedFileKey = $bindable(undefined),
 		folderOnly = false,
 		regexFilter = undefined,
+		lazyFolders = true,
 		workspace = undefined,
 		onClose,
 		onSelectAndClose
@@ -125,6 +131,7 @@
 			{s3ResourcePath}
 			{folderOnly}
 			{regexFilter}
+			{lazyFolders}
 			workspace={effectiveWorkspace}
 		/>
 		{#snippet actions()}

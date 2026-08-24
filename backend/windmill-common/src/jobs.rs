@@ -10,14 +10,12 @@ use tokio::io::AsyncReadExt;
 pub use windmill_types::jobs::*;
 
 use crate::{
-    auth::is_super_admin_email,
     client::AuthedClient,
     db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
     flows::get_full_hub_flow_by_path,
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
-    users::username_to_permissioned_as,
     utils::{StripPath, HTTP_CLIENT},
     worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
     workspaces::workspace_with_fork_ancestors,
@@ -114,6 +112,12 @@ pub async fn script_path_to_payload<'e>(
                 None,
             )
         } else {
+            let script_info =
+                get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
+                    .await?
+                    .prefetch_cached(&db)
+                    .await?;
+            let on_behalf_of = script_info.on_behalf_of(w_id, &db).await?;
             let ScriptHashInfo {
                 hash,
                 tag,
@@ -131,23 +135,9 @@ pub async fn script_path_to_payload<'e>(
                 delete_after_secs,
                 timeout,
                 has_preprocessor,
-                on_behalf_of_email,
-                created_by,
                 labels,
                 ..
-            } = get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
-                .await?
-                .prefetch_cached(&db)
-                .await?;
-
-            let on_behalf_of = if let Some(email) = on_behalf_of_email {
-                Some(OnBehalfOf {
-                    email,
-                    permissioned_as: username_to_permissioned_as(created_by.as_str()),
-                })
-            } else {
-                None
-            };
+            } = script_info;
 
             (
                 JobPayload::ScriptHash {
@@ -344,11 +334,14 @@ lazy_static::lazy_static! {
     ).unwrap_or(false);
 }
 
+// `is_super_admin` is passed in (not derived from an email here) so callers can
+// make it job-token-aware: a job's WM_TOKEN must never count as superadmin
+// (GHSA-hfh4-cx4h-3fcr). See `is_super_admin_authed` at the request wrapper.
 pub async fn check_tag_available_for_workspace_internal(
     db: &DB,
     w_id: &str,
     tag: &str,
-    email: &str,
+    is_super_admin: bool,
     scope_tags: Option<Vec<&str>>,
 ) -> error::Result<()> {
     let mut is_tag_in_scope_tags = None;
@@ -381,7 +374,7 @@ pub async fn check_tag_available_for_workspace_internal(
         _ => {}
     }
 
-    if !is_super_admin_email(db, email).await? {
+    if !is_super_admin {
         if scope_tags.is_some() && is_tag_in_scope_tags.is_some() {
             return Err(Error::BadRequest(format!(
                 "Tag {tag} is not available in your scope"
@@ -499,6 +492,9 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
     .execute(&mut *conn)
     .await?;
     sqlx::query!("DELETE FROM zombie_job_counter WHERE job_id = ANY($1)", ids)
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query!("DELETE FROM job_resolution WHERE job_id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;
     sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", ids)

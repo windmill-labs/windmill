@@ -78,6 +78,8 @@ struct ScriptMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    cache_ignore_s3_path: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "is_none_or_false")]
     ws_error_handler_muted: Option<bool>,
@@ -105,6 +107,10 @@ struct ScriptMetadata {
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    /// Emitted instead of the address from syncBehavior v1 on, where the CLI only needs to
+    /// know *that* the runnable has an identity — it re-reads the value itself on push.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub has_on_behalf_of: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub modules: Option<std::collections::HashMap<String, windmill_common::scripts::ScriptModule>>,
     #[serde(flatten)]
@@ -115,6 +121,42 @@ struct ScriptMetadata {
     pub labels: Option<Vec<String>>,
     #[serde(skip_serializing_if = "is_empty_extra_perms")]
     pub extra_perms: serde_json::Value,
+}
+
+/// `syncBehavior` as the CLI writes it (`"v1"`); anything unparseable is v0, matching
+/// `parseSyncBehavior` on the client.
+fn parse_sync_behavior_version(value: Option<&str>) -> u32 {
+    value
+        .and_then(|v| v.strip_prefix('v'))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0)
+}
+
+/// The address a runnable's principal resolves to, memoised for the duration of one export.
+///
+/// `on_behalf_of` is sparse — most runnables carry none, and those that do
+/// usually share a handful of identities — so this collapses to roughly one lookup per
+/// distinct principal instead of one per row.
+async fn derive_email(
+    cache: &mut HashMap<String, String>,
+    db: &DB,
+    w_id: &str,
+    permissioned_as: Option<&str>,
+) -> Result<Option<String>> {
+    let Some(permissioned_as) = permissioned_as else {
+        return Ok(None);
+    };
+    if let Some(hit) = cache.get(permissioned_as) {
+        return Ok(Some(hit.clone()));
+    }
+    // Uncached: the address goes into an archive a client redeploys from, and the write path
+    // validates the pair it sends back against an uncached lookup. The memo above still holds
+    // this to one query per distinct principal per export.
+    let email =
+        windmill_common::users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db)
+            .await?;
+    cache.insert(permissioned_as.to_string(), email.clone());
+    Ok(Some(email))
 }
 
 fn is_empty_extra_perms(value: &serde_json::Value) -> bool {
@@ -298,6 +340,9 @@ pub(crate) struct ArchiveQueryParams {
     include_settings: Option<bool>,
     include_key: Option<bool>,
     include_workspace_dependencies: Option<bool>,
+    /// Default `false`: data table migrations ship in the tarball unless the repo
+    /// opted out of the `datatablemigration` object type.
+    skip_datatable_migrations: Option<bool>,
     default_ts: Option<String>,
     /// Settings format version: "v1" (default) returns legacy flat format, "v2" returns grouped format
     settings_version: Option<String>,
@@ -306,6 +351,10 @@ pub(crate) struct ArchiveQueryParams {
     /// identities that may not exist in the target workspace. `wmill sync pull`
     /// passes `true` to surface ACLs in the git-tracked yaml.
     preserve_extra_perms: Option<bool>,
+    /// The caller's `wmill.yaml` `syncBehavior`. From v1 the CLI strips the on-behalf-of
+    /// address from what it writes and keeps only a `has_on_behalf_of` marker, so the
+    /// tarball emits that marker directly and skips resolving any address at all.
+    sync_behavior_version: Option<String>,
 }
 
 /// How to handle `extra_perms` in the serialized output.
@@ -371,6 +420,7 @@ where
                     "edited_at",
                     "edited_by",
                     "permissioned_as",
+                    "on_behalf_of",
                     "archived",
                     "error",
                     "last_server_ping",
@@ -449,8 +499,6 @@ struct SimplifiedSettings {
     auto_invite: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     webhook: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    deploy_to: Option<String>,
     // Always serialize (including as `null`) so that `wmill sync pull` emits
     // these fields in settings.yaml unconditionally. Makes round-trip
     // bijective: YAML is the source of truth, absence/null = "clear remote",
@@ -496,8 +544,6 @@ struct SimplifiedSettingsLegacy {
     #[serde(skip_serializing_if = "Option::is_none")]
     webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    deploy_to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     error_handler: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_handler_extra_args: Option<Value>,
@@ -534,7 +580,6 @@ struct SimplifiedSettingsLegacy {
 struct SettingsRow {
     auto_invite: Option<Value>,
     webhook: Option<String>,
-    deploy_to: Option<String>,
     error_handler: Option<Value>,
     success_handler: Option<Value>,
     ai_config: Option<serde_json::Value>,
@@ -574,9 +619,11 @@ pub(crate) async fn tarball_workspace(
         include_settings,
         include_key,
         include_workspace_dependencies,
+        skip_datatable_migrations,
         default_ts,
         settings_version,
         preserve_extra_perms,
+        sync_behavior_version,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
     tracing::info!(
@@ -587,15 +634,24 @@ pub(crate) async fn tarball_workspace(
         skip_resources
     );
 
-    // The route is gated by workspaces:read, but exporting DECRYPTED secrets is a
-    // variable-read capability beyond workspace metadata. Require variables:read
-    // only on the plaintext-secret path: ordinary tarball pulls (structure and
-    // encrypted-only values) keep working with workspaces:read, and the workspace
-    // key itself stays admin-only (include_key). No-op for unscoped tokens.
-    if plain_secret.or(plain_secrets).unwrap_or(false)
-        && !skip_secrets.unwrap_or(false)
-        && !skip_variables.unwrap_or(false)
-    {
+    // The workspace key decrypts every secret offline, so it takes an admin *and* an
+    // unscoped token. Checked before the item scopes below so that a scoped token
+    // asking for the key is told about the key rather than about a scope no token
+    // holding the key would need anyway.
+    if include_key.unwrap_or(false) {
+        require_admin(authed.is_admin, &authed.username)?;
+        windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
+    }
+
+    // The route is gated by workspaces:read, but the tarball also carries the item
+    // values that the per-item routes gate on their own domain (get_resource_value,
+    // get_variable). A whole-workspace export cannot be confined to a path, so it
+    // takes the unrestricted domain scope: a path-scoped token has to skip that kind.
+    // No-op for unscoped tokens.
+    if !skip_resources.unwrap_or(false) {
+        check_scopes(&authed, || "resources:read".to_string())?;
+    }
+    if !skip_variables.unwrap_or(false) {
         check_scopes(&authed, || "variables:read".to_string())?;
     }
 
@@ -620,39 +676,6 @@ pub(crate) async fn tarball_workspace(
         None
     };
 
-    let mut tx = user_db.begin(&authed).await?;
-
-    // Exporting decrypted secrets in bulk is the same capability as a per-item
-    // secret read, so record it for parity with variables.decrypt_secret.
-    if plain_secret.or(plain_secrets).unwrap_or(false)
-        && !skip_variables.unwrap_or(false)
-        && !skip_secrets.unwrap_or(false)
-    {
-        windmill_audit::audit_oss::audit_log(
-            &mut *tx,
-            &authed,
-            "variables.decrypt_secret",
-            windmill_audit::ActionKind::Execute,
-            &w_id,
-            Some("workspace_tarball_export"),
-            None,
-        )
-        .await?;
-    }
-
-    // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
-    // The wm-fork-* prefix is a creation-time naming convention that could in
-    // principle drift (rename, manual SQL); the column is the contract that
-    // matches what the conflict-warning gates read. The id is also the workspace
-    // whose trigger `mode` / schedule `enabled` a fork export defers to.
-    let parent_workspace_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
-        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
-    )
-    .bind(&w_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
-
     let tmp_dir = TempDir::new_in(&*WINDMILL_DIR)?;
 
     let name = match archive_type.as_deref() {
@@ -675,6 +698,58 @@ pub(crate) async fn tarball_workspace(
         }
         Some(t) => Err(Error::BadRequest(format!("Invalid Archive Type {t}"))),
     }?;
+
+    let export_plain_secrets = plain_secret.or(plain_secrets).unwrap_or(false)
+        && !skip_secrets.unwrap_or(false)
+        && !skip_variables.unwrap_or(false);
+
+    // Record what the export is about to disclose, once nothing left can reject the
+    // request: an entry written before the gates above would claim a disclosure that
+    // a 403 or an invalid archive type then prevented. On the pool and before the RLS
+    // transaction opens — `tx` is never committed, so a write through it is rolled
+    // back with it, and holding both at once would take two connections.
+    if export_plain_secrets {
+        // Exporting decrypted secrets in bulk is the same capability as a per-item
+        // secret read, so record it for parity with variables.decrypt_secret.
+        windmill_audit::audit_oss::audit_log(
+            &db,
+            &authed,
+            "variables.decrypt_secret",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
+    }
+    if include_key.unwrap_or(false) {
+        windmill_audit::audit_oss::audit_log(
+            &db,
+            &authed,
+            "workspaces.read_encryption_key",
+            windmill_audit::ActionKind::Execute,
+            &w_id,
+            Some("workspace_tarball_export"),
+            None,
+        )
+        .await?;
+    }
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Source-of-truth for fork-ness: the workspace's parent_workspace_id column.
+    // The wm-fork-* prefix is a creation-time naming convention that could in
+    // principle drift (rename, manual SQL); the column is the contract that
+    // matches what the conflict-warning gates read. The id is also the workspace
+    // whose trigger `mode` / schedule `enabled` a fork export defers to.
+    let parent_workspace_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT parent_workspace_id FROM workspace WHERE id = $1",
+    )
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+
     {
         let folders = sqlx::query_as::<_, Folder>("SELECT name, workspace_id, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels FROM folder WHERE workspace_id = $1")
             .bind(&w_id)
@@ -692,6 +767,10 @@ pub(crate) async fn tarball_workspace(
         }
     }
 
+    // From v1 the CLI never writes the address, so resolving it would be pure waste on the
+    // default sync path; emit the marker it actually keeps instead.
+    let obo_marker_only = parse_sync_behavior_version(sync_behavior_version.as_deref()) >= 1;
+    let mut obo_cache: HashMap<String, String> = HashMap::new();
     {
         let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(&format!(
             "SELECT {} FROM script as o WHERE workspace_id = $1 AND archived = false
@@ -704,7 +783,8 @@ pub(crate) async fn tarball_workspace(
         .await?;
 
         for script in scripts {
-            let script = windmill_common::scripts::prefetch_cached_script(script, &db).await?;
+            let script =
+                windmill_common::scripts::prefetch_cached_script_without_email(script, &db).await?;
             let ext = match script.language {
                 ScriptLang::Python3 => "py",
                 ScriptLang::Deno => {
@@ -741,11 +821,30 @@ pub(crate) async fn tarball_workspace(
                 ScriptLang::Java => "java",
                 ScriptLang::Ruby => "rb",
                 ScriptLang::Rlang => "r",
+                // A dbt script's content path is not `<path>.<ext>` — it is the
+                // descriptor inside the project folder, built below.
+                ScriptLang::Dbt => "",
                 // for related places search: ADD_NEW_LANG
             };
-            archive
-                .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
-                .await?;
+            if script.language == ScriptLang::Dbt {
+                // The descriptor belongs inside the project it configures, and
+                // is OPTIONAL: an unmodified dbt project is already a complete
+                // script. Writing an empty one would put a Windmill file in a
+                // directory that had none, so a project that names no descriptor
+                // exports without one.
+                if !script.content.trim().is_empty() {
+                    archive
+                        .write_to_archive(
+                            &script.content,
+                            &format!("{}__dbt/wm_dbt.yaml", script.path),
+                        )
+                        .await?;
+                }
+            } else {
+                archive
+                    .write_to_archive(&script.content, &format!("{}.{}", script.path, ext))
+                    .await?;
+            }
 
             let metadata = ScriptMetadata {
                 summary: script.summary,
@@ -757,6 +856,7 @@ pub(crate) async fn tarball_workspace(
                 concurrency_settings: script.runnable_settings.concurrency_settings,
                 debouncing_settings: script.runnable_settings.debouncing_settings,
                 cache_ttl: script.cache_ttl,
+                cache_ignore_s3_path: script.cache_ignore_s3_path,
                 dedicated_worker: script.dedicated_worker,
                 ws_error_handler_muted: script.ws_error_handler_muted,
                 priority: script.priority,
@@ -768,7 +868,13 @@ pub(crate) async fn tarball_workspace(
                 auto_kind: script.auto_kind,
                 codebase: script.codebase,
                 has_preprocessor: script.has_preprocessor,
-                on_behalf_of_email: script.on_behalf_of_email,
+                on_behalf_of_email: if obo_marker_only {
+                    None
+                } else {
+                    derive_email(&mut obo_cache, &db, &w_id, script.on_behalf_of.as_deref()).await?
+                },
+                has_on_behalf_of: (obo_marker_only && script.on_behalf_of.is_some())
+                    .then_some(true),
                 modules: script.modules,
                 labels: script.labels,
                 // Same opt-in contract as flow/app: the tarball only surfaces
@@ -791,8 +897,9 @@ pub(crate) async fn tarball_workspace(
     if !skip_resources.unwrap_or(false) {
         let resources = sqlx::query_as!(
              Resource,
-             "SELECT workspace_id, path, value, description, resource_type, extra_perms, created_by, edited_at, labels FROM resource WHERE workspace_id = $1 AND resource_type != 'state' AND resource_type != 'cache'",
-             &w_id
+             "SELECT workspace_id, path, value, description, resource_type, extra_perms, created_by, edited_at, labels FROM resource WHERE workspace_id = $1 AND resource_type <> ALL($2)",
+             &w_id,
+             &windmill_store::resources::INTERNAL_RESOURCE_TYPES.map(|t| t.to_string())[..]
          )
          .fetch_all(&mut *tx)
          .await?;
@@ -830,7 +937,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of_email, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
              WHERE flow.workspace_id = $1 AND flow.archived = false",
@@ -839,8 +946,24 @@ pub(crate) async fn tarball_workspace(
          .fetch_all(&mut *tx)
          .await?;
 
-        for flow in flows {
-            let flow_str = &to_string_without_metadata(&flow, new_kinds_extra_perms, None).unwrap();
+        for mut flow in flows {
+            let flow_marker = obo_marker_only && flow.on_behalf_of.is_some();
+            flow.on_behalf_of_email = if obo_marker_only {
+                None
+            } else {
+                derive_email(&mut obo_cache, &db, &w_id, flow.on_behalf_of.as_deref()).await?
+            };
+            let mut overrides = serde_json::Map::new();
+            if flow_marker {
+                overrides.insert("has_on_behalf_of".to_string(), Value::Bool(true));
+            }
+            let flow_str = &to_string_without_metadata_inner(
+                &flow,
+                new_kinds_extra_perms,
+                None,
+                (!overrides.is_empty()).then_some(&overrides),
+            )
+            .unwrap();
             archive
                 .write_to_archive(&flow_str, &format!("{}.flow.json", flow.path))
                 .await?;
@@ -1428,7 +1551,6 @@ pub(crate) async fn tarball_workspace(
             r#"SELECT
                  auto_invite,
                  webhook,
-                 deploy_to,
                  error_handler,
                  success_handler,
                  ai_config,
@@ -1488,7 +1610,6 @@ pub(crate) async fn tarball_workspace(
             let settings = SimplifiedSettings {
                 auto_invite: row.auto_invite,
                 webhook: row.webhook,
-                deploy_to: row.deploy_to,
                 error_handler: row.error_handler,
                 success_handler: row.success_handler,
                 ai_config: row.ai_config,
@@ -1558,7 +1679,6 @@ pub(crate) async fn tarball_workspace(
                 auto_invite_as,
                 auto_invite_mode,
                 webhook: row.webhook,
-                deploy_to: row.deploy_to,
                 error_handler,
                 error_handler_extra_args,
                 error_handler_muted_on_cancel,
@@ -1588,9 +1708,8 @@ pub(crate) async fn tarball_workspace(
             .await?;
     }
 
+    // Gated in the pre-flight block above: admin plus an unscoped token, audited there.
     if include_key.unwrap_or(false) {
-        require_admin(authed.is_admin, &authed.username)?;
-
         let key = sqlx::query_scalar!(
             "SELECT key FROM workspace_key WHERE workspace_id = $1",
             &w_id
@@ -1608,7 +1727,7 @@ pub(crate) async fn tarball_workspace(
             .await?;
     }
 
-    {
+    if !skip_datatable_migrations.unwrap_or(false) {
         // Data table migrations live in the `datatable_migrations` table; surface
         // them in the export as `migrations/datatable/<datatable>/<version>_<name>`
         // .up.sql (and .down.sql when present) so `wmill sync` treats them like any

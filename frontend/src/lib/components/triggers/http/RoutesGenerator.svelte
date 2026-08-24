@@ -289,7 +289,7 @@
 							{/if}
 							{#if selected === 'OpenAPI' || (selected === 'OpenAPI_File' && !emptyStringTrimmed(openApiFile)) || (selected === 'OpenAPI_URL' && !emptyStringTrimmed(openApiUrl))}
 								{#key forceRerender}
-									<SimpleEditor class="h-96" {lang} bind:code />
+									<SimpleEditor class="h-96" {lang} bind:code leadingChangeSync />
 								{/key}
 							{/if}
 							<Button

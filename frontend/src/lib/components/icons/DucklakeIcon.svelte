@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { twMerge } from 'tailwind-merge'
 	interface Props {
 		size?: number | string
 		class?: string
@@ -7,11 +8,12 @@
 	let { size = 24, class: className }: Props = $props()
 </script>
 
+<!-- #1A1A1A / #2EAFFF per duckdb.org. -->
 <svg
 	width={size}
 	height={size}
-	class={className}
-	viewBox="0 0 13 13"
+	class={twMerge('text-[#1A1A1A] dark:text-[#2EAFFF]', className)}
+	viewBox="-0.591 -0.591 14.182 14.182"
 	style="fill:currentcolor;"
 	xmlns="http://www.w3.org/2000/svg"
 >

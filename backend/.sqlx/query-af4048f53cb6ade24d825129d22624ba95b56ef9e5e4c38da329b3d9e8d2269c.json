@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_diff_full_scan SET fork_workspace_id = $1 WHERE fork_workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "af4048f53cb6ade24d825129d22624ba95b56ef9e5e4c38da329b3d9e8d2269c"
+}

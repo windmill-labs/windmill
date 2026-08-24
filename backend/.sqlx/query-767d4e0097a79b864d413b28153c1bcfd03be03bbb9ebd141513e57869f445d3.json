@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE datatable_migrations SET name = 'renamed_again'\n         WHERE workspace_id = 'test-workspace' AND datatable = 'dt'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "767d4e0097a79b864d413b28153c1bcfd03be03bbb9ebd141513e57869f445d3"
+}

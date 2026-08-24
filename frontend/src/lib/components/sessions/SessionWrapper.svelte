@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext } from 'svelte'
+	import { setContext, untrack } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import SessionsBetaBanner from './SessionsBetaBanner.svelte'
@@ -13,7 +13,8 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { copilotInfo, loadCopilot } from '$lib/aiStore'
+	import { copilotInfo } from '$lib/aiStore'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import {
 		Archive,
 		ArchiveRestore,
@@ -37,13 +38,14 @@
 		moveSessionToWorkspace,
 		getSessionDraftPrompt,
 		setSessionDraftPrompt,
+		peekSessionAutoSend,
+		takeSessionAutoSend,
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
 		sessionState,
 		setSessionArchived,
-		syncWorkspaceTo,
-		takeAutoSendPrompt
+		syncWorkspaceTo
 	} from './sessionState.svelte'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
@@ -76,11 +78,35 @@
 	// record (script-init: AIChatInput reads it once at mount).
 	const restoredDraftPrompt = getSessionDraftPrompt(sessionId)
 
-	// One-shot: a prompt this session was created to auto-send (home composer).
-	// Read once at init and cleared; the effect below fires it when the chat is
-	// ready. Sent through the manager, so the composer stays empty (no prefill) —
-	// which is why initialInstructions is suppressed when this is set.
-	const autoSendPrompt = takeAutoSendPrompt(sessionId)
+	// Whether the prompt read above is already on its way, so the composer starts
+	// empty instead of briefly showing text the effect below is about to send.
+	// Both halves of the claim's own condition are required, not just freshness:
+	// an intent this wrapper will not claim — stale, or armed on a session the
+	// page is only keeping warm in the background — still gets a composer, whose
+	// mount-time empty draft would otherwise erase the prompt from the record.
+	const armedAtInit = sessionState.currentSessionId === sessionId && peekSessionAutoSend(sessionId)
+
+	// A hand-off whose click already stated the intent asks for its prompt to be
+	// sent, not parked. Reactive rather than mount-time: `createSession` reuses an
+	// untouched blank session and the sessions page keys wrappers by id, so a
+	// hand-off fired from `/sessions` can arm the session already on screen —
+	// whose wrapper never re-initializes, leaving an init-time claim to never run
+	// and the prompt to never be sent. Claimed only for the session the user
+	// landed on; a background wrapper would fire the turn off-screen.
+	$effect(() => {
+		if (sessionState.currentSessionId !== sessionId) return
+		if (!session?.autoSendDraftAt || !runtime) return
+		untrack(() => {
+			const prompt = getSessionDraftPrompt(sessionId)
+			// takeSessionAutoSend clears the intent whether or not it is still
+			// fresh, so this cannot re-enter on the next dependency change.
+			if (!takeSessionAutoSend(sessionId) || !prompt) return
+			// sendOrQueue, not sendRequest: a reused session may already be mid-turn.
+			// The runtime's beforeSend awaits loadCopilot for the committed
+			// workspace, so this cannot race the model config on a cold session.
+			runtime.manager.sendOrQueue(prompt)
+		})
+	})
 
 	// The workspace the session acts on, shown in the header "Acting on" strip via the shared
 	// WorkspaceScopeTrigger chip. `targetId` is also the workspace the chip's ellipsis menu targets.
@@ -251,21 +277,6 @@
 		if (!$copilotInfo.enabled) return
 		const chat = aiChat
 		setTimeout(() => chat.focusInput(), 0)
-	})
-
-	// Auto-send the prompt this session was created with, once the chat is ready
-	// (same readiness gate as the focus effect: mounted + copilot loaded). Latched
-	// so it fires exactly once; guarded on an empty conversation so it can never
-	// interleave with a message the user already sent.
-	let autoSent = false
-	$effect(() => {
-		if (!autoSendPrompt || autoSent) return
-		if (sessionState.currentSessionId !== sessionId) return
-		if (!aiChat || !$copilotInfo.enabled) return
-		if (hasFirstUserMessage) return
-		autoSent = true
-		const chat = aiChat
-		setTimeout(() => chat.sendRequest({ instructions: autoSendPrompt }), 0)
 	})
 
 	// True when the session committed to a workspace that's no longer in
@@ -443,7 +454,7 @@
 						hideHeader
 						hideModeSelector
 						wideLayout
-						initialInstructions={autoSendPrompt ? undefined : restoredDraftPrompt}
+						initialInstructions={armedAtInit ? undefined : restoredDraftPrompt}
 						onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
 						forceDisabled={isUnavailable || !!session.archived}
 						forceDisabledMessage={isUnavailable

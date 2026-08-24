@@ -149,6 +149,10 @@ pub struct ListCompletedQuery {
     pub order_desc: Option<bool>,
     pub job_kinds: Option<NegatedListFilter<String>>,
     pub is_skipped: Option<bool>,
+    // Whether the failure has been marked handled. Completed-jobs only: a queued job
+    // has no resolution, which is why `resolved = false` must not reach the queue side
+    // of the runs-list union.
+    pub resolved: Option<bool>,
     pub is_flow_step: Option<bool>,
     pub suspended: Option<bool>,
     pub schedule_path: Option<String>,
@@ -304,6 +308,7 @@ pub struct UnifiedJob {
     pub worker: Option<String>,
     pub runnable_settings_handle: Option<i64>,
     pub is_retry: Option<bool>,
+    pub resolved: Option<bool>,
 }
 
 const CJ_FIELDS: &[&str] = &[
@@ -346,6 +351,7 @@ const CJ_FIELDS: &[&str] = &[
     "v2_job_completed.worker",
     "null as runnable_settings_handle",
     "EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
+    "EXISTS(SELECT 1 FROM job_resolution WHERE job_id = v2_job_completed.id) as resolved",
 ];
 
 const QJ_FIELDS: &[&str] = &[
@@ -388,6 +394,8 @@ const QJ_FIELDS: &[&str] = &[
     "v2_job_queue.worker",
     "v2_job_queue.runnable_settings_handle",
     "EXISTS(SELECT 1 FROM native_retry_attempt WHERE job_id = v2_job.id) as is_retry",
+    // A job still in the queue has not failed, so it can never be resolved.
+    "false as resolved",
 ];
 
 impl UnifiedJob {
@@ -442,6 +450,12 @@ impl From<UnifiedJob> for Job {
                     labels: uj.labels,
                     preprocessed: uj.preprocessed,
                     is_retry: uj.is_retry,
+                    resolved: uj.resolved,
+                    resolved_by: None,
+                    resolved_at: None,
+                    resolution_note: None,
+                    resolved_automatically: None,
+                    trigger_kind: None,
                 },
             )),
             "QueuedJob" => Job::QueuedJob(JobExtended::new(
@@ -492,6 +506,7 @@ impl From<UnifiedJob> for Job {
                     runnable_settings_handle: uj.runnable_settings_handle,
                     labels: uj.labels,
                     is_retry: uj.is_retry,
+                    trigger_kind: None,
                 },
             )),
             t => panic!("job type {} not valid", t),
@@ -696,6 +711,7 @@ mod tests {
                 "flow".to_string(),
             ])),
             is_skipped: None,
+            resolved: None,
             is_flow_step: None,
             suspended: None,
             schedule_path: None,
@@ -766,6 +782,7 @@ mod tests {
             order_desc: None,
             job_kinds: None,
             is_skipped: None,
+            resolved: None,
             is_flow_step: None,
             suspended: None,
             schedule_path: None,

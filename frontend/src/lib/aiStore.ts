@@ -1,12 +1,9 @@
+// Keep this module a leaf: it holds AI model *state* only, and must not import the AI
+// client (`components/copilot/lib`) or anything under `components/copilot/chat` — those
+// import aiStore back, and such a cycle crashes the app once the bundler splits it across
+// chunks (docs/frontend-import-cycles.md; the build fails on the chunk cycle, not on this).
 import { writable, get } from 'svelte/store'
-import { workspaceAIClients } from './components/copilot/lib'
-import {
-	type AIProviderModel,
-	type AIProvider,
-	WorkspaceService,
-	type AIConfig,
-	type FreeTierInfo
-} from './gen'
+import { type AIProviderModel, type AIProvider, type AIConfig, type FreeTierInfo } from './gen'
 import {
 	aiUserDisabled,
 	COPILOT_SESSION_MODEL_SETTING_NAME,
@@ -87,37 +84,10 @@ function dedupeModels(models: AIProviderModel[]): AIProviderModel[] {
 	})
 }
 
-// copilotInfo/copilotSessionModel are global, so concurrent loads (e.g. a fast
-// session switch between workspaces) race: an earlier call resolving last would
-// clobber the active workspace's config. Apply only the most recent call's
-// result via a monotonic token — last invocation wins regardless of resolution
-// order. init() is synchronous so its ordering already matches.
-let loadCopilotToken = 0
 // The workspace copilotInfo currently reflects. A session send awaits this
 // matching its committed workspace so getCurrentModel() can't read the previous
 // workspace's provider/model while the scoped load is still in flight.
 export const copilotWorkspace = writable<string | undefined>(undefined)
-// The workspace of the most recent loadCopilot *request*, set synchronously before the
-// await — as opposed to `copilotWorkspace`, which only updates once a load resolves. A
-// background refresh must compare against this so it can't supersede an in-flight load for
-// a newer workspace (which would otherwise win the monotonic token and restore stale state).
-export const copilotWorkspaceRequested = writable<string | undefined>(undefined)
-export async function loadCopilot(workspace: string) {
-	const token = ++loadCopilotToken
-	copilotWorkspaceRequested.set(workspace)
-	workspaceAIClients.init(workspace)
-	try {
-		const info = await WorkspaceService.getCopilotInfo({ workspace })
-		if (token !== loadCopilotToken) return
-		setCopilotInfo(info)
-		copilotWorkspace.set(workspace)
-	} catch (err) {
-		if (token !== loadCopilotToken) return
-		setCopilotInfo({})
-		copilotWorkspace.set(workspace)
-		console.error('Could not get copilot info', err)
-	}
-}
 
 export function setCopilotInfo(aiConfig: AIConfig) {
 	if (Object.keys(aiConfig.providers ?? {}).length > 0) {

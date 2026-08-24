@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import * as log from "../../core/log.ts";
 import { colors } from "@cliffy/ansi/colors";
 import * as windmillUtils from "@windmill-labs/shared-utils";
@@ -78,44 +80,155 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
   }
 }
 
+/** What an `import()` matches — the point being that it never matches "require". */
+const ESM_CONDITIONS = ["node", "import", "default"];
+
+/**
+ * Walks one subpath of an exports map the way Node's ESM resolver would: first
+ * key in declaration order whose condition an `import()` matches wins.
+ */
+function esmConditionTarget(subpath: unknown): string | undefined {
+  if (typeof subpath === "string") return subpath;
+  if (!subpath || typeof subpath !== "object" || Array.isArray(subpath)) {
+    return undefined;
+  }
+  for (const [condition, target] of Object.entries(subpath)) {
+    if (!ESM_CONDITIONS.includes(condition)) continue;
+    const entry = esmConditionTarget(target);
+    if (entry) return entry;
+  }
+  return undefined;
+}
+
+/**
+ * `require.resolve` answers with the `require` condition, which Svelte maps at a
+ * minified UMD bundle. Only the CJS loader can read that file's exports, so
+ * `import()`ing it yields a namespace holding nothing but `default` and every
+ * named export reads undefined. The exports map is the only place to ask for the
+ * ESM entry instead — `require.resolve` takes no conditions.
+ */
+function resolveAppSvelteCompiler(appDir: string): string {
+  const requireFromApp = createRequire(
+    path.join(path.resolve(appDir), "package.json")
+  );
+  try {
+    const pkgPath = requireFromApp.resolve("svelte/package.json");
+    const exportsMap = JSON.parse(readTextFileSync(pkgPath))?.exports;
+    const target = esmConditionTarget(exportsMap?.["./compiler"]);
+    if (target?.startsWith(".")) {
+      const entry = path.resolve(path.dirname(pkgPath), target);
+      if (fs.existsSync(entry)) return entry;
+    }
+  } catch {
+    // No exports map to read (or an unexpected shape) — let the CJS resolver try.
+  }
+  return requireFromApp.resolve("svelte/compiler");
+}
+
+/**
+ * Loads the Svelte compiler out of the *app's* node_modules.
+ *
+ * The app brings its own Svelte runtime via package.json, and compiler and
+ * runtime have to agree on internals: Svelte 5.52.0 moved delegated event
+ * handlers off `element.__click` onto a Symbol-keyed map, so an older
+ * compiler's `onclick` output is silently ignored by a newer runtime — the app
+ * builds and renders with every handler dead. A bare `import("svelte/compiler")`
+ * resolves against this CLI instead, whose own svelte floats independently of
+ * the app's, which is exactly how the two drift apart.
+ *
+ * Falls back to the CLI's own compiler when the app has none resolvable.
+ */
+export async function loadSvelteCompiler(appDir: string): Promise<any> {
+  let mod: any;
+  try {
+    mod = await import(pathToFileURL(resolveAppSvelteCompiler(appDir)).href);
+  } catch {
+    mod = await import("svelte/compiler");
+  }
+  // A CJS entry still imports as a namespace whose only key is `default`.
+  return typeof mod?.compile === "function" ? mod : (mod?.default ?? mod);
+}
+
 /**
  * Creates a Svelte esbuild plugin
  * Uses the svelte compiler from the project's node_modules
  */
 function createSveltePlugin(appDir: string): any {
+  // Resolved once per build, not per file.
+  let compilerPromise: Promise<any> | undefined;
+  const svelteCompiler = () =>
+    (compilerPromise ??= loadSvelteCompiler(appDir));
+
+  // This converts a message in Svelte's format to esbuild's format
+  const messageConverter =
+    (source: string, filename: string) =>
+    ({ message, start, end }: any) => {
+      let location;
+      if (start && end) {
+        const lineText = source.split(/\r\n|\r|\n/g)[start.line - 1];
+        const lineEnd = start.line === end.line ? end.column : lineText.length;
+        location = {
+          file: filename,
+          line: start.line,
+          column: start.column,
+          length: lineEnd - start.column,
+          lineText,
+        };
+      }
+      return { text: message, location };
+    };
+
   return {
     name: "svelte",
     setup(build: any) {
       build.onLoad({ filter: /\.svelte$/ }, async (args: any) => {
-        // Import svelte compiler from the project's node_modules
-        const svelte = await import("svelte/compiler");
+        const svelte = await svelteCompiler();
 
         // Load the file from the file system
         const source = await readTextFile(args.path);
         const filename = path.relative(process.cwd(), args.path);
-
-        // This converts a message in Svelte's format to esbuild's format
-        const convertMessage = ({ message, start, end }: any) => {
-          let location;
-          if (start && end) {
-            const lineText = source.split(/\r\n|\r|\n/g)[start.line - 1];
-            const lineEnd = start.line === end.line ? end.column : lineText.length;
-            location = {
-              file: filename,
-              line: start.line,
-              column: start.column,
-              length: lineEnd - start.column,
-              lineText,
-            };
-          }
-          return { text: message, location };
-        };
+        const convertMessage = messageConverter(source, filename);
 
         // Convert Svelte syntax to JavaScript
         try {
           const { js, warnings } = svelte.compile(source, { filename });
           const contents = js.code + `//# sourceMappingURL=` + js.map.toUrl();
           return { contents, warnings: warnings.map(convertMessage) };
+        } catch (e: any) {
+          return { errors: [convertMessage(e)] };
+        }
+      });
+
+      // `lib.svelte.ts` / `lib.svelte.js` are plain modules that may use runes.
+      // They need `compileModule`, otherwise `$state`/`$derived` sail through
+      // esbuild untouched and the bundle throws "$state is not defined".
+      build.onLoad({ filter: /\.svelte\.[jt]s$/ }, async (args: any) => {
+        const svelte = await svelteCompiler();
+
+        const source = await readTextFile(args.path);
+        const filename = path.relative(process.cwd(), args.path);
+        const convertMessage = messageConverter(source, filename);
+
+        try {
+          // `compileModule` parses with plain acorn and chokes on TypeScript, so
+          // types have to come off first (vite-plugin-svelte gets this for free
+          // by running after Vite's esbuild transform).
+          const code = filename.endsWith(".ts")
+            ? (
+                await build.esbuild.transform(source, {
+                  loader: "ts",
+                  sourcefile: filename,
+                })
+              ).code
+            : source;
+
+          const { js, warnings } = svelte.compileModule(code, { filename });
+          const contents = js.code + `//# sourceMappingURL=` + js.map.toUrl();
+          return {
+            contents,
+            loader: "js",
+            warnings: warnings.map(convertMessage),
+          };
         } catch (e: any) {
           return { errors: [convertMessage(e)] };
         }

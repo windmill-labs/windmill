@@ -1,12 +1,43 @@
 import type { AiAgent, FlowModule, FlowModuleValue, InputTransform } from '$lib/gen'
 import { loadStoredConfig } from '../aiProviderStorage'
 import { AI_AGENT_SCHEMA } from './flowInfers'
+import { forbiddenIds } from './idUtils'
+
+/**
+ * A tool's `summary` is the name the LLM sees, and the worker rejects any name that does not match
+ * `^[a-zA-Z0-9_]+$` (`ai_executor.rs`), so an unvalidated name fails on every run of the flow.
+ *
+ * `kind` only has to tell the three tool kinds apart, so callers may pass either the raw
+ * `value.tool_type` or the module type they resolved it to: anything other than `'mcp'` and
+ * `'websearch'` — including `undefined` on a legacy tool — is checked as a flow module tool, which
+ * is what the worker does too.
+ */
+export function getToolNameError(
+	name: string,
+	kind?: 'mcp' | 'websearch' | (string & {}),
+	siblingNames?: string[]
+): string | undefined {
+	if (kind === 'websearch') return undefined
+	if (kind === 'mcp') {
+		return name.length > 0 ? undefined : 'Tool name must not be empty'
+	}
+	if (!/^[a-zA-Z0-9_]+$/.test(name)) {
+		return 'Tool name must only contain letters, numbers and underscores'
+	}
+	if (forbiddenIds.includes(name)) {
+		return `'${name}' is a reserved name`
+	}
+	if (siblingNames && siblingNames.filter((n) => n === name).length > 1) {
+		return 'Duplicate tool name'
+	}
+	return undefined
+}
 
 export const SPECIAL_TOOL_KINDS = ['mcpTool', 'websearchTool', 'aiAgentTool'] as const
 export type SpecialToolKind = (typeof SPECIAL_TOOL_KINDS)[number]
 
 // Type aliases for better readability
-export type AgentTool = AiAgent['tools'][number]
+export type AgentTool = NonNullable<AiAgent['tools']>[number]
 export type FlowModuleTool = AgentTool & { value: { tool_type: 'flowmodule' } & FlowModuleValue }
 export type AiAgentTool = AgentTool & {
 	value: { tool_type: 'flowmodule' } & { type: 'aiagent' } & FlowModuleValue
@@ -122,10 +153,13 @@ export function agentToolToFlowModule(tool: FlowModuleTool): FlowModule {
 }
 
 /**
- * Convert a FlowModule back to an AgentTool
- * Used when saving changes back to the AI Agent tools array
+ * Wrap a newly created FlowModule as an AgentTool.
+ *
+ * Only valid for a module that is not already a tool: FlowModule carries none of the
+ * AgentTool-level metadata (`description`), so folding an edited module back into an
+ * existing tool through here would drop it — spread over the existing tool instead.
  */
-export function flowModuleToAgentTool(flowModule: FlowModule): AgentTool {
+export function newFlowModuleAgentTool(flowModule: FlowModule): AgentTool {
 	return {
 		id: flowModule.id,
 		summary: flowModule.summary,

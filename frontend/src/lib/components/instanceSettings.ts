@@ -1,5 +1,14 @@
 import type { ButtonType } from './common/button/model'
 import { z } from 'zod'
+import { writable } from 'svelte/store'
+
+/**
+ * Bumped after instance settings are successfully saved. Settings whose display
+ * depends on server-side state derived from a saved value (rather than on the value
+ * in the form) subscribe to this to refetch — the form values change on every
+ * keystroke, so they are not a usable signal for that.
+ */
+export const instanceSettingsSaved = writable(0)
 
 // Languages that support HTTP request tracing via OTEL proxy
 export const OTEL_TRACING_PROXY_LANGUAGES = [
@@ -52,6 +61,7 @@ export interface Setting {
 		| 'otel_tracing_proxy'
 		| 'secret_backend'
 		| 'github_enterprise_app'
+		| 'webhook_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
 	storage: SettingStorage
@@ -128,6 +138,46 @@ export const scimSamlSetting: Setting[] = [
 		triggersRestart: true
 	}
 ]
+
+/**
+ * Mirror of `validate_webhook_base_url` in backend/windmill-common/src/global_settings.rs.
+ * Parses rather than pattern-matches so the two agree on the awkward cases (an
+ * invalid port like `https://x:abc`, IPv6 hosts, surrounding whitespace) — the
+ * server trims and runs `Url::parse`, so this does the same. The webhook path is
+ * appended to this value verbatim, hence no query, fragment or trailing slash.
+ */
+export function isValidWebhookBaseUrl(value: unknown): boolean {
+	if (value == undefined) return true
+	// `Setting.isValid` receives `any`, and YAML mode can put any JSON type here — a
+	// non-string must read as invalid rather than throw while the form computes which
+	// categories are in error.
+	if (typeof value !== 'string') return false
+	if (value.trim() === '') return true
+	const trimmed = value.trim()
+	let url: URL
+	try {
+		url = new URL(trimmed)
+	} catch {
+		return false
+	}
+	return (
+		(url.protocol === 'http:' || url.protocol === 'https:') &&
+		url.host !== '' &&
+		// Userinfo would end up in the per-repository receiver stored in workspace
+		// settings, which workspace admins can read.
+		url.username === '' &&
+		url.password === '' &&
+		// Tested on the raw string, not `url.search`/`url.hash`: those are `''` for a
+		// bare `?` or `#`, while Rust reports an empty-but-present query/fragment and
+		// rejects it. A literal delimiter is never valid here either way.
+		!trimmed.includes('?') &&
+		!trimmed.includes('#') &&
+		// `new URL` silently percent-encodes a space in the path, where the server
+		// rejects it outright.
+		!/\s/.test(trimmed) &&
+		!trimmed.endsWith('/')
+	)
+}
 
 export const settings: Record<string, Setting[]> = {
 	Core: [
@@ -484,6 +534,27 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build binaries on deployment',
+			description:
+				'When enabled and instance object storage is configured, deploying a Rust, Go or C# script queues a job that compiles it and uploads the binary to object storage, so the first run does not pay the compile. Requires instance object storage: without it the binary would only reach the building worker. Does nothing for languages whose artifact is not cached in object storage.',
+			key: 'auto_build_binary_on_deploy',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build worker tag',
+			description:
+				'Worker tag the auto-build jobs run on. Leave empty to use the script language tag, where its dependency job already runs. Set it to pin builds to a pool that has the toolchain and matches the platform of your runtime workers — the cache key includes the OS and architecture, so a binary built elsewhere is never reused. Note that compiling runs script-author-controlled build steps (Cargo build scripts, MSBuild targets, cgo) with exactly the isolation the cold build of a first run has — nsjail for Rust when job isolation is on, none for the Go and C# compilers — so this pool now executes them at deploy time rather than at first run.',
+			key: 'auto_build_binary_tag',
+			fieldType: 'text',
+			placeholder: 'e.g. build',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Private Hub': [
@@ -533,7 +604,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Azure OpenAI base path',
 			description:
-				'All workspaces using an OpenAI resource for Windmill AI will run on the specified deployed model. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id}. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
+				'All workspaces using an OpenAI resource for Windmill AI will run against the specified Azure resource. Format: https://{your-resource-name}.openai.azure.com/openai/deployments/{deployment-id} — keep the URL as stored; the model comes from each workspace\'s configured model list, whose entries must be your Azure deployment names. <a href="https://www.windmill.dev/docs/core_concepts/ai_generation#azure-openai-advanced-models">Learn more</a>',
 			key: 'openai_azure_base_path',
 			fieldType: 'text',
 			storage: 'setting',
@@ -934,9 +1005,11 @@ export const settings: Record<string, Setting[]> = {
 	],
 	'GitHub App': [
 		{
-			label: 'GitHub App',
+			// The category header above already names the section; this labels the
+			// card that holds the app credentials, next to the webhook base url one.
+			label: 'App configuration',
 			description:
-				'Configure a self-managed GitHub App to enable git sync without stats.windmill.dev.',
+				'Use your own GitHub App instead of the Windmill-managed one on stats.windmill.dev.',
 			key: 'github_enterprise_app',
 			fieldType: 'github_enterprise_app',
 			storage: 'setting',
@@ -947,6 +1020,19 @@ export const settings: Record<string, Setting[]> = {
 				if (!v?.self_managed) return true
 				return !!(v?.base_url && v?.app_id && v?.app_slug && v?.client_id && v?.private_key)
 			}
+		},
+		{
+			label: 'Webhook base url',
+			description:
+				'Base url GitHub delivers git sync webhooks to, without trailing slash. Leave empty to use the instance base url. Set it when GitHub cannot reach the base url and a separate ingress fronts this instance for inbound webhooks.',
+			key: 'github_app_webhook_base_url',
+			fieldType: 'webhook_base_url',
+			placeholder: 'https://windmill-webhooks.company.com',
+			storage: 'setting',
+			ee_only: '',
+			error:
+				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, and no trailing slash',
+			isValid: isValidWebhookBaseUrl
 		}
 	],
 	WebSocket: [
@@ -970,7 +1056,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Ruff config (ruff.toml)',
 			description:
-				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
+				'Shared ruff.toml applied to the Python editor linter across the whole instance. The LSP container fetches this every minute and writes it next to edited files. Leave empty to use the Windmill default (<code>select = ["E4", "E7", "E9", "F"]</code>); anything set here replaces that default entirely. See <a href="https://docs.astral.sh/ruff/configuration/">ruff docs</a>',
 			key: 'ruff_config',
 			fieldType: 'codearea',
 			codeAreaLang: 'toml',
@@ -1228,6 +1314,13 @@ export function extractMarkedLabel(marked: string | undefined, labelLength: numb
 		if (marked[markedIdx] === '<') {
 			while (markedIdx < marked.length && marked[markedIdx] !== '>') markedIdx++
 			markedIdx++
+		} else if (marked[markedIdx] === '&') {
+			// SearchItems escapes the haystack, so one plain character can arrive
+			// as an entity. Skipping the whole entity keeps this offset walk in
+			// step with `labelLength`, which counts unescaped characters.
+			const end = marked.indexOf(';', markedIdx)
+			markedIdx = end === -1 ? markedIdx + 1 : end + 1
+			plainIdx++
 		} else {
 			plainIdx++
 			markedIdx++

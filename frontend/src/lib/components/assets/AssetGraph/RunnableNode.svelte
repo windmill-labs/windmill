@@ -18,6 +18,7 @@
 		XCircle,
 		Zap
 	} from 'lucide-svelte'
+	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import type { GraphUsageKind } from './types'
@@ -45,6 +46,13 @@
 			// Macros this script provides (deployed/drafted `// macros` library).
 			// Non-empty renders the ƒ chip marking the node as a macro library.
 			macros?: { name: string; params: string; is_table: boolean }[]
+			// Set on a dbt script: the number of models the project materializes.
+			// One runnable node stands for the whole project, so the count is what
+			// tells it apart from a single-output script.
+			dbt?: { model_count: number }
+			/** Hovering the project badge emphasizes every model it
+			 *  materializes — the fan-out the graph deliberately omits. */
+			onDbtHover?: (on: boolean) => void
 			// Last-run status + run count observed this session (from the
 			// folder queue poll). Undefined until the first observed run.
 			runState?: RunnableRunState
@@ -188,7 +196,19 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+<!-- Hovering anywhere on a dbt project node highlights the models it
+     materializes: the association the graph does not draw as edges. -->
+<div
+	class="relative"
+	onmouseenter={() => {
+		hover = true
+		data.onDbtHover?.(true)
+	}}
+	onmouseleave={() => {
+		hover = false
+		data.onDbtHover?.(false)
+	}}
+>
 	<!--
 		Mirrors the flow editor's step styling (getNodeColorClasses): muted
 		surface-tertiary fill with a quiet gray border, accent only for the
@@ -274,6 +294,15 @@
 			>
 				<SquareFunction size={10} />
 				<span class="text-3xs leading-none">×{data.macros.length}</span>
+			</div>
+		{/if}
+		{#if data.dbt}
+			<div
+				class="shrink-0 flex items-center gap-0.5 px-1 py-0.5 mr-1 rounded-sm bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300"
+				title={`dbt project — materializes ${data.dbt.model_count} model${data.dbt.model_count === 1 ? '' : 's'}`}
+			>
+				<DbtIcon width={10} height={10} />
+				<span class="text-3xs leading-none">×{data.dbt.model_count}</span>
 			</div>
 		{/if}
 		{#if data.runState}

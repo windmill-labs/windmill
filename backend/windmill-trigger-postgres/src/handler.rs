@@ -208,8 +208,7 @@ impl TriggerCrud for PostgresTrigger {
                 publication,
                 publication_data.map(|publication| publication.0),
             )
-            .await
-            .map_err(to_anyhow)?;
+            .await?;
         }
 
         remote_db_tx.commit().await.map_err(to_anyhow)?;
@@ -714,15 +713,13 @@ pub async fn update_pg_publication(
                     table_to_track.as_deref(),
                     &transaction_to_track,
                 )
-                .await
-                .map_err(to_anyhow)?;
+                .await?;
             } else {
                 let pg_14 = check_if_valid_publication_for_postgres_version(
                     pg_connection,
                     table_to_track.as_deref(),
                 )
-                .await
-                .map_err(to_anyhow)?;
+                .await?;
 
                 let mut query = format!("ALTER PUBLICATION {} SET ", quoted_publication_name);
                 let mut first = true;
@@ -832,8 +829,7 @@ pub async fn alter_publication(
         publication_data,
         publication.map(|publication| publication.0),
     )
-    .await
-    .map_err(to_anyhow)?;
+    .await?;
 
     tx.commit().await.map_err(to_anyhow)?;
 

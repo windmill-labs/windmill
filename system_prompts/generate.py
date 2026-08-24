@@ -107,6 +107,14 @@ def extract_ts_functions(content: str) -> list[dict]:
         if not return_type:
             return_type = 'Promise<void>' if is_async else 'void'
 
+        # `@internal` marks an export that exists for another module or for a
+        # test to reach, not for a user to call. The SDK reference these prompts
+        # become is a user-facing API list, so it must not advertise them.
+        # `@deprecated` exports stay callable for existing scripts but must not be
+        # suggested for new ones.
+        if jsdoc_raw and ('@internal' in jsdoc_raw or '@deprecated' in jsdoc_raw):
+            continue
+
         docstring = clean_jsdoc(jsdoc_raw) if jsdoc_raw else ''
         seen_names.add(name)
         functions.append({
@@ -183,6 +191,12 @@ def extract_py_functions(content: str) -> list[dict]:
 
         # Get docstring
         docstring = ast.get_docstring(node) or ''
+
+        # Same rule as the TypeScript SDK: a deprecated member stays callable for existing
+        # scripts but must not be suggested for new ones. The Python SDK marks them with the
+        # Sphinx `.. deprecated::` directive.
+        if '.. deprecated::' in docstring:
+            return
 
         # Build parameter list
         params = []
@@ -699,10 +713,48 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
     return md
 
 
+# Who is running the script is answered by contextual variables, not by an SDK call, so the
+# SDK reference has to say so: it is where an agent looks for a `usernameToEmail`-style helper.
+IDENTITY_OF_THE_RUN_TS = """To know who is running the script, read the contextual variables rather than calling the API:
+`process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
+the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
+is the user the job is permissioned as. WM_USERNAME is the matching username."""
+
+IDENTITY_OF_THE_RUN_PY = """To know who is running the script, read the contextual variables rather than calling the API:
+`os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app
+viewer when the run was triggered from an app and empty otherwise (both variables are always
+defined), WM_EMAIL is the user the job is permissioned as. WM_USERNAME is the matching username."""
+
+
+# `setClient` reads BASE_INTERNAL_URL/BASE_URL and WM_TOKEN itself; agents that miss this rebuild
+# that logic by hand and get it wrong.
+PRECONFIGURED_CLIENT = """The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs."""
+
+# The listing is the helper surface, not the whole API, so each language needs its own escape
+# hatch: a flat "not listed means it does not exist" is false and leaves an uncovered endpoint
+# with no legal move.
+UNLISTED_ENDPOINTS_TS = """The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it."""
+
+UNLISTED_ENDPOINTS_PY = """The functions below are the surface to prefer. For an endpoint none of them covers,
+wmill.Windmill().get(endpoint) and .post(endpoint) issue an authenticated request against this
+instance. What does not exist is a function name you guessed at: if it is not listed below, do
+not call it."""
+
+
 def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:
     """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
     md += "Import: import * as wmill from 'windmill-client'\n\n"
+    md += PRECONFIGURED_CLIENT + "\n\n"
+    md += UNLISTED_ENDPOINTS_TS + "\n\n"
+    md += IDENTITY_OF_THE_RUN_TS + "\n\n"
 
     for i, func in enumerate(functions):
         if func.get('docstring'):
@@ -725,6 +777,9 @@ def generate_py_sdk_markdown(functions: list[dict], _classes: list[dict]) -> str
     """Generate compact documentation for Python SDK."""
     md = "# Python SDK (wmill)\n\n"
     md += "Import: import wmill\n\n"
+    md += PRECONFIGURED_CLIENT + "\n\n"
+    md += UNLISTED_ENDPOINTS_PY + "\n\n"
+    md += IDENTITY_OF_THE_RUN_PY + "\n\n"
 
     for func in functions:
         # Skip private functions
@@ -875,7 +930,9 @@ def _resolve_schema_refs(schema: dict, backend_schemas: dict, openflow_schemas: 
         ref = schema['$ref']
         ref_name = ref.split('/')[-1]
         if ref_name in seen:
-            return {'type': 'object'}
+            # Zod cannot express the recursion inline; stay permissive so the nested
+            # payload survives parsing instead of being stripped as unknown keys.
+            return {'type': 'object', 'additionalProperties': True}
 
         source = openflow_schemas if 'openflow.openapi.yaml' in ref or ref_name not in backend_schemas else backend_schemas
         ref_schema = source.get(ref_name)
@@ -915,15 +972,13 @@ def _apply_zod_metadata(expr: str, schema: dict) -> str:
 def _json_schema_to_zod(schema: dict, indent: int = 0) -> str:
     schema = schema or {}
 
-    if 'oneOf' in schema:
-        raise ValueError('Unsupported oneOf in workspace tool Zod schema generation')
-
     if 'allOf' in schema:
         raise ValueError('Unsupported allOf in workspace tool Zod schema generation')
 
-    if 'anyOf' in schema:
+    variants = schema.get('anyOf') or schema.get('oneOf')
+    if variants:
         expr = "z.union([{}])".format(
-            ', '.join(_json_schema_to_zod(item, indent) for item in schema['anyOf'])
+            ', '.join(_json_schema_to_zod(item, indent) for item in variants)
         )
         return _apply_zod_metadata(expr, schema)
 
@@ -1017,6 +1072,17 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         "",
         f"const triggerPathSchema = z.string().min(1).describe({_ts_string(trigger_path_description)})",
         "",
+        "// The kind-specific fields of a trigger config, with the three the tool supplies",
+        "// itself removed. Fetched one at a time through get_trigger_schema rather than",
+        "// inlined into create_trigger: as a union of all eleven this serialized to ~39k",
+        "// characters of JSON Schema, resent on every request of every chat.",
+        "export const triggerConfigSchemas = {",
+        *[
+            f"\t{kind}: {schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),"
+            for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS
+        ],
+        "} as const",
+        "",
         "export const createTriggerToolSchema = z.object({",
         "\tkind: z.enum([",
         *[
@@ -1025,12 +1091,11 @@ def generate_workspace_tool_zod_schemas(backend_schemas: dict, openflow_schemas:
         ],
         "\t]),",
         "\tpath: triggerPathSchema,",
-        "\tconfig: z.union([",
-    ])
-    for kind, schema_name in WORKSPACE_TOOL_TRIGGER_SCHEMAS:
-        lines.append(f"\t\t{schema_name}.omit({{ path: true, script_path: true, is_flow: true }}),")
-    lines.extend([
-        "\t])",
+        "\tconfig: z",
+        "\t\t.record(z.string(), z.any())",
+        "\t\t.describe(",
+        "\t\t\t'The kind-specific trigger configuration. Call get_trigger_schema with the same kind first to get its exact fields.'",
+        "\t\t)",
         "})",
     ])
     lines.append("")
@@ -2605,9 +2670,19 @@ export function getResourcePrompt(): string {
   return prompts.RESOURCES_BASE;
 }
 
-// Helper for raw app authoring (chat consumers)
-export function getRawAppPrompt(): string {
-  return prompts.RAW_APP_BASE;
+// Helper for raw app authoring (chat consumers). Inline backend runnables are
+// ordinary Windmill jobs, so the reference has to carry the SDK the runnable
+// calls — without it an agent invents client functions and hand-rolls HTTP.
+// Only one SDK is returned: both would double an already large tool result.
+export function getRawAppPrompt(language?: string): string {
+  const sdkPrompt = PY_SDK_LANGUAGES.includes(language ?? '')
+    ? prompts.SDK_PYTHON
+    : prompts.SDK_TYPESCRIPT;
+
+  return [
+    prompts.RAW_APP_BASE,
+    sdkPrompt
+  ].filter(Boolean).join('\\n\\n');
 }
 
 // Helper for data pipeline authoring (chat consumers)
@@ -2666,7 +2741,7 @@ export function getWorkflowAsCodePrompt(language?: string): string {
 export declare function getScriptPrompt(language: string): string;
 export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
-export declare function getRawAppPrompt(): string;
+export declare function getRawAppPrompt(language?: string): string;
 export declare function getPipelinePrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;

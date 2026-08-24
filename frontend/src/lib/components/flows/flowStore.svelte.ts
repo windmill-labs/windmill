@@ -14,7 +14,7 @@ export async function initFlow(
 	// The acting workspace when the flow editor runs in an AI session; else the nav workspace.
 	workspace?: string
 ) {
-	await initFlowState(flow, flowStateStore, workspace)
+	await initFlowState(flow, flowStateStore, workspace, flow.path ?? '')
 	flowStore.val = flow
 }
 

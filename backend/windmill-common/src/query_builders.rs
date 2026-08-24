@@ -1,6 +1,8 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use windmill_types::scripts::ScriptLang;
 
+use crate::error::pg_error_message;
+
 fn deserialize_bool_from_null<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
     D: Deserializer<'de>,
@@ -522,6 +524,26 @@ fn cols_to_simple(cols: &[ColumnDef]) -> Vec<SimpleColumn> {
         .collect()
 }
 
+/// DuckDB's `concat` doubles as list concatenation, so a LIST or ARRAY beside a
+/// VARCHAR is a binder error rather than an implicit cast, and quicksearch
+/// concatenates every visible column, so one of them makes the table
+/// unpreviewable. Everything else concatenates as text and stays uncast: the
+/// frontend twin of this predicate feeds app policy digests that a changed
+/// string invalidates.
+fn duckdb_quicksearch_columns(column_defs: &[ColumnDef]) -> String {
+    visible_column_defs(column_defs)
+        .map(|c| {
+            let quoted = render_db_quoted_identifier(&c.field, DbType::Duckdb);
+            if c.datatype.trim_end().ends_with(']') {
+                format!("CAST({} AS VARCHAR)", quoted)
+            } else {
+                quoted
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// MSSQL `text`, `ntext`, and `image` types cannot be used with the `=` operator.
 /// This function wraps the column/param in CAST(...) when needed.
 fn mssql_needs_cast_for_eq(datatype: &str) -> bool {
@@ -576,10 +598,14 @@ fn qi(identifier: &str, db_type: DbType) -> String {
     render_db_quoted_identifier(identifier, db_type)
 }
 
+/// The columns a table preview shows, in the order [`build_visible_field_list`]
+/// renders them.
+fn visible_column_defs(column_defs: &[ColumnDef]) -> impl Iterator<Item = &ColumnDef> {
+    column_defs.iter().filter(|c| c.ignored != Some(true))
+}
+
 pub fn build_visible_field_list(column_defs: &[ColumnDef], db_type: DbType) -> Vec<String> {
-    column_defs
-        .iter()
-        .filter(|c| c.ignored != Some(true))
+    visible_column_defs(column_defs)
         .map(|c| render_db_quoted_identifier(&c.field, db_type))
         .collect()
 }
@@ -1017,7 +1043,7 @@ pub fn make_select_query(
 
             let quicksearch = format!(
                 "($quicksearch = '' OR CONCAT({}) ILIKE '%' || $quicksearch || '%')",
-                filtered_columns.join(", ")
+                duckdb_quicksearch_columns(column_defs)
             );
 
             query.push_str(&format!(
@@ -1186,7 +1212,7 @@ pub fn make_count_query(
             if !filtered_columns.is_empty() {
                 quicksearch_condition.push_str(&format!(
                     " ($quicksearch = '' OR CONCAT(' ', {}) LIKE CONCAT('%', $quicksearch, '%'))",
-                    filtered_columns.join(", ")
+                    duckdb_quicksearch_columns(column_defs)
                 ));
             } else {
                 quicksearch_condition.push_str(" ($quicksearch = '' OR 1 = 1)");
@@ -3128,6 +3154,40 @@ mod tests {
         assert!(result.contains("LIMIT $limit::INT OFFSET $offset::INT"));
     }
 
+    /// Both the SELECT and the COUNT build the quicksearch predicate; fixing only
+    /// one leaves the grid rendering while the row count errors out.
+    #[test]
+    fn test_duckdb_quicksearch_casts_only_list_columns() {
+        let cols = vec![
+            col("id", "VARCHAR"),
+            col("tags", "VARCHAR[]"),
+            col("pos", "INTEGER[3]"),
+            col("meta", "STRUCT(a INTEGER)"),
+        ];
+
+        let select =
+            make_select_query("my_table", &cols, None, DbType::Duckdb, None, None).unwrap();
+        assert!(
+            select.contains(
+                "CONCAT(\"id\", CAST(\"tags\" AS VARCHAR), CAST(\"pos\" AS VARCHAR), \"meta\") ILIKE"
+            ),
+            "got:\n{}",
+            select
+        );
+        // The projection stays untouched: casting there would change the types
+        // the caller reads back.
+        assert!(select.contains("SELECT \"id\", \"tags\", \"pos\", \"meta\" FROM \"my_table\""));
+
+        let count = make_count_query(DbType::Duckdb, "my_table", None, &cols, None).unwrap();
+        assert!(
+            count.contains(
+                "CONCAT(' ', \"id\", CAST(\"tags\" AS VARCHAR), CAST(\"pos\" AS VARCHAR), \"meta\") LIKE"
+            ),
+            "got:\n{}",
+            count
+        );
+    }
+
     // -----------------------------------------------------------------------
     // SELECT - error cases
     // -----------------------------------------------------------------------
@@ -4830,8 +4890,37 @@ fn pg_action_to_string(action: &str) -> String {
     }
 }
 
+/// Rows of a simple-protocol result, dropping the framing messages.
+fn simple_query_rows(
+    messages: Vec<tokio_postgres::SimpleQueryMessage>,
+) -> Vec<tokio_postgres::SimpleQueryRow> {
+    messages
+        .into_iter()
+        .filter_map(|m| match m {
+            tokio_postgres::SimpleQueryMessage::Row(row) => Some(row),
+            _ => None,
+        })
+        .collect()
+}
+
+fn required_str<'a>(
+    row: &'a tokio_postgres::SimpleQueryRow,
+    column: &str,
+) -> Result<&'a str, String> {
+    row.try_get(column)
+        .map_err(|e| format!("Failed to read column {}: {}", column, pg_error_message(&e)))?
+        .ok_or_else(|| format!("Unexpected NULL in column {}", column))
+}
+
 /// Introspect a PostgreSQL database and return the full schema.
 /// Takes a connected tokio_postgres Client.
+///
+/// Both statements go through the simple query protocol. The extended protocol allocates a
+/// named prepared statement per call and closes it when the statement handle drops; behind a
+/// transaction-pooling proxy those names are shared with, and outlive, other sessions on the
+/// same backend, and the exchange then stalls with no reply — the connection never becomes
+/// idle again and the request hangs. Neither statement takes parameters, so nothing here
+/// needs the extended protocol.
 pub async fn pg_get_full_schema(
     client: &tokio_postgres::Client,
 ) -> Result<FullDatabaseSchema, String> {
@@ -4840,7 +4929,7 @@ pub async fn pg_get_full_schema(
     // per-column correlated subqueries — on large catalogs those subqueries run
     // once per column and make the introspection time out.
     let column_rows = client
-        .query(
+        .simple_query(
             "SELECT
                 ns.nspname AS schema_name,
                 c.relname AS table_name,
@@ -4862,13 +4951,13 @@ pub async fn pg_get_full_schema(
                 AND NOT a.attisdropped
                 AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
             ORDER BY ns.nspname, c.relname, a.attnum",
-            &[],
         )
         .await
-        .map_err(|e| format!("Failed to query columns: {}", e))?;
+        .map(simple_query_rows)
+        .map_err(|e| format!("Failed to query columns: {}", pg_error_message(&e)))?;
 
     let fk_rows = client
-        .query(
+        .simple_query(
             "SELECT
                 ns.nspname AS schema_name,
                 c.relname AS table_name,
@@ -4890,21 +4979,21 @@ pub async fn pg_get_full_schema(
             WHERE con.contype = 'f'
                 AND ns.nspname NOT IN ('pg_catalog', 'information_schema')
             ORDER BY ns.nspname, c.relname, con.conname, u.ord",
-            &[],
         )
         .await
-        .map_err(|e| format!("Failed to query foreign keys: {}", e))?;
+        .map(simple_query_rows)
+        .map_err(|e| format!("Failed to query foreign keys: {}", pg_error_message(&e)))?;
 
     let mut result: FullDatabaseSchema = std::collections::HashMap::new();
 
     for row in &column_rows {
-        let schema_name: &str = row.get("schema_name");
-        let table_name: &str = row.get("table_name");
-        let column_name: &str = row.get("column_name");
-        let datatype: &str = row.get("datatype");
+        let schema_name = required_str(row, "schema_name")?;
+        let table_name = required_str(row, "table_name")?;
+        let column_name = required_str(row, "column_name")?;
+        let datatype = required_str(row, "datatype")?;
         let default_value: Option<&str> = row.get("default_value");
-        let nullable: bool = row.get("nullable");
-        let is_primary_key: bool = row.get("is_primary_key");
+        let nullable = required_str(row, "nullable")? == "t";
+        let is_primary_key = required_str(row, "is_primary_key")? == "t";
         let pk_constraint_name: Option<&str> = row.get("pk_constraint_name");
 
         let schema_tables = result.entry(schema_name.to_string()).or_default();
@@ -4937,15 +5026,15 @@ pub async fn pg_get_full_schema(
     > = std::collections::HashMap::new();
 
     for row in &fk_rows {
-        let schema_name: &str = row.get("schema_name");
-        let table_name: &str = row.get("table_name");
-        let fk_name: &str = row.get("fk_constraint_name");
-        let source_column: &str = row.get("source_column");
-        let ref_schema: &str = row.get("ref_schema");
-        let ref_table: &str = row.get("ref_table");
-        let ref_column: &str = row.get("ref_column");
-        let on_delete: &str = row.get("on_delete");
-        let on_update: &str = row.get("on_update");
+        let schema_name = required_str(row, "schema_name")?;
+        let table_name = required_str(row, "table_name")?;
+        let fk_name = required_str(row, "fk_constraint_name")?;
+        let source_column = required_str(row, "source_column")?;
+        let ref_schema = required_str(row, "ref_schema")?;
+        let ref_table = required_str(row, "ref_table")?;
+        let ref_column = required_str(row, "ref_column")?;
+        let on_delete = required_str(row, "on_delete")?;
+        let on_update = required_str(row, "on_update")?;
 
         let target_table = if ref_schema == schema_name {
             ref_table.to_string()

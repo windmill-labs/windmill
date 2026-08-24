@@ -52,7 +52,7 @@ use crate::{
     otel_oss::add_root_flow_job_to_otlp,
     worker_flow::update_flow_status_after_job_completion,
     JobCompletedReceiver, JobCompletedSender, SameWorkerSender, SendResult, SendResultPayload,
-    UpdateFlow, SAME_WORKER_REQUIREMENTS,
+    StepFailureKind, UpdateFlow, SAME_WORKER_REQUIREMENTS,
 };
 use windmill_common::client::AuthedClient;
 
@@ -212,7 +212,7 @@ async fn process_jc(
         span.record("root_job", root_job.to_string().as_str());
     }
     if let Some(trigger_kind) = jc.job.trigger_kind.as_ref() {
-        span.record("trigger_kind", trigger_kind.to_string().as_str());
+        span.record("trigger_kind", trigger_kind.as_str());
     }
     if let Some(trigger) = jc.job.trigger.as_ref() {
         span.record("trigger", trigger.as_str());
@@ -378,10 +378,13 @@ pub fn start_background_processor(
                     time,
                 }) => {
                     let is_init_script = jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                    // A binary build shares the `dependencies` kind but deploys no new
+                    // version, so it must not bounce the dedicated workers below — its tag
+                    // can point at a pool that hosts them.
                     let is_dependency_job = matches!(
                         jc.job.kind,
                         JobKind::Dependencies | JobKind::FlowDependencies
-                    );
+                    ) && !jc.job.build_binary_only;
                     let jc_id = jc.job.id;
                     #[cfg(feature = "benchmark")]
                     let bench_job_id = jc.job.id;
@@ -408,6 +411,14 @@ pub fn start_background_processor(
                     )
                     .warn_after_seconds(10)
                     .await;
+
+                    // Resolved here rather than from the main loop's outcome because `wm_failure`
+                    // can flip an exit-zero init script to a failure, and dedicated workers must
+                    // not install against a host it failed to prepare. An agent server relays other
+                    // workers' init scripts, so it has no say over its own gate.
+                    if is_init_script && !is_agent_server {
+                        crate::worker::init_script_finished(final_success);
+                    }
 
                     if is_init_script && !final_success {
                         if is_agent_server {
@@ -457,6 +468,7 @@ pub fn start_background_processor(
                             worker_dir,
                             stop_early_override,
                             token,
+                            step_failure,
                         }),
                     time,
                 }) => {
@@ -477,7 +489,7 @@ pub fn start_background_processor(
                         None,
                         Arc::new(result),
                         None,
-                        true,
+                        step_failure,
                         &same_worker_tx,
                         &worker_dir,
                         stop_early_override,
@@ -681,8 +693,66 @@ pub async fn handle_receive_completed_job(
     killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) -> Option<Arc<MiniPulledJob>> {
-    let token = jc.token.clone();
     let workspace = jc.job.workspace_id.clone();
+    // This client drives post-completion orchestration (the next step's input transforms fetch
+    // prior results) and outlives the finished step, so the step's own token can already be near
+    // expiry. Refresh it — but only from the server-written job_perms row, never from the
+    // completion payload's owner fields, which are untrusted on the agent-worker path.
+    let token = if jc.job.is_flow_step()
+        && windmill_common::auth::job_token_remaining_lifetime_secs(&jc.token)
+            .is_some_and(|r| r < windmill_common::auth::JOB_TOKEN_REFRESH_MARGIN_SECS)
+    {
+        let label = windmill_common::auth::ephemeral_script_token_label(
+            &jc.job.permissioned_as,
+            &jc.job.created_by,
+        );
+        match windmill_common::auth::get_job_perms(db, &jc.job.id, &jc.job.workspace_id).await {
+            Ok(Some(perms)) => windmill_common::auth::create_token_for_owner(
+                db,
+                &jc.job.workspace_id,
+                &jc.job.permissioned_as,
+                &label,
+                windmill_common::auth::job_token_expiry_secs(db, &jc.job.workspace_id).await,
+                &jc.job.permissioned_as_email,
+                &jc.job.id,
+                Some(perms),
+                Some(format!(
+                    "job-span-{}",
+                    jc.job.flow_innermost_root_job.unwrap_or(jc.job.id)
+                )),
+            )
+            .warn_after_seconds(5)
+            .await
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "could not mint fresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }),
+            // No perms row (e.g. a zombie replay after the queue row was reaped): keep the step
+            // token rather than minting an identity from untrusted payload fields. The token is
+            // near expiry, so trace it — the downstream fetch may hit the original failure.
+            Ok(None) => {
+                tracing::warn!(
+                    "no job_perms row to refresh flow-orchestration token for job {}, reusing step token",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
+            // A transient DB error must not silently reuse the near-expired token without a trace,
+            // or the very failure this guards against recurs invisibly.
+            Err(e) => {
+                tracing::warn!(
+                    "could not load job_perms to refresh flow-orchestration token for job {}, reusing step token: {e:#}",
+                    jc.job.id
+                );
+                jc.token.clone()
+            }
+        }
+    } else {
+        jc.token.clone()
+    };
     let client = AuthedClient::new(base_internal_url.to_string(), workspace, token, None);
     let job = jc.job.clone();
     let mem_peak = jc.mem_peak.clone();
@@ -725,7 +795,7 @@ pub async fn handle_receive_completed_job(
                 mem_peak,
                 canceled_by,
                 err,
-                false,
+                StepFailureKind::Normal,
                 same_worker_tx.clone(),
                 &worker_dir,
                 worker_name,
@@ -800,6 +870,28 @@ fn parse_git_sync_changes(result_raw: &str) -> Option<(Vec<(String, String)>, bo
     ))
 }
 
+/// The pull script reports an unmergeable PR as a top-level `pr_check_error`
+/// sentinel field. Matched as an exact field, never a substring: a successful
+/// diff lists user-controlled repo paths that could embed the sentinel text.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn parse_pr_check_error(result_raw: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(result_raw)
+        .ok()
+        .and_then(|v| {
+            v.get("pr_check_error")
+                .and_then(|e| e.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
+/// The run page for `job_id`, or `None` when the instance has no `BASE_URL` set
+/// (it defaults to empty) — a check must not carry a link that goes nowhere.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn job_run_url(base_url: &str, job_id: &uuid::Uuid, workspace_id: &str) -> Option<String> {
+    let base = base_url.trim_end_matches('/');
+    (!base.is_empty()).then(|| format!("{base}/run/{job_id}?workspace={workspace_id}"))
+}
+
 #[cfg(all(feature = "enterprise", feature = "private"))]
 fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
     let mut lines = Vec::new();
@@ -814,7 +906,31 @@ fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
 
 #[cfg(all(test, feature = "enterprise", feature = "private"))]
 mod git_sync_check_tests {
-    use super::{format_change_list, parse_git_sync_changes};
+    use super::{format_change_list, job_run_url, parse_git_sync_changes, parse_pr_check_error};
+
+    #[test]
+    fn job_run_url_is_none_without_a_base_url() {
+        let id = uuid::Uuid::nil();
+        assert_eq!(
+            job_run_url("https://app.windmill.dev/", &id, "w").as_deref(),
+            Some("https://app.windmill.dev/run/00000000-0000-0000-0000-000000000000?workspace=w")
+        );
+        // BASE_URL defaults to empty; a link built from it would 404 the reader.
+        assert_eq!(job_run_url("", &id, "w"), None);
+        assert_eq!(job_run_url("/", &id, "w"), None);
+    }
+
+    #[test]
+    fn pr_check_error_is_a_field_not_a_substring() {
+        // A diff whose paths embed the sentinel text must not trip the verdict.
+        let diff = r#"{"changes":[{"type":"edited","path":"f/team/PR_MERGE_CONFLICTS.ts"}]}"#;
+        assert_eq!(parse_pr_check_error(diff), None);
+        let sentinel = r#"{"pr_check_error":"PR_MERGE_CONFLICTS","message":"m"}"#;
+        assert_eq!(
+            parse_pr_check_error(sentinel).as_deref(),
+            Some("PR_MERGE_CONFLICTS")
+        );
+    }
 
     #[test]
     fn parse_empty_changes_is_in_sync() {
@@ -906,7 +1022,7 @@ async fn maybe_reconcile_git_sync_auto_pull(
 
 /// Branch a git-sync push job deployed to, mirroring the hub script's
 /// derivation: a dev workspace deploys to its environment-label branch
-/// (`dev`/`staging`), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
+/// (`dev`, `staging`, ...), other fork workspaces to `wm-fork/<base>/<id-suffix>`,
 /// else the promotion `wm_deploy/**` formula (per-folder or per-item form).
 /// A dev workspace in promotion mode is the exception: it takes the promotion
 /// `wm_deploy/**` formula (per-item PRs into the parent) instead of its label
@@ -1280,6 +1396,10 @@ async fn maybe_post_git_sync_check(
     } else {
         None
     };
+    // The creating call could only link the check to the workspace's run list —
+    // the check predates the job fulfilling it. Now that the job is known, point
+    // both the summary and the check's "Details" link at its logs.
+    let job_url = job_run_url(&windmill_common::BASE_URL.load(), job_id, workspace_id);
 
     let (conclusion, title, summary): (&str, String, String) = if is_deploy {
         // Phase 6: real deploy pull -> "Deployed N changes" / "In sync" / failure.
@@ -1287,8 +1407,7 @@ async fn maybe_post_git_sync_check(
             (
                 "failure",
                 format!("Deploy to {} failed", workspace_id),
-                "Deploying the latest commit failed. See the job in Windmill for details."
-                    .to_string(),
+                "Deploying the latest commit failed.".to_string(),
             )
         } else {
             match parse_git_sync_changes(result_raw) {
@@ -1324,13 +1443,40 @@ async fn maybe_post_git_sync_check(
             }
         }
     } else {
-        // Phase 4: dry-run diff preview for a PR.
-        if !success {
+        // Phase 4: dry-run diff preview for a PR. An unmergeable PR has no
+        // diff; the pull script reports which sentinel applies (returned as a
+        // result — thrown bun errors reach the job result as truncated log tails).
+        let pr_check_error = parse_pr_check_error(result_raw);
+        if pr_check_error.as_deref() == Some("PR_MERGE_CONFLICTS") {
+            (
+                "failure",
+                "Merge conflicts with the base branch".to_string(),
+                "This PR cannot be merged cleanly, so there is no deploy diff to compute. Resolve the conflicts and push again to re-run this check."
+                    .to_string(),
+            )
+        } else if pr_check_error.as_deref() == Some("PR_HEAD_REF_UNAVAILABLE") {
+            // Neutral, not failure: a transient fetch problem is Windmill-side
+            // and, unlike conflicts, has no fixing push that would re-run the
+            // check on its own — it must not hard-block the PR.
+            (
+                "neutral",
+                "Could not compute the deploy diff".to_string(),
+                "Windmill could not fetch this PR's head or enough history from GitHub to compute its merge with the base. Push again to re-run this check."
+                    .to_string(),
+            )
+        } else if pr_check_error.is_some() {
+            // Unknown sentinel (script newer than this backend): an explicit
+            // error signal must not degrade into a "diff computed" verdict.
             (
                 "failure",
                 "Windmill diff failed".to_string(),
-                "The dry-run pull to compute the diff failed. See the job in Windmill for details."
-                    .to_string(),
+                "The dry-run pull reported an unrecognized error.".to_string(),
+            )
+        } else if !success {
+            (
+                "failure",
+                "Windmill diff failed".to_string(),
+                "The dry-run pull to compute the diff failed.".to_string(),
             )
         } else {
             match parse_git_sync_changes(result_raw) {
@@ -1370,6 +1516,10 @@ async fn maybe_post_git_sync_check(
         }
     };
 
+    let check_summary = match job_url.as_deref() {
+        Some(url) => format!("{summary}\n\n[See the job in Windmill]({url})"),
+        None => summary.clone(),
+    };
     if let Err(e) = windmill_common::git_sync_ee::update_check_run(
         db,
         workspace_id,
@@ -1377,7 +1527,8 @@ async fn maybe_post_git_sync_check(
         check.check_run_id,
         conclusion,
         &title,
-        &summary,
+        &check_summary,
+        job_url.as_deref(),
     )
     .await
     {
@@ -1395,8 +1546,12 @@ async fn maybe_post_git_sync_check(
                 .as_deref()
                 .map(|s| &s[..s.len().min(7)])
                 .unwrap_or("latest");
+            let job_row = job_url
+                .as_deref()
+                .map(|url| format!("\n| **Job** | [See the logs]({url}) |"))
+                .unwrap_or_default();
             let body = format!(
-                "{marker}\n### Windmill deploy preview\n\n| | |\n|---|---|\n| **Workspace** | `{workspace_id}` |\n| **Status** | {title} |\n| **Commit** | `{head}` |\n\n<details><summary>Details</summary>\n\n{summary}\n\n</details>"
+                "{marker}\n### Windmill deploy preview\n\n| | |\n|---|---|\n| **Workspace** | `{workspace_id}` |\n| **Status** | {title} |\n| **Commit** | `{head}` |{job_row}\n\n<details><summary>Details</summary>\n\n{summary}\n\n</details>"
             );
             if let Err(e) = windmill_common::git_sync_ee::upsert_pr_comment(
                 db,
@@ -1527,7 +1682,7 @@ pub async fn process_completed_job(
                     canceled_by,
                     result,
                     started_at.map(|x| FlowJobDuration { started_at: x, duration_ms: duration }),
-                    false,
+                    StepFailureKind::Normal,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
@@ -1634,7 +1789,7 @@ pub async fn process_completed_job(
                             duration_ms: d,
                         })
                     }),
-                    false,
+                    StepFailureKind::Normal,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
                     None,
@@ -1791,13 +1946,11 @@ pub(crate) async fn handle_wac_child_completion(
             step_key = %step_key,
             "WAC v2 child job failed, storing error for workflow try/catch"
         );
-        json!({
-            "__wmill_error": true,
-            "message": format!("WAC task '{}' failed (child job {})", step_key, child_job_id),
-            "child_job_id": child_job_id.to_string(),
-            "step_key": step_key,
-            "result": child_err,
-        })
+        windmill_common::wac::wac_failure_record(
+            &step_key,
+            Some(&child_job_id.to_string()),
+            &child_err,
+        )
     };
 
     tracing::info!(
@@ -1914,7 +2067,7 @@ pub async fn handle_job_error(
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     err: Error,
-    unrecoverable: bool,
+    step_failure: StepFailureKind,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
     worker_name: &str,
@@ -1964,7 +2117,7 @@ pub async fn handle_job_error(
             canceled_by.clone(),
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
             None,
-            unrecoverable,
+            step_failure,
             &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).clone(),
             worker_dir,
             None,

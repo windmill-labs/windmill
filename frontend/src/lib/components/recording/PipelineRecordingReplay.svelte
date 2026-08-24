@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Job } from '$lib/gen'
-	import { setActiveReplay } from './flowRecording.svelte'
+	import { setActiveReplay } from './replay.svelte'
+	import { synthesizeSingleJobReplay } from './replayStream'
 	import type { PipelineRecording, RecordedJob, RecordedNodeState } from './types'
 	import AssetGraphCanvas from '$lib/components/assets/AssetGraph/AssetGraphCanvas.svelte'
 	import type { AssetGraphSelection } from '$lib/components/assets/AssetGraph/types'
@@ -148,29 +149,6 @@
 		timeouts = []
 	}
 
-	/** Offset a recorded job's absolute timestamps to "now" so duration/elapsed
-	 * displays compute correctly during replay. */
-	function rebaseJobTimestamps(rec: RecordedJob) {
-		const anchor = rec.initial_job?.started_at ?? rec.initial_job?.created_at
-		if (!anchor) return
-		const earliest = new Date(anchor).getTime()
-		if (isNaN(earliest)) return
-		const offset = Date.now() - earliest
-		const offsetDate = (d: string | undefined): string | undefined => {
-			if (!d) return d
-			const t = new Date(d).getTime()
-			return isNaN(t) ? d : new Date(t + offset).toISOString()
-		}
-		const fix = (j: any) => {
-			if (!j) return
-			if (j.started_at) j.started_at = offsetDate(j.started_at)
-			if (j.created_at) j.created_at = offsetDate(j.created_at)
-			if (j.completed_at) j.completed_at = offsetDate(j.completed_at)
-		}
-		fix(rec.initial_job)
-		for (const e of rec.events) fix((e.data as any)?.job)
-	}
-
 	// The recorded job id for the selected runnable, if it ran.
 	let selectedJobId = $derived.by(() => {
 		if (selection?.kind !== 'runnable') return undefined
@@ -227,19 +205,21 @@
 
 	async function openNodeDetail(jobId: string) {
 		job = undefined
-		const rec = recording.jobs[jobId]
-		if (!rec) return
-		const cloned = JSON.parse(JSON.stringify(rec)) as RecordedJob
+		const recorded = recording.jobs[jobId]
+		if (!recorded) return
 		// Only a node that is still running in the animation replays its stream
-		// live; a node the graph already shows as finished reveals its logs and
-		// result at once (collapse every event to t=0) rather than re-playing the
-		// whole execution as if it were computing now. Recorded `t` is relative to
-		// the whole-pipeline start, so rebase to the moment of open for the live case.
+		// live (logs pacing out over the job's real duration); a node the graph
+		// already shows as finished reveals its logs and result at once.
 		const streamLive = selectedStatus === 'running'
-		const base = cloned.events[0]?.t ?? 0
-		for (const e of cloned.events) e.t = streamLive ? Math.max(0, e.t - base) : 0
-		rebaseJobTimestamps(cloned)
-		setActiveReplay({ jobs: { [jobId]: cloned } })
+		let stream: RecordedJob
+		try {
+			stream = synthesizeSingleJobReplay(recorded, { collapse: !streamLive })
+		} catch {
+			// A malformed recorded job (recordings are caller-controlled) must not
+			// take down the player from this event handler — show it as-is instead.
+			stream = { initial_job: recorded, events: [] }
+		}
+		setActiveReplay({ jobs: { [jobId]: stream } })
 		await tick()
 		jobLoader?.watchJob(jobId)
 	}
@@ -261,11 +241,23 @@
 		return (shownStatuses[selection.path] ?? finalStatuses[selection.path])?.status
 	})
 
-	// Output (args/logs/result) vs the step's source code, for a runnable node.
-	let runnableTab = $state<'output' | 'code'>('output')
+	// The step's source code vs its output (args/logs/result), for a runnable node.
+	let runnableTab = $state<'output' | 'code'>('code')
 	let selectedCode = $derived.by(() => {
 		if (selection?.kind !== 'runnable') return undefined
 		return recording.codes?.[selection.path]
+	})
+	// Land on the code, since that is what the step *is* — but fall back to Output
+	// when the recording carries none, so a recording made before `codes` existed
+	// does not open on an empty pane. Depends on the selected path alone: the
+	// lookup is untracked so a tab the viewer picked by hand survives until they
+	// move to another step, rather than resetting if the recording object changes.
+	$effect(() => {
+		const path = selection?.kind === 'runnable' ? selection.path : undefined
+		if (path === undefined) return
+		untrack(() => {
+			runnableTab = recording.codes?.[path] ? 'code' : 'output'
+		})
 	})
 
 	// Recorded data-sample for a selected asset node (ducklake/datatable).
@@ -382,8 +374,8 @@
 											on:selected={(e) => (runnableTab = e.detail)}
 										>
 											{#snippet children({ item })}
-												<ToggleButton size="sm" value="output" label="Output" {item} />
 												<ToggleButton size="sm" value="code" label="Code" {item} />
+												<ToggleButton size="sm" value="output" label="Output" {item} />
 											{/snippet}
 										</ToggleButtonGroup>
 									</div>

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import { Badge, Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
@@ -19,6 +20,7 @@
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
 		ArrowDownUp,
+		CheckSquare,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
@@ -41,18 +43,20 @@
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import FlowIcon from './FlowIcon.svelte'
-	import { canWrite, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import { canWrite, getLocalSetting, isOwner, storeLocalSetting } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
-	import type { ItemType } from './treeViewUtils'
+	import { effectivePath, type ItemType } from './treeViewUtils'
 	import { getContext, tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { NetworkIcon } from 'lucide-svelte'
 	import { base } from '$lib/base'
+	import BulkActionsBar from './BulkActionsBar.svelte'
+	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
 	interface Props {
 		subtab?: 'flow' | 'script' | 'app'
 		showEditButtons?: boolean
@@ -153,9 +157,9 @@
 			}
 			try {
 				for (const d of await getDraftItems(ws)) {
-					if (d.kind !== 'data_pipeline') continue
-					const m = d.path.match(/^f\/([^/]+)\/data_pipeline$/)
-					if (m) folders.add(m[1])
+					if (d.kind !== PIPELINE_DRAFT_KIND) continue
+					const folder = pipelineFolderFromBundlePath(d.path)
+					if (folder) folders.add(folder)
 				}
 			} catch {
 				// Drafts unavailable — show deployed pipelines only.
@@ -305,6 +309,9 @@
 				// so a folder's full contents load on demand rather than relying on the
 				// folder happening to be within the loaded browse window.
 				pathStart: ownerFilter ? ownerFilter + '/' : undefined,
+				// Your own not-yet-deployed work belongs in the list you browse; the
+				// endpoint sorts and pages it with everything else.
+				includeDraftOnly: true,
 				perPage: 100,
 				cursor
 			})
@@ -329,7 +336,7 @@
 			if (it.type === 'script') {
 				// Pipeline-member scripts are folded into their pipeline entry.
 				if (it.auto_kind === 'pipeline') {
-					const m = it.path.match(/^f\/([^/]+)\//)
+					const m = effectivePath(it).match(/^f\/([^/]+)\//)
 					if (m) memberFolders.add(m[1])
 					continue
 				}
@@ -385,37 +392,41 @@
 		}
 	}
 
-	// Per-top-level-folder lazy loading for tree view: expanding a folder loads its
-	// items on demand (server-scoped to that folder), paginated within the folder,
-	// instead of relying on the global browse window. Keyed by folder name (the
-	// `f/<name>` node).
+	// Per-folder lazy loading for tree view, keyed by the full path prefix a node covers —
+	// an owner (`f/<name>` / `u/<name>`) or any folder under one — since the listing
+	// endpoint scopes on an arbitrary `path_start`. That is what lets a subfolder be
+	// completed on its own instead of only by paging its whole owner.
 	//
-	// Every top-level namespace — a folder (`f/<name>`) OR a user (`u/<name>`) — is a
-	// lazily-loaded owner, keyed here by its full path prefix. Its items live in their
-	// OWN store (`treeOwnerItems`), never merged into the global browse arrays: those
-	// advance by a single `serverCursor`, so injecting out-of-window rows there would
-	// make the flat stream non-contiguous and, once pagination reached those rows,
-	// duplicate them. Loading users lazily too (rather than sourcing them from the
-	// loaded window) is why a user node no longer vanishes under a name sort whose
-	// first page happens to be all folder rows. `treeGen` ties every request to the
-	// active scope (order/archived/library/kind/workspace); a reset bumps it so an
-	// in-flight response from a stale scope is discarded.
+	// Rows for every prefix live in ONE store (`treeOwnerItems`), never in the global
+	// browse arrays: those advance by a single `serverCursor`, so out-of-window rows there
+	// would make the flat stream non-contiguous and duplicate once pagination reached them.
+	//
+	// `treeGen` ties every request to the active scope (order/archived/library/kind/
+	// workspace); a reset bumps it so an in-flight response from a stale scope is dropped.
 	type OwnerLoadState = {
 		cursor?: string
 		hasMore: boolean
 		loading: boolean
 		loaded: boolean
 		gen: number
-		// Total rows fetched for this owner so far (leaves + subfolder rows) — the tree
-		// node's own children count undercounts because rows nest into subfolders.
-		count: number
 	}
+	// Rows per request when loading a prefix in the tree. Larger than the flat list's
+	// page because a tree row is a single line and a folder is opened to see what it
+	// holds — most folders come in whole on the first click.
+	const OWNER_PAGE_SIZE = 300
+	// How far one "Load more" will page past rows it already has before giving up and
+	// leaving the rest to another click (see the catch-up loop in loadOwnerItems).
+	const OWNER_CATCH_UP_PAGES = 5
+	// Ceiling on the pages one "Load all" issues. It exists so a prefix that never stops
+	// handing back a cursor can't spin forever; hitting it leaves `hasMore` set, so the
+	// footer stays and another click resumes where this one stopped.
+	const OWNER_LOAD_ALL_PAGES = 100
 	let ownerLoad = $state<Record<string, OwnerLoadState>>({})
 	let treeOwnerItems = $state<ItemType[]>([])
 	let treeGen = 0
-	// Owners the user currently has expanded (full path prefixes). A reload re-fetches
-	// only these: ownerLoad also retains collapsed owners as a cache, so keying reloads
-	// off its entries would re-request every owner ever opened in this scope.
+	// Prefixes currently loaded and on screen. A reload re-fetches only these: ownerLoad
+	// also retains collapsed nodes as a cache, so keying reloads off its entries would
+	// re-request every folder ever opened in this scope.
 	let openOwners = new Set<string>()
 
 	// The endpoint returns a unified `edited_at` per row; combinedItems derives every
@@ -428,14 +439,21 @@
 		} as unknown as ItemType
 	}
 
-	// `owner` is the full prefix: `f/<folder>` or `u/<username>`.
-	// `force` re-fetches an owner's first page even if already loaded (a re-sort /
-	// re-filter reload uses it to refresh the loaded rows in place).
-	async function loadOwnerItems(owner: string, more = false, force = false): Promise<void> {
+	// `owner` is the full prefix a node covers: `f/<folder>`, `u/<username>`, or any
+	// folder under one. `force` re-fetches its first page even if already loaded (a
+	// re-sort / re-filter reload uses it to refresh the loaded rows in place); `all`
+	// keeps paging until the prefix's stream is exhausted instead of stopping at a page.
+	async function loadOwnerItems(
+		owner: string,
+		more = false,
+		opts?: { force?: boolean; all?: boolean }
+	): Promise<void> {
+		const force = opts?.force ?? false
+		const all = opts?.all ?? false
 		const ws = $workspaceStore
 		if (!ws || !$userStore) return
-		// Track the owner as open first — even a no-op call (re-expanding a cached owner)
-		// means it's expanded, so later reloads must refresh it.
+		// Track the prefix as open first — even a no-op call (re-expanding a cached node)
+		// means it's on screen, so later reloads must refresh it.
 		openOwners.add(owner)
 		const st = ownerLoad[owner]
 		// Only a load for the CURRENT generation blocks a new one. A load left in flight
@@ -449,61 +467,109 @@
 			hasMore: st?.hasMore ?? false,
 			loading: true,
 			loaded: st?.loaded ?? false,
-			gen,
-			// A fresh (non-more) load replaces this owner's rows, so its count restarts.
-			count: more ? (st?.count ?? 0) : 0
+			gen
 		}
 		const { orderBy, orderDesc } = sortToParams(sortOrder)
-		let res: { items: RunnableItem[]; next_cursor?: string }
-		try {
-			res = await ScriptService.listRunnables({
-				workspace: ws,
-				orderBy,
-				orderDesc,
-				showArchived: archived ? true : undefined,
-				includeWithoutMain: includeWithoutMain ? true : undefined,
-				kinds: itemKind !== 'all' ? itemKind : undefined,
-				pathStart: `${owner}/`,
-				perPage: 100,
-				cursor: more ? st?.cursor : undefined
-			})
-		} catch (e: any) {
-			if (gen !== treeGen) return
-			ownerLoad[owner] = { ...ownerLoad[owner], loading: false }
-			sendUserToast(`Failed to load ${owner}: ${e?.body ?? e?.message ?? e}`, true)
-			return
-		}
-		// The scope moved on while this was in flight (order/archive/library/kind/
-		// workspace changed and reset the tree); drop the response so stale rows from
-		// another scope can't appear under the current one.
-		if (gen !== treeGen) return
-		// A fresh load REPLACES this owner's rows (drop its previous ones, keep every
-		// other owner's untouched) so a re-sort/re-filter swaps its items atomically
-		// without blanking the whole tree; load-more appends to what's already shown.
 		const prefix = `${owner}/`
-		const base = more ? treeOwnerItems : treeOwnerItems.filter((x) => !x.path.startsWith(prefix))
-		const have = new Set(base.map(itemKey))
-		const merged = [...base]
-		for (const it of res.items ?? []) {
-			// Pipeline-member scripts are folded into their folder's Pipeline entry, so
-			// they never render as their own tree leaf (visiblePipelineFolders drives it).
-			if (it.type === 'script' && it.auto_kind === 'pipeline') continue
-			if (have.has(itemKey(it))) continue
-			merged.push({ ...toTreeItem(it), ord: fetchOrd++ })
+		// Only a forced refresh replaces this prefix's rows, so a re-sort swaps them without
+		// blanking the tree. Everything else merges: a nested prefix inherits rows from an
+		// ancestor's pages, and one page of its own can cover fewer of them than are shown —
+		// replacing would delete rows on the click meant to add them.
+		const replacing = !more && force
+		// Merges a page and answers how many rows it actually added. Reads the live store
+		// each time rather than a snapshot, so a page landing while another prefix loads
+		// doesn't drop that prefix's rows.
+		let firstMerge = true
+		const mergePage = (items: RunnableItem[] | undefined): number => {
+			const current =
+				replacing && firstMerge
+					? treeOwnerItems.filter((x) => !effectivePath(x).startsWith(prefix))
+					: treeOwnerItems
+			firstMerge = false
+			const have = new Set(current.map(itemKey))
+			const merged = [...current]
+			let added = 0
+			for (const it of items ?? []) {
+				// Pipeline-member scripts are folded into their folder's Pipeline entry, so
+				// they never render as their own tree leaf (visiblePipelineFolders drives it).
+				if (it.type === 'script' && it.auto_kind === 'pipeline') continue
+				if (have.has(itemKey(it))) continue
+				merged.push({ ...toTreeItem(it), ord: fetchOrd++ })
+				added++
+			}
+			treeOwnerItems = merged
+			return added
 		}
-		treeOwnerItems = merged
-		ownerLoad[owner] = {
-			cursor: res.next_cursor,
-			hasMore: !!res.next_cursor,
-			loading: false,
-			loaded: true,
-			gen,
-			count: merged.filter((x) => x.path.startsWith(prefix)).length
+		let cursor = more ? st?.cursor : undefined
+		let nextCursor: string | undefined
+		// A nested prefix's own stream restarts at its first row, which an ancestor's pages
+		// may already have brought in — that page then adds nothing and the click would read
+		// as broken. Keep paging until one adds something or the stream ends, bounded so a
+		// single click can't turn into an unbounded fetch loop. "Load all" instead stops
+		// only at the end of the stream, so `loading` stays set for the whole run and the
+		// footer resolves to an exact count in one click.
+		for (let page = 0; page < (all ? OWNER_LOAD_ALL_PAGES : OWNER_CATCH_UP_PAGES); page++) {
+			let res: { items: RunnableItem[]; next_cursor?: string }
+			try {
+				res = await ScriptService.listRunnables({
+					workspace: ws,
+					orderBy,
+					orderDesc,
+					showArchived: archived ? true : undefined,
+					includeWithoutMain: includeWithoutMain ? true : undefined,
+					kinds: itemKind !== 'all' ? itemKind : undefined,
+					pathStart: prefix,
+					includeDraftOnly: true,
+					perPage: OWNER_PAGE_SIZE,
+					cursor
+				})
+			} catch (e: any) {
+				if (gen !== treeGen) return
+				// Keep the cursor the pages that did land reached, so the next click resumes
+				// instead of re-reading pages that now dedup to nothing. `loaded` moves with
+				// it: a node still marked unloaded is retried as a first load, which starts
+				// from no cursor and throws the saved one away.
+				const prev = ownerLoad[owner]
+				const advanced = nextCursor != undefined
+				ownerLoad[owner] = {
+					...prev,
+					cursor: nextCursor ?? prev?.cursor,
+					hasMore: advanced || (prev?.hasMore ?? false),
+					loaded: advanced || (prev?.loaded ?? false),
+					loading: false
+				}
+				sendUserToast(`Failed to load ${owner}: ${e?.body ?? e?.message ?? e}`, true)
+				return
+			}
+			// The scope moved on while this was in flight (order/archive/library/kind/
+			// workspace changed and reset the tree); drop the response so stale rows from
+			// another scope can't appear under the current one.
+			if (gen !== treeGen) return
+			const added = mergePage(res.items)
+			nextCursor = res.next_cursor
+			cursor = nextCursor
+			// Collapsing the node is the only way to stop a run that spans many pages;
+			// without this it would keep paging a folder that is no longer on screen. What
+			// it reached is committed below, so its footer resumes from there.
+			if (nextCursor == undefined || !openOwners.has(owner) || (!all && added > 0)) break
 		}
+		ownerLoad = Object.fromEntries([
+			// A replacing load dropped every row under this prefix, so a nested folder that
+			// had paged itself is back to whatever this page holds: its load state has to go
+			// with its rows. Left behind, a subfolder marked complete would keep an exact
+			// count and no "Load more" over rows this response truncated. Reloads re-fetch
+			// the ones still open (see reloadItems), which re-establishes their state.
+			...Object.entries(ownerLoad).filter(([p]) => !replacing || !p.startsWith(prefix)),
+			[owner, { cursor: nextCursor, hasMore: !!nextCursor, loading: false, loaded: true, gen }]
+		])
 	}
 
 	function collapseOwner(owner: string): void {
 		openOwners.delete(owner)
+	}
+	// The `f/<folder>` / `u/<user>` prefix a path belongs to.
+	function ownerOf(path: string): string {
+		return path.split('/').slice(0, 2).join('/')
 	}
 	// Reload the merged list once and re-fetch the owners that are currently expanded so
 	// they don't go blank. Used both for row mutations (create/edit/archive/move/share)
@@ -517,11 +583,49 @@
 		// late responses can't overwrite the fresh ones.
 		treeGen++
 		const toReload = treeLazyMode ? [...openOwners] : []
+		// Only the open owners are re-fetched below; a collapsed one keeps its rows as a
+		// cache, which this reload invalidates. Left in place they would outlive the scope
+		// they were loaded for: the owner stays grouped (so it keeps a node the new counts
+		// say is empty) and, since it is still marked loaded, expanding it again shows the
+		// previous scope's items instead of re-fetching. Drop them and let expand reload.
+		if (treeLazyMode) {
+			const open = new Set(toReload)
+			treeOwnerItems = treeOwnerItems.filter((x) => open.has(ownerOf(effectivePath(x))))
+			ownerLoad = Object.fromEntries(Object.entries(ownerLoad).filter(([o]) => open.has(o)))
+		}
 		await loadRunnables(true)
-		// force: the owners are still marked loaded, so re-fetch their first page and
-		// swap it in place (loadOwnerItems replaces each owner's rows atomically — the
-		// old rows stay visible until the new ones arrive, so nothing blanks mid-reorder).
-		for (const o of toReload) loadOwnerItems(o, false, true)
+		// force: the prefixes are still marked loaded, so re-fetch their first page and
+		// swap it in place (loadOwnerItems replaces a prefix's rows atomically — the old
+		// rows stay visible until the new ones arrive, so nothing blanks mid-reorder).
+		// Shallowest first, one depth at a time: a fresh load drops every row under its
+		// prefix, so a parent landing after a nested subfolder would wipe the rows that
+		// subfolder just re-fetched and leave it short until clicked again.
+		// Awaited so a caller reconciling against the rendered rows sees the reloaded
+		// tree rather than the pre-reload ones; each swap stays atomic either way.
+		const byDepth = new Map<number, string[]>()
+		for (const p of toReload) {
+			const d = p.split('/').length
+			byDepth.set(d, [...(byDepth.get(d) ?? []), p])
+		}
+		for (const d of [...byDepth.keys()].sort((a, b) => a - b)) {
+			await Promise.all(
+				(byDepth.get(d) ?? []).map((p) => loadOwnerItems(p, false, { force: true }))
+			)
+		}
+	}
+
+	// For row mutations (create/delete/move/archive), which also change how many
+	// runnables an owner holds. A scope change (sort/archive/kind/…) doesn't go
+	// through here: the counts resource keys on those itself.
+	async function reloadItemsAndCounts(): Promise<void> {
+		// A mutated row can be gone, or sit at a new path, afterwards: snapshot what
+		// was on screen so the selection can drop what this reload removes instead of
+		// keeping a dead path. `tick` lets the reloaded rows re-register first.
+		const renderedBefore = homeSelection.renderedKeys
+		void ownerCountsRes.refetch()
+		await reloadItems()
+		await tick()
+		homeSelection.dropVanished(renderedBefore)
 	}
 
 	function filterItemsPathsBaseOnUserFilters(
@@ -530,9 +634,10 @@
 		filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined
 	) {
 		if (!filterUserFoldersType || !filterUserFolders) return true
-		if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
+		const path = effectivePath(item)
+		if (filterUserFoldersType === 'only f/*') return path.startsWith('f/')
 		if (filterUserFoldersType === 'u/username and f/*')
-			return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
+			return path.startsWith('f/') || path.startsWith(`u/${$userStore?.username}/`)
 		return true // should not happen
 	}
 
@@ -695,18 +800,56 @@
 		if (!includeWithoutMain) f.push('library scripts hidden')
 		return f
 	})
-	// Complete owner list: every folder (from the folder list, not just loaded
-	// pages) plus the user prefixes present in the loaded/filtered items. So a
-	// folder whose items are far down the stream is still a selectable chip.
-	let owners = $derived(
-		Array.from(
-			new Set([
-				...allFolderOwners,
-				...allUserOwners,
-				...(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-			])
-		).sort()
+	// Pipeline folders qualify for a chip whenever a pipeline can render: the kind must admit
+	// one and no label filter may be active, since pipelines carry no labels. Unlike
+	// `visiblePipelineFolders` this ignores the selected owner — the chips are how you switch
+	// owners, so they must not narrow to the current one.
+	let chipPipelineFolders = $derived(
+		(itemKind === 'all' || itemKind === 'script') && labelFilter == undefined
+			? pipelineFolders
+			: new Set<string>()
 	)
+	// Owner chips: only the owners actually holding something the user can see, your own
+	// space first and the rest most-populated first. A chip for an empty owner filters to
+	// nothing, and a workspace's full folder and member lists are mostly those, so an owner
+	// counting 0 gets no chip at all — including your own space.
+	let owners = $derived.by(() => {
+		const self = $userStore?.username ? `u/${$userStore.username}` : undefined
+		const loaded = filteredItems?.map((x) => ownerOf(effectivePath(x))) ?? []
+		if (ownerCounts == undefined) {
+			// Counts still in flight: the folder/user lists resolve first, so painting the full
+			// list here would show the wall this drops and snap to the ranked set a tick later.
+			if (!archived && ownerCountsRes.loading) return []
+			// No counts (archived view, or the request failed): every owner, alphabetically.
+			return Array.from(new Set([...allFolderOwners, ...allUserOwners, ...loaded])).sort()
+		}
+		const counted = new Map<string, number>(Object.entries(ownerCounts))
+		// The pipeline is a row of its own and its member scripts are folded out of the
+		// count, so it adds one where it renders — as in the tree node's own label.
+		for (const f of chipPipelineFolders) counted.set(`f/${f}`, (counted.get(`f/${f}`) ?? 0) + 1)
+		// No owner counts below what the loaded window already shows for it: the endpoint
+		// leaves pipeline members out, and a listed item must keep its chip.
+		const onScreen = new Map<string, number>()
+		for (const o of loaded) onScreen.set(o, (onScreen.get(o) ?? 0) + 1)
+		for (const [o, n] of onScreen) counted.set(o, Math.max(counted.get(o) ?? 0, n))
+		return (
+			[...counted.keys()]
+				// The user-folder restriction drops other users' rows from the list, so their chips
+				// would filter to nothing — the same rule `filterItemsPathsBaseOnUserFilters` applies.
+				.filter(
+					(o) =>
+						!filterUserFolders ||
+						!filterUserFoldersType ||
+						o.startsWith('f/') ||
+						(filterUserFoldersType === 'u/username and f/*' && o === self)
+				)
+				.sort((a, b) => {
+					if (a === self) return -1
+					if (b === self) return 1
+					return (counted.get(b) ?? 0) - (counted.get(a) ?? 0) || cmp(a, b)
+				})
+		)
+	})
 	// Reload from the server whenever an input the endpoint resolves changes: order,
 	// archived/library scope, kind, the selected owner/folder, or entering/leaving
 	// search (see the reload effect below). Only the label filter and fuzzy ranking
@@ -721,7 +864,53 @@
 	let treeLazyMode = $derived(
 		treeView && !searching && ownerFilter == undefined && labelFilter == undefined
 	)
-	let treeInjectFolders = $derived(treeLazyMode ? (folderNamesRes.current ?? []) : [])
+	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
+	// in one request. It labels every tree node up front — a lazy owner's own count is
+	// unknown until it's expanded — and lets both the tree and the owner chips drop the
+	// owners holding nothing instead of listing every workspace folder. Owners with none
+	// are omitted from the response, so an absent key means empty. Fetched in every mode
+	// (the chips are shown in all of them) except the archived view, which the endpoint
+	// doesn't count.
+	let ownerCountsRes = resource(
+		[() => $workspaceStore, () => archived, () => itemKind, () => includeWithoutMain],
+		async ([ws, showArchived, kind, withoutMain]) => {
+			if (!ws || showArchived) return undefined
+			try {
+				const res = await ScriptService.countRunnablesByOwner({
+					workspace: ws,
+					kinds: kind !== 'all' ? kind : undefined,
+					includeWithoutMain: withoutMain ? true : undefined,
+					// Same scope as the listing, so a badge counts the rows behind it.
+					includeDraftOnly: true
+				})
+				return res.counts
+			} catch {
+				// Best-effort: without counts the tree and the chips fall back to every owner.
+				return undefined
+			}
+		}
+	)
+	let ownerCounts = $derived(ownerCountsRes.current)
+	// The counts decide which owners the tree renders, so drawing it before they land
+	// would show every workspace folder and then prune it away. Hold the skeleton
+	// until the first response instead — it is fetched in parallel with the listing,
+	// so it costs no extra wait in practice. Only the first load gates: `current`
+	// survives a refetch, so an in-place scope change refreshes without flashing.
+	let treeCountsPending = $derived(
+		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
+	)
+
+	// Owners the counts found the user has something in, split by kind. They cover
+	// what the folder/username lists miss: an item shared individually out of a
+	// folder or user space the user is otherwise not a member of.
+	function countOwners(kind: 'f' | 'u'): string[] {
+		return Object.keys(ownerCounts ?? {})
+			.filter((k) => k.startsWith(`${kind}/`))
+			.map((k) => k.slice(2))
+	}
+	let treeInjectFolders = $derived(
+		treeLazyMode ? [...new Set([...(folderNamesRes.current ?? []), ...countOwners('f')])] : []
+	)
 	let treeInjectUsers = $derived.by(() => {
 		// "Only f/*" hides every user namespace; "u/<you> and f/*" keeps just your own.
 		if (!treeLazyMode) return []
@@ -732,7 +921,10 @@
 		// and it must not vanish under a name sort whose first page is all folders.
 		if ($userStore?.username) s.add($userStore.username)
 		// Other users only when no user-folder restriction is active.
-		if (!filterUserFolders) for (const u of usernamesRes.current ?? []) s.add(u)
+		if (!filterUserFolders) {
+			for (const u of usernamesRes.current ?? []) s.add(u)
+			for (const u of countOwners('u')) s.add(u)
+		}
 		return [...s]
 	})
 	// The bottom "load more" only pages the *global* stream, which in lazy mode holds
@@ -786,6 +978,7 @@
 					includeWithoutMain: withoutMain ? true : undefined,
 					kinds: kind !== 'all' ? kind : undefined,
 					pathStart: owner ? owner + '/' : undefined,
+					includeDraftOnly: true,
 					perPage: 1000
 				})
 			} catch {
@@ -832,6 +1025,7 @@
 				includeWithoutMain: withoutMain ? true : undefined,
 				kinds: kind !== 'all' ? kind : undefined,
 				pathStart: owner ? owner + '/' : undefined,
+				includeDraftOnly: true,
 				perPage: 1000,
 				cursor
 			})
@@ -1044,15 +1238,40 @@
 		selectedIndex = previousNbDisplayed
 	}
 
+	// Elements that own the keyboard themselves (menus, dialogs, comboboxes): the
+	// list's own shortcuts stand down while one of them has focus.
+	const SKIP_SELECTOR =
+		'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu], [data-chat-keyboard-scope]'
+
+	// The marker sits on the row itself, not on its title link — selection mode
+	// drops the link, and the action buttons must stay keyboard-reachable there too.
 	function getSelectedRowActionButtons(): HTMLElement[] {
-		const anchor = document.querySelector<HTMLElement>('a[data-row-keyboard-selected="true"]')
-		const actions = anchor?.parentElement?.querySelector<HTMLElement>('[data-row-actions]')
+		const actions = document.querySelector<HTMLElement>(
+			'[data-row-keyboard-selected="true"] [data-row-actions]'
+		)
 		return actions ? Array.from(actions.querySelectorAll<HTMLElement>('button, a[href]')) : []
 	}
 
 	function handleGlobalKeydown(e: KeyboardEvent) {
-		if (treeView) return
+		// An open dialog owns the keyboard. Testing the focused element alone misses it
+		// (a modal opened from a button leaves focus on that button), and this capture
+		// listener runs before the dialog's, so Enter would tick a row into the batch
+		// being confirmed. Dialogs are in the DOM only while open.
+		if (document.querySelector('[role="dialog"]')) return
+
 		const target = e.target as HTMLElement | null
+
+		// Escape leaves selection mode from either view; everything below is flat-list
+		// navigation. A menu that owns the key closes itself first.
+		if (e.key === 'Escape' && homeSelection.active) {
+			const active = document.activeElement as HTMLElement | null
+			if (!target?.closest(SKIP_SELECTOR) && !active?.closest(SKIP_SELECTOR)) {
+				e.preventDefault()
+				homeSelection.exit()
+				return
+			}
+		}
+		if (treeView) return
 
 		// When focus is inside a row's action buttons, handle arrow keys ourselves:
 		//  - Left/Right cycle between buttons (Left from the first returns to search).
@@ -1132,8 +1351,7 @@
 			return
 		}
 
-		const skipSelector =
-			'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu], [data-chat-keyboard-scope]'
+		const skipSelector = SKIP_SELECTOR
 		if (target) {
 			const tag = target.tagName
 			const isEditable =
@@ -1194,12 +1412,32 @@
 				selectedIndex = selectedIndex - 1
 			}
 		} else if (e.key === 'Enter') {
-			if (selectedIndex === loadMoreIndex && hasMore) {
+			// Enter belongs to whatever control has focus — the action bar's buttons,
+			// a row's own actions, a link. Claiming it there would both suppress that
+			// control and act on the highlighted row instead.
+			if (target?.closest('button, a[href], [role="button"]')) return
+			// In selection mode the rows carry no link, so Enter ticks the highlighted
+			// row instead of opening it. Never for a legacy raw-app row, which carries
+			// no selection control — that falls through to opening it below.
+			if (
+				homeSelection.active &&
+				selectedIndex >= 0 &&
+				selectedIndex < displayedItems.length &&
+				displayedItems[selectedIndex].type !== 'raw_app'
+			) {
+				e.preventDefault()
+				homeSelection.toggle(
+					toBulkItem(displayedItems[selectedIndex], $userStore, $workspaceStore),
+					e.shiftKey
+				)
+			} else if (selectedIndex === loadMoreIndex && hasMore) {
 				e.preventDefault()
 				loadMoreAndPreselectFirstNew()
 			} else if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
+				// Direct child only: that is the title link. Selection mode drops it, and
+				// a descendant match would find the row's Edit link and open the editor.
 				const anchor = document.querySelector<HTMLAnchorElement>(
-					'a[data-row-keyboard-selected="true"]'
+					'[data-row-keyboard-selected="true"] > a[href]'
 				)
 				if (anchor) {
 					e.preventDefault()
@@ -1216,13 +1454,40 @@
 	$effect(() => {
 		storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
 	})
+	// Multi-selection + bulk actions. Published through context so the tree's
+	// nested levels don't have to carry it; `Item` is the only reader.
+	const homeSelection = new HomeSelection()
+	setHomeSelection(homeSelection)
+	$effect(() => {
+		homeSelection.available = showEditButtons && !!$userStore && !$userStore.operator
+	})
+	// A selected path means nothing in another workspace. Narrowing the view
+	// within one (kind, owner, label, search) keeps the selection instead, so
+	// items can be gathered across several filters; every action lists the paths
+	// it will touch, so nothing acts invisibly.
+	$effect(() => {
+		$workspaceStore
+		untrack(() => homeSelection.exit())
+	})
+	// Only folders/user spaces the user owns: a move into any other lands as a
+	// per-item permission error the user could have been spared.
+	let moveTargets = $derived(
+		[...allFolderOwners, ...($userStore?.username ? [`u/${$userStore.username}`] : [])].filter(
+			(o) => isOwner(`${o}/x`, $userStore, $workspaceStore)
+		)
+	)
 </script>
 
 <SearchItems
 	{filter}
 	items={preFilteredItems}
 	bind:filteredItems
-	f={(x) => (x.summary ? x.summary + ' (' + x.path + ')' : x.path)}
+	f={(x) => {
+		// A draft-only row is named by the path typed in the editor — its stored path is a
+		// generated `draft_<uuid>` nobody types into the search box.
+		const p = x.draft_only && x.draft_path ? x.draft_path : x.path
+		return x.summary ? x.summary + ' (' + p + ')' : p
+	}}
 	{opts}
 />
 
@@ -1317,6 +1582,7 @@
 			syncQuery
 			bind:selectedFilter={ownerFilter}
 			filters={owners}
+			maxDisplayed={20}
 			bottomMargin={false}
 		/>
 		{#if allLabels.length > 0}
@@ -1386,11 +1652,26 @@
 						{/if}
 					</Button>
 				{/if}
+				{#if homeSelection.available && !homeSelection.active}
+					<!-- Last child of a flex-row-reverse row, so `mr-auto` absorbs the free
+					     space and pins it to the far left, away from the view/sort controls. -->
+					<Button
+						wrapperClasses="mr-auto"
+						startIcon={{ icon: CheckSquare }}
+						iconOnly
+						size="xs"
+						color="light"
+						variant="default"
+						spacingSize="xs2"
+						title="Select items — move, archive, delete or discard several at once"
+						on:click={() => homeSelection.enter()}
+					/>
+				{/if}
 			</div>
 		{/if}
 	</div>
 	<div>
-		{#if filteredItems == undefined}
+		{#if filteredItems == undefined || treeCountsPending}
 			<div class="mt-4"></div>
 			<Skeleton layout={[[2], 1]} />
 			{#each new Array(6) as _}
@@ -1419,7 +1700,6 @@
 			{#key treeKey}
 				<TreeViewRoot
 					items={treeSource}
-					{nbDisplayed}
 					{collapseAll}
 					sortCompare={compareItems}
 					groupDesc={sortOrder === 'name_desc'}
@@ -1428,16 +1708,19 @@
 					pipelineFolders={visiblePipelineFolders}
 					allFolders={treeInjectFolders}
 					allUsers={treeInjectUsers}
+					ownerCounts={!searching && labelFilter == undefined ? ownerCounts : undefined}
+					selfUsername={$userStore?.username}
 					ownerLoad={treeLazyMode ? ownerLoad : undefined}
 					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
 					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
 					isSearching={filter !== ''}
-					on:scriptChanged={reloadItems}
-					on:flowChanged={reloadItems}
-					on:appChanged={reloadItems}
-					on:rawAppChanged={reloadItems}
-					on:reload={reloadItems}
+					on:scriptChanged={reloadItemsAndCounts}
+					on:flowChanged={reloadItemsAndCounts}
+					on:appChanged={reloadItemsAndCounts}
+					on:rawAppChanged={reloadItemsAndCounts}
+					on:reload={reloadItemsAndCounts}
 					{showCode}
+					showEditButton={showEditButtons}
 				/>
 			{/key}
 		{:else}
@@ -1456,11 +1739,11 @@
 				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
-						on:scriptChanged={reloadItems}
-						on:flowChanged={reloadItems}
-						on:appChanged={reloadItems}
-						on:rawAppChanged={reloadItems}
-						on:reload={reloadItems}
+						on:scriptChanged={reloadItemsAndCounts}
+						on:flowChanged={reloadItemsAndCounts}
+						on:appChanged={reloadItemsAndCounts}
+						on:rawAppChanged={reloadItemsAndCounts}
+						on:reload={reloadItemsAndCounts}
 						{showCode}
 						showEditButton={showEditButtons}
 						keyboardSelected={selectedIndex === i}
@@ -1497,5 +1780,20 @@
 				{/if}
 			</div>
 		{/if}
+		{#if homeSelection.active}
+			<!-- The bar floats over the page bottom; without this the last rows sit
+			     under it with no way to scroll them clear. -->
+			<div class="h-20"></div>
+		{/if}
 	</div>
 </CenteredPage>
+
+{#if homeSelection.active && $workspaceStore}
+	<BulkActionsBar
+		selection={homeSelection}
+		workspace={$workspaceStore}
+		isAdmin={!!($userStore?.is_admin || $userStore?.is_super_admin)}
+		{moveTargets}
+		onDone={reloadItemsAndCounts}
+	/>
+{/if}

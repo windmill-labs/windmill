@@ -23,7 +23,8 @@
 	import { ArrowUp, ExternalLink, Globe2, KeyRound, PlugZap, Settings } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
-	import { copilotInfo, copilotWorkspace, loadCopilot } from '$lib/aiStore'
+	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { base } from '$lib/base'
@@ -70,7 +71,7 @@
 		if (!canSend || starting || !value.trim()) return
 		starting = true
 		try {
-			await startSessionWithPrompt(value)
+			await startSessionWithPrompt(value, { autoSend: true })
 		} finally {
 			starting = false
 		}

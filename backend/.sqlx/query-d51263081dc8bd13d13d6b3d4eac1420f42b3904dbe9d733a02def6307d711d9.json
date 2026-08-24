@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT app.path, app_version.raw_app FROM app\n        JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]\n        WHERE app.workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "raw_app",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "d51263081dc8bd13d13d6b3d4eac1420f42b3904dbe9d733a02def6307d711d9"
+}

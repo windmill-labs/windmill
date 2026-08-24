@@ -10,7 +10,14 @@
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, workspaceStore, userWorkspaces, superadmin, devopsRole } from '$lib/stores'
+	import {
+		userStore,
+		workspaceStore,
+		userWorkspaces,
+		superadmin,
+		devopsRole,
+		enterpriseLicense
+	} from '$lib/stores'
 	import {
 		Button,
 		ButtonType,
@@ -20,6 +27,7 @@
 		Tab,
 		Tabs
 	} from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
 
 	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
@@ -35,10 +43,13 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
+	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import { pageHref, RUNS_PATH } from '$lib/components/sessions/previewPaths'
 	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
-	import { pluralize } from '$lib/utils'
+	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
+	import { pluralize, MAX_RESOLUTION_BATCH, MAX_RESOLUTION_NOTE_LEN } from '$lib/utils'
 	import BatchReRunOptionsPane, {
 		type BatchReRunOptions
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
@@ -271,6 +282,12 @@
 						? false
 						: undefined,
 			isSkipped: filters.val.show_skipped ? undefined : false,
+			resolved:
+				filters.val.resolved === 'resolved'
+					? true
+					: filters.val.resolved === 'unresolved'
+						? false
+						: undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
 				filters.val.path != undefined ||
@@ -312,6 +329,57 @@
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 	}
 
+	async function setJobsResolution(jobIds: string[], resolved: boolean, note?: string) {
+		// Spread-count code points so this matches the server's `chars().count()` exactly;
+		// `.length` counts UTF-16 units and would reject valid astral-plane notes.
+		if (note !== undefined && [...note].length > MAX_RESOLUTION_NOTE_LEN) {
+			sendUserToast(`Note cannot exceed ${MAX_RESOLUTION_NOTE_LEN} characters`, true)
+			return
+		}
+		// The endpoint scopes rows to the path workspace, so in the admins all-workspaces
+		// view a selection spanning workspaces has to be dispatched per workspace or the
+		// out-of-workspace ids are silently skipped. Same reason cancel_selection groups.
+		// Index once and append in place: a scan per id plus a bucket copy per id is ~100M
+		// operations at the 10k selection the table allows, which blocks the page before the
+		// first request goes out.
+		const workspaceById = new Map<string, string>()
+		for (const j of jobs ?? []) if (j.workspace_id) workspaceById.set(j.id, j.workspace_id)
+		const byWorkspace = new Map<string, string[]>()
+		for (const id of jobIds) {
+			const ws = workspaceById.get(id) ?? $workspaceStore ?? ''
+			const bucket = byWorkspace.get(ws)
+			if (bucket) bucket.push(id)
+			else byWorkspace.set(ws, [id])
+		}
+		// The table selects up to 10k rows but the endpoint caps a call at MAX_RESOLUTION_BATCH,
+		// so chunk rather than let an oversized selection reject the whole action.
+		const requests: { workspace: string; ids: string[] }[] = []
+		for (const [workspace, ids] of byWorkspace) {
+			for (let i = 0; i < ids.length; i += MAX_RESOLUTION_BATCH) {
+				requests.push({ workspace, ids: ids.slice(i, i + MAX_RESOLUTION_BATCH) })
+			}
+		}
+		const affected = (
+			await Promise.all(
+				requests.map(({ workspace, ids }) =>
+					resolved
+						? JobService.resolveCompletedJobs({
+								workspace,
+								requestBody: { job_ids: ids, note: note || undefined }
+							})
+						: JobService.unresolveCompletedJobs({ workspace, requestBody: { job_ids: ids } })
+				)
+			)
+		).flat()
+		selectedIds = []
+		manualSelectionMode = undefined
+		resolutionNote = ''
+		jobsLoader?.loadJobs(true, true)
+		sendUserToast(
+			`${resolved ? 'Resolved' : 'Unresolved'} ${affected.length} ${affected.length === 1 ? 'job' : 'jobs'}`
+		)
+	}
+
 	async function onCancelAllJobsMatchingFilters() {
 		forceCancelInPopup = false
 		askingForConfirmation = {
@@ -321,6 +389,16 @@
 		}
 
 		const selectedFilters = getSelectedFilters()
+		// Cancellation targets come from the queue, but resolution only exists on completed
+		// jobs: "Resolved only" therefore matches nothing cancellable. The queue endpoint
+		// takes ListQueueQuery and has no `resolved` param at all, so without this the
+		// lookup would silently return the queued jobs the table is currently hiding and
+		// offer to cancel them.
+		if (selectedFilters.resolved === true) {
+			askingForConfirmation = undefined
+			sendUserToast('No queued jobs match "Resolved only" — resolution applies to completed runs')
+			return
+		}
 		const selectedFiltersString = JSON.stringify(selectedFilters, null, 4)
 		const jobIdsToCancel = await JobService.listFilteredQueueUuids(selectedFilters)
 
@@ -495,7 +573,8 @@
 		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${perPage.val} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
 	)
 
-	let manualSelectionMode: undefined | 'cancel' | 'rerun' = $state()
+	let manualSelectionMode: undefined | 'cancel' | 'rerun' | 'resolve' = $state()
+	let resolutionNote = $state('')
 </script>
 
 <ConfirmationModal
@@ -769,6 +848,17 @@
 				placeholder="Filter runs..."
 				autofocus
 			/>
+			<!-- The filters are shallow-routed, so the search has to come off
+			     `window.location` at click time — `page.url` never sees them. Always the
+			     canonical `/runs`: only that is a recognized preview page, and the
+			     `/runs/<path>` route mirrors its path into `?path=` anyway. -->
+			<OpenInSessionButton
+				source={{
+					page: () => pageHref(RUNS_PATH) + window.location.search,
+					workspaceId: $workspaceStore ?? undefined
+				}}
+				btnProps={{ unifiedSize: 'md' }}
+			/>
 		</div>
 
 		<!-- Graph -->
@@ -845,35 +935,16 @@
 					<div class="h-full flex">
 						<div class="flex flex-col flex-1 m-4 mt-2 mr-2">
 							{#if batchProgress}
-								<div class="flex items-center gap-3 px-1 pb-2 text-xs text-secondary">
-									<span>Loading jobs: {batchProgress.loaded} of {batchProgress.total}...</span>
-									<div class="flex-1 bg-surface-hover rounded-full h-1.5">
-										<div
-											class="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
-											style="width: {Math.round(
-												(batchProgress.loaded / batchProgress.total) * 100
-											)}%"
-										></div>
-									</div>
-									{#if currentBatchSize != null}
-										<span class="whitespace-nowrap shrink-0">Batch size:</span>
-										<input
-											type="number"
-											min="1"
-											max="1000"
-											value={currentBatchSize}
-											class="!w-14 shrink-0 text-xs px-1 py-0.5 border rounded text-center"
-											onchange={(e) => {
-												const v = parseInt(e.currentTarget.value)
-												if (v >= 1 && v <= 1000) {
-													jobsLoader.restreamWithBatchSize(v)
-												}
-											}}
-										/>
-									{/if}
-									<Button size="xs" destructive onClick={() => jobsLoader.stopBatchLoading()}>
-										Stop
-									</Button>
+								<div class="px-1 pb-2">
+									<BatchLoadProgress
+										loaded={batchProgress.loaded}
+										total={batchProgress.total}
+										itemsLabel="jobs"
+										batchSize={currentBatchSize}
+										batchSizeCap={1000}
+										onBatchSizeChange={(v) => jobsLoader.restreamWithBatchSize(v)}
+										onStop={() => jobsLoader.stopBatchLoading()}
+									/>
 								</div>
 							{/if}
 							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
@@ -902,6 +973,7 @@
 										perPage={perPage.val}
 										bind:batchRerunOptionsIsOpen
 										onCancelJobs={onCancelSelectedJobs}
+										onSetJobsResolution={setJobsResolution}
 										{manualSelectionMode}
 									></RunsTable>
 								{:else}
@@ -932,6 +1004,19 @@
 													batchRerunOptionsIsOpen = true
 												}
 											},
+											...(!$userStore?.operator
+												? [
+														{
+															// Operators are rejected by the endpoint, so offering it would only 403.
+															displayName: 'Resolve failed jobs',
+															action: () => (
+																(manualSelectionMode = 'resolve'),
+																(selectedIds = []),
+																(resolutionNote = '')
+															)
+														}
+													]
+												: []),
 											{
 												displayName: 'Cancel all jobs matching filters',
 												action: () => onCancelAllJobsMatchingFilters()
@@ -1004,6 +1089,40 @@
 									Cancel {selectedIds.length} jobs
 								</Button>
 							</div>
+						{:else if manualSelectionMode === 'resolve'}
+							<div
+								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center gap-3 p-4"
+							>
+								<p class="text-xs text-secondary text-center max-w-xs">
+									Resolving keeps the run a failure but stops it showing as one in the runs list.
+								</p>
+								<TextInput
+									bind:value={resolutionNote}
+									inputProps={{
+										placeholder: $enterpriseLicense
+											? 'Why is this handled? (optional)'
+											: 'Notes and attribution require ee',
+										disabled: !$enterpriseLicense
+									}}
+									size="sm"
+								/>
+								<div class="flex flex-row gap-2">
+									<Button
+										variant="accent"
+										disabled={!selectedIds.length}
+										onClick={() => setJobsResolution(selectedIds, true, resolutionNote)}
+									>
+										Mark {selectedIds.length} resolved
+									</Button>
+									<Button
+										variant="default"
+										disabled={!selectedIds.length}
+										onClick={() => setJobsResolution(selectedIds, false)}
+									>
+										Unresolve {selectedIds.length}
+									</Button>
+								</div>
+							</div>
 						{:else if batchRerunOptionsIsOpen}
 							<BatchReRunOptionsPane
 								{selectedIds}
@@ -1024,6 +1143,7 @@
 									workspace={selectedWorkspace}
 									on:filterByConcurrencyKey={filterByConcurrencyKey}
 									on:filterByWorker={filterByWorker}
+									onResolutionChanged={() => jobsLoader?.loadJobs(true, true)}
 								/>
 							{/if}
 						{:else if selectedIds.length > 1}

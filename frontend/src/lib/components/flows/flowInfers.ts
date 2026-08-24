@@ -3,6 +3,7 @@ import { loadSchemaFlow } from '$lib/scripts'
 import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
 import type { FlowModule, InputTransform } from '$lib/gen'
+import { AGENT_FLOW_LOCAL_KEYS } from './agentResourceUtils'
 
 export const AI_AGENT_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -276,8 +277,14 @@ export async function loadSchemaFromModule(
 		}
 	} else if (mod.type === 'aiagent') {
 		let input_transforms = migrateAiAgentInputTransforms(mod.input_transforms ?? {})
+		// A linked step's brain lives in the resource, so only the flow-local inputs get a placeholder
+		// transform: filling the brain keys back in would re-add the very fields linking strips, and
+		// they would be persisted on the next save.
+		const keys = mod.agent
+			? (AGENT_FLOW_LOCAL_KEYS as readonly string[])
+			: Object.keys(AI_AGENT_SCHEMA.properties ?? {})
 		return {
-			input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce((accu, key) => {
+			input_transforms: keys.reduce((accu, key) => {
 				accu[key] = input_transforms[key] ?? {
 					type: 'static',
 					value: undefined

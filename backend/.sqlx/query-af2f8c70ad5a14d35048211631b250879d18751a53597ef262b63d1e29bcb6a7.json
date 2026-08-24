@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE dbt_run_state SET workspace_id = $1\n         WHERE workspace_id = $2 AND job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "af2f8c70ad5a14d35048211631b250879d18751a53597ef262b63d1e29bcb6a7"
+}

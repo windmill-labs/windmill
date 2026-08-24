@@ -9,11 +9,20 @@ import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
 // no meaning in the vitest environment — serve the ones the benchmark handles.
 // Every other relative fetch keeps its normal behavior (it fails the same way
 // it does without this stub) so unrelated tools see an unchanged environment.
+// The frontend builds API URLs from location.origin (fetchAvailableModels does), and node has no
+// location — without one those calls throw before the stub below ever sees them.
+if (typeof (globalThis as { location?: unknown }).location === 'undefined') {
+	Object.defineProperty(globalThis, 'location', {
+		value: new URL('http://benchmark.local/'),
+		configurable: true
+	})
+}
+
 const ORIGINAL_FETCH = globalThis.fetch
 globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 	const url = typeof input === 'string' ? input : ((input as Request | URL | null)?.url ?? '')
 	if (typeof url === 'string' && hasBenchmarkApiHandler(url)) {
-		return handleBenchmarkApiFetch(url)
+		return handleBenchmarkApiFetch(url, init)
 	}
 	return ORIGINAL_FETCH(input as Parameters<typeof fetch>[0], init)
 }) as typeof fetch
@@ -57,13 +66,18 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
 		getBenchmarkScriptByPath,
+		getBenchmarkAiConfig,
+		getBenchmarkResourceValue,
+		getBenchmarkVariableByPath,
 		hasBenchmarkWorkspace,
+		listBenchmarkAiProviderResources,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
 		listBenchmarkDrafts,
 		listBenchmarkFlows,
 		listBenchmarkJobs,
 		listBenchmarkScripts,
+		listBenchmarkVariables,
 		createBenchmarkFolder,
 		createBenchmarkHttpTrigger,
 		createBenchmarkSchedule,
@@ -299,6 +313,10 @@ vi.mock('$lib/gen', async () => {
 					: actual.JobService.getJobLogs(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
+			getCopilotInfo: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (getBenchmarkAiConfig(data.workspace) ?? {})
+					: actual.WorkspaceService.getCopilotInfo(data),
 			listDataTableTables: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? (listBenchmarkDatatables(data.workspace) ?? [])
@@ -338,14 +356,33 @@ vi.mock('$lib/gen', async () => {
 		}),
 		ResourceService: wrapService(actual.ResourceService, {
 			existsResource: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.ResourceService.existsResource(data),
-			listResource: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.listResource(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? Boolean(getBenchmarkResourceValue(data.workspace, data.path))
+					: actual.ResourceService.existsResource(data),
+			// Only AI provider resources are modelled: they are what an AI agent step references.
+			listResource: async (data: { workspace: string; resourceType?: string }) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) {
+					return actual.ResourceService.listResource(data)
+				}
+				const seeded = listBenchmarkAiProviderResources(data.workspace) ?? []
+				const wanted = data.resourceType?.split(',')
+				return wanted ? seeded.filter((r) => wanted.includes(r.resource_type)) : seeded
+			},
 			getResource: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
 					throw new Error(`Resource "${data.path}" not found in benchmark workspace`)
 				}
 				return actual.ResourceService.getResource(data)
+			},
+			getResourceValue: async (data: { workspace: string; path: string }) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) {
+					return actual.ResourceService.getResourceValue(data)
+				}
+				const value = getBenchmarkResourceValue(data.workspace, data.path)
+				if (!value) {
+					throw new Error(`Resource "${data.path}" not found in benchmark workspace`)
+				}
+				return value
 			},
 			queryResourceTypes: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
@@ -358,12 +395,28 @@ vi.mock('$lib/gen', async () => {
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: async (data: { workspace: string; path: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? false : actual.VariableService.existsVariable(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? Boolean(getBenchmarkVariableByPath(data.workspace, data.path))
+					: actual.VariableService.existsVariable(data),
 			listVariable: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.VariableService.listVariable(data),
-			getVariable: async (data: { workspace: string; path: string }) => {
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkVariables(data.workspace) ?? [])
+					: actual.VariableService.listVariable(data),
+			getVariable: async (data: {
+				workspace: string
+				path: string
+				decryptSecret?: boolean
+			}) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					throw new Error(`Variable "${data.path}" not found in benchmark workspace`)
+					const variable = getBenchmarkVariableByPath(
+						data.workspace,
+						data.path,
+						data.decryptSecret ?? true
+					)
+					if (!variable) {
+						throw new Error(`Variable "${data.path}" not found in benchmark workspace`)
+					}
+					return variable
 				}
 				return actual.VariableService.getVariable(data)
 			}

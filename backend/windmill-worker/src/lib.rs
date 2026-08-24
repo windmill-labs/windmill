@@ -33,6 +33,9 @@ pub mod common;
 mod config;
 mod csharp_executor;
 
+mod dbt_engine;
+mod dbt_executor;
+mod dbt_profiles;
 #[cfg(feature = "private")]
 mod dedicated_worker_ee;
 mod dedicated_worker_oss;
@@ -40,6 +43,8 @@ mod deno_executor;
 mod docker_v2;
 #[cfg(feature = "duckdb")]
 mod duckdb_executor;
+#[cfg(all(feature = "duckdb", feature = "private"))]
+mod duckdb_isolation_ee;
 mod global_cache;
 mod go_executor;
 mod graphql_executor;

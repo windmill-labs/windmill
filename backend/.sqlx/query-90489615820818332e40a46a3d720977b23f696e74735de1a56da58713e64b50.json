@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE script SET path = $1 WHERE workspace_id = 'test-workspace' AND path = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "90489615820818332e40a46a3d720977b23f696e74735de1a56da58713e64b50"
+}

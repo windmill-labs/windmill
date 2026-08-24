@@ -35,6 +35,7 @@
 
 	let availableEvents = $state<NextCloudEventType[]>([])
 	let serviceSchema = $state<any>(null)
+	let eventsError = $state<string | undefined>(undefined)
 
 	async function loadAvailableEvents() {
 		if (!$workspaceStore) {
@@ -43,6 +44,7 @@
 		}
 
 		loading = true
+		eventsError = undefined
 		try {
 			const events = await NativeTriggerService.listNextCloudEvents({
 				workspace: $workspaceStore!
@@ -51,7 +53,8 @@
 			serviceSchema = getNextcloudSchema(events)
 		} catch (err: any) {
 			console.error('Failed to load NextCloud events:', err)
-			sendUserToast(`Failed to load available events: ${err.body || err.message}`, true)
+			eventsError = err.body || err.message || String(err)
+			sendUserToast(`Failed to load available events: ${eventsError}`, true)
 			availableEvents = []
 		} finally {
 			loading = false
@@ -108,9 +111,13 @@
 		</div>
 	{:else if availableEvents.length === 0}
 		<div class="text-red-500 text-xs space-y-2">
-			<div
-				>No events available. Please ensure your workspace has a connected Nextcloud integration.</div
-			>
+			{#if eventsError}
+				<div class="break-words">Could not load the available events: {eventsError}</div>
+			{:else}
+				<div
+					>No events available. Please ensure your workspace has a connected Nextcloud integration.</div
+				>
+			{/if}
 			<div class="flex gap-2">
 				<Button variant="default" on:click={loadAvailableEvents} {disabled}>
 					Retry loading events

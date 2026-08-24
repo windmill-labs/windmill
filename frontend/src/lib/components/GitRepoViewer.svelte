@@ -319,6 +319,7 @@
 			readOnlyMode
 			hideS3SpecificDetails
 			rootPath={`gitrepos/${ws}/${gitRepoResourcePath}/${commitHash}/`}
+			lazyFolders={false}
 			listStoredFilesRequest={HelpersService.listGitRepoFiles}
 			loadFilePreviewRequest={HelpersService.loadGitRepoFilePreview}
 			testConnectionRequest={(async (_d) => {

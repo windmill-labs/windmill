@@ -37,5 +37,8 @@ pub struct ListAuditLogQuery {
     pub resource: Option<String>,
     pub before: Option<chrono::DateTime<chrono::Utc>>,
     pub after: Option<chrono::DateTime<chrono::Utc>>,
+    // Keyset cursor on the `id DESC` ordering. Lets a client stream a page in small batches
+    // without paying a growing OFFSET on every batch.
+    pub before_id: Option<i64>,
     pub all_workspaces: Option<bool>,
 }

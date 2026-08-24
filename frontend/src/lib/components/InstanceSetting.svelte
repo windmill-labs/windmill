@@ -24,6 +24,7 @@
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
 	import GhesAppSettings from './instanceSettings/GhesAppSettings.svelte'
+	import WebhookBaseUrlSetting from './instanceSettings/WebhookBaseUrlSetting.svelte'
 	import WsConnectivityTest from './instanceSettings/WsConnectivityTest.svelte'
 	import IndexerMemorySettings from './instanceSettings/IndexerMemorySettings.svelte'
 	import IndexerJobIndexSettings from './instanceSettings/IndexerJobIndexSettings.svelte'
@@ -858,6 +859,8 @@
 					<SecretBackendConfig {values} disabled={loading} />
 				{:else if setting.fieldType == 'github_enterprise_app'}
 					<GhesAppSettings {values} disabled={loading || !$enterpriseLicense} />
+				{:else if setting.fieldType == 'webhook_base_url'}
+					<WebhookBaseUrlSetting {values} disabled={loading || !$enterpriseLicense} />
 				{:else if setting.fieldType == 'ws_connectivity'}
 					<WsConnectivityTest {values} />
 				{/if}

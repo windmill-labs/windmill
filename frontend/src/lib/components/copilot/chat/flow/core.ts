@@ -43,12 +43,17 @@ import { flowModuleSchema } from './openFlowZod.gen'
 import { collectAllFlowModuleIdsFromModules } from '$lib/components/flows/flowTree'
 import {
 	buildEditableFlowJson as buildEditableFlowJsonBase,
+	FLOW_VALUE_SETTINGS_KEYS,
+	pickFlowValueSettings,
 	validateEditableFlowJson,
 	validateFlowModules,
 	validateFlowSchema,
-	type EditableFlowJson
+	type EditableFlowJson,
+	type FlowValueSettings
 } from './editableFlowJson'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
+import { getAiAgentProviderCatalogFor } from './aiAgentProviderCatalog'
+import { formatAiAgentProviderWarnings } from './aiAgentProviders'
 
 type FlowJsonUpdate = {
 	modules?: FlowModule[]
@@ -57,6 +62,9 @@ type FlowJsonUpdate = {
 	failureModule?: FlowModule | null
 	groups?: FlowGroup[] | null
 	notes?: FlowNote[] | null
+	/** Full state of the top-level FlowValue settings: when provided, keys
+	 * absent from it are removed from the flow value. */
+	settings?: FlowValueSettings
 }
 
 function formatEmptyInlineScriptWarning({
@@ -360,6 +368,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	...createWorkspaceMutationTools<FlowAIChatHelpers>(),
 	{
 		def: resourceTypeToolDef,
+		planModeSafe: true,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
 			const parsedArgs = resourceTypeToolSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -378,6 +387,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: getInstructionsForCodeGenerationToolDef,
+		planModeSafe: true,
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
 			const langContext = getLangContext(parsedArgs.language, {
@@ -467,6 +477,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: inspectInlineScriptToolDef,
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = inspectInlineScriptSchema.parse(args)
 			const moduleId = parsedArgs.moduleId
@@ -524,7 +535,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		streamArguments: true,
 		showDetails: true,
 		showFade: true,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+		fn: async ({ args, helpers, toolId, toolCallbacks, workspace }) => {
 			const parsedArgs = patchFlowJsonSchema.parse(args)
 			const { old_string: oldString, new_string: newString, replace_all: replaceAll } = parsedArgs
 			const { flow, selectedId } = helpers.getFlowAndSelectedId()
@@ -545,13 +556,24 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				'current flow JSON'
 			)
 
-			let parsedFlow: EditableFlowJson
+			let patchedValue: unknown
 			try {
-				parsedFlow = validateEditableFlowJson(JSON.parse(updatedFlowJson))
+				patchedValue = JSON.parse(updatedFlowJson)
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error)
 				throw new Error(`Invalid JSON after replacement: ${message}`)
 			}
+			const aiProviders = await getAiAgentProviderCatalogFor(
+				workspace,
+				(patchedValue as { modules?: unknown } | null)?.modules
+			)
+			const aiProviderWarnings: string[] = []
+			// Validation errors carry their own diagnosis (a bad module, a provider the workspace
+			// does not have); only a parse failure is about the replacement's JSON.
+			const parsedFlow: EditableFlowJson = validateEditableFlowJson(patchedValue, {
+				aiProviders,
+				aiProviderWarnings
+			})
 
 			for (const [moduleId, content] of Object.entries(inlineScriptSession.getAll())) {
 				helpers.inlineScriptSession.set(moduleId, content)
@@ -563,7 +585,8 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				preprocessorModule: parsedFlow.preprocessor_module,
 				failureModule: parsedFlow.failure_module,
 				groups: parsedFlow.groups,
-				notes: parsedFlow.notes
+				notes: parsedFlow.notes,
+				settings: pickFlowValueSettings(parsedFlow)
 			})
 			const warning = formatEmptyInlineScriptWarning(updateResult)
 
@@ -581,7 +604,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				result: 'Success'
 			})
 
-			return `Flow JSON updated.${warning}`
+			return `Flow JSON updated.${warning}${formatAiAgentProviderWarnings(aiProviderWarnings)}`
 		}
 	},
 	{
@@ -665,7 +688,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		streamArguments: true,
 		showDetails: true,
 		showFade: true,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+		fn: async ({ args, helpers, toolId, toolCallbacks, workspace }) => {
 			const { modules, schema, preprocessor_module, failure_module, groups, notes } = args
 
 			let parsedModules: FlowModule[] | null | undefined
@@ -698,8 +721,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				parsedSchema = undefined
 			}
 
+			const aiProviderWarnings: string[] = []
 			if (parsedModules !== undefined) {
-				parsedModules = validateFlowModules(parsedModules)
+				const aiProviders = await getAiAgentProviderCatalogFor(workspace, parsedModules)
+				parsedModules = validateFlowModules(parsedModules, { aiProviders, aiProviderWarnings })
 				const reservedIds = collectAllFlowModuleIdsFromModules(parsedModules).filter(
 					(id) => id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE
 				)
@@ -784,11 +809,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				content: `Flow updated`,
 				result: 'Success'
 			})
-			return `Flow updated.${warning}`
+			return `Flow updated.${warning}${formatAiAgentProviderWarnings(aiProviderWarnings)}`
 		}
 	},
 	{
 		def: getLintErrorsToolDef,
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = getLintErrorsSchema.parse(args)
 
@@ -854,7 +880,7 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 Use \`patch_flow_json\` for small, localized changes when you can target an exact snippet from the \`CURRENT FLOW JSON COMPACT\` block below.
 
 Always copy the exact search text from the \`CURRENT FLOW JSON COMPACT\` block below.
-The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\` keys.
+The compact JSON is a single object with \`modules\`, \`schema\`, \`preprocessor_module\`, \`failure_module\`, \`groups\`, and \`notes\` keys, plus any top-level flow settings that are set (${FLOW_VALUE_SETTINGS_KEYS.join(', ')}). Settings can be added, edited, or removed with \`patch_flow_json\` as top-level keys — e.g. \`chat_input_enabled: true\` marks the flow as chat-style (flow-as-chat); keep it intact when restructuring such a flow. \`set_flow_json\` never changes these settings.
 
 **Parameters:**
 - \`old_string\`: Exact JSON text to find
@@ -971,6 +997,48 @@ set_flow_json({
       }
     }
   ]
+})
+\`\`\`
+
+**Example - Flow with while loop:**
+
+In a while loop, \`flow_input.iter.value\` equals \`flow_input.iter.index\` (a plain number: 0, 1, 2, ...) — it never carries state, so \`flow_input.iter.value.count\` is always undefined and a counter built on it never advances. To carry state across iterations, a step reads its own previous-iteration result via \`results.<its_own_id>\` with a first-iteration fallback (e.g. \`results.tick ?? flow_input.start\`) — but then the loop's \`stop_after_if\` MUST sit on that inner step: a body that is exactly one plain step with the stop condition on the loop module runs on a fast path where \`results.<step_id>\` is null every iteration and the loop never terminates (bodies with 2+ steps, or whose single step has its own \`stop_after_if\`, retry or similar, resolve \`results\` across iterations regardless of stop placement). For plain counters, deriving from \`flow_input.iter.index\` works in every configuration. \`stop_after_if\` is evaluated after each iteration — on the loop module \`result\` is the last iteration's result (the return of the iteration's final step); on an inner step it is that step's result.
+
+\`\`\`javascript
+set_flow_json({
+  modules: [
+    {
+      id: "count_up",
+      summary: "Increment until target",
+      value: {
+        type: "whileloopflow",
+        skip_failures: false,
+        modules: [
+          {
+            id: "tick",
+            summary: "Compute current count",
+            value: {
+              type: "rawscript",
+              language: "bun",
+              content: "export async function main(count: number, target: number) { return { count, done: count >= target }; }",
+              input_transforms: {
+                count: { type: "javascript", expr: "flow_input.iter.index + 1" },
+                target: { type: "javascript", expr: "flow_input.target" }
+              }
+            }
+          }
+        ]
+      },
+      stop_after_if: { expr: "result.done", skip_if_stopped: false }
+    }
+  ],
+  schema: {
+    type: "object",
+    properties: {
+      target: { type: "number", description: "Stop when the count reaches this value" }
+    },
+    required: ["target"]
+  }
 })
 \`\`\`
 
@@ -1094,43 +1162,6 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
    - Always define \`input_transforms\` to connect parameters to flow inputs or previous step results
 
 3. **After making code changes, ALWAYS use \`get_lint_errors\` to check for issues.** Fix any errors before proceeding with testing.
-
-### AI Agent Modules
-
-AI agents can use tools to accomplish tasks. When creating an AI agent module:
-
-\`\`\`javascript
-{
-  id: "support_agent",
-  summary: "AI agent for customer support",
-  value: {
-    type: "aiagent",
-    input_transforms: {
-      provider: { type: "static", value: "$res:f/ai_providers/openai" },
-      output_type: { type: "static", value: "text" },
-      user_message: { type: "javascript", expr: "flow_input.query" },
-      system_prompt: { type: "static", value: "You are a helpful assistant." }
-    },
-    tools: [
-      {
-        id: "search_docs",
-        summary: "Search_documentation",
-        value: {
-          tool_type: "flowmodule",
-          type: "rawscript",
-          language: "bun",
-          content: "export async function main(query: string) { return ['doc1', 'doc2']; }",
-          input_transforms: { query: { type: "static", value: "" } }
-        }
-      }
-    ]
-  }
-}
-\`\`\`
-
-- **Tool IDs**: Cannot contain spaces - use underscores
-- **Tool summaries**: Cannot contain spaces - use underscores
-- **Tool types**: \`flowmodule\` for scripts/flows, \`mcp\` for MCP server tools
 
 ### Contexts
 

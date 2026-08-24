@@ -4,6 +4,7 @@ import { createLongHash } from '$lib/editorLangUtils'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
 	enterpriseLicense,
+	superadmin,
 	userStore,
 	userWorkspaces,
 	usersWorkspaceStore,
@@ -109,6 +110,14 @@ export type Session = {
 	// untouched draft never persists, so idle `+` clicks vanish on reload
 	// instead of littering the sidebar.
 	transient?: boolean
+	// Epoch ms of the last write to this record — typing, renaming, archiving,
+	// changing preview tabs, or catching up on new messages. Stamped by the two
+	// write funnels (persistTouched, markSessionSeen), so it tracks use rather
+	// than creation; merely opening a session without reading anything new is not
+	// a write and does not bump it.
+	// Absent on records last written before the field existed; readers fall back
+	// to createdAt via sessionLastActivityAt.
+	lastActivityAt?: number
 	// Per-session unread watermark: the displayMessages count the last time
 	// the user was on this session's page. Compared against the runtime's
 	// current message count to derive the unread badge (see sessionUnread).
@@ -129,14 +138,23 @@ export type Session = {
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
 	draftPrompt?: string
+	// When `draftPrompt` should be sent on arrival rather than parked in the
+	// composer. Set by hand-offs whose click already stated the intent ("AI Fix",
+	// a typed step or app description), so they land mid-answer rather than
+	// waiting for a second Enter. Holds the arming time, not a flag: `goto`
+	// resolves even when a `beforeNavigate` cancels it, so an abandoned hand-off
+	// would otherwise leave a session armed forever and fire on some later visit.
+	// Consumed exactly once, by takeSessionAutoSend.
+	autoSendDraftAt?: number
 }
 
 // One preview tab: `url` is the URL we command the iframe to load, `loc` the
 // last observed location (see the sessions page for the url/loc split).
 // `friendlyLabel` / `friendlyPath` are transient overrides the live editor
 // stamps; not persisted (hydrate rebuilds tabs field-by-field), recomputed on
-// next mount. `friendlyLabel` names a never-deployed item parked at
-// `…/draft_<uuid>` (its typed/auto name). `friendlyPath` is the item's full
+// next mount. `friendlyLabel` is the item's display name — its summary, or the
+// typed/auto name of a never-deployed item parked at
+// `…/draft_<uuid>`. `friendlyPath` is the item's full
 // staged path whenever it differs from the tab's route path — draft-parked OR
 // a deployed item with an undeployed rename — and scopes the breadcrumb
 // picker into the folder the picker tree displays the item under.
@@ -146,6 +164,11 @@ export type SessionPreviewTab = {
 	loc: string
 	friendlyLabel?: string
 	friendlyPath?: string
+	// True once this tab's live editor has loaded its item and reported a name —
+	// or reported that it has none. Until then the sessions page names the tab
+	// from the workspace listing; after, the editor is the only source, else
+	// clearing a summary would fall back to the listing's stale copy of it.
+	editorNamed?: boolean
 }
 
 // Sessions live in one per-user IndexedDB, one record per session in the
@@ -314,9 +337,9 @@ const draftPromptFlushHandles = new Map<string, ReturnType<typeof setTimeout>>()
 export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s || s.workspace_id) return
-	// No-op on an unchanged prompt. Crucially, this treats the composer's
-	// mount-time onDraftChange('') as a non-touch (draftPrompt is undefined),
-	// so merely opening an untouched draft never persists it.
+	// No-op on an unchanged prompt, so opening an untouched draft never persists
+	// it. Writes of '' are real edits (a draft typed then erased is still a
+	// session), which is why the composer reports edits only — see AIChatInput.
 	if ((s.draftPrompt ?? '') === text) return
 	// Keep `transient` (means "in-memory only") set until the flush persists the
 	// draft, so hydrateSessions preserves it across a reconcile inside this window;
@@ -341,22 +364,42 @@ export function getSessionDraftPrompt(sessionId: string): string | undefined {
 	return s.draftPrompt
 }
 
-// One-shot intent to auto-send a prompt as soon as a freshly-created session's
-// chat is ready (set by startSessionWithPrompt for the home composer). Held in
-// memory only — deliberately NOT persisted, so a reload never re-fires a send
-// the user didn't just trigger. Consumed once via takeAutoSendPrompt.
-let autoSendPrompt: { sessionId: string; text: string } | undefined
-export function queueAutoSendPrompt(sessionId: string, text: string): void {
-	autoSendPrompt = { sessionId, text }
+// A hand-off arrives within a navigation; anything older than this is the debris
+// of one that never landed, and must not fire at whatever the user does next.
+const AUTO_SEND_TTL_MS = 5 * 60_000
+
+// Mark this session's draft prompt for sending on arrival. Written straight to
+// the record (not via setSessionDraftPrompt's debounce) because the navigation
+// that follows must not outrun it.
+export function setSessionAutoSend(sessionId: string): void {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s) return
+	s.autoSendDraftAt = Date.now()
+	persistTouched(s)
 }
 
-// Take (read-and-clear) the auto-send prompt for a session. One-shot: the second
-// caller — a re-mount, or a different session — gets undefined.
-export function takeAutoSendPrompt(sessionId: string): string | undefined {
-	if (autoSendPrompt?.sessionId !== sessionId) return undefined
-	const text = autoSendPrompt.text
-	autoSendPrompt = undefined
-	return text
+function autoSendIsFresh(s: Session | undefined): boolean {
+	return !!s?.autoSendDraftAt && Date.now() - s.autoSendDraftAt < AUTO_SEND_TTL_MS
+}
+
+// Whether a claim would be honoured, without consuming it. The composer asks
+// before deciding to stay empty: suppressing the text for an intent that then
+// goes stale would leave the prompt neither sent nor shown, and the composer's
+// own empty-draft write would erase it from the record.
+export function peekSessionAutoSend(sessionId: string): boolean {
+	return autoSendIsFresh(sessionState.sessions.find((x) => x.id === sessionId))
+}
+
+// Claim the auto-send intent, clearing it so a remount (or a second wrapper for
+// the same session) cannot fire the same prompt twice. A stale claim is dropped
+// rather than honoured, but still cleared — it has no other consumer.
+export function takeSessionAutoSend(sessionId: string): boolean {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s?.autoSendDraftAt) return false
+	const fresh = autoSendIsFresh(s)
+	delete s.autoSendDraftAt
+	persistTouched(s)
+	return fresh
 }
 
 // Persist a session on a genuine user edit, promoting an in-memory-only
@@ -365,7 +408,41 @@ export function takeAutoSendPrompt(sessionId: string): string | undefined {
 // directly, so an untouched draft stays in memory and vanishes on reload.
 function persistTouched(s: Session): void {
 	if (s.transient) delete s.transient
+	s.lastActivityAt = Date.now()
 	void putSession(s)
+}
+
+// When the session was last used. Pre-dates-the-field records report their
+// creation time, which is the earliest activity they could have had.
+export function sessionLastActivityAt(s: Session): number {
+	return s.lastActivityAt ?? s.createdAt
+}
+
+// Sessions whose record has been removed from IndexedDB. Ids come from createLongHash
+// and are never reused, so an entry can only ever match the record it was recorded for.
+// In-memory by design: a reload re-runs reconciliation, which re-derives the set.
+const deletedSessionIds = new Set<string>()
+
+// Test-only: module state outlives a suite's per-test reset of the stores.
+export function __resetDeletedSessionIdsForTesting(): void {
+	deletedSessionIds.clear()
+}
+
+// The one way to remove a session's record. Tombstones BEFORE awaiting the delete so a
+// putSession racing this transaction cannot commit its write behind it — a direct
+// db.delete elsewhere would silently reopen that window.
+async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Promise<void> {
+	deletedSessionIds.add(id)
+	await db.delete('sessions', id)
+}
+
+// The one way to write a session's record, and the other half of the invariant above:
+// every caller reaches its write across an await — putSession on the DB handle, the
+// reconcile and hydrate passes on a getAll() snapshot that an interleaved delete
+// invalidates — so the tombstone has to be consulted here, not only at the entry points.
+async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promise<void> {
+	if (deletedSessionIds.has(s.id)) return
+	await db.put('sessions', s)
 }
 
 // Write-behind a single session record. Transient sessions are in-memory only
@@ -376,12 +453,17 @@ function persistTouched(s: Session): void {
 export async function putSession(s: Session): Promise<void> {
 	if (!BROWSER) return
 	if (s.transient) return
-	// Never resurrect a session whose workspace is gone — committed (workspace_id)
-	// or pre-send (pending_workspace_id). A live runtime can still write through
-	// here after reconciliation deletes its record (chatId seed, unread watermark),
-	// so guard once the workspace list is loaded.
+	// A record removed because its workspace is gone had its files and artifacts GC'd with
+	// it, so writing it back resurrects an empty husk. Callers reach here holding a
+	// reference captured before the delete — the chat-id seeder awaits mid-loop,
+	// find-then-write callers race the re-hydrate.
+	if (deletedSessionIds.has(s.id)) return
+	// Separately, keep a UI action (e.g. unarchive) from persisting into a workspace that
+	// has gone unavailable but not yet reconciled. `userWorkspaces` answers that only for
+	// a confirmed non-superadmin — hence `=== false`, the store being `undefined` until
+	// the role resolves — since a superadmin reaches workspaces they have no `usr` row in.
 	const boundWs = s.workspace_id ?? s.pending_workspace_id
-	if (boundWs) {
+	if (boundWs && get(superadmin) === false) {
 		const all = get(userWorkspaces)
 		if (all.length > 0 && !all.some((w) => w.id === boundWs)) return
 	}
@@ -389,7 +471,7 @@ export async function putSession(s: Session): Promise<void> {
 	const db = await sessionsDb.whenReady()
 	if (!db) return
 	try {
-		await db.put('sessions', $state.snapshot(s))
+		await putSessionRow(db, $state.snapshot(s))
 	} catch (e) {
 		console.error('Failed to persist session', e)
 	}
@@ -400,7 +482,7 @@ export async function deleteSessionRecord(id: string): Promise<void> {
 	const db = await sessionsDb.whenReady()
 	if (!db) return
 	try {
-		await db.delete('sessions', id)
+		await deleteSessionRow(db, id)
 	} catch (e) {
 		console.error('Failed to delete session record', e)
 	}
@@ -425,7 +507,7 @@ async function hydrateSessions({ dropTransients = false } = {}): Promise<void> {
 	try {
 		const all = await db.getAll('sessions')
 		const changed = all.filter((s) => ensureSessionRootId(s))
-		for (const s of changed) await db.put('sessions', s)
+		for (const s of changed) await putSessionRow(db, s)
 		all.sort((a, b) => b.createdAt - a.createdAt)
 		// In-memory (untouched) drafts are prepended, newest-first as createSession
 		// maintains; persisted sessions follow, sorted by createdAt.
@@ -514,7 +596,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 			if (!ws) continue
 			const { action, patch } = decideSessionLifecycle(s, status[ws])
 			if (action === 'delete') {
-				await db.delete('sessions', s.id)
+				await deleteSessionRow(db, s.id)
 				// GC linked files too, matching deleteSession — a record-only delete
 				// here would orphan the session's attached-file blobs/handles.
 				void deleteItemsForSession(s.id)
@@ -527,7 +609,7 @@ export async function reconcileSessionsLifecycle(): Promise<void> {
 			// Re-root surviving sessions whose family topmost member shifted (an
 			// ancestor was deleted); fall back to backfilling a missing root.
 			if (refreshSessionRootId(s) || ensureSessionRootId(s)) changed = true
-			if (changed) await db.put('sessions', s)
+			if (changed) await putSessionRow(db, s)
 		}
 	} catch (e) {
 		// The connection can go stale mid-loop (user switch reopens the per-user
@@ -588,7 +670,7 @@ export async function archiveSessionsForWorkspace(workspaceId: string): Promise<
 		s.archived = true
 		s.archivedByWorkspace = true
 		ensureSessionRootId(s)
-		await db.put('sessions', s)
+		await putSessionRow(db, s)
 	}
 	for (const s of sessionState.sessions) {
 		if (s.transient || s.workspace_id !== workspaceId || s.archived) continue
@@ -606,7 +688,7 @@ export async function deleteSessionsForWorkspace(workspaceId: string): Promise<v
 		all.filter((s) => s.workspace_id === workspaceId && !s.transient).map((s) => s.id)
 	)
 	for (const id of ids) {
-		await db.delete('sessions', id)
+		await deleteSessionRow(db, id)
 		// GC linked files too (matches deleteSession) so a workspace teardown
 		// doesn't leave the sessions' attached-file blobs/handles orphaned.
 		void deleteItemsForSession(id)
@@ -752,6 +834,17 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	// Picking an existing workspace cancels any pending fork intent.
 	s.pending_fork = undefined
 	if (changed) persistTouched(s)
+}
+
+// Park a just-created session on a workspace. Deliberately does not persist a
+// still-transient draft: picking where it will live is part of creating it, not a
+// user touch, so an unused draft still vanishes on reload (see `transient`).
+export function setNewSessionWorkspace(id: string, workspace_id: string) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s) return
+	s.pending_workspace_id = workspace_id
+	s.pending_fork = undefined
+	if (!s.transient) persistTouched(s)
 }
 
 // Records the user's intent to create a new fork without firing the API

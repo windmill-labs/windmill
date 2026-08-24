@@ -8,6 +8,7 @@ import {
 	NoteColor
 } from '$lib/components/graph/noteColors'
 import type { InlineScriptSession } from './inlineScriptsUtils'
+import { FLOW_VALUE_SETTINGS_KEYS, type FlowValueSettings } from './flowValueSettings'
 
 /** Allowed note/group color names — matches the NoteColor palette the note and
  * group editors use. The note renderer keys `NOTE_COLORS` by these exact names,
@@ -56,6 +57,9 @@ export interface FlowJsonUpdate {
 	failureModule?: FlowModule | null
 	groups?: FlowGroup[] | null
 	notes?: FlowNote[] | null
+	/** Full state of the top-level FlowValue settings: when provided, keys
+	 * absent from it are removed from the flow value. */
+	settings?: FlowValueSettings
 }
 
 export interface FlowJsonUpdateResult {
@@ -269,7 +273,7 @@ export function validateFlowNotes(rawNotes: unknown, moduleIds?: Set<string>): F
 export function applyFlowJsonUpdate(
 	flow: FlowLike,
 	inlineScriptSession: InlineScriptSession,
-	{ modules, schema, preprocessorModule, failureModule, groups, notes }: FlowJsonUpdate
+	{ modules, schema, preprocessorModule, failureModule, groups, notes, settings }: FlowJsonUpdate
 ): FlowJsonUpdateResult {
 	const emptyInlineScriptModuleIds = new Set<string>()
 
@@ -305,6 +309,16 @@ export function applyFlowJsonUpdate(
 
 	if (notes !== undefined) {
 		flow.value.notes = notes == null || notes.length === 0 ? undefined : notes
+	}
+
+	if (settings !== undefined) {
+		for (const key of FLOW_VALUE_SETTINGS_KEYS) {
+			if (settings[key] !== undefined) {
+				;(flow.value as Record<string, unknown>)[key] = settings[key]
+			} else {
+				delete (flow.value as Record<string, unknown>)[key]
+			}
+		}
 	}
 
 	return {

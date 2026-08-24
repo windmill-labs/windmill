@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { User, UserRoundX } from 'lucide-svelte'
+	import { applyDarkModeVariant } from '$lib/darkModeVariant'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { base } from '$app/paths'
 	import { page } from '$app/state'
@@ -73,6 +74,8 @@
 	} else {
 		document.documentElement.classList.remove('dark')
 	}
+	// This route bypasses the (root) layout, so restore the variant class too.
+	applyDarkModeVariant()
 
 	let globalUser = $state<GlobalWhoamiResponse | undefined>(undefined)
 	async function loadGlobalUser() {

@@ -3,11 +3,12 @@
 	import TopLevelNode from './TopLevelNode.svelte'
 
 	interface Props {
-		label: string;
-		selected?: boolean;
+		label: string
+		selected?: boolean
+		onHover?: () => void
 	}
 
-	let { label, selected = false }: Props = $props();
+	let { label, selected = false, onHover = undefined }: Props = $props()
 	const dispatch = createEventDispatcher()
 	function handleKeydown(event: KeyboardEvent & { currentTarget: EventTarget & Window }) {
 		if (selected && event.key === 'Enter') {
@@ -23,4 +24,4 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<TopLevelNode {label} {selected} returnIcon onSelect={click} />
+<TopLevelNode {label} {selected} returnIcon neutral onSelect={click} {onHover} />

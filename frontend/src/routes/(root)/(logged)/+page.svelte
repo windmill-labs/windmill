@@ -295,7 +295,7 @@
 						<ToggleButtonGroup
 							bind:selected={subtab}
 							onSelected={(v) => {
-								setQuery(page.url, 'kind', v, window.location.hash)
+								setQuery('kind', v, window.location.hash)
 							}}
 							noWFull
 						>

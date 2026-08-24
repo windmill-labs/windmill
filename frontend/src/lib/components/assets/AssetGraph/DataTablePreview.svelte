@@ -102,6 +102,11 @@
 			: undefined
 	)
 
+	// Kept apart from "no columns for this table": a failed metadata read says
+	// nothing about whether the table exists, so reporting it as missing would
+	// point the user at the wrong problem.
+	let colDefsError = $state<string | undefined>(undefined)
+
 	// Metadata for every table in the datatable. We query the lot rather
 	// than just the one we care about because `loadAllTablesMetaData` is
 	// what `dbTableOpsWithPreviewScripts` and the rest of the DB manager
@@ -111,14 +116,12 @@
 	let colDefs = resource(
 		() => [input, refreshKey],
 		async ([_input]) => {
+			colDefsError = undefined
 			if (!_input || !$workspaceStore) return undefined
 			try {
 				return await loadAllTablesMetaData($workspaceStore, _input)
-			} catch {
-				// Connection/permission errors look identical to "table
-				// missing" from the user's POV inside the preview pane;
-				// the full error is surfaced via the existing sendUserToast
-				// path inside loadAllTablesMetaData.
+			} catch (e) {
+				colDefsError = (e as Error)?.message || String(e)
 				return undefined
 			}
 		}
@@ -186,6 +189,12 @@
 	{:else if colDefs.loading && !colDefs.current}
 		<div class="absolute inset-0 flex items-center justify-center text-tertiary">
 			<Loader2 class="animate-spin" size={20} />
+		</div>
+	{:else if colDefsError}
+		<div class="absolute inset-0 flex flex-col items-center justify-center gap-2 p-6 text-center">
+			<AlertTriangle size={20} class="text-red-500" />
+			<span class="text-sm font-medium text-emphasis">Could not read the datatable</span>
+			<span class="text-2xs text-tertiary max-w-md">{colDefsError}</span>
 		</div>
 	{:else if !tableColDefs}
 		<!-- Datatable exists but the specific table doesn't — most often

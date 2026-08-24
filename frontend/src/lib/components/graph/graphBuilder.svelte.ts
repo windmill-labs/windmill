@@ -1,9 +1,10 @@
-import type { FlowModule, Job, PathScript, RawScript, Script } from '$lib/gen'
+import type { FlowModule, PathScript, RawScript, Script } from '$lib/gen'
 import { type Edge } from '@xyflow/svelte'
 import { getAllModules, getDependeeAndDependentComponents } from '../flows/flowExplorer'
 import { dfsByModule } from '../flows/previousResults'
 import { defaultIfEmptyString } from '$lib/utils'
 import type { GraphModuleState } from './model'
+import type { SelectIntentOptions } from './selectionUtils.svelte'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
@@ -60,8 +61,10 @@ export type GraphEventHandlers = {
 		isPreprocessor?: boolean
 	}) => void
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void
-	select: (mod: string | FlowModule) => void
+	select: (mod: string | FlowModule, opts?: SelectIntentOptions) => void
 	delete: (detail: { id: string }, label: string) => void
+	/** Drop a node that only mirrors run state (the error handler marker). Never edits the flow. */
+	dismissRunNode: (id: string) => void
 	newBranch: (id: string) => void
 	move: (detail: { id: string }) => void
 	duplicate: (detail: { id: string }) => void
@@ -81,14 +84,6 @@ export type GraphEventHandlers = {
 }
 
 export type SimplifiableFlow = { simplifiedFlow: boolean }
-
-export function isTriggerStep(module: FlowModule | undefined): boolean {
-	return (
-		module?.value != undefined &&
-		(module.value.type === 'script' || module.value.type === 'rawscript') &&
-		module.value.is_trigger === true
-	)
-}
 
 export function buildPrefix(prefix: string | undefined, id: string): string {
 	return (prefix ?? '') + id + ':'
@@ -123,6 +118,7 @@ export type FlowNode =
 	| CollapsedGroupN
 	| GroupHeadN
 	| GroupEndN
+	| FailureModuleN
 
 export type InputN = {
 	type: 'input2'
@@ -136,7 +132,6 @@ export type InputN = {
 		editMode: boolean
 		isRunning: boolean
 		individualStepTests: boolean
-		flowJob: Job | undefined
 		showJobStatus: boolean
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
@@ -152,14 +147,23 @@ export type ModuleN = {
 		id: string
 		parentIds: string[]
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 		testModuleState: ModuleTestState | undefined
 		insertable: boolean
 		editMode: boolean
-		flowJob: Job | undefined
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
 		moduleAction: ModuleActionInfo | undefined
+	}
+}
+
+/** The error handler as it appears in the editor graph once a run triggered it: an inert
+ * marker of where the handler fired, not an editable step of the flow structure. */
+export type FailureModuleN = {
+	type: 'failureModule'
+	data: {
+		id: string
+		module: FlowModule
+		eventHandlers: GraphEventHandlers
 	}
 }
 
@@ -170,7 +174,6 @@ export type BranchAllStartN = {
 		id: string
 		branchIndex: number
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 		insertable: boolean
 		branchOne: boolean
 	}
@@ -181,7 +184,6 @@ export type BranchAllEndN = {
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -191,7 +193,6 @@ export type ForLoopEndN = {
 		id: string
 		eventHandlers: GraphEventHandlers
 		simplifiedTriggerView: boolean
-		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -200,7 +201,6 @@ export type ForLoopStartN = {
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 		selectedId: string | undefined
 		editMode: boolean
 		simplifiedTriggerView: boolean
@@ -214,7 +214,6 @@ export type ResultN = {
 		success: boolean | undefined
 		eventHandlers: GraphEventHandlers
 		editMode: boolean
-		job: Job | undefined
 		showJobStatus: boolean
 	}
 }
@@ -236,7 +235,6 @@ export type BranchOneStartN = {
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 		selected: boolean
 		insertable: boolean
 		label: string
@@ -251,7 +249,6 @@ export type BranchOneEndN = {
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 	}
 }
 
@@ -272,7 +269,6 @@ export type NoBranchN = {
 	data: {
 		id: string
 		eventHandlers: GraphEventHandlers
-		flowModuleState: GraphModuleState | undefined
 		branchOne: boolean
 		label: string
 		branchIndex: number
@@ -315,8 +311,18 @@ export type AiToolN = {
 		nameError?: string
 		eventHandlers: GraphEventHandlers
 		moduleId: string
+		/** An MCP tool's server, which its calls are keyed to. */
+		resourcePath?: string
+		/** The agent step this tool hangs off. The editor draws the declared tools, whose ids the
+		 * run's per-call state is not keyed by, so the node needs its agent to find its calls. */
+		agentModuleId: string
+		// Set on a linked agent's display-only tools: clicking selects this module (the agent step)
+		// instead of the tool, whose resource-owned id is not flow-unique.
+		selectTarget?: string
 		insertable: boolean
-		flowModuleStates: Record<string, GraphModuleState> | undefined
+		// Tool of a linked agent: its inputs are editable but its structure comes from the resource,
+		// so it can't be deleted here.
+		readOnly?: boolean
 	}
 }
 
@@ -338,10 +344,7 @@ export type CollapsedGroupN = {
 		autocollapse: boolean | undefined
 		stepCount: number
 		modules: FlowModule[]
-		flowModuleStates: Record<string, GraphModuleState> | undefined
-		flowJob: Job | undefined
 		isOwner: boolean
-		suspendStatus: Record<string, { job: Job; nb: number }>
 		showNotes: boolean
 		editMode: boolean
 		eventHandlers: GraphEventHandlers
@@ -381,7 +384,13 @@ export function topologicalSort(
 		if (visited.has(id)) return
 		visited.add(id)
 
-		const node = nodeMap.get(id)!
+		// A parent id with no node is a bug in whoever built the graph, but the whole editor
+		// unmounts if this throws, so warn and let the rest of the graph render.
+		const node = nodeMap.get(id)
+		if (!node) {
+			console.warn('Edge to a node that does not exist: ', id)
+			return
+		}
 		node.parentIds?.forEach(visit)
 		result.push(node)
 	}
@@ -396,6 +405,9 @@ export function graphBuilder(
 	extra: {
 		disableAi: boolean
 		insertable: boolean
+		// Only for the parts of the graph's shape a run decides: which loop iteration is
+		// expanded and where the error-handler marker attaches. Everything a step merely
+		// displays comes from FlowRunStatus, never from here.
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		testModuleStates: ModulesTestStates | undefined
 		moduleActions?: Record<string, ModuleActionInfo>
@@ -408,9 +420,7 @@ export function graphBuilder(
 		isOwner: boolean
 		isRunning: boolean
 		individualStepTests: boolean
-		flowJob: Job | undefined
 		showJobStatus: boolean
-		suspendStatus: Record<string, { job: Job; nb: number }>
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
 		additionalAssetsMap?: Record<string, AssetWithAltAccessType[]>
@@ -461,18 +471,38 @@ export function graphBuilder(
 					id: module.id,
 					parentIds: [],
 					eventHandlers: eventHandlers,
-					flowModuleState: extra.flowModuleStates?.[module.id],
 					testModuleState: extra.testModuleStates?.states?.[module.id],
 					insertable: extra.insertable && !module.id.startsWith('subflow:'),
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
-					flowJob: extra.flowJob,
 					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
 					moduleAction: extra.moduleActions?.[module.id],
 					...extraData
 				},
 				type: 'module',
 				selectable: true
+			})
+
+			return module.id
+		}
+
+		// In the editor the error handler is configured from its own header button, so its graph node
+		// is only a marker of the last run: inert, dismissable, and never selectable. Everywhere else
+		// (run view, viewers) it stays a regular step card.
+		function addFailureNode(module: FlowModule) {
+			if (!extra.editMode) {
+				return addNode(module)
+			}
+
+			nodes.push({
+				id: module.id,
+				data: {
+					id: module.id,
+					module,
+					eventHandlers: eventHandlers
+				},
+				type: 'failureModule',
+				selectable: false
 			})
 
 			return module.id
@@ -566,7 +596,11 @@ export function graphBuilder(
 					disableMoveIds: options?.disableMoveIds,
 					enableTrigger: sourceId === 'Input',
 					index,
-					...extra,
+					// Only what the edge renderer reads. Anything listed here lands on every edge,
+					// so a value that changes each poll invalidates the whole edge set and makes
+					// Svelte re-create each one.
+					disableAi: extra.disableAi,
+					isOwner: extra.isOwner,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
 					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
 				},
@@ -588,7 +622,6 @@ export function graphBuilder(
 				editMode: extra.editMode,
 				isRunning: extra.isRunning,
 				individualStepTests: extra.individualStepTests,
-				flowJob: extra.flowJob,
 				showJobStatus: extra.showJobStatus,
 				flowHasChanged: extra.flowHasChanged,
 				chatInputEnabled: extra.chatInputEnabled,
@@ -629,7 +662,6 @@ export function graphBuilder(
 				eventHandlers: eventHandlers,
 				success: success,
 				editMode: extra.editMode,
-				job: extra.flowJob,
 				showJobStatus: extra.showJobStatus
 			},
 			type: 'result'
@@ -698,10 +730,7 @@ export function graphBuilder(
 									modules: leafIds
 										.map((id) => moduleMap.get(id))
 										.filter((m): m is FlowModule => !!m),
-									flowModuleStates: extra.flowModuleStates,
-									flowJob: extra.flowJob,
 									isOwner: extra.isOwner,
-									suspendStatus: extra.suspendStatus,
 									showNotes,
 									editMode: prefix == undefined && extra.editMode,
 									eventHandlers
@@ -823,8 +852,7 @@ export function graphBuilder(
 							id: `${module.id}-end`,
 							data: {
 								id: module.id,
-								eventHandlers: eventHandlers,
-								flowModuleState: extra.flowModuleStates?.[module.id]
+								eventHandlers: eventHandlers
 							},
 							type: 'branchAllEnd'
 						}
@@ -839,7 +867,6 @@ export function graphBuilder(
 									id: module.id,
 									branchIndex: -1,
 									eventHandlers: eventHandlers,
-									flowModuleState: extra.flowModuleStates?.[module.id],
 									branchOne: false,
 									label: 'No branches'
 								},
@@ -865,7 +892,6 @@ export function graphBuilder(
 										id: module.id,
 										branchIndex: branchIndex,
 										eventHandlers: eventHandlers,
-										flowModuleState: extra.flowModuleStates?.[module.id],
 										insertable: extra.insertable,
 										branchOne: false
 									},
@@ -911,7 +937,6 @@ export function graphBuilder(
 								simplifiedTriggerView,
 								eventHandlers: eventHandlers,
 								editMode: extra.editMode,
-								flowModuleState: extra.flowModuleStates?.[module.id],
 								selectedId: extra.selectedId
 							},
 							type: 'forLoopStart'
@@ -932,8 +957,7 @@ export function graphBuilder(
 							data: {
 								id: module.id,
 								eventHandlers: eventHandlers,
-								simplifiedTriggerView,
-								flowModuleState: extra.flowModuleStates?.[module.id]
+								simplifiedTriggerView
 							},
 							type: 'forLoopEnd'
 						}
@@ -1003,7 +1027,6 @@ export function graphBuilder(
 							id: `${module.id}-end`,
 							data: {
 								eventHandlers: eventHandlers,
-								flowModuleState: extra.flowModuleStates?.[module.id],
 								id: module.id
 							},
 							type: 'branchOneEnd'
@@ -1019,7 +1042,6 @@ export function graphBuilder(
 								eventHandlers: eventHandlers,
 								insertable: extra.insertable,
 								preLabel: undefined,
-								flowModuleState: extra.flowModuleStates?.[module.id],
 								selected: false,
 								modules: module.value.default
 							},
@@ -1055,7 +1077,6 @@ export function graphBuilder(
 									branchIndex: branchIndex,
 									eventHandlers: eventHandlers,
 									insertable: extra.insertable,
-									flowModuleState: extra.flowModuleStates?.[module.id],
 									selected: false,
 									modules: branch.modules
 								},
@@ -1187,7 +1208,17 @@ export function graphBuilder(
 			processModules(topLevelItems, undefined, inputNode, resultNode, false, undefined)
 		}
 
+		// Before the failure markers: the preprocessor can be the step that failed, and a marker is
+		// only anchored to a step already present in `nodes`.
+		if (preprocessorModule) {
+			addNode(preprocessorModule)
+			const id = JSON.parse(JSON.stringify(preprocessorModule.id))
+			addEdge(id, 'Input', undefined, undefined, { type: 'empty' })
+		}
+
 		if (failureModule) {
+			// Keyed by failing step, so a step that failed several times (loop iterations each run
+			// their own handler, with ids like `failure-0-1`) gets one marker, not a stack of them.
 			let toAdd: Record<string, string> = {}
 			Object.keys(extra.flowModuleStates ?? {}).forEach((id) => {
 				if (id.startsWith('failure')) {
@@ -1199,19 +1230,19 @@ export function graphBuilder(
 			})
 
 			Object.entries(toAdd).forEach((x) => {
-				addNode({ ...failureModule, id: x[1] })
+				// Run state outlives the flow it ran on: a step deleted since the run keeps its marker
+				// in `flowModuleStates`. Anchoring the marker to a step that is no longer in the graph
+				// leaves a parent id no node answers to, which the layout cannot sort.
+				if (!nodes.some((n) => n.id === x[0])) {
+					return
+				}
+				addFailureNode({ ...failureModule, id: x[1] })
 				addEdge(x[0], x[1], undefined, undefined, { type: 'empty' })
 			})
 		}
 
-		if (preprocessorModule) {
-			addNode(preprocessorModule)
-			const id = JSON.parse(JSON.stringify(preprocessorModule.id))
-			addEdge(id, 'Input', undefined, undefined, { type: 'empty' })
-		}
-
 		if (failureModule && !extra.flowModuleStates) {
-			addNode(failureModule)
+			addFailureNode(failureModule)
 		}
 
 		Object.keys(parents).forEach((key) => {

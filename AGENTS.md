@@ -5,77 +5,114 @@ Open-source platform for internal tools, workflows, API integrations, background
 ## Workflow
 
 1. **Understand**: Before coding, explore the codebase (see Code Navigation below). Use `outline` to understand file structure, `body` to read specific symbols, `def`/`callers`/`callees` to trace code, `Grep` to find usages. Read `docs/` for domain context.
-2. **Plan**: For non-trivial changes, use plan mode. For large features, break into reviewable stages
+2. **Plan**: For non-trivial changes, use plan mode. For large features, break into reviewable stages.
+   For a new user-facing feature, put the `feature_usage` telemetry in the plan as a proposed item
+   (see `docs/feature-telemetry.md`) so the user can keep or drop it — don't ask separately, and
+   don't instrument bugfixes or refactors.
 3. **Execute**: Follow coding patterns from skills (`rust-backend`, `svelte-frontend`)
-4. **Validate**: After every change, run the appropriate checks per `docs/validation.md`
+4. **Validate**: After every change, run the appropriate checks per `docs/validation.md`, then
+   **exercise the change on the running instance**. Type-checks are not verification. Whatever the
+   change touches, get that path actually running, and stand up whatever that takes — this is
+   expected, not a last resort. A few examples, not a closed list: drive the UI with the Playwright
+   MCP, run a real job of the kind you touched, restart the backend with the cargo features the
+   path needs (`backend/AGENTS.md`), put a stub in front of an upstream, start MinIO for an S3
+   path, plant state with SQL, exercise it through the `wmill` CLI. If the path you need has no
+   obvious way in, invent one rather than skipping it; `docs/` carries recipes for several areas.
+   If it needs a credential or a third-party account, ask for one rather than skipping the test or
+   inventing a value. If you genuinely cannot exercise it, say which path went unexercised instead
+   of implying it was verified.
 
 ## Documentation
 
 - **Validation**: `docs/validation.md` — what checks to run based on what you changed
+- **Unreleased SDK changes**: `docs/wac-sdk-e2e.md` — exercising a client change on a real worker
+- **Agent workers**: `docs/agent-worker-e2e.md` — building and running one locally. An agent
+  reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
+  `cargo run`; a normal build cannot start one at all.
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Product telemetry**: `docs/feature-telemetry.md` — when to instrument a new feature with
+  `feature_usage`, and the four-step recipe. An unregistered `(feature, kind)` pair is dropped
+  silently, so frontend-only instrumentation records nothing.
 - **Backend patterns**: use the `rust-backend` skill when writing Rust code
 - **Frontend patterns**: use the `svelte-frontend` skill when writing Svelte code. Do NOT edit svelte files unless you have read that skill.
 - **Frontend UUIDs**: do not call `crypto.randomUUID()` in frontend code. Import `randomUUID` from `$lib/utils/uuid` instead.
 - **Code review**: review the current PR or branch against the shared review policy in `REVIEW.md` (severity triage, public-surface checklist, AGENTS.md compliance, test-coverage assessment). The skill at `.agents/skills/local-review/SKILL.md` orchestrates it. All three CLIs auto-discover the same SKILL — Claude reads `.claude/skills/` (symlinked to the canonical `.agents/skills/` file), Codex and Pi read `.agents/skills/` directly. Invoke with `/local-review` in Claude Code, `$local-review` (or `/skills` selector) in Codex, or `pi --skill local-review` / `/skill:local-review` in Pi. For a Codex-driven pass that mirrors the `codex-pr-review` GitHub action against your unpushed work (committed + uncommitted) before you push, use `/local-review-codex` (`.agents/skills/local-review-codex/`) — same `REVIEW.md` policy, `gpt-5.6-sol`, `xhigh` reasoning; requires the `codex` CLI >= 0.144.1.
 - **Domain guides**: `.claude/skills/native-trigger/` and `frontend/tutorial-system-guide.mdc`
 - **Brand/UI guidelines**: `frontend/brand-guidelines.md`
+- **Domain vocabulary**: `CONTEXT.md` — the words this codebase uses for its own concepts (step, step setting, trigger step, …). Name things the way it does.
 - **CLI commands**: when adding/modifying/removing a command, subcommand, option, or description in `cli/src/commands/`, run `python system_prompts/generate.py` to refresh `system_prompts/auto-generated/` and `cli/src/guidance/skills.gen.ts`. The CLI docs the agents use to operate `wmill` are derived from the source — stale generated files give agents the wrong flags.
+- **Session recorder**: `frontend/src/lib/components/recording/` is also the recorder `wmill app dev --recording` serves, vendored into the CLI as `cli/src/commands/app/devRecorderBundle.gen.ts`. After changing `rawAppSnapshot.ts` or `rawAppRecording.svelte.ts`, run `bun run gen:dev-recorder` from `cli/` (`cli/test/dev_recorder_bundle_unit.test.ts` fails otherwise).
+- **Raw-app policy**: `frontend/src/lib/components/raw_apps/rawAppPolicy.ts` also derives the policy the server's raw-app deploy stores, vendored into the bundle job as `backend/windmill-api/src/apps_raw_policy.gen.js`. After changing it or anything it imports, run `bun run gen:app-policy` from `cli/` (`cli/test/app_policy_bundle_unit.test.ts` fails otherwise). It rides in the job rather than being read from the CLI the job runs because the images install `windmill-cli` unpinned, so an image can carry one older than its server.
 
 ## Dev Environment
 
+> **In a git worktree, the ports and database below are NOT the ones to use.** Each
+> worktree gets its own backend port, frontend port and Postgres database, so the
+> defaults in this section apply only to a plain single checkout. **Discover the real
+> values before running anything** — see "Per-worktree ports and database" below.
+
+**Check whether they are already running before starting anything.** In a webmux worktree
+(`$WEBMUX_WORKTREE_PATH` is set) the backend and frontend are already up in sibling tmux panes —
+use those, don't spawn your own. `tmux list-panes -t "$(tmux display-message -p -t "$TMUX_PANE"
+'#{window_id}')" -F '#{pane_index} #{pane_current_command}'` shows what is running; read its log
+with `tmux capture-pane`, and see `backend/AGENTS.md` to restart it with different cargo features.
+A second server started in your own shell fights the first one for the port. The commands below
+are for a plain checkout with nothing running.
+
 - **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
-- **DuckDB local jobs**: before running DuckDB scripts locally, build the FFI shared library with `cd backend/windmill-duckdb-ffi-internal && ./build_dev.sh`. Re-run it after clean builds or when `backend/target/debug/libwindmill_duckdb_ffi_internal.*` is missing. The bundled DuckDB compile (~2min) is cached in a per-user dir shared across worktrees, so a fresh worktree reuses it and the build is near-instant.
-- **Data pipelines (DuckLake) from source**: a plain `cargo run` (even `--features quickjs`) advertises a `duckdb` worker tag but **cannot** execute DuckDB scripts and has **no** working S3 proxy (DuckLake writes 404). Build CE DuckLake with `cargo run --features quickjs,duckdb,parquet,private` (add `,python` for Python scripts, `,enterprise,license` for EE) **and** build the FFI (bullet above). See `backend/CLAUDE.md` → "Running data pipelines (DuckLake) from source" for the exact feature sets and the two feature-gate gotchas.
 - **Frontend**: `REMOTE=http://localhost:8000 npm run dev` from `frontend/` (port 3000+)
 - **DB**: `psql postgres://postgres:changeme@localhost:5432/windmill`
 - **Login**: `admin@windmill.dev` / `changeme`
 - **Instance settings**: navigate to `/#superadmin-settings`
 - **Migrations**: use `cargo sqlx migrate add -r <name>` from `backend/` to create new migrations (never generate timestamps manually)
 
-## Verifying Frontend Changes
+### Per-worktree ports and database
 
-After modifying frontend code, drive the running dev server with the **Playwright MCP** to verify the change in a real browser — don't claim a UI change works without exercising it.
+In a webmux worktree the authoritative values live in
+`$(git rev-parse --git-dir)/webmux/runtime.env` — `BACKEND_PORT`, `FRONTEND_PORT`,
+`DATABASE_URL`, `CARGO_FEATURES`, `WM_DB_NAME`. Every pane sources it at startup. Read that
+first: it is not a `.env*` file, so the repo's secret-file read rules don't stand in the way.
 
-Two MCP servers are registered in `.mcp.json`:
-- `playwright` — headless Chromium, default for devboxes (no display required)
-- `playwright-headed` — windowed Chromium, when a display is available
+In a plain checkout, fall back to `.env` / `.env.local` (repo root) and `backend/.env`.
 
-**One-time setup:** run `npx playwright install chromium` to download the browser binary (Playwright won't fetch it automatically on first use).
+Each worktree gets a **brand-new database**, created and migrated from scratch by the post-create
+hook. It is not a copy of the main dev instance: you get the `admins` workspace, the
+`admin@windmill.dev` superadmin, the license key copied from the base database, and whatever the
+migrations seed — and none of your own workspaces, scripts, flows or apps. Create whatever a test
+needs. Cloning the base `windmill` database instead is
+opt-in per project via `WM_CLONE_DB` in `.webmux.yaml`; read the note there before turning it on.
 
-Typical flow:
-1. Ensure backend (`cargo run`) and frontend (`REMOTE=http://localhost:8000 npm run dev`) are running
-2. `mcp__playwright__browser_navigate` to the relevant page (login at `admin@windmill.dev` / `changeme`)
-3. `mcp__playwright__browser_snapshot` to inspect the accessibility tree (preferred over screenshots for reading the DOM)
-4. `mcp__playwright__browser_click` / `browser_fill_form` / `browser_type` to interact
-5. `mcp__playwright__browser_take_screenshot` for visual confirmation
-6. `mcp__playwright__browser_console_messages` / `browser_network_requests` to surface errors
+The database is named after the **worktree directory, not the branch** (`scripts/worktree-common.sh`):
+`windmill_` + the directory basename with `-` → `_`, which Postgres then truncates at 63
+characters. Branch `hugo/win-2340-ai-agent-evals-standalone-agent-runs-and-eval-datasets` sits in
+a worktree directory named `win-2340-…`, so its database is
+`windmill_win_2340_ai_agent_evals_standalone_agent_runs_and_eval` — no `hugo_`, and the tail
+chopped. Take `WM_DB_NAME` from `runtime.env` instead of reconstructing the name. Read those, or
+discover from what is already running:
 
-**Attach the screenshots to the PR.** For any change under `frontend/`, embed screenshots of the affected UI in the PR body — the `pr` skill requires this and carries the upload recipe.
-
-If you cannot exercise a UI change (no dev server, etc.), say so explicitly rather than claiming success.
-
-## Banned Patterns
-
-### `$bindable(default_value)` on optional props
-
-Using `$bindable(default_value)` on props that can be `undefined` is **banned**. This pattern causes subtle bugs because the default value masks the `undefined` state.
-
-**Bad:**
-
-```svelte
-let { my_prop = $bindable(default_value) }: { my_prop?: string } = $props()
+```bash
+psql postgres://postgres:changeme@localhost:5432/postgres -tAc \
+  "select datname from pg_database where datname like 'windmill%'" | grep "$(git branch --show-current | tr - _)"
+# the port the frontend actually proxies to (REMOTE of this worktree's vite):
+for p in $(pgrep -f vite); do case "$(readlink /proc/$p/cwd)" in *"$(basename "$(git rev-parse --show-toplevel)")"*)
+  tr '\0' '\n' < /proc/$p/environ | grep -E '^REMOTE=|^PORT=';; esac; done
 ```
 
-**Correct alternatives:**
+Getting these wrong is not a cheap mistake:
 
-1. **Use `$derived` with nullish coalescing** — handle the potential `undefined` at the usage site:
-
-   ```svelte
-   let { my_prop = $bindable() }: { my_prop?: string } = $props()
-   let effective_value = $derived(my_prop ?? default_value)
-   ```
-
-2. **Create a `useMyPropState()` helper** — encapsulate the undefined-handling logic in a reusable function and call it higher in the component tree, so the child component always receives a defined value.
+- **`DATABASE_URL` pointed at another worktree's database silently destroys the sqlx
+  cache.** `cargo run` and `cargo sqlx prepare` both compile `sqlx::query!` against the
+  **live** database, so the wrong one fails with `relation "<your_new_table>" does not
+  exist` — and `prepare` deletes the whole `.sqlx/` directory *before* it fails, leaving
+  it gutted. Always `cp -r backend/.sqlx <tmp>/sqlx_backup` first (see the `update-sqlx`
+  skill).
+- **The frontend proxies to its own worktree's backend port, not 8000.** Starting a
+  backend on the wrong port leaves the UI up but every API call 502s, which reads like an
+  application bug rather than a misconfiguration.
+- **Kill backends by pid scoped to this worktree's cwd** (`readlink /proc/<pid>/cwd`),
+  never `pkill -f target/debug/windmill` — that kills every sibling worktree's backend.
+  Beware that a `pgrep -f "<pattern>"` in a shell whose own command line contains
+  `<pattern>` matches the shell itself.
 
 ## Code Navigation
 
@@ -108,6 +145,23 @@ $NAV --root backend callees "X"                           # what does X call?
 ## Core Principles
 
 - **MUST `outline` before `Read`** on unfamiliar files — then `body` or `Read` with offset/limit for specifics
+- **Scratch stays outside the checkout.** Temp scripts, data dumps, cache backups and
+  screenshots go in the session scratch directory or `/tmp`, so nothing temporary can end up
+  committed. Write the paths in `rm`/`mv`/`cp` out literally: a PreToolUse hook proves each
+  operand, and auto-allows deletes, moves, copies and mode changes under `/tmp`, inside a git
+  checkout under `$HOME`, or in the Playwright MCP browser caches (`~/Library/Caches/ms-playwright`
+  and `ms-playwright-mcp`, `~/.cache/…` on Linux), as long as one operation stays within a single
+  root — a sibling checkout is a root of its own (`tar` and `unzip` stay `/tmp`-only). Chain
+  deletes freely, each proved on its own operands, but keep writes to one per line, name the
+  destination rather than a directory to drop it in, and put anything else on its own line: a
+  command the hook does not prove drops the whole line back to the normal permission flow. A
+  leading `~/` or `$HOME/` is expanded and proved; a quoted operand, any other `$VAR`, a redirect,
+  a `$(…)`, a relative `cd`, or a wrapper like `xargs rm` cannot be, and that deferral is what
+  turns a cleanup into a prompt.
+- **Change files with Edit/Write, not the shell.** `sed -i`, `cat > file <<'EOF'` and inline
+  `python3 - <<'PY'` scripts put an edit through the PreToolUse guards and the permission
+  classifier, which match `Bash` and nothing else, so a routine edit arrives as a prompt. Bash
+  stays right for running things — tests, builds, git, one-off queries.
 - Search for existing code to reuse before writing new code
 - Follow established patterns in the codebase
 - Keep changes focused — don't refactor beyond what's asked

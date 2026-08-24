@@ -57,7 +57,8 @@
 		useContentEditable = false,
 		startSnippet,
 		endSnippet,
-		bottomSnippet
+		bottomSnippet,
+		inputLeadingSnippet
 	}: {
 		items?: Item[]
 		value: Value | undefined
@@ -95,6 +96,9 @@
 		startSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
 		endSnippet?: Snippet<[{ item: ProcessedItem<Value>; close: () => void }]>
 		bottomSnippet?: Snippet<[{ close: () => void }]>
+		// Adornment pinned inside the input, left of the text. Pass `undefined` rather than a
+		// snippet that renders nothing — its presence is what reserves the leading padding.
+		inputLeadingSnippet?: Snippet
 	} = $props()
 
 	let disabled = $derived(_disabled || (loading && !value))
@@ -177,6 +181,12 @@
 		</div>
 	{/if}
 
+	{#if inputLeadingSnippet}
+		<div class="absolute z-10 left-2 h-full flex items-center pointer-events-none text-secondary">
+			{@render inputLeadingSnippet()}
+		</div>
+	{/if}
+
 	{#if tooltip}
 		<div class="absolute z-10 right-2 h-full flex items-center">
 			<Tooltip>{tooltip}</Tooltip>
@@ -204,6 +214,7 @@
 				'focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0',
 				open ? '' : 'cursor-pointer',
 				loading || (clearable && !disabled && value) || RightIcon ? 'pr-7' : '',
+				inputLeadingSnippet ? 'pl-7' : '',
 				'empty:before:content-[attr(data-placeholder)]',
 				!value ? 'empty:before:text-hint' : 'empty:before:text-primary',
 				disabled && '!bg-surface-disabled !border-transparent !text-disabled pointer-events-none',
@@ -244,6 +255,7 @@
 				// Show value as placeholder when opening the dropdown and the search is empty
 				!value ? 'placeholder-hint' : '!placeholder-primary',
 				loading || (clearable && !disabled && value) || RightIcon ? 'pr-8' : '',
+				inputLeadingSnippet ? 'pl-7' : '',
 				inputClass ?? ''
 			)}
 			autocomplete="off"

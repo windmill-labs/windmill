@@ -22,6 +22,7 @@ use tokio_postgres::{
     Column,
 };
 use uuid::Uuid;
+use windmill_common::azure_workload_identity::WORKLOAD_IDENTITY_PASSWORD;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::worker::{
@@ -45,7 +46,7 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
 use crate::sql_s3_input::fetch_s3object_as_json_text;
 use crate::sql_utils::remove_comments;
-use crate::MAX_RESULT_SIZE;
+use crate::{max_sql_result_size, sql_result_too_large_error, to_raw_value_within};
 use bytes::Buf;
 use lazy_static::lazy_static;
 use windmill_common::client::AuthedClient;
@@ -65,24 +66,94 @@ pub async fn clear_pg_cache() {
     CONNECTION_COUNTER.write().await.clear();
 }
 
+/// How the connection authenticates, which also keys the connection cache: a
+/// connection established under one mode must never be handed to a request asking
+/// for another.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum PgAuthMode {
+    Password,
+    /// AWS RDS IAM.
+    Iam,
+    /// Azure Entra ID, via the worker's federated identity.
+    WorkloadIdentity,
+}
+
+impl PgAuthMode {
+    fn of(database: &PgDatabase) -> error::Result<Self> {
+        let workload_identity =
+            database.password.as_deref().map(str::trim) == Some(WORKLOAD_IDENTITY_PASSWORD);
+        match (database.use_iam_auth == Some(true), workload_identity) {
+            (true, true) => Err(Error::BadRequest(
+                "IAM RDS authentication cannot use the Azure workload identity password"
+                    .to_string(),
+            )),
+            (true, false) => Ok(PgAuthMode::Iam),
+            (false, true) => Ok(PgAuthMode::WorkloadIdentity),
+            (false, false) => Ok(PgAuthMode::Password),
+        }
+    }
+
+    /// What to announce in the job log. Password auth is the default and stays silent.
+    /// The token modes name the login they present, which is the one thing the token
+    /// itself does not carry.
+    fn log_name(&self, database: &PgDatabase) -> Option<String> {
+        match self {
+            PgAuthMode::Password => None,
+            PgAuthMode::Iam => Some(format!(
+                "IAM RDS authentication (login {})",
+                database.login_name()
+            )),
+            PgAuthMode::WorkloadIdentity => Some(match database.entra_login() {
+                Ok(login) => format!("Azure Workload Identity (login {login})"),
+                // Connecting rejects a missing login; do not invent one here.
+                Err(_) => "Azure Workload Identity".to_string(),
+            }),
+        }
+    }
+
+    fn cache_key_segment(&self) -> &'static str {
+        match self {
+            // Workload identity needs no segment of its own: to_uri() carries the raw
+            // password and the mode is a pure function of it, so two modes can never
+            // share a key even though the mode is selected on the trimmed value.
+            PgAuthMode::Password | PgAuthMode::WorkloadIdentity => "",
+            PgAuthMode::Iam => "&iam=true",
+        }
+    }
+}
+
 async fn new_pg_connection(
     database: &PgDatabase,
-    _use_iam_auth: bool,
+    auth_mode: PgAuthMode,
     main_db: Option<&DB>,
 ) -> error::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>)> {
-    let (client, connection) = if _use_iam_auth {
-        #[cfg(all(feature = "enterprise", feature = "private"))]
-        {
-            database.connect_with_iam().await?
+    let (client, connection) = match auth_mode {
+        PgAuthMode::Iam => {
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            {
+                database.connect_with_iam().await?
+            }
+            #[cfg(not(all(feature = "enterprise", feature = "private")))]
+            {
+                return Err(Error::ExecutionErr(
+                    "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
+                ));
+            }
         }
-        #[cfg(not(all(feature = "enterprise", feature = "private")))]
-        {
-            return Err(Error::ExecutionErr(
-                "IAM RDS authentication requires Windmill Enterprise Edition".to_string(),
-            ));
+        PgAuthMode::WorkloadIdentity => {
+            #[cfg(feature = "enterprise")]
+            {
+                database.connect_with_workload_identity().await?
+            }
+            #[cfg(not(feature = "enterprise"))]
+            {
+                return Err(Error::ExecutionErr(
+                    "Azure workload identity authentication requires Windmill Enterprise Edition"
+                        .to_string(),
+                ));
+            }
         }
-    } else {
-        database.connect(main_db).await?
+        PgAuthMode::Password => database.connect(main_db).await?,
     };
     let handle = tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -508,47 +579,64 @@ fn do_postgresql_inner<'a>(
                 rows.boxed()
             };
 
-            let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
+            // The stream is consumed one row at a time so the cap below can still
+            // refuse. Collecting it into a `Vec<Row>` first holds every wire buffer
+            // and every converted row at once, and the worker is already past the
+            // budget by the time the first check gets to run.
+            futures::pin_mut!(rows);
+            let max_result_size = max_sql_result_size();
+            let mut envelope = raw_output
+                .then(|| crate::pg_raw_output::RawOutputEnvelopeBuilder::new(max_result_size));
+            let mut column_names: Option<Vec<String>> = None;
 
-            if let Some(column_order) = column_order {
-                *column_order = Some(
-                    rows.first()
-                        .map(|x| {
-                            x.columns()
-                                .iter()
-                                .map(|x| x.name().to_string())
-                                .collect::<Vec<String>>()
-                        })
-                        .unwrap_or_default(),
-                );
+            while let Some(row) = rows.try_next().await.map_err(to_anyhow)? {
+                if column_names.is_none() {
+                    column_names = Some(
+                        row.columns()
+                            .iter()
+                            .map(|x| x.name().to_string())
+                            .collect::<Vec<String>>(),
+                    );
+                }
+
+                if let Some(envelope) = envelope.as_mut() {
+                    envelope.push(row, &format_state, siz)?;
+                    continue;
+                }
+
+                let v = postgres_row_to_json_value_with_state(row, &format_state)?;
+                // Serialized under what is left of the budget: escaping can expand
+                // a row that fit in memory past what remains, and a check placed
+                // after the write happens once the allocation already did.
+                let raw = to_raw_value_within(
+                    &v,
+                    max_result_size.saturating_sub(siz.load(Ordering::Relaxed)),
+                )
+                .ok_or_else(|| sql_result_too_large_error(max_result_size))?;
+                // Both are proxies for what the row costs the worker, and neither
+                // dominates: the value tree is wider than its JSON for small
+                // scalars, narrower once escaping expands the text.
+                siz.fetch_add(sizeof_val(&v).max(raw.get().len()), Ordering::Relaxed);
+                if siz.load(Ordering::Relaxed) > max_result_size {
+                    return Err(sql_result_too_large_error(max_result_size));
+                }
+                res.push(raw);
             }
 
-            if raw_output {
-                let envelope = crate::pg_raw_output::build_envelope(rows, &format_state, siz)?;
-                res.push(to_raw_value(&envelope));
-            } else {
-                for row in rows.into_iter() {
-                    let r = postgres_row_to_json_value_with_state(row, &format_state);
-                    if let Ok(v) = r.as_ref() {
-                        let size = sizeof_val(v);
-                        siz.fetch_add(size, Ordering::Relaxed);
-                    }
-                    if *CLOUD_HOSTED {
-                        let siz = siz.load(Ordering::Relaxed);
-                        if siz > MAX_RESULT_SIZE * 4 {
-                            return Err(Error::ExecutionErr(format!(
-                                "Query result too large for cloud (size = {} > {})",
-                                siz,
-                                MAX_RESULT_SIZE * 4,
-                            )));
-                        }
-                    }
-                    if let Ok(v) = r {
-                        res.push(to_raw_value(&v));
-                    } else {
-                        return Err(to_anyhow(r.err().unwrap()).into());
-                    }
-                }
+            if let Some(column_order) = column_order {
+                // A statement that returned no rows reports no columns.
+                *column_order = Some(column_names.unwrap_or_default());
+            }
+
+            if let Some(envelope) = envelope {
+                // The envelope is budgeted against the whole cap: its rows were
+                // already charged as text on the way in, and this is that same
+                // text serialized, so charging it against the remainder would
+                // reject a result that passed every row-level check.
+                res.push(
+                    to_raw_value_within(&envelope.finish(), max_result_size)
+                        .ok_or_else(|| sql_result_too_large_error(max_result_size))?,
+                );
             }
         }
 
@@ -643,11 +731,17 @@ pub async fn do_postgresql(
         annotations.result_collection
     };
 
-    let use_iam_auth = database.use_iam_auth == Some(true);
+    let auth_mode = PgAuthMode::of(&database)?;
 
-    // Include use_iam_auth in cache key to distinguish IAM vs non-IAM connections to the same host.
-    // The cache key is static (doesn't include the token), which is correct because PostgreSQL
-    // connections remain valid after initial auth — fresh tokens are generated on cache miss.
+    if let Some(mode) = auth_mode.log_name(&database) {
+        windmill_queue::append_logs(&job.id, &job.workspace_id, format!("Using {mode}\n"), conn)
+            .await;
+    }
+
+    // Include the auth mode in the cache key to distinguish connections to the same host
+    // authenticated differently. The cache key is static (doesn't include the token), which
+    // is correct because PostgreSQL connections remain valid after initial auth — fresh
+    // tokens are generated on cache miss.
     //
     // to_uri() collapses require/verify-ca/verify-full to the same string, so the TLS verification
     // inputs are folded into the key separately. Without this a connection established under a
@@ -664,11 +758,11 @@ pub async fn do_postgresql(
     // to_uri() already ends with `?sslmode=...`, so append further key segments
     // with `&` to keep database_string a well-formed URI (it is only ever a cache
     // key, but a malformed one would mislead anyone who later logs or parses it).
-    let database_string = if use_iam_auth {
-        format!("{}&iam=true&tls={tls_disc:x}", database.to_uri())
-    } else {
-        format!("{}&tls={tls_disc:x}", database.to_uri())
-    };
+    let database_string = format!(
+        "{}{}&tls={tls_disc:x}",
+        database.to_uri(),
+        auth_mode.cache_key_segment()
+    );
     let database_string_clone = database_string.clone();
 
     let cached_client;
@@ -748,18 +842,18 @@ pub async fn do_postgresql(
                 }
                 drop(guard);
                 cached_client = None;
-                new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
+                new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
             }
         } else {
             // Release the lock before connecting so the post-query caching
             // code can re-acquire it.
             drop(guard);
             cached_client = None;
-            new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
+            new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
         }
     } else {
         cached_client = None;
-        new_client = Some(new_pg_connection(&database, use_iam_auth, conn.as_sql()).await?);
+        new_client = Some(new_pg_connection(&database, auth_mode, conn.as_sql()).await?);
     }
 
     let (mut sig, _) = parse_pgsql_sig_with_typed_schema(&query)
@@ -2057,6 +2151,59 @@ impl FromSql<'_> for StringCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The sentinel password is the whole opt-in: nothing else marks the resource, so a
+    /// resource carrying it must not fall through to password auth.
+    #[test]
+    fn test_workload_identity_password_selects_the_auth_mode() {
+        let db = |password: &str| {
+            PgDatabase::parse_uri(&format!("postgres://someuser:{password}@host:5432/db")).unwrap()
+        };
+        assert_eq!(
+            PgAuthMode::of(&db(WORKLOAD_IDENTITY_PASSWORD)).unwrap(),
+            PgAuthMode::WorkloadIdentity
+        );
+        assert_eq!(
+            PgAuthMode::of(&db("hunter2")).unwrap(),
+            PgAuthMode::Password
+        );
+        // A pasted sentinel keeps its surrounding whitespace, and an unrecognized one is
+        // forwarded to the server as a real password instead of selecting the mode.
+        assert_eq!(
+            PgAuthMode::of(&db("%20ms_entraid%0A")).unwrap(),
+            PgAuthMode::WorkloadIdentity
+        );
+    }
+
+    /// The job log is the only place the presented login is visible, and the two token
+    /// modes differ on whether a missing one has a default at all.
+    #[test]
+    fn test_log_name_reports_the_presented_login() {
+        let db = |user: &str| {
+            PgDatabase::parse_uri(&format!("postgres://{user}:pw@host:5432/db")).unwrap()
+        };
+
+        assert_eq!(PgAuthMode::Password.log_name(&db("someuser")), None);
+        assert_eq!(
+            PgAuthMode::Iam.log_name(&db("someuser")).unwrap(),
+            "IAM RDS authentication (login someuser)"
+        );
+        assert_eq!(
+            PgAuthMode::Iam.log_name(&db("")).unwrap(),
+            "IAM RDS authentication (login postgres)"
+        );
+        assert_eq!(
+            PgAuthMode::WorkloadIdentity
+                .log_name(&db("someuser"))
+                .unwrap(),
+            "Azure Workload Identity (login someuser)"
+        );
+        // Entra has no default login, so none is named rather than implying `postgres`.
+        assert_eq!(
+            PgAuthMode::WorkloadIdentity.log_name(&db("")).unwrap(),
+            "Azure Workload Identity"
+        );
+    }
 
     #[test]
     fn test_map_s3object_jsonb_overflow() {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
-	import { getKnownModelContextWindow } from '../modelConfig'
+	import { getKnownModelContextWindow, getModelContextWindow } from '../modelConfig'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { AIMode } from './AIChatManager.svelte'
 	import UsageMeter from './UsageMeter.svelte'
@@ -14,8 +14,14 @@
 	let providerModel = $derived(
 		$copilotSessionModel ?? $copilotInfo.defaultModel ?? $copilotInfo.aiModels[0]
 	)
+	// The same number the compaction trigger uses: the known window when the
+	// model is listed, otherwise the conservative window the trigger assumes.
+	// The tooltip marks the assumed case so the guess never reads as a spec.
 	let contextWindow = $derived(
-		providerModel ? getKnownModelContextWindow(providerModel.model) : undefined
+		providerModel ? getModelContextWindow(providerModel.model) : undefined
+	)
+	let windowIsAssumed = $derived(
+		providerModel !== undefined && getKnownModelContextWindow(providerModel.model) === undefined
 	)
 	// The same number the compaction trigger uses: the provider's report when
 	// one describes the current history (one turn stale by nature), otherwise
@@ -61,7 +67,7 @@
 				<p class="font-semibold">Context usage</p>
 				<p class="mt-1 tabular-nums">
 					~{formatTokenCount(usedTokens)}{contextWindow
-						? ` / ${formatTokenCount(contextWindow)}`
+						? ` / ${formatTokenCount(contextWindow)}${windowIsAssumed ? ' assumed' : ''}`
 						: ''}{fillPct !== undefined ? ` (${fillPct}%)` : ''}
 				</p>
 				{#if ratio !== undefined && ratio >= COMPACTION_TRIGGER_RATIO}

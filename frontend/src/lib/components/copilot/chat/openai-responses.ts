@@ -16,6 +16,7 @@ import { applyReasoningToConfig } from '../reasoningRegistry'
 import {
 	appendPendingToolImages,
 	processToolCall,
+	queuedToolStatus,
 	type Tool,
 	type ToolCallbacks,
 	type WebSearchSource
@@ -178,11 +179,52 @@ function convertMessagesToResponsesInput(messages: ChatCompletionMessageParam[])
 	}
 }
 
+/** OpenAI rejects a key over 64 characters, and an Azure deployment name is user-chosen. */
+const MAX_PROMPT_CACHE_KEY_LENGTH = 64
+
+/** FNV-1a. A routing key needs to be stable and distinct, not cryptographic. */
+function shortHash(value: string): string {
+	let h = 0x811c9dc5
+	for (let i = 0; i < value.length; i++) {
+		h ^= value.charCodeAt(i)
+		h = Math.imul(h, 0x01000193) >>> 0
+	}
+	return h.toString(16).padStart(8, '0')
+}
+
+/**
+ * Routing key for the provider's prompt cache. Built only from what fixes the prompt
+ * prefix (the surface, plus the model) and never from anything per-request, since
+ * requests sharing a prefix must reuse one key to land on the same cache. Workspace
+ * splits traffic across the ~15 requests/minute one key sustains before it starts
+ * missing again.
+ */
+export function buildPromptCacheKey(
+	surface: string,
+	modelProvider: { provider: string; model: string },
+	workspace: string
+): string {
+	const key = [workspace, modelProvider.provider, modelProvider.model, surface].join(':')
+	if (key.length <= MAX_PROMPT_CACHE_KEY_LENGTH) {
+		return key
+	}
+	// Same shape as the backend's `bounded_prompt_cache_key`: a readable head keeps the
+	// key traceable, and the digest carries every distinction the head lost. Truncating
+	// alone would collapse a long workspace's models and surfaces onto one key.
+	const suffix = shortHash(key)
+	return `${key.slice(0, MAX_PROMPT_CACHE_KEY_LENGTH - suffix.length - 1)}:${suffix}`
+}
+
 function convertCompletionConfigToResponsesConfig(
-	config: ChatCompletionCreateParams
+	config: ChatCompletionCreateParams,
+	promptCacheKey?: string
 ): Record<string, any> {
 	const responsesConfig: Record<string, any> = {
 		model: config.model
+	}
+
+	if (promptCacheKey) {
+		responsesConfig.prompt_cache_key = promptCacheKey
 	}
 
 	// Map max_tokens or max_completion_tokens to max_output_tokens
@@ -222,6 +264,7 @@ export async function getOpenAIResponsesCompletion(
 		webSearch?: boolean
 		reasoningEffort?: string
 		reasoningSummary?: boolean
+		promptCacheKey?: string
 	}
 ) {
 	const { provider, config } = getProviderAndCompletionConfig({
@@ -232,7 +275,7 @@ export async function getOpenAIResponsesCompletion(
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
 	const responsesConfig = applyReasoningToConfig(
-		convertCompletionConfigToResponsesConfig(config),
+		convertCompletionConfigToResponsesConfig(config, options?.promptCacheKey),
 		'responses',
 		options?.reasoningEffort
 	)
@@ -290,6 +333,10 @@ export async function* getOpenAIResponsesCompletionStream(
 		forceModelProvider: options?.forceModelProvider
 	})
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
+	// No prompt cache key here: a rejected key has to be retried without it, and this is
+	// an async generator, so the caller's try/catch never sees the failure (invoking a
+	// generator runs none of its body). One-shot generations have no repeated prefix to
+	// route anyway; the chat loop is the surface that does, and it can retry.
 	const responsesConfig = applyReasoningToConfig(
 		convertCompletionConfigToResponsesConfig(config),
 		'responses',
@@ -402,7 +449,7 @@ export async function parseOpenAIResponsesCompletion(
 			callbacks.onMessageEnd()
 			callbacks.setToolStatus(`${item.id}`, {
 				isLoading: true,
-				content: tool?.streamingLabel ?? `Calling ${item.name}...`,
+				content: tool?.streamingLabel ?? `Preparing ${item.name}...`,
 				toolName: item.name,
 				isStreamingArguments: shouldStream,
 				showFade: tool?.showFade,
@@ -470,11 +517,12 @@ export async function parseOpenAIResponsesCompletion(
 
 	// Handle function call arguments done
 	runner.on('response.function_call_arguments.done', (event) => {
-		// Clear streaming state
+		// Args fully streamed: demote to queued (see queuedToolStatus).
 		currentStreamingTool = undefined
-		callbacks.setToolStatus(`${event.item_id}`, {
-			isStreamingArguments: false
-		})
+		callbacks.setToolStatus(
+			`${event.item_id}`,
+			queuedToolStatus(tools, toolCallsMap[event.item_id]?.name ?? '', event.arguments)
+		)
 
 		// Retrieve tool call metadata from map
 		const metadata = toolCallsMap[event.item_id]
@@ -573,6 +621,7 @@ export async function getNonStreamingOpenAIResponsesCompletion(
 	})
 
 	const { instructions, input } = convertMessagesToResponsesInput(messages)
+	// No prompt cache key, for the same reason as the streaming variant above.
 	const responsesConfig = convertCompletionConfigToResponsesConfig(config)
 
 	const fetchOptions: {

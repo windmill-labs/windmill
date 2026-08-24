@@ -24,7 +24,6 @@ mock.module("../gen/services.gen.ts", () => ({
   editAutoInvite: async () => {},
   editErrorHandler: async () => {},
   editSuccessHandler: async () => {},
-  editDeployTo: async () => {},
   editCopilotConfig: async () => {},
   editLargeFileStorageConfig: async () => {},
   editWorkspaceGitSyncConfig: async () => {},

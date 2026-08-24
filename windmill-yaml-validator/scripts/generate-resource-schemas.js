@@ -3,6 +3,8 @@
 const fs = require("fs");
 const path = require("path");
 
+// Keep in sync with CLI_EXCLUDED_FIELDS in system_prompts/utils.py, which derives the
+// schemas shipped as agent guidance from the same specs.
 const CLI_EXCLUDED_FIELDS = new Set([
   "workspace_id",
   "path",
@@ -23,6 +25,10 @@ const CLI_EXCLUDED_FIELDS = new Set([
   "extra_perms",
   "email",
   "mode",
+  // The API requires it, but `wmill sync pull` replaces it with the `has_permissioned_as`
+  // marker under `syncBehavior: v1`, so it cannot be required of a synced file. Files from
+  // older workspaces still carry it and stay valid — nothing here sets additionalProperties.
+  "permissioned_as",
 ]);
 
 const TARGET_SCHEMAS = {
@@ -231,4 +237,8 @@ function main() {
   console.log("Generated schedule and trigger schemas");
 }
 
-main();
+module.exports = { generateSchemas };
+
+if (require.main === module) {
+  main();
+}

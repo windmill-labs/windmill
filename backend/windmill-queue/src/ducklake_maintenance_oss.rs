@@ -72,7 +72,7 @@ pub async fn sync_ducklake_maintenance_schedules<'c>(
 
 /// Build the job payload for one occurrence of a managed maintenance schedule
 /// (`push_scheduled_job` calls this for reserved-prefix schedule paths).
-/// Returns `(payload, tag, timeout, on_behalf_of_email, created_by)`.
+/// Returns `(payload, tag, timeout, on_behalf_of)`.
 ///
 /// Always `Ok(None)` in the public build: the caller falls through to normal
 /// script resolution, so a pre-existing user schedule under a real
@@ -88,8 +88,7 @@ pub async fn build_maintenance_schedule_payload<'c>(
         JobPayload,
         Option<String>,
         Option<i32>,
-        Option<String>,
-        String,
+        Option<windmill_common::jobs::OnBehalfOf>,
     )>,
 > {
     Ok(None)

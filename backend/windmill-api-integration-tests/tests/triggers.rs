@@ -1497,7 +1497,10 @@ async fn test_gcp_trigger_insert_pull(db: Pool<Postgres>) -> anyhow::Result<()> 
     .fetch_one(&db)
     .await?;
 
-    assert_eq!(trigger.gcp_resource_path, "u/admin/gcp_resource");
+    assert_eq!(
+        trigger.gcp_resource_path.as_deref(),
+        Some("u/admin/gcp_resource")
+    );
     assert_eq!(trigger.topic_id, "my-topic");
     assert_eq!(trigger.subscription_id, "my-subscription");
     assert_eq!(trigger.delivery_type, "pull");
@@ -1603,6 +1606,70 @@ async fn test_gcp_trigger_unique_constraint(db: Pool<Postgres>) -> anyhow::Resul
         result.is_err(),
         "should fail due to unique constraint on (subscription_id, gcp_resource_path, workspace_id)"
     );
+
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_gcp_trigger_unique_constraint_with_default_credentials(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    // A trigger on application default credentials has a NULL gcp_resource_path, and NULLs compare
+    // as distinct, so the unique index only keeps guarding these rows because it coalesces.
+    // Subscriptions are stored fully qualified, which is what makes the subscription alone
+    // sufficient to identify one: project_id is deliberately not part of the key, so a differing
+    // project must not let a second trigger onto the same subscription.
+    let insert_query = r#"
+        INSERT INTO gcp_trigger (
+            path, gcp_resource_path, project_id, topic_id, subscription_id,
+            delivery_type, subscription_mode, script_path, is_flow,
+            workspace_id, edited_by, permissioned_as
+        )
+        VALUES ($1, NULL, $2, $3, $4, $5::delivery_mode, $6::gcp_subscription_mode, $7, false, $8, $9, $10)
+    "#;
+
+    let insert =
+        |path: &'static str, project_id: Option<&'static str>, subscription: &'static str| {
+            sqlx::query(insert_query)
+                .bind(path)
+                .bind(project_id)
+                .bind("projects/my-project/topics/my-topic")
+                .bind(subscription)
+                .bind("pull")
+                .bind("create_update")
+                .bind("f/test/gcp_handler")
+                .bind("test-workspace")
+                .bind("test-user")
+                .bind("u/test-user")
+                .execute(&db)
+        };
+
+    let shared = "projects/my-project/subscriptions/shared-subscription";
+    insert("f/test/gcp_adc_1", Some("my-project"), shared).await?;
+
+    assert!(
+        insert("f/test/gcp_adc_2", Some("my-project"), shared)
+            .await
+            .is_err(),
+        "a second trigger on the same subscription must collide"
+    );
+    assert!(
+        insert("f/test/gcp_adc_3", Some("other-project"), shared)
+            .await
+            .is_err(),
+        "project_id must not let a second trigger onto the same subscription"
+    );
+    assert!(
+        insert("f/test/gcp_adc_4", None, shared).await.is_err(),
+        "an absent project_id must not let a second trigger onto the same subscription"
+    );
+
+    insert(
+        "f/test/gcp_adc_5",
+        Some("my-project"),
+        "projects/other-project/subscriptions/shared-subscription",
+    )
+    .await?;
 
     Ok(())
 }
