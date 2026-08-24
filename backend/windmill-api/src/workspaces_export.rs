@@ -647,8 +647,10 @@ pub(crate) async fn tarball_workspace(
     // is admin-only for (ai_config, the webhook URL, git_sync, handler extra_args),
     // so it takes the same check. Not a per-field redaction: fields silently dropped
     // from settings.json come back as null on the next `wmill sync push`.
-    if include_settings.unwrap_or(false) {
-        require_admin(authed.is_admin, &authed.username)?;
+    if include_settings.unwrap_or(false) && !authed.is_admin {
+        return Err(Error::PermissionDenied(
+            "include_settings requires workspace admin".to_string(),
+        ));
     }
 
     // The route is gated by workspaces:read, but the tarball also carries the item
@@ -1634,14 +1636,7 @@ pub(crate) async fn tarball_workspace(
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
                 slack_oauth_client_id: row.slack_oauth_client_id.clone(),
-                // Redundant with the admin gate on `include_settings` above, kept
-                // so the OAuth client secret still requires an admin should this
-                // branch ever be reached another way.
-                slack_oauth_client_secret: if authed.is_admin {
-                    row.slack_oauth_client_secret.clone()
-                } else {
-                    None
-                },
+                slack_oauth_client_secret: row.slack_oauth_client_secret.clone(),
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())

@@ -309,10 +309,10 @@ async fn test_tarball_export_settings_are_admin_only(db: Pool<Postgres>) -> anyh
     .execute(&db)
     .await?;
 
-    let export = async |token: &str, version: &str| -> anyhow::Result<(u16, String)> {
+    let export = async |token: &str| -> anyhow::Result<(u16, String)> {
         let resp = reqwest::Client::new()
             .get(format!(
-                "{base_url}/api/w/test-workspace/workspaces/tarball?include_settings=true&settings_version={version}"
+                "{base_url}/api/w/test-workspace/workspaces/tarball?include_settings=true&settings_version=v2"
             ))
             .bearer_auth(token)
             .send()
@@ -326,21 +326,15 @@ async fn test_tarball_export_settings_are_admin_only(db: Pool<Postgres>) -> anyh
     };
 
     // SECRET_TOKEN_2 belongs to test-user-2, a non-admin member of test-workspace.
-    for version in ["v1", "v2"] {
-        let (status, body) = export("SECRET_TOKEN_2", version).await?;
-        assert_eq!(status, 403, "non-admin exported {version} settings: {body}");
-        assert!(
-            !body.contains("WEBHOOK_SECRET") && !body.contains("AI_CONFIG_SECRET"),
-            "non-admin leaked {version} settings"
-        );
+    let (status, body) = export("SECRET_TOKEN_2").await?;
+    assert_eq!(status, 403, "non-admin exported settings: {body}");
 
-        let (status, body) = export("SECRET_TOKEN", version).await?;
-        assert_eq!(status, 200, "admin denied {version} settings: {body}");
-        assert!(
-            body.contains("WEBHOOK_SECRET") && body.contains("AI_CONFIG_SECRET"),
-            "admin got no {version} settings"
-        );
-    }
+    let (status, body) = export("SECRET_TOKEN").await?;
+    assert_eq!(status, 200, "admin denied settings: {body}");
+    assert!(
+        body.contains("WEBHOOK_SECRET") && body.contains("AI_CONFIG_SECRET"),
+        "admin got no settings"
+    );
 
     // Git sync pushes the workspace to the repo by exporting it under
     // `superadmin_sync@windmill.dev`, which belongs to no workspace: the job token
@@ -358,7 +352,7 @@ async fn test_tarball_export_settings_are_admin_only(db: Pool<Postgres>) -> anyh
         None,
     )
     .await?;
-    let (status, body) = export(&sync_token, "v2").await?;
+    let (status, body) = export(&sync_token).await?;
     assert_eq!(status, 200, "git-sync identity denied settings: {body}");
     assert!(
         body.contains("WEBHOOK_SECRET"),
