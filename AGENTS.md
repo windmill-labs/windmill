@@ -60,7 +60,7 @@ they set disjoint environment variables, so check which one you are in:
 | --- | --- | --- |
 | marker | `$WEBMUX_WORKTREE_PATH` is set | `$HERDR_ENV=1` |
 | what is running | `tmux list-panes -t "$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}')" -F '#{pane_index} #{pane_current_command}'` | `herdr pane list --workspace "$HERDR_WORKSPACE_ID"` |
-| read a pane's log | `tmux capture-pane -p -S -50` | `herdr pane read <pane_id> --source recent-unwrapped --lines 50` |
+| read a pane's log | `tmux capture-pane -t "$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}:#{window_name}').1" -p -S -50` (`.1` backend, `.2` frontend) | `herdr pane read <pane_id> --source recent-unwrapped --lines 50` |
 
 See `backend/AGENTS.md` to restart the backend with different cargo features. Under herdr, `herdr
 --skill` prints a full reference for inspecting and driving panes and agents, and the plugins that
