@@ -5275,6 +5275,117 @@ async fn _check_nb_of_archived_workspaces(db: &DB) -> Result<()> {
     return Ok(());
 }
 
+/// Insert a workspace and everything it needs to be usable: settings, encryption key,
+/// the owner as its admin, and the `all` / `wm_deployers` groups. Returns the owner's
+/// username in the new workspace.
+///
+/// The caller owns the transaction and the audit log: the signup path creates a
+/// workspace before the user has an `ApiAuthed` to audit under.
+pub async fn insert_workspace<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    id: &str,
+    name: &str,
+    owner_email: &str,
+    color: Option<&str>,
+    error_handler_fallback_to_instance_alerts: bool,
+    requested_username: Option<String>,
+) -> Result<String> {
+    validate_workspace_name(name)?;
+    check_w_id_conflict(tx, id).await?;
+    sqlx::query!(
+        "INSERT INTO workspace
+            (id, name, owner)
+            VALUES ($1, $2, $3)",
+        id,
+        name,
+        owner_email,
+    )
+    .execute(&mut **tx)
+    .await?;
+    if error_handler_fallback_to_instance_alerts {
+        ensure_instance_alert_fallback_allowed(tx, id).await?;
+    }
+    sqlx::query!(
+        "INSERT INTO workspace_settings
+            (workspace_id, color, error_handler_fallback_to_instance_alerts)
+            VALUES ($1, $2, $3)",
+        id,
+        color,
+        error_handler_fallback_to_instance_alerts,
+    )
+    .execute(&mut **tx)
+    .await?;
+    let key = rd_string(64);
+    sqlx::query!(
+        "INSERT INTO workspace_key
+            (workspace_id, kind, key)
+            VALUES ($1, 'cloud', $2)",
+        id,
+        &key
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    let automate_username_creation = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        AUTOMATE_USERNAME_CREATION_SETTING,
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .map(|v| v.as_bool())
+    .flatten()
+    .unwrap_or(true);
+
+    let username = if automate_username_creation {
+        if requested_username.is_some_and(|u| u.len() > 0) {
+            return Err(Error::BadRequest(
+                "username is not allowed when username creation is automated".to_string(),
+            ));
+        }
+        get_instance_username_or_create_pending(tx, owner_email).await?
+    } else {
+        requested_username.ok_or(Error::BadRequest("username is required".to_string()))?
+    };
+
+    sqlx::query!(
+        "INSERT INTO usr
+            (workspace_id, email, username, is_admin)
+            VALUES ($1, $2, $3, true)",
+        id,
+        owner_email,
+        username,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO group_
+            VALUES ($1, 'all', 'The group that always contains all users of this workspace')",
+        id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO group_
+            VALUES ($1, 'wm_deployers', 'Members can preserve the original author when deploying to this workspace')",
+        id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "INSERT INTO usr_to_group
+            VALUES ($1, 'all', $2)",
+        id,
+        username
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(username)
+}
+
 async fn create_workspace(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -5302,115 +5413,17 @@ async fn create_workspace(
         }
     }
 
-    validate_workspace_name(&nw.name)?;
-
     let mut tx: Transaction<'_, Postgres> = db.begin().await?;
 
-    check_w_id_conflict(&mut tx, &nw.id).await?;
-    sqlx::query!(
-        "INSERT INTO workspace
-            (id, name, owner)
-            VALUES ($1, $2, $3)",
-        nw.id,
-        nw.name,
-        authed.email,
-    )
-    .execute(&mut *tx)
-    .await?;
-    if nw.error_handler_fallback_to_instance_alerts {
-        ensure_instance_alert_fallback_allowed(&mut tx, &nw.id).await?;
-    }
-    sqlx::query!(
-        "INSERT INTO workspace_settings
-            (workspace_id, color, error_handler_fallback_to_instance_alerts)
-            VALUES ($1, $2, $3)",
-        nw.id,
-        nw.color,
+    insert_workspace(
+        &mut tx,
+        &nw.id,
+        &nw.name,
+        &authed.email,
+        nw.color.as_deref(),
         nw.error_handler_fallback_to_instance_alerts,
+        nw.username,
     )
-    .execute(&mut *tx)
-    .await?;
-    let key = rd_string(64);
-    sqlx::query!(
-        "INSERT INTO workspace_key
-            (workspace_id, kind, key)
-            VALUES ($1, 'cloud', $2)",
-        nw.id,
-        &key
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // let mc = magic_crypt::new_magic_crypt!(key, 256);
-    // sqlx::query!(
-    //     "INSERT INTO variable
-    //         (workspace_id, path, value, is_secret, description)
-    //         VALUES ($1, 'g/all/pretty_secret', $2, true, 'This item is secret'),
-    //             ($3, 'g/all/not_secret', $4, false, 'This item is not secret')",
-    //     nw.id,
-    //     crate::variables::encrypt(&mc, "pretty secret value"),
-    //     nw.id,
-    //     "finland does not actually exist",
-    // )
-    // .execute(&mut *tx)
-    // .await?;
-
-    let automate_username_creation = sqlx::query_scalar!(
-        "SELECT value FROM global_settings WHERE name = $1",
-        AUTOMATE_USERNAME_CREATION_SETTING,
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .map(|v| v.as_bool())
-    .flatten()
-    .unwrap_or(true);
-
-    let username = if automate_username_creation {
-        if nw.username.is_some() && nw.username.unwrap().len() > 0 {
-            return Err(Error::BadRequest(
-                "username is not allowed when username creation is automated".to_string(),
-            ));
-        }
-        get_instance_username_or_create_pending(&mut tx, &authed.email).await?
-    } else {
-        nw.username
-            .ok_or(Error::BadRequest("username is required".to_string()))?
-    };
-
-    sqlx::query!(
-        "INSERT INTO usr
-            (workspace_id, email, username, is_admin)
-            VALUES ($1, $2, $3, true)",
-        nw.id,
-        authed.email,
-        username,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO group_
-            VALUES ($1, 'all', 'The group that always contains all users of this workspace')",
-        nw.id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO group_
-            VALUES ($1, 'wm_deployers', 'Members can preserve the original author when deploying to this workspace')",
-        nw.id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query!(
-        "INSERT INTO usr_to_group
-            VALUES ($1, 'all', $2)",
-        nw.id,
-        username
-    )
-    .execute(&mut *tx)
     .await?;
 
     audit_log(

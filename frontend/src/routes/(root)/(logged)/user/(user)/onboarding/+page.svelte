@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { ArrowLeft } from 'lucide-svelte'
-	import { UserService } from '$lib/gen/services.gen'
+	import { UserService, WorkspaceService } from '$lib/gen/services.gen'
 	import { goto } from '$lib/navigation'
+	import { usersWorkspaceStore } from '$lib/stores'
+	import { switchWorkspace } from '$lib/storeUtils'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -16,7 +18,7 @@
 		Building2,
 		Twitter,
 		Youtube,
-		Bot, 
+		Bot,
 		MessageCircleCode
 	} from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -78,6 +80,25 @@
 		currentStep = STEP_SOURCE
 	}
 
+	// Cloud signup creates a workspace for the user, so the picker would show a single
+	// entry and one more click. Enter it directly; fall back to the picker for anyone
+	// with none or several.
+	async function leaveOnboarding() {
+		try {
+			const workspaces = await WorkspaceService.listUserWorkspaces()
+			usersWorkspaceStore.set(workspaces)
+			const owned = workspaces.workspaces.filter((w) => w.id !== 'admins')
+			if (owned.length === 1) {
+				switchWorkspace(owned[0].id)
+				await goto('/')
+				return
+			}
+		} catch (error) {
+			console.error('Could not list workspaces after onboarding:', error)
+		}
+		await goto('/user/workspaces')
+	}
+
 	async function continueToWorkspaces() {
 		if (!selectedSource || isSubmitting) return
 
@@ -96,7 +117,7 @@
 			sendUserToast('Failed to save information: ' + (error?.body || error?.message || error), true)
 		} finally {
 			// do not block users from accessing windmill even if there is an error
-			goto('/user/workspaces')
+			leaveOnboarding()
 		}
 	}
 
@@ -110,7 +131,7 @@
 			console.error('Error skipping onboarding:', error)
 		} finally {
 			// do not block users from accessing windmill even if there is an error
-			goto('/user/workspaces')
+			leaveOnboarding()
 		}
 	}
 </script>
