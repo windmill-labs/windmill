@@ -917,7 +917,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Alert on zombie job restarts',
 			description:
-				'Send critical alerts when a zombie job or flow is detected and automatically restarted. Zombie jobs that exhaust all their restart attempts always alert.',
+				'Send critical alerts when a zombie job or flow is detected and automatically restarted. Jobs that exhaust all their restart attempts, and flows cancelled after hanging between steps, always alert.',
 			key: 'critical_alerts_on_zombie_job_restart',
 			fieldType: 'boolean',
 			storage: 'setting',

@@ -439,9 +439,19 @@
 		return base
 	}
 
+	// A boolean whose default is `true` must keep an explicit `false`: dropping it as
+	// "equivalent to unset" makes YAML mode omit the key, and the save then deletes the
+	// row, silently restoring the default the operator just turned off.
+	const defaultOnBooleanKeys = new Set(
+		[...Object.values(settings), scimSamlSetting]
+			.flat()
+			.filter((s) => s.fieldType === 'boolean' && s.defaultValue?.() === true)
+			.map((s) => s.key)
+	)
+
 	function normalizeValue(value: any, key?: string): any {
 		if (value == null) return undefined
-		if (value === false) return undefined
+		if (value === false && !(key != undefined && defaultOnBooleanKeys.has(key))) return undefined
 		if (typeof value === 'string' && value.trim() === '') return undefined
 		if (Array.isArray(value) && value.length === 0) return undefined
 		if (typeof value === 'object' && !Array.isArray(value)) {
