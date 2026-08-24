@@ -646,10 +646,12 @@ def send_teams_message(conversation_id: str, text: str, success: bool = True, ca
 # 
 # Args:
 #     name: Database name (default: "main")
+#     role: DataTable role to run as, on a datatable with permissions
+#         enabled (default: the data table's default role)
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main')
+def datatable(name: str = 'main', role: Optional[str] = None)
 
 # Get a DuckLake client for DuckDB queries.
 # 

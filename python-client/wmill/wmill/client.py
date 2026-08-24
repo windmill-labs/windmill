@@ -1414,7 +1414,7 @@ class Windmill:
         Args:
             name: Database name (default: "main")
             role: DataTable role to run as, on a datatable with permissions
-                enabled (default: the "root" role)
+                enabled (default: the data table's default role)
 
         Returns:
             DataTableClient instance
@@ -2248,7 +2248,7 @@ def datatable(name: str = "main", role: Optional[str] = None) -> DataTableClient
     Args:
         name: Database name (default: "main")
         role: DataTable role to run as, on a datatable with permissions
-            enabled (default: the "root" role)
+            enabled (default: the data table's default role)
 
     Returns:
         DataTableClient instance
@@ -2338,7 +2338,7 @@ class DataTableClient:
             client: Windmill client instance
             name: DataTable name
             role: DataTable role to run as, on a datatable with permissions
-                enabled (default: the "root" role)
+                enabled (default: the data table's default role)
         """
         self.client = client
         self.role = role

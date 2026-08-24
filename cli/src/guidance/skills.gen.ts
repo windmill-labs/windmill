@@ -1102,6 +1102,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param role - Data table role to run as, on a datatable with permissions
+ *               enabled (default: the data table's default role)
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -1112,7 +1114,7 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *     WHERE name = \${name} AND age = \${age}::int
  * \`.fetch()
  */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
+datatable(name: string = "main", role?: string): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
@@ -1885,6 +1887,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param role - Data table role to run as, on a datatable with permissions
+ *               enabled (default: the data table's default role)
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -1895,7 +1899,7 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *     WHERE name = \${name} AND age = \${age}::int
  * \`.fetch()
  */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
+datatable(name: string = "main", role?: string): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
@@ -2762,6 +2766,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
+ * @param role - Data table role to run as, on a datatable with permissions
+ *               enabled (default: the data table's default role)
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -2772,7 +2778,7 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *     WHERE name = \${name} AND age = \${age}::int
  * \`.fetch()
  */
-datatable(name: string = "main"): DatatableSqlTemplateFunction
+datatable(name: string = "main", role?: string): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
@@ -4373,10 +4379,12 @@ def send_teams_message(conversation_id: str, text: str, success: bool = True, ca
 # 
 # Args:
 #     name: Database name (default: "main")
+#     role: DataTable role to run as, on a datatable with permissions
+#         enabled (default: the data table's default role)
 # 
 # Returns:
 #     DataTableClient instance
-def datatable(name: str = 'main')
+def datatable(name: str = 'main', role: Optional[str] = None)
 
 # Get a DuckLake client for DuckDB queries.
 # 

@@ -62,6 +62,8 @@ interface DatatableSqlTemplateFunction {
 
 Create a SQL template function for PostgreSQL/datatable queries
 @param name - Database/datatable name (default: "main")
+@param role - Data table role to run as, on a datatable with permissions
+              enabled (default: the data table's default role)
 @returns SQL template function for building parameterized queries
 @example
 let sql = wmill.datatable()
@@ -72,5 +74,6 @@ await sql`
     WHERE name = ${name} AND age = ${age}::int
 `.fetch()
 ```typescript
-function datatable(name: string = "main"): DatatableSqlTemplateFunction
+function datatable(name: string = "main",
+  role?: string): DatatableSqlTemplateFunction
 ```
