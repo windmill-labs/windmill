@@ -184,7 +184,7 @@ describe('generateDatatableMigrations', () => {
 		expect(migrations[0].sql).toContain('"public"."customers"')
 	})
 
-	it('leaves a qualified ref unresolved when its schema misses, never another schema\'s table', async () => {
+	it("leaves a qualified ref unresolved when its schema misses, never another schema's table", async () => {
 		getDatatableFullSchemaMock.mockResolvedValue(schema)
 		const usage = new Map([['main', new Set(['sales.orders'])]])
 		const migrations = await generateDatatableMigrations('ws', usage)
@@ -273,6 +273,48 @@ describe('generateDatatableMigrations', () => {
 			sql.indexOf('CREATE TABLE IF NOT EXISTS "app"."customers"')
 		)
 		expect(sql).not.toContain('CREATE SCHEMA IF NOT EXISTS "public"')
+	})
+
+	it('qualifies an FK target the schema reports bare, so it resolves outside search_path', async () => {
+		// The schema API omits the schema on an FK target that lives in the same schema
+		// as the table declaring it. Emitted verbatim it becomes `REFERENCES links (id)`,
+		// which Postgres looks up on `search_path` — and the migration's own schema is
+		// never on it, so applying it fails with `relation "links" does not exist`.
+		const bitlySchema = {
+			bitly: {
+				links: {
+					name: 'links',
+					columns: [{ name: 'id', datatype: 'uuid', primary_key: true, nullable: false }],
+					foreign_keys: []
+				},
+				clicks: {
+					name: 'clicks',
+					columns: [
+						{ name: 'id', datatype: 'uuid', primary_key: true, nullable: false },
+						{ name: 'link_id', datatype: 'uuid', nullable: false }
+					],
+					foreign_keys: [
+						{
+							target_table: 'links',
+							columns: [{ source_column: 'link_id', target_column: 'id' }],
+							on_delete: 'CASCADE',
+							on_update: 'NO ACTION'
+						}
+					]
+				}
+			}
+		}
+		getDatatableFullSchemaMock.mockResolvedValue(bitlySchema)
+		const usage = new Map([['main', new Set(['bitly.clicks'])]])
+		const migrations = await generateDatatableMigrations('ws', usage)
+		const sql = migrations[0].sql
+		expect(sql).toContain('REFERENCES "bitly"."links" (id)')
+		expect(sql).not.toMatch(/REFERENCES links\b/)
+		// The guard skips the ALTER when the constraint already exists, so the name it
+		// looks up has to be the name the ALTER creates.
+		const created = sql.match(/ADD CONSTRAINT (\S+)/)?.[1]
+		expect(created).toBeTruthy()
+		expect(sql).toContain(`conname = '${created}'`)
 	})
 
 	it('keeps same-named tables from different schemas both created', async () => {
