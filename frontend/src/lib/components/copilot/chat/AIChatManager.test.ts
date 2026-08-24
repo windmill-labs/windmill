@@ -4,6 +4,7 @@ import type { PipelineAIChatHelpers } from './pipeline/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
+import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
 import { chatState } from './sharedChatState.svelte'
@@ -1800,6 +1801,312 @@ describe('AIChatManager queued messages', () => {
 		expect(input.restoreInstructions).not.toHaveBeenCalled()
 	})
 
+	// This suite runs under the node env, so stand up the minimum document the
+	// manager needs to hear the page going away. Returns the registered listeners
+	// so a test can play the user leaving.
+	function stubHidingPage() {
+		const leavePage = new Set<() => void>()
+		vi.stubGlobal('document', {
+			visibilityState: 'hidden',
+			addEventListener: (_: string, fn: () => void) => leavePage.add(fn),
+			removeEventListener: (_: string, fn: () => void) => leavePage.delete(fn)
+		})
+		return leavePage
+	}
+
+	// Every checkpoint test installs a fake document; leaking one would make a
+	// single failure cascade through every later test in the file.
+	afterEach(() => {
+		vi.unstubAllGlobals()
+		vi.useRealTimers()
+	})
+
+	it('keeps re-checkpointing a streamed answer as it grows', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true })
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		// One poll interval, per CHECKPOINT_INTERVAL_MS in AIChatManager.
+		const pastOnePoll = 2100
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// A text-only answer: nothing lands in addedMessages and no card appears,
+			// so the growing reply is the only thing that can drive the poll.
+			for (const text of ['the first part', 'the first part and more', 'the whole answer']) {
+				manager.currentReply = text
+				await vi.advanceTimersByTimeAsync(pastOnePoll)
+			}
+			const message = { role: 'assistant' as const, content: manager.currentReply }
+			config.addedMessages.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'write me something long' })
+
+		// A fingerprint blind to the reply would freeze at whatever the first tick
+		// captured, so each tick must persist strictly more of the answer.
+		const persisted = saveChat.mock.calls
+			.map(([, messages]) => messages as ChatCompletionMessageParam[])
+			.map((messages) => messages[messages.length - 1])
+			.filter((m) => m?.role === 'assistant' && typeof m.content === 'string')
+			.map((m) => String(m.content))
+			.filter((c) => c.startsWith('the first part'))
+		expect(persisted).toEqual(['the first part', 'the first part and more'])
+	})
+
+	it('carries a completed screenshot into a checkpoint of the batch it came from', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// take_screenshot finished and buffered its image, but the batch it belongs
+			// to has another call still pending — so the loop has not yet turned the
+			// buffer into a message.
+			config.addedMessages.push(
+				{
+					role: 'assistant' as const,
+					content: '',
+					tool_calls: [
+						{
+							id: 'shot',
+							type: 'function' as const,
+							function: { name: 'take_screenshot', arguments: '{}' }
+						},
+						{
+							id: 'next',
+							type: 'function' as const,
+							function: { name: 'do_thing', arguments: '{}' }
+						}
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 'shot', content: 'Screenshot attached below' }
+			)
+			config.callbacks.attachToolImage('shot', {
+				dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+				name: 'shot.png'
+			})
+			leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'look at the app' })
+
+		const [, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		// Without the image the restored history announces a screenshot the model
+		// cannot see, so the next turn cannot answer anything about it.
+		const imageParts = actual.flatMap((m) =>
+			Array.isArray(m.content) ? m.content.filter((p: any) => p.type === 'image_url') : []
+		)
+		expect(imageParts).toHaveLength(1)
+		// And it sits after the batch that produced it, where the live path puts it.
+		const imageIdx = actual.findIndex((m) => Array.isArray(m.content))
+		const resultIdx = actual.findIndex((m) => m.role === 'tool' && m.tool_call_id === 'shot')
+		expect(imageIdx).toBeGreaterThan(resultIdx)
+	})
+
+	it('does not repeat a preamble the parser has already pushed', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		const preamble = 'Let me look that up.'
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// A text-then-tool-call turn in parser order: the preamble is flushed when
+			// the tool call starts, pushed when the message completes, and only then
+			// do the tools run — the long window a checkpoint is most likely to land in.
+			manager.currentReply = preamble
+			config.callbacks.onMessageEnd()
+			config.addedMessages.push(
+				{ role: 'assistant' as const, content: preamble },
+				{
+					role: 'assistant' as const,
+					content: '',
+					tool_calls: [
+						{ id: 't1', type: 'function' as const, function: { name: 'do_thing', arguments: '{}' } }
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 't1', content: 'ok' }
+			)
+			leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'look something up' })
+
+		const [, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		// Reading flushed text back would show the preamble twice on reload; the
+		// transcript already holds it, so the checkpoint must take it from there.
+		expect(actual.filter((m) => m.content === preamble)).toHaveLength(1)
+	})
+
+	it('checkpoints a live reply that repeats an earlier segment verbatim', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		const repeated = 'Let me check that.'
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// The model said the same sentence before its tool call as it is saying
+			// after it — the staleness heuristic must not read the second one as a
+			// duplicate of the first and drop it.
+			config.addedMessages.push(
+				{
+					role: 'assistant' as const,
+					content: repeated,
+					tool_calls: [
+						{ id: 't1', type: 'function' as const, function: { name: 'do_thing', arguments: '{}' } }
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 't1', content: 'ok' }
+			)
+			manager.currentReply = repeated
+			leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'check the thing' })
+
+		const [display, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		expect(actual[actual.length - 1]).toMatchObject({ role: 'assistant', content: repeated })
+		expect(display[display.length - 1]).toMatchObject({ role: 'assistant', content: repeated })
+	})
+
+	it('checkpoints a turn to history when the page is hidden mid-generation', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		const toolCall = (id: string, name: string) => ({
+			role: 'assistant' as const,
+			content: '',
+			tool_calls: [{ id, type: 'function' as const, function: { name, arguments: '{}' } }]
+		})
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// One completed round-trip, then a call still waiting on the user.
+			config.addedMessages.push(
+				toolCall('t1', 'write_script'),
+				{ role: 'tool', tool_call_id: 't1', content: 'created' },
+				toolCall('t2', 'test_run_script')
+			)
+			config.callbacks.setToolStatus('t2', {
+				content: 'Waiting for confirmation...',
+				isLoading: true,
+				needsConfirmation: true
+			})
+			leavePage.forEach((fn) => fn())
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages.push({ role: 'tool', tool_call_id: 't2', content: 'ran' }, message)
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'write and run a script' })
+
+		const [display, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		// Both steps are kept, and the unfinished t2 call gets a synthesized result:
+		// leaving it dangling would make the next request 400, dropping it would lose
+		// the step the reader can still see on the card below.
+		expect(actual.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant', 'tool'])
+		expect(actual[actual.length - 1]).toMatchObject({
+			tool_call_id: 't2',
+			content: expect.stringContaining('Interrupted')
+		})
+		// Its card is kept but settled, so reopening the chat doesn't restore a
+		// confirmation prompt with nothing behind it.
+		expect(display.find((m) => m.role === 'tool' && m.tool_call_id === 't2')).toMatchObject({
+			isLoading: false,
+			needsConfirmation: false,
+			error: 'Interrupted'
+		})
+		// The turn itself is untouched by the checkpoint and still commits in full.
+		expect(manager.messages.map((m) => m.role)).toEqual([
+			'user',
+			'assistant',
+			'tool',
+			'assistant',
+			'tool',
+			'assistant'
+		])
+	})
+
+	it('stops checkpointing once the turn commits, so the transcript is never doubled', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		// The turn-end save is where the race lives: the outcome branch has already
+		// merged the turn into `manager.messages` and is awaiting this call, so a
+		// checkpoint landing here would append the same messages a second time.
+		let leaveDuringFinalSave: () => void = () => {}
+		const saveChat = vi
+			.spyOn(manager.historyManager, 'saveChat')
+			.mockImplementation(async () => leaveDuringFinalSave())
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			const collected = [
+				{
+					role: 'assistant' as const,
+					content: '',
+					tool_calls: [
+						{
+							id: 't1',
+							type: 'function' as const,
+							function: { name: 'write_script', arguments: '{}' }
+						}
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 't1', content: 'created' },
+				{ role: 'assistant' as const, content: 'done' }
+			]
+			config.addedMessages.push(...collected)
+			leaveDuringFinalSave = () => leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: collected,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'write a script' })
+		await Promise.resolve()
+
+		// A duplicated transcript repeats t1, which providers reject outright — so
+		// no persisted call may carry the same tool_call_id twice.
+		for (const [, messages] of saveChat.mock.calls as unknown as [
+			unknown,
+			ChatCompletionMessageParam[]
+		][]) {
+			const toolCallIds = messages.flatMap((m: any) => m.tool_calls?.map((c: any) => c.id) ?? [])
+			expect(toolCallIds).toEqual([...new Set(toolCallIds)])
+		}
+		expect(manager.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant'])
+	})
+
 	it('restores consumed DOM selector chips when a turn is cancelled before output', async () => {
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
@@ -1964,6 +2271,61 @@ describe('AIChatManager queued messages', () => {
 		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
 		await manager.loadPastChat('chat-b')
 		expect(manager.queuedMessage).toBe('')
+	})
+
+	it('refuses to switch conversation while a turn is running', async () => {
+		const manager = createManager(createInputMock())
+		const loadStored = vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-b',
+			title: 'Chat B',
+			displayMessages: [{ role: 'user', content: 'belongs to chat B', index: 0 }],
+			actualMessages: [{ role: 'user', content: 'belongs to chat B' }],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// The user opens History mid-turn. Swapping the transcript in underneath
+			// the turn makes the commit below land on a foreign one — and when the
+			// loaded chat is this one, on top of its own checkpoint.
+			await manager.loadPastChat('chat-b')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'belongs to chat A' })
+
+		expect(loadStored).not.toHaveBeenCalled()
+		expect(manager.messages.map((m) => m.content)).toEqual(['belongs to chat A', 'done'])
+	})
+
+	it('refuses to switch conversation before `loading` has risen', async () => {
+		const manager = createManager(createInputMock())
+		const loadStored = vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-b',
+			title: 'Chat B',
+			displayMessages: [{ role: 'user', content: 'belongs to chat B', index: 0 }],
+			actualMessages: [{ role: 'user', content: 'belongs to chat B' }],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		replyWith('done')
+
+		const sent = manager.sendRequest({ instructions: 'belongs to chat A' })
+		// The send is registered but its attachment upkeep hasn't finished, so
+		// `loading` is still false — the window `sendOrQueue` also guards.
+		expect(manager.loading).toBe(false)
+		expect(manager.sendInFlight).toBe(true)
+		await manager.loadPastChat('chat-b')
+		await sent
+
+		expect(loadStored).not.toHaveBeenCalled()
+		expect(manager.messages.map((m) => m.content)).toEqual(['belongs to chat A', 'done'])
 	})
 
 	it('clears attachments on New chat / load past chat (non-session), keeps them in a session', async () => {
