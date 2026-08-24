@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path, value FROM resource_version WHERE workspace_id = $1 AND id = $2",
+  "query": "SELECT path, scorers FROM eval_dataset WHERE workspace_id = $1 AND path = ANY($2)",
   "describe": {
     "columns": [
       {
@@ -10,20 +10,20 @@
       },
       {
         "ordinal": 1,
-        "name": "value",
+        "name": "scorers",
         "type_info": "Jsonb"
       }
     ],
     "parameters": {
       "Left": [
         "Text",
-        "Int8"
+        "TextArray"
       ]
     },
     "nullable": [
       false,
-      true
+      false
     ]
   },
-  "hash": "e74e283951aa87627a46aa8286819cf7aa4fecbde17bc7a67ee6f49c427cee9e"
+  "hash": "4e4a9c7b6e95f81101a68a6cc6d29fe4424eaed36d5ac9e4cd0a2a9d8b878eeb"
 }

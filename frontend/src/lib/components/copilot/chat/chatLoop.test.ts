@@ -518,7 +518,7 @@ describe('runChatLoop lastIterationUsage', () => {
 
 		expect(result.lastIterationUsage).toEqual({ prompt: 1200, completion: 80, total: 1280 })
 		// the aggregate keeps summing across iterations
-		expect(result.tokenUsage).toEqual({ prompt: 2200, completion: 130, total: 2330 })
+		expect(result.tokenUsage).toMatchObject({ prompt: 2200, completion: 130, total: 2330 })
 	})
 
 	it('ignores empty usage reports and returns null when none are real', async () => {

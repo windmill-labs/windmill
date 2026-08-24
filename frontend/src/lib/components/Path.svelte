@@ -89,6 +89,9 @@
 		 *  already have written there itself — a setup flow correcting its own failed attempt.
 		 *  Every other existing path is still refused. */
 		allowedExistingPath?: string
+		/** Show the "moving may break other items" warning on a rename. Off for items nothing
+		 *  can reference by path and whose dependents move with them (eval datasets). */
+		warnOnRename?: boolean
 	}
 
 	let {
@@ -107,7 +110,8 @@
 		size = 'md',
 		drawerOffset = 0,
 		workspaceOverride = undefined,
-		allowedExistingPath = undefined
+		allowedExistingPath = undefined,
+		warnOnRename = true
 	}: Props = $props()
 
 	let ws = $derived(workspaceOverride ?? $workspaceStore)
@@ -430,7 +434,8 @@
 	// rename. `checkInitialPathExistence` is what callers set when they are creating something,
 	// which is the same question asked the other way round.
 	let displayPathChangedWarning = $derived(
-		(['flow', 'script', 'resource', 'variable'] as PathKind[]).includes(kind) &&
+		warnOnRename &&
+			(['flow', 'script', 'resource', 'variable'] as PathKind[]).includes(kind) &&
 			!checkInitialPathExistence &&
 			initialPath &&
 			initialPath !== path

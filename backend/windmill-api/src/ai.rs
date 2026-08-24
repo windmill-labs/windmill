@@ -3,11 +3,16 @@ use crate::utils::check_scopes;
 
 #[cfg(feature = "bedrock")]
 use axum::routing::get;
-#[cfg(feature = "bedrock")]
 use axum::Json;
-use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
+use axum::{
+    body::Bytes,
+    extract::{DefaultBodyLimit, Path, Query},
+    response::IntoResponse,
+    routing::post,
+    Extension, Router,
+};
 use futures::StreamExt;
-use http::{HeaderMap, Method};
+use http::{HeaderMap, Method, StatusCode};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
@@ -18,6 +23,7 @@ use windmill_ai::ai_cache::current_instance_ai_config_revision;
 use windmill_ai::ai_providers::{
     empty_string_as_none, AIPlatform, AIProvider, ProviderConfig, ProviderModel,
 };
+use windmill_ai::ai_types::MAX_MODEL_RATE;
 use windmill_ai::credentials::ProviderCredentials;
 #[cfg(feature = "bedrock")]
 use windmill_ai::providers::bedrock::{
@@ -37,7 +43,7 @@ use windmill_ai::proxy::{
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::db::UserDB;
 use windmill_common::error::{to_anyhow, Error, Result};
-use windmill_common::utils::configure_client;
+use windmill_common::utils::{configure_client, require_admin};
 use windmill_common::variables::{get_variable_or_self, get_variable_or_self_as};
 
 // AI timeout configuration constants
@@ -435,9 +441,54 @@ pub struct AIConfig {
     /// free-tier marker. Only the server sets it, per-request.
     #[serde(skip_serializing_if = "Option::is_none", skip_deserializing)]
     pub free_tier: Option<FreeTierInfo>,
+    /// Per-model price overrides, keyed `provider:model` like `max_tokens_per_model`.
+    /// Only models whose rates differ from the built-in table are stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_pricing: Option<HashMap<String, ModelPriceOverride>>,
+}
+
+/// Negotiated rates in USD per million tokens. An unset cache rate is read as the
+/// provider's own multiple of the input rate where the model has a published one,
+/// and as the input rate itself where it does not — an unstated discount is never
+/// filled in from another vendor's.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ModelPriceOverride {
+    pub input: f64,
+    pub output: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write: Option<f64>,
+}
+
+impl ModelPriceOverride {
+    pub fn validate(&self, key: &str) -> Result<()> {
+        for (field, rate) in [
+            ("input", Some(self.input)),
+            ("output", Some(self.output)),
+            ("cache_read", self.cache_read),
+            ("cache_write", self.cache_write),
+        ] {
+            let Some(rate) = rate else { continue };
+            if !rate.is_finite() || rate < 0.0 || rate > MAX_MODEL_RATE {
+                return Err(Error::BadRequest(format!(
+                    "Price override for {}: {} must be between 0 and {}",
+                    key, field, MAX_MODEL_RATE
+                )));
+            }
+        }
+        Ok(())
+    }
 }
 
 impl AIConfig {
+    pub fn validate_model_pricing(&self) -> Result<()> {
+        for (key, price) in self.model_pricing.iter().flatten() {
+            price.validate(key)?;
+        }
+        Ok(())
+    }
+
     pub fn has_providers(&self) -> bool {
         self.providers
             .as_ref()
@@ -450,12 +501,282 @@ pub fn global_service() -> Router {
 }
 
 pub fn workspaced_service() -> Router {
-    let router = Router::new().route("/proxy/{*ai}", post(proxy).get(proxy));
+    let router = Router::new()
+        .route("/proxy/{*ai}", post(proxy).get(proxy))
+        .route(
+            "/usage",
+            post(record_ai_usage)
+                .get(list_ai_usage)
+                // The handler caps how many events it *stores*, but Json deserializes
+                // the whole array first — without a body limit an authenticated member
+                // could make the server allocate and parse an arbitrarily large one.
+                // Sized well above a full batch of the shape below.
+                .layer(DefaultBodyLimit::max(AI_USAGE_BODY_LIMIT)),
+        );
 
     #[cfg(feature = "bedrock")]
     let router = router.route("/check_bedrock_credentials", get(check_bedrock_credentials));
 
     router
+}
+
+/// One provider request's worth of tokens, as counted by the chat client.
+#[derive(Deserialize)]
+struct AIUsageEvent {
+    provider: String,
+    model: String,
+    #[serde(default)]
+    session_id: String,
+    #[serde(default)]
+    input_tokens: i64,
+    #[serde(default)]
+    cache_read_tokens: i64,
+    #[serde(default)]
+    cache_write_tokens: i64,
+    #[serde(default)]
+    output_tokens: i64,
+    /// Only the providers that bill back an exact figure set this.
+    #[serde(default)]
+    reported_cost_nano_usd: Option<i64>,
+    #[serde(default)]
+    requests: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct RecordAIUsagePayload {
+    events: Vec<AIUsageEvent>,
+}
+
+const MAX_AI_USAGE_EVENTS: usize = 50;
+/// 64 KiB — a 50-event batch is a few kB even with the longest model ids.
+const AI_USAGE_BODY_LIMIT: usize = 64 * 1024;
+/// Well above any single conversation and far below an i64 overflow, so a client
+/// bug caps out at one absurd row instead of poisoning the running total.
+const MAX_TOKENS_PER_EVENT: i64 = 100_000_000;
+/// $1000 in nano-USD.
+const MAX_REPORTED_COST_PER_EVENT: i64 = 1_000_000_000_000;
+
+/// Model ids carry vendor prefixes and variant suffixes (`anthropic/claude-opus-5:thinking`),
+/// so the shape check is looser than an identifier but still excludes whitespace and
+/// anything that would not be a model id.
+fn is_model_shaped(s: &str, max_len: usize) -> bool {
+    !s.is_empty()
+        && s.len() <= max_len
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/' | '~'))
+}
+
+/// Accumulate one workspace's AI token spend. Values are clamped and the caller's
+/// email comes from the session, never the payload — the client is trusted to
+/// report its own usage, not to attribute it to someone else.
+async fn record_ai_usage(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(payload): Json<RecordAIUsagePayload>,
+) -> Result<StatusCode> {
+    // Pre-sum duplicate keys: two rows hitting the same conflict target in a single
+    // INSERT error out ("cannot affect row a second time").
+    let mut agg: HashMap<(String, String, String), AIUsageTotals> = HashMap::new();
+    for e in payload.events.into_iter().take(MAX_AI_USAGE_EVENTS) {
+        if AIProvider::try_from(e.provider.as_str()).is_err()
+            || !is_model_shaped(&e.model, 255)
+            || !(e.session_id.is_empty() || is_model_shaped(&e.session_id, 50))
+        {
+            continue;
+        }
+        let totals = agg
+            .entry((e.provider, e.model, e.session_id))
+            .or_insert_with(AIUsageTotals::default);
+        totals.input += e.input_tokens.clamp(0, MAX_TOKENS_PER_EVENT);
+        totals.cache_read += e.cache_read_tokens.clamp(0, MAX_TOKENS_PER_EVENT);
+        totals.cache_write += e.cache_write_tokens.clamp(0, MAX_TOKENS_PER_EVENT);
+        totals.output += e.output_tokens.clamp(0, MAX_TOKENS_PER_EVENT);
+        totals.requests += e.requests.unwrap_or(1).clamp(0, MAX_AI_USAGE_EVENTS as i64);
+        if let Some(cost) = e.reported_cost_nano_usd {
+            totals.reported_cost = Some(
+                totals.reported_cost.unwrap_or(0) + cost.clamp(0, MAX_REPORTED_COST_PER_EVENT),
+            );
+        }
+    }
+    if agg.is_empty() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    let mut providers = Vec::with_capacity(agg.len());
+    let mut models = Vec::with_capacity(agg.len());
+    let mut session_ids = Vec::with_capacity(agg.len());
+    let mut inputs = Vec::with_capacity(agg.len());
+    let mut cache_reads = Vec::with_capacity(agg.len());
+    let mut cache_writes = Vec::with_capacity(agg.len());
+    let mut outputs = Vec::with_capacity(agg.len());
+    let mut reported_costs: Vec<Option<i64>> = Vec::with_capacity(agg.len());
+    let mut requests = Vec::with_capacity(agg.len());
+    for ((provider, model, session_id), totals) in agg {
+        providers.push(provider);
+        models.push(model);
+        session_ids.push(session_id);
+        inputs.push(totals.input);
+        cache_reads.push(totals.cache_read);
+        cache_writes.push(totals.cache_write);
+        outputs.push(totals.output);
+        reported_costs.push(totals.reported_cost);
+        requests.push(totals.requests);
+    }
+
+    sqlx::query!(
+        "INSERT INTO ai_token_usage (workspace_id, email, provider, model, session_id, \
+            input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, \
+            reported_cost_nano_usd, requests)
+         SELECT $1, $2, * FROM UNNEST($3::text[], $4::text[], $5::text[], $6::bigint[], \
+            $7::bigint[], $8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[])
+         ON CONFLICT (workspace_id, day, email, provider, model, session_id)
+         DO UPDATE SET
+            input_tokens = ai_token_usage.input_tokens + EXCLUDED.input_tokens,
+            cache_read_tokens = ai_token_usage.cache_read_tokens + EXCLUDED.cache_read_tokens,
+            cache_write_tokens = ai_token_usage.cache_write_tokens + EXCLUDED.cache_write_tokens,
+            output_tokens = ai_token_usage.output_tokens + EXCLUDED.output_tokens,
+            reported_cost_nano_usd = CASE
+                WHEN EXCLUDED.reported_cost_nano_usd IS NULL
+                    THEN ai_token_usage.reported_cost_nano_usd
+                ELSE COALESCE(ai_token_usage.reported_cost_nano_usd, 0)
+                    + EXCLUDED.reported_cost_nano_usd
+            END,
+            requests = ai_token_usage.requests + EXCLUDED.requests,
+            updated_at = now()",
+        &w_id,
+        &authed.email,
+        &providers,
+        &models,
+        &session_ids,
+        &inputs,
+        &cache_reads,
+        &cache_writes,
+        &outputs,
+        &reported_costs as &[Option<i64>],
+        &requests
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Default)]
+struct AIUsageTotals {
+    input: i64,
+    cache_read: i64,
+    cache_write: i64,
+    output: i64,
+    reported_cost: Option<i64>,
+    requests: i64,
+}
+
+#[derive(Deserialize)]
+struct ListAIUsageQuery {
+    days: Option<i32>,
+    group_by: Option<String>,
+    scope: Option<String>,
+}
+
+/// A bucket always carries its provider and model: the caller prices it from a
+/// per-model rate table, which a bucket spanning several models could not be
+/// resolved against.
+#[derive(Serialize)]
+struct AITokenUsageBucket {
+    key: String,
+    provider: String,
+    model: String,
+    input_tokens: i64,
+    cache_read_tokens: i64,
+    cache_write_tokens: i64,
+    output_tokens: i64,
+    reported_cost_nano_usd: Option<i64>,
+    requests: i64,
+}
+
+/// Grouping by day over a long range, or by model across many models, can produce
+/// more buckets than a table is worth rendering, so the listing is capped.
+/// `truncated` says so explicitly — a caller that sums the rows into a total must be
+/// able to tell that the total is partial rather than silently under-reporting spend.
+#[derive(Serialize)]
+struct AITokenUsageListing {
+    buckets: Vec<AITokenUsageBucket>,
+    truncated: bool,
+}
+
+const AI_USAGE_MAX_BUCKETS: i64 = 1000;
+
+async fn list_ai_usage(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Query(query): Query<ListAIUsageQuery>,
+) -> Result<Json<AITokenUsageListing>> {
+    // Reading the whole workspace's spend is an admin view; reading your own is
+    // not, so a member can see what they are costing without being shown their
+    // colleagues'. The filter is the session's email, never a parameter.
+    let own_email = match query.scope.as_deref().unwrap_or("workspace") {
+        "workspace" => {
+            require_admin(authed.is_admin, &authed.username)?;
+            None
+        }
+        "self" => Some(authed.email.clone()),
+        scope => return Err(Error::BadRequest(format!("Unsupported scope: {}", scope))),
+    };
+
+    let days = query.days.unwrap_or(30).clamp(1, 365);
+    let group_by = query.group_by.as_deref().unwrap_or("day");
+    // No `session`: a session is identified by a client-generated id whose name
+    // lives only in the browser that made it, so a bucket keyed on one is a label
+    // nobody can resolve. `session_id` is still stored, at the grain the client
+    // batches on, should sessions ever gain a server-side name.
+    if !matches!(group_by, "day" | "user" | "model") {
+        return Err(Error::BadRequest(format!(
+            "Unsupported group_by: {}",
+            group_by
+        )));
+    }
+
+    // Fetch one past the cap to detect truncation. Ordering is by token volume, not
+    // by cost: rates are applied by the caller, so this query cannot know what a
+    // bucket cost. Volume is the closest proxy available here, and the caller is told
+    // the listing was capped rather than being left to sum a partial set silently.
+    let mut rows = sqlx::query_as!(
+        AITokenUsageBucket,
+        r#"SELECT
+            (CASE $3::text
+                WHEN 'day' THEN day::text
+                WHEN 'user' THEN email
+                ELSE ''
+            END) AS "key!",
+            provider AS "provider!",
+            model AS "model!",
+            SUM(input_tokens)::bigint AS "input_tokens!",
+            SUM(cache_read_tokens)::bigint AS "cache_read_tokens!",
+            SUM(cache_write_tokens)::bigint AS "cache_write_tokens!",
+            SUM(output_tokens)::bigint AS "output_tokens!",
+            SUM(reported_cost_nano_usd)::bigint AS "reported_cost_nano_usd",
+            SUM(requests)::bigint AS "requests!"
+         FROM ai_token_usage
+         WHERE workspace_id = $1 AND day > CURRENT_DATE - $2::int
+            AND ($5::text IS NULL OR email = $5)
+         GROUP BY 1, provider, model
+         ORDER BY SUM(input_tokens + cache_read_tokens + cache_write_tokens + output_tokens) DESC
+         LIMIT $4"#,
+        &w_id,
+        days,
+        group_by,
+        AI_USAGE_MAX_BUCKETS + 1,
+        own_email.as_deref()
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let truncated = rows.len() as i64 > AI_USAGE_MAX_BUCKETS;
+    rows.truncate(AI_USAGE_MAX_BUCKETS as usize);
+
+    Ok(Json(AITokenUsageListing { buckets: rows, truncated }))
 }
 
 /// Check if AWS Bedrock credentials are available from environment variables.

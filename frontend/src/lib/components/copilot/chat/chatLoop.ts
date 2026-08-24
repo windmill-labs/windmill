@@ -77,11 +77,16 @@ export interface ChatLoopConfig {
 		helpers: any,
 		modelProvider: ReasoningProviderModel
 	) => Promise<void>
+	/** Fired for each completed provider response, before the loop continues. The
+	 * loop can fail or be aborted at any iteration, so spend has to be handed over
+	 * as it happens — a callback only at the end would discard everything the
+	 * earlier iterations were already billed for. */
+	onUsage?: (usage: ChatTokenUsage, modelProvider: ReasoningProviderModel) => void
 }
 
 export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
-	/** Sum of usage across all loop iterations (suitable for cost accounting). */
+	/** Sum of usage across all loop iterations. */
 	tokenUsage: ChatTokenUsage
 	lastIterationUsage: ChatTokenUsage | null
 	hitMaxIterations: boolean
@@ -328,6 +333,20 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 	let lastIterationUsage: ChatTokenUsage | null = null
 	let iterations = 0
 	let hitMaxIterations = false
+	// The model of the iteration currently in flight; re-read per iteration like
+	// `config.modelProvider` itself, so usage is attributed to the model that
+	// actually served it rather than to whatever is selected when the loop ends.
+	let iterationModel: ReasoningProviderModel | undefined
+
+	// Reported as the provider's usage arrives, not when the parser returns: a parser
+	// waits on tool execution, which can wait on a person, and a tab closed in that
+	// gap would drop a response that was already billed. Accounting for the turn's
+	// own totals stays on the return path, where every parser reports uniformly.
+	const reportUsage = (usage: ChatTokenUsage | null | undefined) => {
+		if (usage && iterationModel) {
+			config.onUsage?.(usage, iterationModel)
+		}
+	}
 
 	const trackUsage = (usage: ChatTokenUsage | null | undefined) => {
 		tokenUsage = addChatTokenUsage(tokenUsage, usage)
@@ -351,6 +370,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const helpers = config.helpers
 		const systemMessage = config.systemMessage
 		const modelProvider = config.modelProvider
+		iterationModel = modelProvider
 		const webSearchCacheKey = getWebSearchCacheKey(workspace, modelProvider)
 		const webSearch =
 			(config.webSearch ?? true) &&
@@ -386,7 +406,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
-		const parseOptions = { workspace, provider: modelProvider.provider }
+		const parseOptions = {
+			workspace,
+			provider: modelProvider.provider,
+			onTokenUsage: reportUsage
+		}
 
 		if (isOpenAI) {
 			const reasoningSummaryCacheKey = getReasoningSummaryCacheKey(workspace, modelProvider)

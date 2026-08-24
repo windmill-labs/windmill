@@ -1,17 +1,22 @@
 <script lang="ts">
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import LightweightResourcePicker from '$lib/components/LightweightResourcePicker.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ResourceService, type InputTransform } from '$lib/gen'
+	import { ResourceService, type AgentDraft, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Bot, Save, Unlink, Pencil } from 'lucide-svelte'
+	import { Bot, ChevronDown, ChevronUp, FlaskConical, Save, Unlink, Pencil } from 'lucide-svelte'
+	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
+	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import type { Value } from '$lib/utils'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
+		agentConfigAsEdited,
 		agentConfigToInputTransforms,
 		flowLocalInputs,
 		inputTransformsToAgentConfig,
@@ -25,7 +30,7 @@
 		clearLinkedAgentTools,
 		linkedToolsScope
 	} from '../linkedAgentToolsStore.svelte'
-	import { getAgentEditingPath, setAgentEditingPath } from '../agentEditStore.svelte'
+	import { getAgentEdit, getAgentEditingPath, setAgentEditingPath } from '../agentEditStore.svelte'
 	import { claimLinkedToolsFetch } from '../flowState'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
@@ -59,11 +64,12 @@
 	let pathError = $state('')
 	let description = $state('')
 	let saving = $state(false)
-	let pickerValue: string | undefined = $state(undefined)
-	// The path "Save changes" upserts back to, for a step forked from a saved agent. Lives in an
-	// external store so it survives this component unmounting when another node is selected, keyed
+	// The edit session of a step forked from a saved agent: the path "Save changes" upserts back
+	// to, and the baselines the edits are judged against. Lives in an external store so it
+	// survives this component unmounting — another node selected, the step's tab switched — keyed
 	// by the forked `tools` identity so a stale entry can't resurface (see agentEditStore).
-	let editingPath = $derived(getAgentEditingPath(tools))
+	let editing = $derived(getAgentEdit(tools))
+	let editingPath = $derived(editing?.path)
 
 	type LinkedInfo = {
 		// What this result was fetched for. runed's resource neither aborts nor tags a superseded
@@ -102,7 +108,14 @@
 					providerOk = false
 				}
 			}
-			return { ws, path, config: cfg, tools, providerPath, providerOk }
+			return {
+				ws,
+				path,
+				config: cfg,
+				tools,
+				providerPath,
+				providerOk
+			}
 		}
 	)
 	// Retain the last result that matched the current link. Discarding a superseded one outright
@@ -122,6 +135,31 @@
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
 	let providerPath = $derived(linkedInfo?.providerPath)
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
+	/** The agent the card is about: the one this step links to, or the one being edited. */
+	let cardPath = $derived(agent ?? editingPath)
+	let evalsOpen = $state(false)
+	// Bumped on every write to the resource, so a save that leaves the card on the same agent still
+	// refetches the version it just minted.
+	let writes = $state(0)
+	// The version eval runs are recorded against. The resource does not hold it; its newest history
+	// entry does, since recording is a database trigger on every write.
+	let versionResource = resource(
+		() => ({ ws, path: cardPath, writes }),
+		async ({ ws, path }): Promise<{ ws?: string; path?: string; version?: number }> => {
+			if (!ws || !path) {
+				return { ws, path }
+			}
+			const history = await ResourceService.getResourceHistory({ workspace: ws, path })
+			return { ws, path, version: history.versions?.[0]?.version }
+		}
+	)
+	// Guarded like the link above: a response for a previous agent must not label this one.
+	let version = $derived.by(() => {
+		const loaded = versionResource.current
+		return loaded !== undefined && loaded.ws === ws && loaded.path === cardPath
+			? loaded.version
+			: undefined
+	})
 
 	// Keep the graph's linked-tool store current for this step. flowState resolves every linked step
 	// at load; here we refresh the one being edited when its link changes (or clear it on unlink), so
@@ -157,23 +195,11 @@
 		}
 	})
 
-	// Link the step as soon as a saved agent is picked. Linking is rigid, so the step keeps no tools
-	// of its own — they come from the resource. The picked value is consumed immediately: a stale
-	// pickerValue must not re-link over an external change to `agent` (undo, session drafts).
-	$effect(() => {
-		if (pickerValue && pickerValue !== agent) {
-			agent = pickerValue
-			pickerValue = undefined
-			tools = []
-			toolInputs = {}
-			// Drop the step's brain transforms; a linked step keeps only the flow-local inputs.
-			inputTransforms = flowLocalInputs(inputTransforms)
-		}
-	})
-
 	function toolLabel(tool: AgentTool): string {
 		return tool.summary || tool.value?.tool_type || tool.id
 	}
+
+	let showDetail = $state(false)
 
 	function openSave() {
 		newPath = editingPath ?? ''
@@ -265,6 +291,9 @@
 				}
 			})
 		}
+		// The write minted a version, and nothing else the fetch keys on has to change for it to be
+		// the one the card should now be naming.
+		writes++
 		// Editing: a content-preserving refresh may have re-anchored the marker onto a clone of
 		// `tools`, which is still this session; a cleared or different path is not. Saving a
 		// standalone step has no marker to track, so only the fork's own array identifies it.
@@ -275,7 +304,7 @@
 		if (!sameSession) {
 			// The resource is written either way; say so, or the drawer just closes with no outcome.
 			sendUserToast(
-				`Saved ${path}, but the step changed while saving — it was not linked to the agent`,
+				`Saved ${path}, but the step changed while saving, so it was not linked to the agent`,
 				true
 			)
 			return false
@@ -284,7 +313,7 @@
 		// from the step too, losing them entirely. Keep the step as-is and let the user save again.
 		if (discardedOnLinkSnapshot() !== savedSnapshot) {
 			sendUserToast(
-				`Saved ${path}, but changes made while saving are not in it — save again to include them`,
+				`Saved ${path}, but changes made while saving are not in it. Save again to include them`,
 				true
 			)
 			return false
@@ -340,7 +369,9 @@
 	// saved agent). Unlink folds this flow's tool_inputs into the tools and clears them, so the
 	// standalone step keeps its bindings; Edit must not fold, or those overrides would be promoted
 	// into the shared agent instead of surviving the re-link.
-	async function forkFromResource(foldOverrides: boolean): Promise<string | undefined> {
+	async function forkFromResource(
+		foldOverrides: boolean
+	): Promise<{ path: string; deployedConfig: string } | undefined> {
 		if (!ws || !agent) {
 			return undefined
 		}
@@ -355,7 +386,6 @@
 			return undefined
 		}
 		const cfg = (res.value ?? {}) as AIAgentConfig
-		const brain = agentConfigToInputTransforms(cfg)
 		// Preserve the flow-local inputs already wired in the step.
 		const local: Record<string, InputTransform> = {}
 		for (const key of AGENT_FLOW_LOCAL_KEYS) {
@@ -363,8 +393,12 @@
 				local[key] = inputTransforms[key]
 			}
 		}
-		inputTransforms = { ...brain, ...local }
+		const forkedInputs = { ...agentConfigToInputTransforms(cfg), ...local }
 		const forkedTools = cfg.tools ?? []
+		// The baseline edits are judged against, in the form `currentConfig` takes: comparing
+		// against the resource's own JSON would count key order as an edit.
+		const deployedConfig = JSON.stringify(agentConfigAsEdited(forkedInputs, forkedTools))
+		inputTransforms = forkedInputs
 		if (foldOverrides) {
 			for (const tool of forkedTools) {
 				const overrides = toolInputs?.[tool.id]
@@ -376,19 +410,18 @@
 		}
 		tools = forkedTools
 		agent = undefined
-		pickerValue = undefined
-		return path
+		return { path, deployedConfig }
 	}
 
 	// Unlink forks the agent into this step so it can diverge here. It does not write back.
 	async function unlink() {
 		try {
-			const path = await forkFromResource(true)
-			if (path) {
+			const fork = await forkFromResource(true)
+			if (fork) {
 				setAgentEditingPath(tools, undefined)
-				sendUserToast('Forked agent — its configuration was copied into this step')
+				sendUserToast('Forked agent. Its configuration was copied into this step')
 			} else {
-				sendUserToast('The step changed while loading the agent — nothing was unlinked', true)
+				sendUserToast('The step changed while loading the agent, so nothing was unlinked', true)
 			}
 		} catch (e) {
 			sendUserToast(`Failed to unlink agent: ${e}`, true)
@@ -399,74 +432,172 @@
 	// "Save changes" writes back to it (updating every flow that links to it).
 	async function editAgent() {
 		try {
-			const path = await forkFromResource(false)
-			if (path) {
-				setAgentEditingPath(tools, path)
-				sendUserToast(`Editing ${path} — make changes, then Save changes to update it`)
+			const fork = await forkFromResource(false)
+			if (fork) {
+				const { path, ...baselines } = fork
+				setAgentEditingPath(tools, path, baselines)
+				sendUserToast(`Editing ${path}. Make changes, then Save changes to update it`)
 			} else {
-				sendUserToast('The step changed while loading the agent — try Edit again', true)
+				sendUserToast('The step changed while loading the agent. Try Edit again', true)
 			}
 		} catch (e) {
 			sendUserToast(`Failed to edit agent: ${e}`, true)
 		}
 	}
 
-	// Cancel keeps the edits as a standalone step. Edit preserved the flow-local overrides for the
-	// re-link; fold them into the tools (as Unlink does) so the step owns its bindings outright,
-	// leaving nothing for the runtime's unlinked overlay to apply.
-	function cancelEdit() {
-		for (const tool of tools) {
-			const overrides = toolInputs?.[tool.id]
-			if (overrides && tool.value?.input_transforms) {
-				tool.value.input_transforms = { ...tool.value.input_transforms, ...overrides }
+	/** The edits as a run of them executes them: the step's brain transforms as authored
+	 *  (expressions included) and its tools. Flow-local inputs are left out: a case supplies them,
+	 *  and that is what lets the server recognise a run of later-deployed edits as that version. */
+	function editedConfig(): AgentDraft {
+		const brain: Record<string, InputTransform> = {}
+		for (const [key, transform] of Object.entries(inputTransforms ?? {})) {
+			if (!(AGENT_FLOW_LOCAL_KEYS as readonly string[]).includes(key)) {
+				brain[key] = transform
 			}
 		}
-		toolInputs = {}
+		return {
+			input_transforms: $state.snapshot(brain) as Record<string, unknown>,
+			tools: $state.snapshot(tools) as Record<string, unknown>[]
+		}
+	}
+
+	/** The configuration the step holds now, in the form it is compared with the deployed agent in.
+	 *  Expressions count: the saved config cannot hold one, but a run of the edits executes it and
+	 *  Cancel drops it. */
+	let currentConfig = $derived(JSON.stringify(agentConfigAsEdited(inputTransforms, tools)))
+	/** The agent as deployed, in the same form; kept on the edit session so an editor mounted
+	 *  part-way through still has it. */
+	let deployedConfig = $derived(editing?.deployedConfig)
+	let edited = $derived(deployedConfig !== undefined && currentConfig !== deployedConfig)
+
+	let diffDrawer: DiffDrawer | undefined = $state()
+	// Both sides snapshotted at click time: the drawer would otherwise keep re-reading the live
+	// step while the user types behind it.
+	function showDiff() {
+		if (!deployedConfig) return
+		diffDrawer?.openDrawer()
+		diffDrawer?.setDiff({
+			mode: 'simple',
+			original: JSON.parse(deployedConfig) as Value,
+			current: $state.snapshot(agentConfigAsEdited(inputTransforms, tools)) as Value,
+			title: 'Deployed <> Unsaved agent changes',
+			button: {
+				text: 'Discard changes',
+				onClick: () => {
+					// Asked for by name, from a drawer showing exactly what goes: no second question.
+					const path = editingPath
+					if (path) relink(path)
+					diffDrawer?.closeDrawer()
+				}
+			}
+		})
+	}
+
+	let confirmCancel = $state(false)
+	// Cancel drops the edits and re-links the step without saving anything, so it asks first when
+	// there are edits to drop.
+	function cancelEdit() {
+		const path = editingPath
+		if (!path) return
+		if (edited) {
+			confirmCancel = true
+			return
+		}
+		relink(path)
+	}
+
+	// Put the step back on the agent. Edit kept this flow's `tool_inputs` off the forked tools
+	// rather than folding them in, so they survive the round trip as overrides.
+	function relink(path: string) {
+		// Clear the entry while `tools` is still the fork's array, which is what keys it.
 		setAgentEditingPath(tools, undefined)
+		agent = path
+		tools = []
+		inputTransforms = flowLocalInputs(inputTransforms)
 	}
 </script>
 
-<div class="px-2 xl:px-4 pt-2">
+<div class="px-2 xl:px-4 py-1.5 border-b border-light">
 	{#if agent}
-		<div class="rounded-md border border-light bg-surface-secondary px-3 py-2">
-			<div class="flex items-center gap-2 text-xs">
+		<div class="rounded-md border border-light bg-surface-tertiary px-3 py-2">
+			<!-- The whole line toggles the detail; the link and the buttons stop propagation. -->
+			<div
+				class="flex items-center gap-2 cursor-pointer"
+				role="button"
+				tabindex="0"
+				aria-expanded={showDetail}
+				onclick={() => (showDetail = !showDetail)}
+				onkeydown={(e) => {
+					// Keys aimed at the buttons inside the row bubble through here; leave them theirs.
+					if (e.target !== e.currentTarget) return
+					if (e.key === 'Enter' || e.key === ' ') {
+						e.preventDefault()
+						showDetail = !showDetail
+					}
+				}}
+			>
 				<Bot size={16} class="text-primary shrink-0" />
-				<span class="text-secondary shrink-0">Linked to</span>
-				<span class="flex min-w-0 flex-1 items-center gap-1">
+				<div class="min-w-0 flex-1 flex items-center gap-2">
 					<a
-						class="font-medium truncate"
+						class="truncate text-xs font-medium hover:underline"
 						href={`/resources?path=${agent}&workspace=${ws}`}
-						title={agent}>{agent}</a
+						title={`Open ${agent}`}
+						onclick={(e) => e.stopPropagation()}>{agent}</a
 					>
-					<Tooltip small placement="bottom">
-						{#snippet text()}
-							Read-only: the configuration comes from this saved agent, and only the message and
-							inputs are set in this flow. Edit changes the agent everywhere it's used. Unlink forks
-							an editable copy into just this step.
-						{/snippet}
-					</Tooltip>
-				</span>
-				<div class="ml-auto flex items-center gap-1 shrink-0">
+					{#if version != undefined}
+						<Badge color="gray" class="shrink-0" title="The version runs are recorded against">
+							v{version}
+						</Badge>
+					{/if}
+				</div>
+				<div class="flex items-center gap-1 shrink-0">
+					{#if brainParams.length > 0 || inheritedTools.length > 0}
+						<span class="text-tertiary">
+							{#if showDetail}
+								<ChevronUp size={14} />
+							{:else}
+								<ChevronDown size={14} />
+							{/if}
+						</span>
+					{/if}
 					<Button
-						size="xs2"
+						unifiedSize="sm"
+						variant="default"
+						startIcon={{ icon: FlaskConical }}
+						title="Run this agent against a dataset of cases"
+						onclick={(e) => {
+							e.stopPropagation()
+							evalsOpen = true
+						}}
+					>
+						Evals
+					</Button>
+					<Button
+						unifiedSize="sm"
 						variant="default"
 						startIcon={{ icon: Pencil }}
 						iconOnly
 						title="Edit the saved agent (updates it everywhere it's used)"
-						onclick={editAgent}
+						onclick={(e) => {
+							e.stopPropagation()
+							editAgent()
+						}}
 					/>
 					<Button
-						size="xs2"
+						unifiedSize="sm"
 						variant="default"
 						startIcon={{ icon: Unlink }}
 						iconOnly
 						title="Unlink (fork an editable copy into just this step)"
-						onclick={unlink}
+						onclick={(e) => {
+							e.stopPropagation()
+							unlink()
+						}}
 					/>
 				</div>
 			</div>
-			{#if brainParams.length > 0 || inheritedTools.length > 0}
-				<dl class="mt-2 flex flex-col gap-1 border-t border-light pt-2">
+			{#if showDetail && (brainParams.length > 0 || inheritedTools.length > 0)}
+				<dl class="mt-2 flex flex-col gap-1">
 					{#each brainParams as param (param.label)}
 						<div class="flex items-baseline gap-2 text-2xs">
 							<dt class="text-tertiary shrink-0 w-28">{param.label}</dt>
@@ -478,12 +609,7 @@
 							<dt class="text-tertiary shrink-0 w-28">Tools</dt>
 							<dd class="flex flex-wrap gap-1">
 								{#each inheritedTools as tool (tool.id)}
-									<span
-										class="inline-flex items-center rounded border border-light bg-surface px-1.5 py-0.5 text-secondary"
-										title={tool.id}
-									>
-										{toolLabel(tool)}
-									</span>
+									<Badge color="gray" title={tool.id}>{toolLabel(tool)}</Badge>
 								{/each}
 							</dd>
 						</div>
@@ -502,14 +628,56 @@
 		{/if}
 	{:else if editingPath}
 		<div
-			class="flex items-center gap-2 rounded-md border border-light bg-surface-secondary px-3 py-2 text-xs"
+			class="rounded-md border border-light bg-surface-tertiary px-3 py-1.5 flex flex-col gap-1.5"
 		>
-			<Pencil size={16} class="text-primary shrink-0" />
-			<span class="text-secondary">Editing</span>
-			<span class="font-medium truncate" title={editingPath}>{editingPath}</span>
-			<div class="ml-auto flex items-center gap-1">
+			<div class="flex items-center gap-2">
+				<Pencil size={16} class="text-primary shrink-0" />
+				<div class="min-w-0 flex-1 flex flex-col">
+					<div class="flex items-center gap-2 min-w-0">
+						<span class="truncate text-xs font-medium" title={editingPath}>{editingPath}</span>
+						{#if version != undefined}
+							<Badge color="gray" class="shrink-0" title="The version these edits sit on">
+								v{version}
+							</Badge>
+						{/if}
+						{#if edited}
+							<Badge
+								color="yellow"
+								class="shrink-0"
+								clickable
+								title="Show what differs from the deployed agent"
+								onclick={showDiff}
+							>
+								unsaved changes
+							</Badge>
+						{/if}
+					</div>
+					<div class="text-2xs text-secondary flex items-center gap-0.5">
+						saving updates every flow using it<Tooltip small>
+							{#snippet text()}
+								The edits live in this step until you decide: Evals runs them as they are here, Save
+								changes writes them to the agent, Cancel drops them and re-links the step.
+							{/snippet}
+						</Tooltip>
+					</div>
+				</div>
 				<Button
-					size="xs2"
+					unifiedSize="sm"
+					variant="default"
+					startIcon={{ icon: FlaskConical }}
+					title="Run these edits against a dataset of cases"
+					disabled={saving}
+					onclick={() => (evalsOpen = true)}
+				>
+					Evals
+				</Button>
+			</div>
+			<div class="flex items-center justify-end gap-1">
+				<Button unifiedSize="sm" variant="default" disabled={saving} onclick={cancelEdit}>
+					Cancel
+				</Button>
+				<Button
+					unifiedSize="sm"
 					variant="accent"
 					startIcon={{ icon: Save }}
 					disabled={saving || !!providerSaveError}
@@ -517,33 +685,24 @@
 				>
 					Save changes
 				</Button>
-				<Button size="xs2" variant="default" onclick={cancelEdit}>Cancel</Button>
 			</div>
 		</div>
-		<p class="text-2xs text-tertiary mt-1">
-			Editing the saved agent. Save changes updates it and re-links this step — the update
-			propagates to every flow that links to it. Cancel keeps your edits here as a standalone step
-			instead.
-		</p>
 		{#if providerSaveError}
-			<p class="text-2xs text-red-600 dark:text-red-400 mt-1">
+			<p class="text-2xs text-red-500 mt-1">
 				{providerSaveError}
 			</p>
 		{/if}
 	{:else}
-		<div class="flex items-center gap-2">
-			<div class="grow min-w-0">
-				<LightweightResourcePicker
-					bind:value={pickerValue}
-					resourceType="ai_agent"
-					workspace={ws}
-				/>
-			</div>
-			<span class="text-2xs text-tertiary">or</span>
-			<Button size="xs2" variant="default" startIcon={{ icon: Save }} onclick={openSave}>
-				Save as agent
-			</Button>
-		</div>
+		<Button
+			unifiedSize="sm"
+			variant="default"
+			startIcon={{ icon: Save }}
+			wrapperClasses="w-full"
+			btnClasses="w-full"
+			onclick={openSave}
+		>
+			Save as reusable agent
+		</Button>
 	{/if}
 </div>
 
@@ -552,7 +711,8 @@
 		<div class="flex flex-col gap-4">
 			<p class="text-xs text-secondary">
 				Save this AI agent's configuration and tools as a reusable resource. Other flows can then
-				link to it, and updates propagate automatically.
+				link to it, updates propagate automatically, and it gains a dataset of eval cases of its
+				own.
 			</p>
 			<Path
 				bind:path={newPath}
@@ -588,3 +748,31 @@
 		{/snippet}
 	</DrawerContent>
 </Drawer>
+
+<!-- Opened from the editing card, the edits are what is under test, read from the step when Run is
+     pressed; from the linked card, the deployed agent is. -->
+<AgentEvalModal
+	agentPath={cardPath}
+	{opWorkspace}
+	editedConfig={editingPath ? editedConfig : undefined}
+	bind:open={evalsOpen}
+/>
+
+<DiffDrawer bind:this={diffDrawer} />
+
+<ConfirmationModal
+	open={confirmCancel}
+	title="Drop these edits?"
+	confirmationText="Drop edits"
+	onConfirmed={() => {
+		confirmCancel = false
+		const path = editingPath
+		if (path) relink(path)
+	}}
+	onCanceled={() => (confirmCancel = false)}
+>
+	<span class="text-sm">
+		The step goes back to {editingPath} as it is deployed, and the edits are not kept anywhere. Save
+		changes writes them to the agent instead.
+	</span>
+</ConfirmationModal>

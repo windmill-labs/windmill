@@ -192,7 +192,8 @@
 						branch: data.branch,
 						index: data.index,
 						kind: e.detail.kind,
-						inlineScript: e.detail.inlineScript
+						inlineScript: e.detail.inlineScript,
+						agentPath: e.detail.agentPath
 					})
 				}}
 				on:pickScript={(e) => {
