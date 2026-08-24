@@ -64,9 +64,9 @@ they set disjoint environment variables, so check which one you are in:
 
 See `backend/AGENTS.md` to restart the backend with different cargo features. Under herdr, `herdr
 --skill` prints a full reference for inspecting and driving panes and agents, and the plugins that
-provision worktrees live in `windmill-labs/windmill-herdr` — clone it and run `./setup.sh` to
-install them and the keybindings they need. The commands below are for a plain checkout with
-nothing running.
+provision worktrees live in the private `windmill-labs/windmill-herdr` — clone it and run
+`./setup.sh` to install them and the keybindings they need. The commands below are for a plain
+checkout with nothing running.
 
 - **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
 - **Frontend**: `REMOTE=http://localhost:8000 npm run dev` from `frontend/` (port 3000+)
@@ -78,9 +78,8 @@ nothing running.
 ### Per-worktree ports and database
 
 **`.env.local` in the worktree root is the portable answer** — `BACKEND_PORT`,
-`FRONTEND_PORT`, `REMOTE`, `DATABASE_URL`, `CARGO_FEATURES`, `WM_DB_NAME`. Both managers write it
-through the same helper (`wm_write_env_local` in `scripts/worktree-common.sh`), so it is correct
-whichever one you are in, and it is readable despite the name.
+`FRONTEND_PORT`, `REMOTE`, `DATABASE_URL`, `CARGO_FEATURES`, `WM_DB_NAME`. Both managers write
+those fields, so it is correct whichever one you are in, and it is readable despite the name.
 
 webmux additionally writes `$(git rev-parse --git-dir)/webmux/runtime.env`, which every pane
 sources at startup and which carries the extras `.env.local` lacks: `WEBMUX_*`, `WM_CLONE_DB`,
@@ -98,11 +97,12 @@ opt-in via `WM_CLONE_DB` (in `.webmux.yaml` under webmux, or the `windmill.workt
 
 The database is named after the **worktree directory, not the branch** (`scripts/worktree-common.sh`):
 `windmill_` + the directory basename with `-` → `_`, which Postgres then truncates at 63
-characters. Branch `hugo/win-2340-ai-agent-evals-standalone-agent-runs-and-eval-datasets` sits in
-a worktree directory named `win-2340-…`, so its database is
-`windmill_win_2340_ai_agent_evals_standalone_agent_runs_and_eval` — no `hugo_`, and the tail
-chopped. Take `WM_DB_NAME` from `runtime.env` instead of reconstructing the name. Read those, or
-discover from what is already running:
+characters. The two managers lay worktrees out differently, so the same branch lands in different
+directories and therefore different databases: under webmux, branch
+`hugo/win-2340-ai-agent-evals-standalone-agent-runs-and-eval-datasets` sits in a directory named
+`win-2340-…`, so its database is `windmill_win_2340_ai_agent_evals_standalone_agent_runs_and_eval`
+— no `hugo_`, and the tail chopped. Take `WM_DB_NAME` from `.env.local` instead of reconstructing
+the name. Read that, or discover from what is already running:
 
 ```bash
 psql postgres://postgres:changeme@localhost:5432/postgres -tAc \

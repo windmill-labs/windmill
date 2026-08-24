@@ -13,46 +13,8 @@ wm_main_repo_root() {
   cd "$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null)/.." && pwd
 }
 
-wm_port_in_use() {
-  lsof -nP -iTCP:"$1" -sTCP:LISTEN &>/dev/null
-}
-
-# Prints "<backend_port> <frontend_port>" for the lowest free slot. Slots are read from
-# each worktree's .env.local rather than from position in `git worktree list`: removing a
-# worktree in the middle would otherwise hand its slot to a new one while a live
-# neighbour still listens on those ports. Slot 0 belongs to the main checkout.
-wm_assign_ports() {
-  local repo_root=$1
-  local slot=${WM_SLOT:-}
-  local used_slots=() wt_path backend_port frontend_port bp
-
-  if [[ -z "$slot" ]]; then
-    while IFS= read -r wt_path; do
-      [[ "$wt_path" == "$repo_root" ]] && continue
-      [[ -f "$wt_path/.env.local" ]] || continue
-      bp=$(grep '^BACKEND_PORT=' "$wt_path/.env.local" | cut -d= -f2 || true)
-      if [[ -n "$bp" && "$bp" -gt 8000 ]]; then
-        used_slots+=("$(( (bp - 8000) / 10 ))")
-      fi
-    done < <(git -C "$repo_root" worktree list --porcelain | sed -n 's/^worktree //p')
-
-    slot=1
-    while [[ " ${used_slots[*]:-} " == *" $slot "* ]]; do
-      ((slot++))
-    done
-    echo "Auto-assigned slot $slot (used: ${used_slots[*]:-none})" >&2
-  fi
-
-  backend_port=$((8000 + slot * 10))
-  frontend_port=$((3000 + slot * 10))
-
-  if wm_port_in_use "$backend_port" || wm_port_in_use "$frontend_port"; then
-    echo "WARNING: slot $slot ports ($backend_port/$frontend_port) already in use" >&2
-  fi
-
-  printf '%s %s\n' "$backend_port" "$frontend_port"
-}
-
+# Written by both worktree entry points — `worktree-env` by hand, `post-create.sh` from the
+# webmux hook — and read by agents to find their own ports, so the two must not drift.
 wm_write_env_local() {
   local repo_root=$1
   local backend_port=$2
