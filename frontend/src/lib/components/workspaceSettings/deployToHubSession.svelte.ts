@@ -200,6 +200,14 @@ export class DeployToHubSession {
 	hubHasRemoteLogo = $state(false)
 	effectiveSlug = $state('')
 	hubItemIds = $state<Record<string, number>>({})
+	// Set once the project is published: everything the wizard shows from here on
+	// describes an update to it, and the published version keeps serving until that
+	// update is approved. `phase` is the update's own status, not the project's.
+	liveOnHub = $state(false)
+	// A reviewer's verdict on the current draft, shown so the publisher knows what
+	// to fix before resubmitting.
+	rejectionReason = $state<string | undefined>(undefined)
+	discardingUpdate = $state(false)
 
 	// Best-effort data table migrations for the bundle, editable in the drawer and
 	// pushed on deploy. Regenerated when the bundle drawer opens.
@@ -227,6 +235,10 @@ export class DeployToHubSession {
 
 	submitting = $state(false)
 	syncing = $state(false)
+
+	// Set from the Hub's answer to the draft request: this push went into an update
+	// rather than over the published project.
+	#publishedAsUpdate = false
 
 	// Intra-session tokens: latest call wins among competing calls on this session.
 	#triggerLoadTok = 0
@@ -573,6 +585,10 @@ export class DeployToHubSession {
 			this.hubSummary = p.summary ?? ''
 			this.hubReadme = p.readme ?? ''
 			this.hubHasRemoteLogo = p.has_logo === true
+			this.rejectionReason = p.rejection_reason ?? undefined
+			// `p.live` is present only while an update is in flight: the fields above
+			// then describe that update, and the project itself is still published.
+			this.liveOnHub = p.live?.approved === true || p.status === 'live'
 			this.phase =
 				p.status === 'live' ? 'live' : p.status === 'under_review' ? 'under_review' : 'draft'
 			const ids: Record<string, number> = {}
@@ -898,6 +914,9 @@ export class DeployToHubSession {
 			try {
 				const parsed = JSON.parse(text)
 				if (typeof parsed?.slug === 'string') returnedSlug = parsed.slug
+				// The Hub decides this: publishing over an approved project goes into a
+				// pending update instead, and the project keeps serving meanwhile.
+				this.#publishedAsUpdate = parsed?.pending_revision === true
 			} catch {}
 			if (!returnedSlug) {
 				sendUserToast(`Hub did not return a slug. Aborting publish to avoid path drift.`, true)
@@ -1252,8 +1271,13 @@ export class DeployToHubSession {
 			// UI stuck in `predeploy`; rehydrate then upgrades to authoritative state.
 			this.draftItems = itemsSnapshot.map((i) => ({ ...i, rec: 'none' }))
 			this.phase = 'draft'
+			const asUpdate = this.#publishedAsUpdate
 			await this.rehydrateFromHub()
-			sendUserToast(`Draft created on the Hub. Add recordings before submitting for review.`)
+			sendUserToast(
+				asUpdate
+					? `Update ready on the Hub. Your published project stays live until it is approved.`
+					: `Draft created on the Hub. Add recordings before submitting for review.`
+			)
 		} finally {
 			this.deploying = false
 		}
@@ -1313,10 +1337,43 @@ export class DeployToHubSession {
 		}
 	}
 
+	/** Start an update to a published project. Nothing reaches the Hub until the
+	 * bundle is confirmed, and the published version keeps serving even then. */
 	startNewDraft = () => {
 		this.draftItems = []
 		this.recordings = {}
+		this.rejectionReason = undefined
 		this.phase = 'predeploy'
+	}
+
+	/** Throw away an update in progress and go back to what is published. */
+	discardUpdate = async () => {
+		if (this.discardingUpdate) return
+		const slug = this.effectiveSlug
+		if (!slug) return
+		this.discardingUpdate = true
+		try {
+			const res = await fetch(
+				`/api/w/${this.workspace}/hub/projects/${encodeURIComponent(slug)}/discard_update${this.#folderQs()}`,
+				{ method: 'POST', credentials: 'include' }
+			)
+			if (!res.ok) {
+				sendUserToast(`Could not discard the update: ${await res.text()}`, true)
+				return
+			}
+			if (this.#disposed) return
+			this.draftItems = []
+			this.recordings = {}
+			this.deploymentStatus = {}
+			this.rejectionReason = undefined
+			this.phase = 'live'
+			await this.rehydrateFromHub()
+			sendUserToast(`Update discarded. The published project is unchanged.`)
+		} catch (e: any) {
+			sendUserToast(`Could not discard the update: ${e?.message ?? e}`, true)
+		} finally {
+			this.discardingUpdate = false
+		}
 	}
 
 	/** Reset record-drawer state and load the target's schema. */

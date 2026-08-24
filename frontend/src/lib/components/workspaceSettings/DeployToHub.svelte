@@ -262,7 +262,18 @@
 										startIcon={{ icon: RotateCcw }}
 										onclick={s.startNewDraft}
 									>
-										New draft
+										Publish an update
+									</Button>
+								{/if}
+								{#if s.liveOnHub && s.phase !== 'live' && s.phase !== 'predeploy'}
+									<Button
+										variant="subtle"
+										unifiedSize="sm"
+										loading={s.discardingUpdate}
+										startIcon={{ icon: X }}
+										onclick={s.discardUpdate}
+									>
+										Discard update
 									</Button>
 								{/if}
 							</div>
@@ -270,8 +281,10 @@
 						{#if s.phase === 'predeploy'}
 							<div class="flex flex-col gap-1 pb-3">
 								<span class="text-xs text-secondary">
-									Bundling creates a draft project on the Hub from the selected scripts, flows and
-									apps of <span class="font-mono">{s.selectedFolder}/</span>.
+									Bundling creates {s.liveOnHub
+										? 'an update to your Hub project'
+										: 'a draft project on the Hub'} from the selected scripts, flows and apps of
+									<span class="font-mono">{s.selectedFolder}/</span>.
 									{s.selectedItems.length} of {s.filteredWorkspaceItems.length} items selected.
 								</span>
 							</div>
@@ -349,6 +362,36 @@
 										</span>
 									{/each}
 								{/if}
+							</div>
+						{/if}
+						{#if s.liveOnHub && s.phase !== 'live'}
+							<div
+								class="flex items-start gap-2 rounded-md border bg-surface-secondary p-3 text-xs text-secondary"
+							>
+								<Cloud size={14} class="mt-0.5 shrink-0 text-emphasis" />
+								<div class="flex flex-col gap-1">
+									<span class="font-semibold text-primary">
+										{s.phase === 'predeploy'
+											? 'Your published project stays live'
+											: 'This is an update — your published project is still live'}
+									</span>
+									<span>
+										Visitors keep seeing the published version, with its stars, forks and comments,
+										until this update is approved. Approving replaces it in place; discarding leaves
+										it exactly as it is.
+									</span>
+								</div>
+							</div>
+						{/if}
+						{#if s.rejectionReason && s.phase === 'draft'}
+							<div
+								class="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
+							>
+								<X size={14} class="mt-0.5 shrink-0" />
+								<div class="flex flex-col gap-1">
+									<span class="font-semibold">Changes requested</span>
+									<span>{s.rejectionReason}</span>
+								</div>
 							</div>
 						{/if}
 						{#if s.phase === 'draft'}
