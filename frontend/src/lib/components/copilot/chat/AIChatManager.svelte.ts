@@ -3879,13 +3879,11 @@ export class AIChatManager {
 	}
 
 	loadPastChat = async (id: string) => {
-		// A running turn commits into whatever transcript it finds when it ends, so
-		// swapping one in underneath it either files the turn in the wrong chat or —
-		// when the loaded chat is the one it started in, already carrying the turn's
-		// own checkpoint — appends it a second time, leaving duplicate tool_call ids
-		// the provider then rejects. The History menu disables its entries while a
-		// turn runs; this guards the callers that don't.
-		if (this.loading) return
+		// A turn commits into whatever transcript it finds when it ends, so swapping
+		// one in underneath it misfiles the turn — or duplicates it, when the loaded
+		// chat already carries the turn's own checkpoint. Gated on `sendInFlight`
+		// too, for the pre-`loading` window `sendOrQueue` documents.
+		if (this.loading || this.sendInFlight) return
 		const chat = await this.historyManager.loadPastChat(id)
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't

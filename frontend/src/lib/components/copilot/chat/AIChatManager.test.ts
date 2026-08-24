@@ -2304,6 +2304,30 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.messages.map((m) => m.content)).toEqual(['belongs to chat A', 'done'])
 	})
 
+	it('refuses to switch conversation before `loading` has risen', async () => {
+		const manager = createManager(createInputMock())
+		const loadStored = vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-b',
+			title: 'Chat B',
+			displayMessages: [{ role: 'user', content: 'belongs to chat B', index: 0 }],
+			actualMessages: [{ role: 'user', content: 'belongs to chat B' }],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		replyWith('done')
+
+		const sent = manager.sendRequest({ instructions: 'belongs to chat A' })
+		// The send is registered but its attachment upkeep hasn't finished, so
+		// `loading` is still false — the window `sendOrQueue` also guards.
+		expect(manager.loading).toBe(false)
+		expect(manager.sendInFlight).toBe(true)
+		await manager.loadPastChat('chat-b')
+		await sent
+
+		expect(loadStored).not.toHaveBeenCalled()
+		expect(manager.messages.map((m) => m.content)).toEqual(['belongs to chat A', 'done'])
+	})
+
 	it('clears attachments on New chat / load past chat (non-session), keeps them in a session', async () => {
 		const txt = (n: string) => new File(['hello\n'], n, { type: 'text/plain' })
 
