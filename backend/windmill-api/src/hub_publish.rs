@@ -42,6 +42,7 @@ pub fn workspaced_service() -> Router {
         .route("/migrations", post(publish_migrations))
         .route("/projects/{slug}/export", get(get_project_export))
         .route("/projects/{slug}/submit", post(submit_project))
+        .route("/projects/{slug}/withdraw", post(withdraw_project))
         .route(
             "/projects/{slug}/discard_update",
             post(discard_project_update),
@@ -553,6 +554,18 @@ async fn submit_project(
 ) -> Result<impl IntoResponse, Error> {
     ctx.post(
         &format!("/projects/{}/submit", slug),
+        &serde_json::json!({}),
+    )
+    .await
+}
+
+// Take a submission back out of review, keeping what was pushed for it.
+async fn withdraw_project(
+    ctx: HubPublishCtx,
+    Path((_workspace, slug)): Path<(String, ProjectSlug)>,
+) -> Result<impl IntoResponse, Error> {
+    ctx.post(
+        &format!("/projects/{}/withdraw", slug),
         &serde_json::json!({}),
     )
     .await

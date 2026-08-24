@@ -208,6 +208,7 @@ export class DeployToHubSession {
 	// to fix before resubmitting.
 	rejectionReason = $state<string | undefined>(undefined)
 	discardingUpdate = $state(false)
+	withdrawing = $state(false)
 
 	// Best-effort data table migrations for the bundle, editable in the drawer and
 	// pushed on deploy. Regenerated when the bundle drawer opens.
@@ -1351,6 +1352,33 @@ export class DeployToHubSession {
 	}
 
 	/** Throw away an update in progress and go back to what is published. */
+	/** Take the submission back out of review. Everything pushed for it is kept, so
+	 * it can be fixed and submitted again. */
+	cancelSubmission = async () => {
+		if (this.withdrawing) return
+		const slug = this.effectiveSlug
+		if (!slug) return
+		this.withdrawing = true
+		try {
+			const res = await fetch(
+				`/api/w/${this.workspace}/hub/projects/${encodeURIComponent(slug)}/withdraw${this.#folderQs()}`,
+				{ method: 'POST', credentials: 'include' }
+			)
+			if (!res.ok) {
+				sendUserToast(`Could not cancel the submission: ${await res.text()}`, true)
+				return
+			}
+			if (this.#disposed) return
+			this.phase = 'draft'
+			await this.rehydrateFromHub()
+			sendUserToast(`Submission cancelled. Everything you pushed is still here.`)
+		} catch (e: any) {
+			sendUserToast(`Could not cancel the submission: ${e?.message ?? e}`, true)
+		} finally {
+			this.withdrawing = false
+		}
+	}
+
 	discardUpdate = async () => {
 		if (this.discardingUpdate) return
 		const slug = this.effectiveSlug
