@@ -317,7 +317,7 @@ impl<'b> DbExecutor<'b> for &'b mut PgConnection {
 /// it, the only way to know is to issue a `ROLLBACK`, and doing that on every checkout costs
 /// a round trip per query — about a third of the throughput on small ones. So it is armed
 /// only once Postgres has reported a state that proves a connection is carrying leftover
-/// transaction state, and disarms itself after [`RESET_WINDOW`].
+/// transaction state, and disarms itself after `RESET_WINDOW`.
 ///
 /// # Why on acquire rather than release
 ///
@@ -329,7 +329,7 @@ impl<'b> DbExecutor<'b> for &'b mut PgConnection {
 ///
 /// Arming is process-wide, not per-query: the flag covers a pool shared by everything in the
 /// process, so it does not matter *which* caller notices a poisoned connection, only that
-/// one does. [`note_sqlx_error`] is reached from the two conversions a `sqlx::Error` usually
+/// one does. `note_sqlx_error` is reached from the two conversions a `sqlx::Error` usually
 /// passes through, which is most queries; a caller that instead formats the error into a
 /// message never converts it and reports nothing. That only delays arming until the next
 /// converting query touches the same pool — on a worker the job poller alone does so every

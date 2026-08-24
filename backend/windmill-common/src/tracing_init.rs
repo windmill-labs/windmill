@@ -48,13 +48,24 @@ pub const VERBOSE_TARGET: &str = "windmill_verbose";
 /// when `OTEL_JOB_LOGS=true`. Stripped before forwarding to the tracing layer.
 pub const OTEL_PREFIX: &str = "OTEL: ";
 
+/// sqlx only ever talks to Windmill's own database, so a Postgres NOTICE/WARNING on this
+/// target is never something an operator acts on. `db::connection_reset` in particular
+/// provokes one per checkout while it is armed. Applied to every sink separately — the OTEL
+/// logs bridge does not share the sinks' `Targets` filter, and an unfiltered bridge would
+/// ship the burst off-box.
+fn sqlx_notice_filter() -> Targets {
+    Targets::new()
+        .with_target(
+            "sqlx::postgres::notice",
+            tracing::level_filters::LevelFilter::ERROR,
+        )
+        .with_default(tracing::level_filters::LevelFilter::TRACE)
+}
+
 /// Creates a Targets filter that optionally filters out verbose logs when quiet mode is enabled.
 fn create_targets_filter(default_env_filter: LevelFilter) -> Targets {
     let targets = Targets::new()
         .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF)
-        // sqlx only ever talks to Windmill's own database, so a Postgres NOTICE/WARNING on
-        // this target is never something an operator acts on. `connection_reset` in
-        // particular provokes one per checkout while it is armed.
         .with_target(
             "sqlx::postgres::notice",
             tracing::level_filters::LevelFilter::ERROR,
@@ -182,7 +193,11 @@ pub fn initialize_tracing(
     let opentelemetry_filtered = opentelemetry;
 
     let base_layer = tracing_subscriber::registry()
-        .with(logs_bridge.with_filter(otel_logs_filter))
+        .with(
+            logs_bridge
+                .with_filter(otel_logs_filter)
+                .with_filter(sqlx_notice_filter()),
+        )
         .with(opentelemetry_filtered);
 
     match *JSON_FMT {
