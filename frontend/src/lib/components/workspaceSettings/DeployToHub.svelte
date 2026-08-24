@@ -273,15 +273,17 @@
 										Submit for review
 									</Button>
 								{:else if s.phase === 'under_review'}
-									<Button
-										variant="default"
-										unifiedSize="sm"
-										loading={s.withdrawing}
-										startIcon={{ icon: X }}
-										onclick={s.cancelSubmission}
-									>
-										Cancel submission
-									</Button>
+									{#if s.hubSupportsUpdates}
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											loading={s.withdrawing}
+											startIcon={{ icon: X }}
+											onclick={s.cancelSubmission}
+										>
+											Cancel submission
+										</Button>
+									{/if}
 									<Button
 										size="xs"
 										variant="subtle"
@@ -553,8 +555,8 @@
 							>
 								The Windmill team is reviewing your project. Submission is locked until they answer
 								— no new version can be sent to the Hub, and no recording added to this one.
-								Estimated turnaround: 1-2 business days; cancel the submission to get back to it
-								sooner.{#if s.liveOnHub}
+								Estimated turnaround: 1-2 business days{#if s.hubSupportsUpdates}; cancel the
+									submission to get back to it sooner{/if}.{#if s.liveOnHub}
 									Visitors keep seeing the published version meanwhile, with its stars, forks and
 									comments; approving replaces it in place.{/if} Your folder itself is untouched — keep
 								editing your scripts and flows as usual.

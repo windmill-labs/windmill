@@ -204,6 +204,10 @@ export class DeployToHubSession {
 	// describes an update to it, and the published version keeps serving until that
 	// update is approved. `phase` is the update's own status, not the project's.
 	liveOnHub = $state(false)
+	/** This Hub knows about pending updates — it answers rehydration with a `live`
+	 * key. An older one takes a project offline to republish and has neither the
+	 * withdraw nor the discard endpoint, so the actions built on them stay hidden. */
+	hubSupportsUpdates = $state(false)
 	// A reviewer's verdict on the current draft, shown so the publisher knows what
 	// to fix before resubmitting.
 	rejectionReason = $state<string | undefined>(undefined)
@@ -592,8 +596,8 @@ export class DeployToHubSession {
 			// project itself is still published. Its absence means a Hub old enough to
 			// still take a project offline while it re-publishes, so the wizard must
 			// not promise otherwise.
-			const supportsUpdates = 'live' in p
-			this.liveOnHub = supportsUpdates && (p.live?.approved === true || p.status === 'live')
+			this.hubSupportsUpdates = 'live' in p
+			this.liveOnHub = this.hubSupportsUpdates && (p.live?.approved === true || p.status === 'live')
 			this.phase =
 				p.status === 'live' ? 'live' : p.status === 'under_review' ? 'under_review' : 'draft'
 			const ids: Record<string, number> = {}
@@ -1351,7 +1355,6 @@ export class DeployToHubSession {
 		this.phase = 'predeploy'
 	}
 
-	/** Throw away an update in progress and go back to what is published. */
 	/** Take the submission back out of review. Everything pushed for it is kept, so
 	 * it can be fixed and submitted again. */
 	cancelSubmission = async () => {
@@ -1379,6 +1382,7 @@ export class DeployToHubSession {
 		}
 	}
 
+	/** Throw away an update in progress and go back to what is published. */
 	discardUpdate = async () => {
 		if (this.discardingUpdate) return
 		const slug = this.effectiveSlug
