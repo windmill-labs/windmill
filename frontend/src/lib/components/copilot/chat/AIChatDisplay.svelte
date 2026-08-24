@@ -492,8 +492,14 @@
 
 	// The composer stays usable while a question is pending: sending from it
 	// answers the question (see AIChatInput.sendRequest), so the question card is
-	// not the only way out of a parked turn.
+	// not the only way out of a parked turn. Gated on `loading` like
+	// `waitingForUserAction`: a card restored from history still looks parked, but
+	// its resolver left with the old page, so the composer must not advertise an
+	// answer it cannot deliver.
 	const pendingQuestionToolCallId = $derived.by(() => {
+		if (!aiChatManager.loading) {
+			return undefined
+		}
 		const pending = pendingUserActionDetail(messages)
 		return pending?.action === 'question' ? pending.toolCallId : undefined
 	})

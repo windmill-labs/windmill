@@ -689,7 +689,7 @@
 		if (
 			answeredQuestionId &&
 			aiChatManager.handleUserQuestionAnswer(answeredQuestionId, [
-				expanded(chatDraft(draft.text, draft.pastes))
+				expanded(chatDraft(draft.text.trim(), draft.pastes))
 			])
 		) {
 			draft.take()
