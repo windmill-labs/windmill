@@ -101,6 +101,12 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
         ("ai", "AI", "AI feature management", false),
         ("ai_skills", "AI Skills", "AI skill management", false),
         (
+            "ai_evals",
+            "AI Evals",
+            "AI agent eval datasets and standalone runs",
+            false,
+        ),
+        (
             "agent_workers",
             "Agent Workers",
             "Agent worker management",

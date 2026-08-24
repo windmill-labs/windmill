@@ -3,7 +3,12 @@
 // import aiStore back, and such a cycle crashes the app once the bundler splits it across
 // chunks (docs/frontend-import-cycles.md; the build fails on the chunk cycle, not on this).
 import { writable, get } from 'svelte/store'
-import { type AIProviderModel, type AIProvider, type AIConfig } from './gen'
+import {
+	type AIProviderModel,
+	type AIProvider,
+	type AIConfig,
+	type ModelPriceOverride
+} from './gen'
 import {
 	aiUserDisabled,
 	COPILOT_SESSION_MODEL_SETTING_NAME,
@@ -41,6 +46,8 @@ export const copilotInfo = writable<{
 	aiModels: AIProviderModel[]
 	customPrompts?: Record<string, string>
 	maxTokensPerModel?: Record<string, number>
+	/** Negotiated rates per `provider:model`, overriding the built-in price table. */
+	modelPricing?: Record<string, ModelPriceOverride>
 	webSearchEnabledProviders?: Partial<Record<AIProvider, boolean>>
 }>({
 	enabled: false,
@@ -50,6 +57,7 @@ export const copilotInfo = writable<{
 	aiModels: [],
 	customPrompts: {},
 	maxTokensPerModel: {},
+	modelPricing: {},
 	webSearchEnabledProviders: {}
 })
 
@@ -124,6 +132,7 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
 			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {},
+			modelPricing: aiConfig.model_pricing ?? {},
 			webSearchEnabledProviders
 		})
 	} else {
@@ -137,6 +146,7 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: [],
 			customPrompts: {},
 			maxTokensPerModel: {},
+			modelPricing: {},
 			webSearchEnabledProviders: {}
 		})
 	}

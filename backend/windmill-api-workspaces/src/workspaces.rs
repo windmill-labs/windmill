@@ -5471,6 +5471,8 @@ async fn clone_workspace_data(
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
+    clone_eval_datasets(tx, source_workspace_id, target_workspace_id).await?;
+
     // Clone the dbt graph sidecars. After `clone_scripts`, which keeps each
     // script's hash: these key on it, and a static descriptor never re-ingests,
     // so a fork without them shows dbt scripts with no models until someone
@@ -6002,6 +6004,36 @@ async fn clone_resources(
     .execute(&mut **tx)
     .await?;
 
+    Ok(())
+}
+
+async fn clone_eval_datasets(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // The authored evaluation data — datasets and their cases — travels with a fork like resources
+    // and scripts do; the runs (experiments) do not, since they name jobs the fork has no copy of.
+    sqlx::query!(
+        "INSERT INTO eval_dataset (workspace_id, path, summary, scorers, extra_perms, created_at, created_by, edited_at, edited_by)
+         SELECT $2, path, summary, scorers, extra_perms, created_at, created_by, edited_at, edited_by
+         FROM eval_dataset WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    // A new id per cloned case: `eval_case`'s primary key is the id alone, unique across the whole
+    // table, so copying it would collide with the source's own rows.
+    sqlx::query!(
+        "INSERT INTO eval_case (workspace_id, dataset_path, input, expected, created_at, created_by)
+         SELECT $2, dataset_path, input, expected, created_at, created_by
+         FROM eval_case WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 

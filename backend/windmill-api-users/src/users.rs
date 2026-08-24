@@ -2399,6 +2399,7 @@ pub async fn delete_workspace_user_internal(
         "flow",
         "app",
         "resource",
+        "eval_dataset",
         "variable",
         "schedule",
         "group_",

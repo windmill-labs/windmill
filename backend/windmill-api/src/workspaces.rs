@@ -108,6 +108,8 @@ async fn edit_copilot_config(
         }
     }
 
+    ai_config.validate_model_pricing()?;
+
     let mut tx = db.begin().await?;
 
     sqlx::query!(

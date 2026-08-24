@@ -277,7 +277,7 @@ pub struct GeminiSSECandidate {
 }
 
 /// Token usage from the `usageMetadata` field of a Gemini SSE event.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Default)]
 pub struct GeminiUsageMetadata {
     #[serde(rename = "promptTokenCount", default)]
     pub prompt_token_count: Option<i32>,
@@ -285,6 +285,39 @@ pub struct GeminiUsageMetadata {
     pub candidates_token_count: Option<i32>,
     #[serde(rename = "totalTokenCount", default)]
     pub total_token_count: Option<i32>,
+    /// Subset of `promptTokenCount` served from context cache, billed at a reduced
+    /// rate. Reported separately so the client can price it separately.
+    #[serde(rename = "cachedContentTokenCount", default)]
+    pub cached_content_token_count: Option<i32>,
+    /// Thinking tokens, billed as output but counted apart from `candidatesTokenCount`.
+    #[serde(rename = "thoughtsTokenCount", default)]
+    pub thoughts_token_count: Option<i32>,
+    /// Input tokens spent on tool-use prompts, counted apart from `promptTokenCount`
+    /// rather than within it.
+    #[serde(rename = "toolUsePromptTokenCount", default)]
+    pub tool_use_prompt_token_count: Option<i32>,
+}
+
+/// Input tokens as billed. Gemini reports tool-use prompts in their own field, and
+/// they are disjoint from `promptTokenCount`: a live tool call returns 17 prompt +
+/// 60 tool-use + 17 candidates + 52 thoughts against a `totalTokenCount` of 146, so
+/// leaving them out under-reports the input of every tool-using turn. Cached tokens
+/// are not added here, being already part of `promptTokenCount`.
+fn gemini_prompt_tokens(usage: &GeminiUsageMetadata) -> i32 {
+    usage
+        .prompt_token_count
+        .unwrap_or(0)
+        .saturating_add(usage.tool_use_prompt_token_count.unwrap_or(0))
+}
+
+/// Output tokens as billed: Gemini counts thinking apart from `candidatesTokenCount`
+/// but charges it at the output rate, so a reply that thought would otherwise be
+/// reported as far cheaper than it was.
+fn gemini_completion_tokens(usage: &GeminiUsageMetadata) -> i32 {
+    usage
+        .candidates_token_count
+        .unwrap_or(0)
+        .saturating_add(usage.thoughts_token_count.unwrap_or(0))
 }
 
 /// Top-level structure of one Gemini SSE event.
@@ -588,9 +621,12 @@ pub fn gemini_response_to_openai(parsed: &GeminiParsedEvent, model: &str) -> ser
 
     let usage = parsed.usage.as_ref().map(|u| {
         serde_json::json!({
-            "prompt_tokens": u.prompt_token_count.unwrap_or(0),
-            "completion_tokens": u.candidates_token_count.unwrap_or(0),
+            "prompt_tokens": gemini_prompt_tokens(u),
+            "completion_tokens": gemini_completion_tokens(u),
             "total_tokens": u.total_token_count.unwrap_or(0),
+            "prompt_tokens_details": {
+                "cached_tokens": u.cached_content_token_count.unwrap_or(0)
+            },
         })
     });
 
@@ -680,8 +716,8 @@ pub fn gemini_event_to_openai_sse_chunks(
     // OpenAI's `stream_options.include_usage` terminal chunk (top-level `usage`,
     // empty `choices`) so the frontend's `'usage' in chunk` path records them.
     if let Some(usage) = &parsed.usage {
-        let prompt_tokens = usage.prompt_token_count.unwrap_or(0);
-        let completion_tokens = usage.candidates_token_count.unwrap_or(0);
+        let prompt_tokens = gemini_prompt_tokens(usage);
+        let completion_tokens = gemini_completion_tokens(usage);
         let total_tokens = usage
             .total_token_count
             .unwrap_or(prompt_tokens + completion_tokens);
@@ -694,6 +730,9 @@ pub fn gemini_event_to_openai_sse_chunks(
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "total_tokens": total_tokens,
+                "prompt_tokens_details": {
+                    "cached_tokens": usage.cached_content_token_count.unwrap_or(0)
+                },
             }
         });
         chunks.push(format!("data: {}\n\n", chunk));
@@ -943,6 +982,7 @@ mod tests {
                 prompt_token_count: Some(12),
                 candidates_token_count: Some(7),
                 total_token_count: Some(19),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -970,12 +1010,86 @@ mod tests {
     }
 
     #[test]
+    fn gemini_usage_chunk_splits_cached_and_bills_thoughts() {
+        let parsed = GeminiParsedEvent {
+            text: Some("the answer".to_string()),
+            usage: Some(GeminiUsageMetadata {
+                prompt_token_count: Some(1000),
+                candidates_token_count: Some(20),
+                total_token_count: Some(1120),
+                cached_content_token_count: Some(900),
+                thoughts_token_count: Some(100),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-3-flash-preview",
+            &mut tool_call_index,
+        );
+        let usage_chunk = chunks
+            .iter()
+            .map(|c| parse_sse_chunk(c))
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("a chunk should carry top-level usage");
+
+        // Gemini's prompt count already includes the cached tokens, so it passes
+        // through unchanged and the cached share is reported alongside it; thinking
+        // is billed as output but counted apart from the candidates.
+        assert_eq!(usage_chunk["usage"]["prompt_tokens"], 1000);
+        assert_eq!(usage_chunk["usage"]["prompt_tokens_details"]["cached_tokens"], 900);
+        assert_eq!(usage_chunk["usage"]["completion_tokens"], 120);
+    }
+
+    #[test]
+    fn gemini_usage_chunk_counts_tool_use_prompt_tokens() {
+        let parsed = GeminiParsedEvent {
+            text: Some("Canberra".to_string()),
+            usage: Some(GeminiUsageMetadata {
+                prompt_token_count: Some(17),
+                candidates_token_count: Some(17),
+                total_token_count: Some(146),
+                tool_use_prompt_token_count: Some(60),
+                thoughts_token_count: Some(52),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let mut tool_call_index = 0;
+        let chunks = gemini_event_to_openai_sse_chunks(
+            &parsed,
+            "chatcmpl-test",
+            "gemini-2.5-flash",
+            &mut tool_call_index,
+        );
+        let usage_chunk = chunks
+            .iter()
+            .map(|c| parse_sse_chunk(c))
+            .find(|v| v.get("usage").map(|u| !u.is_null()).unwrap_or(false))
+            .expect("a chunk should carry top-level usage");
+
+        assert_eq!(usage_chunk["usage"]["prompt_tokens"], 77);
+        assert_eq!(usage_chunk["usage"]["completion_tokens"], 69);
+        assert_eq!(
+            usage_chunk["usage"]["prompt_tokens"].as_i64().unwrap()
+                + usage_chunk["usage"]["completion_tokens"].as_i64().unwrap(),
+            146
+        );
+    }
+
+    #[test]
     fn gemini_streaming_usage_total_falls_back_to_prompt_plus_completion() {
         let parsed = GeminiParsedEvent {
             usage: Some(GeminiUsageMetadata {
                 prompt_token_count: Some(5),
                 candidates_token_count: Some(3),
                 total_token_count: None,
+                ..Default::default()
             }),
             ..Default::default()
         };
