@@ -1,11 +1,10 @@
 /**
  * What is already true in the destination, read from the destination itself.
  *
- * The wizard used to remember what a run had done — a note in `sessionStorage` saying "this
- * run created workspace X" — which a reload could outlive but a stale entry could also
- * outlive the workspace it named. Everything here is asked of the instance instead, so there
- * is nothing to go stale and nothing to clear: the plan in the URL says what should exist,
- * and these functions say what does.
+ * Nothing here is remembered between runs, and nothing may be: a note saying "this run
+ * created workspace X" outlives the reload it was written for, but it also outlives the
+ * workspace it names, and the two are indistinguishable when it is read back. The plan in
+ * the URL says what should exist; these functions ask the instance what does.
  *
  * The one thing the instance cannot answer is *which tables a migration was supposed to
  * create*. That is inferred from the SQL the project ships (`expectedTables`), because the

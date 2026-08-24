@@ -173,10 +173,9 @@
 	const tasks = $derived(execution?.tasks ?? plannedTasks(plan))
 
 	// `SetupStep` carries no detail field, so what the row reports goes in the title
-	// beside the label — the same sentence the run used to write after an em dash. The
-	// import row says what it is importing; every other row keeps whatever the run
-	// reported. The breakdown supersedes the run's own "N items" here, being the same
-	// total said in a more useful way.
+	// beside the label. The import row says what it is importing; every other row keeps
+	// whatever the run reported. The breakdown supersedes the run's own "N items" here,
+	// being the same total said in a more useful way.
 	const checklist = $derived<SetupStep[]>(
 		tasks.map((task) => {
 			// The breakdown says what the import *will* bring, so it belongs to the row only

@@ -76,8 +76,8 @@ describe('installProject presence', () => {
 		expect(results).toContainEqual({ path: 'f/calendly/nightly', ok: true })
 	})
 
-	// The regression: without this the retry calls the create API again, which rejects the
-	// existing path, and the row reads as a failure for something that is already there.
+	// Without the skip the retry calls the create API again, which rejects the existing
+	// path, and the row reads as a failure for something that is already there.
 	it('skips a trigger that is already there instead of re-creating it', async () => {
 		const results = await run(new Set([presenceKey('trigger', 'f/calendly/nightly')]))
 		expect(created.triggers).toEqual([])

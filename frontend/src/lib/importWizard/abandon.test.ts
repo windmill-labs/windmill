@@ -160,9 +160,10 @@ describe('abandoning mid-import', () => {
 })
 
 /**
- * A retry used to resend the whole bundle, so everything that had already landed came back as
- * "already exists" — a wall of failures over work that had succeeded. What is already there is
- * now skipped, and reported as skipped rather than as imported.
+ * A retry must write only what is missing. Resending the whole bundle turns every item that
+ * already landed into an "already exists" failure — a wall of red over work that succeeded.
+ * What is already there is skipped, and reported as skipped rather than as imported, because
+ * the checklist has to account for every item the project ships.
  */
 describe('retrying over what is already there', () => {
 	beforeEach(() => {

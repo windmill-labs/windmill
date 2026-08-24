@@ -106,8 +106,8 @@
 	 * Matches what the dialog itself decides (`AppConnectInner.open`: `manual = !inConnects &&
 	 * !registryCcCapable()`). An instance client is the usual route, but a provider the
 	 * registry marks client-credentials-capable is connectable without one, because those
-	 * credentials are entered per resource rather than held by a superadmin. Testing only the
-	 * first half hid Connect on the eight such providers, where the dialog would have worked.
+	 * credentials are entered per resource rather than held by a superadmin. Test only the
+	 * first half and Connect disappears on the eight such providers, where it would work.
 	 */
 	const canConnectType = (rt: string) => instanceConnects.has(rt) || registryCcCapableFor(rt)
 	let appConnect: AppConnectDrawer | undefined = $state(undefined)
@@ -174,9 +174,9 @@
 				(m) => m.enabled && (m.sql ?? '').trim() !== ''
 			)
 			// Kept, not just counted: which data tables the destination has decides whether a
-			// failed row can retry its migrations or has to go back through the wizard, and
-			// after a reload this call is the only thing that knows. Leaving it local made a
-			// reloaded failure offer the wizard, which then refuses the name it created.
+			// row can retry its migrations or has to go back through the wizard, and after a
+			// reload this call is the only thing that knows. Drop it and such a row offers the
+			// wizard, which then refuses the name it created itself.
 			const tables = await WorkspaceService.listDataTables({ workspace })
 			configuredNames = tables.map((t) => ({ name: t.name, resourcePath: t.resource_path }))
 			const present = new Set(tables.map((d) => d.name))

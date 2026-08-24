@@ -79,8 +79,8 @@ describe('a failed migration', () => {
 		const run = new ImportExecution(PLAN, deps as any)
 		await run.run()
 		expect(run.tasks.find((t) => t.key === 'migrate')?.status).toBe('failed')
-		// The regression: the row said failed while `error` stayed unset, so the page took
-		// the finished-run path and offered no way to run it again.
+		// `error` is what the page reads to offer Retry: a `migrate` row saying failed with
+		// `error` unset sends it down the finished-run path with no way to run it again.
 		expect(run.error).toBeTruthy()
 		expect(run.error).toContain('migration')
 	})

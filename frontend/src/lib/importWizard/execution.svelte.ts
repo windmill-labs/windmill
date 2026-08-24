@@ -431,9 +431,9 @@ export class ImportExecution {
 		// A partial import is finished, not broken: the items that landed are real,
 		// and the failures are listed. Only a hard stop leaves `done` false.
 		this.done = true
-		// Both kinds of failure, because `error` is what offers Retry. A migration that failed
-		// against an existing data table used to leave the row saying `failed` with `error`
-		// unset — the run then presented as a clean finish, with no way to run it again.
+		// Both kinds of failure, because `error` is what offers Retry. A migration that fails
+		// against an existing data table is as retryable as a failed item; leaving it out here
+		// would present the run as a clean finish with no way to run it again.
 		const problems: string[] = []
 		if (failed > 0) problems.push(`${failed} item${failed === 1 ? '' : 's'} failed to import`)
 		if (badMigrations > 0) {

@@ -514,8 +514,9 @@
 		// Also retires any check still in flight, so its answer cannot land on the edited value.
 		probeToken++
 		clearProbe(wiz)
-		// Read off one attempt against one project; the review step would otherwise warn about
-		// a limitation that no longer applies while claiming session pooling right above it.
+		// Read off one attempt against one project, so it does not survive a change of inputs:
+		// the review step would otherwise warn about a limitation that does not apply to what
+		// it is describing, while claiming session pooling right above it.
 		poolerUnavailable = undefined
 		// Same for the failure carried back to the review step: it names inputs that have since
 		// been edited, so it would describe a run nobody can still act on.
