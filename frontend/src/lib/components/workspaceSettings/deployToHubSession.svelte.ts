@@ -586,9 +586,13 @@ export class DeployToHubSession {
 			this.hubReadme = p.readme ?? ''
 			this.hubHasRemoteLogo = p.has_logo === true
 			this.rejectionReason = p.rejection_reason ?? undefined
-			// `p.live` is present only while an update is in flight: the fields above
-			// then describe that update, and the project itself is still published.
-			this.liveOnHub = p.live?.approved === true || p.status === 'live'
+			// `live` is a key this Hub always sends — null unless an update is in
+			// flight, in which case the fields above describe that update and the
+			// project itself is still published. Its absence means a Hub old enough to
+			// still take a project offline while it re-publishes, so the wizard must
+			// not promise otherwise.
+			const supportsUpdates = 'live' in p
+			this.liveOnHub = supportsUpdates && (p.live?.approved === true || p.status === 'live')
 			this.phase =
 				p.status === 'live' ? 'live' : p.status === 'under_review' ? 'under_review' : 'draft'
 			const ids: Record<string, number> = {}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Alert, Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import WorkspaceDeployLayout from '$lib/components/WorkspaceDeployLayout.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -13,7 +13,8 @@
 		canRecordSession,
 		sanitizeSlug,
 		isValidSlug,
-		type DeployItem
+		type DeployItem,
+		type DeployToHubSession
 	} from './deployToHubSession.svelte'
 	import { TRIGGER_KINDS, triggerDetails } from '$lib/components/triggers/workspaceTriggersList'
 	import Toggle from '../Toggle.svelte'
@@ -63,8 +64,11 @@
 	// selection list stays the first thing in view.
 	let pipelineGraphOpen = $state(false)
 	// Discarding throws away every item pushed for the update and any recording made
-	// for it, none of which can be recovered.
-	let confirmDiscardUpdate = $state(false)
+	// for it, none of which can be recovered. The session that opened the dialog is
+	// held rather than a boolean: a workspace or folder switch (browser history, say)
+	// replaces the session underneath an open dialog, and confirming must never
+	// discard a different folder's update.
+	let discardTarget = $state<DeployToHubSession | undefined>(undefined)
 	let resourceDrawer = $state<Drawer | undefined>()
 	let triggerDrawer = $state<Drawer | undefined>()
 	let bundleDrawer = $state<Drawer | undefined>()
@@ -150,16 +154,16 @@
 </script>
 
 {#if deployHub.session}
-	{@const session = deployHub.session}
 	<ConfirmationModal
-		open={confirmDiscardUpdate}
+		open={discardTarget !== undefined}
 		title="Discard update"
 		confirmationText="Discard"
 		onConfirmed={async () => {
-			confirmDiscardUpdate = false
-			await session.discardUpdate()
+			const target = discardTarget
+			discardTarget = undefined
+			if (target && target === deployHub.session) await target.discardUpdate()
 		}}
-		onCanceled={() => (confirmDiscardUpdate = false)}
+		onCanceled={() => (discardTarget = undefined)}
 	>
 		<span>
 			Discard this update? Everything pushed for it, including recordings made for it, is deleted
@@ -198,8 +202,10 @@
 							</span>
 							<li class={stepNum === 1 ? 'text-primary' : stepNum > 1 ? 'opacity-60' : ''}>
 								<span class="font-mono text-emphasis">{stepNum > 1 ? '✓' : '1.'}</span>
-								<span class="font-semibold text-primary">Bundle your project</span> — creates a draft
-								on the Hub with every selected script, flow, app and resource from this folder.
+								<span class="font-semibold text-primary">Bundle your project</span> — sends every
+								selected script, flow, app and resource from this folder to the Hub{s.liveOnHub
+									? ' as an update'
+									: ' as a draft'}.
 							</li>
 							<li
 								class={stepNum === 2 ? 'text-primary' : stepNum > 2 ? 'opacity-60' : 'opacity-40'}
@@ -255,7 +261,7 @@
 										startIcon={{ icon: Cloud }}
 										onclick={openBundle}
 									>
-										Create Hub draft ({s.selectedItems.length})
+										{s.liveOnHub ? 'Bundle update' : 'Create Hub draft'} ({s.selectedItems.length})
 									</Button>
 								{:else if s.phase === 'draft'}
 									<Button
@@ -291,7 +297,7 @@
 										unifiedSize="sm"
 										loading={s.discardingUpdate}
 										startIcon={{ icon: X }}
-										onclick={() => (confirmDiscardUpdate = true)}
+										onclick={() => (discardTarget = s)}
 									>
 										Discard update
 									</Button>
@@ -404,15 +410,9 @@
 							</div>
 						{/if}
 						{#if s.rejectionReason && s.phase === 'draft'}
-							<div
-								class="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
-							>
-								<X size={14} class="mt-0.5 shrink-0" />
-								<div class="flex flex-col gap-1">
-									<span class="font-semibold">Changes requested</span>
-									<span>{s.rejectionReason}</span>
-								</div>
-							</div>
+							<Alert type="error" size="xs" title="Changes requested">
+								{s.rejectionReason}
+							</Alert>
 						{/if}
 						{#if s.phase === 'draft'}
 							<div class="flex flex-col gap-1 pb-3">
@@ -731,7 +731,9 @@
 								Waiting for the Windmill team to review the submission.
 							</span>
 						{:else}
-							<span class="text-[11px] text-hint"> Iterate further by starting a new draft. </span>
+							<span class="text-[11px] text-hint">
+								Publish an update to change it — this stays live until the update is approved.
+							</span>
 						{/if}
 					</div>
 				{/snippet}
