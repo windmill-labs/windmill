@@ -1346,8 +1346,9 @@ export class DeployToHubSession {
 		}
 	}
 
-	/** Start an update to a published project. Nothing reaches the Hub until the
-	 * bundle is confirmed, and the published version keeps serving even then. */
+	/** Go back to picking items, to publish again. Local only — nothing reaches the
+	 * Hub until the bundle is confirmed, and where the Hub supports updates the
+	 * published version keeps serving even then. */
 	startNewDraft = () => {
 		this.draftItems = []
 		this.recordings = {}
