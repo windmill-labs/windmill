@@ -204,6 +204,10 @@ export class DeployToHubSession {
 	// The Hub's own verdict: this update runs different content from the published
 	// version. False when there is no update in flight.
 	hubItemsChanged = $state(false)
+	// The attached pipeline recording is the published version's, copied when this
+	// update started, rather than one recorded for it. Authoritative across reloads,
+	// unlike `pipelineRecorded`, which only remembers this session.
+	hubPipelineRecordingInherited = $state(false)
 	effectiveSlug = $state('')
 	hubItemIds = $state<Record<string, number>>({})
 	// Set once the project is published: everything the wizard shows from here on
@@ -347,6 +351,7 @@ export class DeployToHubSession {
 		this.liveOnHub &&
 			this.isPipelineProject &&
 			this.hubHasPipelineRecording &&
+			this.hubPipelineRecordingInherited &&
 			this.hubItemsChanged &&
 			!this.pipelineRecorded
 	)
@@ -609,6 +614,7 @@ export class DeployToHubSession {
 			this.hubHasRemoteLogo = p.has_logo === true
 			this.hubHasPipelineRecording = p.has_pipeline_recording === true
 			this.hubItemsChanged = p.items_changed === true
+			this.hubPipelineRecordingInherited = p.pipeline_recording_inherited === true
 			this.rejectionReason = p.rejection_reason ?? undefined
 			// `live` is a key this Hub always sends — null unless an update is in
 			// flight, in which case the fields above describe that update and the
@@ -1372,6 +1378,8 @@ export class DeployToHubSession {
 		this.draftItems = []
 		this.recordings = {}
 		this.rejectionReason = undefined
+		// Belongs to the update just finished, not the one starting.
+		this.pipelineRecorded = false
 		this.phase = 'predeploy'
 	}
 
