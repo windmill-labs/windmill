@@ -1378,8 +1378,13 @@ export class DeployToHubSession {
 		this.draftItems = []
 		this.recordings = {}
 		this.rejectionReason = undefined
-		// Belongs to the update just finished, not the one starting.
+		// All of it belongs to the update just finished, not the one starting. The
+		// captured cascade especially: left in place, the next update could save a
+		// replay of the version it replaces.
 		this.pipelineRecorded = false
+		this.pipelineRecordingResult = undefined
+		this.pipelineRunState = 'idle'
+		this.pipelineRunError = undefined
 		this.phase = 'predeploy'
 	}
 
