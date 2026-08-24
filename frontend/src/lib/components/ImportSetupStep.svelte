@@ -173,9 +173,13 @@
 			const enabled = (exportData.migrations ?? []).filter(
 				(m) => m.enabled && (m.sql ?? '').trim() !== ''
 			)
-			const present = new Set(
-				(await WorkspaceService.listDataTables({ workspace })).map((d) => d.name)
-			)
+			// Kept, not just counted: which data tables the destination has decides whether a
+			// failed row can retry its migrations or has to go back through the wizard, and
+			// after a reload this call is the only thing that knows. Leaving it local made a
+			// reloaded failure offer the wizard, which then refuses the name it created.
+			const tables = await WorkspaceService.listDataTables({ workspace })
+			configuredNames = tables.map((t) => ({ name: t.name, resourcePath: t.resource_path }))
+			const present = new Set(tables.map((d) => d.name))
 			const missing = [...new Set(enabled.map((m) => m.datatable_name))].filter(
 				(n) => !present.has(n)
 			)
@@ -415,6 +419,7 @@
 					.map((m) => m.sql)
 					.filter(Boolean)
 					.join('\n\n')}
+				{@const hasTable = configuredNames.some((c) => c.name === row.name)}
 				<ImportSetupRow flash={row.justSaved}>
 					{#snippet icon()}
 						{#if row.status === 'done'}
@@ -464,18 +469,23 @@
 						<!-- The wizard owns creating a data table: picking or provisioning the
 						     database, writing the config, and reporting the connection. This step
 						     only says which name it needs and runs the migrations afterwards. -->
-						{#if row.status === 'failed' && configuredNames.some((c) => c.name === row.name)}
-							<!-- The data table was created and only the migrations failed, so the
-							     thing to retry is the migrations. Reopening the wizard would ask
-							     for a name it now holds itself, which it rejects as taken —
-							     leaving no way back to the step that actually failed. -->
+						{#if hasTable && (row.status === 'failed' || row.status === 'unconfigured')}
+							<!-- The data table is there and its tables are not, so the thing left
+							     to do is run the migrations. Reopening the wizard would ask for a
+							     name it now holds itself, which it rejects as taken — leaving no
+							     way back to the step that actually failed.
+
+							     Keyed on the data table existing rather than on the row saying
+							     `failed`, because a reload rebuilds every row from scratch: the
+							     same situation then reads as `unconfigured`, with nothing left in
+							     memory to say a migration was ever attempted. -->
 							<Button
 								variant="accent"
 								unifiedSize="sm"
 								disabled={working}
 								onClick={() => void runMigrationsFor(row.name).catch(() => {})}
 							>
-								Run migrations again
+								{row.status === 'failed' ? 'Run migrations again' : 'Run migrations'}
 							</Button>
 						{:else}
 							<Button
