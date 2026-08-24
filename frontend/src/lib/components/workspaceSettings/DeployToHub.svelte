@@ -293,7 +293,8 @@
 								{/if}
 								{#if s.liveOnHub && s.phase !== 'live' && s.phase !== 'predeploy'}
 									<Button
-										variant="subtle"
+										variant="default"
+										destructive
 										unifiedSize="sm"
 										loading={s.discardingUpdate}
 										startIcon={{ icon: X }}
@@ -390,24 +391,18 @@
 								{/if}
 							</div>
 						{/if}
-						{#if s.liveOnHub && s.phase !== 'live'}
-							<div
-								class="flex items-start gap-2 rounded-md border bg-surface-secondary p-3 text-xs text-secondary"
+						{#if s.liveOnHub && s.phase !== 'live' && s.phase !== 'under_review'}
+							<Alert
+								type="info"
+								size="xs"
+								title={s.phase === 'predeploy'
+									? 'Your published project stays live'
+									: 'This is an update — your published project is still live'}
 							>
-								<Cloud size={14} class="mt-0.5 shrink-0 text-emphasis" />
-								<div class="flex flex-col gap-1">
-									<span class="font-semibold text-primary">
-										{s.phase === 'predeploy'
-											? 'Your published project stays live'
-											: 'This is an update — your published project is still live'}
-									</span>
-									<span>
-										Visitors keep seeing the published version, with its stars, forks and comments,
-										until this update is approved. Approving replaces it in place; discarding leaves
-										it exactly as it is.
-									</span>
-								</div>
-							</div>
+								Visitors keep seeing the published version, with its stars, forks and comments,
+								until this update is approved. Approving replaces it in place; discarding leaves it
+								exactly as it is.
+							</Alert>
 						{/if}
 						{#if s.rejectionReason && s.phase === 'draft'}
 							<Alert type="error" size="xs" title="Changes requested">
@@ -540,18 +535,20 @@
 							</div>
 						{/if}
 						{#if s.phase === 'under_review'}
-							<div
-								class="flex items-start gap-2 rounded-md border border-blue-300 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-100"
+							<Alert
+								type="info"
+								size="xs"
+								title={s.liveOnHub
+									? 'Update under review — your published project is still live'
+									: 'Under review'}
 							>
-								<TriangleAlert size={14} class="mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
-								<div class="flex flex-col gap-1">
-									<span class="font-semibold">Locked while under review</span>
-									<span>
-										The Windmill team is reviewing this submission. Editing, recording, and sharing
-										actions are disabled. Estimated turnaround: 1-2 business days.
-									</span>
-								</div>
-							</div>
+								Keep editing this folder as usual — nothing here touches your scripts and flows. It
+								is the submission that is fixed: no new version can be sent to the Hub, and no
+								recording added to it, until the Windmill team decides. Estimated turnaround: 1-2
+								business days.{#if s.liveOnHub}
+									Visitors keep seeing the published version meanwhile, with its stars, forks and
+									comments; approving replaces it in place.{/if}
+							</Alert>
 						{/if}
 						{#if s.phase === 'draft'}
 							{@const recordedCount = s.recordableItems.filter((i) => i.rec === 'recorded').length}
