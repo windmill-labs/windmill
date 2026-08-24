@@ -1453,6 +1453,75 @@ describe('createSearchHubScriptsTool', () => {
 
 		expect(JSON.parse(raw)).toEqual({ results: [], suggested_integrations: ['stripe'] })
 	})
+
+	// Matching a query word anywhere inside a slug turns every short English word into
+	// a hit — `for` in salesforce, `the` in basis_theory — so a task that names no
+	// integration came back with a confident-looking list of them.
+	it('suggests nothing for a request that names no integration', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [
+				{ name: 'salesforce' },
+				{ name: 'basis_theory' },
+				{ name: 'hackernews' },
+				{ name: 's3' }
+			])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'list all the invoices for the new month' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).suggested_integrations).toEqual([])
+	})
+
+	// Google's integrations are all a compressed `g` plus the product word, so the
+	// word a user actually says starts one character into the slug.
+	it('reaches an integration whose slug compresses the vendor name', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [
+				{ name: 'gsheets' },
+				{ name: 'gdrive' },
+				{ name: 'smartsheet' }
+			])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'add a row to a google sheet' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).suggested_integrations).toEqual(['gsheets'])
+	})
+
+	// A slug shorter than the token floor is only reachable by an exact match.
+	it('still reaches a two-character integration slug', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, { queryHubScripts: vi.fn(async () => []) })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 's3' }, { name: 'salesforce' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'upload a file to s3' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).suggested_integrations).toEqual(['s3'])
+	})
 })
 
 describe('getHubIntegrationTool', () => {

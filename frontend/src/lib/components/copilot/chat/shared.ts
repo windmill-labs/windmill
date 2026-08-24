@@ -1271,13 +1271,35 @@ async function suggestHubIntegrations(query: string): Promise<string[]> {
 	const tokens = query
 		.toLowerCase()
 		.split(/[^a-z0-9]+/)
-		.filter((t) => t.length > 2)
+		.filter((t) => t.length >= 2)
 	return hubIntegrationsCache
-		.filter((name) => {
-			const slug = name.toLowerCase()
-			return tokens.some((t) => slug.includes(t) || (slug.length > 2 && t.includes(slug)))
-		})
+		.filter((name) => tokens.some((t) => tokenMatchesSlug(t, name.toLowerCase())))
 		.slice(0, MAX_SUGGESTED_INTEGRATIONS)
+}
+
+/** Matches a query word against a slug on word boundaries rather than by bare
+ * substring. A substring test reads every three-letter English word as a hit —
+ * `for` in sales*for*ce, `the` in basis_*the*ory — so a request that names no
+ * integration still came back with five confident-looking ones. Short tokens must
+ * equal a slug or one of its parts, which is also what reaches the two-character
+ * slugs (`s3`, `wiz`) that a length filter alone hides. */
+function tokenMatchesSlug(token: string, slug: string): boolean {
+	const parts = slug.split(/[_-]/).filter(Boolean)
+	if (slug === token || parts.includes(token)) {
+		return true
+	}
+	if (token.length < 4) {
+		return false
+	}
+	const extends_ = (a: string, b: string) => a.startsWith(b) || b.startsWith(a)
+	return (
+		parts.some((p) => p.length >= 4 && extends_(p, token)) ||
+		(slug.length >= 4 && extends_(slug, token)) ||
+		// A whole family of slugs compresses the vendor to one letter in front of the
+		// product word, so the word the user actually says starts one character in:
+		// "google sheet" has to reach `gsheets`, "google drive" `gdrive`.
+		parts.some((p) => p.length >= 5 && extends_(p.slice(1), token))
+	)
 }
 
 export const clearHubIntegrationsCache = () => {
