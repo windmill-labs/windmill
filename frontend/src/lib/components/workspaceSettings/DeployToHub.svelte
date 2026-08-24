@@ -288,7 +288,7 @@
 										startIcon={{ icon: RotateCcw }}
 										onclick={s.startNewDraft}
 									>
-										Publish an update
+										{s.liveOnHub ? 'Publish an update' : 'New draft'}
 									</Button>
 								{/if}
 								{#if s.liveOnHub && s.phase !== 'live' && s.phase !== 'predeploy'}
@@ -732,7 +732,9 @@
 							</span>
 						{:else}
 							<span class="text-[11px] text-hint">
-								Publish an update to change it — this stays live until the update is approved.
+								{s.liveOnHub
+									? 'Publish an update to change it — this stays live until the update is approved.'
+									: 'Iterate further by starting a new draft.'}
 							</span>
 						{/if}
 					</div>
