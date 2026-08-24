@@ -1,10 +1,19 @@
 //! Guards the `sqlx` entries in `[patch.crates-io]` — `backend/Cargo.toml` carries the why.
 //! Dropping the patch still compiles, so a test is what notices.
+//!
+//! Ignored by default: it only has something to say when the sqlx dependency moves, and it
+//! spends a couple of seconds waiting on a deliberately slow round trip. Run it whenever you
+//! touch sqlx — a version bump, a change to the patch entries, a fork rebase:
+//!
+//! ```text
+//! cargo test -p windmill-common --test sqlx_begin_cancel_safe -- --ignored
+//! ```
 
 use sqlx::{Connection, PgConnection, Pool, Postgres};
 use std::time::{Duration, Instant};
 
 #[sqlx::test]
+#[ignore = "run with --ignored after any sqlx bump or change to [patch.crates-io]"]
 async fn begin_cancelled_mid_round_trip_leaves_no_open_transaction(db: Pool<Postgres>) {
     // One connection, so the session inspected below is the one the cancelled begin used.
     let pool = sqlx::postgres::PgPoolOptions::new()

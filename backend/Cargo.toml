@@ -224,6 +224,9 @@ all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embeddin
 # The whole family has to move together: `sqlx-postgres` depends on `sqlx-core` by path
 # inside the sqlx workspace, so patching it alone leaves two incompatible `sqlx-core`s and
 # `Postgres` stops implementing the `Database` the macros expect.
+# Changing any of this — a bump, a rebase of the fork, dropping these lines — still compiles
+# clean, so run the guard that actually checks the behaviour is still there:
+#   cargo test -p windmill-common --test sqlx_begin_cancel_safe -- --ignored
 sqlx = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
 sqlx-core = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
 sqlx-macros = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
