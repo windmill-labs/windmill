@@ -1201,7 +1201,9 @@ async fn upsert_datatable_migration(
     // its SQL, so a later `migrate up` would skip it and a rollback would run a
     // `down` that doesn't correspond to what was applied. Only an actual change
     // to an existing migration is guarded; unchanged re-pushes (e.g.
-    // `wmill sync push`) always proceed.
+    // `wmill sync push`) always proceed, and so does filling in a down migration
+    // that was missing — the up that ran is untouched, and that is the only way
+    // to make an already-applied migration revertable.
     let existing = sqlx::query!(
         "SELECT name, code_up, code_down FROM datatable_migrations \
          WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
@@ -1219,7 +1221,7 @@ async fn upsert_datatable_migration(
         Some(existing)
             if !(existing.name == payload.name
                 && existing.code_up == payload.code_up
-                && existing.code_down == payload.code_down) =>
+                && (existing.code_down == payload.code_down || existing.code_down.is_none())) =>
         {
             // Fail closed: if we can't lock/read the applied set (e.g. the
             // data-table database is temporarily unreachable), refuse the change
