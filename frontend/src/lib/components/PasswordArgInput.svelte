@@ -84,6 +84,7 @@
 		// The first keystroke queues an update before anything is minted: letting it run would 404 and
 		// retry the mint, binding over an argument that was replaced while the first mint was in flight.
 		if (path === '') return
+		const updating = path
 		try {
 			await VariableService.updateVariable({
 				workspace: mintedIn ?? ws!,
@@ -93,7 +94,12 @@
 				}
 			})
 		} catch (e) {
-			generateValue()
+			// A re-mint can bind a fresh variable while this update is in flight; recovering then
+			// would orphan the one it just bound.
+			if (path !== updating) return
+			generateValue().catch((e) =>
+				sendUserToast(`Could not create the secret: ${e?.body ?? e?.message ?? e}`, true)
+			)
 		}
 	}
 
