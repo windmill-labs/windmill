@@ -680,9 +680,6 @@ export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction
 	return pendingUserActionDetail(messages)?.action
 }
 
-// Also carries the blocked tool call's id, so a caller can resolve it (the
-// composer answers a parked question with its text).
-//
 // Scans back to the turn boundary, not just the last message: a turn's cards are
 // created up front and run one at a time, and text between two tool calls pushes
 // an assistant card between them, so the blocked card is rarely last. Only cards
