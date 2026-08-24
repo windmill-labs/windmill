@@ -291,7 +291,7 @@
 											items={tenantItems.current ?? []}
 											bind:value={role.tenants}
 											groupBy={(item) => item.group}
-											placeholder="Nobody — add Everyone, users, groups or folders"
+											placeholder="Nobody — Add users, groups or folders"
 										/>
 									</Cell>
 									<Cell class="w-20 align-top">
