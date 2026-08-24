@@ -18,6 +18,7 @@
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
 	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
+	import { probeMigrationApplied } from '$lib/importWizard/probe'
 	import {
 		retargetProjectExport,
 		type ProjectExport,
@@ -133,6 +134,32 @@
 		return `dt${n}`
 	}
 
+	/**
+	 * What a row's state actually is, asked of the destination rather than inferred.
+	 *
+	 * The data table existing is not the question — the wizard creates it and the migrations
+	 * run afterwards, so a table can be there with none of the project's tables inside it.
+	 * That gap is invisible in memory after a reload, which rebuilds every row from scratch;
+	 * reading it as "done" would let the step say "You're all set" over a project whose apps
+	 * all fail on open.
+	 *
+	 * `probeMigrationApplied` answers `undefined` when it cannot tell (unreadable schema, or
+	 * SQL it cannot resolve to table names). That is not evidence of failure, so it keeps
+	 * whatever the row already said instead of manufacturing an outstanding row nobody can
+	 * clear.
+	 */
+	async function settle(
+		ms: ProjectMigration[],
+		absent: boolean,
+		prev: Row | undefined
+	): Promise<Row['status']> {
+		if (absent) return 'unconfigured'
+		const applied = await Promise.all(ms.map((m) => probeMigrationApplied(workspace, m)))
+		if (applied.every((a) => a === true)) return 'done'
+		if (applied.some((a) => a === false)) return prev?.status === 'failed' ? 'failed' : 'unconfigured'
+		return prev?.status === 'failed' ? 'failed' : 'done'
+	}
+
 	/** Which data tables the project needs that the destination does not have yet. */
 	async function load() {
 		loading = true
@@ -152,19 +179,17 @@
 			const missing = [...new Set(enabled.map((m) => m.datatable_name))].filter(
 				(n) => !present.has(n)
 			)
-			// Rows already configured in an earlier pass keep their state; the wizard only
-			// ever adds data tables, so a name that has left `missing` is done.
 			const previous = new Map(rows.map((r) => [r.name, r]))
-			rows = [...new Set(enabled.map((m) => m.datatable_name))].map((name) => {
-				const prev = previous.get(name)
-				if (prev && !missing.includes(name)) return { ...prev, status: 'done' as const }
-				return {
-					name,
-					migrations: enabled.filter((m) => m.datatable_name === name),
-					status: (missing.includes(name) ? 'unconfigured' : 'done') as Row['status'],
-					justSaved: false
-				}
-			})
+			rows = await Promise.all(
+				[...new Set(enabled.map((m) => m.datatable_name))].map(async (name) => {
+					const ms = enabled.filter((m) => m.datatable_name === name)
+					const prev = previous.get(name)
+					const status = await settle(ms, missing.includes(name), prev)
+					return prev
+						? { ...prev, migrations: ms, status, error: status === 'done' ? undefined : prev.error }
+						: { name, migrations: ms, status, justSaved: false }
+				})
+			)
 			// Retargeted the same way the import was, so these are where the stubs actually
 			// landed. `retargetProjectExport` is a no-op when the folder is the slug, which is
 			// every new-workspace import.
@@ -597,6 +622,7 @@
 		bind:opened={wizardOpen}
 		initialName={wizardFor}
 		modalTarget="body"
+		{workspace}
 		finishAlso="run migrations"
 		onFinishAlso={() => runMigrationsFor(wizardFor ?? '')}
 		existingNames={configuredNames.map((c) => c.name)}

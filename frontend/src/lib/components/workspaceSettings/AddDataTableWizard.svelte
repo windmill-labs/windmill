@@ -102,6 +102,16 @@
 		 * where the rest of the run does instead of starting after the dialog closes.
 		 * Throwing marks that step failed; the table itself is already made either way. */
 		onFinishAlso?: () => Promise<void>
+		/** The workspace everything here is created in and checked against.
+		 *
+		 * Defaults to `$workspaceStore`, which is right for the settings page — it is the
+		 * workspace being looked at. The import wizard is the exception: its page is
+		 * reparented out of `(logged)`, so nothing re-runs the layout's workspace
+		 * persistence, and after a reload the store still names whatever workspace the
+		 * user came from while the plan in the URL names the destination. Left ambient,
+		 * this would create the data table in one workspace and run the project's
+		 * migrations in the other. */
+		workspace?: string
 	}
 
 	let {
@@ -116,8 +126,12 @@
 		initialName,
 		modalTarget = '#content',
 		finishAlso,
-		onFinishAlso
+		onFinishAlso,
+		workspace: workspaceProp
 	}: Props = $props()
+
+	/** Every write and every check goes through this, never `$workspaceStore` directly. */
+	const targetWorkspace = $derived(workspaceProp ?? $workspaceStore ?? '')
 
 	const STEPS = ['Choose a database', 'Set it up', 'Review']
 
@@ -167,7 +181,7 @@
 		}
 		clearTimeout(variableCheck)
 		variableCheck = setTimeout(async () => {
-			const taken = await VariableService.existsVariable({ workspace: $workspaceStore!, path })
+			const taken = await VariableService.existsVariable({ workspace: targetWorkspace, path })
 			// Two checks can be in flight at once and resolve out of order. A `false` for a path
 			// nobody is on any more would clear the error guarding the one about to be written;
 			// a `true` would disable Finish over a path this run stopped caring about.
@@ -184,7 +198,7 @@
 	 * in flight when Finish is pressed.
 	 */
 	async function pathConflictMessage(path: string): Promise<string | undefined> {
-		const workspace = $workspaceStore!
+		const workspace = targetWorkspace
 		// Each namespace answers to its own claim. Holding the secret says nothing about who owns
 		// the resource beside it, so one claim must not wave the other's check through.
 		const [variable, resource] = await Promise.all([
@@ -199,14 +213,14 @@
 	let maxStep = $state(1)
 
 	function defaultProjectName(): string {
-		return `windmill-${$workspaceStore ?? 'workspace'}`
+		return `windmill-${targetWorkspace || 'workspace'}`
 	}
 
 	function defaultTableName(): string {
 		// A caller that needs a specific name wins over the usual "main, unless taken":
 		// the import wizard's migrations only apply to a table of the name they target.
 		if (initialName) return initialName
-		return existingNames.includes('main') ? `${$workspaceStore ?? 'data'}_datatable` : 'main'
+		return existingNames.includes('main') ? `${targetWorkspace || 'data'}_datatable` : 'main'
 	}
 
 	// Takes the list rather than reading it, so the fetch that loads it can seed off its own
@@ -260,7 +274,7 @@
 	)
 
 	const pgResources = resource(
-		() => (opened && wiz.provider === 'resource' ? ($workspaceStore ?? '') : ''),
+		() => (opened && wiz.provider === 'resource' ? targetWorkspace : ''),
 		async (workspace) => {
 			if (!workspace) return undefined
 			const list = await ResourceService.listResource({ workspace, resourceType: 'postgresql' })
@@ -354,7 +368,7 @@
 	)
 
 	const folderNames = resource(
-		() => (opened ? ($workspaceStore ?? '') : ''),
+		() => (opened ? targetWorkspace : ''),
 		async (workspace) => {
 			if (!workspace) return []
 			const all = await FolderService.listFolderNames({ workspace })
@@ -556,7 +570,7 @@
 				settle({ checking: false, report: undefined, error: undefined })
 				return
 			}
-			const report = await probeDatatableConnection($workspaceStore!, database)
+			const report = await probeDatatableConnection(targetWorkspace, database)
 			settle({ checking: false, report, error: undefined })
 		} catch (err: any) {
 			settle({
@@ -667,7 +681,7 @@
 		const name = wiz.review.name.trim()
 		try {
 			if (claimedName !== name) {
-				const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
+				const settings = await WorkspaceService.getSettings({ workspace: targetWorkspace })
 				if (settings.datatable?.datatables?.[name]) {
 					nameConflictFor = {
 						name,
@@ -712,7 +726,7 @@
 		let result: RunResult | undefined = undefined
 		try {
 			result = await runSetup(wiz, {
-				workspace: $workspaceStore!,
+				workspace: targetWorkspace,
 				supabaseToken: supaOauth.token,
 				onInstanceDbsChanged: async () => {
 					await customInstanceDbs.refetch()
@@ -1128,7 +1142,7 @@
 	{#if wiz.instance.mode === 'existing'}
 		{@const shared = (
 			customInstanceDbs.current?.[wiz.instance.dbName ?? '']?.used_by_workspaces ?? []
-		).filter((w) => w !== $workspaceStore)}
+		).filter((w) => w !== targetWorkspace)}
 		<!-- Above the list, not under it: the list scrolls, and a warning about sharing another
 		workspace's data is worthless if the user has to scroll to reach it. -->
 		{#if shared.length}
@@ -1141,7 +1155,7 @@
 		<div class="flex flex-col gap-2 overflow-y-auto flex-1 min-h-24 pr-1">
 			{#each instanceDbs as { name, db } (name)}
 				{@const selected = wiz.instance.dbName === name}
-				{@const others = (db.used_by_workspaces ?? []).filter((w) => w !== $workspaceStore)}
+				{@const others = (db.used_by_workspaces ?? []).filter((w) => w !== targetWorkspace)}
 				<button
 					class="text-left border rounded-md p-3 flex gap-3 items-start transition-colors {selected
 						? 'border-border-selected/50 bg-surface-accent-selected'

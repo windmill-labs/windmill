@@ -419,6 +419,7 @@ export class ImportExecution {
 		this.#set('import', failed > 0 ? 'failed' : 'done', parts.join(', '))
 
 		const migrated = this.migrationResults
+		const badMigrations = migrated.filter((r) => !r.ok).length
 		if (migrated.length) {
 			const badly = migrated.filter((r) => !r.ok)
 			this.#set(
@@ -430,7 +431,17 @@ export class ImportExecution {
 		// A partial import is finished, not broken: the items that landed are real,
 		// and the failures are listed. Only a hard stop leaves `done` false.
 		this.done = true
-		if (failed > 0) this.error = `${failed} item${failed === 1 ? '' : 's'} failed to import.`
+		// Both kinds of failure, because `error` is what offers Retry. A migration that failed
+		// against an existing data table used to leave the row saying `failed` with `error`
+		// unset — the run then presented as a clean finish, with no way to run it again.
+		const problems: string[] = []
+		if (failed > 0) problems.push(`${failed} item${failed === 1 ? '' : 's'} failed to import`)
+		if (badMigrations > 0) {
+			problems.push(
+				`${badMigrations} data table migration${badMigrations === 1 ? '' : 's'} failed`
+			)
+		}
+		if (problems.length) this.error = `${problems.join(', ')}.`
 	}
 
 	/**
