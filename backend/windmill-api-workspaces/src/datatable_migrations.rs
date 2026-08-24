@@ -1310,32 +1310,35 @@ async fn upsert_datatable_migration(
     // DO UPDATE` re-reads the row under a row lock. Otherwise a request working
     // from a stale definition silently reverts whatever changed in between — a
     // second addition's down, or a locked rewrite of the up whose new SQL a run
-    // may already have recorded a version for.
-    let observed = existing.filter(|_| _run_lock.is_none());
+    // may already have recorded a version for. Reading no row at all is part of
+    // the premise: the equality is NULL when `$8` is, so a version created in the
+    // meantime is refused rather than overwritten.
+    let recheck_observed = _run_lock.is_none();
     let written = sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE \
          SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down \
-         WHERE $7::text IS NULL \
-            OR (datatable_migrations.name = $7::text \
-                AND datatable_migrations.code_up = $8::text \
-                AND datatable_migrations.code_down IS NOT DISTINCT FROM $9::text)",
+         WHERE NOT $7 \
+            OR (datatable_migrations.name = $8::text \
+                AND datatable_migrations.code_up = $9::text \
+                AND datatable_migrations.code_down IS NOT DISTINCT FROM $10::text)",
         &w_id,
         &datatable_name,
         payload.timestamp,
         &payload.name,
         &payload.code_up,
         payload.code_down.as_deref(),
-        observed.as_ref().map(|e| e.name.as_str()),
-        observed.as_ref().map(|e| e.code_up.as_str()),
-        observed.as_ref().and_then(|e| e.code_down.as_deref()),
+        recheck_observed,
+        existing.as_ref().map(|e| e.name.as_str()),
+        existing.as_ref().map(|e| e.code_up.as_str()),
+        existing.as_ref().and_then(|e| e.code_down.as_deref()),
     )
     .execute(&db)
     .await?;
     if written.rows_affected() == 0 {
         return Err(Error::BadRequest(format!(
-            "Migration {} on data table '{}' was modified while this change was being saved. \
+            "Migration {} on data table '{}' changed while this change was being saved. \
              Reload it before editing.",
             payload.timestamp, datatable_name
         )));

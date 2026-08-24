@@ -608,7 +608,7 @@
 							</div>
 						{:else if addingDown}
 							<div class="grow min-h-0 border rounded-md overflow-hidden">
-								<SimpleEditor class="h-full" lang="sql" bind:code={downDraft} />
+								<SimpleEditor class="h-full" lang="sql" bind:code={downDraft} leadingChangeSync />
 							</div>
 							<div class="flex justify-end gap-2">
 								<Button
