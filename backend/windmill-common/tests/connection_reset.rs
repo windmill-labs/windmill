@@ -1,8 +1,6 @@
-//! A pooled connection whose session is left inside a transaction sqlx is not tracking stays
-//! broken for every later borrower — `Rollback::drop` only fires while sqlx's own transaction
-//! depth is non-zero, and the on-release `ping` is a bare `wait_until_ready` that reports such
-//! a session as healthy. Before the reset hook this cost half an hour of unrelated `25P02`
-//! failures across the whole process, until `max_lifetime` recycled the connection.
+//! Pins that a pooled connection stuck in an aborted transaction is cleaned instead of being
+//! handed out again, and that reporting a `25P02` is what arms the cleaning. See
+//! `windmill_common::db::connection_reset` for why such a connection exists at all.
 
 use sqlx::{Executor, Pool, Postgres};
 use windmill_common::db::connection_reset;
@@ -14,7 +12,7 @@ async fn poisoned_connection_is_reset_before_being_handed_out_again(db: Pool<Pos
     let pool = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .min_connections(0)
-        .after_release(|conn, _| Box::pin(connection_reset::reset_on_release(conn)))
+        .before_acquire(|conn, _| Box::pin(connection_reset::reset_before_acquire(conn)))
         .connect_with((*db.connect_options()).clone())
         .await
         .expect("failed to build pool");

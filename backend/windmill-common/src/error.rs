@@ -245,6 +245,12 @@ pub fn relocate_internal(loc: &'static Location<'static>) -> impl FnOnce(Error) 
 }
 
 pub fn to_anyhow<T: 'static + std::error::Error + Send + Sync>(e: T) -> anyhow::Error {
+    // The other way a `sqlx::Error` leaves a query without becoming an `Error`, and so the
+    // other place a poisoned connection can announce itself. The downcast is a type-id
+    // comparison, and misses only errors handled entirely in place.
+    if let Some(sqlx_err) = (&e as &dyn std::any::Any).downcast_ref::<sqlx::Error>() {
+        crate::db::connection_reset::note_sqlx_error(sqlx_err);
+    }
     From::from(e)
 }
 

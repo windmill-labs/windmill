@@ -304,31 +304,45 @@ impl<'b> DbExecutor<'b> for &'b mut PgConnection {
 /// `idle in transaction (aborted)`, after which every unrelated query on it fails with
 /// `25P02` until `max_lifetime` recycles it half an hour later.
 ///
-/// Rolling back on every release would add a round trip to every query, which measured at
+/// Rolling back on every checkout would add a round trip to every query, which measured at
 /// about a third of the throughput on small ones, so the reset is armed only once Postgres
 /// has reported a state that proves a connection is carrying such leftover state.
+///
+/// The reset runs on **acquire** rather than release: the connection that reports the first
+/// `25P02` is released before its error has been converted, so a release-side hook would let
+/// exactly that connection back into the idle queue uncleaned.
 pub mod connection_reset {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::LazyLock;
     use std::time::{Duration, Instant};
 
-    static PROCESS_START: LazyLock<Instant> = LazyLock::new(Instant::now);
-    /// Milliseconds since `PROCESS_START` until which releases roll back; 0 = never armed.
+    /// Origin for the millisecond clock below. Initialized on first use rather than at
+    /// startup, which is fine: every reader compares deadlines derived from this same base.
+    static CLOCK_BASE: LazyLock<Instant> = LazyLock::new(Instant::now);
+    /// Milliseconds since `CLOCK_BASE` until which checkouts roll back; 0 = never armed.
     static RESET_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 
-    /// Long enough to outlast the connections that were already checked out when the
-    /// first poisoned one surfaced; one release cycle clears the pool.
+    /// Only has to outlast the connections checked out when the first poisoned one surfaced,
+    /// which under load is milliseconds; the margin covers a pool that is mostly idle.
     const RESET_WINDOW: Duration = Duration::from_secs(60);
 
     fn now_ms() -> u64 {
-        PROCESS_START.elapsed().as_millis() as u64
+        CLOCK_BASE.elapsed().as_millis() as u64
     }
 
     fn arm() {
-        RESET_UNTIL_MS.fetch_max(
+        let previous = RESET_UNTIL_MS.fetch_max(
             now_ms() + RESET_WINDOW.as_millis() as u64,
             Ordering::Relaxed,
         );
+        // Entering a window costs throughput, so it must be attributable in the logs.
+        if previous == 0 {
+            tracing::warn!(
+                "a pooled connection was found in an aborted transaction; rolling back on \
+                 checkout for the next {}s",
+                RESET_WINDOW.as_secs()
+            );
+        }
     }
 
     /// Reading the clock is skipped entirely while the pool has never been armed, which
@@ -338,11 +352,12 @@ pub mod connection_reset {
         until != 0 && until > now_ms()
     }
 
-    /// Body of the pool's `after_release` hook. `ROLLBACK` ends both a leaked-open and an
-    /// aborted transaction, and is a no-op warning on a session that has neither. Reporting
-    /// the failure makes sqlx discard the connection, which is also what a session we could
-    /// not clean deserves.
-    pub async fn reset_on_release(conn: &mut sqlx::PgConnection) -> Result<bool, sqlx::Error> {
+    /// Body of the pool's `before_acquire` hook. `ROLLBACK` ends both a leaked-open and an
+    /// aborted transaction; on a session with neither it succeeds and Postgres answers with
+    /// a `there is no transaction in progress` warning, which is why `sqlx::postgres::notice`
+    /// is filtered in `tracing_init`. Reporting the failure makes sqlx discard the
+    /// connection, which is also what a session we could not clean deserves.
+    pub async fn reset_before_acquire(conn: &mut sqlx::PgConnection) -> Result<bool, sqlx::Error> {
         if armed() {
             use sqlx::Executor;
             conn.execute("ROLLBACK").await?;
@@ -351,7 +366,8 @@ pub mod connection_reset {
     }
 
     /// Arms the reset when an error proves a session is stuck in an aborted transaction.
-    /// Called from `Error`'s `From<sqlx::Error>`, so it sees every query that reports one.
+    /// Reached from `Error`'s `From<sqlx::Error>` and from `to_anyhow`, which between them
+    /// cover the paths a `sqlx::Error` takes on its way out of a query.
     pub(crate) fn note_sqlx_error(err: &sqlx::Error) {
         let sqlx::Error::Database(db_err) = err else {
             return;

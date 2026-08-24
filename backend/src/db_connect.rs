@@ -153,12 +153,12 @@ pub async fn connect(
         pool_options = pool_options.idle_timeout(Duration::from_secs(60));
     }
     pool_options
-        // Clears transaction state sqlx is not tracking, so a connection whose session was
-        // left inside a transaction is not handed to the next borrower. See
+        // Clears transaction state sqlx is not tracking, so a session left inside a
+        // transaction is cleaned before the connection is handed to a borrower. See
         // `windmill_common::db::connection_reset` for how such a session comes about and why
         // this only runs once one has been observed.
-        .after_release(|conn, _| {
-            Box::pin(windmill_common::db::connection_reset::reset_on_release(
+        .before_acquire(|conn, _| {
+            Box::pin(windmill_common::db::connection_reset::reset_before_acquire(
                 conn,
             ))
         })

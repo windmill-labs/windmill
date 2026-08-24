@@ -50,8 +50,15 @@ pub const OTEL_PREFIX: &str = "OTEL: ";
 
 /// Creates a Targets filter that optionally filters out verbose logs when quiet mode is enabled.
 fn create_targets_filter(default_env_filter: LevelFilter) -> Targets {
-    let targets =
-        Targets::new().with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF);
+    let targets = Targets::new()
+        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF)
+        // sqlx only ever talks to Windmill's own database, so a Postgres NOTICE/WARNING on
+        // this target is never something an operator acts on. `connection_reset` in
+        // particular provokes one per checkout while it is armed.
+        .with_target(
+            "sqlx::postgres::notice",
+            tracing::level_filters::LevelFilter::ERROR,
+        );
 
     if *QUIET_MODE {
         targets
