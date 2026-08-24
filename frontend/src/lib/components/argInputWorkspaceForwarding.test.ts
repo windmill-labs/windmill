@@ -26,12 +26,11 @@ function formMounts(source: string): { tag: string; line: number; block: string 
 	for (let i = 0; i < lines.length; i++) {
 		const open = lines[i].trim().match(new RegExp(`^${OPENING.source}`))
 		if (!open) continue
-		// A mount that already closes on its opening line holds all of its props there. Scanning on
-		// for a lone `>` would run into the next component and read its props as this one's.
+		// Requiring a lone `>` would run past a mount whose last prop shares the closing line, into
+		// the next component, and read its `workspace` as this one's — a false pass on exactly the
+		// regression this guards.
 		let end = i
-		if (!lines[i].trim().endsWith('>')) {
-			while (end < lines.length && !['>', '/>'].includes(lines[end].trim())) end++
-		}
+		while (end < lines.length && !lines[end].trim().endsWith('>')) end++
 		// Running off the end means the props were never delimited, so the block would swallow the
 		// rest of the file and match any `workspace` in it — a false pass, not a failure.
 		if (end >= lines.length) {
