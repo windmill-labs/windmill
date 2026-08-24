@@ -606,12 +606,12 @@
 							</div>
 						{:else if addingDown}
 							<div class="grow min-h-0 border rounded-md overflow-hidden">
-								<SimpleEditor class="h-full" lang="sql" bind:code={downDraft} automaticLayout />
+								<SimpleEditor class="h-full" lang="sql" bind:code={downDraft} />
 							</div>
 							<div class="flex justify-end gap-2">
 								<Button
 									variant="default"
-									size="sm"
+									unifiedSize="sm"
 									disabled={savingDown}
 									on:click={() => (addingDown = false)}
 								>
@@ -619,7 +619,7 @@
 								</Button>
 								<Button
 									variant="accent"
-									size="sm"
+									unifiedSize="sm"
 									disabled={savingDown || !hasStatement(downDraft)}
 									on:click={saveDownMigration}
 								>
@@ -633,7 +633,7 @@
 								<span>No down migration</span>
 								<Button
 									variant="subtle"
-									size="xs"
+									unifiedSize="xs"
 									startIcon={{ icon: Plus }}
 									on:click={startAddDownMigration}
 								>

@@ -124,11 +124,21 @@ async fn test_add_down_to_an_applied_migration(db: Pool<Postgres>) -> anyhow::Re
     );
 
     // And so is a down that has already been recorded — only the absent-to-present
-    // step is exempt.
+    // step is exempt, in that direction alone.
     let resp = upsert(CODE_UP, "DROP TABLE widgets CASCADE;")
         .send()
         .await?;
     assert_eq!(resp.status(), 400);
+
+    let resp = authed(reqwest::Client::new().post(&url))
+        .json(&json!({ "timestamp": VERSION, "name": "create_widgets", "code_up": CODE_UP }))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "dropping the down of an applied migration must stay refused"
+    );
 
     Ok(())
 }

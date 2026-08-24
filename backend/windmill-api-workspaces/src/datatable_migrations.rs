@@ -1213,10 +1213,13 @@ async fn upsert_datatable_migration(
     )
     .fetch_optional(&db)
     .await?;
-    // When modifying an existing definition, hold the run-serialization lock
-    // across the applied-check and the write below so an in-flight run can't
-    // record a version for the SQL we're about to overwrite. Held until the end
-    // of the handler (well past the write); a new/unchanged upsert needs no lock.
+    // When overwriting the SQL of an existing definition, hold the
+    // run-serialization lock across the applied-check and the write below so an
+    // in-flight run can't record a version for the SQL we're about to overwrite.
+    // Held until the end of the handler (well past the write). The exempt
+    // upserts need no lock: a new or unchanged one overwrites nothing, and one
+    // that only adds a down leaves the `code_up` a concurrent run is recording
+    // a version for untouched.
     let _run_lock = match existing {
         Some(existing)
             if !(existing.name == payload.name
