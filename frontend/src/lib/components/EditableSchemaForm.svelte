@@ -82,6 +82,7 @@
 		extraTab?: import('svelte').Snippet
 		schemaFormClassName?: string
 		onChange?: (args: Record<string, any>) => void
+		workspace?: string | undefined
 	}
 
 	let {
@@ -119,7 +120,8 @@
 		runButton,
 		extraTab,
 		schemaFormClassName = undefined,
-		onChange = undefined
+		onChange = undefined,
+		workspace = undefined
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -437,6 +439,7 @@
 							{hiddenArgs}
 							{disableDnd}
 							{onlyMaskPassword}
+							{workspace}
 							bind:args
 							on:click={(e) => {
 								opened = e.detail
@@ -682,6 +685,7 @@
 															{isFlowInput}
 															{isAppInput}
 															{showSensitiveToggle}
+															{workspace}
 														>
 															{#snippet typeeditor()}
 																{#if isFlowInput || isAppInput}
@@ -809,6 +813,7 @@
 
 															{#if isFlowInput || isAppInput}
 																<FlowPropertyEditor
+																	{workspace}
 																	onDrawerClose={() => {
 																		dndType = generateRandomString()
 																	}}

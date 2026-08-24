@@ -28,6 +28,7 @@
 		isAgentTool?: boolean
 		allowedAiTransforms?: string[] | undefined
 		chatInputEnabled?: boolean
+		workspace?: string | undefined
 	}
 
 	let {
@@ -44,7 +45,8 @@
 		helperScript = undefined,
 		isAgentTool = false,
 		allowedAiTransforms = isAgentTool ? undefined : [],
-		chatInputEnabled = false
+		chatInputEnabled = false,
+		workspace
 	}: Props = $props()
 
 	let inputCheck: { [id: string]: boolean } = $state({})
@@ -146,6 +148,7 @@
 						{allowedAiTransforms}
 						{s3StorageConfigured}
 						{chatInputEnabled}
+						{workspace}
 						otherArgs={Object.fromEntries(
 							Object.entries(args ?? {}).filter(([key]) => key !== argName)
 						)}

@@ -841,6 +841,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							{schema}
 							bind:args={value}
 						/>
@@ -983,6 +984,7 @@
 															{disablePortal}
 															{disabled}
 															{prettifyHeader}
+															{workspace}
 															schema={getSchemaFromProperties(itemsType?.properties)}
 															bind:args={value[i]}
 														/>
@@ -1150,6 +1152,7 @@
 											{disablePortal}
 											{disabled}
 											{prettifyHeader}
+											{workspace}
 											bind:schema={
 												() => ({
 													properties: obj.properties ?? {},
@@ -1186,6 +1189,7 @@
 											{disabled}
 											{prettifyHeader}
 											{chatInputEnabled}
+											{workspace}
 											hiddenArgs={['label', 'kind']}
 											schema={{
 												properties: obj.properties,
@@ -1270,6 +1274,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							schema={{
 								properties,
 								$schema: '',
@@ -1301,6 +1306,7 @@
 							{disablePortal}
 							{disabled}
 							{prettifyHeader}
+							{workspace}
 							schema={{
 								properties,
 								order,
@@ -1471,7 +1477,7 @@
 								/>
 							{/if}
 						{:else}
-							<PasswordArgInput {disabled} minRows={extra?.['minRows']} bind:value />
+							<PasswordArgInput {disabled} minRows={extra?.['minRows']} {workspace} bind:value />
 						{/if}
 					{:else}
 						{#key extra?.['minRows']}

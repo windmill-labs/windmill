@@ -712,6 +712,7 @@
 								hiddenArgs={['user_message']}
 								isFlowInput
 								showSensitiveToggle
+								workspace={opWs}
 								editTab={chatInputsEditTab ? 'inputEditor' : undefined}
 								showDynOpt
 								bind:dynCode
@@ -768,6 +769,7 @@
 						bind:schema={flowStore.val.schema}
 						isFlowInput
 						showSensitiveToggle
+						workspace={opWs}
 						on:delete={(e) => {
 							addPropertyV2?.handleDeleteArgument([e.detail])
 						}}
