@@ -636,8 +636,8 @@ export type DisplayMessage =
 
 // A tool message whose askUserQuestion is still awaiting an answer: the AI loop
 // is paused on the user. Drives the question card's interactivity, the
-// "waiting for user" indicator, and disabling the main chat input — keep those
-// in sync by going through this single predicate.
+// "waiting for user" indicator, and routing a composer send to the answer —
+// keep those in sync by going through this single predicate.
 export function isActiveUserQuestion(message: DisplayMessage | undefined): boolean {
 	return Boolean(
 		message &&

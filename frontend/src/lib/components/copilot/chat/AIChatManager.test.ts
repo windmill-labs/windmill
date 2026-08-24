@@ -432,6 +432,33 @@ describe('AIChatManager persisted autonomy default', () => {
 	})
 })
 
+describe('AIChatManager user questions', () => {
+	// The composer holds the only copy of a typed answer and clears it on a true,
+	// so a card whose resolver is gone (restored from history, its promise left
+	// with the old page) must report the answer as undelivered.
+	it('reports whether the answer reached a waiting resolver', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_ask',
+				content: 'asking',
+				isLoading: true,
+				userQuestion: { question: 'Pick one', choices: ['a', 'b'] }
+			}
+		]
+
+		expect(manager.handleUserQuestionAnswer('call_ask', ['a'])).toBe(false)
+
+		const answered = manager.requestUserQuestion('call_ask', {
+			question: 'Pick one',
+			choices: ['a', 'b']
+		})
+		expect(manager.handleUserQuestionAnswer('call_ask', ['a'])).toBe(true)
+		return expect(answered).resolves.toEqual(['a'])
+	})
+})
+
 describe('AIChatManager queued messages', () => {
 	const model = { provider: 'openai', model: 'gpt-4o' }
 

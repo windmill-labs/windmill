@@ -682,13 +682,17 @@
 		if (pendingImages > 0 || pendingFiles > 0 || ingestionHolds > 0) {
 			return
 		}
-		// Read before `take()` empties the draft the id derives from.
+		// Read before `take()` empties the draft the id derives from, and only take
+		// once the answer is delivered — an undelivered one would leave the user
+		// with neither their text nor a resumed turn.
 		const answeredQuestionId = questionAnsweredBySend
-		if (answeredQuestionId) {
-			const sent = draft.take()
+		if (
+			answeredQuestionId &&
 			aiChatManager.handleUserQuestionAnswer(answeredQuestionId, [
-				expanded(chatDraft(sent.text, sent.pastes))
+				expanded(chatDraft(draft.text, draft.pastes))
 			])
+		) {
+			draft.take()
 			contextTextareaComponent?.clearForSend()
 			return
 		}
