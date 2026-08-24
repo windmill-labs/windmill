@@ -368,10 +368,12 @@ pub mod connection_reset {
     }
 
     /// Arms the reset when an error proves a session is stuck in an aborted transaction.
-    /// `Error`'s `From<sqlx::Error>` and `to_anyhow` call this, which covers a query whose
-    /// error is converted or propagated with `?`. A caller that instead inspects the
-    /// `sqlx::Error` in place — formatting it into a message, matching on it — has to call
-    /// this itself, or a poisoned connection reported only there goes unnoticed.
+    /// `Error`'s `From<sqlx::Error>` and `to_anyhow` call this, so it covers `?` into a
+    /// `windmill_common::error::Result` and an explicit `map_err(to_anyhow)`. Everything
+    /// else has to call it: `?` into an `anyhow::Result` goes through anyhow's own `From`,
+    /// and a caller that inspects the `sqlx::Error` in place — formatting it into a
+    /// message, matching on it — never converts it at all. A poisoned connection reported
+    /// only down one of those paths goes unnoticed until something else reports it.
     pub fn note_sqlx_error(err: &sqlx::Error) {
         let sqlx::Error::Database(db_err) = err else {
             return;

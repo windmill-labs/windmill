@@ -32,8 +32,8 @@ async fn poisoned_connection_is_reset_before_being_handed_out_again(db: Pool<Pos
         err.as_database_error().and_then(|e| e.code()).as_deref(),
         Some("25P02"),
     );
-    // Converting the error is what arms the reset in production, where every `?` on a
-    // sqlx result goes through this same `From`.
+    // Converting the error is what arms the reset in production, for the `?` into a
+    // `windmill_common::error::Result` that most queries use.
     let _ = Error::from(err);
 
     sqlx::query_scalar::<_, i32>("SELECT 1")
