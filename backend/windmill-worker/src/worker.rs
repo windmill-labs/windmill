@@ -950,6 +950,10 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
+/// Bump to abandon every artifact cached under the current keyspace. Rides in
+/// `fold_modules_into_cache_key`, so it covers all of them and none can drift.
+const ARTIFACT_CACHE_KEY_VERSION: &str = "m1";
+
 /// Folds a runnable's inline modules into `base`, the pre-hash input of a build artifact's
 /// cache key. `write_module_files` puts module content in the job dir where the build
 /// inlines it into the artifact, so a key without it serves one runnable's modules to
@@ -958,9 +962,10 @@ pub(crate) fn fold_modules_into_cache_key(
     base: String,
     modules: Option<&std::collections::HashMap<String, ScriptModule>>,
 ) -> String {
+    // Every key runs through here, module-bearing or not, so that artifacts cached before
+    // modules keyed them — which a module-free runnable could still reach — are abandoned.
+    let base = format!("{base}:v:{ARTIFACT_CACHE_KEY_VERSION}");
     let Some(modules) = modules.filter(|m| !m.is_empty()) else {
-        // A module-free runnable keeps `base`, so artifacts cached before this stay
-        // reachable — including any a module-bearing one saved under that same key.
         return base;
     };
     let mut entries: Vec<(&String, &ScriptModule)> = modules.iter().collect();
@@ -5711,14 +5716,22 @@ mod write_module_files_tests {
             key(&[("b", "2"), ("a", "1")])
         );
 
-        // No modules leaves the key untouched, so existing artifacts stay valid.
+        // An absent map and an empty one are the same runnable, so they must agree.
         assert_eq!(
             fold_modules_into_cache_key("code+lock".to_string(), None),
-            "code+lock"
+            fold_modules_into_cache_key("code+lock".to_string(), Some(&HashMap::new()))
         );
-        assert_eq!(
-            fold_modules_into_cache_key("code+lock".to_string(), Some(&HashMap::new())),
-            "code+lock"
+    }
+
+    /// The version has to reach the module-free keys too: those are the ones a pre-fix
+    /// artifact was cached under, and leaving them alone would keep it reachable.
+    #[test]
+    fn module_cache_key_version_moves_every_key() {
+        assert!(fold_modules_into_cache_key("base".to_string(), None)
+            .contains(ARTIFACT_CACHE_KEY_VERSION));
+        assert_ne!(
+            fold_modules_into_cache_key("base".to_string(), None),
+            "base"
         );
     }
 
@@ -5732,9 +5745,10 @@ mod write_module_files_tests {
 
         // The forger appends the victim's whole module block to their own lockfile and
         // declares no modules of their own.
-        let forged_tail = victim
-            .strip_prefix(&windmill_common::utils::calculate_hash("code+lock"))
-            .unwrap();
+        let sealed = windmill_common::utils::calculate_hash(&format!(
+            "code+lock:v:{ARTIFACT_CACHE_KEY_VERSION}"
+        ));
+        let forged_tail = victim.strip_prefix(&sealed).unwrap();
         let forged = fold_modules_into_cache_key(format!("code+lock{forged_tail}"), None);
 
         assert_ne!(victim, forged);

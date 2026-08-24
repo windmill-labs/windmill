@@ -2970,9 +2970,8 @@ pub async fn handle_wac_v2_output(
                                     version: flow_info.version,
                                     labels: flow_info.labels.clone(),
                                 };
-                                let on_behalf_of = flow_info
-                                    .on_behalf_of(&job.workspace_id, db)
-                                    .await?;
+                                let on_behalf_of =
+                                    flow_info.on_behalf_of(&job.workspace_id, db).await?;
                                 let step_args: HashMap<String, Box<RawValue>> = step
                                     .args
                                     .iter()
@@ -4431,8 +4430,7 @@ export function main(x: number) { return x; }"#;
             "same modules must still share a cache slot"
         );
 
-        // A script without modules keeps the key it had before modules entered it, so
-        // upgrading does not invalidate every cached bundle.
+        // An absent map and an empty one are the same script, so they share a slot.
         assert_eq!(key_for(None).await, key_for(Some(&HashMap::new())).await);
         assert_ne!(key_for(None).await, attacker);
     }
