@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down WHERE NOT $7 OR datatable_migrations.code_down IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Varchar",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0b11ab7e7e5ff212ca5405c75c504d02e6c7aed1c58ac1155e82b5cf53e367b4"
+}

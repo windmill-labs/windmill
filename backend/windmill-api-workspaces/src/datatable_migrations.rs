@@ -1220,11 +1220,18 @@ async fn upsert_datatable_migration(
     // upserts need no lock: a new or unchanged one overwrites nothing, and one
     // that only adds a down leaves the `code_up` a concurrent run is recording
     // a version for untouched.
+    let only_adds_down = existing.as_ref().is_some_and(|existing| {
+        existing.name == payload.name
+            && existing.code_up == payload.code_up
+            && existing.code_down.is_none()
+            && payload.code_down.is_some()
+    });
     let _run_lock = match existing {
         Some(existing)
-            if !(existing.name == payload.name
-                && existing.code_up == payload.code_up
-                && (existing.code_down == payload.code_down || existing.code_down.is_none())) =>
+            if !only_adds_down
+                && !(existing.name == payload.name
+                    && existing.code_up == payload.code_up
+                    && existing.code_down == payload.code_down) =>
         {
             // Fail closed: if we can't lock/read the applied set (e.g. the
             // data-table database is temporarily unreachable), refuse the change
@@ -1255,20 +1262,34 @@ async fn upsert_datatable_migration(
         _ => None,
     };
 
-    sqlx::query!(
+    // The exempt add-down path took neither the lock nor the applied-check, so
+    // its `code_down IS NULL` premise is re-tested here, where `ON CONFLICT DO
+    // UPDATE` re-reads the row under a lock: two concurrent additions would
+    // otherwise both clear the check and the later one would overwrite a down
+    // that is already recorded — the rewrite this endpoint refuses everywhere else.
+    let written = sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE \
-         SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down",
+         SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down \
+         WHERE NOT $7 OR datatable_migrations.code_down IS NULL",
         &w_id,
         &datatable_name,
         payload.timestamp,
         &payload.name,
         &payload.code_up,
         payload.code_down.as_deref(),
+        only_adds_down,
     )
     .execute(&db)
     .await?;
+    if written.rows_affected() == 0 {
+        return Err(Error::BadRequest(format!(
+            "Migration {} on data table '{}' gained a down migration while this one was being \
+             saved. Reload it before editing.",
+            payload.timestamp, datatable_name
+        )));
+    }
     // The definition is written; runs may resume (audit/deploy metadata below
     // don't need the lock).
     drop(_run_lock);
