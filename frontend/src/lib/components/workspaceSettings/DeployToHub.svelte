@@ -415,6 +415,13 @@
 								exactly as it is.
 							</Alert>
 						{/if}
+						{#if s.pipelineReplayMayBeStale && s.phase === 'draft'}
+							<Alert type="warning" size="xs" title="The data pipeline replay is the published one">
+								This update carries the cascade recorded for the version that is live, and at least
+								one item has changed since. Record it again below, or visitors will replay the old
+								run as though it were this version.
+							</Alert>
+						{/if}
 						{#if s.rejectionReason && s.phase === 'draft'}
 							<Alert type="error" size="xs" title="Changes requested">
 								{s.rejectionReason}

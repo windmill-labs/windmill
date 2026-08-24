@@ -198,6 +198,9 @@ export class DeployToHubSession {
 	// Whether the Hub currently has a custom logo for this project (from
 	// rehydration) — drives the "Remove current logo" affordance.
 	hubHasRemoteLogo = $state(false)
+	// A pipeline recording is attached on the Hub. An update inherits the published
+	// one, which is only a demo of the new version if nothing it runs changed.
+	hubHasPipelineRecording = $state(false)
 	effectiveSlug = $state('')
 	hubItemIds = $state<Record<string, number>>({})
 	// Set once the project is published: everything the wizard shows from here on
@@ -333,6 +336,16 @@ export class DeployToHubSession {
 	)
 	pipelineScriptPathSet = $derived(new Set(this.pipelineScriptPaths))
 	isPipelineProject = $derived(this.pipelineScriptPaths.length > 0)
+	/** The pipeline replay this update carries came from the published version, and
+	 * at least one item changed — so it is a recording of something else. An item
+	 * that changed is exactly one that arrived without inheriting its own recording. */
+	pipelineReplayMayBeStale = $derived(
+		this.liveOnHub &&
+			this.isPipelineProject &&
+			this.hubHasPipelineRecording &&
+			!this.pipelineRecorded &&
+			this.recordableItems.some((i) => i.rec === 'none')
+	)
 	hubSlug = $derived(this.effectiveSlug || sanitizeSlug(this.hubName))
 
 	relevantTriggers = $derived.by(() => {
@@ -590,6 +603,7 @@ export class DeployToHubSession {
 			this.hubSummary = p.summary ?? ''
 			this.hubReadme = p.readme ?? ''
 			this.hubHasRemoteLogo = p.has_logo === true
+			this.hubHasPipelineRecording = p.has_pipeline_recording === true
 			this.rejectionReason = p.rejection_reason ?? undefined
 			// `live` is a key this Hub always sends — null unless an update is in
 			// flight, in which case the fields above describe that update and the
