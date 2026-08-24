@@ -1226,13 +1226,13 @@ async fn upsert_datatable_migration(
             && existing.code_down.is_none()
             && payload.code_down.is_some()
     });
-    let _run_lock = match existing {
-        Some(existing)
-            if !only_adds_down
-                && !(existing.name == payload.name
-                    && existing.code_up == payload.code_up
-                    && existing.code_down == payload.code_down) =>
-        {
+    let unchanged = existing.as_ref().is_some_and(|existing| {
+        existing.name == payload.name
+            && existing.code_up == payload.code_up
+            && existing.code_down == payload.code_down
+    });
+    let _run_lock = match existing.as_ref() {
+        Some(_) if !only_adds_down && !unchanged => {
             // Fail closed: if we can't lock/read the applied set (e.g. the
             // data-table database is temporarily unreachable), refuse the change
             // rather than risk overwriting a migration that has already run.
@@ -1262,31 +1262,38 @@ async fn upsert_datatable_migration(
         _ => None,
     };
 
-    // The exempt add-down path took neither the lock nor the applied-check, so
-    // its `code_down IS NULL` premise is re-tested here, where `ON CONFLICT DO
-    // UPDATE` re-reads the row under a lock: two concurrent additions would
-    // otherwise both clear the check and the later one would overwrite a down
-    // that is already recorded — the rewrite this endpoint refuses everywhere else.
+    // An exempt upsert judged the row from an unlocked read and then writes
+    // without the lock, so that whole read is re-tested here, where `ON CONFLICT
+    // DO UPDATE` re-reads the row under a row lock. Otherwise a request working
+    // from a stale definition silently reverts whatever changed in between — a
+    // second addition's down, or a locked rewrite of the up whose new SQL a run
+    // may already have recorded a version for.
+    let observed = existing.filter(|_| _run_lock.is_none());
     let written = sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE \
          SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down \
-         WHERE NOT $7 OR datatable_migrations.code_down IS NULL",
+         WHERE $7::text IS NULL \
+            OR (datatable_migrations.name = $7::text \
+                AND datatable_migrations.code_up = $8::text \
+                AND datatable_migrations.code_down IS NOT DISTINCT FROM $9::text)",
         &w_id,
         &datatable_name,
         payload.timestamp,
         &payload.name,
         &payload.code_up,
         payload.code_down.as_deref(),
-        only_adds_down,
+        observed.as_ref().map(|e| e.name.as_str()),
+        observed.as_ref().map(|e| e.code_up.as_str()),
+        observed.as_ref().and_then(|e| e.code_down.as_deref()),
     )
     .execute(&db)
     .await?;
     if written.rows_affected() == 0 {
         return Err(Error::BadRequest(format!(
-            "Migration {} on data table '{}' gained a down migration while this one was being \
-             saved. Reload it before editing.",
+            "Migration {} on data table '{}' was modified while this change was being saved. \
+             Reload it before editing.",
             payload.timestamp, datatable_name
         )));
     }
