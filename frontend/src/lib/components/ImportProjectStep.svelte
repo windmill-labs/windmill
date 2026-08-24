@@ -179,7 +179,11 @@
 	// total said in a more useful way.
 	const checklist = $derived<SetupStep[]>(
 		tasks.map((task) => {
-			const detail = (task.key === 'import' && importSummary) || task.detail
+			// The breakdown says what the import *will* bring, so it belongs to the row only
+			// until the run has an outcome of its own. Left in place it would go on claiming
+			// "2 apps, 4 scripts" over a run that wrote none of them because they were
+			// already there.
+			const detail = task.key === 'import' ? task.detail || importSummary : task.detail
 			return {
 				title: detail ? `${task.label} — ${detail}` : task.label,
 				status: task.status,
@@ -189,8 +193,14 @@
 					task.key === 'import'
 						? execution?.itemResults.map((r) => ({
 								title: r.path,
-								status: r.ok ? ('done' as const) : ('failed' as const),
-								description: r.error
+								// `skipped`, not `done`: nothing was written, and a green tick over an
+								// item this run left alone claims an import that did not happen.
+								status: !r.ok
+									? ('failed' as const)
+									: r.skipped
+										? ('skipped' as const)
+										: ('done' as const),
+								description: r.skipped ? 'Already in the workspace — left as it is.' : r.error
 							}))
 						: undefined
 			}

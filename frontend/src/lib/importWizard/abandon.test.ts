@@ -16,6 +16,14 @@ vi.mock('$lib/gen', () => ({
 	}
 }))
 vi.mock('$lib/storeUtils', () => ({ switchWorkspace: vi.fn() }))
+// What the destination already holds. A test sets this to stand in for a workspace that has
+// some of the bundle in it — a half-finished run, or an existing workspace.
+const present = vi.hoisted(() => ({ paths: new Set<string>() }))
+vi.mock('./probe', async (orig) => ({
+	...(await orig<typeof import('./probe')>()),
+	probeWorkspace: vi.fn(async () => ({ exists: false, ours: false })),
+	probeImportedPaths: vi.fn(async () => present.paths)
+}))
 vi.mock('$lib/user', () => ({ getUserExt: vi.fn(async () => ({ username: 'u' })) }))
 // Let a test abandon *during* a write loop, which is the only way it happens for real:
 // `run()` clears the flag on entry so a retry can proceed. Two hooks, because the item and
@@ -32,6 +40,10 @@ vi.mock('$lib/components/workspaceSettings/projectInstall', () => ({
 		// returns on success.
 		for (const path of ['a', 'b', 'c']) {
 			if (args.stopped?.() === true) return
+			if (args.alreadyPresent?.has(path)) {
+				args.onResult({ path, ok: true, skipped: true })
+				continue
+			}
 			args.onResult({ path, ok: true })
 			hooks.afterFirstItem?.()
 			hooks.afterFirstItem = undefined
@@ -109,6 +121,7 @@ describe('abandoning mid-import', () => {
 	beforeEach(() => {
 		hooks.afterFirstItem = undefined
 		hooks.afterMigrationsStart = undefined
+		present.paths = new Set()
 	})
 
 	it('does not report done, so the resumed step offers Retry rather than Continue', async () => {
@@ -141,5 +154,50 @@ describe('abandoning mid-import', () => {
 		// A row left on `running` reads as work still in progress on a run that has stopped.
 		expect(migrate?.status).not.toBe('running')
 		expect(run.done).toBe(false)
+	})
+})
+
+/**
+ * A retry used to resend the whole bundle, so everything that had already landed came back as
+ * "already exists" — a wall of failures over work that had succeeded. What is already there is
+ * now skipped, and reported as skipped rather than as imported.
+ */
+describe('retrying over what is already there', () => {
+	beforeEach(() => {
+		present.paths = new Set()
+	})
+
+	it('writes nothing for a path the destination already holds', async () => {
+		present.paths = new Set(['a', 'b'])
+		const run = new ImportExecution(PLAN, deps)
+		await run.run()
+		const byPath = new Map(run.itemResults.map((r) => [r.path, r]))
+		expect(byPath.get('a')?.skipped).toBe(true)
+		expect(byPath.get('b')?.skipped).toBe(true)
+		expect(byPath.get('c')?.skipped).toBeUndefined()
+	})
+
+	it('still accounts for every item, so the checklist stays complete', async () => {
+		present.paths = new Set(['a', 'b'])
+		const run = new ImportExecution(PLAN, deps)
+		await run.run()
+		expect(run.itemResults.length).toBe(3)
+		expect(run.done).toBe(true)
+	})
+
+	it('says what it did rather than claiming to have imported all of it', async () => {
+		present.paths = new Set(['a', 'b'])
+		const run = new ImportExecution(PLAN, deps)
+		await run.run()
+		const importRow = run.tasks.find((t) => t.key === 'import')
+		expect(importRow?.detail).toMatch(/1 imported/)
+		expect(importRow?.detail).toMatch(/2 already there/)
+	})
+
+	it('imports everything when the destination is empty', async () => {
+		const run = new ImportExecution(PLAN, deps)
+		await run.run()
+		expect(run.itemResults.every((r) => !r.skipped)).toBe(true)
+		expect(run.tasks.find((t) => t.key === 'import')?.detail).toMatch(/3 imported/)
 	})
 })

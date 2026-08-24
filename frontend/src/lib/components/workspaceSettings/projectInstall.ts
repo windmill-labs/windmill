@@ -44,6 +44,11 @@ export interface InstallResult {
 	path: string
 	ok: boolean
 	error?: string
+	/**
+	 * Already in the destination, so nothing was written. Not a failure and not an import —
+	 * reporting it as either would be a lie, and the difference is what a retry is for.
+	 */
+	skipped?: boolean
 }
 
 // Guarding an item's own path is not enough: the `$res:`/script/flow refs baked
@@ -273,6 +278,16 @@ export async function installProject(args: {
 	 * service call: the import wizard uses it when the user confirms leaving mid-run.
 	 */
 	stopped?: () => boolean
+	/**
+	 * Paths already in the destination, retargeted — so a retry writes only what is missing
+	 * instead of replaying the bundle into a wall of "already exists". Compared after
+	 * retargeting, because that is what these items will actually be called.
+	 *
+	 * Never a way to *replace* anything: an item that is there is left exactly as it is,
+	 * which is the same promise `updateIfExists: false` makes for a resource whose value
+	 * someone has since filled in.
+	 */
+	alreadyPresent?: Set<string>
 	hasEeLicense: boolean
 	onResult: (r: InstallResult) => void
 }): Promise<void> {
@@ -284,7 +299,8 @@ export async function installProject(args: {
 		hasEeLicense,
 		onResult,
 		onMigrationsStart,
-		stopped
+		stopped,
+		alreadyPresent
 	} = args
 
 	const record = (path: string, p: Promise<unknown>): Promise<void> =>
@@ -295,6 +311,17 @@ export async function installProject(args: {
 
 	/** Every write goes through here, so one check covers items, variables and migrations. */
 	const halted = () => stopped?.() === true
+
+	/**
+	 * True when the destination already has this path, so the write is not attempted. Reported
+	 * rather than dropped: the checklist has to account for every item the project ships, and
+	 * "already there" is a different thing from "imported".
+	 */
+	const present = (path: string): boolean => {
+		if (!alreadyPresent?.has(path)) return false
+		onResult({ path, ok: true, skipped: true })
+		return true
+	}
 
 	try {
 		await FolderService.createFolder({ workspace, requestBody: { name: folder } })
@@ -336,6 +363,7 @@ export async function installProject(args: {
 
 	for (const s of proj.scripts) {
 		if (halted()) return
+		if (present(s.path)) continue
 		// `$var:` is resolved in job args (flow inputs, schedule args, trigger config),
 		// not in script source, so there is no variable arg to contain here.
 		await checkedItem(s.path, extractScriptRefs(s.content ?? ''), undefined, () =>
@@ -344,10 +372,12 @@ export async function installProject(args: {
 	}
 	for (const f of proj.flows) {
 		if (halted()) return
+		if (present(f.path)) continue
 		await checkedItem(f.path, extractFlowRefs(f.value), f.value, () => importFlow(workspace, f))
 	}
 	for (const r of proj.resources) {
 		if (halted()) return
+		if (present(r.path)) continue
 		await checked(r.path, () => importResourceStub(workspace, r))
 	}
 	// Placeholders for the project's internal `$var:`/`$jsonvar:` refs (retargeted
@@ -360,6 +390,7 @@ export async function installProject(args: {
 	}
 	for (const a of proj.apps) {
 		if (halted()) return
+		if (present(a.path)) continue
 		const isRaw = a.app_type === 'raw'
 		const refs = isRaw ? extractRawAppRefs(a.value?.raw ?? '') : extractAppRefs(a.value)
 		// Raw apps hold their runnables in the `value.raw` JSON string; parse it so the

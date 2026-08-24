@@ -13,7 +13,7 @@ import type {
 	ProjectMigration
 } from '$lib/components/workspaceSettings/projectBundle'
 import { planWorkspaceId, type ImportPlan } from './plan'
-import { probeWorkspace } from './probe'
+import { probeImportedPaths, probeWorkspace } from './probe'
 
 /**
  * The only thing in the wizard that changes anything. It takes a finished plan and
@@ -359,8 +359,15 @@ export class ImportExecution {
 		}
 
 		this.results = []
+		// Asked every run, not only on a retry: the destination may be a workspace that already
+		// holds some of these paths, and a run interrupted halfway is indistinguishable from
+		// one that never started. On a workspace this run just created the answer is empty and
+		// nothing is skipped.
+		const alreadyPresent = await probeImportedPaths(workspace, folder)
+		if (this.#abandoned) return
 		try {
 			await installProject({
+				alreadyPresent,
 				workspace,
 				exportData,
 				folder,
@@ -397,11 +404,16 @@ export class ImportExecution {
 
 		const items = this.itemResults
 		const failed = items.filter((r) => !r.ok).length
-		this.#set(
-			'import',
-			failed > 0 ? 'failed' : 'done',
-			failed > 0 ? `${items.length - failed} of ${items.length} imported` : `${items.length} items`
-		)
+		const skipped = items.filter((r) => r.skipped).length
+		// Three outcomes, so the row says which: written, left alone because it was already
+		// there, and failed. Rolling the second into the first would report an import that
+		// did not happen.
+		const wrote = items.length - failed - skipped
+		const parts: string[] = []
+		if (wrote > 0 || (failed === 0 && skipped === 0)) parts.push(`${wrote} imported`)
+		if (skipped > 0) parts.push(`${skipped} already there`)
+		if (failed > 0) parts.push(`${failed} failed`)
+		this.#set('import', failed > 0 ? 'failed' : 'done', parts.join(', '))
 
 		const migrated = this.migrationResults
 		if (migrated.length) {
