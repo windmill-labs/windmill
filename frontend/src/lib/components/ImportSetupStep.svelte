@@ -439,14 +439,29 @@
 						<!-- The wizard owns creating a data table: picking or provisioning the
 						     database, writing the config, and reporting the connection. This step
 						     only says which name it needs and runs the migrations afterwards. -->
-						<Button
-							variant={row.status === 'done' ? 'subtle' : 'accent'}
-							unifiedSize="sm"
-							disabled={working}
-							onClick={() => openWizard(row.name)}
-						>
-							{row.status === 'done' ? 'Configured' : 'Set up'}
-						</Button>
+						{#if row.status === 'failed' && configuredNames.some((c) => c.name === row.name)}
+							<!-- The data table was created and only the migrations failed, so the
+							     thing to retry is the migrations. Reopening the wizard would ask
+							     for a name it now holds itself, which it rejects as taken —
+							     leaving no way back to the step that actually failed. -->
+							<Button
+								variant="accent"
+								unifiedSize="sm"
+								disabled={working}
+								onClick={() => void runMigrationsFor(row.name).catch(() => {})}
+							>
+								Run migrations again
+							</Button>
+						{:else}
+							<Button
+								variant={row.status === 'done' ? 'subtle' : 'accent'}
+								unifiedSize="sm"
+								disabled={working}
+								onClick={() => openWizard(row.name)}
+							>
+								{row.status === 'done' ? 'Configured' : 'Set up'}
+							</Button>
+						{/if}
 					{/snippet}
 				</ImportSetupRow>
 			{/each}
@@ -556,7 +571,9 @@
 			     twice, because leaving work undone is a different decision from having
 			     finished it. Finish stays disabled until nothing is outstanding, and Skip
 			     is the subtle escape beside it. A load that failed cannot tell what is
-			     outstanding, so it offers Finish rather than blocking on an unknown. -->
+			     outstanding, so it offers Finish rather than blocking on an unknown — but a
+			     load still *running* has the same empty lists as a step with nothing to do,
+			     so Finish waits for it rather than reading that emptiness as "all done". -->
 			{#if outstanding > 0 && !loading && !loadError}
 				<Button variant="subtle" unifiedSize="sm" disabled={working} onClick={skip}>
 					Skip for now
@@ -565,7 +582,7 @@
 			<Button
 				variant="accent"
 				unifiedSize="sm"
-				disabled={working || (outstanding > 0 && !loadError)}
+				disabled={working || loading || (outstanding > 0 && !loadError)}
 				onClick={onFinish}
 			>
 				Finish setup →

@@ -418,6 +418,7 @@
 		createdProjects = []
 		nameConflictFor = undefined
 		lastFailure = ''
+		finishAlsoFailed = false
 		pathTakenError = ''
 		poolerUnavailable = undefined
 		if (from) {
@@ -505,6 +506,7 @@
 		// Same for the failure carried back to the review step: it names inputs that have since
 		// been edited, so it would describe a run nobody can still act on.
 		lastFailure = ''
+		finishAlsoFailed = false
 		if (maxStep > wiz.step) maxStep = wiz.step
 	}
 
@@ -606,6 +608,13 @@
 	)
 	/** Why the last run failed, kept on the review step after the checklist is dropped. */
 	let lastFailure = $state('')
+	/**
+	 * The appended `onFinishAlso` step failed while `runSetup` itself succeeded. Tracked apart
+	 * from `run.result`, which stays the setup's own verdict: the data table really was
+	 * created, so a retry must re-run only this last step. Re-running the setup would ask for
+	 * the table name it has just taken, and be refused as a duplicate.
+	 */
+	let finishAlsoFailed = $state(false)
 
 	/**
 	 * A refused pre-flight means nothing ran, so the checklist from a previous attempt has to
@@ -693,6 +702,7 @@
 		}
 		run = { steps: planSteps(wiz), running: true }
 		lastFailure = ''
+		finishAlsoFailed = false
 		// The database is registered by the call whatever it answers, so asking for one is
 		// already leaving something behind.
 		if (wiz.provider === 'instance' && wiz.instance.mode === 'create') {
@@ -729,6 +739,7 @@
 					run.steps = run.steps.map((s, i) =>
 						i === run.steps.length - 1 ? { ...s, status: 'failed' as const, description } : s
 					)
+					finishAlsoFailed = true
 				}
 			}
 			// `runSetup` catches per step, but anything escaping it would otherwise leave the
@@ -756,11 +767,12 @@
 
 	/**
 	 * Whether closing would throw away work. A failed run counts: its inputs are still editable
-	 * and it may have left something behind. A run in flight cannot be closed at all, and one
-	 * that succeeded has nothing left to lose.
+	 * and it may have left something behind, and so does a setup that succeeded with its
+	 * appended step still failing. A run in flight cannot be closed at all, and one that
+	 * finished cleanly has nothing left to lose.
 	 */
 	function hasUnfinishedIntent(): boolean {
-		return wiz.provider !== undefined && !run.running && !run.result?.ok
+		return wiz.provider !== undefined && !run.running && (!run.result?.ok || finishAlsoFailed)
 	}
 
 	/** Backdrop, Escape and the close button all arrive here. */
@@ -795,6 +807,33 @@
 		}
 	}
 
+	/** Re-runs only the appended step, which is the only thing that failed. */
+	async function retryFinishAlso() {
+		if (!onFinishAlso || !finishAlso) return
+		const title = finishAlso.charAt(0).toUpperCase() + finishAlso.slice(1)
+		finishAlsoFailed = false
+		run = {
+			...run,
+			running: true,
+			steps: [...run.steps.slice(0, -1), { title, status: 'running' as const }]
+		}
+		try {
+			await onFinishAlso()
+			run.steps = run.steps.map((s, i) =>
+				i === run.steps.length - 1 ? { ...s, status: 'done' as const } : s
+			)
+		} catch (err: any) {
+			const description = err?.body ?? err?.message ?? String(err)
+			run.steps = run.steps.map((s, i) =>
+				i === run.steps.length - 1 ? { ...s, status: 'failed' as const, description } : s
+			)
+			finishAlsoFailed = true
+		} finally {
+			run = { ...run, running: false }
+			onDone()
+		}
+	}
+
 	function close() {
 		opened = false
 	}
@@ -806,6 +845,10 @@
 			return { label: 'Setting things up', disabled: true, busy: true }
 		if (run.steps.length) {
 			if (run.running) return { label: 'Setting things up', disabled: true, busy: true }
+			// Before the `ok` check: the setup succeeded and the step after it did not, so
+			// "Done" would be offered over a failed row.
+			if (finishAlsoFailed)
+				return { label: 'Try again', disabled: false, act: retryFinishAlso }
 			if (run.result?.ok) return { label: 'Done', disabled: false, act: close }
 			// A run that died because the Supabase token expired would retry into the same 401
 			// forever; authorizing again is the only thing that can move it on.
