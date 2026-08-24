@@ -13,8 +13,7 @@ wm_main_repo_root() {
   cd "$(git -C "$repo_root" rev-parse --git-common-dir 2>/dev/null)/.." && pwd
 }
 
-# Written by both worktree entry points — `worktree-env` by hand, `post-create.sh` from the
-# webmux hook — and read by agents to find their own ports, so the two must not drift.
+# These field names are documented in AGENTS.md as how an agent finds its own ports and database.
 wm_write_env_local() {
   local repo_root=$1
   local backend_port=$2

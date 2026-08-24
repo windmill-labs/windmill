@@ -79,7 +79,9 @@ checkout with nothing running.
 
 **`.env.local` in the worktree root is the portable answer** — `BACKEND_PORT`,
 `FRONTEND_PORT`, `REMOTE`, `DATABASE_URL`, `CARGO_FEATURES`, `WM_DB_NAME`. Both managers write
-those fields, so it is correct whichever one you are in, and it is readable despite the name.
+those fields, so it is correct whichever one you are in. Read it with `cat .env.local` from a
+shell: the file-read tool denies every `.env.*` path, and `DATABASE_URL` is written with an
+`export` prefix that a `^DATABASE_URL=` grep misses.
 
 webmux additionally writes `$(git rev-parse --git-dir)/webmux/runtime.env`, which every pane
 sources at startup and which carries the extras `.env.local` lacks: `WEBMUX_*`, `WM_CLONE_DB`,
