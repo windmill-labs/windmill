@@ -201,6 +201,9 @@ export class DeployToHubSession {
 	// A pipeline recording is attached on the Hub. An update inherits the published
 	// one, which is only a demo of the new version if nothing it runs changed.
 	hubHasPipelineRecording = $state(false)
+	// The Hub's own verdict: this update runs different content from the published
+	// version. False when there is no update in flight.
+	hubItemsChanged = $state(false)
 	effectiveSlug = $state('')
 	hubItemIds = $state<Record<string, number>>({})
 	// Set once the project is published: everything the wizard shows from here on
@@ -337,14 +340,15 @@ export class DeployToHubSession {
 	pipelineScriptPathSet = $derived(new Set(this.pipelineScriptPaths))
 	isPipelineProject = $derived(this.pipelineScriptPaths.length > 0)
 	/** The pipeline replay this update carries came from the published version, and
-	 * at least one item changed — so it is a recording of something else. An item
-	 * that changed is exactly one that arrived without inheriting its own recording. */
+	 * something it runs has changed since — so it is a recording of another version.
+	 * `hubItemsChanged` is the Hub comparing content, not a guess from which items
+	 * carry recordings: an item nobody ever recorded has not changed. */
 	pipelineReplayMayBeStale = $derived(
 		this.liveOnHub &&
 			this.isPipelineProject &&
 			this.hubHasPipelineRecording &&
-			!this.pipelineRecorded &&
-			this.recordableItems.some((i) => i.rec === 'none')
+			this.hubItemsChanged &&
+			!this.pipelineRecorded
 	)
 	hubSlug = $derived(this.effectiveSlug || sanitizeSlug(this.hubName))
 
@@ -604,6 +608,7 @@ export class DeployToHubSession {
 			this.hubReadme = p.readme ?? ''
 			this.hubHasRemoteLogo = p.has_logo === true
 			this.hubHasPipelineRecording = p.has_pipeline_recording === true
+			this.hubItemsChanged = p.items_changed === true
 			this.rejectionReason = p.rejection_reason ?? undefined
 			// `live` is a key this Hub always sends — null unless an update is in
 			// flight, in which case the fields above describe that update and the
