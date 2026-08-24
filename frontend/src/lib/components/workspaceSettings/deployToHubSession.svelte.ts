@@ -1380,7 +1380,9 @@ export class DeployToHubSession {
 		this.rejectionReason = undefined
 		// All of it belongs to the update just finished, not the one starting. The
 		// captured cascade especially: left in place, the next update could save a
-		// replay of the version it replaces.
+		// replay of the version it replaces. Bumping the token first abandons a run
+		// still in flight, which would otherwise write its result back over this.
+		this.#pipelineRunTok++
 		this.pipelineRecorded = false
 		this.pipelineRecordingResult = undefined
 		this.pipelineRunState = 'idle'
