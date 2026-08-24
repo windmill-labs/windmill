@@ -3,8 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // Everything the executor reaches over the network, stubbed. The two behaviours under test
 // are decisions it makes around those calls, not the calls themselves.
 vi.mock('$lib/gen', () => ({
-	WorkspaceService: { createWorkspace: vi.fn(), listDataTables: vi.fn(async () => []) },
-	UserService: { whoami: vi.fn(async () => ({ username: 'u' })) }
+	WorkspaceService: {
+		createWorkspace: vi.fn(),
+		listDataTables: vi.fn(async () => []),
+		// No workspace of ours at that id: the existing-workspace plan these tests use never
+		// reaches the create, and an empty list is the honest answer for a fresh instance.
+		listWorkspaces: vi.fn(async () => [])
+	},
+	UserService: {
+		whoami: vi.fn(async () => ({ username: 'u' })),
+		globalWhoami: vi.fn(async () => ({ email: 'u@example.com' }))
+	}
 }))
 vi.mock('$lib/storeUtils', () => ({ switchWorkspace: vi.fn() }))
 vi.mock('$lib/user', () => ({ getUserExt: vi.fn(async () => ({ username: 'u' })) }))
@@ -57,7 +66,6 @@ vi.stubGlobal(
 )
 
 import { ImportExecution } from './execution.svelte'
-import { clearParkedImport, parkImport, resumableImport } from './parking'
 
 const PLAN = { slug: 'calendly', destination: { kind: 'existing' as const, workspaceId: 'ws-a' } }
 const deps = { reviewMigrations: async () => [], hasEeLicense: false }
@@ -99,7 +107,6 @@ describe('planTag', () => {
 
 describe('abandoning mid-import', () => {
 	beforeEach(() => {
-		clearParkedImport()
 		hooks.afterFirstItem = undefined
 		hooks.afterMigrationsStart = undefined
 	})
@@ -121,14 +128,6 @@ describe('abandoning mid-import', () => {
 		expect(run.itemResults.length).toBe(3)
 	})
 
-	it('keeps the parked workspace so the link the leave dialog promises still resumes', async () => {
-		parkImport({ slug: 'calendly', workspaceId: 'ws-a' })
-		const run = new ImportExecution(PLAN, deps)
-		hooks.afterFirstItem = () => run.abandon()
-		await run.run()
-		expect(resumableImport('calendly', 'ws-a')).toBe(true)
-	})
-
 	it('stops the migrate row spinning when it is abandoned mid-migration', async () => {
 		const run = new ImportExecution(PLAN, depsWithMigration)
 		// After `onMigrationsStart`, which is where the row is actually set to running —
@@ -142,12 +141,5 @@ describe('abandoning mid-import', () => {
 		// A row left on `running` reads as work still in progress on a run that has stopped.
 		expect(migrate?.status).not.toBe('running')
 		expect(run.done).toBe(false)
-	})
-
-	it('clears it on a clean finish, so a later import reaches its own create', async () => {
-		parkImport({ slug: 'calendly', workspaceId: 'ws-a' })
-		const run = new ImportExecution(PLAN, deps)
-		await run.run()
-		expect(resumableImport('calendly', 'ws-a')).toBe(false)
 	})
 })

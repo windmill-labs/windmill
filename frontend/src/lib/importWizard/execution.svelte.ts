@@ -1,4 +1,4 @@
-import { WorkspaceService } from '$lib/gen'
+import { UserService, WorkspaceService } from '$lib/gen'
 import { switchWorkspace } from '$lib/storeUtils'
 import { userStore, workspaceStore } from '$lib/stores'
 import { getUserExt } from '$lib/user'
@@ -13,7 +13,7 @@ import type {
 	ProjectMigration
 } from '$lib/components/workspaceSettings/projectBundle'
 import { planWorkspaceId, type ImportPlan } from './plan'
-import { clearParkedImport, parkImport, resumableImport } from './parking'
+import { probeWorkspace } from './probe'
 
 /**
  * The only thing in the wizard that changes anything. It takes a finished plan and
@@ -143,19 +143,9 @@ export class ImportExecution {
 	// `$workspaceStore` already holds the workspace being entered.
 	#priorWorkspace = get(workspaceStore)
 
-	/**
-	 * A workspace this plan created before the page was reloaded. Only ever true for a run
-	 * whose create already succeeded: `resumableImport` requires the parked project *and*
-	 * workspace to be this plan's, so an entry left by another import cannot make this run
-	 * skip a create it has not done.
-	 */
-	#resumed: boolean
-
 	constructor(plan: ImportPlan, deps: ExecutionDeps) {
 		this.#plan = plan
 		this.#deps = deps
-		const d = plan.destination
-		this.#resumed = d?.kind === 'new' && resumableImport(plan.slug, d.id)
 		this.tasks = this.#initialTasks()
 	}
 
@@ -176,13 +166,12 @@ export class ImportExecution {
 	/**
 	 * True once this run created a workspace — the only case where deleting is ours to offer.
 	 *
-	 * Deliberately not satisfied by `#resumed`. A parked entry is enough to skip a create,
-	 * because entering the wrong workspace is recoverable; it is not enough to delete one,
-	 * because that is not. Verifying would need a discriminator to compare the live
-	 * workspace against, and a workspace has none — no `created_at`, nothing that moves
-	 * when someone else writes — so a parked id could name a workspace another admin made
-	 * at that id after ours was removed. A resumed run therefore finishes the import and
-	 * leaves the undo to the run that actually did the creating.
+	 * Deliberately not satisfied by having *adopted* one. `workspace.owner` is enough to know
+	 * a create can be skipped — the id is one this user made — but not enough to offer to
+	 * delete it, because `owner` is an identity, not a run: a second import by the same person
+	 * into the same id looks identical. Skipping a create wrongly is recoverable; deleting a
+	 * workspace is not, so an adopted run finishes the import and leaves the undo to the run
+	 * that did the creating.
 	 */
 	get createdWorkspace(): boolean {
 		return this.#workspaceCreated
@@ -216,9 +205,9 @@ export class ImportExecution {
 	 * in flight — `installProject` takes no signal — so this stops the run at the next phase
 	 * boundary instead, which is as far as "stops where it is" can honestly go.
 	 *
-	 * Its other job is to keep the parked workspace: a run that clears parking on its way out
-	 * would make the link the user was told to come back to create the workspace a second
-	 * time and fail with "already exists".
+	 * The workspace it created stays, and the run stays resumable: coming back to the link
+	 * re-probes the instance, finds the workspace, and carries on rather than trying to create
+	 * it a second time.
 	 */
 	#abandoned = false
 
@@ -276,11 +265,14 @@ export class ImportExecution {
 			await this.#adoptUser(d.workspaceId)
 			return d.workspaceId
 		}
-		// Keyed on the workspace existing rather than on the task being green: a retry
-		// after entering it failed must not run the create again, which would only
-		// report the id as taken by the workspace this run just made. `#resumed` covers
-		// the same ground across a reload, where the field starts false again.
-		if (!this.#workspaceCreated && !this.#resumed) {
+		// Asked of the instance, not remembered. A retry after entering it failed must not
+		// run the create again — that would only report the id as taken by the workspace this
+		// run just made — and after a reload the field is false again while the workspace is
+		// still there. `ours` is what makes adopting it safe: an id that exists but belongs to
+		// someone else is not this run's work, and importing into it would be importing into
+		// a stranger's workspace.
+		const already = await probeWorkspace(d.id, await this.#email())
+		if (!this.#workspaceCreated && !(already.exists && already.ours)) {
 			this.#set('create', 'running')
 			try {
 				await WorkspaceService.createWorkspace({
@@ -293,9 +285,6 @@ export class ImportExecution {
 				return undefined
 			}
 			this.#workspaceCreated = true
-			// From here a reload can no longer tell that this id is ours, so record it
-			// before anything else can fail.
-			parkImport({ slug: this.#plan.slug, workspaceId: d.id })
 		}
 		try {
 			await enterNewWorkspace(d.id)
@@ -426,11 +415,6 @@ export class ImportExecution {
 		// A partial import is finished, not broken: the items that landed are real,
 		// and the failures are listed. Only a hard stop leaves `done` false.
 		this.done = true
-		// Nothing left to resume. A later import of the same project must reach its
-		// create rather than adopt this one — unless the user left mid-run, in which case
-		// the workspace this created is exactly what the link they were told to return to
-		// has to find.
-		if (!this.#abandoned) clearParkedImport()
 		if (failed > 0) this.error = `${failed} item${failed === 1 ? '' : 's'} failed to import.`
 	}
 
@@ -451,6 +435,21 @@ export class ImportExecution {
 		}
 	}
 
+	/**
+	 * Who we are, for the ownership check. `$userStore` is workspace-scoped and this page is
+	 * reparented out of `(logged)`, so it is unset until a run adopts one — `globalWhoami` is
+	 * the identity that exists before any workspace does.
+	 */
+	async #email(): Promise<string | undefined> {
+		const known = get(userStore)?.email
+		if (known) return known
+		try {
+			return (await UserService.globalWhoami()).email
+		} catch {
+			return undefined
+		}
+	}
+
 	/** Undoes the one thing this run created, when the user asks for it. */
 	async deleteCreatedWorkspace(): Promise<void> {
 		const d = this.#plan.destination
@@ -463,8 +462,8 @@ export class ImportExecution {
 		switchWorkspace(this.#priorWorkspace)
 		await refreshWorkspaceList()
 		this.#workspaceCreated = false
-		// The id is free again, so a retry has to create it rather than adopt it.
-		clearParkedImport()
+		// The id is free again; the next `#ensureWorkspace` asks the instance and finds it
+		// gone, so a retry creates rather than adopts.
 		this.#set('create', 'pending')
 		this.done = false
 		this.results = []
