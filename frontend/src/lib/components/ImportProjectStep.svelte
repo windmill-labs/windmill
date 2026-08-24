@@ -414,6 +414,22 @@
 			{/if}
 
 			{#if execution?.done}
+				<!-- A finished run that reports failures is still finished — what landed is
+				     real — but it must stay actionable: without this the only way out of a
+				     failed migration or a failed item is to leave, and nothing downstream
+				     can run the SQL. Offered beside Finish rather than instead of it, so a
+				     migration that fails every time cannot trap the user short of step 4. -->
+				{#if execution.error}
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						disabled={execution.running}
+						startIcon={{ icon: execution.running ? Loader2 : Download }}
+						onClick={start}
+					>
+						Retry
+					</Button>
+				{/if}
 				<!-- Disabled while the page is still deciding whether a setup step follows:
 				     finishing in that window leaves for the workspace and skips a step that
 				     the answer, a moment later, says was needed. -->

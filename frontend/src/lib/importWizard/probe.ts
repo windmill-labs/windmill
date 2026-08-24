@@ -68,6 +68,14 @@ export async function probeWorkspace(
 	}
 }
 
+const PROBE_PAGE_SIZE = 100
+/**
+ * A stop, not a limit on what may be imported: 100 pages is 10,000 items in one folder, far
+ * past any project, and a paginating endpoint that never returns a short page would otherwise
+ * loop forever. Hitting it under-reports, which only ever means "still to do".
+ */
+const MAX_PROBE_PAGES = 100
+
 /**
  * Which of the items the import would write are already there, as `presenceKey` keys.
  *
@@ -87,16 +95,34 @@ export async function probeImportedPaths(
 ): Promise<Set<string>> {
 	const pathStart = `f/${folder}/`
 	const found = new Set<string>()
-	const collect = (kind: ImportedKind) => (rows: unknown) => {
-		for (const r of (rows as { path?: string }[] | undefined) ?? []) {
-			if (r.path) found.add(presenceKey(kind, r.path))
+	/**
+	 * Every page, not the first one. These endpoints paginate and default to 30 rows, so a
+	 * single call answers for a small project and quietly under-reports a large one — leaving
+	 * everything past the first page to be created again, and rejected as already existing.
+	 */
+	const collectAll = async (
+		kind: ImportedKind,
+		list: (page: number) => Promise<unknown>
+	): Promise<void> => {
+		for (let page = 1; page <= MAX_PROBE_PAGES; page++) {
+			const rows = ((await list(page)) as { path?: string }[] | undefined) ?? []
+			for (const r of rows) if (r.path) found.add(presenceKey(kind, r.path))
+			if (rows.length < PROBE_PAGE_SIZE) return
 		}
 	}
 	const calls: Promise<unknown>[] = [
-		ScriptService.listScripts({ workspace, pathStart }).then(collect('script')),
-		FlowService.listFlows({ workspace, pathStart }).then(collect('flow')),
-		AppService.listApps({ workspace, pathStart }).then(collect('app')),
-		ResourceService.listResource({ workspace, pathStart }).then(collect('resource'))
+		collectAll('script', (page) =>
+			ScriptService.listScripts({ workspace, pathStart, page, perPage: PROBE_PAGE_SIZE })
+		),
+		collectAll('flow', (page) =>
+			FlowService.listFlows({ workspace, pathStart, page, perPage: PROBE_PAGE_SIZE })
+		),
+		collectAll('app', (page) =>
+			AppService.listApps({ workspace, pathStart, page, perPage: PROBE_PAGE_SIZE })
+		),
+		collectAll('resource', (page) =>
+			ResourceService.listResource({ workspace, pathStart, page, perPage: PROBE_PAGE_SIZE })
+		)
 	]
 	if (opts?.triggers) {
 		// `failedKinds` is deliberately ignored: a kind that could not be listed leaves its
