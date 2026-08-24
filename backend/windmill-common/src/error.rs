@@ -153,6 +153,7 @@ impl From<anyhow::Error> for Error {
 impl From<sqlx::Error> for Error {
     #[track_caller]
     fn from(e: sqlx::Error) -> Self {
+        crate::db::connection_reset::note_sqlx_error(&e);
         Self::SqlErr { error: e, location: prettify_location(std::panic::Location::caller()) }
     }
 }

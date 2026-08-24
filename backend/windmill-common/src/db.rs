@@ -290,3 +290,76 @@ impl<'b> DbExecutor<'b> for &'b mut PgConnection {
         &mut **self
     }
 }
+
+/// Guards the pool against a Postgres session left inside a transaction sqlx is not
+/// tracking.
+///
+/// sqlx only queues its rollback-on-drop once `begin()` has returned, so a future
+/// cancelled while `BEGIN` is still in flight — a disconnecting API client, a
+/// `tokio::time::timeout`, an aborted task — hands the connection back with the
+/// transaction still open server-side. sqlx's on-release `ping` is a bare
+/// `wait_until_ready` that reports such a connection as healthy, so it is reused: the
+/// next borrower's statements silently run inside that transaction and hold their locks
+/// for as long as it lives, and the first error turns the session into
+/// `idle in transaction (aborted)`, after which every unrelated query on it fails with
+/// `25P02` until `max_lifetime` recycles it half an hour later.
+///
+/// Rolling back on every release would add a round trip to every query, which measured at
+/// about a third of the throughput on small ones, so the reset is armed only once Postgres
+/// has reported a state that proves a connection is carrying such leftover state.
+pub mod connection_reset {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::LazyLock;
+    use std::time::{Duration, Instant};
+
+    static PROCESS_START: LazyLock<Instant> = LazyLock::new(Instant::now);
+    /// Milliseconds since `PROCESS_START` until which releases roll back; 0 = never armed.
+    static RESET_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
+
+    /// Long enough to outlast the connections that were already checked out when the
+    /// first poisoned one surfaced; one release cycle clears the pool.
+    const RESET_WINDOW: Duration = Duration::from_secs(60);
+
+    fn now_ms() -> u64 {
+        PROCESS_START.elapsed().as_millis() as u64
+    }
+
+    fn arm() {
+        RESET_UNTIL_MS.fetch_max(
+            now_ms() + RESET_WINDOW.as_millis() as u64,
+            Ordering::Relaxed,
+        );
+    }
+
+    /// Reading the clock is skipped entirely while the pool has never been armed, which
+    /// is the steady state.
+    fn armed() -> bool {
+        let until = RESET_UNTIL_MS.load(Ordering::Relaxed);
+        until != 0 && until > now_ms()
+    }
+
+    /// Body of the pool's `after_release` hook. `ROLLBACK` ends both a leaked-open and an
+    /// aborted transaction, and is a no-op warning on a session that has neither. Reporting
+    /// the failure makes sqlx discard the connection, which is also what a session we could
+    /// not clean deserves.
+    pub async fn reset_on_release(conn: &mut sqlx::PgConnection) -> Result<bool, sqlx::Error> {
+        if armed() {
+            use sqlx::Executor;
+            conn.execute("ROLLBACK").await?;
+        }
+        Ok(true)
+    }
+
+    /// Arms the reset when an error proves a session is stuck in an aborted transaction.
+    /// Called from `Error`'s `From<sqlx::Error>`, so it sees every query that reports one.
+    pub(crate) fn note_sqlx_error(err: &sqlx::Error) {
+        let sqlx::Error::Database(db_err) = err else {
+            return;
+        };
+        // 25P02 `in_failed_sql_transaction`: the connection this query ran on is sitting
+        // in a failed transaction block that nothing in sqlx will ever roll back.
+        if db_err.code().as_deref() == Some("25P02") {
+            arm();
+        }
+    }
+}
