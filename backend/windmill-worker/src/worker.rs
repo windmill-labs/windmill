@@ -950,9 +950,20 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
-/// Bump to abandon every artifact cached under the current keyspace. Rides in
-/// `fold_modules_into_cache_key`, so it covers all of them and none can drift.
+/// Bump to abandon every artifact cached under the current keyspace.
 const ARTIFACT_CACHE_KEY_VERSION: &str = "m1";
+
+/// Namespaces a computed artifact hash by keyspace version, yielding the name the artifact
+/// is stored under. Every build artifact cache must route its hash through this before
+/// building a path from it.
+///
+/// The version has to land here rather than in the hash preimage: a caller chooses their own
+/// preimage (a preview brings its own source and lockfile), so a versioned preimage is one
+/// they could have fed the old hash before the upgrade, planting an artifact at what becomes
+/// a post-upgrade address. A prefix on the output is not reachable that way.
+pub(crate) fn versioned_artifact_key(hash: String) -> String {
+    format!("{ARTIFACT_CACHE_KEY_VERSION}-{hash}")
+}
 
 /// Folds a runnable's inline modules into `base`, the pre-hash input of a build artifact's
 /// cache key. `write_module_files` puts module content in the job dir where the build
@@ -962,22 +973,16 @@ pub(crate) fn fold_modules_into_cache_key(
     base: String,
     modules: Option<&std::collections::HashMap<String, ScriptModule>>,
 ) -> String {
-    // Every key runs through here, module-bearing or not, so that artifacts cached before
-    // modules keyed them — which a module-free runnable could still reach — are abandoned.
-    let base = format!("{base}:v:{ARTIFACT_CACHE_KEY_VERSION}");
+    // `base` ends in caller-supplied bytes, so it is sealed to a fixed width before anything
+    // is appended — including on the module-free branch, or a crafted lockfile could spell
+    // out a module-bearing runnable's whole key and reach its slot.
+    let sealed = windmill_common::utils::calculate_hash(&base);
     let Some(modules) = modules.filter(|m| !m.is_empty()) else {
-        return base;
+        return sealed;
     };
     let mut entries: Vec<(&String, &ScriptModule)> = modules.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
-    // Hash `base` rather than concatenate onto it: it ends in caller-supplied bytes (a
-    // preview brings its own lockfile), which could otherwise spell out another
-    // runnable's block and reach its slot.
-    let mut out = format!(
-        "{}:modules:{}",
-        windmill_common::utils::calculate_hash(&base),
-        entries.len()
-    );
+    let mut out = format!("{sealed}:modules:{}", entries.len());
     for (path, module) in entries {
         // Path and content only: they are all the build reads, and deploy fills
         // `ScriptModule::lock` in after the parent prebuilt, so keying on it would strand
@@ -5689,6 +5694,7 @@ mod write_module_files_tests {
     use super::*;
     use std::collections::HashMap;
     use windmill_common::scripts::ScriptLang;
+    use windmill_common::utils::calculate_hash;
 
     fn module(content: &str) -> ScriptModule {
         ScriptModule { content: content.to_string(), language: ScriptLang::Python3, lock: None }
@@ -5723,16 +5729,19 @@ mod write_module_files_tests {
         );
     }
 
-    /// The version has to reach the module-free keys too: those are the ones a pre-fix
-    /// artifact was cached under, and leaving them alone would keep it reachable.
+    /// The version namespaces the stored name, not the hash preimage. In the preimage a
+    /// caller could have fed the same bytes to the old hash before the upgrade, planting an
+    /// artifact at what becomes a post-upgrade address.
     #[test]
-    fn module_cache_key_version_moves_every_key() {
-        assert!(fold_modules_into_cache_key("base".to_string(), None)
-            .contains(ARTIFACT_CACHE_KEY_VERSION));
-        assert_ne!(
-            fold_modules_into_cache_key("base".to_string(), None),
-            "base"
+    fn artifact_key_version_namespaces_the_stored_name() {
+        let hash = calculate_hash("anything");
+        assert_eq!(
+            versioned_artifact_key(hash.clone()),
+            format!("{ARTIFACT_CACHE_KEY_VERSION}-{hash}")
         );
+        // A pre-upgrade name is a bare hash, so no crafted preimage lands in the new
+        // namespace: `calculate_hash` never emits the version prefix.
+        assert!(!hash.starts_with(&format!("{ARTIFACT_CACHE_KEY_VERSION}-")));
     }
 
     /// A preview supplies its own lockfile, so `base` ends in caller-controlled bytes. If
@@ -5745,13 +5754,14 @@ mod write_module_files_tests {
 
         // The forger appends the victim's whole module block to their own lockfile and
         // declares no modules of their own.
-        let sealed = windmill_common::utils::calculate_hash(&format!(
-            "code+lock:v:{ARTIFACT_CACHE_KEY_VERSION}"
-        ));
-        let forged_tail = victim.strip_prefix(&sealed).unwrap();
+        let forged_tail = victim.strip_prefix(&calculate_hash("code+lock")).unwrap();
         let forged = fold_modules_into_cache_key(format!("code+lock{forged_tail}"), None);
 
         assert_ne!(victim, forged);
+
+        // Sealing the module-free branch is what makes that hold: it returns a bare hash,
+        // which can never carry the `:modules:` a module-bearing key ends with.
+        assert!(!fold_modules_into_cache_key("anything".to_string(), None).contains(":modules:"));
     }
 
     /// Deploy fills a module's lock in after the parent has prebuilt, so a key that moved
