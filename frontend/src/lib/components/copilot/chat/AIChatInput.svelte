@@ -76,6 +76,10 @@
 		// `aiChatManager.instructions` only carries programmatic prompts). Used by
 		// sessions to persist the typed-but-unsent prompt with the session draft.
 		onDraftChange?: (text: string) => void
+		// tool_call_id of the askUserQuestion the turn is parked on, when it is. A
+		// plain-text draft sent from here answers it instead of queueing behind a
+		// turn that only the answer can resume.
+		pendingQuestionToolCallId?: string
 	}
 
 	let {
@@ -98,7 +102,8 @@
 		onKeyDown = undefined,
 		loading,
 		onCancel,
-		onDraftChange = undefined
+		onDraftChange = undefined,
+		pendingQuestionToolCallId = undefined
 	}: Props = $props()
 
 	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
@@ -124,6 +129,10 @@
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
+		if (pendingQuestionToolCallId !== undefined) {
+			return 'Answer the question above'
+		}
+
 		if (!isFirstMessage) {
 			return 'Ask followup'
 		}
@@ -170,6 +179,17 @@
 		const text = draft.text
 		untrack(() => onDraftChange?.(text))
 	})
+
+	// A parked askUserQuestion is a request for input, so a plain-text draft sent
+	// from the composer answers it rather than being queued behind a turn that can
+	// only resume once the question is answered. Attachments can't ride an answer,
+	// so a draft carrying them falls through to the queue and flushes on resume.
+	const questionAnsweredBySend = $derived(
+		editingMessageIndex === null && draft.text.trim() !== '' && !draft.hasAttachments
+			? pendingQuestionToolCallId
+			: undefined
+	)
+
 	// Images being decoded right now. Holds off sending so a message can never go
 	// out without an attachment the user already dropped, and reserves cap slots
 	// against a concurrent drop.
@@ -662,6 +682,16 @@
 		if (pendingImages > 0 || pendingFiles > 0 || ingestionHolds > 0) {
 			return
 		}
+		// Read before `take()` empties the draft the id derives from.
+		const answeredQuestionId = questionAnsweredBySend
+		if (answeredQuestionId) {
+			const sent = draft.take()
+			aiChatManager.handleUserQuestionAnswer(answeredQuestionId, [
+				expanded(chatDraft(sent.text, sent.pastes))
+			])
+			contextTextareaComponent?.clearForSend()
+			return
+		}
 		if (aiChatManager.loading) {
 			// Queue the message instead of silently discarding it — it is
 			// auto-sent when the streaming turn completes successfully.
@@ -928,7 +958,10 @@
 </script>
 
 {#snippet sendStopButton()}
-	{@const isLoading = loading ?? aiChatManager.loading}
+	<!-- The turn stays `loading` while parked on a question, but a drafted answer
+	     is what the button should ship then — otherwise the only pointer action on
+	     a typed answer would be Stop. Anything else keeps Stop. -->
+	{@const isLoading = (loading ?? aiChatManager.loading) && !questionAnsweredBySend}
 	{@const emptyDraft = draft.isEmpty}
 	<!-- A text-free GLOBAL draft with context chips is a valid turn (Enter
 	     already sends it), so the button stays enabled there for pointer/touch

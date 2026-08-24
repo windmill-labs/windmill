@@ -24,7 +24,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { pendingUserAction, type DisplayMessage } from './shared'
+	import { pendingUserAction, pendingUserActionDetail, type DisplayMessage } from './shared'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
@@ -490,10 +490,13 @@
 	// act on the tool above.
 	const waitingForUserAction = $derived(aiChatManager.loading && !!pendingUserAction(messages))
 
-	// While the AI is waiting on an answer to an askUserQuestion, the only valid
-	// input is one of the choices (or the custom answer) in the question card —
-	// so disable the main chat input until the question is answered or canceled.
-	const hasActiveUserQuestion = $derived(pendingUserAction(messages) === 'question')
+	// The composer stays usable while a question is pending: sending from it
+	// answers the question (see AIChatInput.sendRequest), so the question card is
+	// not the only way out of a parked turn.
+	const pendingQuestionToolCallId = $derived.by(() => {
+		const pending = pendingUserActionDetail(messages)
+		return pending?.action === 'question' ? pending.toolCallId : undefined
+	})
 
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
@@ -771,7 +774,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{initialInstructions}
 				{onDraftChange}
 				showContext={aiChatManager.mode !== AIMode.GLOBAL}
-				disabled={disabled || hasActiveUserQuestion}
+				{disabled}
+				{pendingQuestionToolCallId}
 				isFirstMessage={messages.length === 0}
 			/>
 			<div

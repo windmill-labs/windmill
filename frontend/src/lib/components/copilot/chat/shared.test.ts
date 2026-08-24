@@ -935,6 +935,20 @@ describe('pendingUserAction', () => {
 		const userMessage: DisplayMessage = { role: 'user', index: 0, content: 'go on' }
 		expect(pendingUserAction([question, userMessage, toolMessage()])).toBe(undefined)
 	})
+
+	// The composer answers the parked question by id, so the scan must name the
+	// blocked card and not one of the queued ones sharing the turn.
+	it('names the blocked card so a caller can resolve it', async () => {
+		const { pendingUserActionDetail } = await import('./shared')
+		const blocked = toolMessage({
+			tool_call_id: 'call_ask',
+			userQuestion: { question: 'Pick one', choices: ['a'] }
+		})
+		expect(pendingUserActionDetail([blocked, toolMessage({ tool_call_id: 'call_next' })])).toEqual({
+			action: 'question',
+			toolCallId: 'call_ask'
+		})
+	})
 })
 
 describe('pollJobCompletion detach', () => {

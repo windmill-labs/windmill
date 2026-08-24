@@ -655,17 +655,30 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 // rendering progress must ask here first or it reports "the AI is working".
 export type PendingUserAction = 'question' | 'confirmation'
 
+export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+	return pendingUserActionDetail(messages)?.action
+}
+
+// Also carries the blocked tool call's id, so a caller can resolve it (the
+// composer answers a parked question with its text).
+//
 // Scans back to the turn boundary, not just the last message: a turn's cards are
 // created up front and run one at a time, and text between two tool calls pushes
 // an assistant card between them, so the blocked card is rarely last. Only cards
 // of a live turn can match — every resolution path clears `isLoading`.
-export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+export function pendingUserActionDetail(
+	messages: DisplayMessage[]
+): { action: PendingUserAction; toolCallId: string } | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i]
 		if (message.role === 'user') break
 		if (message.role !== 'tool') continue
-		if (isActiveUserQuestion(message)) return 'question'
-		if (message.needsConfirmation && message.isLoading) return 'confirmation'
+		if (isActiveUserQuestion(message)) {
+			return { action: 'question', toolCallId: message.tool_call_id }
+		}
+		if (message.needsConfirmation && message.isLoading) {
+			return { action: 'confirmation', toolCallId: message.tool_call_id }
+		}
 	}
 	return undefined
 }
