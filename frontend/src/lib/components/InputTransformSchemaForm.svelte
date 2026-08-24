@@ -49,6 +49,8 @@
 		workspace
 	}: Props = $props()
 
+	let ws = $derived(workspace ?? $workspaceStore)
+
 	let inputCheck: { [id: string]: boolean } = $state({})
 
 	$effect(() => {
@@ -83,8 +85,8 @@
 
 	async function checkS3Storage() {
 		try {
-			if ($workspaceStore) {
-				const settings = await WorkspaceService.getPublicSettings({ workspace: $workspaceStore })
+			if (ws) {
+				const settings = await WorkspaceService.getPublicSettings({ workspace: ws })
 				s3StorageConfigured = settings.large_file_storage?.s3_resource_path !== undefined
 			}
 		} catch (error) {
@@ -171,7 +173,7 @@
 	itemName="Variable"
 	extraField="path"
 	loadItems={async () =>
-		(await VariableService.listVariable({ workspace: $workspaceStore ?? '' })).map((x) => ({
+		(await VariableService.listVariable({ workspace: ws ?? '' })).map((x) => ({
 			name: x.path,
 			...x
 		}))}
@@ -192,4 +194,4 @@
 	{/snippet}
 </ItemPicker>
 
-<VariableEditor bind:this={variableEditor} />
+<VariableEditor bind:this={variableEditor} workspace={ws} />
