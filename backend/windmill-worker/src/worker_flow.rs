@@ -634,9 +634,12 @@ pub async fn update_flow_status_after_job_completion_internal(
         }));
 
         let from_result_to_args = |args: &Result<HashMap<String, Box<RawValue>>, sqlx::Error>| {
-            let args = args
-                .as_ref()
-                .map_err(|e| Error::internal_err(format!("retrieval of args from state: {e:#}")))?;
+            let args = args.as_ref().map_err(|e| {
+                // The error is only borrowed here, so it never reaches the conversions that
+                // would otherwise report it.
+                windmill_common::db::connection_reset::note_sqlx_error(e);
+                Error::internal_err(format!("retrieval of args from state: {e:#}"))
+            })?;
 
             Ok::<_, Error>(args.clone())
         };
@@ -4421,8 +4424,7 @@ async fn push_next_flow_job(
             .as_deref()
             .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
         {
-            let is_super_admin =
-                windmill_common::auth::is_super_admin_email(db, email).await?;
+            let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
             check_tag_available_for_workspace_internal(
                 db,
                 &flow_job.workspace_id,
@@ -6155,9 +6157,7 @@ pub async fn script_to_payload(
                 .await?
                 .prefetch_cached(&db)
                 .await?;
-            let on_behalf_of = script_info
-                .on_behalf_of(&flow_job.workspace_id, db)
-                .await?;
+            let on_behalf_of = script_info.on_behalf_of(&flow_job.workspace_id, db).await?;
             let ScriptHashInfo {
                 tag,
                 cache_ttl,

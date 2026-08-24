@@ -331,12 +331,14 @@ pub mod connection_reset {
     }
 
     fn arm() {
-        let previous = RESET_UNTIL_MS.fetch_max(
-            now_ms() + RESET_WINDOW.as_millis() as u64,
-            Ordering::Relaxed,
-        );
-        // Entering a window costs throughput, so it must be attributable in the logs.
-        if previous == 0 {
+        let now = now_ms();
+        let previous =
+            RESET_UNTIL_MS.fetch_max(now + RESET_WINDOW.as_millis() as u64, Ordering::Relaxed);
+        // Every window costs throughput, so each one must be attributable in the logs —
+        // hence the comparison against `now` rather than against zero, which would report
+        // only the first incident a process ever sees. Re-arming inside a live window is
+        // the common case and stays quiet.
+        if previous <= now {
             tracing::warn!(
                 "a pooled connection was found in an aborted transaction; rolling back on \
                  checkout for the next {}s",
@@ -366,9 +368,11 @@ pub mod connection_reset {
     }
 
     /// Arms the reset when an error proves a session is stuck in an aborted transaction.
-    /// Reached from `Error`'s `From<sqlx::Error>` and from `to_anyhow`, which between them
-    /// cover the paths a `sqlx::Error` takes on its way out of a query.
-    pub(crate) fn note_sqlx_error(err: &sqlx::Error) {
+    /// `Error`'s `From<sqlx::Error>` and `to_anyhow` call this, which covers a query whose
+    /// error is converted or propagated with `?`. A caller that instead inspects the
+    /// `sqlx::Error` in place — formatting it into a message, matching on it — has to call
+    /// this itself, or a poisoned connection reported only there goes unnoticed.
+    pub fn note_sqlx_error(err: &sqlx::Error) {
         let sqlx::Error::Database(db_err) = err else {
             return;
         };
