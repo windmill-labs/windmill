@@ -29,7 +29,10 @@ export function validateWorkspaceId(id: string, effectiveId: string = id): strin
 	}
 	// `check_w_id_conflict` refuses it outright, and `existsWorkspace` reports it free —
 	// so without this the wizard walks the user to the last step before the create fails.
-	if (id === RESERVED_WORKSPACE_ID || effectiveId === RESERVED_WORKSPACE_ID) {
+	// Only the effective id, which is what the backend receives: it defaults to the raw one,
+	// so a plain `global` is still caught, while a fork named `global` — submitted as
+	// `wm-fork-global`, which the backend accepts — is not.
+	if (effectiveId === RESERVED_WORKSPACE_ID) {
 		return `'${RESERVED_WORKSPACE_ID}' is not allowed as a workspace ID`
 	}
 	if (effectiveId.length > WORKSPACE_ID_MAX_LENGTH) {

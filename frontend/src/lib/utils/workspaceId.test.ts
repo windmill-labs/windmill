@@ -81,6 +81,10 @@ describe('validateWorkspaceId — the reserved id', () => {
 		expect(validateWorkspaceId('wm-fork-x', 'global')).toMatch(/not allowed/i)
 	})
 
+	it('allows a fork named `global`, which reaches the backend as `wm-fork-global`', () => {
+		expect(validateWorkspaceId('global', 'wm-fork-global')).toBeUndefined()
+	})
+
 	it('still accepts ids that merely contain it', () => {
 		expect(validateWorkspaceId('global-ops')).toBeUndefined()
 		expect(validateWorkspaceId('my-global')).toBeUndefined()

@@ -212,13 +212,6 @@ export class ImportExecution {
 	}
 
 	/**
-	 * Runs every task that has not already succeeded. Safe to call again after a
-	 * failure: a created workspace and a fetched export are reused rather than
-	 * repeated. The granularity is the task, not the item — a retry re-runs
-	 * `installProject` over the whole bundle, which is idempotent per item but does
-	 * not skip the ones that already landed.
-	 */
-	/**
 	 * Set when the user confirms leaving mid-run. Nothing here can abort a request already
 	 * in flight — `installProject` takes no signal — so this stops the run at the next phase
 	 * boundary instead, which is as far as "stops where it is" can honestly go.
@@ -234,6 +227,13 @@ export class ImportExecution {
 		this.#abandoned = true
 	}
 
+	/**
+	 * Runs every task that has not already succeeded. Safe to call again after a
+	 * failure: a created workspace and a fetched export are reused rather than
+	 * repeated. The granularity is the task, not the item — a retry re-runs
+	 * `installProject` over the whole bundle, which is idempotent per item but does
+	 * not skip the ones that already landed.
+	 */
 	async run(): Promise<void> {
 		if (this.running) return
 		this.#abandoned = false
@@ -396,6 +396,12 @@ export class ImportExecution {
 		if (this.#abandoned) {
 			const landed = this.itemResults.length
 			this.#set('import', 'failed', `stopped after ${landed} item${landed === 1 ? '' : 's'}`)
+			// The migrate row is appended once the review settles and set running by
+			// `onMigrationsStart`. Stopping before its loop leaves it spinning forever, which
+			// reads as work still in progress on a run that has stopped.
+			if (this.tasks.some((t) => t.key === 'migrate' && t.status === 'running')) {
+				this.#set('migrate', 'pending')
+			}
 			this.error = 'Import stopped. Retry to import what is left.'
 			return
 		}

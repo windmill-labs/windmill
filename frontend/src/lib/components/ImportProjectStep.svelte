@@ -30,6 +30,8 @@
 		onFinish: () => void
 		/** True once the run reveals data tables the destination has yet to configure. */
 		setupPending?: boolean
+		/** The page has not settled whether a setup step follows. Finishing now would skip it. */
+		setupUndecided?: boolean
 		/** Hands the run to the page, which needs the export's data tables to know
 		 * whether a setup step follows this one. */
 		onExecution?: (execution: ImportExecution | undefined) => void
@@ -50,6 +52,7 @@
 		onFinish,
 		onBack,
 		setupPending = false,
+		setupUndecided = false,
 		onExecution,
 		resume
 	}: Props = $props()
@@ -402,8 +405,17 @@
 			{/if}
 
 			{#if execution?.done}
-				<Button variant="accent" unifiedSize="sm" onClick={onFinish}>
-					{setupPending ? 'Continue →' : 'Finish setup →'}
+				<!-- Disabled while the page is still deciding whether a setup step follows:
+				     finishing in that window leaves for the workspace and skips a step that
+				     the answer, a moment later, says was needed. -->
+				<Button
+					variant="accent"
+					unifiedSize="sm"
+					disabled={setupUndecided}
+					startIcon={setupUndecided ? { icon: Loader2 } : undefined}
+					onClick={onFinish}
+				>
+					{setupUndecided ? 'Checking…' : setupPending ? 'Continue →' : 'Finish setup →'}
 				</Button>
 			{:else}
 				<Button

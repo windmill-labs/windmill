@@ -249,11 +249,16 @@
 	// whole wizard until the import finishes — which is exactly when it is first read.
 	let execution = $state<ImportExecution | undefined>(undefined)
 	let setupNeeded = $state(false)
+	// True while the answer is still being fetched. Without it the run reads as finished
+	// with no fourth step, and Finish leaves for the workspace before the check comes back
+	// and discovers a data table that is missing.
+	let setupUndecided = $state(false)
 	$effect(() => {
 		const names = execution?.datatableNames ?? []
 		const workspace = planWorkspaceId(plan)
 		if (!execution?.done || !workspace) {
 			setupNeeded = false
+			setupUndecided = false
 			return
 		}
 		// Every resource the project ships arrives as an empty stub, so any project with
@@ -261,13 +266,16 @@
 		// what is genuinely outstanding, which is what makes a re-import quiet.
 		if (execution.resourceCount > 0) {
 			setupNeeded = true
+			setupUndecided = false
 			return
 		}
 		if (names.length === 0) {
 			setupNeeded = false
+			setupUndecided = false
 			return
 		}
 		let cancelled = false
+		setupUndecided = true
 		void WorkspaceService.listDataTables({ workspace })
 			.then((tables) => {
 				if (cancelled) return
@@ -277,6 +285,9 @@
 			.catch(() => {
 				// Can't tell — don't invent a step the user then cannot complete.
 				if (!cancelled) setupNeeded = false
+			})
+			.finally(() => {
+				if (!cancelled) setupUndecided = false
 			})
 		return () => (cancelled = true)
 	})
@@ -500,6 +511,7 @@
 				{plan}
 				{project}
 				setupPending={setupNeeded}
+				{setupUndecided}
 				onFolderChange={(folder) => go({ folder }, 3, { replace: true })}
 				onFinish={() => (setupNeeded ? go({}, 4) : finish())}
 				onBack={() => go({}, 2)}
@@ -513,7 +525,11 @@
 				folder={plan.folder}
 				onSkip={finish}
 				onFinish={finish}
-				onBack={() => go({}, 3)}
+				onBack={// Only while this page still holds the run. After a reload it does not, and a
+				// step 3 with no run offers Import again — over a bundle that is already in,
+				// and on a new workspace over a create that would now fail, because the
+				// finished run cleared its parking.
+				execution ? () => go({}, 3) : undefined}
 			/>
 		{/if}
 	</CenteredModal>

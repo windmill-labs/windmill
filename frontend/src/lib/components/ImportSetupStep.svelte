@@ -386,6 +386,10 @@
 		{/if}
 		<ul class="flex flex-col gap-1.5">
 			{#each rows as row (row.name)}
+				{@const sql = row.migrations
+					.map((m) => m.sql)
+					.filter(Boolean)
+					.join('\n\n')}
 				<ImportSetupRow flash={row.justSaved}>
 					{#snippet icon()}
 						{#if row.status === 'done'}
@@ -413,6 +417,23 @@
 								not configured yet
 							{/if}
 						</span>
+					{/snippet}
+					{#snippet extra()}
+						<!-- The SQL, before anything runs it. Step 3 reviews the migrations it can
+						     run there; the ones deferred to here were never shown, and "Set up"
+						     executes them against whatever database the wizard is pointed at —
+						     which can be one that already holds unrelated objects. -->
+						{#if sql && row.status !== 'done'}
+							<details class="mt-1.5">
+								<summary class="cursor-pointer text-2xs text-secondary hover:text-primary">
+									Show the SQL this will run
+								</summary>
+								<pre
+									class="mt-1.5 max-h-52 overflow-auto whitespace-pre-wrap rounded border border-border-light bg-surface-secondary p-2 font-mono text-2xs text-secondary"
+									>{sql}</pre
+								>
+							</details>
+						{/if}
 					{/snippet}
 					{#snippet action()}
 						<!-- The wizard owns creating a data table: picking or provisioning the
