@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_experiment_case\n         SET subject_version = $3, subject_draft_hash = NULL\n         WHERE experiment_id = $1 AND subject_draft_hash = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7f373cf063907999580d0541a1a4a216e3887fdc0a9bab0747a447c01a4b37a5"
+}

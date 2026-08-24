@@ -145,16 +145,20 @@
 					}}
 				>
 					{@render startSnippet?.({ item, close: () => (open = false) })}
-					<span class={itemLabelWrapperClasses}>
-						{item.label || '\xa0'}
-					</span>
+					<!-- Label and subtitle stay one block so that, with an `endSnippet` making the button a
+					     flex row, the subtitle sits under the name rather than beside the row's actions. -->
+					<div class="min-w-0 flex-1">
+						<span class={itemLabelWrapperClasses}>
+							{item.label || '\xa0'}
+						</span>
+						{#if item.subtitle}
+							<div class="text-2xs text-secondary">{item.subtitle}</div>
+						{/if}
+					</div>
 					{#if item.__is_create}
 						<PlusIcon class="inline ml-auto" size={16} />
 					{:else}
 						{@render endSnippet?.({ item, close: () => (open = false) })}
-					{/if}
-					{#if item.subtitle}
-						<div class="text-2xs text-secondary">{item.subtitle}</div>
 					{/if}
 				</button>
 			</li>
