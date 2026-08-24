@@ -11,12 +11,14 @@
 	import Button from './common/button/Button.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { untrack } from 'svelte'
-	import { base } from '$lib/base'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ResourceGen from './copilot/ResourceGen.svelte'
 	import SyncResourceTypes from './SyncResourceTypes.svelte'
+	import { base } from '$lib/base'
+	import { isDataTableWizardEnabled } from './workspaceSettings/utils.svelte'
+	import { parsePostgresConnectionString } from '$lib/utils/postgresConnectionString'
 
 	interface Props {
 		resourceType: string
@@ -58,7 +60,11 @@
 		viewJsonSchema = false
 		try {
 			schema = resourceTypeInfo.schema as any
-			schema.order = schema.order ?? Object.keys(schema.properties).sort()
+			// A resource type may declare no properties at all — `dbt_profile` is a
+			// `profiles.yml` block whose keys are its adapter's, not Windmill's. That
+			// is a JSON-edited type, NOT a missing one: `Object.keys(undefined)` threw
+			// into the catch below, so the drawer told the user to sync a type it had.
+			schema.order = schema.order ?? Object.keys(schema.properties ?? {}).sort()
 			notFound = false
 		} catch (e) {
 			notFound = true
@@ -94,34 +100,41 @@
 	let connectionString = $state('')
 	let validConnectionString = $state(true)
 	function parseConnectionString(close: (_: any) => void) {
-		const regex =
-			/postgres(?:ql)?:\/\/(?<user>[^:@]+)(?::(?<password>[^@]+))?@(?<host>[^:\/?]+)(?::(?<port>\d+))?\/(?<dbname>[^\?]+)?(?:\?.*sslmode=(?<sslmode>[^&]+))?/
-		const match = connectionString.match(regex)
-		if (match) {
-			validConnectionString = true
-			const { user, password, host, port, dbname, sslmode } = match.groups!
-			rawCode = JSON.stringify(
-				{
-					...args,
-					user,
-					password: password || args?.password,
-					host,
-					port: (port ? Number(port) : undefined) || args?.port,
-					dbname: dbname || args?.dbname,
-					sslmode: sslmode || args?.sslmode
-				},
-				null,
-				2
-			)
-			rawCodeEditor?.setCode(rawCode)
-			close(null)
-		} else {
+		const parts = parsePostgresConnectionString(connectionString)
+		if (!parts) {
 			validConnectionString = false
+			return
 		}
+		validConnectionString = true
+		rawCode = JSON.stringify(
+			{
+				...args,
+				user: parts.user,
+				password: parts.password || args?.password,
+				host: parts.host,
+				port: parts.port || args?.port,
+				dbname: parts.dbname || args?.dbname,
+				sslmode: parts.sslmode || args?.sslmode
+			},
+			null,
+			2
+		)
+		rawCodeEditor?.setCode(rawCode)
+		close(null)
 	}
 
 	let rawCodeEditor: { setCode: (code: string) => void } | undefined = $state(undefined)
 	let textFileContent: string | undefined = $state(undefined)
+
+	// The wizard's Supabase entry point is opt-in for now; without it the form keeps the link
+	// that hands the whole leg over to the resources page.
+	const wizardEnabled = isDataTableWizardEnabled()
+
+	function applySupabasePick(value: Record<string, any>) {
+		args = { ...(args ?? {}), ...value }
+		rawCode = JSON.stringify(args, null, 2)
+		rawCodeEditor?.setCode(rawCode)
+	}
 
 	function parseTextFileContent() {
 		args = {
@@ -168,7 +181,7 @@
 				}}
 			>
 				{#snippet trigger()}
-					<Button spacingSize="sm" size="xs" variant="default" nonCaptureEvent>
+					<Button spacingSize="sm" size="xs" unifiedSize="md" variant="default" nonCaptureEvent>
 						From connection string
 					</Button>
 				{/snippet}
@@ -202,14 +215,28 @@
 			</Popover>
 		{/if}
 		{#if resourceType == 'postgresql' && supabaseWizard}
-			<a
-				target="_blank"
-				href="{base}/api/oauth/connect/supabase_wizard"
-				class="border rounded-lg flex flex-row gap-2 items-center text-xs px-3 py-1.5 h-8 bg-[#F1F3F5] hover:bg-[#E6E8EB] dark:bg-[#1C1C1C] dark:hover:bg-black"
-			>
-				<SupabaseIcon height="16px" width="16px" />
-				<div class="text-[#11181C] dark:text-[#EDEDED] font-semibold">Connect Supabase</div>
-			</a>
+			{#if wizardEnabled}
+				<!-- Imported here rather than at the top so the wizard's Supabase graph stays out of
+				this form's chunk, which loads on the resources page and in every resource drawer. -->
+				{#await import('./workspaceSettings/SupabaseResourceConnect.svelte')}
+					<Loader2 class="animate-spin" />
+				{:then Module}
+					<Module.default onPicked={applySupabasePick} />
+				{/await}
+			{:else}
+				<!-- `noopener` is what the callback reads to tell this leg from the wizard's popup,
+				which hands its token back through `window.opener`. Browsers imply it for
+				`target="_blank"`, but only since 2021 -- stating it keeps older ones on this path. -->
+				<a
+					target="_blank"
+					rel="noopener"
+					href="{base}/api/oauth/connect/supabase_wizard"
+					class="border rounded-lg flex flex-row gap-2 items-center text-xs px-3 py-1.5 h-8 bg-[#F1F3F5] hover:bg-[#E6E8EB] dark:bg-[#1C1C1C] dark:hover:bg-black"
+				>
+					<SupabaseIcon height="16px" width="16px" />
+					<div class="text-[#11181C] dark:text-[#EDEDED] font-semibold">Connect Supabase</div>
+				</a>
+			{/if}
 		{/if}
 		<GitHubAppIntegration
 			{resourceType}
@@ -233,7 +260,7 @@
 	>
 	<SyncResourceTypes {resourceType} {onSynced} />
 {/if}
-{#if notFound || viewJsonSchema}
+{#if notFound || viewJsonSchema || !schema?.properties}
 	{#if !emptyString(error)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
 			>{error}</span
 		>{:else}<div class="py-2"></div>{/if}

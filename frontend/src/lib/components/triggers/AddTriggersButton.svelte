@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { triggerIconMap, type TriggerType } from './utils'
+	// Aliased to the desaturated map: every mark below is a dropdown row sitting beside
+	// lucide glyphs, where a coloured brand mark reads as a different kind of thing.
+	import { triggerIconMapMono as triggerIconMap, type TriggerType } from './utils'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { SchedulePollIcon } from '$lib/components/icons'
 	import type { Placement } from '@floating-ui/core'

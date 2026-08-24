@@ -149,7 +149,12 @@
 				{
 					role: 'assistant',
 					content: aiChatManager.currentReply,
-					...(aiChatManager.currentReasoning ? { reasoning: aiChatManager.currentReasoning } : {}),
+					...(aiChatManager.currentReasoning
+						? {
+								reasoning: aiChatManager.currentReasoning,
+								reasoningDurationMs: aiChatManager.currentReasoningDurationMs
+							}
+						: {}),
 					streaming: true,
 					contextElements: aiChatManager.contextManager
 						.getSelectedContext()

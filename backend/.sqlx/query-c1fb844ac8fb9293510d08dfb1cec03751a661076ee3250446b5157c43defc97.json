@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO dbt_graph_snapshot\n           (workspace_id, script_path, script_hash, job_id, digest, ingested_at)\n         VALUES ($1, $2, $3, $4, $5, now())\n         ON CONFLICT (workspace_id, script_path, script_hash, job_id)\n           WHERE script_hash IS NOT NULL\n         DO UPDATE SET digest = EXCLUDED.digest, ingested_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Int8",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c1fb844ac8fb9293510d08dfb1cec03751a661076ee3250446b5157c43defc97"
+}

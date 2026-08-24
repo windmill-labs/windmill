@@ -23,6 +23,7 @@ import { updateRawAppPolicy } from '$lib/sharedUtils'
 import { apiErrorMessage as errorMessage } from '$lib/utils'
 import type { App } from '$lib/components/apps/types'
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
+import { writingJobOptions } from '$lib/components/jobs/writingJob'
 import {
 	classifyPath,
 	collectExportVarPaths,
@@ -233,14 +234,17 @@ async function applyOneMigration(
 			only: created.timestamp
 		})
 	} else {
-		await runScriptAndPollResult({
-			workspace,
-			requestBody: {
-				language: 'postgresql',
-				content: m.sql,
-				args: { database: `datatable://${m.datatable_name}` }
-			}
-		})
+		await runScriptAndPollResult(
+			{
+				workspace,
+				requestBody: {
+					language: 'postgresql',
+					content: m.sql,
+					args: { database: `datatable://${m.datatable_name}` }
+				}
+			},
+			writingJobOptions
+		)
 	}
 }
 

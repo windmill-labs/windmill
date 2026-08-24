@@ -78,6 +78,19 @@ RUN apt-get install -y iptables
 # Kerberos runtime
 RUN apt-get install -y libsasl2-modules-gssapi-mit krb5-user
 
+# dbt
+# NO dbt engine is baked in. Fusion may not be: its license grants only a
+# non-transferable, non-sublicensable redistribution right. dbt-core 1.x cannot
+# be, because its adapter is a Python package chosen per project. dbt-core 2.x
+# could be — one adapter-agnostic binary — but shipping a pre-release nobody is
+# defaulted onto costs a layer in every image and a version pinned in two places
+# that nothing keeps in step. The worker fetches whichever engine a project asks
+# for on first use and caches it (docs/dbt-runtime.md, decision 1).
+#
+# An operator who wants one pre-staged — an air-gapped instance, or a fleet that
+# should not fetch per worker — populates `DBT_BUNDLED_DIR` (default
+# /usr/local/dbt) with `core2x-<version>/dbt-sa-cli` in their own image layer.
+
 # Fix UV cache permissions for non-root user support (uid 1000, etc.)
 # The uv tool install ansible command populates the UV cache with root-owned files
 RUN chmod -R a+rw /tmp/windmill/cache/uv && \

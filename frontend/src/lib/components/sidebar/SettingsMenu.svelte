@@ -36,6 +36,7 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
+	import { EXECUTIONS_HINT } from './executionsHint'
 	import {
 		userWorkspaces,
 		workspaceStore,
@@ -84,8 +85,18 @@
 	const canManageWorkspace = $derived(
 		$userStore?.is_admin || $superadmin || isForkOwner(settingsWs, $userStore?.email)
 	)
-	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix.
-	const currentWsIsFork = $derived(workspaceIsFork($workspaceStore, $userWorkspaces ?? []))
+	// Fork/dev workspaces are detected by their parent link, not the `wm-fork-` id prefix. A dev
+	// workspace is excluded: it is a standing environment its whole team works in, torn down by
+	// detaching it in the dev-workspace settings, so offering a one-click delete beside the account
+	// menu puts a destructive action on the wrong surface. Requires the entry to be loaded, not just
+	// absent from the list: `workspaceIsFork` answers from the id prefix alone, so between a cold
+	// load restoring the workspace id and the list arriving, a `wm-fork-` dev workspace would read
+	// as a throwaway and offer its own deletion.
+	const currentWsIsThrowawayFork = $derived(
+		!!currentWs &&
+			workspaceIsFork($workspaceStore, $userWorkspaces ?? []) &&
+			!currentWs.is_dev_workspace
+	)
 
 	let leaveWorkspaceModal = $state(false)
 	let deleteForkModal = $state<DeleteForkedWorkspaceModal>()
@@ -160,7 +171,7 @@
 			: []),
 		// Fork deletion is a global-sidebar action on the active workspace, so keep it
 		// out of the session rail's per-target settings entry (`workspaceSettingsTarget`).
-		...(currentWsIsFork && !workspaceSettingsTarget
+		...(currentWsIsThrowawayFork && !workspaceSettingsTarget
 			? [
 					{
 						displayName: 'Delete forked workspace',
@@ -222,11 +233,12 @@
 					icon: Settings,
 					action: () => goto(USER_SETTINGS_HASH)
 				},
-				...(cloudHosted && !$isPremiumStore
+				...(cloudHosted && $isPremiumStore === false
 					? [
 							{
-								displayName: `${$usageStore}/1000 user execs`,
+								displayName: `${$usageStore ?? '—'}/1000 user execs`,
 								icon: Gauge,
+								tooltip: EXECUTIONS_HINT,
 								disabled: true
 							}
 						]

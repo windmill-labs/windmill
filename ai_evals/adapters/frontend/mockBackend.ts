@@ -5,6 +5,8 @@ import type {
 	Flow,
 	Job,
 	ListableApp,
+	ListableResource,
+	ListableVariable,
 	Script
 } from '../../../frontend/src/lib/gen'
 import type {
@@ -54,6 +56,31 @@ export interface BenchmarkWorkspaceApp {
 	}
 }
 
+export interface BenchmarkWorkspaceVariable {
+	path: string
+	value: string
+	is_secret: boolean
+	description?: string
+	labels?: string[]
+	ws_specific?: boolean
+}
+
+/** An AI provider resource of the benchmark workspace, as an AI agent step would reference it.
+ * `models` stands in for the provider's model listing, which no eval run can reach. */
+export interface BenchmarkWorkspaceAiProvider {
+	path: string
+	/** Resource type, which for AI resources is the provider kind (`anthropic`, `openai`, ...). */
+	kind: string
+	/** What this resource's `/ai/proxy/models` listing returns. */
+	models?: string[]
+	/** Set to point the resource at a gateway rather than the provider's own API. */
+	base_url?: string
+	/** Models the workspace AI settings selected for this provider. */
+	configuredModels?: string[]
+	/** Marks this provider's first configured model as the workspace default. */
+	isDefault?: boolean
+}
+
 export interface BenchmarkWorkspaceJob {
 	/** Stable id so a case prompt can reference a specific run (e.g. for get_job_logs). */
 	id?: string
@@ -69,6 +96,8 @@ export interface BenchmarkWorkspaceRunnables {
 	scripts?: BenchmarkWorkspaceScript[]
 	flows?: BenchmarkWorkspaceFlow[]
 	apps?: BenchmarkWorkspaceApp[]
+	variables?: BenchmarkWorkspaceVariable[]
+	aiProviders?: BenchmarkWorkspaceAiProvider[]
 	datatables?: BenchmarkDatatableSeed[]
 	jobs?: BenchmarkWorkspaceJob[]
 }
@@ -204,6 +233,100 @@ export function getBenchmarkAppByPath(workspace: string, path: string): AppWithL
 		?.apps?.find((entry) => entry.path === path)
 
 	return app ? buildBenchmarkApp(app) : null
+}
+
+function buildBenchmarkVariable(
+	workspace: string,
+	seed: BenchmarkWorkspaceVariable,
+	decryptSecret: boolean
+): ListableVariable {
+	return {
+		workspace_id: workspace,
+		path: seed.path,
+		// Mirror `get_variable`: a secret's value is withheld unless decryption was
+		// asked for, so a reader genuinely cannot see it.
+		value: seed.is_secret && !decryptSecret ? undefined : seed.value,
+		is_secret: seed.is_secret,
+		description: seed.description,
+		labels: seed.labels,
+		ws_specific: seed.ws_specific ?? false,
+		extra_perms: {},
+		edited_at: BENCHMARK_TIMESTAMP
+	}
+}
+
+export function listBenchmarkVariables(workspace: string): ListableVariable[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		return null
+	}
+	// The list route never decrypts.
+	return (runnables.variables ?? []).map((seed) => buildBenchmarkVariable(workspace, seed, false))
+}
+
+/** AI provider resources of a benchmark workspace, shaped like `ResourceService.listResource`
+ * rows (which carry no value). Null when the workspace is not a benchmark one. */
+export function listBenchmarkAiProviderResources(workspace: string): ListableResource[] | null {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		return null
+	}
+	return (runnables.aiProviders ?? []).map((seed) => ({
+		workspace_id: workspace,
+		path: seed.path,
+		resource_type: seed.kind,
+		value: null,
+		is_oauth: false,
+		is_linked: false,
+		is_refreshed: false,
+		extra_perms: {},
+		edited_at: BENCHMARK_TIMESTAMP
+	}))
+}
+
+/** The value of a seeded AI provider resource. Only the endpoint fields are modelled — a key is
+ * never needed, because no eval run calls the provider through this resource. */
+export function getBenchmarkResourceValue(
+	workspace: string,
+	path: string
+): Record<string, unknown> | null {
+	const seed = benchmarkWorkspaceRunnables
+		.get(workspace)
+		?.aiProviders?.find((entry) => entry.path === path)
+	if (!seed) {
+		return null
+	}
+	return seed.base_url ? { base_url: seed.base_url } : {}
+}
+
+/** The AI settings of a benchmark workspace, as `WorkspaceService.getCopilotInfo` returns them. */
+export function getBenchmarkAiConfig(workspace: string): Record<string, unknown> | null {
+	const seeds = benchmarkWorkspaceRunnables.get(workspace)?.aiProviders
+	if (!seeds) {
+		return null
+	}
+	const providers: Record<string, unknown> = {}
+	let defaultModel: { model: string; provider: string } | undefined
+	for (const seed of seeds) {
+		const models = seed.configuredModels ?? seed.models ?? []
+		providers[seed.kind] = { resource_path: seed.path, models }
+		if (seed.isDefault && models[0]) {
+			defaultModel = { model: models[0], provider: seed.kind }
+		}
+	}
+	return { providers, ...(defaultModel ? { default_model: defaultModel } : {}) }
+}
+
+export function getBenchmarkVariableByPath(
+	workspace: string,
+	path: string,
+	decryptSecret = true
+): ListableVariable | null {
+	const seed = benchmarkWorkspaceRunnables
+		.get(workspace)
+		?.variables?.find((entry) => entry.path === path)
+
+	return seed ? buildBenchmarkVariable(workspace, seed, decryptSecret) : null
 }
 
 export function createBenchmarkCompletedJob(input: {
@@ -411,7 +534,8 @@ function benchmarkDeployedExists(workspace: string, kind: UserDraftItemKind, pat
 	if (kind === 'script') return Boolean(getBenchmarkScriptByPath(workspace, path))
 	if (kind === 'flow') return Boolean(getBenchmarkFlowByPath(workspace, path))
 	if (kind === 'app' || kind === 'raw_app') return Boolean(getBenchmarkAppByPath(workspace, path))
-	// Drawer kinds (variables/resources/schedules/triggers) have no deployed
+	if (kind === 'variable') return Boolean(getBenchmarkVariableByPath(workspace, path))
+	// The remaining drawer kinds (resources/schedules/triggers) have no deployed
 	// benchmark stores today.
 	return false
 }
@@ -558,6 +682,35 @@ export function runBenchmarkScriptPreview(input: {
 						message: entry.message
 					}))
 				}
+	})
+}
+
+export function runBenchmarkScriptByPath(input: {
+	workspace: string
+	path: string
+	args?: Record<string, unknown>
+}): string {
+	const script = getBenchmarkScriptByPath(input.workspace, input.path)
+	return createBenchmarkCompletedJob({
+		workspace: input.workspace,
+		jobKind: 'script',
+		success: script !== null,
+		scriptPath: input.path,
+		args: input.args,
+		result:
+			script !== null
+				? {
+						path: input.path,
+						args: input.args ?? {},
+						mocked: true
+					}
+				: {
+						error: `Script "${input.path}" not found in benchmark workspace`
+					},
+		logs:
+			script !== null
+				? 'Mock benchmark script run completed successfully.'
+				: `Script "${input.path}" not found in benchmark workspace.`
 	})
 }
 
@@ -745,6 +898,27 @@ const BENCHMARK_MCP_TOOLS: EndpointTool[] = [
 			type: 'object',
 			properties: { workspace: { type: 'string' } },
 			required: ['workspace']
+		}
+	},
+	{
+		name: 'getJob',
+		description: 'get job',
+		instructions: '',
+		path: '/w/{workspace}/jobs_u/get/{id}',
+		method: 'GET',
+		path_params_schema: {
+			type: 'object',
+			properties: { workspace: { type: 'string' }, id: { type: 'string', format: 'uuid' } },
+			required: ['workspace', 'id']
+		},
+		query_params_schema: {
+			type: 'object',
+			properties: {
+				no_logs: { type: 'boolean' },
+				no_code: { type: 'boolean' },
+				approval_token: { type: 'string' }
+			},
+			required: []
 		}
 	},
 	{
@@ -968,28 +1142,96 @@ const BENCHMARK_WORKERS = [
 	}
 ]
 
+const BENCHMARK_JOB_GET_PATH = /^\/api\/w\/([^/]+)\/jobs_u\/get\/([^/]+)$/
+const BENCHMARK_RUN_BY_PATH = /^\/api\/w\/([^/]+)\/jobs\/run\/(p|f)\/([^/]+)$/
+
+/** `executeEndpoint` sends a JSON string; anything else means no args were supplied. */
+function parseBenchmarkRequestBody(
+	body: BodyInit | null | undefined
+): Record<string, unknown> | undefined {
+	if (typeof body !== 'string') {
+		return undefined
+	}
+	try {
+		const parsed = JSON.parse(body)
+		return typeof parsed === 'object' && parsed !== null
+			? (parsed as Record<string, unknown>)
+			: undefined
+	} catch {
+		return undefined
+	}
+}
+
 /** True when `handleBenchmarkApiFetch` has an answer for this `/api/...` url.
  * Any other relative fetch must keep its normal (non-benchmark) behavior —
  * intercepting it with a synthetic 404 sends the model into retry loops. */
+// Not anchored: the frontend builds this URL from location.origin, so it arrives absolute. The
+// workspace id is greedy because an eval workspace is a temp directory path, slashes and all.
+const BENCHMARK_AI_MODELS_PATH = /\/api\/w\/(.+)\/ai\/proxy\/models$/
+
 export function hasBenchmarkApiHandler(url: string): boolean {
 	const path = url.split('?')[0]
 	return (
 		path === '/api/workers/list' ||
+		BENCHMARK_JOB_GET_PATH.test(path) ||
+		BENCHMARK_RUN_BY_PATH.test(path) ||
 		/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path) ||
 		path === '/api/embeddings/query_hub_scripts' ||
-		path.startsWith('/api/scripts/hub/get_full/')
+		path.startsWith('/api/scripts/hub/get_full/') ||
+		BENCHMARK_AI_MODELS_PATH.test(path)
 	)
 }
 
 /** Answer a relative `/api/...` fetch — from the API catalog executor, or from the
  * chat's hub tools. */
-export function handleBenchmarkApiFetch(url: string): Response {
+export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Response {
 	const path = url.split('?')[0]
 	if (path === '/api/workers/list') {
 		return Response.json(BENCHMARK_WORKERS)
 	}
+	// The provider's own model listing, which grounds an AI agent step's model id. Keyed by the
+	// resource the caller names, so two seeded providers can serve different models.
+	const aiModels = BENCHMARK_AI_MODELS_PATH.exec(path)
+	if (aiModels) {
+		const headers = new Headers(init?.headers)
+		const resourcePath = headers.get('X-Resource-Path') ?? ''
+		const seed = benchmarkWorkspaceRunnables
+			.get(decodeURIComponent(aiModels[1]))
+			?.aiProviders?.find((entry) => entry.path === resourcePath)
+		return Response.json({ data: (seed?.models ?? []).map((id) => ({ id })) })
+	}
 	if (/^\/api\/w\/[^/]+\/jobs\/queue\/list$/.test(path)) {
 		return Response.json([])
+	}
+	const jobGet = BENCHMARK_JOB_GET_PATH.exec(path)
+	if (jobGet) {
+		const id = decodeURIComponent(jobGet[2])
+		const job = getBenchmarkCompletedJob(decodeURIComponent(jobGet[1]), id)
+		if (!job) {
+			return Response.json({ error: `Job not found for "${id}"` }, { status: 404 })
+		}
+		// The real endpoint lets a caller drop the bulky fields. Ignoring that here would
+		// size the model's context off a payload it explicitly asked to shrink.
+		const query = new URLSearchParams(url.split('?')[1] ?? '')
+		if (query.get('no_logs') === 'true') {
+			delete job.logs
+		}
+		if (query.get('no_code') === 'true') {
+			delete job.raw_code
+		}
+		return Response.json(job)
+	}
+	const runByPath = BENCHMARK_RUN_BY_PATH.exec(path)
+	if (runByPath) {
+		const workspace = decodeURIComponent(runByPath[1])
+		const runnablePath = decodeURIComponent(runByPath[3])
+		const args = parseBenchmarkRequestBody(init?.body)
+		// The real endpoint answers with the bare job id as text, not JSON.
+		return new Response(
+			runByPath[2] === 'f'
+				? runBenchmarkFlowByPath({ workspace, path: runnablePath, args })
+				: runBenchmarkScriptByPath({ workspace, path: runnablePath, args })
+		)
 	}
 	if (path === '/api/embeddings/query_hub_scripts') {
 		const text = new URLSearchParams(url.split('?')[1] ?? '').get('text') ?? ''

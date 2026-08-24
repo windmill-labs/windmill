@@ -69,7 +69,10 @@ export function setClient(token?: string, baseUrl?: string) {
   if (token === undefined) {
     token = getEnv("WM_TOKEN") ?? "no_token";
   }
-  OpenAPI.WITH_CREDENTIALS = true;
+  // Windmill's raw app wrapper sets WM_RAW_APP. A sandboxed one calls the API
+  // from an opaque origin, and the API answers `Access-Control-Allow-Origin: *`,
+  // which a credentialed request can never pair with.
+  OpenAPI.WITH_CREDENTIALS = !getEnv("WM_RAW_APP");
   OpenAPI.TOKEN = token;
   OpenAPI.BASE = baseUrl + "/api";
 }
@@ -80,8 +83,12 @@ function getPublicBaseUrl(): string {
 
 export const getEnv = (key: string) => {
   if (typeof window === "undefined") {
-    // node
-    return process?.env?.[key];
+    // `process` may be undeclared entirely (web worker, browser-like runtimes
+    // without a node shim), where `process?.env` still throws a ReferenceError.
+    if (typeof process !== "undefined") {
+      return process?.env?.[key];
+    }
+    return globalThis?.process?.env?.[key];
   }
   // browser
   return window?.process?.env?.[key];
@@ -329,6 +336,27 @@ export async function getResultMaybe(jobId: string): Promise<any> {
   const workspace = getWorkspace();
   return await JobService.getCompletedJobResultMaybe({ workspace, id: jobId });
 }
+
+/**
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+export async function cancelJob(
+  jobId: string,
+  reason: string | undefined = undefined
+): Promise<string> {
+  const workspace = getWorkspace();
+  return await JobService.cancelQueuedJob({
+    workspace,
+    id: jobId,
+    requestBody: {
+      reason: reason ?? "cancelled via cancelJob method",
+    },
+  });
+}
+
 const STRIP_COMMENTS =
   /(\/\/.*$)|(\/\*[\s\S]*?\*\/)|(\s*=[^,\)]*(('(?:\\'|[^'\r\n])*')|("(?:\\"|[^"\r\n])*"))|(\s*=[^,\)]*))/gm;
 function getParamNames(func: Function): string[] {
@@ -1226,8 +1254,11 @@ export function uint8ArrayToBase64(arrayBuffer: Uint8Array): string {
 
 /**
  * Get email from workspace username
- * This method is particularly useful for apps that require the email address of the viewer.
- * Indeed, in the viewer context, WM_USERNAME is set to the username of the viewer but WM_EMAIL is set to the email of the creator of the app.
+ * @deprecated Read the contextual variables instead: `process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`.
+ * WM_END_USER_EMAIL is the email of whoever triggered the run when it came from an app, so the fallback
+ * yields the app viewer inside an app and the executing user everywhere else - without an extra API call,
+ * and unlike this function it also resolves viewers who are not workspace members. An app viewed
+ * anonymously has no identity to report: the variable is then empty and the fallback yields the publisher.
  * @param username
  * @returns email address
  */

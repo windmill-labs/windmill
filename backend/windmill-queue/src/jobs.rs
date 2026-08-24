@@ -41,7 +41,7 @@ use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::jobs::{JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL};
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
@@ -51,7 +51,7 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db, strip_json_nul};
-use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::worker::Connection;
 
 use windmill_common::otel_oss::{
     otel_incr_queue_delete_count, otel_incr_queue_pull_count, otel_incr_queue_push_count,
@@ -486,6 +486,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
+        None,
         false,
         true,
         None,
@@ -539,6 +540,7 @@ pub async fn push_periodic_bash_job<'c>(
         "worker@windmill.dev",
         SUPERADMIN_SECRET_EMAIL.to_string(),
         Some("worker_periodic_script_job"),
+        None,
         None,
         None,
         None,
@@ -1694,6 +1696,7 @@ async fn restart_job_if_perpetual_inner(
             &queued_job.permissioned_as_email,
             queued_job.permissioned_as.clone(),
             Some(&format!("add.completed.job{}", queued_job.id)),
+            None,
             scheduled_for,
             queued_job.schedule_path(),
             None,
@@ -1996,6 +1999,7 @@ pub async fn maybe_enqueue_native_script_retry(
         &job.permissioned_as_email,
         job.permissioned_as.clone(),
         Some(&format!("retry.{}", job.id)),
+        None,
         Some(scheduled_for),
         None,
         Some(root),
@@ -2499,6 +2503,68 @@ pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Syn
     Ok(())
 }
 
+/// The event for a schedule the server disabled on its own.
+pub fn schedule_auto_disable_event<'a>(
+    workspace_id: &'a str,
+    path: &'a str,
+    error: &str,
+) -> windmill_common::trigger_history::TriggerHistoryEvent<'a> {
+    windmill_common::trigger_history::TriggerHistoryEvent::server_disable(
+        workspace_id,
+        windmill_common::trigger_history::SCHEDULE_TRIGGER_KIND,
+        path,
+        serde_json::json!({ "enabled": { "old": true, "new": false } }),
+        error,
+    )
+}
+
+/// Disable a schedule the server can no longer arm, and record that it did.
+///
+/// Contract on `record_in_disable_tx`. Here `tx` is the job-completion
+/// transaction, so the savepoint also keeps a failed insert from poisoning it.
+///
+/// Returns `Err` only when the disable itself failed; a lost history row comes
+/// back through `history_lost` for the caller to report.
+async fn disable_schedule_and_record(
+    tx: &mut Transaction<'_, Postgres>,
+    schedule: &Schedule,
+    err: &Error,
+    history_lost: &mut Option<String>,
+) -> Result<u64, Error> {
+    let disable_result = sqlx::query!(
+        "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3 AND enabled = true",
+        err.to_string(),
+        &schedule.workspace_id,
+        &schedule.path
+    )
+    .execute(&mut **tx)
+    .await;
+
+    #[cfg(feature = "failpoints")]
+    let disable_result = if schedule_failpoints::is_active(
+        schedule_failpoints::ScheduleFailPoint::ScheduleDisable,
+    ) {
+        Err(sqlx::Error::Protocol(
+            "failpoint: schedule disable".to_string(),
+        ))
+    } else {
+        disable_result
+    };
+
+    let rows = disable_result?.rows_affected();
+    // Zero rows means a user disabled the schedule first: no transition of ours
+    // to record.
+    if rows == 0 {
+        return Ok(0);
+    }
+
+    let event =
+        schedule_auto_disable_event(&schedule.workspace_id, &schedule.path, &err.to_string());
+    *history_lost = windmill_common::trigger_history::record_in_disable_tx(tx, event).await;
+
+    Ok(rows)
+}
+
 pub async fn try_schedule_next_job<'c>(
     db: &Pool<Postgres>,
     mut tx: Transaction<'c, Postgres>,
@@ -2653,36 +2719,31 @@ pub async fn try_schedule_next_job<'c>(
                 "Could not push next scheduled job for {}: {err}. Disabling schedule.",
                 schedule.path
             );
-            let disable_result = sqlx::query!(
-                "UPDATE schedule SET enabled = false, error = $1 WHERE workspace_id = $2 AND path = $3",
-                err.to_string(),
-                &schedule.workspace_id,
-                &schedule.path
-            )
-            .execute(&mut *tx)
-            .await;
-            #[cfg(feature = "failpoints")]
-            let disable_result = if schedule_failpoints::is_active(
-                schedule_failpoints::ScheduleFailPoint::ScheduleDisable,
-            ) {
-                Err(sqlx::Error::Protocol(
-                    "failpoint: schedule disable".to_string(),
-                ))
-            } else {
-                disable_result
-            };
-            if let Err(disable_err) = disable_result {
+            let mut history_lost = None;
+            match disable_schedule_and_record(&mut tx, schedule, err, &mut history_lost).await {
+                Err(disable_err) => {
+                    report_error_to_workspace_handler_or_critical_side_channel(
+                        job,
+                        db,
+                        format!(
+                            "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                            schedule.path,
+                        ),
+                    )
+                    .await;
+                }
+                Ok(_) => push_err = None,
+            }
+            if let Some(history_err) = history_lost {
                 report_error_to_workspace_handler_or_critical_side_channel(
                     job,
                     db,
                     format!(
-                        "Could not push next scheduled job for {} and could not disable schedule: {disable_err}",
+                        "Disabled schedule {} but could not record it in the trigger history: {history_err}",
                         schedule.path,
                     ),
                 )
                 .await;
-            } else {
-                push_err = None;
             }
         }
     }
@@ -2839,6 +2900,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         Some(&format!("error.handler.{job_id}")),
         None,
         None,
+        None,
         Some(job_id),
         None,
         Some(job_id),
@@ -2927,6 +2989,7 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
         Some(&format!("success.handler.{job_id}")),
         None,
         None,
+        None,
         Some(job_id), // parent_job
         Some(job_id), // root_job
         Some(job_id), // flow_innermost_root_job
@@ -2998,7 +3061,7 @@ pub struct MiniPulledJob {
     pub preprocessed: Option<bool>,
     pub script_entrypoint_override: Option<String>,
     pub trigger: Option<String>,
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
     pub runnable_settings_handle: Option<i64>,
@@ -3074,7 +3137,7 @@ pub struct MiniCompletedJob {
     pub script_lang: Option<ScriptLang>,
     pub permissioned_as_email: String,
     pub flow_step_id: Option<String>,
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
     pub trigger: Option<String>,
     pub priority: Option<i16>,
     pub concurrent_limit: Option<i32>,
@@ -3082,6 +3145,14 @@ pub struct MiniCompletedJob {
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
     pub runnable_settings_handle: Option<i64>,
+    /// A `dependencies` job that only rebuilt a binary. It deployed nothing, so consumers
+    /// that react to a dependency job as "a new version is live" must skip it.
+    ///
+    /// Defaulted because this struct is deserialized from the `JobCompleted` payload an
+    /// agent worker POSTs: an agent older than this field omits it, and without a default
+    /// the server would reject every completion it sends, not just build jobs.
+    #[serde(default)]
+    pub build_binary_only: bool,
 }
 
 impl From<QueuedJobV2> for MiniCompletedJob {
@@ -3101,7 +3172,7 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             script_lang: job.script_lang,
             permissioned_as_email: job.permissioned_as_email,
             flow_step_id: job.flow_step_id,
-            trigger_kind: job.trigger_kind,
+            trigger_kind: job.trigger_kind.map(Into::into),
             trigger: job.trigger,
             priority: job.priority,
             concurrent_limit: job.concurrent_limit,
@@ -3109,6 +3180,9 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            // `QueuedJobV2` carries no args, and nothing reaches the restart gate
+            // through this conversion — the worker completes jobs from the pulled job.
+            build_binary_only: false,
         }
     }
 }
@@ -3139,6 +3213,9 @@ impl From<MiniPulledJob> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            build_binary_only: crate::binary_prebuild::is_build_binary_job(
+                job.args.as_ref().map(|x| &x.0),
+            ),
         }
     }
 }
@@ -3168,6 +3245,9 @@ impl From<Arc<MiniPulledJob>> for MiniCompletedJob {
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
             runnable_settings_handle: job.runnable_settings_handle,
+            build_binary_only: crate::binary_prebuild::is_build_binary_job(
+                job.args.as_ref().map(|x| &x.0),
+            ),
         }
     }
 }
@@ -3190,12 +3270,12 @@ impl MiniCompletedJob {
 }
 
 fn schedule_path(
-    trigger_kind: &Option<JobTriggerKind>,
+    trigger_kind: &Option<TriggerKindLabel>,
     trigger: &Option<String>,
 ) -> Option<String> {
     if trigger_kind
         .as_ref()
-        .is_some_and(|t| matches!(t, JobTriggerKind::Schedule))
+        .is_some_and(|t| t.is(JobTriggerKind::Schedule))
     {
         trigger.clone()
     } else {
@@ -3273,11 +3353,10 @@ impl MiniPulledJob {
             preprocessed: job.preprocessed.clone(),
             script_entrypoint_override: job.script_entrypoint_override.clone(),
             trigger: job.schedule_path.clone(),
-            trigger_kind: if job.schedule_path.is_some() {
-                Some(JobTriggerKind::Schedule)
-            } else {
-                None
-            },
+            trigger_kind: job
+                .schedule_path
+                .is_some()
+                .then(|| JobTriggerKind::Schedule.into()),
             visible_to_owner: job.visible_to_owner.clone(),
             permissioned_as_end_user_email: None,
         }
@@ -3375,7 +3454,15 @@ impl PulledJob {
                 Some(is_operator),
                 Some(groups),
                 Some(folders),
-            ) => Some(JobPerms { email, username, is_admin, is_operator, groups, folders }),
+            ) => Some(JobPerms {
+                email,
+                username,
+                is_admin,
+                is_operator,
+                groups,
+                folders,
+                end_user_email: self.job.permissioned_as_end_user_email.clone(),
+            }),
             _ => None,
         };
 
@@ -3397,19 +3484,16 @@ impl PulledJob {
 pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>) -> String {
     // skipping test runs
     if job.workspace_id != "" {
-        let label = if job.permissioned_as != format!("u/{}", job.created_by)
-            && job.permissioned_as != job.created_by
-        {
-            format!("ephemeral-script-end-user-{}", job.created_by)
-        } else {
-            "ephemeral-script".to_string()
-        };
+        let label = windmill_common::auth::ephemeral_script_token_label(
+            &job.permissioned_as,
+            &job.created_by,
+        );
         windmill_common::auth::create_token_for_owner(
             db,
             &job.workspace_id,
             &job.permissioned_as,
             &label,
-            *SCRIPT_TOKEN_EXPIRY,
+            windmill_common::auth::job_token_expiry_secs(db, &job.workspace_id).await,
             &job.permissioned_as_email,
             &job.id,
             perms,
@@ -3482,7 +3566,7 @@ pub async fn get_mini_pulled_job<'c>(
         preprocessed,
         script_entrypoint_override,
         trigger,
-        trigger_kind as \"trigger_kind: JobTriggerKind\",
+        trigger_kind as \"trigger_kind: TriggerKindLabel\",
         visible_to_owner,
         NULL as permissioned_as_end_user_email
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id WHERE v2_job_queue.id = $1",
@@ -3509,7 +3593,7 @@ pub struct QueuedJobV2 {
     pub script_lang: Option<ScriptLang>,
     pub permissioned_as_email: String,
     pub flow_step_id: Option<String>,
-    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger_kind: Option<TriggerKindLabel>,
     pub trigger: Option<String>,
     pub priority: Option<i16>,
     pub concurrent_limit: Option<i32>,
@@ -3551,7 +3635,7 @@ pub async fn get_queued_job_v2<'c>(
                 script_lang as "script_lang: ScriptLang",
                 permissioned_as_email,
                 flow_step_id,
-                trigger_kind as "trigger_kind: JobTriggerKind",
+                trigger_kind as "trigger_kind: TriggerKindLabel",
                 trigger,
                 q.priority,
                 concurrent_limit,
@@ -4405,6 +4489,35 @@ pub async fn custom_debounce_key(
     .await
 }
 
+/// Concurrency lane for a git-sync callback: the workspace's lane, narrowed by
+/// `suffix` (the repo, plus its branch where one is knowable).
+///
+/// Both destination columns are VARCHAR(255) and `concurrency_key.key` is written
+/// inside `push`, so an over-long key aborts the push and the sync job is never
+/// created — the suffix is hashed rather than allowed to overflow.
+/// `reserved_prefix_len` is what a caller-side prefix will consume afterwards.
+fn git_sync_concurrency_key(
+    workspace_id: &str,
+    suffix: Option<String>,
+    reserved_prefix_len: usize,
+) -> String {
+    const MAX_CONCURRENCY_KEY_LEN: usize = 255;
+    let max_key_len = MAX_CONCURRENCY_KEY_LEN.saturating_sub(reserved_prefix_len);
+    match suffix {
+        Some(suffix) => {
+            let full = format!("{workspace_id}:git_sync:{suffix}");
+            if full.len() <= max_key_len {
+                full
+            } else {
+                // SHA-256 hex (64) over the whole suffix, so distinct repos stay
+                // distinct and the result fits any workspace id (VARCHAR(50)).
+                format!("{workspace_id}:git_sync:{}", calculate_hash(&suffix))
+            }
+        }
+        None => format!("{workspace_id}:git_sync"),
+    }
+}
+
 pub fn resolve_debounce_key<'b>(
     unresolved_debounce_key: Option<String>,
     runnable_path: &Option<String>,
@@ -5051,7 +5164,8 @@ pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> 
             MiniCompletedJob,
             "SELECT
             j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as,
-            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: TriggerKindLabel\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle,
+            COALESCE(j.args->'build_binary_only' = 'true'::jsonb, false) AS \"build_binary_only!\"
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
             WHERE j.id = $1 AND j.workspace_id = $2",
             id,
@@ -5276,6 +5390,11 @@ pub async fn push<'c, 'd>(
     email: &str,
     permissioned_as: String,
     token_prefix: Option<&str>,
+    // Identifies the caller in the audit trail — distinct from the `end_user_email` below,
+    // which the job itself reads. The API sources it from `ApiAuthed::username_override`;
+    // a token label reaches audit through here alone, since `user` is the token owner.
+    // Callers that know no caller beyond `user` pass None.
+    audit_end_user: Option<&str>,
     scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>,
     parent_job: Option<Uuid>,
@@ -5306,6 +5425,7 @@ pub async fn push<'c, 'd>(
         email,
         permissioned_as,
         token_prefix,
+        audit_end_user,
         scheduled_for_o,
         schedule_path,
         parent_job,
@@ -5340,6 +5460,7 @@ async fn push_inner<'c, 'd>(
     mut email: &str,
     mut permissioned_as: String,
     token_prefix: Option<&str>,
+    audit_end_user: Option<&str>,
     #[allow(unused_mut)] mut scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
     schedule_path: Option<String>, //should be removed in favor of the trigger param below
     parent_job: Option<Uuid>,
@@ -5569,6 +5690,9 @@ async fn push_inner<'c, 'd>(
         debouncing_settings: DebouncingSettings,
         retry_settings: RetrySettings,
         labels: Option<Vec<String>>,
+        /// A `dependencies` job that only compiles an already-deployed script's binary.
+        /// It shares the job kind, but not the queue policy lock generation needs.
+        build_binary_only: bool,
     }
     let mut preprocessed = None;
     #[allow(unused)]
@@ -5588,6 +5712,7 @@ async fn push_inner<'c, 'd>(
         debouncing_settings,
         retry_settings,
         labels,
+        build_binary_only,
     } = match job_payload {
         JobPayload::ScriptHash {
             hash,
@@ -5765,6 +5890,15 @@ async fn push_inner<'c, 'd>(
             language: Some(language),
             dedicated_worker,
             debouncing_settings,
+            ..Default::default()
+        },
+
+        JobPayload::BuildBinary { path, hash, language } => JobPayloadUntagged {
+            runnable_id: Some(hash.0),
+            runnable_path: Some(path),
+            job_kind: JobKind::Dependencies,
+            language: Some(language),
+            build_binary_only: true,
             ..Default::default()
         },
 
@@ -6294,18 +6428,15 @@ async fn push_inner<'c, 'd>(
             }
         }
         JobPayload::DeploymentCallback { path, debouncing_settings, concurrency_key_append } => {
-            const MAX_CONCURRENCY_KEY_LEN: usize = 255;
-            let concurrency_key = match concurrency_key_append {
-                Some(suffix) => {
-                    let full = format!("{workspace_id}:git_sync:{suffix}");
-                    if full.len() <= MAX_CONCURRENCY_KEY_LEN {
-                        full
-                    } else {
-                        format!("{workspace_id}:git_sync:{}", calculate_hash(&suffix))
-                    }
-                }
-                None => format!("{workspace_id}:git_sync"),
-            };
+            // `resolve_concurrency_key` prepends `{workspace_id}/` on cloud builds
+            // (compiled into every EE build), so that is what the key must leave room
+            // for here.
+            #[cfg(feature = "cloud")]
+            let reserved_prefix_len = workspace_id.len() + 1;
+            #[cfg(not(feature = "cloud"))]
+            let reserved_prefix_len = 0;
+            let concurrency_key =
+                git_sync_concurrency_key(workspace_id, concurrency_key_append, reserved_prefix_len);
             JobPayloadUntagged {
                 runnable_path: Some(path.clone()),
                 job_kind: JobKind::DeploymentCallback,
@@ -6346,7 +6477,14 @@ async fn push_inner<'c, 'd>(
             && !*WMDEBUG_NO_DEBOUNCING
             && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await,
     ) {
-        concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
+        // A binary build takes minutes and writes no lock, so it gets its own key: sharing
+        // the lock-generation slot would park the next deploy of that path behind a compile.
+        // Still limit 1, to collapse redundant builds of the same script.
+        concurrency_settings.concurrency_key = Some(if build_binary_only {
+            format!("build_binary:{workspace_id}/{path}")
+        } else {
+            format!("dependency:{workspace_id}/{path}")
+        });
         concurrency_settings.concurrent_limit = Some(1);
     }
 
@@ -6371,7 +6509,9 @@ async fn push_inner<'c, 'd>(
     // prioritize flow steps to drain the queue faster
     let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
         Some(0)
-    } else if job_kind == JobKind::Dependencies {
+    } else if job_kind == JobKind::Dependencies && !build_binary_only {
+        // A binary build is a background optimization, not a deploy the user waits on, so
+        // it does not get the dependency-job jump ahead of ordinary jobs on its tag.
         Some(0)
     } else {
         final_priority
@@ -6525,6 +6665,20 @@ async fn push_inner<'c, 'd>(
             |trigger| Some((trigger.trigger_path, trigger.trigger_kind)),
         )
         .unzip();
+
+    // Which trigger kinds an instance actually fires. Counted here rather than
+    // aggregated from `v2_job` later: that table's only usable index is
+    // (workspace_id, created_at), so a windowed GROUP BY over it is a full scan.
+    //
+    // Root jobs only. A scheduled flow hands every step push its own
+    // `schedule_path` (see `FlowJob::schedule_path`), so counting per push would
+    // score one run as a fire per step job — a loop pushes two of those per
+    // iteration — burying every other kind, and would sit on the per-step path.
+    if flow_step_id.is_none() {
+        if let Some(kind) = trigger_kind.as_ref() {
+            windmill_common::feature_usage::log_feature_usage("trigger", "fired", kind.as_str());
+        }
+    }
 
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -6841,20 +6995,27 @@ async fn push_inner<'c, 'd>(
             JobKind::UnassignedSinglestepFlow => "jobs.run.unassigned_singlestepflow",
         };
 
-        let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
-            AuditAuthor {
-                email: email.to_string(),
-                username: windmill_common::auth::permissioned_as_to_username(&permissioned_as),
-                username_override: Some(user.to_string()),
-                token_prefix: token_prefix.map(|s| s.to_string()),
-            }
-        } else {
-            AuditAuthor {
-                email: email.to_string(),
-                username: user.to_string(),
-                username_override: None,
-                token_prefix: token_prefix.map(|s| s.to_string()),
-            }
+        let runs_on_behalf = format!("u/{user}") != permissioned_as && user != permissioned_as;
+        // `user` is the end user of `permissioned_as` when the job runs as someone else, and
+        // `audit_end_user` takes the one `end_user` slot ahead of it. Record it here so it stays
+        // searchable: `username` holds the run-as identity in that case, not the caller.
+        if runs_on_behalf && audit_end_user.is_some_and(|e| e != user) {
+            hm.insert("created_by", user);
+        }
+        let audit_author = AuditAuthor {
+            email: email.to_string(),
+            username: if runs_on_behalf {
+                windmill_common::auth::permissioned_as_to_username(&permissioned_as)
+            } else {
+                user.to_string()
+            },
+            // `username` is the identity the job runs as; `end_user` identifies the caller
+            // behind it, as it does for an app run. An explicitly passed one therefore wins
+            // over `user`, which only stands in for a caller when the job runs as someone else.
+            username_override: audit_end_user
+                .map(|s| s.to_string())
+                .or_else(|| runs_on_behalf.then(|| user.to_string())),
+            token_prefix: token_prefix.map(|s| s.to_string()),
         };
 
         if let Some(ref stringified_args) = stringified_args {
@@ -7704,4 +7865,37 @@ pub async fn get_same_worker_job(
             same_worker_job.job_id, e
         ))
     })
+}
+
+#[cfg(test)]
+mod git_sync_concurrency_key_tests {
+    use super::git_sync_concurrency_key;
+
+    /// The reservation is what keeps `{workspace_id}/` + the key inside the
+    /// VARCHAR(255) column on cloud builds. Without it, a suffix that fits the
+    /// bare budget is emitted verbatim and the prefixed insert fails.
+    #[test]
+    fn hashes_a_suffix_that_only_fits_before_the_prefix() {
+        let ws = "some-workspace";
+        let suffix: String = format!("u/user/{}", "x".repeat(220));
+        let bare = git_sync_concurrency_key(ws, Some(suffix.clone()), 0);
+        assert!(bare.len() <= 255 && bare.ends_with(&suffix));
+
+        let reserved = git_sync_concurrency_key(ws, Some(suffix), ws.len() + 1);
+        assert!(
+            ws.len() + 1 + reserved.len() <= 255,
+            "prefixed key must fit the column, got {}",
+            ws.len() + 1 + reserved.len()
+        );
+    }
+
+    #[test]
+    fn keeps_distinct_repos_distinct_when_hashed() {
+        let ws = "w";
+        let long = "x".repeat(300);
+        let a = git_sync_concurrency_key(ws, Some(format!("u/user/a{long}")), 0);
+        let b = git_sync_concurrency_key(ws, Some(format!("u/user/b{long}")), 0);
+        assert_ne!(a, b);
+        assert!(a.len() <= 255 && b.len() <= 255);
+    }
 }

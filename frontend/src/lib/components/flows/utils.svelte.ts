@@ -97,6 +97,9 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 	if (flow.on_behalf_of_email) {
 		o['on_behalf_of_email'] = flow.on_behalf_of_email
 	}
+	if (flow.on_behalf_of) {
+		o['on_behalf_of'] = flow.on_behalf_of
+	}
 	if (flow.ws_error_handler_muted) {
 		o['ws_error_handler_muted'] = flow.ws_error_handler_muted
 	}
@@ -115,6 +118,7 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	dedicated_worker?: boolean
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
+	on_behalf_of?: string
 } {
 	const newFlow: Flow = $state.snapshot(flow)
 

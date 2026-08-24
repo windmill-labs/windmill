@@ -42,6 +42,50 @@ function installStubSvelte(dir: string, version: string) {
   );
 }
 
+/**
+ * A stand-in shaped like the real svelte: `./compiler` maps `require` at a UMD
+ * bundle and `default` at the ESM sources, and only the ESM half survives an
+ * `import()` with its named exports intact.
+ */
+function installDualStubSvelte(dir: string) {
+  const pkgDir = path.join(dir, "node_modules", "svelte");
+  fs.mkdirSync(pkgDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(pkgDir, "package.json"),
+    JSON.stringify({
+      name: "svelte",
+      version: "0.0.0-dual",
+      type: "module",
+      exports: {
+        "./package.json": "./package.json",
+        "./compiler": {
+          types: "./types/index.d.ts",
+          require: "./compiler/index.cjs",
+          default: "./src/compiler/index.js",
+        },
+      },
+    }),
+    "utf-8",
+  );
+  fs.mkdirSync(path.join(pkgDir, "src", "compiler"), { recursive: true });
+  fs.writeFileSync(
+    path.join(pkgDir, "src", "compiler", "index.js"),
+    `export const VERSION = "0.0.0-esm";\n` +
+      `export function compile() { return { js: { code: "", map: null }, warnings: [] }; }\n`,
+    "utf-8",
+  );
+  fs.mkdirSync(path.join(pkgDir, "compiler"), { recursive: true });
+  fs.writeFileSync(
+    path.join(pkgDir, "compiler", "index.cjs"),
+    // The UMD wrapper the published bundle uses: no static `exports.x = ...` for
+    // a lexer to find, so an `import()` of this file sees only `default`.
+    `!function(e,t){"object"==typeof exports&&"undefined"!=typeof module?t(exports):e(t)}` +
+      `(0,function(e){e.VERSION="0.0.0-cjs";` +
+      `e.compile=function(){return{js:{code:"",map:null},warnings:[]}}});\n`,
+    "utf-8",
+  );
+}
+
 beforeEach(() => {
   tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "raw-app-svelte-compiler-"));
   fs.writeFileSync(
@@ -62,6 +106,15 @@ describe("loadSvelteCompiler", () => {
     const compiler = await loadSvelteCompiler(tempDir);
 
     expect(compiler.VERSION).toBe("0.0.0-app-local");
+  });
+
+  test("takes the ESM entry, not the `require` one, off a dual exports map", async () => {
+    installDualStubSvelte(tempDir);
+
+    const compiler = await loadSvelteCompiler(tempDir);
+
+    expect(compiler.VERSION).toBe("0.0.0-esm");
+    expect(typeof compiler.compile).toBe("function");
   });
 
   test("resolves against the app even when given a relative dir", async () => {

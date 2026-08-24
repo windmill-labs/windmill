@@ -455,6 +455,7 @@ impl From<UnifiedJob> for Job {
                     resolved_at: None,
                     resolution_note: None,
                     resolved_automatically: None,
+                    trigger_kind: None,
                 },
             )),
             "QueuedJob" => Job::QueuedJob(JobExtended::new(
@@ -505,6 +506,7 @@ impl From<UnifiedJob> for Job {
                     runnable_settings_handle: uj.runnable_settings_handle,
                     labels: uj.labels,
                     is_retry: uj.is_retry,
+                    trigger_kind: None,
                 },
             )),
             t => panic!("job type {} not valid", t),

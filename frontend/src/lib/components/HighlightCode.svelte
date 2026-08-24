@@ -26,7 +26,10 @@
 
 	interface Props {
 		code?: string
-		language: Script['language'] | 'bunnative' | 'frontend' | 'json' | undefined
+		// `sql` is the dialect-agnostic option: a dbt model's SQL is compiled by
+		// whichever adapter the project targets, so naming one dialect would be a
+		// guess. Every dialect below highlights through the same grammar anyway.
+		language: Script['language'] | 'bunnative' | 'frontend' | 'json' | 'sql' | undefined
 		highlightLanguage?: LanguageType<string> | undefined
 		lines?: boolean
 		className?: string
@@ -56,7 +59,9 @@
 		? 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-150'
 		: ''
 
-	function getLang(lang: Script['language'] | 'bunnative' | 'frontend' | 'json' | undefined) {
+	function getLang(
+		lang: Script['language'] | 'bunnative' | 'frontend' | 'json' | 'sql' | undefined
+	) {
 		switch (lang) {
 			case 'python3':
 				return python
@@ -76,6 +81,8 @@
 				return javascript
 			case 'graphql':
 				return graphql
+			case 'sql':
+				return sql
 			case 'mysql':
 				return sql
 			case 'postgresql':

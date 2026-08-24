@@ -39,6 +39,7 @@ After all code changes are done, run `./update_sqlx.sh` from `backend/` to regen
 | Modified Flow structures | Also update `openflow.openapi.yaml` |
 | Changed DB schema | Update `backend/summarized_schema.txt` if needed |
 | Enterprise file changes | Companion PR in `windmill-ee-private` (see `docs/enterprise.md`) |
+| Changed a hook in `.claude/hooks/` | `bash .claude/hooks/test-hooks.sh` — pins which commands prompt |
 
 ## When to Write Tests
 

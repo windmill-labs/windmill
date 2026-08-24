@@ -1,5 +1,34 @@
 import type { AIProvider } from '$lib/gen'
 
+export type ParsedModelId = {
+	/** Vendor namespace when the id carries one (`anthropic/claude-sonnet-5`). */
+	vendor: string | undefined
+	/** Bare model id: no vendor prefix, no variant suffix. */
+	base: string
+}
+
+/**
+ * Split a model id into the parts the predicates below match on. Gateways decorate
+ * the vendor's id in ways a raw substring check misses: OpenRouter marks its own
+ * floating aliases with a `~` prefix (`~anthropic/claude-sonnet-latest`, distinct
+ * from the vendor-pinned `anthropic/claude-sonnet-5`) and appends `:variant`
+ * suffixes (`:free`, `:thinking`). Match on the parsed parts, never on the raw id.
+ *
+ * `base` is the last `/` segment: the deprecated `<model>/thinking` selection puts
+ * its marker where a gateway puts the model, so callers that must resolve one of
+ * those ids first run it through `stripLegacyThinkingSuffix`.
+ */
+export function parseModelId(model: string): ParsedModelId {
+	const normalized = model.toLowerCase().replace(/^~/, '')
+	const segments = normalized.split('/')
+	const last = segments[segments.length - 1]
+	const colon = last.indexOf(':')
+	return {
+		vendor: segments.length > 1 ? segments[0] : undefined,
+		base: colon > 0 ? last.slice(0, colon) : last
+	}
+}
+
 // Azure AI Foundry fronts multiple model families under one resource. Claude
 // deployments are served only through the Anthropic Messages API, so the chat must
 // route them like the native Anthropic provider (Anthropic SDK, message format)
@@ -12,36 +41,50 @@ export function usesAnthropicMessagesApi(provider: AIProvider, model: string): b
 	)
 }
 
+// Anthropic bills a cached prefix at a tenth of the input rate, but only creates one
+// where an explicit `cache_control` breakpoint sits. With no breakpoint the whole
+// prompt is charged in full on every iteration of a chat. The native Anthropic path
+// sets its own breakpoints; OpenRouter forwards them over the OpenAI-compatible surface
+// but only documents them for Anthropic-backed models, so the gate is on the routed
+// model rather than the provider alone.
+export function usesOpenRouterPromptCaching(provider: AIProvider, model: string): boolean {
+	return provider === 'openrouter' && parseModelId(model).vendor === 'anthropic'
+}
+
 // gpt-5+ and o-series reasoning models reject the legacy `max_tokens` field on
 // the OpenAI/Azure Chat Completions API and require `max_completion_tokens`
-// instead. The check strips any provider prefix (e.g. OpenRouter's "openai/o3")
-// so it matches the bare model id, and the o-series match requires a digit after
-// the "o" (o1/o3/o4-mini) so it does not catch unrelated ids like Mistral's
-// "open-mistral-*" or "optimus-*".
+// instead. The check runs on the bare model id (so OpenRouter's "openai/o3"
+// matches), and the o-series match requires a digit after the "o" (o1/o3/o4-mini)
+// so it does not catch unrelated ids like Mistral's "open-mistral-*" or "optimus-*".
 export function requiresMaxCompletionTokens(model: string) {
-	const normalizedModel = model.toLowerCase()
-	const baseModel = normalizedModel.split('/').pop() ?? normalizedModel
+	const baseModel = parseModelId(model).base
 	return baseModel.startsWith('gpt-5') || /^o\d/.test(baseModel)
 }
 
 // Context windows of the models we know, most specific entry first — the first
-// name included in the model id wins, so provider-prefixed and date-suffixed
+// name found in the bare model id wins, so vendor-namespaced and date-suffixed
 // ids (anthropic.claude-sonnet-4-6-...-v1:0, gpt-5.2-2026-01-01) still resolve.
 // Conservative family fallbacks sit below the explicit entries; models not
-// listed at all resolve to undefined, which disables auto-trimming and the
-// indicator denominator.
+// listed at all resolve to undefined. Consumers that need a number regardless
+// (trim/compaction, the usage indicator) go through getModelContextWindow,
+// whose conservative 128K fallback keeps a limit enforced and is surfaced to
+// the user as an assumed window.
 const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Anthropic — Sonnet/Opus 4.6+ ship a 1M window at standard pricing (GA);
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
 	// base ids (claude-sonnet-4-20250514) fall through to 200K
 	['claude-fable-5', 1_000_000],
+	['claude-mythos-5', 1_000_000],
+	['claude-opus-5', 1_000_000],
+	['claude-sonnet-5', 1_000_000],
 	['claude-opus-4-8', 1_000_000],
 	['claude-opus-4-7', 1_000_000],
 	['claude-opus-4-6', 1_000_000],
 	['claude-sonnet-4-6', 1_000_000],
 	['claude', 200_000],
 	// OpenAI — gpt-5 covers the base family (-mini / -nano) and the 5.1/5.2
-	// revisions, all 400K; only 5.4+ moved to 1M
+	// revisions, all 400K; 5.4/5.5 moved to 1M and 5.6 to 1.05M
+	['gpt-5.6', 1_050_000],
 	['gpt-5.5', 1_000_000],
 	['gpt-5.4', 1_000_000],
 	['gpt-5', 400_000],
@@ -53,19 +96,48 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['gemini-3.1', 1_000_000],
 	['gemini-3', 1_000_000],
 	['gemini-2.5', 1_000_000],
-	// DeepSeek — the V4 family is 1M; deepseek-chat / deepseek-reasoner are
-	// aliases of V4-Flash since April 2026
+	// DeepSeek — the V4 family (pro / flash) is 1M. The deepseek-chat /
+	// deepseek-reasoner aliases were retired 2026-07-24 but can still sit in a
+	// saved selection, so they keep resolving to the window they had.
 	['deepseek-v4', 1_000_000],
 	['deepseek-chat', 1_000_000],
 	['deepseek-reasoner', 1_000_000],
 	['deepseek', 128_000],
-	// Others
+	// Alibaba — Qwen3-Max is 256K. No qwen family fallback: variant windows range
+	// from 8K (character models) to 1M, too wide for even a conservative guess
+	['qwen3-max', 256_000],
+	// Others — Mistral Medium 3.5 is 256K, reachable under both its version and
+	// the `-latest` alias. There is deliberately no `mistral-medium` family row:
+	// pinned older snapshots are 128K, and over-claiming a window overflows it.
+	['mistral-medium-3.5', 256_000],
+	['mistral-medium-latest', 256_000],
 	['llama', 128_000],
 	['codestral', 32_000]
 ]
 
+// Version separators differ by route to the same model: Anthropic writes
+// `claude-opus-4-8`, OpenRouter writes `anthropic/claude-opus-4.8`. Collapsing
+// dots to dashes on both sides keeps one table entry covering every route —
+// without it a dot-versioned id falls through to a coarser family entry.
+function normalizeVersionSeparators(model: string): string {
+	return model.replace(/\./g, '-')
+}
+
+// An entry that ends on a version digit must not run into a longer version:
+// `gpt-4.1` collapses to `gpt-4-1`, which would otherwise claim the 128K
+// `gpt-4-1106-preview` as a 1M model. Suffixes that continue with a separator
+// (`claude-opus-4-8` in `...-4-8-v1`, `gpt-5` in `gpt-5-mini`) still match.
+// Family fallbacks ending on a letter get no such guard — a version welded
+// straight onto the name (`llama3.1`) is exactly what they exist to catch.
+const MODEL_CONTEXT_WINDOW_MATCHERS: [matcher: RegExp, contextWindow: number][] =
+	MODEL_CONTEXT_WINDOWS.map(([name, contextWindow]) => {
+		const pattern = normalizeVersionSeparators(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+		return [new RegExp(/\d$/.test(pattern) ? `${pattern}(?!\\d)` : pattern), contextWindow]
+	})
+
 export function getKnownModelContextWindow(model: string): number | undefined {
-	return MODEL_CONTEXT_WINDOWS.find(([name]) => model.includes(name))?.[1]
+	const id = normalizeVersionSeparators(parseModelId(model).base)
+	return MODEL_CONTEXT_WINDOW_MATCHERS.find(([matcher]) => matcher.test(id))?.[1]
 }
 
 export function getModelContextWindow(model: string) {
@@ -122,7 +194,7 @@ const TEXT_ONLY_MODELS = new Set([
 	'groq:llama-3.3-70b-versatile',
 	'groq:llama-3.1-8b-instant',
 	// gpt-oss (text-only everywhere it is hosted) — on groq it succeeds the two
-	// llama defaults above, which retire 2026-08-16
+	// llama entries above, which retire 2026-08-16
 	'groq:openai/gpt-oss-120b',
 	'groq:openai/gpt-oss-20b',
 	'openrouter:openai/gpt-oss-120b',

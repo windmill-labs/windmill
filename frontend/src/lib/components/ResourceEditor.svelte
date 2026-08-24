@@ -130,7 +130,11 @@
 		const schema = rt.schema as Schema
 		return {
 			...schema,
-			order: schema.order ?? Object.keys(schema.properties).sort()
+			// A resource type may declare no properties at all — `dbt_profile` is a
+			// `profiles.yml` block whose keys are its adapter's, not Windmill's — and
+			// the form renders those as one JSON editor. `Object.keys(undefined)`
+			// threw here, which left the editor on its loading skeleton forever.
+			order: schema.order ?? Object.keys(schema.properties ?? {}).sort()
 		}
 	})
 	let loadingSchema = $derived(resourceTypeResource.loading)
@@ -149,12 +153,6 @@
 			perWsUser[selected] ?? $userStore
 		)
 	})
-
-	let linkedVars = $derived(
-		Object.entries(current?.args ?? {})
-			.filter(([_, v]) => typeof v == 'string' && v == `$var:${initialPath}`)
-			.map(([k, _]) => k)
-	)
 
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))
@@ -308,16 +306,19 @@
 			})
 	})
 
-	$effect(() => {
+	/** Sole writer of `current.path` — an arg still holding `$var:<the path being
+	 * replaced>` is the resource's own linked secret, which the backend renames
+	 * along with the resource, so the reference moves with it. An arg pointing at
+	 * any other variable was set by the user and is left alone. */
+	function setPath(npath: string): void {
 		if (!current) return
-		if (linkedVars.length > 0 && current.path) {
-			untrack(() => {
-				linkedVars.forEach((k) => {
-					current!.args[k] = `$var:${current!.path}`
-				})
-			})
+		const prev = current.path
+		// `args` is whatever the raw JSON editor parsed — `null` included.
+		for (const [k, v] of Object.entries(current.args ?? {})) {
+			if (v === `$var:${prev}`) current.args[k] = `$var:${npath}`
 		}
-	})
+		current.path = npath
+	}
 
 	export async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
@@ -384,7 +385,7 @@
 		{#if current}
 			{#key current}
 				<ResourceForm
-					bind:path={current.path}
+					bind:path={() => current!.path, setPath}
 					bind:labels={current.labels}
 					bind:description={current.description}
 					bind:args={current.args}

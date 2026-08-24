@@ -4,7 +4,7 @@ import { colors } from "@cliffy/ansi/colors";
 import * as log from "../core/log.ts";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseFile } from "./yaml.ts";
-import { writeFile, stat, rm, readdir } from "node:fs/promises";
+import { writeFile, stat, rm, readdir, mkdir } from "node:fs/promises";
 import { readFileSync, existsSync, readdirSync, statSync, mkdirSync, writeFileSync } from "node:fs";
 import * as path from "node:path";
 import { createRequire } from "node:module";
@@ -17,11 +17,24 @@ import {
   ScriptLanguage,
   workspaceDependenciesLanguages,
   languageNeedsLock,
+  LANG_COMMENT_LIT,
 } from "./script_common.ts";
 import { inferContentTypeFromFilePath } from "./script_common.ts";
-import { getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
+// Workspace-dependency vocabulary lives with the languages it describes; these
+// re-exports keep the CLI's existing import sites working.
+export {
+  workspaceDependenciesPathToLanguageAndFilename,
+  extractWorkspaceDepsAnnotation,
+  type WorkspaceDepsAnnotation,
+} from "./script_common.ts";
+import {
+  workspaceDependenciesPathToLanguageAndFilename,
+  extractWorkspaceDepsAnnotation,
+} from "./script_common.ts";
+import { dbtGeneratedDirs, isUnderGeneratedDir, isBundledModuleFile, getModuleFolderSuffix, isModuleEntryPoint, scriptPathToRemotePath } from "./resource_folders.ts";
 import { findCodebase, yamlOptions } from "../commands/sync/sync.ts";
 import { generateHash, readInlinePathSync, getHeaders, readTextFile, readTextFileSync } from "./utils.ts";
+import { DBT_DESCRIPTOR_NAME, isMissingDbtDescriptor } from "./resource_folders.ts";
 import { detectAuthGatewayChallenge } from "./http_guards.ts";
 
 import { SyncCodebase } from "./codebase.ts";
@@ -30,6 +43,7 @@ import { getIsWin } from "./utils.ts";
 import { extractRelativeImports } from "./relative_imports.ts";
 import { DoubleLinkedDependencyTree } from "./dependency_tree.ts";
 import { pollJobWithQueueLogging } from "./job_polling.ts";
+import { sharedLockRefIn, sharedLockTargetFor } from "./lock_dedup.ts";
 
 const _require = createRequire(import.meta.url);
 const _parserCache = new Map<string, Promise<any>>();
@@ -105,17 +119,6 @@ export async function getRawWorkspaceDependencies(legacyBehaviour: boolean): Pro
   return rawWorkspaceDeps;
 }
 
-export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
-  const relativePath = path.replace("dependencies/", "");
-  for (const { filename, language } of workspaceDependenciesLanguages) {
-    if (relativePath.endsWith(filename)) {
-      return {
-        name: relativePath === filename ? undefined : relativePath.replace("." + filename, ""),
-        language
-      };
-    }
-  }
-}
 
 /**
  * Filters raw workspace dependencies to only include those that:
@@ -202,6 +205,7 @@ export async function generateScriptMetadataInternal(
     schemaOnly?: boolean | undefined;
     defaultTs?: "bun" | "deno";
     rehashOnly?: boolean | undefined;
+    dedupeLockfiles?: boolean | undefined;
   },
   dryRun: boolean,
   noStaleMessage: boolean,
@@ -218,6 +222,13 @@ export async function generateScriptMetadataInternal(
 
   const language = inferContentTypeFromFilePath(scriptPath, opts.defaultTs);
 
+  // Whether the metadata and lock live INSIDE that folder. They do for a `__mod`
+  // bundle, whose folder is Windmill's. A dbt project's folder is dbt's, taken
+  // verbatim, so its companions stay beside it — writing them in would leave
+  // stray `script.yaml`/`script.lock` files in the deployed project and leave
+  // the metadata sync actually reads untouched.
+  const metadataInFolder = isFolderLayout && language !== "dbt";
+
   // For folder layout, parseMetadataFile is called with remotePath which
   // will find __mod/script.yaml via the folder layout fallback
   const metadataWithType = await parseMetadataFile(
@@ -225,8 +236,12 @@ export async function generateScriptMetadataInternal(
     undefined,
   );
 
-  // read script content
-  const scriptContent = await readTextFile(scriptPath);
+  // read script content — a dbt project's descriptor is optional, and absent
+  // means an empty descriptor rather than a script that cannot be pushed.
+  const scriptContent = await readTextFile(scriptPath).catch((e) => {
+    if (isMissingDbtDescriptor(scriptPath, e)) return "";
+    throw e;
+  });
   const metadataContent = await readTextFile(metadataWithType.path);
 
   const filteredRawWorkspaceDependencies = filterWorkspaceDependencies(
@@ -238,7 +253,8 @@ export async function generateScriptMetadataInternal(
   // Compute the module folder path early so we can include module hashes in stale check
   const moduleFolderPath = isFolderLayout
     ? path.dirname(scriptPath)
-    : scriptPath.substring(0, scriptPath.indexOf(".")) + getModuleFolderSuffix();
+    : scriptPath.substring(0, scriptPath.indexOf(".")) +
+      getModuleFolderSuffix(language);
 
   const hasModules = existsSync(moduleFolderPath) && statSync(moduleFolderPath).isDirectory();
 
@@ -250,7 +266,8 @@ export async function generateScriptMetadataInternal(
   let moduleHashes: Record<string, string> = {};
   if (hasModules) {
     moduleHashes = await computeModuleHashes(
-      moduleFolderPath, opts.defaultTs, tree ? {} : rawWorkspaceDependencies, isFolderLayout
+      moduleFolderPath, opts.defaultTs, tree ? {} : rawWorkspaceDependencies, isFolderLayout,
+      language === "dbt",
     );
   }
   const hasModuleHashes = Object.keys(moduleHashes).length > 0;
@@ -349,7 +366,7 @@ export async function generateScriptMetadataInternal(
 
     if (!hasCodebase) {
       const tempScriptRefs = tree?.getTempScriptRefs(remotePath);
-      const lockPathOverride = isFolderLayout
+      const lockPathOverride = metadataInFolder
         ? path.dirname(scriptPath) + "/script.lock"
         : undefined;
       await updateScriptLock(
@@ -361,13 +378,27 @@ export async function generateScriptMetadataInternal(
         filteredRawWorkspaceDependencies,
         tempScriptRefs,
         lockPathOverride,
+        // The lockfile of the workspace dependency file this script resolves
+        // against, if any: joining it is a matter of resolving to its content.
+        opts.dedupeLockfiles
+          ? sharedLockTargetFor(
+              scriptContent,
+              language,
+              Object.keys(rawWorkspaceDependencies),
+            )
+          : undefined,
       );
     } else {
       metadataParsedContent.lock = "";
     }
 
-    // Generate locks for modules in __mod/ folder
-    if (hasModules) {
+    // Generate locks for modules in __mod/ folder.
+    //
+    // Never for a dbt bundle: its files are the project's own SQL and YAML, none
+    // of which is a Windmill script needing a lockfile, and writing `foo.lock`
+    // beside `foo.sql` puts our artifacts inside a tree we promise to round-trip
+    // byte-for-byte.
+    if (hasModules && language !== "dbt") {
       // Identify which modules changed by comparing per-module hashes
       let changedModules: string[] | undefined;
       if (hasModuleHashes) {
@@ -387,7 +418,14 @@ export async function generateScriptMetadataInternal(
       );
     }
   } else {
-    if (isFolderLayout) {
+    // `parseMetadataFile` resolved `lock` to the lockfile's CONTENT, so the
+    // reference has to be restored from the raw text — including a shared one
+    // (`dedupeLockfiles`), which `--schema-only` would otherwise replace with a
+    // per-script path whose file deduplication removed.
+    const sharedRef = sharedLockRefIn(metadataContent, metadataWithType.isJson);
+    if (sharedRef) {
+      metadataParsedContent.lock = "!inline " + sharedRef;
+    } else if (metadataInFolder) {
       metadataParsedContent.lock =
         "!inline " + remotePath.replaceAll(SEP, "/") + getModuleFolderSuffix() + "/script.lock";
     } else {
@@ -399,7 +437,7 @@ export async function generateScriptMetadataInternal(
   // Write metadata back to the correct path
   let metaPath: string;
   let newMetadataContent: string;
-  if (isFolderLayout) {
+  if (metadataInFolder) {
     if (metadataWithType.isJson) {
       metaPath = path.dirname(scriptPath) + "/script.json";
       newMetadataContent = JSON.stringify(metadataParsedContent);
@@ -474,119 +512,6 @@ export async function updateScriptSchema(
   delete metadataContent.no_main_func;
 }
 
-// ---------------------------------------------------------------------------
-// Annotation parser — mirrors backend's WorkspaceDependenciesAnnotatedRefs::parse
-// (windmill-common/src/workspace_dependencies.rs) so the cache key captures
-// exactly the parts of scriptContent that affect lockfile generation.
-// ---------------------------------------------------------------------------
-
-type AnnotationMode = "manual" | "extra";
-
-interface WorkspaceDepsAnnotation {
-  mode: AnnotationMode;
-  external: string[];
-  inline: string | null;
-}
-
-const LANG_ANNOTATION_CONFIG: Partial<
-  Record<ScriptLanguage, { comment: string; keyword: string; validityRe?: RegExp }>
-> = {
-  python3: { comment: "#", keyword: "requirements", validityRe: /^#\s?(\S+)\s*$/ },
-  bun: { comment: "//", keyword: "package_json" },
-  nativets: { comment: "//", keyword: "package_json" },
-  go: { comment: "//", keyword: "go_mod" },
-  php: { comment: "//", keyword: "composer_json" },
-  powershell: { comment: "#", keyword: "modules_json" },
-};
-
-export function extractWorkspaceDepsAnnotation(
-  scriptContent: string,
-  language: ScriptLanguage,
-): WorkspaceDepsAnnotation | null {
-  const config = LANG_ANNOTATION_CONFIG[language];
-  if (!config) return null;
-
-  const { comment, keyword, validityRe } = config;
-  const extraMarkerUnderscore = `extra_${keyword}:`;
-  const extraMarkerHyphen = `extra-${keyword}:`;
-  const manualMarker = `${keyword}:`;
-
-  const stripComment = (l: string): string | null => {
-    if (!l.startsWith(comment)) return null;
-    return l.substring(comment.length).trimStart();
-  };
-  const isExtra = (l: string): boolean => {
-    const s = stripComment(l);
-    return s !== null && (s.startsWith(extraMarkerUnderscore) || s.startsWith(extraMarkerHyphen));
-  };
-  const isManual = (l: string): boolean => {
-    const s = stripComment(l);
-    return s !== null && s.startsWith(manualMarker);
-  };
-
-  const lines = scriptContent.split("\n");
-
-  // Find first annotation line (mirrors Rust find_position)
-  let pos = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (isExtra(lines[i]) || isManual(lines[i])) {
-      pos = i;
-      break;
-    }
-  }
-  if (pos === -1) return null;
-
-  const annotationLine = lines[pos];
-  const mode: AnnotationMode = isExtra(annotationLine) ? "extra" : "manual";
-
-  // Parse external references from the annotation line
-  const marker = mode === "extra"
-    ? (annotationLine.includes(extraMarkerUnderscore) ? extraMarkerUnderscore : extraMarkerHyphen)
-    : manualMarker;
-  const unparsed = annotationLine.replaceAll(marker, "").replaceAll(comment, "");
-  const external = unparsed
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-
-  // Parse inline deps from subsequent lines
-  const inlineParts: string[] = [];
-  for (let i = pos + 1; i < lines.length; i++) {
-    const l = lines[i];
-    if (validityRe) {
-      const match = validityRe.exec(l);
-      if (match && match[1]) {
-        inlineParts.push(match[1]);
-      } else {
-        break;
-      }
-    } else {
-      if (!l.startsWith(comment)) {
-        break;
-      }
-      inlineParts.push(l.substring(comment.length));
-    }
-  }
-
-  const inlineStr = inlineParts.join("\n");
-  const inline = inlineStr.trim().length > 0 ? inlineStr : null;
-
-  return { mode, external, inline };
-}
-
-// Mirrors backend ScriptLang::as_comment_lit (windmill-types/src/scripts.rs)
-// for the languages that can reach the lock cache.
-const LANG_COMMENT_LIT: Partial<Record<ScriptLanguage, string>> = {
-  python3: "#",
-  ansible: "#",
-  powershell: "#",
-  bun: "//",
-  nativets: "//",
-  deno: "//",
-  go: "//",
-  php: "//",
-  rust: "//!",
-};
 
 /**
  * Returns the leading comment/blank-line block of the script, verbatim.
@@ -764,16 +689,20 @@ async function updateScriptLock(
   rawWorkspaceDependencies: Record<string, string>,
   tempScriptRefs?: Record<string, string>,
   lockPathOverride?: string,
+  sharedLockRef?: string,
 ): Promise<void> {
-  if (
-    !(
-      (workspaceDependenciesLanguages.some((l) => l.language == language) &&
-        language !== "powershell") ||
-      language == "deno" ||
-      language == "rust" ||
-      language == "ansible"
-    )
-  ) {
+  if (!languageNeedsLock(language)) {
+    // A dbt lock is written by the dependency job on a worker, from a real
+    // `dbt deps`/`dbt parse`, so there is nothing to generate here. Restore the
+    // reference to the file `wmill sync pull` wrote: the caller has already
+    // resolved it into the metadata, and leaving it resolved inlines the lock
+    // into the yaml on every run.
+    if (language === "dbt") {
+      const lockPath = lockPathOverride ?? remotePath + ".script.lock";
+      if (existsSync(lockPath)) {
+        metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
+      }
+    }
     return;
   }
 
@@ -794,6 +723,23 @@ async function updateScriptLock(
 
   const lockPath = lockPathOverride ?? remotePath + ".script.lock";
   if (lock != "") {
+    // Joins an agreeing shared lockfile, and never creates or moves one: this
+    // runs per script and in parallel, so two scripts that resolve differently
+    // — a pinned Python version, an `//npm` annotation — would both find the
+    // file absent, both write it, and one would lose its lock with no copy left
+    // anywhere. Deciding a shared lockfile's content is the whole-tree pass's
+    // job, which sees every script at once.
+    if (
+      sharedLockRef &&
+      existsSync(sharedLockRef) &&
+      readTextFileSync(sharedLockRef) === lock
+    ) {
+      if (existsSync(lockPath)) {
+        await rm(lockPath);
+      }
+      metadataContent.lock = "!inline " + sharedLockRef;
+      return;
+    }
     await writeFile(lockPath, lock, "utf-8");
     metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
   } else {
@@ -995,6 +941,9 @@ export async function inferSchema(
   } else if (language === "rlang") {
     const { parse_r } = await loadParser("windmill-parser-wasm-r");
     inferedSchema = JSON.parse(parse_r(content));
+  } else if (language === "dbt") {
+    const { parse_dbt } = await loadParser("windmill-parser-wasm-yaml");
+    inferedSchema = JSON.parse(parse_dbt(content));
     // for related places search: ADD_NEW_LANG
   } else {
     throw new Error("Invalid language: " + language);
@@ -1368,8 +1317,15 @@ async function computeModuleHashes(
   defaultTs: "bun" | "deno" | undefined,
   rawWorkspaceDependencies: Record<string, string>,
   isFolderLayout: boolean,
+  // A dbt project's files are taken verbatim, so hash them the same way the
+  // push reads them: a `.sql` model has no inferable language, and dropping it
+  // here would leave an edited model looking up to date.
+  verbatim: boolean = false,
 ): Promise<Record<string, string>> {
   const hashes: Record<string, string> = {};
+  const skipDirs = verbatim
+    ? dbtGeneratedDirs(moduleFolderPath)
+    : new Set<string>();
 
   async function readDir(dirPath: string, relPrefix: string) {
     const entries = readdirSync(dirPath, { withFileTypes: true });
@@ -1379,15 +1335,31 @@ async function computeModuleHashes(
       const isTopLevel = relPrefix === "";
 
       if (entry.isDirectory()) {
+        // A configured `target-path` may be nested (`build/target`), so the
+        // comparison is on the project-relative path, not the entry name.
+        if (skipDirs.size > 0 && isUnderGeneratedDir(relPath, skipDirs)) continue;
         await readDir(fullPath, relPath);
+        // See the bundle builder: a verbatim (dbt) bundle carries a `.lock` the
+        // project authored, so the hash has to see it or a change to it would
+        // never be detected as a change.
       } else if (
         entry.isFile() &&
-        !entry.name.endsWith(".lock") &&
-        !(isFolderLayout && isTopLevel && entry.name.startsWith("script."))
+        (verbatim || !entry.name.endsWith(".lock")) &&
+        !(isFolderLayout && isTopLevel && entry.name.startsWith("script.")) &&
+        // The descriptor is the script's CONTENT, hashed as such: counting it
+        // here too would make one edit look like two changes.
+        !(verbatim && isTopLevel && entry.name === DBT_DESCRIPTOR_NAME)
       ) {
-        try {
-          inferContentTypeFromFilePath(entry.name, defaultTs);
-        } catch {
+        if (!verbatim) {
+          try {
+            inferContentTypeFromFilePath(entry.name, defaultTs);
+          } catch {
+            continue;
+          }
+        } else if (!isBundledModuleFile(fullPath)) {
+          // Hash only what the push actually sends. Hashing a file the bundle
+          // drops would make the script permanently stale: every check would
+          // see a change no push can ever resolve.
           continue;
         }
         const content = readTextFileSync(fullPath);

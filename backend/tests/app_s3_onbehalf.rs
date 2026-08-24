@@ -505,8 +505,8 @@ async fn seed_script(db: &Pool<Postgres>, path: &str, content: &str) -> anyhow::
     }
     sqlx::query(
         r#"INSERT INTO script (workspace_id, hash, path, summary, description, content,
-                                created_by, on_behalf_of_email, language, tag, lock)
-           VALUES ('test-workspace', $1, $2, '', '', $3, 'test-user-2', 'test2@windmill.dev',
+                                created_by, on_behalf_of, language, tag, lock)
+           VALUES ('test-workspace', $1, $2, '', '', $3, 'test-user-2', 'u/test-user-2',
                    'deno'::script_lang, 'deno', '')
            ON CONFLICT DO NOTHING"#,
     )

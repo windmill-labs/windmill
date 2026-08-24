@@ -8,7 +8,6 @@
 		createBranches,
 		createLoop,
 		createWhileLoop,
-		deleteFlowStateById,
 		emptyModule,
 		pickScript,
 		pickFlow,
@@ -17,12 +16,14 @@
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
 	import { emptyFlowModuleState } from '../utils.svelte'
+	import { stepSettingDefaults } from '../flowStepSettings'
 
 	import { dfs } from '../dfs'
 	import { nextId, copyId } from '../flowModuleNextId'
 	import { push } from '$lib/history.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
+	import { overlayPortalTarget } from '$lib/components/common/overlayHost.svelte'
 
 	import { locateModules, groupByParent } from '../multiSelectUtils'
 	import { workspaceStore } from '$lib/stores'
@@ -34,6 +35,7 @@
 	import type { PropPickerContext } from '$lib/components/prop_picker'
 	import { JobService } from '$lib/gen'
 	import { findModuleInFlow } from '../flowTree'
+	import { addBranch as addBranchOp, removeBranch as removeBranchOp } from '../branchOps'
 	import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilder.svelte'
 	import { MoveManager } from '$lib/components/graph/moveManager.svelte'
 	import { refreshFlowStateStore } from '../flowStoreRefresh.svelte'
@@ -202,15 +204,12 @@
 		flowStateStore.val[module.id] = state
 
 		if (kind == 'approval') {
-			module.suspend = { required_events: 1, timeout: 1800 }
+			module.suspend = stepSettingDefaults('suspend')
 		} else if (kind == 'trigger') {
-			module.stop_after_if = {
-				expr: '!result || (Array.isArray(result) && result.length == 0)',
-				skip_if_stopped: true
-			}
+			module.stop_after_if = stepSettingDefaults('early-stop', 'trigger')
 		} else if (kind == 'end') {
 			module.summary = 'Terminate flow'
-			module.stop_after_if = { skip_if_stopped: false, expr: 'true' }
+			module.stop_after_if = stepSettingDefaults('early-stop', 'end')
 		}
 
 		return module
@@ -271,55 +270,40 @@
 	}
 
 	export async function addBranch(id: string) {
-		push(history, flowStore.val)
-		let module = findModuleById(id)
-
-		if (!module) {
-			throw new Error(`Node ${id} not found`)
-		}
-
-		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-			module.value.branches.splice(module.value.branches.length, 0, {
-				summary: '',
-				expr: 'false',
-				modules: []
-			})
-		}
+		addBranchOp(id, { flowStore, history })
 	}
 
 	export function removeBranch(id: string, index: number) {
-		push(history, flowStore.val)
-		let module = findModuleById(id)
-
-		if (!module) {
-			throw new Error(`Node ${id} not found`)
-		}
-
-		if (module.value.type === 'branchone' || module.value.type === 'branchall') {
-			const offset = module.value.type === 'branchone' ? 1 : 0
-
-			if (module.value.branches[index - offset]?.modules) {
-				const leaves = dfs(module.value.branches[index - offset].modules, (mod) => mod.id)
-				leaves.forEach((leafId: string) => deleteFlowStateById(leafId, flowStateStore))
-			}
-
-			module.value.branches.splice(index - offset, 1)
-		}
+		removeBranchOp(id, index, { flowStore, flowStateStore, history })
 	}
 
-	type PendingDeleteConfirmation = {
-		plan: DeletePlan
-	}
-
-	type PendingGroupAction = {
-		groups: FlowGroup[]
+	// A single delete can have several consequences at once (emptied groups *and*
+	// dependent steps); they are confirmed together so one user action never raises
+	// more than one dialog.
+	type PendingModuleAction = {
 		label: 'delete' | 'move'
+		stepCount: number
+		groups: FlowGroup[]
+		dependents: Record<string, string[]>
 		confirm: () => void
 		cancel?: () => void
 	}
 
-	let pendingDeleteConfirmation: PendingDeleteConfirmation | undefined = $state(undefined)
-	let pendingGroupAction: PendingGroupAction | undefined = $state(undefined)
+	// The modal keeps rendering `pendingModuleAction` while it fades out, so visibility is
+	// driven by `moduleActionOpen` rather than by clearing the value — clearing it would
+	// blank the dialog mid-transition. `moduleActionOpen` also makes confirm/cancel
+	// one-shot: the buttons stay clickable until the fade ends.
+	let pendingModuleAction: PendingModuleAction | undefined = $state(undefined)
+	let moduleActionOpen = $state(false)
+
+	function askModuleAction(action: PendingModuleAction) {
+		pendingModuleAction = action
+		moduleActionOpen = true
+	}
+
+	function stepNoun(action: PendingModuleAction | undefined) {
+		return (action?.stepCount ?? 1) > 1 ? 'steps' : 'step'
+	}
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
@@ -334,6 +318,10 @@
 
 	export function enableNotes(): void {
 		graph?.enableNotes?.()
+	}
+
+	export function reloadExpandedSubflows(): void {
+		graph?.reloadExpandedSubflows?.()
 	}
 
 	function toggleNoteMode() {
@@ -362,23 +350,20 @@
 			return
 		}
 
-		const proceed = () => {
-			if (request.needsDependencyConfirmation) {
-				pendingDeleteConfirmation = { plan: request.plan }
-			} else {
-				applyDeletePlan(request.plan)
-			}
+		const affectedGroups = request.plan.structureDelete?.affectedGroups ?? []
+
+		if (affectedGroups.length === 0 && !request.needsDependencyConfirmation) {
+			applyDeletePlan(request.plan)
+			return
 		}
 
-		if ((request.plan.structureDelete?.affectedGroups.length ?? 0) > 0) {
-			pendingGroupAction = {
-				groups: request.plan.structureDelete!.affectedGroups,
-				label: 'delete',
-				confirm: proceed
-			}
-		} else {
-			proceed()
-		}
+		askModuleAction({
+			label: 'delete',
+			stepCount: request.plan.targets.length,
+			groups: affectedGroups,
+			dependents: request.plan.dependents,
+			confirm: () => applyDeletePlan(request.plan)
+		})
 	}
 
 	export function deleteMultiple(ids: string[]) {
@@ -488,65 +473,64 @@
 	$effect(() => {
 		sidebarMode == 'graph' ? (sidebarSize = 40) : (sidebarSize = 20)
 	})
+
+	const portalTarget = overlayPortalTarget('body')
 </script>
 
-<Portal name="flow-module">
+<Portal name="flow-module" target={portalTarget()}>
 	<ConfirmationModal
-		title="Confirm deleting step with dependents"
-		confirmationText="Delete step"
-		open={Boolean(pendingDeleteConfirmation)}
+		title={`${pendingModuleAction?.label === 'move' ? 'Move' : 'Delete'} ${stepNoun(
+			pendingModuleAction
+		)}?`}
+		confirmationText={`${pendingModuleAction?.label === 'move' ? 'Move' : 'Delete'} ${stepNoun(
+			pendingModuleAction
+		)}`}
+		open={moduleActionOpen}
 		on:confirmed={() => {
-			if (pendingDeleteConfirmation) {
-				applyDeletePlan(pendingDeleteConfirmation.plan)
-				pendingDeleteConfirmation = undefined
-			}
+			if (!moduleActionOpen) return
+			moduleActionOpen = false
+			pendingModuleAction?.confirm()
 		}}
 		on:canceled={() => {
-			pendingDeleteConfirmation = undefined
+			if (!moduleActionOpen) return
+			moduleActionOpen = false
+			pendingModuleAction?.cancel?.()
 		}}
 	>
-		<div class="text-primary pb-2"
-			>Found the following steps that will require changes after this step is deleted:</div
-		>
-		{#each Object.entries(pendingDeleteConfirmation?.plan.dependents ?? {}) as [k, v]}
-			<div class="pb-3">
-				<h3 class="text-secondary font-semibold">{k}</h3>
-				<ul class="text-sm">
-					{#each v as dep}
-						<li>{dep}</li>
+		{#if pendingModuleAction}
+			{@const action = pendingModuleAction}
+			{@const dependents = Object.entries(action.dependents)}
+			{#if action.groups.length === 1}
+				{@const group = action.groups[0]}
+				<p
+					>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).</p
+				>
+			{:else if action.groups.length > 1}
+				<p>The following groups will be removed (empty or duplicate):</p>
+				<ul class="list-disc pl-4 mt-1">
+					{#each action.groups as group}
+						<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
 					{/each}
 				</ul>
-			</div>
-		{/each}
-	</ConfirmationModal>
-
-	<ConfirmationModal
-		title={pendingGroupAction?.groups.length === 1 ? 'Remove group?' : 'Remove groups?'}
-		confirmationText={pendingGroupAction?.label === 'delete' ? 'Delete step' : 'Move step'}
-		open={Boolean(pendingGroupAction)}
-		on:confirmed={() => {
-			pendingGroupAction?.confirm()
-			pendingGroupAction = undefined
-		}}
-		on:canceled={() => {
-			pendingGroupAction?.cancel?.()
-			pendingGroupAction = undefined
-		}}
-	>
-		{#if pendingGroupAction?.groups.length === 1}
-			{@const group = pendingGroupAction.groups[0]}
-			<p
-				>The group{group.summary ? ` "${group.summary}"` : ''} will be removed (empty or duplicate).
-				Are you sure you want to {pendingGroupAction.label} the step?</p
-			>
-		{:else}
-			<p>The following groups will be removed (empty or duplicate):</p>
-			<ul class="list-disc pl-4 mt-1">
-				{#each pendingGroupAction?.groups ?? [] as group}
-					<li>{group.summary || `${group.start_id} → ${group.end_id}`}</li>
-				{/each}
-			</ul>
-			<p class="mt-2">Are you sure you want to {pendingGroupAction?.label} the step?</p>
+			{/if}
+			{#if dependents.length > 0}
+				<p class={action.groups.length > 0 ? 'mt-3' : ''}
+					>The following steps will require changes afterwards:</p
+				>
+				<div class="mt-1">
+					{#each dependents as [k, v]}
+						<div class="pb-2">
+							<h3 class="text-secondary font-semibold">{k}</h3>
+							<ul class="text-sm">
+								{#each v as dep}
+									<li>{dep}</li>
+								{/each}
+							</ul>
+						</div>
+					{/each}
+				</div>
+			{/if}
+			<p class="mt-2">Are you sure you want to {action.label} the {stepNoun(action)}?</p>
 		{/if}
 	</ConfirmationModal>
 </Portal>
@@ -689,12 +673,14 @@
 					}
 
 					if (affectedGroups.length > 0) {
-						pendingGroupAction = {
-							groups: affectedGroups,
+						askModuleAction({
 							label: 'move',
+							stepCount: movedIds.length,
+							groups: affectedGroups,
+							dependents: {},
 							confirm: doMove,
 							cancel: () => moveManager.clearMoving()
-						}
+						})
 					} else {
 						doMove()
 					}
@@ -751,7 +737,9 @@
 							toolKind
 						)
 						const id = tools[tools.length - 1].id
-						selectionManager.selectId(id)
+						// Reveal the new tool's config right away — in modal (unanchored)
+						// panel mode its editor is otherwise hidden behind the graph.
+						selectionManager.selectId(id, { openPanel: true })
 					}
 					refreshFlowStateStore(flowStore)
 					dispatch('change')
@@ -810,7 +798,9 @@
 					{ extraModules, displayState: groupDisplayState }
 				)
 
-				selectionManager.selectId(module.id)
+				// Inserting is a deliberate "now edit this": in modal mode the new step's
+				// editor is otherwise hidden behind the graph.
+				selectionManager.selectId(module.id, { openPanel: true })
 
 				if (detail.inlineScript?.instructions) {
 					dispatch('generateStep', {
@@ -937,7 +927,7 @@
 
 				targetModules.splice(targetIndex + 1, 0, clone)
 				refreshFlowStateStore(flowStore)
-				selectionManager.selectId(clone.id)
+				selectionManager.selectId(clone.id, { openPanel: true })
 			}}
 			onUpdateMock={(detail) => {
 				let module = findModuleById(detail.id)

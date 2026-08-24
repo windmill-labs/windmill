@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { resolveGraph, computeMutedReadKeys, type ResolveGraphInput } from './resolveGraph'
+import {
+	resolveGraph,
+	computeMutedReadKeys,
+	dbtAssociations,
+	type ResolveGraphInput
+} from './resolveGraph'
 import type { PipelineAnnotations } from './parsePipelineAnnotations'
 import type { AssetGraphResponse } from './types'
 import type { AssetWithAltAccessType } from '$lib/components/assets/lib'
@@ -1022,5 +1027,131 @@ describe('open saved script: live overlay vs inferred-lineage maps', () => {
 		expect(
 			r.edges.filter((e) => e.asset_path === '/out.parquet' && e.runnable_path === 'f/x/cons')
 		).toHaveLength(1)
+	})
+})
+
+describe('dbtAssociations', () => {
+	const runnables = [
+		{ usage_kind: 'script', path: 'f/a/dbtproj', dbt: { model_count: 2 } },
+		{ usage_kind: 'script', path: 'f/a/consumer' }
+	]
+	const edges = [
+		// the project builds a model and reads a source
+		{
+			runnable_kind: 'script',
+			runnable_path: 'f/a/dbtproj',
+			asset_kind: 'dbt',
+			asset_path: 'wh/s/model_a',
+			access_type: 'w'
+		},
+		{
+			runnable_kind: 'script',
+			runnable_path: 'f/a/dbtproj',
+			asset_kind: 'dbt',
+			asset_path: 'wh/s/src_a',
+			access_type: 'r'
+		},
+		// a native consumer reads the model — its edges are none of dbt's business
+		{
+			runnable_kind: 'script',
+			runnable_path: 'f/a/consumer',
+			asset_kind: 'dbt',
+			asset_path: 'wh/s/model_a',
+			access_type: 'r'
+		}
+	]
+
+	it('points every declared relation back at its project', () => {
+		const { ownerByAsset } = dbtAssociations(runnables, edges)
+		// A source is declared by the project too, so its badge finds it.
+		expect(ownerByAsset.get('asset:dbt:wh/s/src_a')).toBe('script:f/a/dbtproj')
+		expect(ownerByAsset.get('asset:dbt:wh/s/model_a')).toBe('script:f/a/dbtproj')
+	})
+
+	it('counts only what the project materializes as its transforms', () => {
+		const { writesByOwner } = dbtAssociations(runnables, edges)
+		// Hovering the project highlights the models it builds, not its inputs.
+		expect([...(writesByOwner.get('script:f/a/dbtproj') ?? [])]).toEqual([
+			'asset:dbt:wh/s/model_a'
+		])
+	})
+
+	it('ignores runnables that are not dbt', () => {
+		const { ownerByAsset } = dbtAssociations([runnables[1]], edges)
+		expect(ownerByAsset.size).toBe(0)
+	})
+})
+
+describe('dbtAssociations with a producer and a consumer of one relation', () => {
+	const runnables = [
+		{ usage_kind: 'script', path: 'f/a/producer', dbt: { model_count: 1 } },
+		{ usage_kind: 'script', path: 'f/a/reader', dbt: { model_count: 1 } }
+	]
+	const write = {
+		runnable_kind: 'script',
+		runnable_path: 'f/a/producer',
+		asset_kind: 'dbt',
+		asset_path: 'wh/s/shared',
+		access_type: 'w'
+	}
+	const read = {
+		runnable_kind: 'script',
+		runnable_path: 'f/a/reader',
+		asset_kind: 'dbt',
+		asset_path: 'wh/s/shared',
+		access_type: 'r'
+	}
+
+	// Backend edge order is unspecified, so the badge must not depend on it.
+	it('always points at the project that builds the relation', () => {
+		for (const edges of [
+			[write, read],
+			[read, write]
+		]) {
+			const { ownerByAsset } = dbtAssociations(runnables, edges)
+			expect(ownerByAsset.get('asset:dbt:wh/s/shared')).toBe('script:f/a/producer')
+		}
+	})
+
+	it('falls back to a reader when nothing here produces the relation', () => {
+		const { ownerByAsset } = dbtAssociations(runnables, [read])
+		expect(ownerByAsset.get('asset:dbt:wh/s/shared')).toBe('script:f/a/reader')
+	})
+})
+
+// Two selections of one project materializing the same model is a shape the
+// backend permits, so the badge has to land on the same one every time — not on
+// whichever write edge the backend happened to return last.
+describe('dbtAssociations with two writers of one relation', () => {
+	const runnables = [
+		{ usage_kind: 'script', path: 'f/a/upstream', dbt: { model_count: 1 } },
+		{ usage_kind: 'script', path: 'f/a/downstream', dbt: { model_count: 1 } }
+	]
+	const writeBy = (p: string) => ({
+		runnable_kind: 'script',
+		runnable_path: p,
+		asset_kind: 'dbt',
+		asset_path: 'wh/s/shared',
+		access_type: 'w'
+	})
+
+	it('picks the same producer whatever order the edges arrive in', () => {
+		const a = writeBy('f/a/upstream')
+		const b = writeBy('f/a/downstream')
+		const first = dbtAssociations(runnables, [a, b]).ownerByAsset.get('asset:dbt:wh/s/shared')
+		const second = dbtAssociations(runnables, [b, a]).ownerByAsset.get('asset:dbt:wh/s/shared')
+		expect(first).toBe(second)
+		expect(first).toBe('script:f/a/downstream')
+	})
+
+	it('still credits both with materializing it', () => {
+		const { writesByOwner } = dbtAssociations(runnables, [
+			writeBy('f/a/upstream'),
+			writeBy('f/a/downstream')
+		])
+		expect(writesByOwner.get('script:f/a/upstream')).toEqual(new Set(['asset:dbt:wh/s/shared']))
+		expect(writesByOwner.get('script:f/a/downstream')).toEqual(
+			new Set(['asset:dbt:wh/s/shared'])
+		)
 	})
 })
