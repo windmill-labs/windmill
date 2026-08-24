@@ -951,40 +951,33 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
 }
 
 /// Folds a runnable's inline modules into `base`, the pre-hash input of a build artifact's
-/// cache key.
-///
-/// `write_module_files` puts module content in the job dir, where the build inlines it
-/// into the artifact, so a key that leaves it out lets one runnable's modules be served
-/// to another whose main content and lockfile happen to match — across workspaces, the
-/// artifact cache being global and keyed on content alone.
-///
-/// `base` is hashed before the module block is appended, rather than concatenated with it.
-/// It ends in caller-controlled bytes (a preview job supplies its own lockfile), so plain
-/// concatenation would let one spell out another runnable's module block and reach its
-/// cache slot. A runnable with no modules keeps `base` untouched, so every artifact cached
-/// before modules entered the key stays reachable.
-///
-/// Only the path and content may key the artifact, because they are all the build reads.
-/// `ScriptModule::lock` especially must stay out: deploy regenerates it *after* the
-/// parent has prebuilt, so keying on it would move the key out from under every
-/// prebuilt artifact and no run would ever find one.
+/// cache key. `write_module_files` puts module content in the job dir where the build
+/// inlines it into the artifact, so a key without it serves one runnable's modules to
+/// another whose main content and lockfile match — across workspaces, the cache being global.
 pub(crate) fn fold_modules_into_cache_key(
     base: String,
     modules: Option<&std::collections::HashMap<String, ScriptModule>>,
 ) -> String {
     let Some(modules) = modules.filter(|m| !m.is_empty()) else {
+        // A module-free runnable keeps `base`, so artifacts cached before this stay
+        // reachable — including any a module-bearing one saved under that same key.
         return base;
     };
     let mut entries: Vec<(&String, &ScriptModule)> = modules.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
-    // Both fields are length-prefixed: without that, two different module maps can
-    // concatenate to the same bytes (`{"a": "bc"}` and `{"ab": "c"}`) and share a slot.
+    // Hash `base` rather than concatenate onto it: it ends in caller-supplied bytes (a
+    // preview brings its own lockfile), which could otherwise spell out another
+    // runnable's block and reach its slot.
     let mut out = format!(
         "{}:modules:{}",
         windmill_common::utils::calculate_hash(&base),
         entries.len()
     );
     for (path, module) in entries {
+        // Path and content only: they are all the build reads, and deploy fills
+        // `ScriptModule::lock` in after the parent prebuilt, so keying on it would strand
+        // every prebuilt artifact. Both are length-prefixed, else `{"a": "bc"}` and
+        // `{"ab": "c"}` encode alike.
         out.push_str(&format!(
             ":{}:{path}:{}:{}",
             path.len(),
