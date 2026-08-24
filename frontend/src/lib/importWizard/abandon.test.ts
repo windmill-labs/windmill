@@ -8,19 +8,34 @@ vi.mock('$lib/gen', () => ({
 }))
 vi.mock('$lib/storeUtils', () => ({ switchWorkspace: vi.fn() }))
 vi.mock('$lib/user', () => ({ getUserExt: vi.fn(async () => ({ username: 'u' })) }))
-// Lets a test abandon *during* the write loop, which is the only way it happens for real:
-// `run()` clears the flag on entry so a retry can proceed.
-const hooks = vi.hoisted(() => ({ afterFirstItem: undefined as (() => void) | undefined }))
+// Let a test abandon *during* a write loop, which is the only way it happens for real:
+// `run()` clears the flag on entry so a retry can proceed. Two hooks, because the item and
+// migration phases stop in different places and the second is what pins the migrate row.
+const hooks = vi.hoisted(() => ({
+	afterFirstItem: undefined as (() => void) | undefined,
+	afterMigrationsStart: undefined as (() => void) | undefined
+}))
 
 vi.mock('$lib/components/workspaceSettings/projectInstall', () => ({
 	installProject: vi.fn(async (args: any) => {
-		// Behaves like the real one: reports what it wrote, and returns early the moment
-		// `stopped` goes true — returning the same way it does on success.
+		// Ordered as the real one is: every item loop, then `onMigrationsStart`, then the
+		// migrations — and `stopped` checked before each write, returning the same way it
+		// returns on success.
 		for (const path of ['a', 'b', 'c']) {
 			if (args.stopped?.() === true) return
 			args.onResult({ path, ok: true })
 			hooks.afterFirstItem?.()
 			hooks.afterFirstItem = undefined
+		}
+		if (args.stopped?.() === true) return
+		if (args.migrations?.length) {
+			args.onMigrationsStart?.()
+			hooks.afterMigrationsStart?.()
+			hooks.afterMigrationsStart = undefined
+			for (const m of args.migrations) {
+				if (args.stopped?.() === true) return
+				args.onResult({ path: `data table: ${m.datatable_name}`, ok: true })
+			}
 		}
 	})
 }))
@@ -46,6 +61,15 @@ import { clearParkedImport, parkImport, resumableImport } from './parking'
 
 const PLAN = { slug: 'calendly', destination: { kind: 'existing' as const, workspaceId: 'ws-a' } }
 const deps = { reviewMigrations: async () => [], hasEeLicense: false }
+
+/** A project that ships one, so `#import` appends the `migrate` row at all. */
+const MIGRATION = {
+	datatable_name: 'main',
+	sql: 'CREATE TABLE IF NOT EXISTS "calendly"."config" (id int)',
+	sql_down: '',
+	enabled: true
+}
+const depsWithMigration = { reviewMigrations: async () => [MIGRATION], hasEeLicense: false }
 
 describe('planTag', () => {
 	// A run handed back after a remount is checked against the plan being rendered. Tagging
@@ -77,6 +101,7 @@ describe('abandoning mid-import', () => {
 	beforeEach(() => {
 		clearParkedImport()
 		hooks.afterFirstItem = undefined
+		hooks.afterMigrationsStart = undefined
 	})
 
 	it('does not report done, so the resumed step offers Retry rather than Continue', async () => {
@@ -105,15 +130,17 @@ describe('abandoning mid-import', () => {
 	})
 
 	it('stops the migrate row spinning when it is abandoned mid-migration', async () => {
-		const run = new ImportExecution(PLAN, deps)
-		// Abandon once the write loop has started, which is where `onMigrationsStart` has
-		// already flipped the row to running in a real run.
-		hooks.afterFirstItem = () => {
-			run.abandon()
-		}
+		const run = new ImportExecution(PLAN, depsWithMigration)
+		// After `onMigrationsStart`, which is where the row is actually set to running —
+		// the real one fires it at the head of the migration loop, past every item loop.
+		hooks.afterMigrationsStart = () => run.abandon()
 		await run.run()
+		const migrate = run.tasks.find((t) => t.key === 'migrate')
+		// Guards the test itself: without a migration in the export there is no row, and the
+		// assertion below would pass over a branch that never ran.
+		expect(migrate).toBeDefined()
 		// A row left on `running` reads as work still in progress on a run that has stopped.
-		expect(run.tasks.some((t) => t.status === 'running')).toBe(false)
+		expect(migrate?.status).not.toBe('running')
 		expect(run.done).toBe(false)
 	})
 
