@@ -4,9 +4,21 @@
 	import NewDataTableMigrationModal from './workspaceSettings/NewDataTableMigrationModal.svelte'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import { splitSqlStatements, isDdlStatement } from './sqlDdl'
+	import { withMigrationRole } from './datatableMigrationRole'
 	import { CornerDownLeft } from 'lucide-svelte'
 
-	let { workspace, datatable }: { workspace: string; datatable: string } = $props()
+	let {
+		workspace,
+		datatable,
+		role
+	}: {
+		workspace: string
+		datatable: string
+		/** The role the surrounding editor/manager is connected as. A migration
+		 * created here declares it, so the DDL runs with the privileges the user
+		 * is actually working under rather than the data table's default. */
+		role?: string
+	} = $props()
 
 	type Choice = 'run' | 'migrate' | 'cancel'
 
@@ -68,7 +80,7 @@
 	function openMigrationModal(statement: string): Promise<boolean> {
 		return new Promise((resolve) => {
 			resolveMigrationClosed = (created: boolean) => resolve(created)
-			newMigrationModal?.open({ codeUp: statement })
+			newMigrationModal?.open({ codeUp: withMigrationRole(statement, role) })
 		})
 	}
 
@@ -130,6 +142,11 @@
 			This looks like a schema-changing (DDL) statement. Schema changes are best tracked as
 			migrations rather than run ad-hoc. Create a migration for it instead?
 		</p>
+		{#if role}
+			<p class="text-sm text-secondary">
+				It will run as role <span class="font-mono font-semibold">{role}</span>.
+			</p>
+		{/if}
 		<pre
 			class="text-xs whitespace-pre-wrap font-mono bg-surface-secondary rounded p-3 max-h-48 overflow-auto"
 			>{promptStatement ?? ''}</pre

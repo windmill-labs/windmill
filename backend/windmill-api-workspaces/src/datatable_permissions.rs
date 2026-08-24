@@ -585,7 +585,11 @@ fn grant_connect_statement(pg_rolename: &str, dbname: &str) -> PlannedStatement 
     ))
 }
 
-async fn read_datatable(db: &DB, w_id: &str, datatable_name: &str) -> Result<DataTable> {
+pub(crate) async fn read_datatable(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<DataTable> {
     let value = sqlx::query_scalar!(
         "SELECT ws.datatable->'datatables'->$2 FROM workspace_settings ws WHERE ws.workspace_id = $1",
         w_id,
@@ -785,6 +789,43 @@ async fn get_datatable_permissions(
             })
             .collect(),
     }))
+}
+
+/// Refuse a data table operation that would run as a role `authed` may not use.
+///
+/// The executor enforces this too, so this is not the security boundary — it is
+/// what turns "the migration job failed" into an error naming the role and the
+/// migration, before anything is pushed or recorded.
+pub(crate) async fn ensure_can_use_datatable_role(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    role: Option<&str>,
+    authed: &ApiAuthed,
+    context: &str,
+) -> Result<()> {
+    let datatable = read_datatable(db, w_id, datatable_name).await?;
+    let Some(permissions) = datatable.permissions.filter(|p| p.enabled) else {
+        // Unpermissioned: only the built-in role exists, and everyone reaches it.
+        return match role {
+            Some(role) if role != ADMIN_DATATABLE_ROLE => Err(Error::BadRequest(format!(
+                "{context} names role '{role}', but permissions are not enabled on data table '{datatable_name}'"
+            ))),
+            _ => Ok(()),
+        };
+    };
+    let role_name = role.unwrap_or_else(|| permissions.default_role());
+    let entry = permissions.roles.get(role_name).ok_or_else(|| {
+        Error::NotFound(format!(
+            "{context} names role '{role_name}', which is not defined on data table '{datatable_name}'"
+        ))
+    })?;
+    if !can_use_datatable_role(entry, &authed.to_authed_ref()) {
+        return Err(Error::NotAuthorized(format!(
+            "{context} runs as role '{role_name}' of data table '{datatable_name}', which you are not allowed to use"
+        )));
+    }
+    Ok(())
 }
 
 /// List the roles `authed` may run this data table as. An unpermissioned data

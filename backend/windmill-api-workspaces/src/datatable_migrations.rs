@@ -34,7 +34,7 @@ use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
-use windmill_common::worker::to_raw_value;
+use windmill_common::worker::{to_raw_value, SqlAnnotations};
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{PgDatabase, DB};
 use windmill_git_sync::{
@@ -125,12 +125,36 @@ async fn datatable_database_arg(
     .await?
     .ok_or_else(|| Error::internal_err(format!("datatable {datatable_name} not found")))?;
 
-    // Migrations change the schema and are recorded against objects admin owns, so
-    // they run as admin rather than the data table's default role.
-    Ok(to_raw_value(&format!(
-        "datatable://{datatable_name}?role={}",
-        windmill_common::workspaces::ADMIN_DATATABLE_ROLE
-    )))
+    // No role in the reference: a migration carries its own as a `-- role <name>`
+    // annotation at the top of its SQL, which the executor reads. Absent, the
+    // executor falls back to the data table's default role.
+    Ok(to_raw_value(&format!("datatable://{datatable_name}")))
+}
+
+/// Refuse to run a migration whose `-- role` annotation names a role the caller
+/// may not use.
+///
+/// The executor checks this too when it resolves the connection, so this is not
+/// the boundary — it is what makes the refusal legible (which migration, which
+/// role) and stops it before a job is pushed or a version recorded.
+async fn ensure_migration_role_allowed(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    authed: &ApiAuthed,
+    sql: &str,
+    timestamp: i64,
+    name: &str,
+) -> Result<()> {
+    crate::datatable_permissions::ensure_can_use_datatable_role(
+        db,
+        w_id,
+        datatable_name,
+        SqlAnnotations::datatable_role(sql).as_deref(),
+        authed,
+        &format!("Migration {timestamp} ({name})"),
+    )
+    .await
 }
 
 /// Run a migration's SQL as a normal Windmill `postgresql` job, permissioned as
@@ -432,6 +456,11 @@ async fn run_datatable_migrations(
         if applied_versions.contains(&m.timestamp) {
             continue;
         }
+        // Fail the batch rather than skip: a migration the caller may not run is a
+        // gap in an ordered sequence, and silently leaving it out would apply
+        // later ones on top of a schema that never got this change.
+        ensure_migration_role_allowed(&db, &w_id, &datatable_name, &authed, &m.code_up, m.timestamp, &m.name)
+            .await?;
         run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &m.code_up)
             .await
             .map_err(|e| {
@@ -573,6 +602,16 @@ async fn rollback_datatable_migrations(
     })?;
 
     let database_arg = datatable_database_arg(&db, &w_id, &datatable_name).await?;
+    ensure_migration_role_allowed(
+        &db,
+        &w_id,
+        &datatable_name,
+        &authed,
+        &code_down,
+        version,
+        &definition.name,
+    )
+    .await?;
     run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &code_down)
         .await
         .map_err(|e| {

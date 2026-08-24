@@ -216,5 +216,10 @@
 </Splitpanes>
 
 {#if datatableName && ws}
-	<DdlMigrationGuard bind:this={ddlGuard} workspace={ws} datatable={datatableName} />
+	<DdlMigrationGuard
+		bind:this={ddlGuard}
+		workspace={ws}
+		datatable={datatableName}
+		role={input.type === 'database' ? input.role : undefined}
+	/>
 {/if}

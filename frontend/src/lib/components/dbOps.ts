@@ -9,6 +9,7 @@ import { writingJobOptions } from './jobs/writingJob'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
+import { withMigrationRole } from './datatableMigrationRole'
 import { assert } from '$lib/utils'
 import { WorkspaceService } from '$lib/gen'
 import { pendingMigrations } from './workspaceSettings/datatableMigrationUtils'
@@ -288,6 +289,10 @@ export function dbSchemaOpsWithPreviewScripts({
 		input.type === 'database' && input.resourcePath.startsWith('datatable://')
 			? input.resourcePath.slice('datatable://'.length)
 			: undefined
+	// The role the manager is connected as. A migration generated here has to
+	// declare it, or it would run as the data table's default role instead —
+	// silently doing the DDL with privileges the user did not pick.
+	const ambientRole = input.type === 'database' ? input.role : undefined
 
 	function makeMarker(op: string, payload: Record<string, unknown>): string {
 		if (ducklake) payload.ducklake = ducklake
@@ -368,12 +373,15 @@ export function dbSchemaOpsWithPreviewScripts({
 				throw new MigrationRunCancelled()
 			}
 		}
-		const codeUp = wrapMigration(await expandMarker(workspace, language, content))
+		const codeUp = withMigrationRole(
+			wrapMigration(await expandMarker(workspace, language, content)),
+			ambientRole
+		)
 		// Down migrations are only generated for Postgres for now.
 		let codeDown: string | undefined
 		if (downContent && dbType === 'postgresql') {
 			const downSql = (await expandMarker(workspace, language, downContent)).trim()
-			if (downSql) codeDown = wrapMigration(downSql)
+			if (downSql) codeDown = withMigrationRole(wrapMigration(downSql), ambientRole)
 		}
 		const created = await WorkspaceService.createDatatableMigration({
 			workspace,
