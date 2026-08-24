@@ -263,6 +263,17 @@ export async function applyOneMigration(
  * reviewed) migrations. Each item's outcome is reported through `onResult`;
  * failures never abort the remaining items.
  */
+/** The kinds an import writes that carry a path and can therefore already be there. */
+export type ImportedKind = 'script' | 'flow' | 'app' | 'resource' | 'trigger'
+
+/**
+ * The key `alreadyPresent` is built and read with. Kind and path together, because the five
+ * kinds share one path namespace and a bare path cannot say which of them is already there.
+ */
+export function presenceKey(kind: ImportedKind, path: string): string {
+	return `${kind}:${path}`
+}
+
 export async function installProject(args: {
 	workspace: string
 	exportData: ProjectExport
@@ -279,9 +290,13 @@ export async function installProject(args: {
 	 */
 	stopped?: () => boolean
 	/**
-	 * Paths already in the destination, retargeted — so a retry writes only what is missing
-	 * instead of replaying the bundle into a wall of "already exists". Compared after
-	 * retargeting, because that is what these items will actually be called.
+	 * What is already in the destination, as `presenceKey` keys — so a retry writes only what
+	 * is missing instead of replaying the bundle into a wall of "already exists". Built from
+	 * retargeted paths, because that is what these items will actually be called.
+	 *
+	 * Keyed by kind and not by path alone: the five kinds share one `f/<folder>/` namespace, so
+	 * a trigger and a script may legitimately both be called `f/cal/sync`. A flat path set
+	 * would let either one mask the other and silently skip an item that was never imported.
 	 *
 	 * Never a way to *replace* anything: an item that is there is left exactly as it is,
 	 * which is the same promise `updateIfExists: false` makes for a resource whose value
@@ -317,8 +332,8 @@ export async function installProject(args: {
 	 * rather than dropped: the checklist has to account for every item the project ships, and
 	 * "already there" is a different thing from "imported".
 	 */
-	const present = (path: string): boolean => {
-		if (!alreadyPresent?.has(path)) return false
+	const present = (kind: ImportedKind, path: string): boolean => {
+		if (!alreadyPresent?.has(presenceKey(kind, path))) return false
 		onResult({ path, ok: true, skipped: true })
 		return true
 	}
@@ -363,7 +378,7 @@ export async function installProject(args: {
 
 	for (const s of proj.scripts) {
 		if (halted()) return
-		if (present(s.path)) continue
+		if (present('script', s.path)) continue
 		// `$var:` is resolved in job args (flow inputs, schedule args, trigger config),
 		// not in script source, so there is no variable arg to contain here.
 		await checkedItem(s.path, extractScriptRefs(s.content ?? ''), undefined, () =>
@@ -372,12 +387,12 @@ export async function installProject(args: {
 	}
 	for (const f of proj.flows) {
 		if (halted()) return
-		if (present(f.path)) continue
+		if (present('flow', f.path)) continue
 		await checkedItem(f.path, extractFlowRefs(f.value), f.value, () => importFlow(workspace, f))
 	}
 	for (const r of proj.resources) {
 		if (halted()) return
-		if (present(r.path)) continue
+		if (present('resource', r.path)) continue
 		await checked(r.path, () => importResourceStub(workspace, r))
 	}
 	// Placeholders for the project's internal `$var:`/`$jsonvar:` refs (retargeted
@@ -390,7 +405,7 @@ export async function installProject(args: {
 	}
 	for (const a of proj.apps) {
 		if (halted()) return
-		if (present(a.path)) continue
+		if (present('app', a.path)) continue
 		const isRaw = a.app_type === 'raw'
 		const refs = isRaw ? extractRawAppRefs(a.value?.raw ?? '') : extractAppRefs(a.value)
 		// Raw apps hold their runnables in the `value.raw` JSON string; parse it so the
@@ -431,6 +446,7 @@ export async function installProject(args: {
 	}
 	for (const t of proj.triggers) {
 		if (halted()) return
+		if (present('trigger', String(t.path))) continue
 		const violation = guard(t.path, t.runnable_path) ?? triggerConfigViolation(t)
 		await record(
 			String(t.path),

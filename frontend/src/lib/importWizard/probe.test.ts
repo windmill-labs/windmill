@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { expectedPaths, expectedTables } from './probe'
+import { expectedTables } from './probe'
 
 /**
- * These two are inference over what the export happens to say, so they are the part of the
- * probe that can be wrong while everything still type-checks. The network reads around them
+ * `expectedTables` is inference over what the export happens to say, so it is the part of the
+ * probe that can be wrong while everything still type-checks. The network reads around it
  * either answer or throw.
  */
 
@@ -50,35 +50,5 @@ COMMIT;`
 		expect(expectedTables('CREATE TABLE links (id int)')).toEqual([])
 		expect(expectedTables('CREATE TABLE bitly.links (id int)')).toEqual([])
 		expect(expectedTables('')).toEqual([])
-	})
-})
-
-describe('expectedPaths', () => {
-	const EXPORT = {
-		project: { slug: 'calendly', name: 'Calendly', summary: '', readme: null },
-		scripts: [{ path: 'f/calendly/book_slot' }],
-		flows: [],
-		apps: [{ path: 'f/calendly/booking' }],
-		resources: [{ path: 'f/calendly/smtp' }],
-		triggers: [],
-		migrations: []
-	} as any
-
-	it('lists what the import will write, across every kind', () => {
-		expect(expectedPaths(EXPORT, 'calendly')).toEqual([
-			'f/calendly/book_slot',
-			'f/calendly/booking',
-			'f/calendly/smtp'
-		])
-	})
-
-	// `installProject` retargets into the chosen folder, so the paths to look for are the
-	// retargeted ones — checking the export's own would look for stubs that never landed.
-	it('follows the folder the import was pointed at', () => {
-		expect(expectedPaths(EXPORT, 'elsewhere')).toEqual([
-			'f/elsewhere/book_slot',
-			'f/elsewhere/booking',
-			'f/elsewhere/smtp'
-		])
 	})
 })

@@ -363,7 +363,10 @@ export class ImportExecution {
 		// holds some of these paths, and a run interrupted halfway is indistinguishable from
 		// one that never started. On a workspace this run just created the answer is empty and
 		// nothing is skipped.
-		const alreadyPresent = await probeImportedPaths(workspace, folder)
+		const alreadyPresent = await probeImportedPaths(workspace, folder, {
+			triggers: exportData.triggers.length > 0,
+			hasEeLicense: this.#deps.hasEeLicense
+		})
 		if (this.#abandoned) return
 		try {
 			await installProject({

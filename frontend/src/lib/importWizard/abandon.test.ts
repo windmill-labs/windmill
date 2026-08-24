@@ -40,7 +40,9 @@ vi.mock('$lib/components/workspaceSettings/projectInstall', () => ({
 		// returns on success.
 		for (const path of ['a', 'b', 'c']) {
 			if (args.stopped?.() === true) return
-			if (args.alreadyPresent?.has(path)) {
+			// Keyed exactly as the real `installProject` keys it, so this stand-in cannot drift
+			// into testing a contract the production code does not have.
+			if (args.alreadyPresent?.has(`script:${path}`)) {
 				args.onResult({ path, ok: true, skipped: true })
 				continue
 			}
@@ -168,7 +170,7 @@ describe('retrying over what is already there', () => {
 	})
 
 	it('writes nothing for a path the destination already holds', async () => {
-		present.paths = new Set(['a', 'b'])
+		present.paths = new Set(['script:a', 'script:b'])
 		const run = new ImportExecution(PLAN, deps)
 		await run.run()
 		const byPath = new Map(run.itemResults.map((r) => [r.path, r]))
@@ -178,7 +180,7 @@ describe('retrying over what is already there', () => {
 	})
 
 	it('still accounts for every item, so the checklist stays complete', async () => {
-		present.paths = new Set(['a', 'b'])
+		present.paths = new Set(['script:a', 'script:b'])
 		const run = new ImportExecution(PLAN, deps)
 		await run.run()
 		expect(run.itemResults.length).toBe(3)
@@ -186,7 +188,7 @@ describe('retrying over what is already there', () => {
 	})
 
 	it('says what it did rather than claiming to have imported all of it', async () => {
-		present.paths = new Set(['a', 'b'])
+		present.paths = new Set(['script:a', 'script:b'])
 		const run = new ImportExecution(PLAN, deps)
 		await run.run()
 		const importRow = run.tasks.find((t) => t.key === 'import')

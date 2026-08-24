@@ -13,10 +13,12 @@
  */
 
 import { ResourceService, ScriptService, FlowService, AppService, WorkspaceService } from '$lib/gen'
-import type {
-	ProjectExport,
-	ProjectMigration
-} from '$lib/components/workspaceSettings/projectBundle'
+import type { ProjectMigration } from '$lib/components/workspaceSettings/projectBundle'
+import {
+	presenceKey,
+	type ImportedKind
+} from '$lib/components/workspaceSettings/projectInstall'
+import { listAllWorkspaceTriggers } from '$lib/components/triggers/workspaceTriggersList'
 
 /**
  * The tables a migration creates, as `schema.table`, read off its `CREATE TABLE` statements.
@@ -34,15 +36,6 @@ export function expectedTables(sql: string): string[] {
 	let m: RegExpExecArray | null
 	while ((m = re.exec(sql)) !== null) out.push(`${m[1]}.${m[2]}`)
 	return [...new Set(out)]
-}
-
-/** Every path the export will write, under the folder the import is targeting. */
-export function expectedPaths(exportData: ProjectExport, folder: string): string[] {
-	const from = exportData.project.slug
-	const rewrite = (p: string) => (folder === from ? p : p.replace(`f/${from}/`, `f/${folder}/`))
-	return [...exportData.scripts, ...exportData.flows, ...exportData.apps, ...exportData.resources]
-		.map((i: any) => String(i.path))
-		.map(rewrite)
 }
 
 export interface WorkspaceState {
@@ -77,29 +70,52 @@ export async function probeWorkspace(
 }
 
 /**
- * Which of the paths the import would write are already there.
+ * Which of the items the import would write are already there, as `presenceKey` keys.
  *
- * Scoped by `pathStart` to the import's own folder, so this is four small reads rather than a
- * workspace scan. Presence is not provenance — importing into an existing workspace that
- * already held a path reads the same as having imported it — so callers use this to decide
- * what is left to do, never to claim credit for what is there.
+ * Scoped by `pathStart` to the import's own folder, so the four path-bearing kinds are four
+ * small reads rather than a workspace scan. Presence is not provenance — importing into an
+ * existing workspace that already held a path reads the same as having imported it — so
+ * callers use this to decide what is left to do, never to claim credit for what is there.
+ *
+ * Triggers are asked for separately and only when the project ships some: they have no
+ * prefix-filtered list endpoint, so answering for them means one call per trigger kind, and a
+ * project without triggers should not pay for that.
  */
-export async function probeImportedPaths(workspace: string, folder: string): Promise<Set<string>> {
+export async function probeImportedPaths(
+	workspace: string,
+	folder: string,
+	opts?: { triggers?: boolean; hasEeLicense?: boolean }
+): Promise<Set<string>> {
 	const pathStart = `f/${folder}/`
-	const paths = new Set<string>()
-	const collect = (rows: unknown) => {
-		for (const r of (rows as { path?: string }[] | undefined) ?? []) if (r.path) paths.add(r.path)
+	const found = new Set<string>()
+	const collect = (kind: ImportedKind) => (rows: unknown) => {
+		for (const r of (rows as { path?: string }[] | undefined) ?? []) {
+			if (r.path) found.add(presenceKey(kind, r.path))
+		}
 	}
-	const calls = [
-		ScriptService.listScripts({ workspace, pathStart }).then(collect),
-		FlowService.listFlows({ workspace, pathStart }).then(collect),
-		AppService.listApps({ workspace, pathStart }).then(collect),
-		ResourceService.listResource({ workspace, pathStart }).then(collect)
+	const calls: Promise<unknown>[] = [
+		ScriptService.listScripts({ workspace, pathStart }).then(collect('script')),
+		FlowService.listFlows({ workspace, pathStart }).then(collect('flow')),
+		AppService.listApps({ workspace, pathStart }).then(collect('app')),
+		ResourceService.listResource({ workspace, pathStart }).then(collect('resource'))
 	]
-	// One kind failing should narrow the answer, not lose the other three: a missing path
-	// only ever means "still to do", which is the safe direction.
+	if (opts?.triggers) {
+		// `failedKinds` is deliberately ignored: a kind that could not be listed leaves its
+		// triggers out of the set, and a missing key only ever means "still to do".
+		calls.push(
+			listAllWorkspaceTriggers(workspace, {
+				includeEeOnly: opts.hasEeLicense === true
+			}).then(({ triggers }) => {
+				for (const t of triggers) {
+					if (t.path?.startsWith(pathStart)) found.add(presenceKey('trigger', t.path))
+				}
+			})
+		)
+	}
+	// One kind failing should narrow the answer, not lose the others: a missing key only ever
+	// means "still to do", which is the safe direction.
 	await Promise.allSettled(calls)
-	return paths
+	return found
 }
 
 /**
