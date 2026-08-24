@@ -759,26 +759,43 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
     Ok(count)
 }
 
-/// Approximate paid seats of a workspace as `ceil(developers + operators/2)`, excluding disabled and
-/// service-account members. Reuses billing's author/operator weighting, but counts provisioned
-/// members rather than the active-user population billing meters, so it only ever loosens the fork
-/// cap (never blocks a paid seat) — good enough for a soft guardrail.
+/// The billable members of a workspace and the seats they add up to.
+#[derive(Clone, Debug, Serialize)]
+pub struct BillableSeats {
+    pub developers: i64,
+    pub operators: i64,
+    pub seats: i64,
+}
+
+/// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`.
+///
+/// The membership rule and the weighting both live in the `billable_member` view and the
+/// `billable_seats()` function, not here: the workspace is invoiced by a job outside this codebase
+/// that reads the same two, and a seat count charged for that the product never credits is the
+/// failure this indirection exists to prevent.
 ///
 /// Unauthenticated metering helper: reads member counts for any `w_id`, so callers must already be
 /// authorized for that workspace (or run in trusted server-side code).
-#[cfg(feature = "cloud")]
-pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
-    let row = sqlx::query!(
+pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats> {
+    let row = sqlx::query_as!(
+        BillableSeats,
         r#"SELECT
-            COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS "developers!",
-            COUNT(*) FILTER (WHERE operator AND NOT disabled AND NOT is_service_account) AS "operators!"
-        FROM usr WHERE workspace_id = $1"#,
+            COUNT(*) FILTER (WHERE NOT operator) AS "developers!",
+            COUNT(*) FILTER (WHERE operator) AS "operators!",
+            billable_seats($1) AS "seats!"
+        FROM billable_member WHERE workspace_id = $1"#,
         w_id
     )
     .fetch_one(db)
     .await
-    .map_err(|e| Error::internal_err(format!("counting paid seats of {w_id}: {e:#}")))?;
-    Ok(((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64)
+    .map_err(|e| Error::internal_err(format!("counting billable seats of {w_id}: {e:#}")))?;
+    Ok(row)
+}
+
+/// Seats only, for the fork cap. See [`billable_seats`].
+#[cfg(feature = "cloud")]
+pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
+    Ok(billable_seats(db, w_id).await?.seats)
 }
 
 #[cfg(feature = "cloud")]

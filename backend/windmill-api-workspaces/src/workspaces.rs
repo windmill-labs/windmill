@@ -45,9 +45,10 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db_unchecked,
-    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
-    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
+    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, BillableSeats,
+    DataTable, DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind,
+    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -117,6 +118,7 @@ pub fn workspaced_service() -> Router {
             get(get_secondary_storage_names),
         )
         .route("/is_premium", get(is_premium))
+        .route("/billable_seats", get(get_billable_seats))
         .route("/edit_error_handler", post(edit_error_handler))
         .route("/edit_success_handler", post(edit_success_handler))
         .route(
@@ -684,6 +686,29 @@ async fn is_premium(
     #[cfg(not(feature = "cloud"))]
     let premium = false;
     Ok(Json(premium))
+}
+
+async fn get_billable_seats(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<BillableSeats> {
+    // Readable by any workspace member, like `is_premium`: this is what the sidebar usage meter
+    // divides by, and that meter is shown to non-admin developers too.
+    //
+    // On cloud a fork draws its plan, quota and bill from the root, so the seats its usage is
+    // measured against are the root's. Resolved here rather than by the caller: a fork member need
+    // not be a member of that root, and so cannot count its seats from the member list. Off cloud
+    // a fork is not billed through a root at all, so the workspace answers for itself.
+    #[cfg(feature = "cloud")]
+    let w_id = if *CLOUD_HOSTED {
+        windmill_common::workspaces::get_billing_workspace_id(&db, &w_id).await?
+    } else {
+        w_id
+    };
+    Ok(Json(
+        windmill_common::workspaces::billable_seats(&db, &w_id).await?,
+    ))
 }
 
 async fn exists_workspace(
@@ -7118,6 +7143,73 @@ async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()
     enforce_cloud_fork_count(db, &root, 1).await
 }
 
+/// Cloud: refuse to attach a workspace that still has its own team plan.
+///
+/// Once attached it draws the root's plan and meters its usage there, and its billing page is
+/// replaced by the parent-managed notice, so a subscription of its own bills a second time for one
+/// plan with no way left to reach the portal that cancels it. Only an attach can reach this state:
+/// a fork is created as a fresh workspace and never had a plan to keep.
+///
+/// Asked only of a candidate joining this family, never of one already under the same root: that
+/// one is already in the double-billed state, where the settings page surfaces the leftover
+/// subscription, and refusing there would block re-designating a renamed dev workspace over a
+/// billing problem the attach did not cause.
+#[cfg(feature = "cloud")]
+async fn reject_attach_of_subscribed_workspace(db: &DB, dev_w_id: &str) -> Result<()> {
+    let plan = sqlx::query_scalar!(
+        "SELECT plan FROM workspace_settings WHERE workspace_id = $1",
+        dev_w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    if plan.as_deref() == Some("team") {
+        return Err(Error::BadRequest(format!(
+            "Workspace {dev_w_id} is on its own team plan. A dev or fork workspace runs on its parent's plan and is never invoiced separately, so cancel that subscription from its own billing settings before attaching it."
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(all(test, feature = "cloud"))]
+mod attach_billing_guard_tests {
+    use super::reject_attach_of_subscribed_workspace;
+    use sqlx::{Pool, Postgres};
+
+    async fn workspace_on_plan(db: &Pool<Postgres>, id: &str, plan: Option<&str>) {
+        sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ($1, $1, 'test-user')")
+            .bind(id)
+            .execute(db)
+            .await
+            .expect("insert workspace");
+        sqlx::query("INSERT INTO workspace_settings (workspace_id, plan) VALUES ($1, $2)")
+            .bind(id)
+            .bind(plan)
+            .execute(db)
+            .await
+            .expect("insert workspace_settings");
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn refuses_a_candidate_that_still_pays_for_itself(db: Pool<Postgres>) {
+        workspace_on_plan(&db, "subscribed", Some("team")).await;
+        workspace_on_plan(&db, "cancelled", None).await;
+
+        let err = reject_attach_of_subscribed_workspace(&db, "subscribed")
+            .await
+            .expect_err("a workspace on its own team plan must not be attachable");
+        assert!(err.to_string().contains("its own team plan"), "{err}");
+
+        // Cancelling clears `plan` but keeps `customer_id`, so the plan column is what decides.
+        reject_attach_of_subscribed_workspace(&db, "cancelled")
+            .await
+            .expect("a workspace with no plan is attachable");
+        reject_attach_of_subscribed_workspace(&db, "no-settings-row")
+            .await
+            .expect("a workspace with no settings row is attachable");
+    }
+}
+
 /// General guardrail (all builds): reject creating a fork/dev under `parent` when it would nest deeper
 /// than `MAX_FORK_DEPTH`. `added_subtree_height` is the height of the subtree grafted below the new
 /// node — 0 for a plain fork, or the candidate's own subtree height for an attach.
@@ -7564,6 +7656,7 @@ async fn attach_dev_workspace(
         if windmill_common::workspaces::get_billing_workspace_id(&db, &req.dev_workspace_id).await?
             != root
         {
+            reject_attach_of_subscribed_workspace(&db, &req.dev_workspace_id).await?;
             let incoming =
                 1 + windmill_common::workspaces::count_workspace_forks(&db, &req.dev_workspace_id)
                     .await?;

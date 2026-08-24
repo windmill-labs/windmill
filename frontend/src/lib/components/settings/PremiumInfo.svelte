@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { run } from 'svelte/legacy';
+	import { run } from 'svelte/legacy'
 
 	import { base } from '$lib/base'
 	import { capitalize, pluralize, sendUserToast } from '$lib/utils'
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
-	import { WorkspaceService, type User, UserService } from '$lib/gen'
+	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Button } from '../common'
 	import Tooltip from '../Tooltip.svelte'
@@ -17,13 +17,11 @@
 	import { slide } from 'svelte/transition'
 
 	interface Props {
-		plan: string | undefined;
-		customer_id: string | undefined;
+		plan: string | undefined
+		customer_id: string | undefined
 	}
 
-	let { plan, customer_id }: Props = $props();
-
-	let users: User[] | undefined = undefined
+	let { plan, customer_id }: Props = $props()
 
 	let premiumInfo:
 		| {
@@ -61,33 +59,27 @@
 		]
 	}
 
-
-	async function listUsers(): Promise<void> {
-		users = await UserService.listUsers({ workspace: $workspaceStore! })
-	}
-
 	async function loadPremiumInfo() {
-		const info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
-		// Same basis as the backend's `count_paid_seats`, which excludes disabled members
-		// and service accounts: counting them here would put this page at a different
-		// seat count from the rest of the product.
-		const billable = users?.filter((x) => !x.disabled && !x.is_service_account) ?? []
-		const developerNb = billable.filter((x) => !x.operator).length
-		const operatorNb = billable.length - developerNb
+		// The seat rows come from the server rather than being recounted from the member
+		// list: this page states what the workspace is billed for, so it has to read the
+		// same count the invoice does.
+		const [info, billable] = await Promise.all([
+			WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! }),
+			WorkspaceService.getBillableSeats({ workspace: $workspaceStore! })
+		])
 		const usage = info.usage ?? 0
 
-		const seatsFromUsers = Math.ceil(developerNb + operatorNb / 2)
+		const seatsFromUsers = billable.seats
 		const seatsFromExtraComps = Math.max(Math.ceil(usage / 10000) - seatsFromUsers, 0)
-		const usedSeats = seatsFromUsers + seatsFromExtraComps
 		premiumInfo = {
 			...info,
 			usage,
 			owner: info.owner,
-			developerNb,
-			operatorNb,
+			developerNb: billable.developers,
+			operatorNb: billable.operators,
 			seatsFromUsers,
 			seatsFromExtraComps,
-			usedSeats
+			usedSeats: seatsFromUsers + seatsFromExtraComps
 		}
 	}
 
@@ -120,7 +112,6 @@
 	let estimatedDevsRaw = $state(1)
 	let estimatedOps = $state(0)
 
-
 	let estimatedExecs = $state(1)
 
 	function updateExecs() {
@@ -132,17 +123,15 @@
 	const formatNumber = (value: number) => value.toLocaleString('en-US')
 	run(() => {
 		if ($workspaceStore) {
-			// The seat rows are computed from the member list and nothing recomputes them
-			// when it lands, so a fast `premium_info` would render zero seats and keep them.
-			listUsers().catch(console.warn).then(loadPremiumInfo)
+			loadPremiumInfo()
 			getThresholdAlert()
 		}
-	});
+	})
 	let estimatedDevs = $derived(Math.max(1, estimatedDevsRaw))
 	let estimatedSeats = $derived(estimatedDevs + Math.ceil(estimatedOps / 2))
 	run(() => {
 		estimatedSeats && updateExecs()
-	});
+	})
 </script>
 
 <Modal bind:open={thresholdAlertOpen} title="Threshold alert">
@@ -154,17 +143,15 @@
 	</div>
 
 	{#snippet actions()}
-	
-			<Button
-				size="sm"
-				on:click={() => {
-					setThresholdAlert()
-					thresholdAlertOpen = false
-				}}
-			>
-				Save
-			</Button>
-		
+		<Button
+			size="sm"
+			on:click={() => {
+				setThresholdAlert()
+				thresholdAlertOpen = false
+			}}
+		>
+			Save
+		</Button>
 	{/snippet}
 </Modal>
 
@@ -260,8 +247,8 @@
 									<div class="flex flex-col gap-0.5">
 										<div class="font-medium">Developers</div>
 										<p class="text-xs text-secondary">
-											Calculated on the MAXIMUM number of users in a given billing
-											period, see the Customer Portal for more info.
+											Calculated on the MAXIMUM number of users in a given billing period, see the
+											Customer Portal for more info.
 										</p>
 									</div>
 								</Cell>
@@ -276,8 +263,8 @@
 									<div class="flex flex-col gap-0.5">
 										<div class="font-medium">Operators</div>
 										<p class="text-xs text-secondary">
-											Calculated on the MAXIMUM number of operators in a given
-											billing period, see the Customer Portal for more info.
+											Calculated on the MAXIMUM number of operators in a given billing period, see
+											the Customer Portal for more info.
 										</p>
 									</div>
 								</Cell>
@@ -295,8 +282,9 @@
 											1 developer = 1 seat, 2 operators = 1 seat.
 										</p>
 										<p class="text-[11px] text-secondary font-mono">
-											u = ceil({formatNumber(premiumInfo.developerNb)} + {formatNumber(premiumInfo.operatorNb)}/2)
-											= {formatNumber(premiumInfo.seatsFromUsers)}
+											u = ceil({formatNumber(premiumInfo.developerNb)} + {formatNumber(
+												premiumInfo.operatorNb
+											)}/2) = {formatNumber(premiumInfo.seatsFromUsers)}
 										</p>
 									</div>
 								</Cell>
@@ -311,9 +299,8 @@
 									<div class="flex flex-col gap-0.5">
 										<div class="font-semibold">Executions this month</div>
 										<p class="text-xs text-secondary">
-											One execution equals one job
-											up to 1 second on a worker with 2GB of memory, with each additional
-											second counting as an extra execution.
+											One execution equals one job up to 1 second on a worker with 2GB of memory,
+											with each additional second counting as an extra execution.
 										</p>
 									</div>
 								</Cell>
@@ -365,8 +352,8 @@
 											Used seats (billed)
 										</div>
 										<p class="text-xs text-secondary">
-											Highest between seats from 'Developers + Operators' and 'Seats from executions'.
-											This is the number of seats used for billing this month.
+											Highest between seats from 'Developers + Operators' and 'Seats from
+											executions'. This is the number of seats used for billing this month.
 										</p>
 										<p class="text-[11px] text-secondary font-mono">
 											u + c = {formatNumber(premiumInfo.usedSeats)}
@@ -398,8 +385,8 @@
 		<div class="flex flex-col gap-1">
 			<div class="text-sm font-semibold text-primary">Estimate your monthly cost</div>
 			<p class="text-xs text-secondary max-w-xl">
-				This is a rough estimate based on your expected team size and workload. Actual billing is based
-				on the maximum number of users and executions in a given month.
+				This is a rough estimate based on your expected team size and workload. Actual billing is
+				based on the maximum number of users and executions in a given month.
 			</p>
 		</div>
 
@@ -420,13 +407,13 @@
 					<div class="flex items-center justify-between gap-2">
 						<div class="text-sm font-medium text-primary">Operators</div>
 						<div class="text-xs text-secondary">
-							<span class="font-semibold">{estimatedOps}</span> operator{estimatedOps === 1 ? '' : 's'}
+							<span class="font-semibold">{estimatedOps}</span> operator{estimatedOps === 1
+								? ''
+								: 's'}
 						</div>
 					</div>
 					<Range min={0} max={20} bind:value={estimatedOps} hideInput />
-					<p class="text-[11px] text-secondary">
-						2 operators = 1 seat
-					</p>
+					<p class="text-[11px] text-secondary"> 2 operators = 1 seat </p>
 				</div>
 
 				<div class="space-y-1.5">
@@ -434,8 +421,8 @@
 						<div class="flex items-center gap-1.5">
 							<div class="text-sm font-medium text-primary">Monthly executions</div>
 							<Tooltip>
-								One execution equals one job up to 1 second on a virtual CPU with 2 GB of memory, with
-								each additional second counting as an extra execution.
+								One execution equals one job up to 1 second on a virtual CPU with 2 GB of memory,
+								with each additional second counting as an extra execution.
 							</Tooltip>
 						</div>
 						<div class="text-xs text-secondary">
@@ -449,9 +436,7 @@
 						format={(v) => `${v * 10}k`}
 						hideInput
 					/>
-					<p class="text-[11px] text-secondary">
-						Each seat includes 10k executions per month.
-					</p>
+					<p class="text-[11px] text-secondary"> Each seat includes 10k executions per month. </p>
 				</div>
 			</div>
 
@@ -558,8 +543,8 @@
 						<li class="mt-2">
 							Every seat includes <b>10 000</b> executions
 							<Tooltip>
-								One execution equals one job up to 1 second on a virtual CPU with 2 GB of memory, with
-								each additional second counting as an extra execution.
+								One execution equals one job up to 1 second on a virtual CPU with 2 GB of memory,
+								with each additional second counting as an extra execution.
 							</Tooltip>
 						</li>
 					{:else}
@@ -586,9 +571,7 @@
 							</div>
 						{/if}
 					{:else}
-						<div class="text-md font-semibold">
-							Workspace is on the team plan
-						</div>
+						<div class="text-md font-semibold"> Workspace is on the team plan </div>
 					{/if}
 				{:else if planTitle == 'Enterprise'}
 					{#if plan != 'enterprise'}
@@ -601,9 +584,7 @@
 							See more
 						</Button>
 					{:else}
-						<div class="text-md font-semibold">
-							Workspace is on enterprise plan
-						</div>
+						<div class="text-md font-semibold"> Workspace is on enterprise plan </div>
 					{/if}
 				{:else if planTitle === 'Free'}
 					{#if plan}
@@ -611,9 +592,7 @@
 							Cancel your plan in the Customer Portal to downgrade to the free plan
 						</div>
 					{:else}
-						<div class="font-semibold">
-							Workspace is on the free plan
-						</div>
+						<div class="font-semibold"> Workspace is on the free plan </div>
 					{/if}
 				{/if}
 			</div>

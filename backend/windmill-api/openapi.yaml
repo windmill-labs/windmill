@@ -3788,6 +3788,34 @@ paths:
               schema:
                 type: boolean
 
+  /w/{workspace}/workspaces/billable_seats:
+    get:
+      summary: get the billable seats of the workspace the plan is billed on
+      operationId: getBillableSeats
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: billable seats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  developers:
+                    type: integer
+                  operators:
+                    type: integer
+                  seats:
+                    type: integer
+                required:
+                  - developers
+                  - operators
+                  - seats
+
   /w/{workspace}/workspaces/premium_info:
     get:
       summary: get premium info
