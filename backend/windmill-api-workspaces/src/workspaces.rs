@@ -45,10 +45,9 @@ use windmill_common::workspaces::GitRepositorySettings;
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
     check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db_unchecked,
-    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, BillableSeats,
-    DataTable, DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind,
-    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
-    DEV_WORKSPACE_LOCK_RULE_NAME,
+    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
+    DataTableCatalogResourceType, DataTableForkBehavior, ProtectionRuleKind, ProtectionRules,
+    ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -688,11 +687,23 @@ async fn is_premium(
     Ok(Json(premium))
 }
 
+#[derive(Serialize)]
+struct BillableSeatsResponse {
+    /// Both omitted when the seats counted are another workspace's: a fork member need not be a
+    /// member of the billing root, so the root's headcount is not theirs to read. The total is,
+    /// since it is the divisor of the quota their own executions draw on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    developers: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    operators: Option<i64>,
+    seats: i64,
+}
+
 async fn get_billable_seats(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<BillableSeats> {
+) -> JsonResult<BillableSeatsResponse> {
     // Readable by any workspace member, like `is_premium`: this is what the sidebar usage meter
     // divides by, and that meter is shown to non-admin developers too.
     //
@@ -701,14 +712,21 @@ async fn get_billable_seats(
     // not be a member of that root, and so cannot count its seats from the member list. Off cloud
     // a fork is not billed through a root at all, so the workspace answers for itself.
     #[cfg(feature = "cloud")]
-    let w_id = if *CLOUD_HOSTED {
+    let billing_w_id = if *CLOUD_HOSTED {
         windmill_common::workspaces::get_billing_workspace_id(&db, &w_id).await?
     } else {
-        w_id
+        w_id.clone()
     };
-    Ok(Json(
-        windmill_common::workspaces::billable_seats(&db, &w_id).await?,
-    ))
+    #[cfg(not(feature = "cloud"))]
+    let billing_w_id = w_id.clone();
+
+    let counted = windmill_common::workspaces::billable_seats(&db, &billing_w_id).await?;
+    let own = billing_w_id == w_id;
+    Ok(Json(BillableSeatsResponse {
+        developers: own.then_some(counted.developers),
+        operators: own.then_some(counted.operators),
+        seats: counted.seats,
+    }))
 }
 
 async fn exists_workspace(
@@ -7656,7 +7674,6 @@ async fn attach_dev_workspace(
         if windmill_common::workspaces::get_billing_workspace_id(&db, &req.dev_workspace_id).await?
             != root
         {
-            reject_attach_of_subscribed_workspace(&db, &req.dev_workspace_id).await?;
             let incoming =
                 1 + windmill_common::workspaces::count_workspace_forks(&db, &req.dev_workspace_id)
                     .await?;
@@ -7751,6 +7768,17 @@ async fn attach_dev_workspace(
         return Err(Error::PermissionDenied(format!(
             "Attaching workspace '{dev_w_id}' as a dev requires being an admin of it (or a superadmin)"
         )));
+    }
+
+    // Deliberately below the admin-of-candidate check, unlike the cap enforcement above: the
+    // refusal names the candidate's plan, so running it earlier would tell any admin of any
+    // premium workspace whether an arbitrary workspace id is on a team plan.
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED {
+        let root = windmill_common::workspaces::get_billing_workspace_id(&db, &prod_w_id).await?;
+        if windmill_common::workspaces::get_billing_workspace_id(&db, &dev_w_id).await? != root {
+            reject_attach_of_subscribed_workspace(&db, &dev_w_id).await?;
+        }
     }
 
     let mut tx = db.begin().await?;

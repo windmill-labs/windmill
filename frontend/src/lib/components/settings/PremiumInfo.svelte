@@ -75,8 +75,10 @@
 			...info,
 			usage,
 			owner: info.owner,
-			developerNb: billable.developers,
-			operatorNb: billable.operators,
+			// Always present here: this page renders only for a workspace billed on its own plan,
+			// which is exactly when the endpoint returns the breakdown.
+			developerNb: billable.developers ?? 0,
+			operatorNb: billable.operators ?? 0,
 			seatsFromUsers,
 			seatsFromExtraComps,
 			usedSeats: seatsFromUsers + seatsFromExtraComps
