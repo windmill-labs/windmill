@@ -35,11 +35,12 @@ export function renderForeignKey(
 		dbType: DbType
 		tableName: string
 		/**
-		 * Quotes each dot-separated part of the target in the REFERENCES clause, so a
+		 * Table to name in the REFERENCES clause, quoted per dot-separated part so a
 		 * schema-qualified target survives identifiers that need quoting. The constraint
-		 * name is built from the unquoted value either way.
+		 * name stays derived from `fk.targetTable`, so qualifying a target here never
+		 * renames a constraint an earlier migration created under the bare name.
 		 */
-		quoteTarget?: boolean
+		qualifiedTarget?: string
 	}
 ): string {
 	const sourceColumns = fk.columns.map((c) => c.sourceColumn).filter(Boolean)
@@ -60,13 +61,12 @@ export function renderForeignKey(
 		.join('_')
 		.replaceAll('.', '_')} `.substring(0, 60)
 
-	const targetRef =
-		options.quoteTarget && targetTable
-			? targetTable
-					.split('.')
-					.map((part) => renderDbQuotedIdentifier(part, options.dbType))
-					.join('.')
-			: targetTable
+	const targetRef = options.qualifiedTarget
+		? options.qualifiedTarget
+				.split('.')
+				.map((part) => renderDbQuotedIdentifier(part, options.dbType))
+				.join('.')
+		: targetTable
 
 	sql += ` FOREIGN KEY (${sourceColumns.join(', ')}) REFERENCES ${targetRef} (${targetColumns.join(
 		', '
