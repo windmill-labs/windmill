@@ -2,12 +2,10 @@
 	export const sidebarClasses = {
 		text: 'text-secondary text-xs font-normal',
 		iconText: 'text-hint',
-		selectedText: 'text-accent text-xs font-semibold',
+		selectedText: 'text-emphasis text-xs font-semibold',
 		sublabelText: 'text-secondary text-2xs font-normal',
 		hoverBg: 'transition-colors hover:bg-surface-hover',
-		// The accent tint keeps the current page distinguishable from the hover and
-		// keyboard-highlight states, which both paint bg-surface-hover.
-		selectedBg: 'bg-surface-accent-selected'
+		selectedBg: 'bg-surface-hover'
 	}
 </script>
 
