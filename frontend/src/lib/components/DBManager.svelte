@@ -468,6 +468,7 @@
 								{#if onDatatableAction}
 									{@const dt = root.datatable}
 									<DropdownV2
+										enableFlyTransition
 										items={() => [
 											{
 												displayName: 'Migrations',
@@ -532,6 +533,7 @@
 									<ChevronDownIcon class={rowChevronClass(schemaOpen)} size={14} />
 									{#if !multiSelectMode}
 										<DropdownV2
+											enableFlyTransition
 											items={() => [
 												{
 													displayName: 'Permissions',
@@ -598,6 +600,7 @@
 									</p>
 									{#if !multiSelectMode && (root.datatable === currentDatatable || root.datatable === undefined)}
 										<DropdownV2
+											enableFlyTransition
 											items={() => [
 												{
 													displayName: 'Delete table',
