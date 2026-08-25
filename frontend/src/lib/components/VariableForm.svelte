@@ -14,6 +14,8 @@
 	import { isOwner } from '$lib/utils'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import EncryptedDraftField from './EncryptedDraftField.svelte'
+	import DateTimeInput from './DateTimeInput.svelte'
+	import { base } from '$lib/base'
 
 	interface Variable {
 		value: string
@@ -28,6 +30,7 @@
 		variable: Variable
 		labels: string[] | undefined
 		wsSpecific: boolean
+		valueExpiresAt: string | undefined
 		deployTo: string | undefined
 		can_write: boolean
 		edit: boolean
@@ -43,6 +46,7 @@
 		variable = $bindable(),
 		labels = $bindable(),
 		wsSpecific = $bindable(),
+		valueExpiresAt = $bindable(),
 		deployTo,
 		can_write,
 		edit,
@@ -204,3 +208,29 @@
 	<textarea rows="4" use:autosize bind:value={variable.description} placeholder="Used for X"
 	></textarea>
 </label>
+
+<Label
+	label="Value expiration"
+	tooltip="When the value stored here stops working, such as the expiry date of an API key. Windmill runs the workspace's variable expiration handler an hour before it so the value can be rotated. The variable itself is never deleted."
+>
+	<!-- Unbound: DateTimeInput writes `null` on clear, and a `null` where the deployed
+	baseline has nothing reads as an edit, so every empty state has to normalize to
+	`undefined` before it reaches the draft row. -->
+	<DateTimeInput
+		value={valueExpiresAt}
+		clearable
+		useDropdown
+		disabled={!can_write}
+		on:change={(e) => (valueExpiresAt = e.detail ?? undefined)}
+		on:clear={() => (valueExpiresAt = undefined)}
+	/>
+	<span class="text-2xs font-normal text-hint">
+		{#if valueExpiresAt && new Date(valueExpiresAt).getTime() <= Date.now()}
+			This date has passed. Set a new one once the value is rotated.
+		{:else}
+			Runs the workspace's <a href="{base}/workspace_settings?tab=variable_expiration"
+				>variable expiration handler</a
+			> an hour before this date. Without one, nothing happens.
+		{/if}
+	</span>
+</Label>

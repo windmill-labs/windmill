@@ -153,7 +153,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "expires_at": {
                         "type": "string",
-                        "description": "The expiration date of the variable",
+                        "description": "When to garbage-collect the variable. Used for ephemeral secrets; the variable is deleted once this is reached. Not the value's expiry \u2014 see value_expires_at.\n",
+                        "format": "date-time"
+                },
+                "value_expires_at": {
+                        "type": "string",
+                        "description": "When the value stored in this variable stops working. Triggers the workspace's variable expiration handler one hour before it is reached; never causes the variable to be deleted.\n",
                         "format": "date-time"
                 },
                 "labels": {
@@ -240,6 +245,12 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "description": {
                         "type": "string",
                         "description": "The new description of the variable"
+                },
+                "value_expires_at": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "When the value stored in this variable stops working. Omit to leave it unchanged; send null to clear it. Changing it re-arms the workspace's variable expiration handler.\n",
+                        "format": "date-time"
                 },
                 "labels": {
                         "type": "array",

@@ -235,6 +235,7 @@ function variableDraftToWorkspaceItem(path: string, draft: VariableDraftState): 
 			account: draft.account,
 			is_oauth: draft.is_oauth,
 			expires_at: draft.expires_at,
+			value_expires_at: draft.value_expires_at,
 			labels: draft.labels,
 			ws_specific: draft.wsSpecific
 		},

@@ -927,6 +927,42 @@ describe('global AI tools', () => {
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
 	})
 
+	// Clearing an expiry once the value has been rotated is a normal edit, and the draft
+	// state has no null to carry it — so an absent expiry has to deploy as an explicit
+	// null, which the update endpoint reads as "clear" rather than "leave alone".
+	it('clears a variable value expiry through to the deploy body', async () => {
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
+		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe
+		vi.mocked(VariableService.getVariable).mockResolvedValueOnce({
+			path: 'f/secrets/api_key',
+			value: 'tok',
+			is_secret: false,
+			description: 'd',
+			value_expires_at: '2027-03-15T08:30:00Z'
+		} as any)
+
+		await callGlobalTool('write_variable', {
+			path: 'f/secrets/api_key',
+			value_expires_at: null
+		})
+
+		expect(
+			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
+				?.value_expires_at
+		).toBeUndefined()
+
+		await callGlobalTool('deploy_workspace_item', {
+			type: 'variable',
+			path: 'f/secrets/api_key'
+		})
+
+		expect(VariableService.updateVariable).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({ value_expires_at: null })
+			})
+		)
+	})
+
 	// '' means "no value staged", so there is nothing to create the secret with.
 	it('does not create a secret variable draft that stages no value', async () => {
 		seedBackendDraft(
