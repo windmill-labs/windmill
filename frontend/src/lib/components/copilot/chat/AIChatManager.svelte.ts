@@ -3373,7 +3373,7 @@ export class AIChatManager {
 			)
 			if (messages.length === this.messages.length) return
 			checkpointedShape = shape
-			const display = this.settledToolDisplay(this.displayMessages, 'Interrupted')
+			const display = this.#interruptedSnapshot()
 			// onMessageEnd is what gives streamed text its bubble, and it clears
 			// currentReply doing so — text still there has none, and without one the
 			// reply returns as context the reader cannot see.

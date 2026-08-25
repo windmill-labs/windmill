@@ -4318,8 +4318,8 @@ export const SESSION_PREVIEW_TOOL_NAMES = new Set([
 	'list_artifact_versions'
 ])
 
-// Withheld from the side-panel chat: the argument form is a blocking card, and
-// sessions are the only surface that renders one.
+// Withheld from the side-panel chat, which is scoped to authoring what is open in the
+// editor rather than running deployed scripts. Both surfaces can render the form.
 const SESSION_ONLY_TOOL_NAMES = new Set(['run_script'])
 
 /**

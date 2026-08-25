@@ -113,6 +113,22 @@ describe('conformArgsToSchema', () => {
 			dropped: { undeclared: [], unshowable: ['name'] }
 		})
 	})
+
+	// MultiSelect maps over the value while rendering, so a non-array here throws and
+	// takes the whole form with it — the user cannot even cancel what they were shown.
+	it('drops a non-array in a dyn-multiselect slot', () => {
+		const schema = {
+			properties: { tenants: { type: 'object', format: 'dynmultiselect-list_tenants' } }
+		}
+		expect(conformArgsToSchema({ tenants: { evil: 1 } }, schema)).toMatchObject({
+			args: {},
+			dropped: { unshowable: ['tenants'] }
+		})
+		expect(conformArgsToSchema({ tenants: 'acme' }, schema)).toMatchObject({
+			args: {},
+			dropped: { unshowable: ['tenants'] }
+		})
+	})
 })
 
 describe('enforceDisabledDefaults', () => {
@@ -152,6 +168,18 @@ describe('enforceDisabledDefaults', () => {
 			free: 'kept'
 		})
 		expect(resetKeys).toEqual(['top', 'cfg.force', 'list[0].mode', 'either.level'])
+	})
+
+	// By value: a locked object default never matches by identity, so every run of such
+	// a field reported a reset, and the caller was corrected for getting it right.
+	it('reports no reset for an object default the caller already matched', () => {
+		const objSchema = {
+			properties: { opts: { type: 'object', disabled: true, default: { dry_run: true } } }
+		}
+		expect(enforceDisabledDefaults({ opts: { dry_run: true } }, objSchema).resetKeys).toEqual([])
+		expect(enforceDisabledDefaults({ opts: { dry_run: false } }, objSchema).resetKeys).toEqual([
+			'opts'
+		])
 	})
 
 	it('reports only the arguments it actually overwrote', () => {

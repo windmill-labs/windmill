@@ -20,7 +20,9 @@ export function enforceDisabledDefaults(
 	const result = mapMatchingArgs(args, schema.properties, isLockedProp, (value, prop, path) => {
 		// An argument never supplied was not overwritten: the field shows the default
 		// either way, and a caller told otherwise would try to correct what it never sent.
-		if (value !== undefined && value !== prop.default) resetKeys.push(path)
+		// By value, since a default can be an object or an array: identity would report
+		// every run of such a field as overridden, the caller that got it right included.
+		if (value !== undefined && !deepEqual(value, prop.default)) resetKeys.push(path)
 		return prop.default
 	})
 	return { args: result, resetKeys }
@@ -93,8 +95,18 @@ const DROP = Symbol('drop')
 /** Types `setInputCat` routes to a widget bound to a scalar. */
 const SCALAR_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
 
+/**
+ * Declares an array even though its `type` says `object`, and the only slot where a
+ * mismatch is worse than unreadable: `MultiSelect` maps over the value as it renders,
+ * so anything else throws and takes the whole form down — Cancel with it.
+ */
+const declaresDynMultiselect = (prop: any) =>
+	typeof prop?.format === 'string' && prop.format.startsWith('dynmultiselect-')
+
 function dropUndeclaredNested(value: any, prop: any, dropped: DroppedPaths, path: string): any {
-	if (value == null || typeof value !== 'object') return value
+	if (value == null) return value
+	if (declaresDynMultiselect(prop) && !Array.isArray(value)) return DROP
+	if (typeof value !== 'object') return value
 	// A value the form cannot show is one the user would approve unseen: it matches no
 	// level below, so every filter falls straight through it, and `ArgInput` binds it to
 	// a widget that renders nothing — an object in a list slot, or in a scalar input.

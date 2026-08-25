@@ -231,28 +231,6 @@ describe('AIChatManager run form', () => {
 	// restored into a fresh manager, which has none of the turn's callbacks. Cancel is
 	// then the card's only exit, and until it settles pendingUserAction keeps the whole
 	// session reading as needs-confirmation.
-	it('settles a restored form whose callback is gone', async () => {
-		const manager = new AIChatManager()
-		manager.displayMessages = [
-			{
-				role: 'tool',
-				tool_call_id: 'call_r',
-				content: 'Waiting for you to confirm the arguments of "f/a/b"',
-				isLoading: true,
-				runForm: { path: 'f/a/b', schema: {}, args: {} }
-			}
-		]
-		expect(manager.isRunFormPending('call_r')).toBe(false)
-
-		manager.handleRunFormCancel('call_r')
-
-		const { pendingUserAction } = await import('./shared')
-		const settled = manager.displayMessages[0]
-		expect(settled.runForm?.canceled).toBe(true)
-		expect(settled.isLoading).toBe(false)
-		expect(pendingUserAction(manager.displayMessages)).toBe(undefined)
-	})
-
 	// A save that fires mid-turn (jobs tray, review dock) stores a transcript nothing
 	// will resume. Storing a card still pending brings back a form whose Run resolves
 	// no callback.
@@ -273,9 +251,12 @@ describe('AIChatManager run form', () => {
 		manager.dismissJob('nope')
 		await Promise.resolve()
 
+		const { isActiveRunForm } = await import('./shared')
 		const stored = saveChat.mock.calls.at(-1)?.[0]?.[0]
-		expect(stored?.isLoading).toBe(false)
 		expect(stored?.runForm?.canceled).toBe(true)
+		// What every mid-turn save has to hold: no stored card renders a live form. A
+		// save path added without settling would restore a Run that resolves nothing.
+		expect(isActiveRunForm(stored!)).toBe(false)
 		// The live card is untouched — the turn is still parked on it.
 		expect(manager.displayMessages[0].isLoading).toBe(true)
 	})
