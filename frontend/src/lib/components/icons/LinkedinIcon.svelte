@@ -1,14 +1,26 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" {width} {height} viewBox="0 0 30 30" style="enable-background:new 0 0 270 270; fill:currentcolor;">
+<!-- #0A66C2 per the official inbug SVGs embedded in brand.linkedin.com/in-logo.
+	 That page forbids recolouring: only the approved blue, black and white variants. -->
+<svg
+	{width}
+	{height}
+	viewBox="-23.273 -23.273 558.545 558.545"
+	fill="currentColor"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
-		d="M9,25H4V10h5V25z M6.501,8C5.118,8,4,6.879,4,5.499S5.12,3,6.501,3C7.879,3,9,4.121,9,5.499C9,6.879,7.879,8,6.501,8z M27,25h-4.807v-7.3c0-1.741-0.033-3.98-2.499-3.98c-2.503,0-2.888,1.896-2.888,3.854V25H12V9.989h4.614v2.051h0.065 c0.642-1.18,2.211-2.424,4.551-2.424c4.87,0,5.77,3.109,5.77,7.151C27,16.767,27,25,27,25z"
+		d="M56.9 512h398.2c31.4 0 56.9-25.5 56.9-56.9V56.9C512 25.5 486.5 0 455.1 0H56.9C25.5 0 0 25.5 0 56.9v398.2C0 486.5 25.5 512 56.9 512"
+		style="fill-rule:evenodd;clip-rule:evenodd;fill:#0A66C2"
+	/><path
+		d="M440.9 440.9h-76V311.5c0-35.5-13.5-55.3-41.6-55.3-30.5 0-46.5 20.6-46.5 55.3v129.4h-73.2V194.4h73.2v33.2s22-40.7 74.3-40.7 89.7 31.9 89.7 98v156zM116.3 162.1c-24.9 0-45.2-20.4-45.2-45.5s20.2-45.5 45.2-45.5 45.1 20.4 45.1 45.5-20.2 45.5-45.1 45.5M78.5 440.9h76.4V194.4H78.5z"
+		style="fill-rule:evenodd;clip-rule:evenodd;fill:#fff"
 	/>
 </svg>

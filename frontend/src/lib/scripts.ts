@@ -152,7 +152,6 @@ export function flowPathToHref(path: string, hubBaseUrl: string = get(hubBaseUrl
 const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string][] = [
 	['bun', 'TypeScript (Bun)'],
 	['python3', 'Python'],
-	['deno', 'TypeScript (Deno)'],
 	['bash', 'Bash'],
 	['go', 'Go'],
 	['nativets', 'REST'],
@@ -175,7 +174,10 @@ const scriptLanguagesArray: [SupportedLanguage | 'docker' | 'bunnative', string]
 	['duckdb', 'DuckDB'],
 	['ruby', 'Ruby'],
 	['rlang', 'R'],
-	['dbt', 'dbt']
+	['dbt', 'dbt'],
+	// This array's order is the picker order. Deno is de-emphasized ahead of
+	// deprecation, so it stays last.
+	['deno', 'Deno']
 	// for related places search: ADD_NEW_LANG
 ]
 /**

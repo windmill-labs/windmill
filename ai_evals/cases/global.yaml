@@ -1116,9 +1116,71 @@
     - preselects only the created script on the review page
     - does not deploy or delete anything
 
+- id: global-openpage8-runs-label-and-worker
+  prompt: |-
+    Show me the runs carrying the label nightly-digest that ran on the worker wk-eval-1.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    # One page carrying both filters — two pages each carrying one is not the ask.
+    toolCallArgsSameCall:
+      - tool: open_page
+        args:
+          - field: page
+            stringIncludesAnyOf:
+              - runs
+          - field: label
+            stringIncludesAnyOf:
+              - nightly-digest
+          - field: worker
+            stringIncludesAnyOf:
+              - wk-eval-1
+  skipJudge: true
+  judgeChecklist:
+    - opens the Runs page filtered to the nightly-digest label on worker wk-eval-1
+    - does not write, deploy, or delete anything
+
+# Exclusion is the filter shape most easily lost in translation: the page encodes it as
+# a `!`-prefixed value, and a model that only knows the positive form silently opens a
+# page showing exactly what the user asked to hide.
+- id: global-openpage9-runs-exclude-schedules
+  prompt: |-
+    Open the runs page but hide everything a schedule kicked off — I only care about the rest.
+  runtime:
+    maxTurns: 6
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - open_page
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgsSameCall:
+      - tool: open_page
+        args:
+          - field: page
+            stringIncludesAnyOf:
+              - runs
+          - field: job_trigger_kind
+            stringIncludesAnyOf:
+              - '!schedule'
+  skipJudge: true
+  judgeChecklist:
+    - opens the Runs page with schedule-triggered jobs excluded
+    - does not write, deploy, or delete anything
+
 - id: global-closepage1-close-runs-tab
   prompt: |-
     You just opened the runs page for me in the side panel. Close that tab, I'm done looking at it.
+  initial: ai_evals/fixtures/frontend/global/initial/preview_runs_tab.json
   runtime:
     maxTurns: 6
     sessionChat: true
@@ -1139,6 +1201,64 @@
   judgeChecklist:
     - closes the runs preview tab in the side panel
     - does not write, deploy, or delete anything
+
+# --- Artifact version history ---
+# Every content change to an artifact is snapshotted, and update_artifact requires a
+# change_note that the user reads in the version picker. A blank note makes the history
+# unreadable, so pin that the model fills it on every edit.
+
+- id: global-artifact-note-on-each-edit
+  prompt: |-
+    Write up a short rollout plan for me as a doc I can come back to, covering a staged
+    rollout in three phases. Then add a rollback section to it, and after that tighten
+    the wording of phase 2.
+  runtime:
+    maxTurns: 12
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - create_artifact
+      - update_artifact
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      # The note is what the version picker shows; a blank one makes history unreadable.
+      - tool: update_artifact
+        field: change_note
+        nonEmpty: true
+  skipJudge: true
+  judgeChecklist:
+    - creates one artifact and revises it rather than creating a second artifact
+    - each revision carries a short description of what changed
+
+# A reader who pins an older version in the artifact's picker is looking at something the
+# artifact tools never report: an artifact tab carries no ACTIVE PREVIEW section, so the pin
+# reaches the chat through get_preview_status alone. Asked what is on screen, the model has
+# to read the panel instead of answering from the artifact's own history.
+
+- id: global-artifact-pinned-version-question
+  prompt: |-
+    Which version of the onboarding plan am I looking at right now?
+  initial: ai_evals/fixtures/frontend/global/initial/artifact_onboarding_plan_pinned_v2.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_preview_status
+    forbiddenToolsUsed:
+      - create_artifact
+      - update_artifact
+      - deploy_workspace_item
+  skipJudge: true
+  judgeChecklist:
+    - answers that the panel is showing version 2, not the latest version 5
+    - does not edit or re-create the artifact
 
 # --- Documentation search (search_docs) ---
 # Pure product-knowledge questions: the assistant should consult the docs via
@@ -1663,7 +1783,54 @@
   judgeChecklist:
     - saves the plan as a markdown artifact via create_artifact rather than only replying inline
     - the artifact content has a title, a one-line summary, and three or four bullet steps for onboarding
+    - the artifact is registered as the session's plan (role "plan"), not as an ordinary note - the user asked for the plan they will come back to and revise
     - does not create a flow or script draft yet
+
+- id: global-planmode1-hands-over-a-plan
+  prompt: |-
+    Our support inbox is a mess. I want incoming emails triaged by urgency and routed to the
+    right team, with anything urgent also posted to Slack.
+    Work out how you'd build this in Windmill.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+    planMode: true
+  # No draft assertion: approving the plan opens the gate mid-run, and building from there is
+  # what production asks for, so a draft is not a failure. The gate itself is covered by
+  # shared.test.ts; what only a real model can show is whether it researches and hands over a
+  # usable plan instead of guessing at one.
+  toolExpect:
+    requiredToolsUsed:
+      - exit_plan_mode
+  # Not "saves the plan as an artifact": exit_plan_mode writes it, so the harness would
+  # satisfy that on every run the tool is called at all — it grades itself, not the model.
+  judgeChecklist:
+    - the plan covers classifying an incoming email by urgency, routing it to a team, and posting urgent ones to Slack
+    - the plan is specific about what would be built in Windmill (a flow and its steps, or the scripts involved)
+
+- id: global-planmode2-sketches-while-planning
+  prompt: |-
+    We're moving our nightly CSV export off a schedule and onto a webhook the vendor calls
+    when their file is ready. Work out how you'd rebuild it in Windmill — and draw me the
+    shape of it before you write anything, I find that easier to react to than prose.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+    planMode: true
+  # Both tools, because either alone is a different behaviour: create_artifact without
+  # exit_plan_mode means the model filed the plan as the drawing, and exit_plan_mode without
+  # create_artifact means the posture blocked the drawing it was asked for.
+  toolExpect:
+    requiredToolsUsed:
+      - create_artifact
+      - exit_plan_mode
+  judgeChecklist:
+    - saves a diagram of the proposed design as an artifact rather than only describing it in chat
+    - the diagram covers the webhook that starts the run and the steps that replace the nightly schedule
+    - hands the plan over with exit_plan_mode instead of leaving it in the artifact
+    - does not register the diagram as the session's plan document
 
 - id: global-npm1-script-search-package
   prompt: |-
@@ -2149,3 +2316,223 @@
     - the request authenticates with a bearer token built from that resource
     - the script posts an annotation rather than reading data back
     - the result stays an AI draft and is not deployed
+
+# The value of a secret variable is unreadable, so a metadata-only edit must leave
+# it untouched: passing any `value` here means inventing one, which silently
+# replaces the real secret at deploy.
+- id: global-secret-variable-description-only-edit
+  prompt: |-
+    The variable `f/evals/global/stripe_api_token` has a confusing description.
+    Change it to say it is the Stripe key used by the nightly billing sync, and leave
+    everything else about the variable alone. Keep it as an AI draft; do not deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/secret_api_token_variable.json
+  runtime:
+    maxTurns: 8
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: variable
+        path: f/evals/global/stripe_api_token
+        valueIncludes:
+          # "billing" is already in the seeded description and labels, so it would pass
+          # without any edit; "nightly" can only come from the new description.
+          - nightly
+          - '"is_secret": true'
+        valueExcludes:
+          # The draft must not carry an invented value, a self-reference, or the
+          # real secret it was never shown.
+          - '$var:'
+          - sk_live_do_not_leak_me
+  toolExpect:
+    requiredToolsUsed:
+      - write_variable
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+    toolCallArgs:
+      # Restating `is_secret: true` is fine; supplying a value is not.
+      - tool: write_variable
+        field: value
+        fieldMustBeAbsent: true
+  judgeChecklist:
+    - updates the description of f/evals/global/stripe_api_token to mention Stripe and the nightly billing sync
+    - keeps the variable secret
+    - does not invent, guess, or restate a value for the variable
+    # A secret draft stores "" when it stages no new value, and this case must not stage
+    # one — the judge has to be told, or it reads the "" as the value having been cleared.
+    - 'the draft''s empty value string is expected and correct: a secret variable draft stores "" when no new value is staged, which is exactly right for a description-only edit, so it does NOT mean the value was cleared or changed'
+    - leaves the result as an AI draft and does not deploy it
+
+# Reproduces GIT-967: a hello-world flow with a React app in front of it. The agent
+# built a backend runnable that fetched the Windmill REST API directly, guessing at
+# WM_TOKEN / BASE_INTERNAL_URL / WM_BASE_URL until it fell back to localhost:8000, and
+# wired the app to a flow that was never deployed. Both are pinned here.
+- id: global-app-triggers-flow
+  prompt: |-
+    Create a hello world workflow at `f/evals/global/hello_world_flow` that just returns a
+    greeting, and a React app at `f/evals/global/hello_world_app` with a button that runs
+    that workflow and shows the result on the page.
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_evals_folder.json
+  runtime:
+    maxTurns: 24
+  validate:
+    draftCountAtLeast: 2
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/hello_world_flow
+      - type: app
+        path: f/evals/global/hello_world_app
+        valueIncludes:
+          # The frontend must go through the generated bindings, which is the only
+          # credentialed way it can reach anything server-side.
+          - './wmill'
+        valueExcludes:
+          # Every artifact of hand-rolling HTTP against the Windmill API from a
+          # runnable instead of using the client or a path runnable.
+          - BASE_INTERNAL_URL
+          - WM_BASE_URL
+          - WM_TOKEN
+          - localhost:8000
+          - getResultMaybe
+          - jobs/list
+          - getWorkspaceToken
+          - getBaseUrl
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+      - init_app
+      - write_app_runnable
+  judgeChecklist:
+    - creates a flow at f/evals/global/hello_world_flow that returns a greeting
+    - creates a React raw app at f/evals/global/hello_world_app with a button that runs the flow
+    - the app actually invokes the flow rather than reimplementing its logic in an inline runnable
+    # Both items staying drafts is the CORRECT outcome — the chat must not deploy without
+    # being asked. What is judged is that the flow is named as the one item needing a deploy.
+    - 'leaving both the flow and the app as drafts is expected and correct: the chat deploys nothing unless asked. Judge only whether the flow is identified as the single item that will need deploying, and that the app is NOT presented as needing deployment to be tried'
+    # The judge has repeatedly flagged a correct app as broken over this.
+    - '`/wmill.d.ts` is generated by Windmill from the app''s runnables and is deliberately absent from the app''s files — its absence is correct and is NOT a missing-module bug'
+    - the app reaches the flow through a backend runnable, not through hand-written HTTP calls to the Windmill API
+    - the app's frontend calls the runnable via the generated ./wmill bindings — backend, or backendAsync together with waitJob/getJob/streamJob, all of which are real exports of that module
+    - does not read WM_TOKEN, BASE_INTERNAL_URL or WM_BASE_URL, and does not construct a Windmill API URL anywhere
+    - does not call windmill-client functions that do not exist, such as getBaseUrl or getWorkspaceToken
+  # The point of the case: a path runnable (and wmill.runFlow*) resolves the deployed
+  # item, so a flow left as a draft makes the app dead on arrival and the user has to be
+  # told. This can't live in judgeChecklist — the global judge only ever sees the drafts,
+  # never what the assistant said.
+  assistantExpect:
+    # Plain substring test: an alternative must name the FLOW and read as an outstanding
+    # obligation. Flow-agnostic wording is satisfied by "the app must be deployed"; tense-neutral
+    # wording by a deploy the agent only claims to have made. The mirror expectation "don't ask
+    # to deploy the app" can't be a forbiddenMentions entry, since correct answers negate it.
+    requiredMentionsAnyOf:
+      - - deploy the flow
+        - deploy that flow
+        - deploy this flow
+        - deploy just the flow
+        - deploy the workflow
+        - deploy that workflow
+        - deploy hello_world_flow
+        - flow must be deployed
+        - flow needs to be deployed
+        - flow has to be deployed
+        - flow needs deploying
+        - flow will need to be deployed
+        - flow will have to be deployed
+        - once the flow is deployed
+        - until the flow is deployed
+        - workflow must be deployed
+        - workflow needs to be deployed
+        - workflow has to be deployed
+
+# --- AI agent steps: the provider config must name a model the referenced resource serves ---
+# The workspace AI settings are not a runtime gate, so the model id can only come from the
+# resources themselves. Both cases seed AI provider resources; without them the assistant has
+# nothing to write but a guessed id, which is the defect these pin.
+
+- id: global-ai-agent-step-uses-workspace-model
+  prompt: |-
+    Create a draft flow at `f/evals/global/support_answer` with a single AI agent step that answers
+    the user's question. The question comes in as a flow input called `query`. No tools.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/ai_provider_anthropic.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/support_answer
+        valueIncludes:
+          - aiagent
+          - $res:f/evals/global/anthropic_main
+          - claude-sonnet-5
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a draft flow at f/evals/global/support_answer with one AI agent step
+    - the step's provider is an object carrying kind, resource and model, not a bare resource string
+    - the provider references the workspace's own AI provider resource f/evals/global/anthropic_main
+    - the model is one the workspace configured for that resource, not an id invented from memory
+    - the user's question reaches the agent from the query flow input
+    - the result stays as an AI draft and is not deployed
+
+- id: global-ai-agent-step-asks-which-provider
+  prompt: |-
+    Create a draft flow at `f/evals/global/triage_ticket` with a single AI agent step that summarises
+    an incoming ticket. The ticket text comes in as a flow input called `ticket`. No tools.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/ai_providers_two.json
+  runtime:
+    maxTurns: 10
+  toolExpect:
+    requiredToolsUsed:
+      - askUserQuestion
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  # Two configured providers make the choice the user's: the step may only be written once the
+  # question is answered, and it must use one of the workspace's own resources. Which one depends
+  # on the answer, so the assertion covers the shared path prefix rather than a fixed resource.
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/triage_ticket
+        valueIncludes:
+          - aiagent
+          - $res:f/evals/global/
+  # Whether the assistant asked before writing lives in the tool record, not in the draft the
+  # global judge sees.
+  skipJudge: true
+
+# Only satisfiable from the resource's own model listing: the workspace AI settings configure just
+# claude-sonnet-5, so an assistant working off the settings has no Opus id to write.
+- id: global-ai-agent-step-uses-listed-model
+  prompt: |-
+    Create a draft flow at `f/evals/global/deep_review` with a single AI agent step that reviews a
+    pull request diff. The diff comes in as a flow input called `diff`. Use the Opus model — this
+    one needs the strongest model available. No tools.
+    Leave it as an AI draft only; do not deploy or save it.
+  initial: ai_evals/fixtures/frontend/global/initial/ai_provider_anthropic.json
+  runtime:
+    maxTurns: 10
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        path: f/evals/global/deep_review
+        valueIncludes:
+          - aiagent
+          - $res:f/evals/global/anthropic_main
+          - claude-opus-5
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - creates a draft flow at f/evals/global/deep_review with one AI agent step
+    - the step uses the workspace's anthropic resource f/evals/global/anthropic_main
+    - the model is the Opus one the user asked for, taken from the models that resource serves
+    - the diff flow input reaches the agent

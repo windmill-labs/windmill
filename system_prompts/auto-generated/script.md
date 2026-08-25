@@ -1437,6 +1437,17 @@ being buffered, bypassing the 10000-row return cap.
 
 Import: import * as wmill from 'windmill-client'
 
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it.
+
 To know who is running the script, read the contextual variables rather than calling the API:
 `process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
 the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
@@ -1535,6 +1546,14 @@ async getResult(jobId: string): Promise<any>
  * @returns Object with started, completed, success, and result properties
  */
 async getResultMaybe(jobId: string): Promise<any>
+
+/**
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
 
 /**
  * Run a script asynchronously by its path
@@ -2030,6 +2049,17 @@ appendPartition(opts: Omit<DucklakeMaterializeOptions, "uniqueKey">,): SqlStatem
 # Python SDK (wmill)
 
 Import: import wmill
+
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The functions below are the surface to prefer. For an endpoint none of them covers,
+wmill.Windmill().get(endpoint) and .post(endpoint) issue an authenticated request against this
+instance. What does not exist is a function name you guessed at: if it is not listed below, do
+not call it.
 
 To know who is running the script, read the contextual variables rather than calling the API:
 `os.environ.get("WM_END_USER_EMAIL") or os.environ.get("WM_EMAIL")`. WM_END_USER_EMAIL is the app

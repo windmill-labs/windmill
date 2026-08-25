@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { Sparkles, Plus, List, Ban, ExternalLinkIcon } from 'lucide-svelte'
+	import { Sparkles, Plus, List, Ban, ExternalLinkIcon, Loader2 } from 'lucide-svelte'
 	import type { Policy } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
+	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
 	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
@@ -13,7 +14,9 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { Alert } from '$lib/components/common'
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
-	import { copilotInfo } from '$lib/aiStore'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { react18Template, react19Template, svelte5Template } from './templates'
 	import type { Runnable } from './rawAppPolicy'
 	import { type DataTableRef, type RawAppData, formatDataTableRef } from './dataTableRefUtils'
@@ -117,7 +120,22 @@
 	)
 
 	const hasNoDatatables = $derived(availableDatatables?.length === 0)
-	const isAiEnabled = $derived($copilotInfo.enabled)
+
+	// copilotInfo is a global that stays empty until some ancestor's fetch lands, so
+	// `enabled` alone cannot tell "no providers" from "not loaded yet" and the modal
+	// would announce AI as unconfigured while it is merely unknown. Gate on the
+	// config describing opWs, and load it here so the claim owns its own evidence.
+	const aiConfigLoaded = $derived(!!opWs && $copilotWorkspace === opWs)
+	// Say where the button leads: the route hands this prompt to a fresh AI
+	// session for everyone who has one, and drives the docked chat for the rest.
+	const handsOffToSession = $derived(prefersSessionHandoff($userStore?.operator))
+	const isAiEnabled = $derived(aiConfigLoaded && $copilotInfo.enabled)
+
+	$effect(() => {
+		if (open && opWs && !aiConfigLoaded) {
+			loadCopilot(opWs)
+		}
+	})
 
 	async function start(withPrompt: boolean) {
 		const template = templates[selectedTemplateIndex]
@@ -334,17 +352,39 @@
 					<span class="text-xs font-normal text-tertiary">(optional)</span>
 				</h2>
 
-				{#if !isAiEnabled}
-					<Alert type="info" title="AI is not configured for this workspace.">
+				{#if !aiConfigLoaded}
+					<div class="flex items-center gap-2 text-xs text-tertiary">
+						<Loader2 size={14} class="animate-spin" />
+						Loading AI settings...
+					</div>
+				{:else if !isAiEnabled}
+					<Alert type="info" title="AI is not configured.">
 						You can still create an app manually but using AI is highly recommended.
 						<br />
 						{#if $userStore?.is_admin}
 							Configure AI in
 							<a
-								href="/workspace_settings?tab=ai"
+								href="{base}/workspace_settings?tab=ai"
 								target="_blank"
 								class="inline-flex items-center gap-1 font-semibold"
 								>workspace settings <ExternalLinkIcon size={16} />
+							</a>
+							{#if $superadmin}
+								or
+								<a
+									href="{base}/?workspace=admins#superadmin-settings"
+									target="_blank"
+									class="inline-flex items-center gap-1 font-semibold"
+									>instance settings <ExternalLinkIcon size={16} />
+								</a>
+							{/if} to enable this feature.
+						{:else if $superadmin}
+							Configure AI in
+							<a
+								href="{base}/?workspace=admins#superadmin-settings"
+								target="_blank"
+								class="inline-flex items-center gap-1 font-semibold"
+								>instance settings <ExternalLinkIcon size={16} />
 							</a> to enable this feature.
 						{:else}
 							Ask your workspace admin to configure AI in workspace settings to enable this feature.
@@ -362,8 +402,9 @@
 							}}
 						/>
 						<p class="text-xs text-tertiary">
-							Leave empty to start with a blank template, or describe your app to get AI assistance
-							right away.
+							{handsOffToSession
+								? 'Leave empty to start with a blank template, or describe your app to open an AI session that builds it.'
+								: 'Leave empty to start with a blank template, or describe your app to get AI assistance right away.'}
 						</p>
 					</div>
 				{/if}
@@ -388,7 +429,7 @@
 						startIcon={{ icon: Sparkles }}
 						btnClasses={AIBtnClasses('accent')}
 					>
-						Start with AI
+						{handsOffToSession ? 'Start in AI session' : 'Start with AI'}
 					</Button>
 				{/if}
 			</div>

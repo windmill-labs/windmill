@@ -1,6 +1,8 @@
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
+import { getAiAgentProviderCatalog } from './flow/aiAgentProviderCatalog'
+import { formatAiAgentProvidersPrompt } from './flow/aiAgentProviders'
 import {
 	flowTools,
 	prepareFlowSystemMessage,
@@ -27,6 +29,7 @@ import {
 	completedJobToolStatus,
 	backgroundJobCompletionNote,
 	deriveChatJobStatus,
+	pendingToolImagesMessage,
 	trimJob
 } from './shared'
 import type {
@@ -56,7 +59,7 @@ import {
 import { dfs } from '$lib/components/flows/previousResults'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { createLongHash } from '$lib/editorLangUtils'
-import type { UserDraftItemKind } from '$lib/gen'
+import type { AIProvider, UserDraftItemKind } from '$lib/gen'
 import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
@@ -97,9 +100,10 @@ import {
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
-import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
+import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
 import { sanitizeToolCallArguments } from './toolCallArguments'
-import { normalizeContextUsage } from './tokenUsage'
+import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
+import { logAiUsage } from '$lib/utils/aiUsageReporter'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import {
 	getCurrentModel,
@@ -115,15 +119,19 @@ import {
 	globalToolsFor,
 	loadWorkspaceSkills,
 	prepareGlobalSystemMessage,
+	resolveGlobalPromptIdentity,
+	type GlobalPromptIdentity,
 	prepareGlobalUserMessage,
 	type AiSkillListItem,
 	type ChatCommandItem,
 	type SessionPromptContext,
 	getSessionContextPromptSection,
-	type GlobalToolHelpers
+	type GlobalToolHelpers,
+	type GlobalActivePreviewContext
 } from './global/core'
 import { formatChatJobCompletion } from './datatableTools'
 import { isGlobalAiEnabled } from './global/gate'
+import { createMcpTools, loadMcpServers, type McpServer } from './global/mcpTools'
 import {
 	pipelineTools,
 	getPipelinePromptSection,
@@ -133,7 +141,10 @@ import { scopedKey, onUserChange, migrateLegacyLocalStorage } from '$lib/userSco
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { AttachedFilesStore } from './files/attachedFiles.svelte'
 import { SessionArtifactsStore } from './artifacts/artifactsState.svelte'
+import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
 import { appendAttachedFilesRoster } from './files/fileTools'
+import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
+import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
 
 // SSR and users who prefer reduced motion get no typewriter pacing.
 function prefersInstantReveal(): boolean {
@@ -150,6 +161,15 @@ function prefersInstantReveal(): boolean {
 // schema changes from mode switches, and the estimate's chars/4 error.
 const COMPACTION_TRIGGER_RATIO = 0.8
 const COMPACTION_TARGET_RATIO = 0.7
+// How often a running turn is offered to the mid-turn checkpoint (see
+// sendRequest). The whole transcript is rewritten on each accepted checkpoint,
+// so this bounds the write rate; it also bounds how much of a turn a tab that
+// dies without warning can lose.
+const CHECKPOINT_INTERVAL_MS = 2000
+// Stands in for the result of a tool call that had not finished when the
+// transcript was checkpointed — still running, or still waiting to be confirmed.
+// The model reads the step as unfinished, which is what the card tells the reader.
+const INTERRUPTED_TOOL_RESULT = 'Interrupted: the chat was closed before this tool finished'
 // Flat per-image token estimate for a downscaled (≤1568px) vision image. Used instead
 // of chars/4 on the base64 data URL, which would overcount by ~50x.
 const IMAGE_TOKEN_ESTIMATE = 1200
@@ -206,6 +226,7 @@ export enum AIMode {
 }
 
 export enum AIAutonomyMode {
+	PLAN = 'plan',
 	DEFAULT = 'default',
 	ACCEPT_EDIT = 'acceptedit',
 	YOLO = 'yolo'
@@ -220,6 +241,7 @@ const AUTO_ACCEPT_TOOL_CONFIRMATION_MODES = new Set<AIMode>([
 	AIMode.APP,
 	AIMode.GLOBAL
 ])
+const PLAN_MODES = new Set<AIMode>([AIMode.GLOBAL])
 
 export function isAIMode(mode: unknown): mode is AIMode {
 	return ALL_AI_MODES.includes(mode as AIMode)
@@ -235,6 +257,10 @@ export function supportsAutoAcceptEdits(mode: AIMode): boolean {
 
 export function supportsAutoAcceptToolConfirmations(mode: AIMode): boolean {
 	return AUTO_ACCEPT_TOOL_CONFIRMATION_MODES.has(mode)
+}
+
+export function supportsPlanMode(mode: AIMode): boolean {
+	return PLAN_MODES.has(mode)
 }
 
 export function isAIModeVisible(mode: AIMode): boolean {
@@ -261,7 +287,7 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 		return AIAutonomyMode.ACCEPT_EDIT
 	}
 	const persistedMode = getLocalSetting(key)
-	if (isAIAutonomyMode(persistedMode)) {
+	if (isAIAutonomyMode(persistedMode) && persistedMode !== AIAutonomyMode.PLAN) {
 		return persistedMode
 	}
 	// No stored preference: default to auto-accepting edits (tool calls still
@@ -274,6 +300,11 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {
+	// Plan is session-only: persisting it would re-block a later session where the
+	// picker never offered Plan. The stored pre-plan baseline is what a reload restores.
+	if (mode === AIAutonomyMode.PLAN) {
+		return
+	}
 	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
 	if (!BROWSER || !key) {
 		return
@@ -339,6 +370,37 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 type QueuedEntry = {
 	draft: DraftSnapshot
 	context: ContextElement[] | undefined
+}
+
+/** Plan mode's view of the chat it runs in. A function rather than an object literal in the
+ * field initializer so the getters close over the manager instead of over themselves. */
+function planModeHostFor(m: AIChatManager): PlanModeHost {
+	return {
+		get active() {
+			return m.planModeActive
+		},
+		get available() {
+			return m.planModeAvailable
+		},
+		get autoAccepting() {
+			return m.autoAcceptToolConfirmationsActive
+		},
+		get isSessionChat() {
+			return m.isSessionChat
+		},
+		get sessionId() {
+			return m.sessionId
+		},
+		get chatId() {
+			return m.historyManager.getCurrentChatId()
+		},
+		get artifacts() {
+			return m.artifacts
+		},
+		openArtifact: (id, name, version) => m.openArtifact?.(id, name, version),
+		enter: () => m.setAutonomyMode(AIAutonomyMode.PLAN),
+		restore: () => m.setAutonomyMode(m.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
+	}
 }
 
 export class AIChatManager {
@@ -415,7 +477,7 @@ export class AIChatManager {
 	 * undefined in the global side-panel chat, where the tray falls back to opening
 	 * the run in a new browser tab. */
 	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
-	openArtifact?: (artifactId: string, name: string) => void
+	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 	closeArtifact?: (artifactId: string) => void
 	loading = $state<boolean>(false)
 	currentReply = $state<string>('')
@@ -527,6 +589,10 @@ export class AIChatManager {
 	// labels while set; the hook clears it back to undefined when done.
 	loadingLabel = $state<string | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
+	// Set by AI sessions. Enables the session-only preview tools and gates plan mode, which
+	// needs the preview pane; the global side-panel chat leaves it false. Reactive because
+	// `planModeAvailable` derives from it.
+	isSessionChat = $state(false)
 	autoAcceptEditsAvailable = $derived(supportsAutoAcceptEdits(this.mode))
 	autoAcceptEditsActive = $derived(
 		this.autoAcceptEditsAvailable &&
@@ -537,6 +603,12 @@ export class AIChatManager {
 	autoAcceptToolConfirmationsActive = $derived(
 		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
 	)
+	planModeAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
+	planModeActive = $derived(this.autonomyMode === AIAutonomyMode.PLAN && this.planModeAvailable)
+	prePlanAutonomyMode = $state<AIAutonomyMode | undefined>(undefined)
+	// The posture's own state — its two tools, the plan document and the planning round.
+	// Everything it needs from this manager goes through the host above.
+	planMode = new PlanModeController(planModeHostFor(this))
 	#automaticScroll = $state<boolean>(true)
 	systemMessage = $state<ChatCompletionSystemMessageParam>({
 		role: 'system',
@@ -566,15 +638,14 @@ export class AIChatManager {
 	/** Cached datatables for app context (fetched asynchronously) */
 	cachedDatatables = $state<AppDatatableElement[]>([])
 
-	private confirmationCallbacks = new Map<string, (value: boolean) => void>()
+	private confirmationCallbacks = new Map<
+		string,
+		{ resolve: (value: boolean) => void; toolName?: string }
+	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
-	// Set by AI sessions. Enables the session-only preview tools (open_preview /
-	// get_preview_status) and their system-prompt guidance in GLOBAL mode; the
-	// global side-panel chat leaves it false so those tools aren't offered.
-	isSessionChat = false
 	// The session this manager belongs to (session chats only). Carried into the
 	// tool `helpers` in GLOBAL mode so the preview/deploy tools dispatch to THIS
 	// session rather than the UI-active one — keeps backgrounded sessions isolated.
@@ -584,6 +655,10 @@ export class AIChatManager {
 	// sessions modules — and re-read on every system-message rebuild; the send
 	// path rebuilds after beforeSend, so a fork committed there is picked up.
 	sessionContextResolver: (() => SessionPromptContext | undefined) | undefined = undefined
+	// The page the side panel shows, stamped on each user message. Same seam as above:
+	// a page tab is an iframe in its own realm, so the tab model is the only place the
+	// chat can learn it. Undefined for a live editor — ACTIVE EDITOR covers those.
+	activePreviewResolver: (() => GlobalActivePreviewContext | undefined) | undefined = undefined
 	// Resolves the workspace this chat operates on. Session chats set it to their
 	// own (possibly forked) workspace so the chat targets it WITHOUT switching the
 	// global workspaceStore. Undefined for the global side-panel chat, which
@@ -643,6 +718,39 @@ export class AIChatManager {
 		if (!this.modifiedItems?.delete(maskKey(itemKind, fromPath))) return
 		this.modifiedItems.add(maskKey(itemKind, toPath))
 		await this.#persistModifiedItems()
+	}
+
+	/** Report one completed provider response's tokens to the workspace usage view.
+	 * Called per response rather than per turn: a tool loop makes several, each
+	 * separately billed, and a turn that fails partway through has still spent
+	 * everything up to that point.
+	 *
+	 * Only token counts leave the browser — rates are applied when the usage is
+	 * read, so a corrected price also corrects everything already recorded. */
+	private recordUsage(
+		usage: ChatTokenUsage,
+		provider: AIProvider,
+		model: string,
+		workspace: string | undefined
+	) {
+		// A provider that reports no usage still yields an all-zero report. Recording
+		// it would add a $0 row to the usage view, claiming the request cost nothing
+		// rather than that it went uncounted.
+		if (usage.total === 0 && usage.prompt === 0 && usage.completion === 0) {
+			return
+		}
+		const tokens = billedTokens(usage)
+		logAiUsage({
+			provider,
+			model,
+			sessionId: this.sessionId,
+			inputTokens: tokens.input,
+			cacheReadTokens: tokens.cacheRead,
+			cacheWriteTokens: tokens.cacheWrite,
+			outputTokens: tokens.output,
+			costUsd: usage.cost,
+			workspace
+		})
 	}
 
 	// Serialized, snapshot-at-write-time persistence: two rapid dock actions
@@ -1011,6 +1119,19 @@ export class AIChatManager {
 	// once they resolve.
 	globalSkills = $state<AiSkillListItem[]>([])
 	private globalSkillsRefreshId = 0
+
+	// External MCP servers the user connected (resources of type `mcp`). Loaded
+	// asynchronously alongside skills; the MCP tools are only registered when
+	// this is non-empty, so a workspace with no connection pays no schema cost
+	// for them on every chat-loop iteration.
+	mcpServers = $state<McpServer[]>([])
+	private mcpServersRefreshId = 0
+
+	// The GLOBAL prompt's path conventions and folder ACLs, for this chat's operating
+	// workspace (`GlobalPromptIdentity`). Resolved asynchronously alongside skills, never
+	// read from the ambient user store.
+	private globalIdentity = $state<GlobalPromptIdentity | undefined>(undefined)
+	private globalIdentityRefreshId = 0
 
 	// Built-in session-chat slash commands, listed in the command picker
 	// alongside workspace skills. Unlike a skill, these run locally and never
@@ -1444,14 +1565,23 @@ export class AIChatManager {
 		}
 	}
 
+	/** enter_plan_mode never qualifies: YOLO means "stop asking and run it", and a research
+	 * posture inverts that. Every accept path asks here rather than carrying its own copy. */
+	private autoAcceptsTool = (toolName: string | undefined) => toolName !== ENTER_PLAN_MODE_TOOL
+
+	/** Asked before the confirmation wait is skipped, so a tool the posture will not answer
+	 * for still gets a card rather than running unasked. */
+	shouldAutoAcceptTool = (toolName?: string) =>
+		this.autoAcceptToolConfirmationsActive && this.autoAcceptsTool(toolName)
+
 	// Request confirmation from user for a tool call
-	requestConfirmation = (toolId: string): Promise<boolean> => {
+	requestConfirmation = (toolId: string, toolName?: string): Promise<boolean> => {
 		if (this.autoAcceptToolConfirmationsActive) {
-			return Promise.resolve(true)
+			return Promise.resolve(this.autoAcceptsTool(toolName))
 		}
 
 		return new Promise((resolve) => {
-			this.confirmationCallbacks.set(toolId, resolve)
+			this.confirmationCallbacks.set(toolId, { resolve, toolName })
 		})
 	}
 
@@ -1459,14 +1589,14 @@ export class AIChatManager {
 	handleToolConfirmation = (toolId: string, confirmed: boolean) => {
 		const confirmationCallback = this.confirmationCallbacks.get(toolId)
 		if (confirmationCallback) {
-			confirmationCallback(confirmed)
+			confirmationCallback.resolve(confirmed)
 			this.confirmationCallbacks.delete(toolId)
 		}
 	}
 
 	private acceptPendingToolConfirmations = () => {
-		for (const confirmationCallback of this.confirmationCallbacks.values()) {
-			confirmationCallback(true)
+		for (const { resolve, toolName } of this.confirmationCallbacks.values()) {
+			resolve(this.autoAcceptsTool(toolName))
 		}
 		this.confirmationCallbacks.clear()
 	}
@@ -1477,10 +1607,34 @@ export class AIChatManager {
 		}
 	}
 
+	private resolvePendingPlanCard = (toolName: string, confirmed: boolean) => {
+		for (const [toolId, cb] of this.confirmationCallbacks) {
+			if (cb.toolName === toolName) {
+				cb.resolve(confirmed)
+				this.confirmationCallbacks.delete(toolId)
+			}
+		}
+	}
+
 	setAutonomyMode = (mode: AIAutonomyMode) => {
+		const enteringPlan = mode === AIAutonomyMode.PLAN && this.autonomyMode !== AIAutonomyMode.PLAN
+		const leavingPlan = mode !== AIAutonomyMode.PLAN && this.autonomyMode === AIAutonomyMode.PLAN
+		if (enteringPlan) {
+			this.prePlanAutonomyMode = this.autonomyMode
+			this.planMode.startRound()
+		} else if (mode !== AIAutonomyMode.PLAN) {
+			this.prePlanAutonomyMode = undefined
+			this.planMode.resetBlocks()
+		}
 		this.autonomyMode = mode
 		persistAutonomyMode(mode)
 
+		if (enteringPlan) {
+			this.resolvePendingPlanCard(ENTER_PLAN_MODE_TOOL, true)
+		} else if (leavingPlan) {
+			// Opting into YOLO means "run it"; leaving plan mode any other way is not a sign-off.
+			this.resolvePendingPlanCard(EXIT_PLAN_MODE_TOOL, mode === AIAutonomyMode.YOLO)
+		}
 		if (this.autoAcceptToolConfirmationsActive) {
 			this.acceptPendingToolConfirmations()
 		}
@@ -1502,6 +1656,8 @@ export class AIChatManager {
 	hydrateUserScopedAutonomy = () => {
 		migrateLegacyAutonomyKeys()
 		this.autonomyMode = getPersistedAutonomyMode()
+		this.prePlanAutonomyMode = undefined
+		this.planMode.resetRound()
 	}
 
 	applyScriptEditorCode = async (code: string, opts?: ReviewChangesOpts) => {
@@ -1525,10 +1681,13 @@ export class AIChatManager {
 		})
 	}
 
-	handleUserQuestionAnswer = (toolId: string, choices: string[]) => {
+	/** Returns whether the answer was delivered: a card restored from history
+	 * still looks parked but its resolver is gone with the old page, so callers
+	 * holding the only copy of the answer must not discard it on a false. */
+	handleUserQuestionAnswer = (toolId: string, choices: string[]): boolean => {
 		const callback = this.userQuestionCallbacks.get(toolId)
 		if (!callback) {
-			return
+			return false
 		}
 
 		// Display-only readback for the collapsed tool-header: a compact comma list.
@@ -1553,6 +1712,7 @@ export class AIChatManager {
 
 		callback(choices)
 		this.userQuestionCallbacks.delete(toolId)
+		return true
 	}
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
@@ -1672,6 +1832,22 @@ export class AIChatManager {
 		}
 	}
 
+	/** Send `text` as a turn, or queue it when one is already streaming. Callers
+	 * that send programmatically (an editor button, an arriving hand-off) must go
+	 * through this rather than `sendRequest`: a second concurrent loop shares this
+	 * manager's abort controller and transcript, so the two interleave and Stop
+	 * halts only one. It is the rule the composer already follows.
+	 *
+	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
+	 * send's attachment upkeep, so between the two a click would slip past. */
+	sendOrQueue(text: string) {
+		if (this.loading || this.sendInFlight) {
+			this.queueMessage(text)
+			return
+		}
+		void this.sendRequest({ instructions: text })
+	}
+
 	/** Remove the queued message and put it back into the input, images included. */
 	dequeueMessage() {
 		if (!this.#hasQueuedMessage()) {
@@ -1756,6 +1932,12 @@ export class AIChatManager {
 		}
 	) {
 		if (!isAIModeVisible(mode)) return
+		// A session chat is GLOBAL for its whole life, and the plan gate reads that mode: moving
+		// it lifts the gate on a session the user still has set to Plan.
+		if (this.isSessionChat && mode !== AIMode.GLOBAL) {
+			console.error(`Refusing to move a session chat to ${mode} mode: sessions are GLOBAL-only.`)
+			return
+		}
 		if (mode === AIMode.SCRIPT && !tryGetCurrentModel()) return
 		this.mode = mode
 		this.pendingPrompt = pendingPrompt ?? ''
@@ -1805,6 +1987,7 @@ export class AIChatManager {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
 			this.systemMessage.content = this.systemMessage.content
+			this.appendFlowAiAgentProviders(this.systemMessage)
 			this.tools = [...flowTools]
 			this.helpers = {
 				...(this.flowAiChatHelpers ?? {}),
@@ -1827,7 +2010,9 @@ export class AIChatManager {
 			this.helpers = {}
 		} else if (mode === AIMode.GLOBAL) {
 			this.configureGlobalMode()
+			void this.refreshGlobalIdentity()
 			void this.refreshGlobalSkills()
+			void this.refreshMcpServers()
 		} else if (mode === AIMode.APP) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareAppSystemMessage(customPrompt)
@@ -1846,7 +2031,9 @@ export class AIChatManager {
 	private configureGlobalMode = () => {
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
+			user: this.globalIdentity,
 			skills: this.globalSkills,
+			mcpServers: this.mcpServers,
 			webSearch: this.globalWebSearchAdvertised
 		})
 		const sessionCtx = this.sessionContextResolver?.()
@@ -1882,12 +2069,17 @@ export class AIChatManager {
 			}
 		}
 		const pipeline = this.pipelineAiChatHelpers
+		const mcpTools = createMcpTools(this.mcpServers)
 		if (pipeline) {
 			systemMessage.content += getPipelinePromptSection(pipeline.getPipelineContext())
-			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...pipelineTools]
+			this.tools = [
+				...globalToolsFor({ sessionPreview: this.isSessionChat }),
+				...pipelineTools,
+				...mcpTools
+			]
 			this.helpers = { ...baseHelpers, pipeline }
 		} else {
-			this.tools = globalToolsFor({ sessionPreview: this.isSessionChat })
+			this.tools = [...globalToolsFor({ sessionPreview: this.isSessionChat }), ...mcpTools]
 			this.helpers = baseHelpers
 		}
 		this.systemMessage = systemMessage
@@ -1921,6 +2113,57 @@ export class AIChatManager {
 		this.rebuildGlobalSystemMessage()
 	}
 
+	// Same shape as refreshGlobalSkills. An identity that resolves after the operating
+	// workspace moved describes the workspace left behind, so it is dropped, not installed.
+	refreshGlobalIdentity = async (workspace = this.operatingWorkspace ?? '') => {
+		const refreshId = ++this.globalIdentityRefreshId
+		const identity = await resolveGlobalPromptIdentity(workspace)
+		if (refreshId !== this.globalIdentityRefreshId) {
+			return
+		}
+		this.globalIdentity = workspace === (this.operatingWorkspace ?? '') ? identity : undefined
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
+	// Same shape as refreshGlobalSkills: rebuild GLOBAL mode once the connected
+	// MCP servers resolve so the next chat-loop iteration advertises their tools,
+	// ignoring stale resolves so a workspace change cannot overwrite newer ones.
+	//
+	// A server is a path, and the workspace a call runs against is read at call
+	// time, so a listing that resolves after the operating workspace moved must be
+	// dropped rather than installed: the same path in the workspace switched to is
+	// a different server, and one the user has not opted into.
+	refreshMcpServers = async (workspace = this.operatingWorkspace ?? '') => {
+		const refreshId = ++this.mcpServersRefreshId
+		const servers = await loadMcpServers(workspace)
+		if (refreshId !== this.mcpServersRefreshId) {
+			return
+		}
+		// Dropping the stale answer is not enough on its own: leaving the previous
+		// workspace's servers installed would go on advertising its paths against
+		// the workspace switched to.
+		this.mcpServers = workspace === (this.operatingWorkspace ?? '') ? servers : []
+		if (this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
+		}
+	}
+
+	// The workspace's AI provider resources and their models exist only at run time, so they are
+	// appended once the catalog resolves. The chat loop re-reads this.systemMessage on every
+	// iteration, so a send that beats the fetch still picks them up on the next one.
+	private appendFlowAiAgentProviders = async (target: ChatCompletionSystemMessageParam) => {
+		const catalog = await getAiAgentProviderCatalog(this.operatingWorkspace)
+		// Flow mode's tools are flowTools, which carry no askUserQuestion.
+		const section = formatAiAgentProvidersPrompt(catalog, { canAskUser: false })
+		// A mode switch or a rebuild since the fetch started owns the message now.
+		if (section === '' || this.systemMessage !== target) {
+			return
+		}
+		this.systemMessage = { ...target, content: `${target.content}\n\n${section}` }
+	}
+
 	// Rebuild the GLOBAL system message in place so an updated user instruction (persisted by
 	// the update_user_instructions tool) is picked up on the next chat-loop iteration, which
 	// re-reads this.systemMessage via a getter.
@@ -1930,7 +2173,9 @@ export class AIChatManager {
 		}
 		const systemMessage = prepareGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), {
 			previewTools: this.isSessionChat,
+			user: this.globalIdentity,
 			skills: this.globalSkills,
+			mcpServers: this.mcpServers,
 			// Carry the loop's observed availability: re-deriving would lose a runtime
 			// rejection, which the static provider/settings gates cannot see.
 			webSearch: this.globalWebSearchAdvertised
@@ -2080,27 +2325,63 @@ export class AIChatManager {
 		}
 	}
 
-	// Commit an interrupted turn's usable output as context for a follow-up:
-	// the tool-paired prefix of completed steps (a dangling tool call would
-	// make providers reject the next request) plus the partial answer text.
-	// A reasoning-only interrupt instead drops its stuck-open bubble.
-	private commitInterruptedTurn = (
+	// The transcript an interrupted turn leaves behind: the stored history, the
+	// tool-paired prefix of the turn's completed steps (a dangling tool call
+	// would make providers reject the next request), and the partial answer text
+	// when it isn't already inside that prefix. Pure — the caller decides whether
+	// this becomes the live transcript or only a persisted checkpoint.
+	private interruptedTurnMessages = (
 		collectedMessages: ChatCompletionMessageParam[],
-		partialReply: string
-	) => {
-		const prefix = truncateToToolPairedPrefix(collectedMessages)
-		this.messages = [...this.messages, ...prefix]
+		partialReply: string,
+		// Passed only by the mid-turn checkpoint, whose result must outlive its turn.
+		// A turn committed for a follow-up is still live, so it would rather truncate
+		// a half-run batch and rerun it than read results nothing produced.
+		snapshot?: {
+			/** Result to synthesize for the calls of a batch caught mid-execution. */
+			interruptedToolContent: string
+			/** Images a tool has produced that the turn has not yet turned into a
+			 *  message (see appendPendingToolImages). */
+			bufferedImages?: ChatCompletionMessageParam
+		}
+	): { messages: ChatCompletionMessageParam[]; keptPartialReply: boolean } => {
+		const prefix = snapshot
+			? closeInterruptedToolBatch(collectedMessages, snapshot.interruptedToolContent)
+			: truncateToToolPairedPrefix(collectedMessages)
 		// partialReply can be stale — equal to text already committed inside the
-		// prefix (see its capture in onMessageEnd) — so only append when new.
+		// prefix — so only append when new. A snapshot is exempt: it passes only
+		// live streaming text, which is never in the prefix, and identical text can
+		// legitimately recur across iterations where content alone cannot judge it.
 		const lastCommittedText = [...prefix]
 			.reverse()
 			.find(
 				(m): m is ChatCompletionMessageParam & { content: string } =>
 					m.role === 'assistant' && typeof m.content === 'string' && !!m.content.trim()
 			)?.content
-		if (partialReply.trim() && partialReply !== lastCommittedText) {
-			this.messages = [...this.messages, { role: 'assistant', content: partialReply }]
-		} else {
+		const keptPartialReply =
+			!!partialReply.trim() && (!!snapshot || partialReply !== lastCommittedText)
+		// Images sit between the batch that produced them and whatever the model
+		// said next, matching where appendPendingToolImages puts them live.
+		const tail = snapshot?.bufferedImages ? [...prefix, snapshot.bufferedImages] : prefix
+		return {
+			messages: keptPartialReply
+				? [...this.messages, ...tail, { role: 'assistant', content: partialReply }]
+				: [...this.messages, ...tail],
+			keptPartialReply
+		}
+	}
+
+	// Commit an interrupted turn's usable output as context for a follow-up.
+	// A reasoning-only interrupt instead drops its stuck-open bubble.
+	private commitInterruptedTurn = (
+		collectedMessages: ChatCompletionMessageParam[],
+		partialReply: string
+	) => {
+		const { messages, keptPartialReply } = this.interruptedTurnMessages(
+			collectedMessages,
+			partialReply
+		)
+		this.messages = messages
+		if (!keptPartialReply) {
 			const last = this.displayMessages[this.displayMessages.length - 1]
 			if (last?.role === 'assistant' && !last.content.trim() && !!last.reasoning) {
 				this.displayMessages = this.displayMessages.slice(0, -1)
@@ -2280,24 +2561,30 @@ export class AIChatManager {
 			// on each iteration. This is critical for changeModeTool (Navigator → Script/Flow)
 			// which reassigns this.tools, this.helpers, this.systemMessage mid-loop.
 			const self = this
+			// Pinned for the whole turn, like the `workspace` the loop routes through:
+			// the global chat's operating workspace follows workspaceStore, so a switch
+			// while a response streams would bill it to the workspace the user landed
+			// on rather than the one whose credentials and proxy served it.
+			const usageWorkspace = this.operatingWorkspace
 			const result = await runChatLoop({
 				messages,
 				addedMessages,
 				get systemMessage() {
-					const base = systemMessageOverride ?? self.systemMessage
+					let base = systemMessageOverride ?? self.systemMessage
 					// Inject the attached-files roster at request time (re-read each iteration)
 					// so it always reflects the live file list without reactive bookkeeping.
 					if (self.mode === AIMode.GLOBAL && self.attachedFiles.count > 0) {
-						return appendAttachedFilesRoster(
+						base = appendAttachedFilesRoster(
 							base,
 							self.attachedFiles,
 							self.orphanedMessageFileIds()
 						)
 					}
+					base = self.planMode.decorateSystemMessage(base)
 					return base
 				},
 				get tools() {
-					return self.tools
+					return [...self.tools, ...self.planMode.tools]
 				},
 				get helpers() {
 					return self.helpers
@@ -2348,10 +2635,21 @@ export class AIChatManager {
 						return prepareGlobalUserMessage(
 							pendingPrompt,
 							this.contextManager.getSelectedContext(),
-							{ workspace: this.operatingWorkspace }
+							{
+								workspace: this.operatingWorkspace,
+								activePreview: this.activePreviewResolver?.()
+							}
 						)
 					}
 					return undefined
+				},
+				onUsage: (usage, modelProvider) => {
+					// Accounting must never take a turn down with it.
+					try {
+						this.recordUsage(usage, modelProvider.provider, modelProvider.model, usageWorkspace)
+					} catch (e) {
+						console.error('Failed to record AI usage', e)
+					}
 				},
 				onBeforeIteration: async (tools, _helpers, modelProvider, webSearch) => {
 					this.lastIterationModel = modelProvider
@@ -2486,6 +2784,14 @@ export class AIChatManager {
 	}
 
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+		// A turn with nowhere to render still streams, spends tokens and applies
+		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
+		// exempt: the ⌘K widget renders its own composer inside Monaco.
+		if (!this.isSessionChat && !chatState.dockedChatAvailable) {
+			console.error('sendRequest called with no chat UI mounted; dropping the turn')
+			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
+			return
+		}
 		this.#sendsInFlight++
 		try {
 			return await this.sendRequestImpl(options)
@@ -2579,6 +2885,7 @@ export class AIChatManager {
 				return false
 			}
 		}
+		this.planMode.resetBlocks()
 		// Built-in session commands run locally instead of becoming a chat turn.
 		// Intercepted here — before the beforeSend workspace commit, file regrants,
 		// and skill expansion. Scoped to session chat GLOBAL mode, where the
@@ -2749,10 +3056,16 @@ export class AIChatManager {
 				return false
 			}
 		}
-		// Session chats commit their workspace in beforeSend; skills must match the
-		// committed workspace before the system prompt is sent.
+		// Session chats commit their workspace in beforeSend; the identity, skills and
+		// MCP servers must all match the committed workspace before the system prompt is
+		// sent. Settling them here rather than mid-turn also keeps the prompt — the
+		// cached prefix of every iteration — stable for the whole request.
 		if (this.mode === AIMode.GLOBAL) {
-			await this.refreshGlobalSkills(this.operatingWorkspace ?? '')
+			await Promise.all([
+				this.refreshGlobalIdentity(this.operatingWorkspace ?? ''),
+				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
+				this.refreshMcpServers(this.operatingWorkspace ?? '')
+			])
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
 		// request went out. Mirror the main "cancelled before usable output" recovery:
@@ -2789,6 +3102,83 @@ export class AIChatManager {
 		// auto-sends the next queued message. Cancel, error, and empty-response
 		// rollbacks leave it false so queued text is restored to the input.
 		let turnCommittedCleanly = false
+		// A turn's output only reaches history when the turn ends, so a tab closed
+		// mid-turn loses every step it had taken. Persist progress WITHOUT
+		// committing it: the outcome branches still need `this.messages`
+		// unmodified to roll the turn back, and their save overwrites this.
+		let checkpointedShape = ''
+		const checkpointTurn = async (force = false) => {
+			// Text as received, not as painted: a hidden tab pauses the reveal loop
+			// while text keeps arriving, so fingerprinting painted text would stall
+			// the poll exactly when nobody is watching. `pending` reads it without
+			// disturbing the animation.
+			const streaming = this.currentReply + this.replyReveal.pending
+			// Write only when the turn advanced, so a parked confirmation costs
+			// nothing and the rate follows steps taken rather than time.
+			const shape = `${collectedMessages.length}:${this.displayMessages.length}:${streaming.length}`
+			if (!force && shape === checkpointedShape) return
+			// Live text only. Text the parsers have flushed is theirs to push, and
+			// they do so before the tool execution a checkpoint is likely to land in
+			// — so reading it here would mean re-appending what the transcript
+			// already holds. The abort path still recovers it via partialReply.
+			const { messages, keptPartialReply } = this.interruptedTurnMessages(
+				collectedMessages,
+				streaming,
+				{
+					interruptedToolContent: INTERRUPTED_TOOL_RESULT,
+					// A screenshot's image becomes a message only once its whole batch
+					// does, so a batch closed mid-flight would restore a result
+					// announcing a screenshot the model cannot see. Read without
+					// draining: the live turn still owns the buffer.
+					bufferedImages: pendingToolImagesMessage([...this.pendingToolImages.values()].flat())
+				}
+			)
+			if (messages.length === this.messages.length) return
+			checkpointedShape = shape
+			const display = this.settledToolDisplay(this.displayMessages, 'Interrupted')
+			// onMessageEnd is what gives streamed text its bubble, and it clears
+			// currentReply doing so — text still there has none, and without one the
+			// reply returns as context the reader cannot see.
+			const withStreamed =
+				streaming && keptPartialReply
+					? [...display, { role: 'assistant' as const, content: streaming }]
+					: display
+			// Best-effort: the turn-end save is the authoritative one, so a failed
+			// checkpoint must never break the turn it is only shadowing.
+			try {
+				await this.historyManager.saveChat(
+					withStreamed,
+					messages,
+					// No report describes this transcript: `contextUsage` still measures
+					// the pre-turn history while these messages already carry part of the
+					// turn. Storing it would under-report a restored chat by the whole
+					// partial turn — enough to skip the compaction its next send needs.
+					// Omitting drops the field, which is the "readers estimate" fallback.
+					undefined,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
+			} catch (e) {
+				console.error('Failed to checkpoint chat mid-turn', e)
+			}
+		}
+		const checkpointTimer = setInterval(() => void checkpointTurn(), CHECKPOINT_INTERVAL_MS)
+		// `hidden` precedes pagehide on close, reload and navigation and still runs a
+		// live document, so it is the last point a write can land. A navigation can
+		// outrun it — the poll, not this, carries the guarantee. `document` is absent
+		// under SSR and the node test env.
+		const hideTarget = typeof document !== 'undefined' ? document : undefined
+		const checkpointOnHide = () => {
+			if (hideTarget?.visibilityState === 'hidden') void checkpointTurn(true)
+		}
+		hideTarget?.addEventListener('visibilitychange', checkpointOnHide)
+		// Must stop when the loop hands back, not in `finally`: the outcome branches
+		// merge the turn into `this.messages` before awaiting their save, so a
+		// checkpoint there would re-append the same messages and, queued behind that
+		// save, persist the duplicate. Idempotent — every exit path calls it.
+		const stopCheckpoints = () => {
+			clearInterval(checkpointTimer)
+			hideTarget?.removeEventListener('visibilitychange', checkpointOnHide)
+		}
 		try {
 			// A queued message carries its own context snapshot (contextOverride); use
 			// it verbatim and leave the live selection alone (it belongs to whatever the
@@ -2956,6 +3346,7 @@ export class AIChatManager {
 				case AIMode.GLOBAL:
 					userMessage = prepareGlobalUserMessage(modelInstructions, oldSelectedContext, {
 						workspace: this.operatingWorkspace,
+						activePreview: this.activePreviewResolver?.(),
 						images: sentImages,
 						files: files
 					})
@@ -3129,7 +3520,9 @@ export class AIChatManager {
 						}
 					},
 					requestConfirmation: this.requestConfirmation,
-					shouldAutoAcceptToolConfirmations: () => this.autoAcceptToolConfirmationsActive,
+					shouldAutoAcceptToolConfirmations: this.shouldAutoAcceptTool,
+					isPlanModeActive: () => this.planModeActive,
+					onToolBlockedByPlanMode: this.planMode.noteBlockedTool,
 					requestUserQuestion: this.requestUserQuestion,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
@@ -3160,6 +3553,7 @@ export class AIChatManager {
 					this.syncGlobalWebSearchGuidance(false)
 				}
 			})
+			stopCheckpoints()
 			const wasAborted = this.abortController?.signal.aborted ?? false
 			// Pure reasoning doesn't count as usable: it's not replayed as context,
 			// so a reasoning-only turn is as unsent as a literally empty one.
@@ -3271,6 +3665,7 @@ export class AIChatManager {
 				}
 			}
 		} catch (err) {
+			stopCheckpoints()
 			console.error(err)
 			// Request failure: keep the usable output as context for a follow-up.
 			// Skipped when the throw came from post-outcome code (e.g. saveChat) —
@@ -3329,6 +3724,9 @@ export class AIChatManager {
 			sendUserToast(getSendRequestErrorMessage(err, webSearchUnavailable), true)
 		} finally {
 			this.loading = false
+			// Backstop for the paths that leave the try without reaching either call
+			// above (a pre-flight throw, an aborted compaction).
+			stopCheckpoints()
 			// Turn teardown: cancel any in-flight reveal frame and drop leftover
 			// backlog. onMessageEnd already flushed on every outcome, so this only
 			// releases the loop; it never discards uncommitted text.
@@ -3373,8 +3771,8 @@ export class AIChatManager {
 	}
 
 	cancel = (reason?: string) => {
-		for (const confirmationCallback of this.confirmationCallbacks.values()) {
-			confirmationCallback(false)
+		for (const { resolve } of this.confirmationCallbacks.values()) {
+			resolve(false)
 		}
 		this.confirmationCallbacks.clear()
 		for (const resolveQuestion of this.userQuestionCallbacks.values()) {
@@ -3550,10 +3948,16 @@ export class AIChatManager {
 		// Message-attached rows belong to the conversation just left in every case.
 		this.#syncMessageFiles()
 		this.syncArtifactsSession()
+		this.planMode.resetRound()
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
 	loadPastChat = async (id: string) => {
+		// A turn commits into whatever transcript it finds when it ends, so swapping
+		// one in underneath it misfiles the turn — or duplicates it, when the loaded
+		// chat already carries the turn's own checkpoint. Gated on `sendInFlight`
+		// too, for the pre-`loading` window `sendOrQueue` documents.
+		if (this.loading || this.sendInFlight) return
 		const chat = await this.historyManager.loadPastChat(id)
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't
@@ -3592,6 +3996,7 @@ export class AIChatManager {
 			this.#syncMessageFiles()
 			this.#automaticScroll = true
 			this.syncArtifactsSession()
+			this.planMode.resetRound()
 			this.onChatRotated?.(id)
 		}
 	}
@@ -3906,13 +4311,26 @@ export class AIChatManager {
 		}
 	}
 
-	cancelLoadingTools = (messageText: 'Canceled' | 'Error' = 'Canceled') => {
-		this.displayMessages = this.displayMessages.map((message) => {
+	// In-flight and queued tool cards settled into a terminal state. Persisting
+	// one as-is restores a card that spins forever, and an unanswered question
+	// keeps the composer disabled (see isActiveUserQuestion) with nothing left
+	// running to answer it — so every transcript that outlives its turn goes
+	// through here first.
+	private settledToolDisplay = (
+		messages: DisplayMessage[],
+		messageText: string
+	): DisplayMessage[] =>
+		messages.map((message) => {
 			if (message.role === 'tool' && (message.isLoading || message.isQueued)) {
 				return {
 					...message,
 					isLoading: false,
 					isQueued: false,
+					// Both render live affordances on their own, without consulting
+					// isLoading: a Run/Reject footer for a call nothing is waiting on,
+					// and a card that hides its result as still-streaming.
+					needsConfirmation: false,
+					isStreamingArguments: false,
 					// A question's card disappears once canceled, so keep the question
 					// itself readable in the collapsed header.
 					content: message.userQuestion
@@ -3926,6 +4344,9 @@ export class AIChatManager {
 			}
 			return message
 		})
+
+	cancelLoadingTools = (messageText: 'Canceled' | 'Error' = 'Canceled') => {
+		this.displayMessages = this.settledToolDisplay(this.displayMessages, messageText)
 	}
 }
 

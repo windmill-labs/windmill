@@ -29,10 +29,9 @@ use sqlx::{Acquire, Postgres};
 pub mod agent_workers;
 pub mod apps;
 pub mod assets;
-pub mod azure_workload_identity;
-pub mod dbt_manifest;
 pub mod audit;
 pub mod auth;
+pub mod azure_workload_identity;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod cache;
@@ -44,6 +43,7 @@ mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
 pub mod db_params;
+pub mod dbt_manifest;
 pub mod deploy_origin;
 #[cfg(feature = "private")]
 pub mod deployment_requests_ee;
@@ -56,6 +56,13 @@ pub mod email_ee;
 pub mod email_oss;
 pub mod error;
 pub mod external_ip;
+#[cfg(feature = "private")]
+pub mod feature_usage_ee;
+pub mod feature_usage_oss;
+#[cfg(feature = "private")]
+pub use feature_usage_ee as feature_usage;
+#[cfg(not(feature = "private"))]
+pub use feature_usage_oss as feature_usage;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
@@ -90,6 +97,7 @@ pub mod otel_oss;
 #[cfg(feature = "private")]
 pub mod partition_ee;
 pub mod partition_oss;
+pub mod per_minute_counter;
 #[cfg(feature = "private")]
 pub use partition_ee as partition;
 #[cfg(not(feature = "private"))]
@@ -121,6 +129,7 @@ pub mod teams_ee;
 pub mod teams_oss;
 pub mod tracing_init;
 pub mod trashbin;
+pub mod trigger_history;
 pub mod triggers;
 pub mod user_drafts;
 pub mod usernames;
@@ -227,6 +236,10 @@ pub async fn resolve_on_behalf_of(
     if !(preserve && can_preserve_on_behalf_of(authed)) {
         return reject_unenqueueable(users::username_to_permissioned_as(authed.username()));
     }
+    // Reserved superadmin sentinels are rejected by name, before resolution: the lookups
+    // below only reject them while no account holds their address, and the runtime grants
+    // superadmin on these emails by string comparison alone.
+    auth::validate_on_behalf_of(on_behalf_of, on_behalf_of_email)?;
     let permissioned_as = match on_behalf_of {
         Some(permissioned_as) => {
             // The principal wins, but a caller that also names a contradictory address has a
@@ -341,6 +354,7 @@ lazy_static::lazy_static! {
 
     pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
     pub static ref CRITICAL_ALERTS_ON_TOKEN_EXPIRY: AtomicBool = AtomicBool::new(false);
+    pub static ref CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART: AtomicBool = AtomicBool::new(false);
 
     pub static ref BASE_URL: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -390,6 +404,19 @@ lazy_static::lazy_static! {
 }
 
 const LATEST_VERSION_ID_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// TTL for a path -> hash answer that a dependency job is about to invalidate by writing the
+/// lockfile of a newer version. That job lands at an unpredictable moment and the eviction it
+/// notifies only reaches this process on the next `notify_event` poll, so the entry must not
+/// outlive it by more than a beat.
+const LATEST_VERSION_ID_PENDING_LOCK_CACHE_TTL: std::time::Duration =
+    std::time::Duration::from_secs(2);
+
+/// How long a version without a lockfile is still believed to have a dependency job coming for
+/// it. A job that is cancelled while queued, or whose worker dies before it can write
+/// `lock_error_logs`, leaves that version pending for good; past this age the short TTL above
+/// would be a permanent cost for a version that is never going to become runnable.
+const PENDING_LOCK_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// Test hook: disables the process-global deployed-script hash/info caches so
 /// every resolution reads the current DB. Integration tests use `#[sqlx::test]`
@@ -1751,7 +1778,10 @@ pub async fn on_behalf_of_from_permissioned_as(
     // processes, so a cached read would keep minting jobs under an address the account no longer
     // holds for up to a minute after it moves.
     let email = users::get_email_from_permissioned_as_uncached(permissioned_as, w_id, db).await?;
-    Ok(Some(jobs::OnBehalfOf { email, permissioned_as: permissioned_as.to_string() }))
+    Ok(Some(jobs::OnBehalfOf {
+        email,
+        permissioned_as: permissioned_as.to_string(),
+    }))
 }
 
 impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
@@ -1827,11 +1857,12 @@ pub fn get_latest_deployed_hash_for_path<'e>(
             }
             _ => {
                 tracing::debug!("Fetching script hash for {script_path}");
-                let hash = if let Some(db) = db {
+                let latest = if let Some(db) = db {
                     let authed = db.authed;
                     let mut conn = db.acquire().await?;
-                    let hash = get_latest_script_hash(&mut *conn, script_path, w_id).await?;
-                    if let Some(hash) = hash {
+                    let latest =
+                        get_latest_deployed_script_hash(&mut *conn, script_path, w_id).await?;
+                    if let Some(hash) = latest.hash {
                         HASH_PERMS_CACHE.insert(
                             computed_hash.unwrap_or_else(|| PermsCache::compute_hash(authed)),
                             ScriptHash(hash),
@@ -1845,19 +1876,24 @@ pub fn get_latest_deployed_hash_for_path<'e>(
                             return Err(Error::NotAuthorized(format!("You are not authorized to access this script: {script_path} (but it exists). Your permissions are: {:?}", authed)));
                         }
                     }
-                    hash
+                    latest
                 } else {
                     let mut conn = db2.acquire().await?;
-                    get_latest_script_hash(&mut *conn, script_path, w_id).await?
+                    get_latest_deployed_script_hash(&mut *conn, script_path, w_id).await?
                 };
 
-                let hash = utils::not_found_if_none(hash, "script", script_path)?;
+                let hash = utils::not_found_if_none(latest.hash, "script", script_path)?;
                 if use_cache {
+                    let ttl = if latest.pending_lock {
+                        LATEST_VERSION_ID_PENDING_LOCK_CACHE_TTL
+                    } else {
+                        LATEST_VERSION_ID_CACHE_TTL
+                    };
                     DEPLOYED_SCRIPT_HASH_CACHE.insert(
                         cache_key,
                         ExpiringLatestVersionId {
                             id: hash,
-                            expires_at: std::time::Instant::now() + LATEST_VERSION_ID_CACHE_TTL,
+                            expires_at: std::time::Instant::now() + ttl,
                         },
                     );
                 }
@@ -1883,6 +1919,60 @@ pub async fn get_latest_script_hash<'e, E: sqlx::PgExecutor<'e>>(
     .fetch_optional(db)
     .await?;
     return Ok(hash);
+}
+
+pub struct LatestDeployedScriptHash {
+    pub hash: Option<i64>,
+    /// The newest version of the path is still waiting on the dependency job that writes its
+    /// lockfile, so `hash` points at the version before it and will change the moment that job
+    /// lands, at a moment nothing notifies the caller of.
+    pub pending_lock: bool,
+}
+
+/// Applies no authorization of its own, exactly like [`get_latest_script_hash`]: pass an
+/// RLS-scoped executor, or check the caller's permissions on the hash it returns.
+pub async fn get_latest_deployed_script_hash<'e, E: sqlx::PgExecutor<'e>>(
+    db: E,
+    script_path: &'e str,
+    w_id: &'e str,
+) -> error::Result<LatestDeployedScriptHash> {
+    let row = sqlx::query!(
+        "SELECT
+            (SELECT hash FROM script
+                WHERE path = $1 AND workspace_id = $2 AND deleted = false
+                    AND lock IS NOT NULL AND lock_error_logs IS NULL
+                ORDER BY created_at DESC LIMIT 1) AS hash,
+            (SELECT lock IS NULL AND lock_error_logs IS NULL
+                    AND created_at > now() - make_interval(secs => $3) FROM script
+                WHERE path = $1 AND workspace_id = $2 AND deleted = false
+                ORDER BY created_at DESC LIMIT 1) AS pending_lock",
+        script_path,
+        w_id,
+        PENDING_LOCK_MAX_AGE.as_secs_f64()
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(
+        LatestDeployedScriptHash {
+            hash: row.hash,
+            pending_lock: row.pending_lock.unwrap_or(false),
+        },
+    )
+}
+
+/// Drop this process's path -> runnable-hash entry for a script whose newest runnable version
+/// just moved, so the process that deployed it (or that generated its lockfile) resolves the
+/// path to it without waiting out the `notify_event` poll. Other replicas get there through
+/// `notify_runnable_version_change`.
+pub fn invalidate_deployed_script_hash_cache(w_id: &str, script_path: &str) {
+    DEPLOYED_SCRIPT_HASH_CACHE.remove(&(w_id.to_string(), script_path.to_string()));
+}
+
+/// Same, for a new version row, which also moves the import-side answer (that one has no lock
+/// predicate, so only a new row moves it).
+pub fn invalidate_latest_script_hash_caches(w_id: &str, script_path: &str) {
+    invalidate_deployed_script_hash_cache(w_id, script_path);
+    IMPORTED_SCRIPT_HASH_CACHE.remove(&(w_id.to_string(), script_path.to_string()));
 }
 
 /// Latest non-archived hash for an imported `path`, for bundle cache keying.

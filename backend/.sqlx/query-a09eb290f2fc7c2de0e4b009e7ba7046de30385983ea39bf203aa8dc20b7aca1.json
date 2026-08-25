@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            WITH RECURSIVE chain AS (\n                SELECT id, parent_workspace_id, is_dev_workspace, 0 AS depth\n                FROM workspace WHERE id = $1\n                UNION ALL\n                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, chain.depth + 1\n                FROM workspace w\n                JOIN chain ON w.id = chain.parent_workspace_id\n                WHERE chain.depth < 20\n            )\n            SELECT id AS \"id!\" FROM chain\n            WHERE parent_workspace_id IS NULL OR is_dev_workspace\n            ORDER BY depth LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a09eb290f2fc7c2de0e4b009e7ba7046de30385983ea39bf203aa8dc20b7aca1"
+}

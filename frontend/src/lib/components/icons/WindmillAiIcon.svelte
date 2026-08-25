@@ -9,7 +9,7 @@
 <svg
 	width={size}
 	height={size}
-	viewBox="0 0 65 65"
+	viewBox="-2.955 -2.955 70.909 70.909"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 	class={className}

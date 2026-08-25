@@ -43,6 +43,15 @@ export interface RunEvalParams<THelpers, TOutput> {
   getOutput: () => TOutput | Promise<TOutput>;
   /** Model and Windmill backend configuration */
   options: EvalRunnerOptions;
+  /** Drives the production plan-mode gate in processToolCall. Absent leaves it inert,
+   * which is what every mode but an opted-in global case wants. */
+  isPlanModeActive?: () => boolean;
+  /** Which of `tools` the model is offered on this request. Absent offers all of them. */
+  isToolAvailable?: (name: string) => boolean;
+  /** Re-read before every request, as production's systemMessage getter is. Needed when a
+   * tool changes what the prompt should say — plan mode's instructions have to come back
+   * out once the plan is approved. Falls back to the fixed `systemMessage`. */
+  getSystemMessage?: () => ChatCompletionSystemMessageParam;
   onAssistantMessageStart?: () => void;
   onAssistantToken?: (token: string) => void;
   onAssistantMessageEnd?: () => void;
@@ -68,6 +77,9 @@ export async function runEval<THelpers, TOutput>(
     onAssistantToken,
     onAssistantMessageEnd,
     onToolCall,
+    isPlanModeActive,
+    isToolAvailable,
+    getSystemMessage,
   } = params;
   let shouldEmitMessageStart = true;
 
@@ -119,6 +131,7 @@ export async function runEval<THelpers, TOutput>(
   } = {
     setToolStatus: () => {},
     removeToolStatus: () => {},
+    isPlanModeActive,
     onNewToken: (token: string) => {
       if (shouldEmitMessageStart) {
         onAssistantMessageStart?.();
@@ -140,8 +153,17 @@ export async function runEval<THelpers, TOutput>(
     try {
       const result = await runChatLoop({
         messages,
-        systemMessage,
-        tools: wrappedTools,
+        get systemMessage() {
+          return getSystemMessage?.() ?? systemMessage;
+        },
+        // Re-derived per request, as `systemMessage` is: a tool the posture has withdrawn
+        // must leave the schema too, or the model keeps being offered a call the run has
+        // moved past — and the token counts a case reports include a tool it cannot use.
+        get tools() {
+          return isToolAvailable
+            ? wrappedTools.filter((t) => isToolAvailable(t.def.function.name))
+            : wrappedTools;
+        },
         helpers,
         abortController,
         callbacks,

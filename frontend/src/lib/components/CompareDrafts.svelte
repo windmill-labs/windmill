@@ -22,14 +22,19 @@
 		discardDraft,
 		draftBaseIsStale
 	} from '$lib/utils_draft_deploy'
-	import { checkDeployPermission, type DeployPermission } from '$lib/utils_workspace_deploy'
+	import {
+		checkDeployPermission,
+		deployPermissionForKinds,
+		type DeployPermission
+	} from '$lib/utils_workspace_deploy'
 	import {
 		type DraftItem,
 		invalidateWorkspaceDrafts,
 		useWorkspaceDrafts
 	} from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
-	import { userStore } from '$lib/stores'
+	import { userStore, userWorkspaces } from '$lib/stores'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 
 	interface Props {
 		currentWorkspaceId: string
@@ -160,6 +165,10 @@
 	// On by default: a fork inherits the parent's drafts on creation, and those
 	// (unrelated to the fork's own work) are the common case worth hiding.
 	let hideUnchanged = $state(true)
+
+	const currentNoun = $derived(
+		childWorkspaceNoun($userWorkspaces.find((w) => w.id === currentWorkspaceId))
+	)
 
 	// The list (and, in the default view, the Draft Count) come from the Workspace
 	// Drafts module; deploy/discard invalidate the resource, so the list refetches
@@ -299,20 +308,30 @@
 	let selectedItems = $state<string[]>([])
 	let deploying = $state(false)
 
-	// Whether the user may deploy drafts into this workspace — fills the
-	// `RestrictDeployToDeployers` (+ operator) gap via the shared util, same as the
-	// fork compare page and the session review drawer. Fail-open while resolving.
-	let deployPerm = $state<DeployPermission>({ ok: true })
+	// Whether the user may deploy drafts into this workspace, via the shared util —
+	// same as the fork compare page and the session review drawer. Fail-open while
+	// resolving.
+	let workspaceDeployPerm = $state<DeployPermission>({ ok: true })
 	$effect(() => {
 		const ws = currentWorkspaceId
 		// Reset to fail-open on workspace change, and drop a stale resolution —
 		// otherwise the previous workspace's verdict lingers (or lands last) and
 		// gates the wrong workspace.
-		deployPerm = { ok: true }
+		workspaceDeployPerm = { ok: true }
 		void checkDeployPermission(ws).then((p) => {
-			if (ws === currentWorkspaceId) deployPerm = p
+			if (ws === currentWorkspaceId) workspaceDeployPerm = p
 		})
 	})
+	// A direct-deployment lock never reaches trigger or schedule drafts server-side, so it must
+	// not disable a selection made only of those. One refused kind still blocks the whole action.
+	let deployPerm = $derived(
+		deployPermissionForKinds(
+			workspaceDeployPerm,
+			visibleItems
+				.filter((i) => selectedItems.includes(i.key) && isDeployable(i))
+				.map((i) => i.draftKind)
+		)
+	)
 	// Select all on the first non-empty load (acting on everything is the common
 	// intent); only once, so a refetch after a deploy doesn't re-select the
 	// leftovers.
@@ -663,8 +682,7 @@
 							size="xs"
 							options={{
 								right: 'Hide unchanged drafts',
-								rightTooltip:
-									"Hide drafts identical to the parent workspace. A fork inherits the parent's drafts when it's created; those are unrelated to the changes made in this fork."
+								rightTooltip: `Hide drafts identical to the parent workspace. A ${currentNoun} inherits the parent's drafts when it's created; those are unrelated to the changes made in this ${currentNoun}.`
 							}}
 						/>
 					{/if}

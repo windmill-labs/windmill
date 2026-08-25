@@ -4,6 +4,9 @@ import type {
 	ChatCompletionMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import type { UserDraftItemKind } from '$lib/gen'
+// The gate's two refusals, from a module that holds prose and one size limit: under the
+// shallow-import rule below, the rest of plan mode is not reachable from here.
+import { PLAN_MODE_MESSAGES } from './planModeMessages'
 
 // The tool modules that import this one (workspaceTools, flow/core, global/core, ...)
 // call createToolDef and read SPECIAL_MODULE_IDS at *module scope*, so if a chunk cycle
@@ -46,7 +49,7 @@ import {
 } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
-import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { logFeatureUsage, logHubScriptPick } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
@@ -601,6 +604,16 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
+	planArtifactId?: string
+	/** The version this card's proposal wrote, so a card scrolled far up still opens the plan
+	 * it proposed rather than what the document became. */
+	planVersion?: number
+	/** Refused by the plan-mode gate. Renders as its own lean row rather than a tool
+	 * error, so the transcript says the mode stopped it and not that the call failed. */
+	blockedByPlanMode?: boolean
+	/** The user declined: the reject button, a Stop, or a posture switch. Set only there, so
+	 * a decision is distinguishable from every other way a call errors. */
+	declinedByUser?: boolean
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -645,8 +658,8 @@ export type DisplayMessage =
 
 // A tool message whose askUserQuestion is still awaiting an answer: the AI loop
 // is paused on the user. Drives the question card's interactivity, the
-// "waiting for user" indicator, and disabling the main chat input — keep those
-// in sync by going through this single predicate.
+// "waiting for user" indicator, and routing a composer send to the answer —
+// keep those in sync by going through this single predicate.
 export function isActiveUserQuestion(message: DisplayMessage | undefined): boolean {
 	return Boolean(
 		message &&
@@ -664,17 +677,27 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 // rendering progress must ask here first or it reports "the AI is working".
 export type PendingUserAction = 'question' | 'confirmation'
 
+export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+	return pendingUserActionDetail(messages)?.action
+}
+
 // Scans back to the turn boundary, not just the last message: a turn's cards are
 // created up front and run one at a time, and text between two tool calls pushes
 // an assistant card between them, so the blocked card is rarely last. Only cards
 // of a live turn can match — every resolution path clears `isLoading`.
-export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+export function pendingUserActionDetail(
+	messages: DisplayMessage[]
+): { action: PendingUserAction; toolCallId: string } | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i]
 		if (message.role === 'user') break
 		if (message.role !== 'tool') continue
-		if (isActiveUserQuestion(message)) return 'question'
-		if (message.needsConfirmation && message.isLoading) return 'confirmation'
+		if (isActiveUserQuestion(message)) {
+			return { action: 'question', toolCallId: message.tool_call_id }
+		}
+		if (message.needsConfirmation && message.isLoading) {
+			return { action: 'confirmation', toolCallId: message.tool_call_id }
+		}
 	}
 	return undefined
 }
@@ -720,6 +743,17 @@ async function callTool<T>({
 }
 
 type MaybePromise<T> = T | Promise<T>
+
+/** A refused tool call: the row the user reads, and the result the model gets. A bare string
+ * is both at once. */
+export type ToolRejection = string | { label: string; result: string }
+
+function normalizeToolRejection(
+	rejection: ToolRejection | undefined
+): { label: string; result: string } | undefined {
+	if (rejection === undefined) return undefined
+	return typeof rejection === 'string' ? { label: rejection, result: rejection } : rejection
+}
 
 /**
  * Key paths present in `supplied` that a strip-mode parse discarded. Sub-fields of a
@@ -774,6 +808,15 @@ function stringifyErrorBody(body: unknown): string {
 	}
 }
 
+/**
+ * Closed vocabulary for the `ai_chat`/`tool` counter's `<name>:<status>` key.
+ * `ok` means the tool function resolved — tools that report failure by returning an
+ * error string instead of throwing land there too. A call abandoned mid-execution
+ * (tab closed while a tool polls) logs nothing, so the statuses sum to the calls that
+ * finished, not to the calls made.
+ */
+type ToolCallStatus = 'ok' | 'error' | 'declined' | 'rejected' | 'blocked_plan_mode'
+
 export async function processToolCall<T>({
 	tools,
 	toolCall,
@@ -787,24 +830,77 @@ export async function processToolCall<T>({
 	toolCallbacks: ToolCallbacks
 	workspace?: string
 }): Promise<ChatCompletionMessageParam> {
+	const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
+	const workspaceId = workspace ?? get(workspaceStore) ?? ''
+
+	// Exactly once per call, on whichever path ends it. Keyed by the resolved tool's
+	// declared name, not the model-provided string, so hallucinated tool names never
+	// enter telemetry — an unresolved name is counted nowhere.
+	let outcomeLogged = false
+	const logToolOutcome = (status: ToolCallStatus) => {
+		if (!tool || outcomeLogged) return
+		outcomeLogged = true
+		logFeatureUsage('ai_chat', 'tool', {
+			key: `${tool.def.function.name}:${status}`,
+			workspace: workspaceId
+		})
+	}
+
 	try {
 		const args = JSON.parse(toolCall.function.arguments || '{}')
-		const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
-		const workspaceId = workspace ?? get(workspaceStore) ?? ''
 
-		const validationError = await tool?.validateBeforeConfirmation?.({
-			args,
-			workspace: workspaceId,
-			helpers
-		})
-		if (validationError) {
+		// Fails closed: untagged is blocked, only the safety tag exempt. Runs before anything
+		// belonging to the tool, so a validator cannot probe while planning — and again after
+		// the confirmation wait, since plan mode can be entered while a card is pending.
+		// An unresolved name is left alone, so it still reads as the unknown tool it is.
+		const planModeBlock = (): ChatCompletionMessageParam | undefined => {
+			if (!toolCallbacks.isPlanModeActive?.() || !tool) return undefined
+			// A tagged tool may still name arguments it refuses: the tag says the tool is usable
+			// while planning, not that every call of it is. Asked only once the tag has passed, so
+			// it can narrow what the gate admits and never widen it.
+			const refusal =
+				tool.planModeSafe === true
+					? normalizeToolRejection(tool.refuseInPlanMode?.({ args, helpers }))
+					: { label: PLAN_MODE_MESSAGES.blockedLabel, result: PLAN_MODE_MESSAGES.blockedResult }
+			if (!refusal) return undefined
+			toolCallbacks.onToolBlockedByPlanMode?.()
+			logToolOutcome('blocked_plan_mode')
 			toolCallbacks.setToolStatus(toolCall.id, {
-				content: validationError,
+				content: refusal.label,
 				parameters: args,
 				isLoading: false,
 				isQueued: false,
 				isStreamingArguments: false,
-				error: validationError,
+				error: refusal.result,
+				blockedByPlanMode: true,
+				needsConfirmation: false,
+				showDetails: tool.showDetails,
+				autoCollapseDetails: tool.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: refusal.result
+			}
+		}
+
+		const preConfirmationBlock = planModeBlock()
+		if (preConfirmationBlock) {
+			return preConfirmationBlock
+		}
+
+		const rejection = normalizeToolRejection(
+			await tool?.validateBeforeConfirmation?.({ args, workspace: workspaceId, helpers })
+		)
+		if (rejection) {
+			logToolOutcome('rejected')
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: rejection.label,
+				parameters: args,
+				isLoading: false,
+				isQueued: false,
+				isStreamingArguments: false,
+				error: rejection.label,
 				needsConfirmation: false,
 				showDetails: tool?.showDetails,
 				autoCollapseDetails: tool?.autoCollapseDetails
@@ -812,14 +908,16 @@ export async function processToolCall<T>({
 			return {
 				role: 'tool' as const,
 				tool_call_id: toolCall.id,
-				content: validationError
+				content: rejection.result
 			}
 		}
 
-		// Check if tool requires confirmation
 		const requiresConfirmation = tool?.requiresConfirmation === true
+		// By name: skipping the wait is itself an answer on the user's behalf, and one tool
+		// must not be answered for.
 		const autoAcceptConfirmation =
-			requiresConfirmation && toolCallbacks.shouldAutoAcceptToolConfirmations?.() === true
+			requiresConfirmation &&
+			toolCallbacks.shouldAutoAcceptToolConfirmations?.(toolCall.function.name) === true
 		const needsConfirmation = requiresConfirmation && !autoAcceptConfirmation
 
 		const confirmationContent =
@@ -846,21 +944,29 @@ export async function processToolCall<T>({
 
 		// If confirmation is needed and we have the callback, wait for it
 		if (needsConfirmation && toolCallbacks.requestConfirmation) {
-			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id)
+			tool?.onConfirmationRequested?.({ args, toolCallbacks, toolId: toolCall.id })
+			const confirmed = await toolCallbacks.requestConfirmation(toolCall.id, toolCall.function.name)
 
 			if (!confirmed) {
+				logToolOutcome('declined')
 				toolCallbacks.setToolStatus(toolCall.id, {
 					content: 'Cancelled by user',
 					isLoading: false,
 					isStreamingArguments: false,
 					error: 'Tool execution was cancelled by user',
+					declinedByUser: true,
 					needsConfirmation: false
 				})
 				return {
 					role: 'tool' as const,
 					tool_call_id: toolCall.id,
-					content: 'Tool execution was cancelled by user'
+					content: tool?.cancellationMessage ?? 'Tool execution was cancelled by user'
 				}
+			}
+
+			const postConfirmationBlock = planModeBlock()
+			if (postConfirmationBlock) {
+				return postConfirmationBlock
 			}
 
 			// Update status to executing after confirmation
@@ -871,11 +977,6 @@ export async function processToolCall<T>({
 		}
 
 		let result = ''
-		// Key by the resolved tool's declared name, not the model-provided string,
-		// so hallucinated tool names never enter telemetry.
-		if (tool) {
-			logFeatureUsage('ai_chat', 'tool', { key: tool.def.function.name, workspace: workspaceId })
-		}
 		try {
 			result = await callTool({
 				tools,
@@ -886,12 +987,14 @@ export async function processToolCall<T>({
 				toolCallbacks,
 				toolId: toolCall.id
 			})
+			logToolOutcome('ok')
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
 				isStreamingArguments: false
 			})
 		} catch (err) {
 			console.error(err)
+			logToolOutcome('error')
 			const errorMessage = formatToolError(err)
 			toolCallbacks.setToolStatus(toolCall.id, {
 				isLoading: false,
@@ -908,6 +1011,7 @@ export async function processToolCall<T>({
 		return toAdd
 	} catch (err) {
 		console.error(err)
+		logToolOutcome('error')
 		const errorMessage = formatToolError(err)
 		toolCallbacks.setToolStatus(toolCall.id, {
 			isLoading: false,
@@ -931,20 +1035,29 @@ export async function processToolCall<T>({
  * id is already answered by its tool result before this non-tool message. The image
  * parts ride the same `image_url` carrier that the provider converters translate.
  */
-export function appendPendingToolImages(
-	messages: ChatCompletionMessageParam[],
-	addedMessages: ChatCompletionMessageParam[],
-	toolCallbacks: ToolCallbacks
-): void {
-	const images = toolCallbacks.takePendingToolImages?.() ?? []
-	if (images.length === 0) return
-	const message: ChatCompletionMessageParam = {
+/** The message that hands tool-produced images to the model, or undefined when
+ *  there are none. Split out so a snapshot of a turn still buffering them can
+ *  build the same message without draining the buffer the live turn still owns. */
+export function pendingToolImagesMessage(
+	images: AttachedImage[]
+): ChatCompletionMessageParam | undefined {
+	if (images.length === 0) return undefined
+	return {
 		role: 'user',
 		content: [
 			{ type: 'text', text: 'Screenshot(s) of the app preview:' },
 			...images.map((img) => dataUrlToImagePart(img.dataUrl))
 		]
 	}
+}
+
+export function appendPendingToolImages(
+	messages: ChatCompletionMessageParam[],
+	addedMessages: ChatCompletionMessageParam[],
+	toolCallbacks: ToolCallbacks
+): void {
+	const message = pendingToolImagesMessage(toolCallbacks.takePendingToolImages?.() ?? [])
+	if (!message) return
 	messages.push(message)
 	addedMessages.push(message)
 }
@@ -959,16 +1072,31 @@ export interface Tool<T> {
 		toolId: string
 	}) => Promise<string>
 	preAction?: (p: { toolCallbacks: ToolCallbacks; toolId: string }) => void
+	/** Refuse the call before any confirmation is offered. A bare string is both the row the
+	 * user reads and the result the model gets; return the pair when the model needs a steer
+	 * too long to be a transcript row. */
 	validateBeforeConfirmation?: (p: {
 		args: any
 		workspace: string
 		helpers: T
-	}) => MaybePromise<string | undefined>
+	}) => MaybePromise<ToolRejection | undefined>
 	setSchema?: (helpers: any) => Promise<void>
+	/** Safe to run while plan mode is active. Absence fails closed. */
+	planModeSafe?: boolean
+	/** The arguments a plan-mode-safe tool still refuses while the posture holds — for a tool
+	 * that is admissible in general but not on every target. Consulted only once `planModeSafe`
+	 * is true. */
+	refuseInPlanMode?: (p: { args: any; helpers: T }) => ToolRejection | undefined
 	requiresConfirmation?: boolean
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
+	/** Only when a card gates the call, so `fn` must not rely on it. Not awaited, so it may
+	 * not throw, and must be safe for a call the user then declines. */
+	onConfirmationRequested?: (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => void
+	/** Model-facing result returned when the user rejects the confirmation; defaults
+	 * to a generic cancellation. */
+	cancellationMessage?: string
 	showDetails?: boolean
 	autoCollapseDetails?: boolean
 	streamArguments?: boolean
@@ -1112,8 +1240,10 @@ export interface ToolCallbacks {
 	/** Fired when the model starts reasoning — drives a "Thinking" indicator even when
 	 * no summary text is returned (e.g. OpenAI reasoning models). */
 	onReasoningStart?: () => void
-	requestConfirmation?: (toolId: string) => Promise<boolean>
-	shouldAutoAcceptToolConfirmations?: () => boolean
+	requestConfirmation?: (toolId: string, toolName?: string) => Promise<boolean>
+	shouldAutoAcceptToolConfirmations?: (toolName?: string) => boolean
+	isPlanModeActive?: () => boolean
+	onToolBlockedByPlanMode?: () => void
 	requestUserQuestion?: (
 		toolId: string,
 		question: UserQuestionDisplay
@@ -1461,6 +1591,7 @@ export const getHubIntegrationTool = {
 
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	def: searchHubScriptsToolDef,
+	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		const parsedArgs = searchHubScriptsSchema.parse(args)
 		// The hub's own query param is `app`; the tool exposes it as `integration`,
@@ -1553,6 +1684,9 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 				if (!withContent) {
 					return base
 				}
+				// The content fetch, not the listing above: these are the few candidates
+				// the AI pulled to choose between, which is the closest signal we have.
+				logHubScriptPick(s, 'ai')
 				try {
 					// get_full, not the raw content endpoint: callers are told to match the
 					// script's language, which raw content does not carry.
@@ -1700,6 +1834,10 @@ export interface TestRunConfig {
 	/** Overrides the default "…test started, waiting for completion" status while the
 	 * job runs inline (e.g. an SQL tool shows "SQL running…"). */
 	runningMessage?: string
+	/** Noun for the human-facing status strings ("<X> test completed successfully").
+	 * Defaults to `contextName`, which also carries the jobs-tray kind and so cannot
+	 * always name what ran: an app's path runnable queues a flow job. */
+	completionName?: string
 	/** Custom terminal formatting for the INLINE completion path (callers whose
 	 * result isn't a plain test-run summary, e.g. exec_datatable_sql shaping rows).
 	 * Returns the string handed to the model plus the tool-card patch. When omitted,
@@ -1920,7 +2058,8 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 
 		const jobId = await config.jobStarter()
 
-		const contextName = config.contextName.charAt(0).toUpperCase() + config.contextName.slice(1)
+		const shown = config.completionName ?? config.contextName
+		const contextName = shown.charAt(0).toUpperCase() + shown.slice(1)
 
 		// Register the job so the tray shows it from the moment it is queued. Carry the
 		// serializable resultFormat so a job that later detaches (and may outlive a
@@ -1992,7 +2131,11 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		}
 		return summary
 	} catch (error) {
-		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+		// formatToolError, not `error.message`: the generated client puts the server's
+		// message in `body` and leaves `message` as the bare status text, so a path
+		// runnable aimed at an undeployed flow reported "Not Found" instead of naming
+		// the flow it could not find — losing the one diagnostic the run exists for.
+		const errorMessage = formatToolError(error)
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: `Test execution failed`,
 			error: errorMessage
@@ -2381,6 +2524,7 @@ export const workspaceRunnablesSearch = new WorkspaceRunnablesSearch()
 
 export const createSearchWorkspaceTool = () => ({
 	def: searchWorkspaceToolDef,
+	planModeSafe: true,
 	fn: async ({
 		args,
 		workspace,
@@ -2431,6 +2575,7 @@ const getRunnableDetailsToolDef = createToolDef(
 
 export const createGetRunnableDetailsTool = () => ({
 	def: getRunnableDetailsToolDef,
+	planModeSafe: true,
 	fn: async ({
 		args,
 		workspace,

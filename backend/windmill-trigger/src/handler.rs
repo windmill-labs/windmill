@@ -16,6 +16,7 @@ use windmill_api_auth::{build_scope_path_predicate, check_scopes, ApiAuthed};
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult, Result},
+    trigger_history::{self, TriggerHistoryEvent, TriggerOperation, TriggerSource},
     user_drafts::{
         delete_all_drafts_for_path, delete_own_draft_for_path, fetch_draft_only_list_rows,
         overlay_or_draft_only, UserDraftItemKind, WithDraftOverlay, WithDraftQuery,
@@ -266,6 +267,22 @@ pub trait TriggerCrud: Send + Sync + 'static {
         Ok(())
     }
 
+    /// Authorize a mode transition, for kinds where attaching a listener is itself privileged
+    /// rather than merely a write on the row — a trigger authenticating as the instance instead of
+    /// through a workspace resource, say. Create and update authorize their own config, but a row
+    /// can also arrive by being cloned into a workspace fork, so the transition needs its own
+    /// check. Runs before the mode is written; the default adds no authorization.
+    async fn authorize_set_trigger_mode(
+        &self,
+        _authed: &ApiAuthed,
+        _tx: &mut PgConnection,
+        _workspace_id: &str,
+        _path: &str,
+        _mode: &TriggerMode,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     async fn set_trigger_mode(
         &self,
         authed: &ApiAuthed,
@@ -458,6 +475,45 @@ pub trait TriggerCrud: Send + Sync + 'static {
     }
 }
 
+/// Append this mutation to `trigger_history`, diffing the row at `path` against
+/// `before`.
+///
+/// Call it on the transaction that made the change, after the change: the
+/// snapshot it takes is the "after" side of the diff, and the two commit or roll
+/// back together.
+///
+/// Records nothing when the snapshots say no row was written. `TriggerCrud::update_trigger`
+/// returns `Result<()>` and several impls do not check `rows_affected`, so an
+/// update aimed at a path that does not exist — or that RLS hides from the
+/// caller — reaches here having changed nothing; without this the caller could
+/// forge history rows at any path, since the insert policy is `WITH CHECK (true)`.
+async fn record_trigger_history<T: TriggerCrud>(
+    tx: &mut PgConnection,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    path: &str,
+    operation: TriggerOperation,
+    before: Option<serde_json::Value>,
+) -> Result<()> {
+    let after = trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, workspace_id, path).await?;
+    if after.is_none() || (operation == TriggerOperation::Update && before.is_none()) {
+        return Ok(());
+    }
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id,
+            trigger_kind: T::TRIGGER_TYPE,
+            path,
+            operation,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: trigger_history::summarize_changes(before.as_ref(), after.as_ref()),
+        },
+    )
+    .await
+}
+
 pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     let mut router = Router::new()
         .route("/create", post(create_trigger::<T>))
@@ -532,6 +588,11 @@ async fn create_trigger<T: TriggerCrud>(
         }
     }
 
+    // Reject a forged superadmin run identity in a preserved permissioned_as
+    // (the sentinel guard; a trigger's email is derived from it at execution).
+    let resolved_permissioned_as = new_trigger.base.resolve_permissioned_as(&authed);
+    windmill_common::auth::validate_on_behalf_of(Some(&resolved_permissioned_as), None)?;
+
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         new_trigger.base.permissioned_as.as_deref(),
         new_trigger.base.preserve_permissioned_as.unwrap_or(false),
@@ -555,6 +616,16 @@ async fn create_trigger<T: TriggerCrud>(
         .execute(&mut *tx)
         .await?;
     }
+
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        &new_path,
+        TriggerOperation::Create,
+        None,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -775,12 +846,21 @@ async fn update_trigger<T: TriggerCrud>(
 
     let new_path = edit_trigger.base.path.to_string();
     let labels = edit_trigger.base.labels.clone();
+
+    // Reject a forged superadmin run identity in a preserved permissioned_as
+    // (the sentinel guard; a trigger's email is derived from it at execution).
+    let resolved_permissioned_as = edit_trigger.base.resolve_permissioned_as(&authed);
+    windmill_common::auth::validate_on_behalf_of(Some(&resolved_permissioned_as), None)?;
+
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
         edit_trigger.base.permissioned_as.as_deref(),
         edit_trigger.base.preserve_permissioned_as.unwrap_or(false),
         &authed,
         &authed.username,
     );
+
+    let before =
+        trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
 
     handler
         .update_trigger(&db, &mut *tx, &authed, &workspace_id, path, edit_trigger)
@@ -798,6 +878,18 @@ async fn update_trigger<T: TriggerCrud>(
         .execute(&mut *tx)
         .await?;
     }
+
+    // Recorded at the new path, so a rename reads as one event there with
+    // `path` among the changed fields rather than a delete plus a create.
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        &new_path,
+        TriggerOperation::Update,
+        before,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -912,6 +1004,22 @@ async fn delete_trigger<T: TriggerCrud>(
         )
         .await?;
     }
+
+    // No diff: the row is gone, and the trashbin above already keeps its full
+    // contents for a restore.
+    trigger_history::record(
+        &mut *tx,
+        TriggerHistoryEvent {
+            workspace_id: &workspace_id,
+            trigger_kind: T::TRIGGER_TYPE,
+            path,
+            operation: TriggerOperation::Delete,
+            source: TriggerSource::of_request(authed.is_session_token),
+            username: Some(&authed.username),
+            changes: None,
+        },
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -1052,6 +1160,13 @@ async fn set_trigger_mode<T: TriggerCrud>(
         }
     }
 
+    handler
+        .authorize_set_trigger_mode(&authed, &mut *tx, &workspace_id, path, &payload.mode)
+        .await?;
+
+    let before =
+        trigger_history::snapshot_row(&mut *tx, T::TABLE_NAME, &workspace_id, path).await?;
+
     let updated = handler
         .set_trigger_mode(&authed, &mut *tx, &workspace_id, path, &payload.mode)
         .await?;
@@ -1062,6 +1177,20 @@ async fn set_trigger_mode<T: TriggerCrud>(
             path
         )));
     }
+
+    record_trigger_history::<T>(
+        &mut *tx,
+        &authed,
+        &workspace_id,
+        path,
+        match payload.mode {
+            TriggerMode::Enabled => TriggerOperation::Enable,
+            TriggerMode::Disabled => TriggerOperation::Disable,
+            TriggerMode::Suspended => TriggerOperation::Suspend,
+        },
+        before,
+    )
+    .await?;
 
     tx.commit().await?;
 

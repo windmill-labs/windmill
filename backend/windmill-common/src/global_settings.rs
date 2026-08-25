@@ -79,6 +79,14 @@ pub const SANDBOX_REGISTRY_AUTH_SETTING: &str = "sandbox_registry_auth";
 // windmill-worker/src/ssh_executor_ee.rs.
 pub const SSH_EXECUTION_SETTING: &str = "ssh_execution_enabled";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
+/// Compile a newly deployed script's binary right after its dependency job and push it
+/// to the instance object store, so the first run does not pay the compile. Inert unless
+/// instance object storage is configured — without it the binary would only ever land in
+/// the building worker's local cache, which is not where the next run looks.
+pub const AUTO_BUILD_BINARY_ON_DEPLOY_SETTING: &str = "auto_build_binary_on_deploy";
+/// Worker tag the auto-build jobs are queued on. Unset means the script's language tag,
+/// which is where its dependency job already runs.
+pub const AUTO_BUILD_BINARY_TAG_SETTING: &str = "auto_build_binary_tag";
 pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
@@ -92,6 +100,8 @@ pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 pub const CRITICAL_ALERT_MUTE_UI_SETTING: &str = "critical_alert_mute_ui";
 pub const CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING: &str = "critical_alerts_on_db_oversize";
 pub const CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING: &str = "critical_alerts_on_token_expiry";
+pub const CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING: &str =
+    "critical_alert_mute_zombie_job_restart";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
@@ -294,6 +304,8 @@ pub const ENV_SETTINGS: &[&str] = &[
     "WAIT_RESULT_SLOW_POLL_INTERVAL_MS",
     "WAIT_RESULT_FAST_POLL_INTERVAL_MS",
     "EXIT_AFTER_NO_JOB_FOR_SECS",
+    "EXIT_AFTER_N_JOBS",
+    "WORKER_SUFFIX",
     "REQUEST_SIZE_LIMIT",
     "CREATE_WORKSPACE_REQUIRE_SUPERADMIN",
     "GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE",
@@ -312,11 +324,68 @@ pub const ENV_SETTINGS: &[&str] = &[
     "AI_REQUEST_TIMEOUT_SECONDS",
     "JOB_CLEANUP_BATCH_SIZE",
     "JOB_CLEANUP_MAX_BATCHES",
+    "AUTO_BUILD_BINARY_ON_DEPLOY",
+    "AUTO_BUILD_BINARY_TAG",
 ];
 
+use crate::ee_oss::LicensePlan;
 use crate::error;
 use sqlx::postgres::Postgres;
 use sqlx::Pool;
+
+/// Read several settings in one round trip. Names with no row are simply absent from the
+/// result, exactly as [`load_value_from_global_settings`] returns `None` for them.
+pub async fn load_values_from_global_settings(
+    db: &Pool<Postgres>,
+    names: &[&str],
+) -> error::Result<std::collections::HashMap<String, serde_json::Value>> {
+    // Listing the names keeps this on the primary key. `global_settings` also holds
+    // `workspace_dependencies_map_rebuilt:<workspace_id>`, one row per workspace with no
+    // cleanup path, so a predicate that scanned the table would grow with workspace count.
+    let rows = sqlx::query!(
+        "SELECT name, value FROM global_settings WHERE name = ANY($1)",
+        names as &[&str]
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.name, r.value)).collect())
+}
+
+/// Return the instance's JWT secret, generating one only if the row holds nothing usable.
+///
+/// The write has to be conditional rather than a plain upsert, for two reasons. A usable
+/// secret must never be overwritten: replicas booting together would each install their own
+/// and reject each other's tokens. And `notify_global_setting_change` fires on every write to
+/// this table, so an unconditional upsert would make each startup trigger a cluster-wide
+/// settings reload. An empty `RETURNING` is how a caller learns another process's secret
+/// stands, and reads that one instead.
+///
+/// Safe to call with a value read earlier: the statement, not the caller's read, decides.
+pub async fn get_or_create_jwt_secret(db: &Pool<Postgres>) -> error::Result<String> {
+    let candidate = crate::utils::rd_string(32);
+    let stored = sqlx::query_scalar!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, $2)
+         ON CONFLICT (name) DO UPDATE SET value = EXCLUDED.value
+         WHERE jsonb_typeof(global_settings.value) <> 'string'
+         RETURNING value",
+        JWT_SECRET_SETTING,
+        serde_json::to_value(&candidate)?
+    )
+    .fetch_optional(db)
+    .await?;
+
+    match stored {
+        Some(_) => Ok(candidate),
+        None => load_value_from_global_settings(db, JWT_SECRET_SETTING)
+            .await?
+            .and_then(|v| serde_json::from_value::<String>(v).ok())
+            .ok_or_else(|| {
+                error::Error::InternalErr(
+                    "jwt_secret conflicted but holds no usable value".to_string(),
+                )
+            }),
+    }
+}
 
 pub async fn load_value_from_global_settings(
     db: &Pool<Postgres>,
@@ -330,6 +399,85 @@ pub async fn load_value_from_global_settings(
     .await?
     .map(|x| x.value);
     Ok(r)
+}
+
+lazy_static::lazy_static! {
+    static ref AUTO_BUILD_BINARY_ON_DEPLOY_ENV: bool = std::env::var("AUTO_BUILD_BINARY_ON_DEPLOY")
+        .ok()
+        .and_then(|x| x.trim().parse::<bool>().ok())
+        .unwrap_or(false);
+    static ref AUTO_BUILD_BINARY_TAG_ENV: Option<String> = std::env::var("AUTO_BUILD_BINARY_TAG")
+        .ok()
+        .map(|x| x.trim().to_string())
+        .filter(|x| !x.is_empty());
+}
+
+/// Whether newly deployed scripts should have their binary built and pushed to the
+/// instance object store, and on which worker tag.
+///
+/// `None` = off. `Some(tag_override)` = on, where `None` inside means "use the script's
+/// language tag". Read per deployment rather than cached: deploys of a compiled language
+/// are rare, and a stale cache here silently skips builds for as long as it lives.
+///
+/// The env fallbacks are read in whichever process decides — a server for a deploy that
+/// brings its own lock, a worker for one that generates it — so on a split deployment they
+/// belong on both. The instance setting has no such caveat; prefer it.
+pub async fn auto_build_binary_on_deploy(
+    db: &Pool<Postgres>,
+) -> error::Result<Option<Option<String>>> {
+    let enabled =
+        match load_value_from_global_settings(db, AUTO_BUILD_BINARY_ON_DEPLOY_SETTING).await? {
+            Some(serde_json::Value::Bool(b)) => b,
+            // An unset (or cleared) setting falls back to the env var, matching how the
+            // instance-settings UI leaves a never-touched toggle absent from the table.
+            None | Some(serde_json::Value::Null) => *AUTO_BUILD_BINARY_ON_DEPLOY_ENV,
+            Some(other) => {
+                tracing::error!(
+                    "{AUTO_BUILD_BINARY_ON_DEPLOY_SETTING} is not a boolean: {other}, ignoring"
+                );
+                false
+            }
+        };
+    if !enabled {
+        return Ok(None);
+    }
+    // Without an instance object store the artifact never leaves the building worker's own
+    // disk, so every other worker would still compile it on first run.
+    if !instance_object_store_configured(db).await? {
+        tracing::warn!(
+            "{AUTO_BUILD_BINARY_ON_DEPLOY_SETTING} is enabled but no instance object storage is \
+             configured, not building anything"
+        );
+        return Ok(None);
+    }
+    let tag = match load_value_from_global_settings(db, AUTO_BUILD_BINARY_TAG_SETTING).await? {
+        Some(serde_json::Value::String(s)) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        Some(serde_json::Value::Null) | Some(serde_json::Value::String(_)) | None => {
+            AUTO_BUILD_BINARY_TAG_ENV.clone()
+        }
+        Some(other) => {
+            tracing::error!("{AUTO_BUILD_BINARY_TAG_SETTING} is not a string: {other}, ignoring");
+            None
+        }
+    };
+    Ok(Some(tag))
+}
+
+/// Whether an instance object store is configured, mirroring every condition
+/// `windmill_object_store::reload_object_store_setting` needs to actually load one —
+/// including its refusal on the Pro plan, without which a Pro instance holding an
+/// object-store row would queue a build per deploy that can only ever skip.
+///
+/// Reads config rather than the loaded client so callers outside the worker (which may be
+/// built without the object-store features) reach the same answer.
+async fn instance_object_store_configured(db: &Pool<Postgres>) -> error::Result<bool> {
+    if matches!(crate::ee_oss::get_license_plan().await, LicensePlan::Pro) {
+        return Ok(false);
+    }
+    Ok(!matches!(
+        load_value_from_global_settings(db, OBJECT_STORE_CONFIG_SETTING).await?,
+        None | Some(serde_json::Value::Null)
+    ) || std::env::var("S3_CACHE_BUCKET").is_ok())
 }
 
 /// Read OAuth client_id and client_secret from instance-level global settings.

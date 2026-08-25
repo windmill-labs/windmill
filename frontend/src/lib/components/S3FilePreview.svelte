@@ -97,13 +97,17 @@
 
 	function isNotFoundError(err: any): boolean {
 		// HelpersService surfaces backend errors as ApiError with a `status`
-		// field plus a serialized body. We accept either a 404 status or a
-		// "not found" substring (case-insensitive) to be robust against
-		// future error wrapping changes.
+		// field plus a serialized body. A missing object arrives as a 500 that
+		// merely *says* "not found" (`load_file_metadata` wraps the object-store
+		// error), so the substring test carries this and cannot be dropped. 400
+		// must short-circuit ahead of it: those messages echo back a
+		// caller-supplied storage name, and one like `archive not found` would
+		// otherwise read as a missing object and hide the diagnostic.
 		const status = err?.status ?? err?.response?.status
 		if (status === 404) return true
+		if (status === 400) return false
 		const body = String(err?.body ?? err?.message ?? err ?? '').toLowerCase()
-		return body.includes('not found') || body.includes('404')
+		return body.includes('not found')
 	}
 
 	// Reload whenever the file key, workspace, or external refreshKey

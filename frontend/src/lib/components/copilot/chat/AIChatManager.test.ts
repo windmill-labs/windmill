@@ -4,9 +4,13 @@ import type { PipelineAIChatHelpers } from './pipeline/core'
 import type { CurrentEditor } from '$lib/components/flows/types'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions.mjs'
+import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { chatState } from './sharedChatState.svelte'
+import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
+import { clearWorkspaceRoleCache } from '$lib/user'
 
 // This suite forces esm-env BROWSER=true (below). That makes @sveltejs/kit's
 // client runtime (pulled transitively via $lib/navigation) evaluate browser-only
@@ -31,7 +35,11 @@ const mocks = vi.hoisted(() => ({
 	runChatLoop: vi.fn(),
 	listAiSkills: vi.fn(),
 	getJob: vi.fn(),
-	workspace: 'test_workspace' as string | undefined
+	whoami: vi.fn(),
+	workspace: 'test_workspace' as string | undefined,
+	// The workspace being browsed, which a session chat's own workspace need not be.
+	navWorkspace: undefined as string | undefined,
+	userWorkspaces: [] as unknown[]
 }))
 
 vi.mock('monaco-editor', () => ({
@@ -46,6 +54,9 @@ vi.mock('$lib/gen', () => ({
 	},
 	ScriptService: {},
 	FlowService: {},
+	UserService: {
+		whoami: mocks.whoami
+	},
 	JobService: {
 		getJob: mocks.getJob
 	}
@@ -71,11 +82,34 @@ vi.mock('$lib/stores', () => {
 				return () => undefined
 			}
 		},
-		userStore: readable({ username: 'admin', email: 'admin@test', is_admin: true }),
-		// Read eagerly at module load by the open_page tool's allowedOpenPages /
-		// allowedTriggerKinds (global/core.ts) as the manager's tools are built.
+		// `workspace_id` is the workspace being browsed; consumers compare it against the
+		// workspace they are asked about and fetch `whoami` for the latter on a mismatch.
+		userStore: {
+			subscribe: (run: (value: unknown) => void) => {
+				run({
+					username: 'admin',
+					email: 'admin@test',
+					is_admin: true,
+					workspace_id: mocks.navWorkspace ?? mocks.workspace
+				})
+				return () => undefined
+			}
+		},
+		// Read eagerly at module load by the open_page tool's restrictedOpenPages /
+		// allowedTriggerKinds / allowsAllWorkspacesRuns (global/core.ts) as the manager's
+		// tools are built.
 		superadmin: readable(false),
-		userWorkspaces: readable([] as unknown[]),
+		devopsRole: readable(false),
+		userWorkspaces: {
+			subscribe: (run: (value: unknown[]) => void) => {
+				run(mocks.userWorkspaces)
+				return () => undefined
+			}
+		},
+		// Read by roleForWorkspace (global/core.ts), which may only settle a
+		// non-membership once this has resolved.
+		usersWorkspaceStore: readable({ workspaces: [] as unknown[] }),
+		NON_MEMBER_USERNAME: 'superadmin',
 		enterpriseLicense: readable(undefined)
 	}
 })
@@ -128,6 +162,9 @@ vi.mock('esm-env', async (importOriginal) => ({
 }))
 
 beforeEach(() => {
+	// These managers stand in for a mounted docked chat; without a layout to set
+	// it, sendRequest's "nowhere to render this turn" guard would refuse every send.
+	chatState.dockedChatAvailable = true
 	vi.clearAllMocks()
 	mocks.getCurrentModel.mockReturnValue(undefined)
 	mocks.tryGetCurrentModel.mockReturnValue(undefined)
@@ -170,6 +207,66 @@ function createFlowHelpers({
 		getLintErrors: vi.fn()
 	} as unknown as FlowAIChatHelpers
 }
+
+describe('AIChatManager unmounted-chat guard', () => {
+	// AI Sessions leave the docked pane unmounted, so an entry point that still
+	// drives this manager would otherwise stream and apply tool calls off-screen.
+	it('drops the turn when no chat UI is mounted, unless it is a session chat', async () => {
+		chatState.dockedChatAvailable = false
+		const docked = new AIChatManager()
+		docked.instructions = 'do a thing'
+		await docked.sendRequest()
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+
+		const session = new AIChatManager()
+		session.isSessionChat = true
+		session.instructions = 'do a thing'
+		await session.sendRequest()
+		expect(mocks.runChatLoop).toHaveBeenCalled()
+	})
+})
+
+describe('AIChatManager.sendOrQueue', () => {
+	// The programmatic senders (an editor's "AI Fix", an arriving hand-off) have no
+	// composer to enforce the composer's rule for them: a second loop on one manager
+	// shares its abort controller and transcript.
+	it('queues instead of starting a second turn while one is streaming', () => {
+		const manager = new AIChatManager()
+		manager.loading = true
+		manager.sendOrQueue('fix the failing run')
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.queuedMessage).toBe('fix the failing run')
+	})
+
+	it('sends straight away when idle', async () => {
+		const manager = new AIChatManager()
+		manager.sendOrQueue('fix the failing run')
+		await vi.waitFor(() => expect(mocks.runChatLoop).toHaveBeenCalled())
+		expect(manager.queuedMessage).toBe('')
+	})
+
+	// `loading` only rises after a send's attachment upkeep, so gating on it alone
+	// leaves a window where a second programmatic send slips through.
+	it('queues during a send that has not reached loading yet', async () => {
+		const manager = new AIChatManager()
+		let releaseUpkeep: (() => void) | undefined
+		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(
+			() => new Promise<void>((resolve) => (releaseUpkeep = resolve))
+		)
+		manager.instructions = 'first turn'
+		const sending = manager.sendRequest()
+		await vi.waitFor(() => expect(manager.sendInFlight).toBe(true))
+		expect(manager.loading).toBe(false)
+
+		manager.sendOrQueue('fix the failing run')
+		expect(manager.queuedMessage).toBe('fix the failing run')
+
+		// Drain before leaving: a send still in flight would run its epilogue
+		// (queue flush included) inside whichever test happens to be next.
+		releaseUpkeep?.()
+		await sending
+	})
+})
 
 describe('AIChatManager request errors', () => {
 	const openaiModel = { provider: 'openai', model: 'gpt-4o' }
@@ -337,6 +434,63 @@ describe('AIChatManager global skills', () => {
 	})
 })
 
+describe('AIChatManager global prompt identity', () => {
+	const model = { provider: 'openai', model: 'gpt-4o' }
+
+	beforeEach(() => {
+		localStorage.clear()
+		mocks.getCurrentModel.mockReturnValue(model)
+		mocks.tryGetCurrentModel.mockReturnValue(model)
+		mocks.listAiSkills.mockResolvedValue([])
+	})
+
+	afterEach(() => {
+		mocks.navWorkspace = undefined
+		mocks.userWorkspaces = []
+		clearWorkspaceRoleCache()
+	})
+
+	// The identity must be settled before the first request, not after the model has
+	// already been told to write to a `u/<username>/...` that does not exist there.
+	it('resolves the identity for the workspace beforeSend commits, not the browsed one', async () => {
+		mocks.workspace = 'parent'
+		mocks.navWorkspace = 'parent'
+		mocks.userWorkspaces = [{ id: 'parent' }, { id: 'child' }]
+		mocks.whoami.mockImplementation(async ({ workspace }: { workspace: string }) => ({
+			username: `${workspace}_user`,
+			email: 'admin@test',
+			is_admin: false,
+			operator: false,
+			groups: [],
+			folders: [`${workspace}_folder`],
+			folders_read: [`${workspace}_folder`]
+		}))
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			expect(config.systemMessage.content).toContain('workspace username is "child_user"')
+			expect(config.systemMessage.content).toContain('`f/child_folder`')
+			expect(config.systemMessage.content).not.toContain('parent_folder')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.beforeSend = () => {
+			mocks.workspace = 'child'
+		}
+
+		await manager.sendRequest({ instructions: 'first', mode: AIMode.GLOBAL })
+
+		expect(mocks.whoami).toHaveBeenCalledWith({ workspace: 'child' })
+		expect(manager.systemMessage.content).toContain('workspace username is "child_user"')
+	})
+})
+
 describe('AIChatManager autonomy mode', () => {
 	beforeEach(() => {
 		localStorage.clear()
@@ -443,6 +597,121 @@ describe('AIChatManager autonomy mode', () => {
 	})
 })
 
+// The posture's own behaviour lives in planModeController.test.ts. What is left here is the
+// wiring only the manager owns: which pending confirmation cards a change of autonomy mode
+// answers, and with what.
+describe('AIChatManager plan mode posture', () => {
+	beforeEach(() => {
+		localStorage.clear()
+		// Plan mode is never the persisted posture, so a case starts from the one it is
+		// entered from and hands back to.
+		localStorage.setItem(`ai-chat-autonomy-mode::${TEST_EMAIL}`, AIAutonomyMode.DEFAULT)
+		vi.clearAllMocks()
+	})
+
+	const sessionManager = (mode = AIAutonomyMode.DEFAULT) => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.setAutonomyMode(mode)
+		return manager
+	}
+
+	it('enters plan mode through the tool and remembers the posture to hand back to', async () => {
+		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
+
+		await manager.planMode.enterTool.fn({
+			args: { reason: 'research the change first' },
+			workspace: 'test-workspace',
+			helpers: {},
+			toolCallbacks: { setToolStatus: vi.fn(), removeToolStatus: vi.fn() },
+			toolId: 'call_enter'
+		})
+
+		expect(manager.planModeActive).toBe(true)
+		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+	})
+
+	it('refuses to move a session chat out of GLOBAL, so the gate cannot lift under it', () => {
+		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
+		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(manager.planModeActive).toBe(true)
+		// Without a configured model changeMode returns early on SCRIPT, and the case would pass
+		// against the very guard it is meant to pin.
+		mocks.getCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+		mocks.tryGetCurrentModel.mockReturnValue({ provider: 'openai', model: 'gpt-4o' })
+		const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+		manager.changeMode(AIMode.SCRIPT)
+
+		expect(manager.mode).toBe(AIMode.GLOBAL)
+		expect(manager.planModeActive).toBe(true)
+		// A switch that silently does nothing gives its caller no way to learn why.
+		expect(logged).toHaveBeenCalled()
+		logged.mockRestore()
+	})
+
+	it('never auto-accepts an enter_plan_mode card, whichever side of the switch it lands on', async () => {
+		// Switching to YOLO answers every pending confirmation — except this one. "Run it
+		// without asking" must not be answered by forcing the user into a read-only posture.
+		const before = sessionManager()
+		const enterPending = before.requestConfirmation('call_enter', 'enter_plan_mode')
+		const writePending = before.requestConfirmation('call_write', 'write_script')
+		before.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(await enterPending).toBe(false)
+		expect(await writePending).toBe(true)
+	})
+
+	it('declines an enter_plan_mode that arrives after the switch to YOLO', async () => {
+		// The tool set is snapshotted per iteration, so a call can still arrive once the user
+		// has moved to YOLO. Driven through processToolCall rather than requestConfirmation
+		// directly: an auto-accepting posture skips the confirmation wait entirely, so asserting
+		// against the wait would pass on a build that never reaches it.
+		const { processToolCall } = await import('./shared')
+		const manager = sessionManager(AIAutonomyMode.YOLO)
+
+		const result = await processToolCall({
+			tools: [manager.planMode.enterTool] as any,
+			toolCall: {
+				id: 'call_enter',
+				type: 'function',
+				function: { name: 'enter_plan_mode', arguments: JSON.stringify({ reason: 'research' }) }
+			} as any,
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: manager.requestConfirmation,
+				shouldAutoAcceptToolConfirmations: manager.shouldAutoAcceptTool
+			} as any
+		})
+
+		expect(result.content).toBe(PLAN_MODE_MESSAGES.enterDeclined)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.YOLO)
+		expect(manager.planModeActive).toBe(false)
+	})
+
+	it('answers a pending plan card the way the picker was moved', async () => {
+		const entering = sessionManager()
+		const enterPending = entering.requestConfirmation('call_enter', 'enter_plan_mode')
+		entering.setAutonomyMode(AIAutonomyMode.PLAN)
+		expect(await enterPending).toBe(true)
+
+		// Leaving plan mode any other way is not a sign-off on the plan on the card.
+		const leaving = sessionManager(AIAutonomyMode.PLAN)
+		const exitPending = leaving.requestConfirmation('call_exit', 'exit_plan_mode')
+		leaving.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		expect(await exitPending).toBe(false)
+
+		// Opting into YOLO does mean "run it".
+		const yolo = sessionManager(AIAutonomyMode.PLAN)
+		const yoloPending = yolo.requestConfirmation('call_exit', 'exit_plan_mode')
+		yolo.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(await yoloPending).toBe(true)
+	})
+})
+
 describe('AIChatManager persisted autonomy default', () => {
 	// Mirrors the private storage keys in AIChatManager.svelte.ts, namespaced by
 	// the logged-in user's email (see userScopedStorage).
@@ -466,6 +735,33 @@ describe('AIChatManager persisted autonomy default', () => {
 	it('restores an explicitly persisted autonomy mode', () => {
 		localStorage.setItem(AUTONOMY_KEY, AIAutonomyMode.DEFAULT)
 		expect(new AIChatManager().autonomyMode).toBe(AIAutonomyMode.DEFAULT)
+	})
+})
+
+describe('AIChatManager user questions', () => {
+	// The composer holds the only copy of a typed answer and clears it on a true,
+	// so a card whose resolver is gone (restored from history, its promise left
+	// with the old page) must report the answer as undelivered.
+	it('reports whether the answer reached a waiting resolver', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_ask',
+				content: 'asking',
+				isLoading: true,
+				userQuestion: { question: 'Pick one', choices: ['a', 'b'] }
+			}
+		]
+
+		expect(manager.handleUserQuestionAnswer('call_ask', ['a'])).toBe(false)
+
+		const answered = manager.requestUserQuestion('call_ask', {
+			question: 'Pick one',
+			choices: ['a', 'b']
+		})
+		expect(manager.handleUserQuestionAnswer('call_ask', ['a'])).toBe(true)
+		return expect(answered).resolves.toEqual(['a'])
 	})
 })
 
@@ -1569,6 +1865,312 @@ describe('AIChatManager queued messages', () => {
 		expect(input.restoreInstructions).not.toHaveBeenCalled()
 	})
 
+	// This suite runs under the node env, so stand up the minimum document the
+	// manager needs to hear the page going away. Returns the registered listeners
+	// so a test can play the user leaving.
+	function stubHidingPage() {
+		const leavePage = new Set<() => void>()
+		vi.stubGlobal('document', {
+			visibilityState: 'hidden',
+			addEventListener: (_: string, fn: () => void) => leavePage.add(fn),
+			removeEventListener: (_: string, fn: () => void) => leavePage.delete(fn)
+		})
+		return leavePage
+	}
+
+	// Every checkpoint test installs a fake document; leaking one would make a
+	// single failure cascade through every later test in the file.
+	afterEach(() => {
+		vi.unstubAllGlobals()
+		vi.useRealTimers()
+	})
+
+	it('keeps re-checkpointing a streamed answer as it grows', async () => {
+		vi.useFakeTimers({ shouldAdvanceTime: true })
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		// One poll interval, per CHECKPOINT_INTERVAL_MS in AIChatManager.
+		const pastOnePoll = 2100
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// A text-only answer: nothing lands in addedMessages and no card appears,
+			// so the growing reply is the only thing that can drive the poll.
+			for (const text of ['the first part', 'the first part and more', 'the whole answer']) {
+				manager.currentReply = text
+				await vi.advanceTimersByTimeAsync(pastOnePoll)
+			}
+			const message = { role: 'assistant' as const, content: manager.currentReply }
+			config.addedMessages.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'write me something long' })
+
+		// A fingerprint blind to the reply would freeze at whatever the first tick
+		// captured, so each tick must persist strictly more of the answer.
+		const persisted = saveChat.mock.calls
+			.map(([, messages]) => messages as ChatCompletionMessageParam[])
+			.map((messages) => messages[messages.length - 1])
+			.filter((m) => m?.role === 'assistant' && typeof m.content === 'string')
+			.map((m) => String(m.content))
+			.filter((c) => c.startsWith('the first part'))
+		expect(persisted).toEqual(['the first part', 'the first part and more'])
+	})
+
+	it('carries a completed screenshot into a checkpoint of the batch it came from', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// take_screenshot finished and buffered its image, but the batch it belongs
+			// to has another call still pending — so the loop has not yet turned the
+			// buffer into a message.
+			config.addedMessages.push(
+				{
+					role: 'assistant' as const,
+					content: '',
+					tool_calls: [
+						{
+							id: 'shot',
+							type: 'function' as const,
+							function: { name: 'take_screenshot', arguments: '{}' }
+						},
+						{
+							id: 'next',
+							type: 'function' as const,
+							function: { name: 'do_thing', arguments: '{}' }
+						}
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 'shot', content: 'Screenshot attached below' }
+			)
+			config.callbacks.attachToolImage('shot', {
+				dataUrl: 'data:image/png;base64,iVBORw0KGgo=',
+				name: 'shot.png'
+			})
+			leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'look at the app' })
+
+		const [, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		// Without the image the restored history announces a screenshot the model
+		// cannot see, so the next turn cannot answer anything about it.
+		const imageParts = actual.flatMap((m) =>
+			Array.isArray(m.content) ? m.content.filter((p: any) => p.type === 'image_url') : []
+		)
+		expect(imageParts).toHaveLength(1)
+		// And it sits after the batch that produced it, where the live path puts it.
+		const imageIdx = actual.findIndex((m) => Array.isArray(m.content))
+		const resultIdx = actual.findIndex((m) => m.role === 'tool' && m.tool_call_id === 'shot')
+		expect(imageIdx).toBeGreaterThan(resultIdx)
+	})
+
+	it('does not repeat a preamble the parser has already pushed', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		const preamble = 'Let me look that up.'
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// A text-then-tool-call turn in parser order: the preamble is flushed when
+			// the tool call starts, pushed when the message completes, and only then
+			// do the tools run — the long window a checkpoint is most likely to land in.
+			manager.currentReply = preamble
+			config.callbacks.onMessageEnd()
+			config.addedMessages.push(
+				{ role: 'assistant' as const, content: preamble },
+				{
+					role: 'assistant' as const,
+					content: '',
+					tool_calls: [
+						{ id: 't1', type: 'function' as const, function: { name: 'do_thing', arguments: '{}' } }
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 't1', content: 'ok' }
+			)
+			leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'look something up' })
+
+		const [, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		// Reading flushed text back would show the preamble twice on reload; the
+		// transcript already holds it, so the checkpoint must take it from there.
+		expect(actual.filter((m) => m.content === preamble)).toHaveLength(1)
+	})
+
+	it('checkpoints a live reply that repeats an earlier segment verbatim', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		const repeated = 'Let me check that.'
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// The model said the same sentence before its tool call as it is saying
+			// after it — the staleness heuristic must not read the second one as a
+			// duplicate of the first and drop it.
+			config.addedMessages.push(
+				{
+					role: 'assistant' as const,
+					content: repeated,
+					tool_calls: [
+						{ id: 't1', type: 'function' as const, function: { name: 'do_thing', arguments: '{}' } }
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 't1', content: 'ok' }
+			)
+			manager.currentReply = repeated
+			leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'check the thing' })
+
+		const [display, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		expect(actual[actual.length - 1]).toMatchObject({ role: 'assistant', content: repeated })
+		expect(display[display.length - 1]).toMatchObject({ role: 'assistant', content: repeated })
+	})
+
+	it('checkpoints a turn to history when the page is hidden mid-generation', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		const toolCall = (id: string, name: string) => ({
+			role: 'assistant' as const,
+			content: '',
+			tool_calls: [{ id, type: 'function' as const, function: { name, arguments: '{}' } }]
+		})
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// One completed round-trip, then a call still waiting on the user.
+			config.addedMessages.push(
+				toolCall('t1', 'write_script'),
+				{ role: 'tool', tool_call_id: 't1', content: 'created' },
+				toolCall('t2', 'test_run_script')
+			)
+			config.callbacks.setToolStatus('t2', {
+				content: 'Waiting for confirmation...',
+				isLoading: true,
+				needsConfirmation: true
+			})
+			leavePage.forEach((fn) => fn())
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages.push({ role: 'tool', tool_call_id: 't2', content: 'ran' }, message)
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'write and run a script' })
+
+		const [display, actual] = saveChat.mock.calls.find(
+			([, messages]) => messages.length > 1
+		) as unknown as [DisplayMessage[], ChatCompletionMessageParam[]]
+		// Both steps are kept, and the unfinished t2 call gets a synthesized result:
+		// leaving it dangling would make the next request 400, dropping it would lose
+		// the step the reader can still see on the card below.
+		expect(actual.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant', 'tool'])
+		expect(actual[actual.length - 1]).toMatchObject({
+			tool_call_id: 't2',
+			content: expect.stringContaining('Interrupted')
+		})
+		// Its card is kept but settled, so reopening the chat doesn't restore a
+		// confirmation prompt with nothing behind it.
+		expect(display.find((m) => m.role === 'tool' && m.tool_call_id === 't2')).toMatchObject({
+			isLoading: false,
+			needsConfirmation: false,
+			error: 'Interrupted'
+		})
+		// The turn itself is untouched by the checkpoint and still commits in full.
+		expect(manager.messages.map((m) => m.role)).toEqual([
+			'user',
+			'assistant',
+			'tool',
+			'assistant',
+			'tool',
+			'assistant'
+		])
+	})
+
+	it('stops checkpointing once the turn commits, so the transcript is never doubled', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		// The turn-end save is where the race lives: the outcome branch has already
+		// merged the turn into `manager.messages` and is awaiting this call, so a
+		// checkpoint landing here would append the same messages a second time.
+		let leaveDuringFinalSave: () => void = () => {}
+		const saveChat = vi
+			.spyOn(manager.historyManager, 'saveChat')
+			.mockImplementation(async () => leaveDuringFinalSave())
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			const collected = [
+				{
+					role: 'assistant' as const,
+					content: '',
+					tool_calls: [
+						{
+							id: 't1',
+							type: 'function' as const,
+							function: { name: 'write_script', arguments: '{}' }
+						}
+					]
+				},
+				{ role: 'tool' as const, tool_call_id: 't1', content: 'created' },
+				{ role: 'assistant' as const, content: 'done' }
+			]
+			config.addedMessages.push(...collected)
+			leaveDuringFinalSave = () => leavePage.forEach((fn) => fn())
+			return {
+				addedMessages: collected,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'write a script' })
+		await Promise.resolve()
+
+		// A duplicated transcript repeats t1, which providers reject outright — so
+		// no persisted call may carry the same tool_call_id twice.
+		for (const [, messages] of saveChat.mock.calls as unknown as [
+			unknown,
+			ChatCompletionMessageParam[]
+		][]) {
+			const toolCallIds = messages.flatMap((m: any) => m.tool_calls?.map((c: any) => c.id) ?? [])
+			expect(toolCallIds).toEqual([...new Set(toolCallIds)])
+		}
+		expect(manager.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'assistant'])
+	})
+
 	it('restores consumed DOM selector chips when a turn is cancelled before output', async () => {
 		const manager = createManager(createInputMock())
 		manager.mode = AIMode.GLOBAL
@@ -1733,6 +2335,61 @@ describe('AIChatManager queued messages', () => {
 		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
 		await manager.loadPastChat('chat-b')
 		expect(manager.queuedMessage).toBe('')
+	})
+
+	it('refuses to switch conversation while a turn is running', async () => {
+		const manager = createManager(createInputMock())
+		const loadStored = vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-b',
+			title: 'Chat B',
+			displayMessages: [{ role: 'user', content: 'belongs to chat B', index: 0 }],
+			actualMessages: [{ role: 'user', content: 'belongs to chat B' }],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			// The user opens History mid-turn. Swapping the transcript in underneath
+			// the turn makes the commit below land on a foreign one — and when the
+			// loaded chat is this one, on top of its own checkpoint.
+			await manager.loadPastChat('chat-b')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'belongs to chat A' })
+
+		expect(loadStored).not.toHaveBeenCalled()
+		expect(manager.messages.map((m) => m.content)).toEqual(['belongs to chat A', 'done'])
+	})
+
+	it('refuses to switch conversation before `loading` has risen', async () => {
+		const manager = createManager(createInputMock())
+		const loadStored = vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'chat-b',
+			title: 'Chat B',
+			displayMessages: [{ role: 'user', content: 'belongs to chat B', index: 0 }],
+			actualMessages: [{ role: 'user', content: 'belongs to chat B' }],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		replyWith('done')
+
+		const sent = manager.sendRequest({ instructions: 'belongs to chat A' })
+		// The send is registered but its attachment upkeep hasn't finished, so
+		// `loading` is still false — the window `sendOrQueue` also guards.
+		expect(manager.loading).toBe(false)
+		expect(manager.sendInFlight).toBe(true)
+		await manager.loadPastChat('chat-b')
+		await sent
+
+		expect(loadStored).not.toHaveBeenCalled()
+		expect(manager.messages.map((m) => m.content)).toEqual(['belongs to chat A', 'done'])
 	})
 
 	it('clears attachments on New chat / load past chat (non-session), keeps them in a session', async () => {

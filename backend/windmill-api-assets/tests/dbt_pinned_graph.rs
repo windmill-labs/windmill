@@ -32,6 +32,7 @@ fn outsider() -> ApiAuthed {
         is_session_token: false,
         token_prefix: None,
         read_only: false,
+        job_id: None,
     }
 }
 
@@ -417,9 +418,16 @@ async fn an_editor_graph_renders_only_through_its_own_job(db: Pool<Postgres>) {
     // Through the PATH — which is what the workspace graph and every run of the
     // deployed version ask for — a buffer parse must not appear at all. It
     // describes an editor's unsaved state, not what the script owns.
-    let workspace = asset_graph_for(&admin, WS, UserDB::new(db.clone()), db.clone(), query(), None)
-        .await
-        .unwrap();
+    let workspace = asset_graph_for(
+        &admin,
+        WS,
+        UserDB::new(db.clone()),
+        db.clone(),
+        query(),
+        None,
+    )
+    .await
+    .unwrap();
     let workspace = serde_json::to_value(&workspace.0).unwrap().to_string();
     assert!(
         !workspace.contains("u/a/wh/analytics/draft"),

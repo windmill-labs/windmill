@@ -1,18 +1,21 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #292929 / #FAFAFA per design.cal.com. Cal.com's design system states it is deliberately a
+	grayscale brand and publishes exactly two logo variants. -->
 <svg
+	class="text-[#292929] dark:text-[#FAFAFA]"
 	x="0px"
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 168 168"
+	viewBox="-5.518 -6.831 179.694 179.694"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 >

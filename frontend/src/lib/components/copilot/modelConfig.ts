@@ -74,6 +74,7 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Haiku, older Claude models (3.x, 4.0, 4.1, 4.5) and date-suffixed Claude 4
 	// base ids (claude-sonnet-4-20250514) fall through to 200K
 	['claude-fable-5', 1_000_000],
+	['claude-mythos-5', 1_000_000],
 	['claude-opus-5', 1_000_000],
 	['claude-sonnet-5', 1_000_000],
 	['claude-opus-4-8', 1_000_000],
@@ -82,7 +83,8 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['claude-sonnet-4-6', 1_000_000],
 	['claude', 200_000],
 	// OpenAI — gpt-5 covers the base family (-mini / -nano) and the 5.1/5.2
-	// revisions, all 400K; only 5.4+ moved to 1M
+	// revisions, all 400K; 5.4/5.5 moved to 1M and 5.6 to 1.05M
+	['gpt-5.6', 1_050_000],
 	['gpt-5.5', 1_000_000],
 	['gpt-5.4', 1_000_000],
 	['gpt-5', 400_000],
@@ -94,8 +96,9 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	['gemini-3.1', 1_000_000],
 	['gemini-3', 1_000_000],
 	['gemini-2.5', 1_000_000],
-	// DeepSeek — the V4 family is 1M; deepseek-chat / deepseek-reasoner are
-	// aliases of V4-Flash since April 2026
+	// DeepSeek — the V4 family (pro / flash) is 1M. The deepseek-chat /
+	// deepseek-reasoner aliases were retired 2026-07-24 but can still sit in a
+	// saved selection, so they keep resolving to the window they had.
 	['deepseek-v4', 1_000_000],
 	['deepseek-chat', 1_000_000],
 	['deepseek-reasoner', 1_000_000],
@@ -103,7 +106,11 @@ const MODEL_CONTEXT_WINDOWS: [name: string, contextWindow: number][] = [
 	// Alibaba — Qwen3-Max is 256K. No qwen family fallback: variant windows range
 	// from 8K (character models) to 1M, too wide for even a conservative guess
 	['qwen3-max', 256_000],
-	// Others
+	// Others — Mistral Medium 3.5 is 256K, reachable under both its version and
+	// the `-latest` alias. There is deliberately no `mistral-medium` family row:
+	// pinned older snapshots are 128K, and over-claiming a window overflows it.
+	['mistral-medium-3.5', 256_000],
+	['mistral-medium-latest', 256_000],
 	['llama', 128_000],
 	['codestral', 32_000]
 ]
@@ -116,21 +123,77 @@ function normalizeVersionSeparators(model: string): string {
 	return model.replace(/\./g, '-')
 }
 
-// An entry that ends on a version digit must not run into a longer version:
-// `gpt-4.1` collapses to `gpt-4-1`, which would otherwise claim the 128K
-// `gpt-4-1106-preview` as a 1M model. Suffixes that continue with a separator
-// (`claude-opus-4-8` in `...-4-8-v1`, `gpt-5` in `gpt-5-mini`) still match.
-// Family fallbacks ending on a letter get no such guard — a version welded
-// straight onto the name (`llama3.1`) is exactly what they exist to catch.
-const MODEL_CONTEXT_WINDOW_MATCHERS: [matcher: RegExp, contextWindow: number][] =
-	MODEL_CONTEXT_WINDOWS.map(([name, contextWindow]) => {
+/** Suffixes that name a route to a model rather than a different model. */
+const DECORATIVE_SUFFIXES = ['latest', 'preview', 'beta', 'stable']
+
+/**
+ * Compile a most-specific-first `[name, value]` table into matchers against the
+ * bare model id. Shared with the pricing table so both resolve the same set of
+ * ids — a model whose window is known but whose price is not (or vice versa)
+ * should be a gap in one table, never a difference in matching.
+ *
+ * An entry that ends on a version digit must not run into a longer version:
+ * `gpt-4.1` collapses to `gpt-4-1`, which would otherwise claim
+ * `gpt-4-1106-preview`. Suffixes that continue with a separator
+ * (`claude-opus-4-8` in `...-4-8-v1`, `gpt-5` in `gpt-5-mini`) still match.
+ * Family fallbacks ending on a letter get no such guard — a version welded
+ * straight onto the name (`llama3.1`) is exactly what they exist to catch.
+ */
+export function buildModelMatchers<T>(
+	entries: [name: string, value: T][],
+	{ strictVariants = false }: { strictVariants?: boolean } = {}
+): [RegExp, T][] {
+	return entries.map(([name, value]) => {
 		const pattern = normalizeVersionSeparators(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-		return [new RegExp(/\d$/.test(pattern) ? `${pattern}(?!\\d)` : pattern), contextWindow]
+		const guards = [
+			// An entry ending on a version digit must not run into a longer version.
+			/\d$/.test(pattern) ? '(?!\\d)' : '',
+			// A named sub-model (`gpt-5-pro`, `gpt-5-mini`) is a different model with
+			// its own price, not another route to this one — so under strictVariants an
+			// entry does not match when a further *name* segment follows. What follows
+			// is only a decoration when it is a date (`-20251101`), Bedrock's `-v1`, or
+			// one of the alias words below, at the very end of the id
+			// (`claude-3-5-haiku-latest` is the same model as `claude-3-5-haiku`, and is
+			// a shipped default; `gpt-5-preview-pro` would be a different one again).
+			// Off by default: for a context window an inherited value is a safe
+			// approximation, for a price it is a wrong number.
+			// A further revision segment (`gpt-5` vs `gpt-5-4-mini`) is a different model
+			// too, and the entry-ends-on-a-digit guard above does not catch it once the
+			// separator is normalized. Only a short segment: a date is digits as well
+			// (`-20251101`) and stays a decoration.
+			strictVariants ? '(?!-\\d{1,3}(?:$|-))' : '',
+			strictVariants
+				? `(?!-(?!(?:v\\d|${DECORATIVE_SUFFIXES.join('|')})$)[a-z])`
+				: ''
+		].join('')
+		return [new RegExp(pattern + guards), value]
 	})
+}
+
+/**
+ * The `provider:model` key the workspace AI settings use for their per-model maps
+ * (`max_tokens_per_model`, `model_pricing`). A bare model id is not enough: the
+ * same id can be served by more than one provider at different rates.
+ *
+ * Matched exactly, unlike the fuzzy tables above. Those tables generalize across
+ * every route to one model on purpose; a per-model *setting* must not, or an
+ * admin could not give two variants of a family different values — and the key is
+ * built from the exact id the provider config lists, which is the same string the
+ * chat sends.
+ */
+export function modelKey(provider: AIProvider | string, model: string): string {
+	return `${provider}:${model}`
+}
+
+export function matchModel<T>(matchers: [RegExp, T][], model: string): T | undefined {
+	const id = normalizeVersionSeparators(parseModelId(model).base)
+	return matchers.find(([matcher]) => matcher.test(id))?.[1]
+}
+
+const MODEL_CONTEXT_WINDOW_MATCHERS = buildModelMatchers(MODEL_CONTEXT_WINDOWS)
 
 export function getKnownModelContextWindow(model: string): number | undefined {
-	const id = normalizeVersionSeparators(parseModelId(model).base)
-	return MODEL_CONTEXT_WINDOW_MATCHERS.find(([matcher]) => matcher.test(id))?.[1]
+	return matchModel(MODEL_CONTEXT_WINDOW_MATCHERS, model)
 }
 
 export function getModelContextWindow(model: string) {
@@ -187,7 +250,7 @@ const TEXT_ONLY_MODELS = new Set([
 	'groq:llama-3.3-70b-versatile',
 	'groq:llama-3.1-8b-instant',
 	// gpt-oss (text-only everywhere it is hosted) — on groq it succeeds the two
-	// llama defaults above, which retire 2026-08-16
+	// llama entries above, which retire 2026-08-16
 	'groq:openai/gpt-oss-120b',
 	'groq:openai/gpt-oss-20b',
 	'openrouter:openai/gpt-oss-120b',

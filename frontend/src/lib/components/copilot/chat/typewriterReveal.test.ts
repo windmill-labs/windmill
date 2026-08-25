@@ -73,6 +73,26 @@ describe('TypewriterReveal', () => {
 		expect(revealed().length).toBeLessThan(text.length)
 	})
 
+	it('exposes un-revealed text without advancing or ending the reveal', () => {
+		const sched = new FakeScheduler()
+		const { reveal, revealed } = makeReveal(sched)
+		const text = 'x'.repeat(300)
+		reveal.push(text)
+		sched.frame(16)
+		// A hidden tab stops scheduling frames while text keeps arriving, so a
+		// caller that must account for everything received reads `pending` — and
+		// reading it must not paint or stop the animation the way flush() does.
+		expect(revealed() + reveal.pending).toBe(text)
+		expect(reveal.pending.length).toBeGreaterThan(0)
+		const paintedBefore = revealed()
+		expect(reveal.pending).toBe(text.slice(paintedBefore.length))
+		expect(revealed()).toBe(paintedBefore)
+		// Still animating: further frames keep painting, which flush() would have
+		// prevented by ending the reveal.
+		sched.frames(3, 34)
+		expect(revealed().length).toBeGreaterThan(paintedBefore.length)
+	})
+
 	it('preserves text exactly after flush (no loss, no duplication)', () => {
 		const sched = new FakeScheduler()
 		const { reveal, revealed } = makeReveal(sched)

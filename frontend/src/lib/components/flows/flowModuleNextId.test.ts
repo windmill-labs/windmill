@@ -50,4 +50,9 @@ describe('nextId', () => {
 		const state = stateWith([...ids, 'process', 'my_step', 'failure'])
 		expect(nextId(state, flowWith(ids))).toBe('c')
 	})
+
+	// "as", the successor of "ar", is the first reserved id the sequence reaches.
+	it('skips a reserved id instead of assigning it', () => {
+		expect(nextId(stateWith(['failure']), flowWith(['ar']))).toBe('at')
+	})
 })

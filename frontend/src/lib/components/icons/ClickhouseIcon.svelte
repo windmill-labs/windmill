@@ -1,27 +1,36 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #161616 / #FFFFFF per clickhouse.design/brand/logo-usage (logomark, on-light / on-dark). Brand forbids recolouring the mark, so only its own published pair is used. -->
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	x="0px"
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 168 168"
-	fill="none"
+	viewBox="22.45 19.95 109.2 109.2"
+	fill="currentColor"
+	class="text-[#161616] dark:text-[#FFFFFF]"
 >
 	<path
-		d="M0 139.667H18.6667V158.333H0V139.667Z"
-		fill="#FF0000"
+		d="M27,25.7c0-.6.5-1.2,1.2-1.2h8.8c.6,0,1.2.5,1.2,1.2v97.7c0,.6-.5,1.2-1.2,1.2h-8.8c-.6,0-1.2-.5-1.2-1.2V25.7Z"
 	/>
 	<path
-		d="M0 9H18.6667V139.667H0V9ZM37.3333 9H56V158.333H37.3333V9ZM74.6667 9H93.3333V158.333H74.6667V9ZM112 9H130.667V158.333H112V9ZM149.333 69.6667H168V97.6667H149.333V69.6667Z"
-		fill="#FFCC00"
+		d="M49.2,25.7c0-.6.5-1.2,1.2-1.2h8.8c.6,0,1.2.5,1.2,1.2v97.7c0,.6-.5,1.2-1.2,1.2h-8.8c-.6,0-1.2-.5-1.2-1.2V25.7Z"
+	/>
+	<path
+		d="M71.4,25.7c0-.6.5-1.2,1.2-1.2h8.8c.6,0,1.2.5,1.2,1.2v97.7c0,.6-.5,1.2-1.2,1.2h-8.8c-.6,0-1.2-.5-1.2-1.2V25.7Z"
+	/>
+	<path
+		d="M93.6,25.7c0-.6.5-1.2,1.2-1.2h8.8c.6,0,1.2.5,1.2,1.2v97.7c0,.6-.5,1.2-1.2,1.2h-8.8c-.6,0-1.2-.5-1.2-1.2V25.7Z"
+	/>
+	<path
+		d="M115.9,64.6c0-.6.5-1.2,1.2-1.2h8.8c.6,0,1.2.5,1.2,1.2v19.9c0,.6-.5,1.2-1.2,1.2h-8.8c-.6,0-1.2-.5-1.2-1.2v-19.9Z"
 	/>
 </svg>

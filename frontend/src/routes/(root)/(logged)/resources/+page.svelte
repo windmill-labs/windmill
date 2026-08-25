@@ -3,7 +3,7 @@
 	import { page } from '$app/state'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton, Tab } from '$lib/components/common'
+	import { Alert, Badge, Button, EmptyState, Skeleton, Tab, TabFade } from '$lib/components/common'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
@@ -17,11 +17,16 @@
 	import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 	import SchemaViewer from '$lib/components/SchemaViewer.svelte'
 	import FilterSearchbar, {
+		hasActiveFilters,
 		useUrlSyncedFilterInstance,
 		type FilterInstanceRec
 	} from '$lib/components/FilterSearchbar.svelte'
 	import { buildResourcesFilterSchema } from '$lib/components/resources/resourcesFilter'
 	import { buildResourceTypesFilterSchema } from '$lib/components/resources/resourceTypesFilter'
+	import {
+		resourceTypeSearchText,
+		sortResourceTypesByMatch
+	} from '$lib/components/resourceTypeDisplay'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
@@ -55,14 +60,19 @@
 		Braces,
 		Building,
 		Circle,
+		Database,
 		FileUp,
 		Link,
+		Palette,
 		Pen,
 		Plus,
 		RotateCw,
 		Save,
+		FlaskConical,
+		SearchX,
 		Shield,
-		Trash
+		Trash,
+		Zap
 	} from 'lucide-svelte'
 	import { onMount, untrack } from 'svelte'
 	import autosize from '$lib/autosize'
@@ -73,6 +83,7 @@
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
+	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -124,6 +135,8 @@
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
 	let deletePath = $state('')
+	let evalsOpen = $state(false)
+	let evalsAgentPath = $state<string | undefined>(undefined)
 	let loading = $state({
 		resources: true,
 		types: true
@@ -169,16 +182,29 @@
 	let filteredResourceTypes = $derived.by(() => {
 		if (!resourceTypes) return resourceTypes
 		const f = resourceTypesFilters.val
-		const defaultSearch = f._default_?.toLowerCase()
+		// Bare search covers name and description together, like the add-resource drawer --
+		// `gdrive` is only findable as "google" through its description. The `name:` and
+		// `description:` facets stay scoped to their own field.
+		const defaultSearch = f._default_?.trim().toLowerCase()
 		const nameSearch = f.name?.toLowerCase()
 		const descSearch = f.description?.toLowerCase()
 		if (!defaultSearch && !nameSearch && !descSearch) return resourceTypes
-		return resourceTypes.filter((rt) => {
-			if (defaultSearch && !rt.name.toLowerCase().includes(defaultSearch)) return false
+		const matched = resourceTypes.filter((rt) => {
+			if (
+				defaultSearch &&
+				!resourceTypeSearchText(rt.name, rt.description).toLowerCase().includes(defaultSearch)
+			)
+				return false
 			if (nameSearch && !rt.name.toLowerCase().includes(nameSearch)) return false
 			if (descSearch && !(rt.description ?? '').toLowerCase().includes(descSearch)) return false
 			return true
 		})
+		return sortResourceTypesByMatch(
+			matched,
+			defaultSearch ?? '',
+			(rt) => rt.name,
+			(rt) => rt.description
+		)
 	})
 
 	let folderPresets = $derived([
@@ -627,6 +653,36 @@
 	let showTable = $derived(
 		tab == 'workspace' || tab == 'states' || tab == 'cache' || tab == 'theme'
 	)
+
+	let activeFilters = $derived(hasActiveFilters(filters.val))
+
+	const emptyStates: Record<string, { icon: any; title: string; description: string }> = {
+		workspace: {
+			icon: Boxes,
+			title: 'No resources yet',
+			description:
+				'Resources hold the connection settings and credentials your scripts, flows and apps use to reach external systems.'
+		},
+		states: {
+			icon: Database,
+			title: 'No states yet',
+			description:
+				'States appear here once a script stores data to keep it persistent between runs of the same trigger.'
+		},
+		cache: {
+			icon: Zap,
+			title: 'No cached results yet',
+			description:
+				'Cached results appear here once a flow step with caching enabled has run at least once.'
+		},
+		theme: {
+			icon: Palette,
+			title: 'No themes yet',
+			description:
+				'Themes are CSS for the legacy low-code app editor only. Add one from the CSS panel of an app — they cannot be created here.'
+		}
+	}
+	let emptyState = $derived(emptyStates[tab] ?? emptyStates.workspace)
 </script>
 
 <ConfirmationModal
@@ -683,18 +739,19 @@
 
 <Drawer bind:this={resourceTypeViewer} size="800px">
 	<DrawerContent title={resourceTypeViewerObj.rt} on:close={resourceTypeViewer.closeDrawer}>
-		<div>
-			<h1 class="mb-8 mt-4"
-				><IconedResourceType
-					name={resourceTypeViewerObj.rt}
-					formatExtension={resourceTypeViewerObj.formatExtension}
-					isFileset={resourceTypeViewerObj.isFileset}
-				/></h1
-			>
+		{#snippet titleExtra()}
+			<IconedResourceType
+				name={resourceTypeViewerObj.rt}
+				formatExtension={resourceTypeViewerObj.formatExtension}
+				isFileset={resourceTypeViewerObj.isFileset}
+				silent
+				width="20px"
+				height="20px"
+			/>
+		{/snippet}
+		<div class="flex flex-col gap-6">
 			{#if resourceTypeViewerObj.description}
-				<div class="py-2 box prose mb-8 text-secondary">
-					<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} />
-				</div>
+				<GfmMarkdown md={resourceTypeViewerObj.description ?? ''} prose="sm" noPadding />
 			{/if}
 			{#if resourceTypeViewerObj.isFileset}
 				<Alert type="info" title="Fileset resource type">
@@ -955,8 +1012,9 @@
 				<Tab value="theme" label="Theme">
 					{#snippet extra()}
 						<Tooltip>
-							Theme are actually resources (but excluded from the Workspace tab for clarity). Theme
-							are used by the apps to customize their look and feel.
+							Themes are actually resources (but excluded from the Workspace tab for clarity). They
+							are CSS for the legacy low-code app editor only, and are added from the CSS panel of
+							an app rather than from this page.
 						</Tooltip>
 					{/snippet}
 				</Tab>
@@ -989,390 +1047,444 @@
 				{/if}
 			</div>
 		</div>
-		{#if showTable}
-			<div class="overflow-x-auto pb-40 mt-4">
-				{#if loading.resources}
-					<Skeleton layout={[0.5, [2], 1]} />
-					{#each new Array(6) as _}
-						<Skeleton layout={[[4], 0.7]} />
-					{/each}
-				{:else if filteredItems?.length == 0}
-					<div class="flex flex-col items-center justify-center h-full">
-						<div class="text-xs text-emphasis font-semibold">No resources found</div>
-						<div class="text-2xs text-secondary font-normal">
-							Try changing the filters or creating a new resource
-						</div>
-					</div>
-				{:else}
-					<DataTable>
-						<Head>
-							<Row>
-								<Cell head first />
-								<Cell head>Path</Cell>
-								<Cell head>Resource type</Cell>
-								<Cell head>Description</Cell>
-								<Cell head />
-								<Cell head last stickyEnd />
-							</Row>
-						</Head>
-						<tbody class="divide-y bg-surface">
-							{#if filteredItems}
-								{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
-									{@const hasDraft =
-										getLocalDraftHint($workspaceStore, 'resource', path) ?? is_draft}
-									<Row>
-										<Cell first>
-											<SharedBadge {canWrite} extraPerms={extra_perms} />
-										</Cell>
-										<Cell>
-											<div class="flex items-center gap-2">
+		<TabFade key={tab}>
+			{#if showTable}
+				<div class="overflow-x-auto pb-40 mt-4">
+					{#if loading.resources}
+						<Skeleton layout={[0.5, [2], 1]} />
+						{#each new Array(6) as _}
+							<Skeleton layout={[[4], 0.7]} />
+						{/each}
+					{:else if filteredItems?.length == 0}
+						{#if activeFilters}
+							<EmptyState
+								icon={SearchX}
+								title="No resources found"
+								description="No resource matches the current filters. Try clearing or widening them."
+							/>
+						{:else}
+							<EmptyState
+								icon={emptyState.icon}
+								title={emptyState.title}
+								description={emptyState.description}
+								action={tab == 'workspace' && showCreateButtons
+									? {
+											label: 'Add a resource',
+											icon: Boxes,
+											onClick: () => appConnect?.open?.(),
+											aiId: 'resources-empty-add-resource',
+											aiDescription: 'Add resource'
+										}
+									: undefined}
+							/>
+						{/if}
+					{:else}
+						<DataTable>
+							<Head>
+								<Row>
+									<Cell head first />
+									<Cell head>Path</Cell>
+									<Cell head>Resource type</Cell>
+									<Cell head>Description</Cell>
+									<Cell head />
+									<Cell head last stickyEnd />
+								</Row>
+							</Head>
+							<tbody class="divide-y bg-surface">
+								{#if filteredItems}
+									{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+										{@const hasDraft =
+											getLocalDraftHint($workspaceStore, 'resource', path) ?? is_draft}
+										<Row>
+											<Cell first>
+												<SharedBadge {canWrite} extraPerms={extra_perms} />
+											</Cell>
+											<Cell>
+												<div class="flex items-center gap-2">
+													<a
+														class="break-all"
+														href="#/resource/{path}"
+														onclick={() => {
+															handledHash = `#/resource/${path}`
+															resourceEditor?.initEdit?.(path)
+														}}
+														>{#if marked}{@html marked}{:else}{path}{/if}{hasDraft ? '*' : ''}</a
+													>
+													<DraftBadge {draft_only} is_draft={hasDraft} />
+													{#if labels?.length}
+														<div class="flex items-center gap-0.5">
+															{#each labels as label}
+																<Badge
+																	color="blue"
+																	small
+																	class="px-1"
+																	title="Label: {label}"
+																	clickable
+																	onclick={() => {
+																		const arr = (filters.val.label ?? '').split(',').filter(Boolean)
+																		const idx = arr.indexOf(label)
+																		if (idx >= 0) arr.splice(idx, 1)
+																		else arr.push(label)
+																		const newFilters = { ...filters.val }
+																		if (arr.length) newFilters.label = arr.join(',')
+																		else delete newFilters.label
+																		filters.val = newFilters
+																	}}>{label}</Badge
+																>
+															{/each}
+														</div>
+													{/if}
+													<InheritedLabels labels={inherited_labels} />
+												</div>
+											</Cell>
+											<Cell>
 												<a
-													class="break-all"
-													href="#/resource/{path}"
+													href="#{name}"
 													onclick={() => {
-														handledHash = `#/resource/${path}`
-														resourceEditor?.initEdit?.(path)
-													}}
-													>{#if marked}{@html marked}{:else}{path}{/if}{hasDraft ? '*' : ''}</a
-												>
-												<DraftBadge {draft_only} is_draft={hasDraft} />
-												{#if labels?.length}
-													<div class="flex items-center gap-0.5">
-														{#each labels as label}
-															<Badge
-																color="blue"
-																small
-																class="px-1"
-																title="Label: {label}"
-																clickable
-																onclick={() => {
-																	const arr = (filters.val.label ?? '').split(',').filter(Boolean)
-																	const idx = arr.indexOf(label)
-																	if (idx >= 0) arr.splice(idx, 1)
-																	else arr.push(label)
-																	const newFilters = { ...filters.val }
-																	if (arr.length) newFilters.label = arr.join(',')
-																	else delete newFilters.label
-																	filters.val = newFilters
-																}}>{label}</Badge
-															>
-														{/each}
-													</div>
-												{/if}
-												<InheritedLabels labels={inherited_labels} />
-											</div>
-										</Cell>
-										<Cell>
-											<a
-												href="#{name}"
-												onclick={() => {
-													const linkedRt = resourceTypes?.find((rt) => rt.name === resource_type)
-													if (linkedRt) {
-														resourceTypeViewerObj = {
-															rt: linkedRt.name,
-															//@ts-ignore
-															schema: linkedRt.schema,
-															description: linkedRt.description ?? '',
-															formatExtension: linkedRt.format_extension,
-															isFileset: linkedRt.is_fileset ?? false
+														const linkedRt = resourceTypes?.find((rt) => rt.name === resource_type)
+														if (linkedRt) {
+															resourceTypeViewerObj = {
+																rt: linkedRt.name,
+																//@ts-ignore
+																schema: linkedRt.schema,
+																description: linkedRt.description ?? '',
+																formatExtension: linkedRt.format_extension,
+																isFileset: linkedRt.is_fileset ?? false
+															}
+															resourceTypeViewer?.openDrawer?.()
+														} else {
+															sendUserToast(
+																`Resource type ${resource_type} not found in workspace.`,
+																true
+															)
 														}
-														resourceTypeViewer?.openDrawer?.()
-													} else {
-														sendUserToast(
-															`Resource type ${resource_type} not found in workspace.`,
-															true
-														)
-													}
-												}}
-											>
-												<IconedResourceType
-													name={resource_type}
-													after={true}
-													formatExtension={resourceNameToFileExt(resource_type)}
-													isFileset={resourceNameIsFileset(resource_type)}
-												/>
-											</a>
-										</Cell>
-										<Cell>
-											<span class="text-primary text-xs">
-												{removeMarkdown(truncate(description ?? '', 30))}
-											</span>
-										</Cell>
-										<Cell>
-											<div class="flex flex-row text-center">
-												<div class="w-10">
-													{#if is_linked}
-														<Popover>
-															<Link size={16} />
-															{#snippet text()}
-																<div>
-																	This resource is linked with a variable of the same path. They are
-																	deleted and renamed together.
-																</div>
-															{/snippet}
-														</Popover>
-													{/if}
+													}}
+												>
+													<IconedResourceType
+														name={resource_type}
+														after={true}
+														formatExtension={resourceNameToFileExt(resource_type)}
+														isFileset={resourceNameIsFileset(resource_type)}
+													/>
+												</a>
+											</Cell>
+											<Cell>
+												<div class="flex items-center min-h-8 w-full min-w-0 max-w-[30rem]">
+													<span
+														class="text-primary text-xs whitespace-pre-wrap ellipsize-multi-line [-webkit-line-clamp:2]"
+														title={removeMarkdown(description ?? '')}
+													>
+														{removeMarkdown(truncate(description ?? '', 200))}
+													</span>
 												</div>
-												<div class="w-10">
-													{#if is_refreshed}
-														<Popover>
-															<RotateCw />
-															{#snippet text()}
-																<div>
-																	The OAuth token will be kept up-to-date in the background by
-																	Windmill using its refresh token
-																</div>
-															{/snippet}
-														</Popover>
-													{/if}
-												</div>
-
-												{#if is_oauth}
-													<div class="w-10 pt-1.5">
-														{#if refresh_error}
+											</Cell>
+											<Cell>
+												<div class="flex flex-row text-center">
+													<div class="w-10">
+														{#if is_linked}
 															<Popover>
-																<Circle
-																	class="text-red-600 animate-[pulse_5s_linear_infinite] fill-current"
-																	size={12}
-																/>
+																<Link size={16} />
 																{#snippet text()}
 																	<div>
-																		Latest exchange of the refresh token did not succeed. Error: {refresh_error}
-																	</div>
-																{/snippet}
-															</Popover>
-														{:else if is_expired}
-															<Popover>
-																<Circle
-																	class="text-yellow-600 animate-[pulse_5s_linear_infinite] fill-current"
-																	size={12}
-																/>
-
-																{#snippet text()}
-																	<div>
-																		The access_token is expired, it will get renewed the next time
-																		this variable is fetched or you can request is to be refreshed
-																		in the dropdown on the right.
-																	</div>
-																{/snippet}
-															</Popover>
-														{:else}
-															<Popover>
-																<Circle
-																	class="text-green-600 animate-[pulse_5s_linear_infinite] fill-current"
-																	size={12}
-																/>
-																{#snippet text()}
-																	<div>
-																		The resource was connected through OAuth and the token is not
-																		expired.
+																		This resource is linked with a variable of the same path. They
+																		are deleted and renamed together.
 																	</div>
 																{/snippet}
 															</Popover>
 														{/if}
 													</div>
-												{/if}
-											</div>
-										</Cell>
-										<Cell last stickyEnd>
-											<div class="flex justify-end">
-												{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
-													<ExploreAssetButton
-														asset={{ kind: 'resource', path }}
-														_resourceMetadata={{ resource_type }}
-														class="w-24"
-													/>
-												{/if}
-												<Dropdown
-													class="w-fit"
-													items={[
-														{
-															displayName: 'Permissions',
-															icon: Shield,
-															action: () => {
-																shareModal?.openDrawer?.(path, 'resource')
-															}
-														},
-														{
-															displayName: 'Edit',
-															icon: Pen,
-															disabled: !canWrite || !showCreateButtons,
-															action: () => {
-																resourceEditor?.initEdit?.(path)
-															}
-														},
-														...(!ws_specific && isDeployable('resource', path, deployUiSettings)
-															? [
-																	{
-																		displayName: 'Deploy to prod/staging',
-																		icon: FileUp,
-																		action: () => {
-																			deploymentDrawer?.openDrawer(path, 'resource')
+													<div class="w-10">
+														{#if is_refreshed}
+															<Popover>
+																<RotateCw />
+																{#snippet text()}
+																	<div>
+																		The OAuth token will be kept up-to-date in the background by
+																		Windmill using its refresh token
+																	</div>
+																{/snippet}
+															</Popover>
+														{/if}
+													</div>
+
+													{#if is_oauth}
+														<div class="w-10 pt-1.5">
+															{#if refresh_error}
+																<Popover>
+																	<Circle
+																		class="text-red-600 animate-[pulse_5s_linear_infinite] fill-current"
+																		size={12}
+																	/>
+																	{#snippet text()}
+																		<div>
+																			Latest exchange of the refresh token did not succeed. Error: {refresh_error}
+																		</div>
+																	{/snippet}
+																</Popover>
+															{:else if is_expired}
+																<Popover>
+																	<Circle
+																		class="text-yellow-600 animate-[pulse_5s_linear_infinite] fill-current"
+																		size={12}
+																	/>
+
+																	{#snippet text()}
+																		<div>
+																			The access_token is expired, it will get renewed the next time
+																			this variable is fetched or you can request is to be refreshed
+																			in the dropdown on the right.
+																		</div>
+																	{/snippet}
+																</Popover>
+															{:else}
+																<Popover>
+																	<Circle
+																		class="text-green-600 animate-[pulse_5s_linear_infinite] fill-current"
+																		size={12}
+																	/>
+																	{#snippet text()}
+																		<div>
+																			The resource was connected through OAuth and the token is not
+																			expired.
+																		</div>
+																	{/snippet}
+																</Popover>
+															{/if}
+														</div>
+													{/if}
+												</div>
+											</Cell>
+											<Cell last stickyEnd>
+												<div class="flex justify-end">
+													{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !$userStore?.operator}
+														<ExploreAssetButton
+															asset={{ kind: 'resource', path }}
+															_resourceMetadata={{ resource_type }}
+															class="w-24"
+														/>
+													{/if}
+													<Dropdown
+														class="w-fit"
+														items={[
+															...(resource_type === 'ai_agent' && !draft_only
+																? [
+																		{
+																			displayName: 'Evals',
+																			icon: FlaskConical,
+																			action: () => {
+																				evalsAgentPath = path
+																				evalsOpen = true
+																			}
 																		}
-																	}
-																]
-															: []),
-														{
-															displayName: 'Delete',
-															disabled: !canWrite || !showCreateButtons,
-															icon: Trash,
-															type: 'delete',
-															action: (event) => {
-																// TODO
-																// @ts-ignore
-																if (event?.shiftKey) {
-																	deleteResource(path, account)
-																} else {
-																	deleteIsLinked = is_linked ?? false
-																	deletePath = path
-																	deleteConfirmedCallback = () => {
+																	]
+																: []),
+															{
+																displayName: 'Permissions',
+																icon: Shield,
+																action: () => {
+																	shareModal?.openDrawer?.(path, 'resource')
+																}
+															},
+															{
+																displayName: 'Edit',
+																icon: Pen,
+																disabled: !canWrite || !showCreateButtons,
+																action: () => {
+																	resourceEditor?.initEdit?.(path)
+																}
+															},
+															...(!ws_specific && isDeployable('resource', path, deployUiSettings)
+																? [
+																		{
+																			displayName: 'Deploy to prod/staging',
+																			icon: FileUp,
+																			action: () => {
+																				deploymentDrawer?.openDrawer(path, 'resource')
+																			}
+																		}
+																	]
+																: []),
+															{
+																displayName: 'Delete',
+																disabled: !canWrite || !showCreateButtons,
+																icon: Trash,
+																type: 'delete',
+																action: (event) => {
+																	// TODO
+																	// @ts-ignore
+																	if (event?.shiftKey) {
 																		deleteResource(path, account)
+																	} else {
+																		deleteIsLinked = is_linked ?? false
+																		deletePath = path
+																		deleteConfirmedCallback = () => {
+																			deleteResource(path, account)
+																		}
 																	}
 																}
-															}
-														},
-														...(account != undefined
-															? [
-																	{
-																		displayName: 'Refresh token',
-																		icon: RotateCw,
-																		action: async () => {
-																			await OauthService.refreshToken({
-																				workspace: $workspaceStore ?? '',
-																				id: account ?? 0,
-																				requestBody: {
-																					path
-																				}
-																			})
-																			sendUserToast('Token refreshed')
-																			loadResources()
+															},
+															...(account != undefined
+																? [
+																		{
+																			displayName: 'Refresh token',
+																			icon: RotateCw,
+																			action: async () => {
+																				await OauthService.refreshToken({
+																					workspace: $workspaceStore ?? '',
+																					id: account ?? 0,
+																					requestBody: {
+																						path
+																					}
+																				})
+																				sendUserToast('Token refreshed')
+																				loadResources()
+																			}
 																		}
-																	}
-																]
-															: [])
-													]}
-												/>
-											</div></Cell
-										>
-									</Row>
-								{/each}
-							{/if}
-						</tbody>
-					</DataTable>
-				{/if}
-			</div>
-		{:else if tab == 'types'}
-			{#if loading.types}
-				<Skeleton layout={[0.5, [2], 1]} />
-				{#each new Array(6) as _}
-					<Skeleton layout={[[4], 0.7]} />
-				{/each}
-			{:else if filteredResourceTypes?.length == 0}
-				<div class="flex flex-col items-center justify-center h-full mt-4">
-					<div class="text-xs text-emphasis font-semibold">No resource types found</div>
-					<div class="text-2xs text-secondary font-normal">
-						Try changing the filters or creating a new resource type
-					</div>
-				</div>
-			{:else}
-				<div class="overflow-auto mt-4">
-					<DataTable>
-						<Head>
-							<Row>
-								<Cell head first>Name</Cell>
-								<Cell head>Description</Cell>
-								<Cell head last stickyEnd />
-							</Row>
-						</Head>
-						<tbody class="divide-y bg-surface">
-							{#if filteredResourceTypes}
-								{#each filteredResourceTypes as { name, description, schema, canWrite, format_extension, is_fileset }}
-									<Row>
-										<Cell first>
-											<a
-												href="#{name}"
-												onclick={() => {
-													resourceTypeViewerObj = {
-														rt: name,
-														//@ts-ignore
-														schema: schema,
-														description: description ?? '',
-														formatExtension: format_extension,
-														isFileset: is_fileset ?? false
-													}
-
-													resourceTypeViewer?.openDrawer?.()
-												}}
+																	]
+																: [])
+														]}
+													/>
+												</div></Cell
 											>
-												<IconedResourceType
-													after={true}
-													{name}
-													formatExtension={format_extension}
-													isFileset={is_fileset}
-												/>
-											</a>
-										</Cell>
-										<Cell>
-											<span class="text-primary text-xs w-96 flex flex-wrap whitespace-pre-wrap">
-												{removeMarkdown(truncate(description ?? '', 200))}
-											</span>
-										</Cell>
-										<Cell last stickyEnd>
-											{#if !canWrite}
-												<Badge>
-													Shared globally
-													<Tooltip>
-														This resource type is from the 'admins' workspace shared with all
-														workspaces
-													</Tooltip>
-												</Badge>
-											{:else if $userStore?.is_admin || $userStore?.is_super_admin}
-												<div class="flex flex-row-reverse gap-2">
-													<Button
-														size="xs"
-														variant="default"
-														disabled={!showCreateButtons}
-														btnClasses="border-0"
-														startIcon={{ icon: Trash }}
-														on:click={() => handleDeleteResourceType(name)}
-														destructive
-													>
-														Delete
-													</Button>
-													<Button
-														size="xs"
-														color="light"
-														disabled={!showCreateButtons}
-														startIcon={{ icon: Pen }}
-														on:click={() => startEditResourceType(name)}
-													>
-														Edit
-													</Button>
-												</div>
-											{:else}
-												<Badge>
-													Non Editable
-													<Tooltip>
-														Since resource types are shared with the whole workspace, only admins
-														can edit/delete them
-													</Tooltip>
-												</Badge>
-											{/if}
-										</Cell>
-									</Row>
-								{/each}
-							{/if}
-						</tbody>
-					</DataTable>
+										</Row>
+									{/each}
+								{/if}
+							</tbody>
+						</DataTable>
+					{/if}
 				</div>
+			{:else if tab == 'types'}
+				{#if loading.types}
+					<Skeleton layout={[0.5, [2], 1]} />
+					{#each new Array(6) as _}
+						<Skeleton layout={[[4], 0.7]} />
+					{/each}
+				{:else if filteredResourceTypes?.length == 0}
+					<div class="mt-4">
+						<EmptyState
+							icon={SearchX}
+							title="No resource types found"
+							description="No resource type matches the current filters. Try clearing or widening them."
+						/>
+					</div>
+				{:else}
+					<div class="overflow-auto mt-4">
+						<DataTable>
+							<Head>
+								<Row>
+									<Cell head first>Name</Cell>
+									<Cell head>Description</Cell>
+									<Cell head last stickyEnd />
+								</Row>
+							</Head>
+							<tbody class="divide-y bg-surface">
+								{#if filteredResourceTypes}
+									{#each filteredResourceTypes as { name, description, schema, canWrite, format_extension, is_fileset }}
+										<Row>
+											<Cell first>
+												<a
+													href="#{name}"
+													onclick={() => {
+														resourceTypeViewerObj = {
+															rt: name,
+															//@ts-ignore
+															schema: schema,
+															description: description ?? '',
+															formatExtension: format_extension,
+															isFileset: is_fileset ?? false
+														}
+
+														resourceTypeViewer?.openDrawer?.()
+													}}
+												>
+													<IconedResourceType
+														after={true}
+														{name}
+														formatExtension={format_extension}
+														isFileset={is_fileset}
+													/>
+												</a>
+											</Cell>
+											<Cell>
+												<!-- Fixed at two lines: min-h so short descriptions still set the same row
+													height as long ones, line-clamp so long ones cannot push the row taller.
+													title carries the whole thing, since the clamp hides the rest. -->
+												<div class="flex items-center min-h-8 w-full min-w-0 max-w-[30rem]">
+													<span
+														class="text-primary text-xs whitespace-pre-wrap ellipsize-multi-line [-webkit-line-clamp:2]"
+														title={removeMarkdown(description ?? '')}
+													>
+														{removeMarkdown(truncate(description ?? '', 200))}
+													</span>
+												</div>
+											</Cell>
+											<Cell last stickyEnd class="border-l-0 text-right">
+												{#if !canWrite}
+													<!-- Badge is inline-flex, so it needs a right-aligning wrapper to sit
+														flush with the action buttons on the rows that have them. -->
+													<div class="flex justify-end">
+														<Badge>
+															Shared globally
+															<Tooltip>
+																This resource type is from the 'admins' workspace shared with all
+																workspaces
+															</Tooltip>
+														</Badge>
+													</div>
+												{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+													<div class="flex flex-row-reverse gap-2">
+														<Button
+															size="xs"
+															variant="default"
+															disabled={!showCreateButtons}
+															btnClasses="border-0"
+															startIcon={{ icon: Trash }}
+															on:click={() => handleDeleteResourceType(name)}
+															destructive
+														>
+															Delete
+														</Button>
+														<Button
+															size="xs"
+															color="light"
+															disabled={!showCreateButtons}
+															startIcon={{ icon: Pen }}
+															on:click={() => startEditResourceType(name)}
+														>
+															Edit
+														</Button>
+													</div>
+												{:else}
+													<Badge>
+														Non Editable
+														<Tooltip>
+															Since resource types are shared with the whole workspace, only admins
+															can edit/delete them
+														</Tooltip>
+													</Badge>
+												{/if}
+											</Cell>
+										</Row>
+									{/each}
+								{/if}
+							</tbody>
+						</DataTable>
+					</div>
+				{/if}
 			{/if}
-		{/if}
+		</TabFade>
 	</CenteredPage>
 {/if}
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
-<ResourceEditorDrawer bind:this={resourceEditor} on:refresh={loadResources} />
+<AgentEvalModal agentPath={evalsAgentPath} bind:open={evalsOpen} />
+
+<ResourceEditorDrawer
+	bind:this={resourceEditor}
+	on:refresh={loadResources}
+	onRestored={loadResources}
+/>
 
 <ShareModal
 	bind:this={shareModal}

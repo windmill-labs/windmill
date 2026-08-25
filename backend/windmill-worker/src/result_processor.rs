@@ -378,10 +378,13 @@ pub fn start_background_processor(
                     time,
                 }) => {
                     let is_init_script = jc.job.tag.as_str() == INIT_SCRIPT_TAG;
+                    // A binary build shares the `dependencies` kind but deploys no new
+                    // version, so it must not bounce the dedicated workers below — its tag
+                    // can point at a pool that hosts them.
                     let is_dependency_job = matches!(
                         jc.job.kind,
                         JobKind::Dependencies | JobKind::FlowDependencies
-                    );
+                    ) && !jc.job.build_binary_only;
                     let jc_id = jc.job.id;
                     #[cfg(feature = "benchmark")]
                     let bench_job_id = jc.job.id;
@@ -709,7 +712,7 @@ pub async fn handle_receive_completed_job(
                 &jc.job.workspace_id,
                 &jc.job.permissioned_as,
                 &label,
-                *windmill_common::worker::SCRIPT_TOKEN_EXPIRY,
+                windmill_common::auth::job_token_expiry_secs(db, &jc.job.workspace_id).await,
                 &jc.job.permissioned_as_email,
                 &jc.job.id,
                 Some(perms),
@@ -881,6 +884,14 @@ fn parse_pr_check_error(result_raw: &str) -> Option<String> {
         })
 }
 
+/// The run page for `job_id`, or `None` when the instance has no `BASE_URL` set
+/// (it defaults to empty) — a check must not carry a link that goes nowhere.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+fn job_run_url(base_url: &str, job_id: &uuid::Uuid, workspace_id: &str) -> Option<String> {
+    let base = base_url.trim_end_matches('/');
+    (!base.is_empty()).then(|| format!("{base}/run/{job_id}?workspace={workspace_id}"))
+}
+
 #[cfg(all(feature = "enterprise", feature = "private"))]
 fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
     let mut lines = Vec::new();
@@ -895,7 +906,19 @@ fn format_change_list(changes: &[(String, String)]) -> Vec<String> {
 
 #[cfg(all(test, feature = "enterprise", feature = "private"))]
 mod git_sync_check_tests {
-    use super::{format_change_list, parse_git_sync_changes, parse_pr_check_error};
+    use super::{format_change_list, job_run_url, parse_git_sync_changes, parse_pr_check_error};
+
+    #[test]
+    fn job_run_url_is_none_without_a_base_url() {
+        let id = uuid::Uuid::nil();
+        assert_eq!(
+            job_run_url("https://app.windmill.dev/", &id, "w").as_deref(),
+            Some("https://app.windmill.dev/run/00000000-0000-0000-0000-000000000000?workspace=w")
+        );
+        // BASE_URL defaults to empty; a link built from it would 404 the reader.
+        assert_eq!(job_run_url("", &id, "w"), None);
+        assert_eq!(job_run_url("/", &id, "w"), None);
+    }
 
     #[test]
     fn pr_check_error_is_a_field_not_a_substring() {
@@ -1373,6 +1396,10 @@ async fn maybe_post_git_sync_check(
     } else {
         None
     };
+    // The creating call could only link the check to the workspace's run list —
+    // the check predates the job fulfilling it. Now that the job is known, point
+    // both the summary and the check's "Details" link at its logs.
+    let job_url = job_run_url(&windmill_common::BASE_URL.load(), job_id, workspace_id);
 
     let (conclusion, title, summary): (&str, String, String) = if is_deploy {
         // Phase 6: real deploy pull -> "Deployed N changes" / "In sync" / failure.
@@ -1380,8 +1407,7 @@ async fn maybe_post_git_sync_check(
             (
                 "failure",
                 format!("Deploy to {} failed", workspace_id),
-                "Deploying the latest commit failed. See the job in Windmill for details."
-                    .to_string(),
+                "Deploying the latest commit failed.".to_string(),
             )
         } else {
             match parse_git_sync_changes(result_raw) {
@@ -1444,15 +1470,13 @@ async fn maybe_post_git_sync_check(
             (
                 "failure",
                 "Windmill diff failed".to_string(),
-                "The dry-run pull reported an unrecognized error. See the job in Windmill for details."
-                    .to_string(),
+                "The dry-run pull reported an unrecognized error.".to_string(),
             )
         } else if !success {
             (
                 "failure",
                 "Windmill diff failed".to_string(),
-                "The dry-run pull to compute the diff failed. See the job in Windmill for details."
-                    .to_string(),
+                "The dry-run pull to compute the diff failed.".to_string(),
             )
         } else {
             match parse_git_sync_changes(result_raw) {
@@ -1492,6 +1516,10 @@ async fn maybe_post_git_sync_check(
         }
     };
 
+    let check_summary = match job_url.as_deref() {
+        Some(url) => format!("{summary}\n\n[See the job in Windmill]({url})"),
+        None => summary.clone(),
+    };
     if let Err(e) = windmill_common::git_sync_ee::update_check_run(
         db,
         workspace_id,
@@ -1499,7 +1527,8 @@ async fn maybe_post_git_sync_check(
         check.check_run_id,
         conclusion,
         &title,
-        &summary,
+        &check_summary,
+        job_url.as_deref(),
     )
     .await
     {
@@ -1517,8 +1546,12 @@ async fn maybe_post_git_sync_check(
                 .as_deref()
                 .map(|s| &s[..s.len().min(7)])
                 .unwrap_or("latest");
+            let job_row = job_url
+                .as_deref()
+                .map(|url| format!("\n| **Job** | [See the logs]({url}) |"))
+                .unwrap_or_default();
             let body = format!(
-                "{marker}\n### Windmill deploy preview\n\n| | |\n|---|---|\n| **Workspace** | `{workspace_id}` |\n| **Status** | {title} |\n| **Commit** | `{head}` |\n\n<details><summary>Details</summary>\n\n{summary}\n\n</details>"
+                "{marker}\n### Windmill deploy preview\n\n| | |\n|---|---|\n| **Workspace** | `{workspace_id}` |\n| **Status** | {title} |\n| **Commit** | `{head}` |{job_row}\n\n<details><summary>Details</summary>\n\n{summary}\n\n</details>"
             );
             if let Err(e) = windmill_common::git_sync_ee::upsert_pr_comment(
                 db,
