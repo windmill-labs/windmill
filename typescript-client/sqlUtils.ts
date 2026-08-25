@@ -108,6 +108,12 @@ export interface DatatableSqlTemplateFunction extends SqlTemplateFunction {
   query<T = any>(sql: string, ...params: any[]): SqlStatement<T>;
 }
 
+export interface DatatableOptions {
+  /** Data table role to run as, on a data table with permissions enabled.
+   * Omitted means the data table's default role. */
+  role?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Provider interface — captures what differs between datatable and ducklake
 // ---------------------------------------------------------------------------
@@ -332,8 +338,8 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
- * @param role - Data table role to run as, on a datatable with permissions
- *               enabled (default: the data table's default role)
+ * @param opts - Optional settings; `role` runs the query as that data table
+ *               role (default: the data table's default role)
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -343,13 +349,15 @@ function buildSqlTemplateFunction(provider: SqlProvider): SqlTemplateFunction {
  *   SELECT * FROM friends
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
+ * @example
+ * let sql = wmill.datatable('main', { role: 'operator' })
  */
 export function datatable(
   name: string = "main",
-  role?: string
+  opts?: DatatableOptions
 ): DatatableSqlTemplateFunction {
   let { name: n, schema } = parseName(name);
-  let provider = datatableProvider(n, schema, role);
+  let provider = datatableProvider(n, schema, opts?.role);
   let sqlFn = buildSqlTemplateFunction(provider) as DatatableSqlTemplateFunction;
   // `.query(sql, ...params)` is for SQL strings that already contain
   // positional placeholders ($1, $2, ...). We DON'T go through the template

@@ -1102,8 +1102,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
- * @param role - Data table role to run as, on a datatable with permissions
- *               enabled (default: the data table's default role)
+ * @param opts - Optional settings; \`role\` runs the query as that data table
+ *               role (default: the data table's default role)
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -1113,8 +1113,10 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *   SELECT * FROM friends
  *     WHERE name = \${name} AND age = \${age}::int
  * \`.fetch()
+ * @example
+ * let sql = wmill.datatable('main', { role: 'operator' })
  */
-datatable(name: string = "main", role?: string): DatatableSqlTemplateFunction
+datatable(name: string = "main", opts?: DatatableOptions): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
@@ -1887,8 +1889,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
- * @param role - Data table role to run as, on a datatable with permissions
- *               enabled (default: the data table's default role)
+ * @param opts - Optional settings; \`role\` runs the query as that data table
+ *               role (default: the data table's default role)
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -1898,8 +1900,10 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *   SELECT * FROM friends
  *     WHERE name = \${name} AND age = \${age}::int
  * \`.fetch()
+ * @example
+ * let sql = wmill.datatable('main', { role: 'operator' })
  */
-datatable(name: string = "main", role?: string): DatatableSqlTemplateFunction
+datatable(name: string = "main", opts?: DatatableOptions): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
@@ -2766,8 +2770,8 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
 /**
  * Create a SQL template function for PostgreSQL/datatable queries
  * @param name - Database/datatable name (default: "main")
- * @param role - Data table role to run as, on a datatable with permissions
- *               enabled (default: the data table's default role)
+ * @param opts - Optional settings; \`role\` runs the query as that data table
+ *               role (default: the data table's default role)
  * @returns SQL template function for building parameterized queries
  * @example
  * let sql = wmill.datatable()
@@ -2777,8 +2781,10 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *   SELECT * FROM friends
  *     WHERE name = \${name} AND age = \${age}::int
  * \`.fetch()
+ * @example
+ * let sql = wmill.datatable('main', { role: 'operator' })
  */
-datatable(name: string = "main", role?: string): DatatableSqlTemplateFunction
+datatable(name: string = "main", opts?: DatatableOptions): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries

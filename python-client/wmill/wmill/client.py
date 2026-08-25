@@ -1408,7 +1408,7 @@ class Windmill:
             },
         )
 
-    def datatable(self, name: str = "main", role: Optional[str] = None):
+    def datatable(self, name: str = "main", *, role: Optional[str] = None):
         """Get a DataTable client for SQL queries.
 
         Args:
@@ -2242,7 +2242,7 @@ def username_to_email(username: str) -> str:
 
 
 @init_global_client
-def datatable(name: str = "main", role: Optional[str] = None) -> DataTableClient:
+def datatable(name: str = "main", *, role: Optional[str] = None) -> DataTableClient:
     """Get a DataTable client for SQL queries.
 
     Args:
@@ -2252,8 +2252,11 @@ def datatable(name: str = "main", role: Optional[str] = None) -> DataTableClient
 
     Returns:
         DataTableClient instance
+
+    Example:
+        wmill.datatable("main", role="operator")
     """
-    return _client.datatable(name, role)
+    return _client.datatable(name, role=role)
 
 @init_global_client
 def ducklake(name: str = "main") -> DucklakeClient:

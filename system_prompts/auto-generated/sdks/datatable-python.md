@@ -11,6 +11,9 @@ Import: `import wmill`
 # 
 # Returns:
 #     DataTableClient instance
+# 
+# Example:
+#     wmill.datatable("main", role="operator")
 def datatable(name: str = 'main', role: Optional[str] = None) -> DataTableClient
 
 # Client for executing SQL queries against Windmill DataTables.
