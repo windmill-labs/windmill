@@ -10,7 +10,7 @@
 //! management, and the workspace-merge diff helper. Split out of `workspaces.rs`
 //! to keep that file focused on core workspace configuration.
 
-use crate::workspaces::{pg_dump_database, ItemComparison};
+use crate::workspaces::{pg_dump_database, ItemComparison, PgDumpOptions};
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -1330,7 +1330,15 @@ async fn generate_initial_datatable_migration(
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
 
     // Snapshot the schema, excluding Windmill's own migration bookkeeping table.
-    let dump_file = pg_dump_database(&pg_db, true, &["_wm_migrations"]).await?;
+    let dump_file = pg_dump_database(
+        &pg_db,
+        PgDumpOptions {
+            schema_only: true,
+            exclude_tables: &["_wm_migrations"],
+            ..Default::default()
+        },
+    )
+    .await?;
     let raw_dump = tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read schema dump: {}", e)))?;

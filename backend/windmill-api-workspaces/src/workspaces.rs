@@ -2386,6 +2386,53 @@ fn truncate_column_default(default: String) -> String {
 mod tests {
     use super::*;
 
+    /// The header of a pg_dump, followed by an object whose body also holds a `SET`.
+    const DUMP: &str = "--\n\
+        -- PostgreSQL database dump\n\
+        --\n\
+        \n\
+        \\restrict aBcD\n\
+        \n\
+        SET statement_timeout = 0;\n\
+        SET transaction_timeout = 0;\n\
+        SET client_encoding = 'UTF8';\n\
+        SELECT pg_catalog.set_config('search_path', '', false);\n\
+        \n\
+        SET default_table_access_method = heap;\n\
+        \n\
+        CREATE FUNCTION public.f() RETURNS void LANGUAGE plpgsql AS $$\n\
+        BEGIN\n\
+        SET transaction_timeout = 0;\n\
+        END;\n\
+        $$;\n";
+
+    #[tokio::test]
+    async fn dump_preamble_only_drops_settings_the_server_lacks() {
+        let dump_file = DumpFile::new().unwrap();
+        tokio::fs::write(&dump_file.path, DUMP).await.unwrap();
+        let supported = [
+            "statement_timeout",
+            "client_encoding",
+            "default_table_access_method",
+        ]
+        .map(String::from)
+        .into_iter()
+        .collect();
+
+        comment_out_unsupported_settings(&dump_file, &supported)
+            .await
+            .unwrap();
+
+        let patched = tokio::fs::read_to_string(&dump_file.path).await.unwrap();
+        // Rewriting the header must not shift the rest of the dump.
+        assert_eq!(patched.len(), DUMP.len());
+        assert!(patched.contains("--  transaction_timeout = 0;"));
+        assert!(patched.contains("SET statement_timeout = 0;"));
+        assert!(patched.contains("SET default_table_access_method = heap;"));
+        // The `SET` inside the function body is past the preamble: never touched.
+        assert!(patched.contains("BEGIN\nSET transaction_timeout = 0;\nEND;"));
+    }
+
     #[test]
     fn compact_column_type_truncates_multibyte_defaults_safely() {
         let default = "é".repeat(31);
@@ -2525,12 +2572,22 @@ impl Drop for DumpFile {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct PgDumpOptions<'a> {
+    pub(crate) schema_only: bool,
+    pub(crate) exclude_tables: &'a [&'a str],
+    /// Leave out `ALTER ... OWNER TO`, `GRANT` and `ALTER DEFAULT PRIVILEGES`: a
+    /// dump replayed through a data table's own connection user is neither a member
+    /// of the source's roles nor the owner of the target schema, so it can neither
+    /// hand over ownership nor re-grant. Windmill grants the target its own.
+    pub(crate) no_owner_or_acl: bool,
+}
+
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
 /// Returns a DumpFile handle; the file is deleted when the handle is dropped.
 pub(crate) async fn pg_dump_database(
     pg_db: &PgDatabase,
-    schema_only: bool,
-    exclude_tables: &[&str],
+    opts: PgDumpOptions<'_>,
 ) -> Result<DumpFile> {
     let dump_file = DumpFile::new()?;
 
@@ -2541,10 +2598,13 @@ pub(crate) async fn pg_dump_database(
 
     let mut cmd = tokio::process::Command::new("pg_dump");
     cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
-    if schema_only {
+    if opts.schema_only {
         cmd.arg("--schema-only");
     }
-    for table in exclude_tables {
+    if opts.no_owner_or_acl {
+        cmd.arg("--no-owner").arg("--no-privileges");
+    }
+    for table in opts.exclude_tables {
         cmd.arg(format!("--exclude-table={table}"));
     }
     cmd.arg("--host")
@@ -2576,8 +2636,106 @@ pub(crate) async fn pg_dump_database(
     Ok(dump_file)
 }
 
+/// Whether `line` still belongs to the preamble pg_dump emits before the first
+/// dumped object: comments, blank lines, psql meta-commands and the session `SET`s.
+fn is_dump_preamble_line(line: &[u8]) -> bool {
+    let line = line.trim_ascii_start();
+    line.is_empty()
+        || line.starts_with(b"--")
+        || line.starts_with(b"\\")
+        || line.starts_with(b"SET ")
+        || line.starts_with(b"SELECT pg_catalog.set_config(")
+}
+
+/// The GUC a preamble `SET <name> = ...;` line assigns, if the line is one.
+fn preamble_setting_name(line: &[u8]) -> Option<&str> {
+    let name = line.strip_prefix(b"SET ")?.split(|c| *c == b' ').next()?;
+    std::str::from_utf8(name).ok()
+}
+
+/// pg_dump's preamble is generated from the *client's* version, and Windmill ships
+/// the newest postgres client, so a server a few majors behind is handed GUCs it
+/// does not have (`transaction_timeout` is PG 17+). They only tune the session the
+/// dump was taken in, yet one of them failing is enough to abort a restore that
+/// stops on the first error, so comment out the ones this server does not know —
+/// in place, three bytes each, so the offsets of the data section stay put.
+async fn comment_out_unsupported_settings(
+    dump_file: &DumpFile,
+    supported_settings: &HashSet<String>,
+) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let file = tokio::fs::File::open(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to open dump file: {}", e)))?;
+    let mut reader = tokio::io::BufReader::new(file);
+
+    let mut preamble: Vec<u8> = Vec::new();
+    let mut patched = false;
+    loop {
+        let start = preamble.len();
+        let read = reader
+            .read_until(b'\n', &mut preamble)
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))?;
+        if read == 0 {
+            break;
+        }
+        let line = &preamble[start..];
+        if !is_dump_preamble_line(line) {
+            preamble.truncate(start);
+            break;
+        }
+        if preamble_setting_name(line).is_some_and(|name| !supported_settings.contains(name)) {
+            preamble[start..start + 3].copy_from_slice(b"-- ");
+            patched = true;
+        }
+    }
+    if !patched {
+        return Ok(());
+    }
+
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .open(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to open dump file: {}", e)))?;
+    file.write_all(&preamble)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to rewrite dump preamble: {}", e)))?;
+    file.flush()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to rewrite dump preamble: {}", e)))?;
+    Ok(())
+}
+
+/// GUC names the server backing `pg_db` knows about.
+async fn server_setting_names(db: &DB, pg_db: &PgDatabase) -> Result<HashSet<String>> {
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+    let rows = client.query("SELECT name FROM pg_settings", &[]).await;
+    drop(client);
+    windmill_common::shutdown_pg_connection(join_handle).await?;
+    let rows = rows.map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to list the settings of the target server: {}",
+            pg_error_message(&e)
+        ))
+    })?;
+    Ok(rows.iter().map(|row| row.get(0)).collect())
+}
+
 /// Import a pg_dump file into a target database using psql.
-async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
+///
+/// Left to its defaults psql reports a failed statement, carries on with the rest
+/// of the script and still exits 0, so a dump that breaks partway through imports
+/// partially and is reported as a success. ON_ERROR_STOP surfaces the failure and
+/// --single-transaction makes the restore all-or-nothing, leaving the target as it
+/// was and the import retryable rather than half-populated.
+async fn pg_import_dump(db: &DB, target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
+    let supported_settings = server_setting_names(db, target_db).await?;
+    comment_out_unsupported_settings(dump_file, &supported_settings).await?;
+
     let host = &target_db.host;
     let port = target_db.port.unwrap_or(5432).to_string();
     let user = target_db.user.as_deref().unwrap_or("postgres");
@@ -2593,6 +2751,9 @@ async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<
         .arg("--dbname")
         .arg(dbname)
         .arg("--no-psqlrc")
+        .arg("--set")
+        .arg("ON_ERROR_STOP=1")
+        .arg("--single-transaction")
         .arg("--file")
         .arg(&dump_file.path)
         .stdout(std::process::Stdio::piped())
@@ -2771,8 +2932,12 @@ async fn import_pg_database(
     }
     windmill_common::validate_dbname(&target_pg.dbname)?;
 
-    let dump_file = pg_dump_database(&source_pg, schema_only, &[]).await?;
-    pg_import_dump(&target_pg, &dump_file).await?;
+    let dump_file = pg_dump_database(
+        &source_pg,
+        PgDumpOptions { schema_only, no_owner_or_acl: true, ..Default::default() },
+    )
+    .await?;
+    pg_import_dump(&db, &target_pg, &dump_file).await?;
 
     Ok(format!(
         "Imported from '{}' into '{}'",
@@ -2793,7 +2958,11 @@ async fn export_pg_schema(
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-    let dump_file = pg_dump_database(&pg, true, &[]).await?;
+    let dump_file = pg_dump_database(
+        &pg,
+        PgDumpOptions { schema_only: true, ..Default::default() },
+    )
+    .await?;
     tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
