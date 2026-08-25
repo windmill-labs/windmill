@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { conformArgsToSchema, redactFileArgs, redactSecretArgs, stripSecretArgs } from './job_args'
+import {
+	conformArgsToSchema,
+	enforceDisabledDefaults,
+	redactFileArgs,
+	redactSecretArgs,
+	stripSecretArgs
+} from './job_args'
 
 describe('conformArgsToSchema', () => {
 	it('drops what the schema does not declare, prototype names included', () => {
@@ -20,6 +26,60 @@ describe('conformArgsToSchema', () => {
 		expect(Object.hasOwn(args, '__proto__')).toBe(true)
 		expect(args['__proto__']).toBe('legit')
 		expect(droppedKeys).toEqual([])
+	})
+
+	// $state.snapshot deep-copies a plain object and hands back a null-prototype one by
+	// identity, so a form editing it in place would write into the persisted transcript.
+	it('returns a plain object even when the schema declares nothing', () => {
+		const { args } = conformArgsToSchema(JSON.parse('{"a":1}'), undefined)
+		expect(Object.getPrototypeOf(args)).toBe(Object.prototype)
+	})
+})
+
+describe('enforceDisabledDefaults', () => {
+	const schema = {
+		properties: {
+			top: { type: 'string', default: 'fixed', disabled: true },
+			cfg: { properties: { force: { type: 'boolean', default: false, disabled: true } } },
+			list: {
+				items: { properties: { mode: { type: 'string', default: 'safe', disabled: true } } }
+			},
+			either: {
+				oneOf: [
+					{ title: 'a', properties: { level: { type: 'number', default: 1, disabled: true } } }
+				]
+			},
+			free: { type: 'string' }
+		}
+	}
+
+	it('resets a disabled field at every level the form nests', () => {
+		const { args, resetKeys } = enforceDisabledDefaults(
+			{
+				top: 'tampered',
+				cfg: { force: true },
+				list: [{ mode: 'destructive' }],
+				either: { kind: 'a', level: 99 },
+				free: 'kept'
+			},
+			schema
+		)
+		expect(args).toEqual({
+			top: 'fixed',
+			cfg: { force: false },
+			list: [{ mode: 'safe' }],
+			either: { kind: 'a', level: 1 },
+			free: 'kept'
+		})
+		expect(resetKeys).toEqual(['top', 'cfg.force', 'list[0].mode', 'either.level'])
+	})
+
+	it('reports only the arguments it actually overwrote', () => {
+		const { args, resetKeys } = enforceDisabledDefaults({ free: 'kept' }, schema)
+		// The default still runs; the caller supplied nothing to overwrite, and one told
+		// otherwise would try to correct an argument it never sent.
+		expect(args.top).toBe('fixed')
+		expect(resetKeys).toEqual([])
 	})
 })
 
