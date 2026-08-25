@@ -13,7 +13,7 @@ use itertools::Itertools;
 #[cfg(feature = "csharp")]
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 #[cfg(feature = "csharp")]
-use windmill_common::{utils::calculate_hash, worker::write_file};
+use windmill_common::worker::write_file;
 
 #[cfg(feature = "csharp")]
 use crate::global_cache::save_cache;

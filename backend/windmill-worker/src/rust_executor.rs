@@ -14,7 +14,6 @@ use tokio::{
 };
 use windmill_common::{
     error::{self, Error},
-    utils::calculate_hash,
     worker::{write_file, Connection},
 };
 use windmill_queue::MiniPulledJob;
