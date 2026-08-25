@@ -548,18 +548,16 @@
 										rowText(isSelected) +
 										' ' +
 										(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
-									onclick={() => {
-										// Picking a table both ticks it and previews it on the right.
-										if (multiSelectMode) toggleTableSelection(entry)
-										selectTable(root.datatable, sc.schemaKey, tableKey)
-									}}
+									onclick={() => selectTable(root.datatable, sc.schemaKey, tableKey)}
 								>
 									{#if multiSelectMode}
 										<Checkbox
 											checked={isTableSelected(entry) || isTableDisabled(entry)}
 											disabled={isTableDisabled(entry)}
 											title={isTableDisabled(entry) ? 'Already added' : undefined}
-											class="shrink-0 pointer-events-none"
+											onChange={() => toggleTableSelection(entry)}
+											onClick={(e) => e.stopPropagation()}
+											class="shrink-0"
 										/>
 									{/if}
 									{#if asset}
