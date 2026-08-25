@@ -195,7 +195,7 @@
 							href={favorite.href}
 							{item}
 							class={twMerge(
-								'w-full inline-flex flex-row px-2 py-2 hover:bg-surface-hover',
+								'w-full inline-flex flex-row px-2 py-2',
 								'data-[highlighted]:bg-surface-hover'
 							)}
 						>
@@ -228,7 +228,7 @@
 							class={twMerge(
 								'flex flex-row gap-3.5 items-center px-2 py-2',
 								sidebarClasses.text,
-								sidebarClasses.hoverBg,
+								'transition-colors',
 								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 							)}
 							lightMode
@@ -253,7 +253,7 @@
 							lightMode
 							class={twMerge(
 								'w-full flex gap-3.5 px-2 py-2',
-								sidebarClasses.hoverBg,
+								'transition-colors',
 								sidebarClasses.text,
 								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 							)}
@@ -272,7 +272,7 @@
 							lightMode
 							class={twMerge(
 								'flex gap-3.5 px-2 py-2',
-								sidebarClasses.hoverBg,
+								'transition-colors',
 								sidebarClasses.text,
 								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 							)}
@@ -288,7 +288,7 @@
 								class={twMerge(
 									'flex flex-row gap-3.5 items-center px-2 py-2 ',
 									'text-secondary text-xs',
-									'hover:bg-surface-hover hover:text-primary cursor-pointer',
+									'cursor-pointer',
 									'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 								)}
 								{item}
@@ -303,7 +303,7 @@
 							class={twMerge(
 								'flex flex-row gap-3.5  items-center px-2 py-2 w-full',
 								'text-primary text-xs',
-								'hover:bg-surface-hover cursor-pointer',
+								'cursor-pointer',
 								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 							)}
 							{item}
@@ -318,7 +318,7 @@
 								<MenuItem
 									href={menuLink.href}
 									class={twMerge(
-										'flex flex-row gap-3.5 items-center px-2 py-2 text-secondary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer',
+										'flex flex-row gap-3.5 items-center px-2 py-2 text-secondary text-2xs cursor-pointer',
 										'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 									)}
 									{item}
@@ -354,7 +354,7 @@
 												<MenuItem
 													href={menuLink.href}
 													class={twMerge(
-														'flex flex-row gap-3.5 items-center px-2 py-2 pl-6 text-tertiary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer',
+														'flex flex-row gap-3.5 items-center px-2 py-2 pl-6 text-tertiary text-2xs cursor-pointer',
 														'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 													)}
 													{item}
