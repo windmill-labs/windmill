@@ -760,18 +760,29 @@
 			// of another type sitting where the project wanted one of ours would otherwise have
 			// its value replaced with credentials for a different provider, while keeping its
 			// own type — destroying a working resource that has nothing to do with the import.
-			let filling = exists && !!fillPath && path === fillPath
+			const filling = exists && !!fillPath && path === fillPath
 			if (filling) {
-				const occupantType = await ResourceService.getResource({
-					workspace: effectiveWorkspace,
-					path
-				})
-					.then((r) => r?.resource_type)
-					.catch(() => undefined)
-				if (occupantType && occupantType !== resourceType) {
+				// Fails closed. Only a read that succeeds and answers with exactly this type
+				// permits the write — a failed read, a missing type, or any other type all
+				// refuse. Letting "could not tell" through is how the overwrite this guard
+				// exists to stop would happen anyway, on the one occasion the check was needed
+				// and could not run.
+				let occupantType: string | undefined
+				try {
+					occupantType = (
+						await ResourceService.getResource({ workspace: effectiveWorkspace, path })
+					)?.resource_type
+				} catch (e: any) {
 					throw Error(
-						`Resource at path ${path} is a ${occupantType} resource, not ${resourceType}. ` +
-							`Move or rename it, then import again.`
+						`Could not read what is already at ${path} (${e?.body ?? e?.message ?? e}), ` +
+							`so it will not be written over. Try again.`
+					)
+				}
+				if (occupantType !== resourceType) {
+					throw Error(
+						`Resource at path ${path} is ${
+							occupantType ? `a ${occupantType} resource` : 'of an unknown type'
+						}, not ${resourceType}. Move or rename it, then import again.`
 					)
 				}
 			}

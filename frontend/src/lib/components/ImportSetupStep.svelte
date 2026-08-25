@@ -76,6 +76,12 @@
 		 * shipped — and to make sure nothing offers to write over what is there.
 		 */
 		occupiedBy?: string
+		/**
+		 * The resource could not be read, so nothing here knows whether it needs filling. Kept
+		 * on the checklist rather than dropped: a read that fails is not evidence the resource
+		 * is absent, and removing the row reports "all set" over a credential nobody filled.
+		 */
+		unreadable?: boolean
 	}
 
 	let loading = $state(true)
@@ -268,8 +274,20 @@
 				if (found?.resource_type && found.resource_type !== r.resource_type) {
 					occupiedBy = found.resource_type
 				}
-			} catch {
-				continue // Not there — the import reported that failure already.
+			} catch (e: any) {
+				// A 404 is the import having failed to create it, which it reported itself.
+				// Any other failure is a read this could not complete, which says nothing about
+				// whether the resource is there or needs filling — so the row stays.
+				if (e?.status === 404) continue
+				out.push({
+					path: r.path,
+					resourceType: r.resource_type,
+					missing: [],
+					done: false,
+					justSaved: false,
+					unreadable: true
+				})
+				continue
 			}
 			const filled = new Set(
 				value && typeof value === 'object'
@@ -279,15 +297,21 @@
 					: []
 			)
 			let required: string[] = []
+			// A type whose schema will not load leaves `required` empty, which reads as "nothing
+			// missing" — and a half-filled resource would drop off the checklist as done. The
+			// row is kept instead; it just cannot name which fields are short.
+			let requirementsUnknown = false
 			try {
 				const schema = (await ResourceService.getResourceType({ workspace, path: r.resource_type }))
 					?.schema as { required?: string[] } | undefined
 				required = schema?.required ?? []
-			} catch {}
+			} catch {
+				requirementsUnknown = true
+			}
 			const missing = required.filter((k) => !filled.has(k))
 			// A conflicting occupant is always listed, however full its value looks: the row is
 			// what tells the user the project is missing a resource it shipped.
-			if (occupiedBy || missing.length > 0 || filled.size === 0) {
+			if (occupiedBy || requirementsUnknown || missing.length > 0 || filled.size === 0) {
 				out.push({
 					path: r.path,
 					resourceType: r.resource_type,
@@ -604,7 +628,8 @@
 				>
 				<ul class="flex flex-col gap-1.5">
 					{#each blanks as b (b.path)}
-						{@const canConnect = !b.done && !b.occupiedBy && canConnectType(b.resourceType)}
+						{@const blocked = !!b.occupiedBy || !!b.unreadable}
+						{@const canConnect = !b.done && !blocked && canConnectType(b.resourceType)}
 						<!-- Laid out like the resource type rows in the Add-a-resource drawer: the
 						     integration's own icon, its product name, and the raw identifier demoted
 						     beside it. The path only matters when two resources share a type, so it
@@ -613,7 +638,7 @@
 							{#snippet icon()}
 								{#if b.done}
 									<Check size={20} class="text-emerald-600" />
-								{:else if b.occupiedBy}
+								{:else if blocked}
 									<TriangleAlert size={20} class="text-yellow-600" />
 								{:else}
 									<IconedResourceType name={b.resourceType} silent width="20px" height="20px" />
@@ -635,6 +660,10 @@
 										a {resourceTypeDisplayName(b.occupiedBy)} resource already holds this path — the
 										project did not get this one
 									</span>
+								{:else if b.unreadable}
+									<span class="truncate text-secondary">
+										could not be read, so whether it needs filling is unknown
+									</span>
 								{:else if !b.done && b.missing.length > 0}
 									<span class="truncate text-secondary">
 										Missing {b.missing.join(', ')}
@@ -645,11 +674,14 @@
 								<!-- Connect where the instance has a client for this type: asking for an
 								     OAuth resource by hand means pasting an access token that dies within
 								     the hour, since only a token Windmill obtained itself gets refreshed. -->
-								{#if b.occupiedBy}
-									<!-- No action: every one here writes to the path, and what is at this path
-									     belongs to someone else. Opening the editor on it would invite exactly
-									     the overwrite this row exists to prevent. -->
-									<span class="whitespace-nowrap text-2xs text-hint">Resolve in the workspace</span>
+								{#if blocked}
+									<!-- No action: every one here writes to the path, and this code does not
+									     know what is at it — either something of another type, or a read that
+									     failed. Opening the editor would invite exactly the overwrite these
+									     rows exist to prevent. -->
+									<span class="whitespace-nowrap text-2xs text-hint">
+										{b.occupiedBy ? 'Resolve in the workspace' : 'Check the workspace'}
+									</span>
 								{:else}
 									<Button
 										variant={b.done ? 'subtle' : 'accent'}
