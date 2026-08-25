@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
+	import type { Snippet } from 'svelte'
+	import type { DataTableTables } from '$lib/gen'
 	import { sortArray } from '$lib/utils'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import Alert from './common/alert/Alert.svelte'
@@ -18,7 +20,6 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
-	import { type Snippet } from 'svelte'
 	import type { DbInput } from './dbTypes'
 	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
@@ -36,7 +37,13 @@
 		hasReplResult?: boolean
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
+		/** Every data table with its schemas and tables, for the left-pane tree.
+		 * Undefined when the drawer is not on a data table, which is what collapses
+		 * the tree's top level away. */
 		dbSelector?: Snippet<[]>
+		datatableTree?: DataTableTables[]
+		datatableTreeLoading?: boolean
+		onSelectDatatable?: (datatable: string) => void
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
 		/** Selected tables in multi-select mode */
@@ -60,6 +67,9 @@
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
 		dbSelector,
+		datatableTree,
+		datatableTreeLoading,
+		onSelectDatatable,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
@@ -309,6 +319,9 @@
 				{dbType}
 				refresh={() => refresh()}
 				{dbSelector}
+				{datatableTree}
+				{datatableTreeLoading}
+				{onSelectDatatable}
 				{onImport}
 				bind:selectedSchemaKey
 				bind:selectedTableKey

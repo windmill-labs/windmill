@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { WorkspaceService } from '$lib/gen'
+	import { WorkspaceService, type DataTableTables } from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
@@ -10,7 +10,6 @@
 		Copy,
 		Download,
 		Expand,
-		LoaderCircle,
 		Minimize,
 		RefreshCcw,
 		Upload
@@ -42,23 +41,18 @@
 	// the editor that opened it (set via openDrawer), else the nav workspace.
 	let ws = $derived(uriState.workspace ?? $workspaceStore)
 
-	// Load available datatables when drawer opens with datatable input
-	const datatables = resource<string[]>([], async () => {
+	// Every data table with its schemas and tables, in one call: this is what the
+	// left pane's tree navigates, so it has to cover the data tables the user is
+	// not currently on, not just the selected one.
+	const datatables = resource<DataTableTables[]>([], async () => {
 		if (!ws) return []
 		try {
-			return (await WorkspaceService.listDataTables({ workspace: ws })).map((d) => d.name)
+			return await WorkspaceService.listDataTableTables({ workspace: ws })
 		} catch (e) {
 			console.error('Failed to load datatables:', e)
 			return []
 		}
 	})
-
-	const datatableItems = $derived(
-		datatables.current.map((dt) => ({
-			value: dt,
-			label: dt
-		}))
-	)
 
 	// Roles the *caller* may use, so the picker never offers one that would be
 	// refused. Absent/disabled permissions yield no roles and hide the picker.
@@ -67,7 +61,10 @@
 		async ([workspace, datatable]) => {
 			if (!workspace || !datatable) return undefined
 			try {
-				return await WorkspaceService.listUsableDatatableRoles({ workspace, datatableName: datatable })
+				return await WorkspaceService.listUsableDatatableRoles({
+					workspace,
+					datatableName: datatable
+				})
 			} catch (e) {
 				// Never leave the drawer waiting on this: fall back to the
 				// unpermissioned shape so it opens and the server picks the role.
@@ -88,12 +85,6 @@
 					uriState.selectedRole !== undefined))
 	)
 
-	const roleItems = $derived(
-		(usableRoles.current?.roles ?? []).map((r) => ({
-			value: r,
-			label: r === usableRoles.current?.default_role ? `${r} (default)` : r
-		}))
-	)
 
 	// Settle the role before anything queries the data table: the schema and
 	// metadata fetches run as whatever role the input carries, so leaving it unset
@@ -102,9 +93,7 @@
 	$effect(() => {
 		const roles = usableRoles.current
 		if (!roles?.enabled || uriState.selectedRole !== undefined) return
-		const effective = roles.roles.includes(roles.default_role)
-			? roles.default_role
-			: roles.roles[0]
+		const effective = roles.roles.includes(roles.default_role) ? roles.default_role : roles.roles[0]
 		if (effective) untrack(() => (uriState.selectedRole = effective))
 	})
 
@@ -238,6 +227,9 @@
 					bind:this={dbManagerContent}
 					input={uriState.effectiveInput}
 					workspace={uriState.workspace}
+					datatableTree={uriState.isDatatableInput ? datatables.current : undefined}
+					datatableTreeLoading={datatables.loading}
+					onSelectDatatable={(dt) => (uriState.selectedDatatable = dt)}
 					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
 					bind:selectedSchemaKey={uriState.selectedSchema}
@@ -246,35 +238,6 @@
 						? (mode) => ((importDrawerOpen = true), (importBehavior = mode))
 						: undefined}
 				>
-					{#snippet dbSelector()}
-						{#if uriState.isDatatableInput}
-							{#if datatables.loading}
-								<div class="flex items-center gap-2 text-tertiary ml-2">
-									<LoaderCircle size={14} class="animate-spin" />
-									<span class="text-sm">Loading...</span>
-								</div>
-							{:else if datatables.current.length >= 1}
-								<Select
-									transformInputSelectedText={(s) => `Datatable: ${s}`}
-									items={datatableItems}
-									bind:value={uriState.selectedDatatable}
-									placeholder="Select data table"
-									size="md"
-								/>
-							{/if}
-							<!-- A single usable role is not a choice: the picker would only restate
-							     what the connection already is. -->
-							{#if usableRoles.current?.enabled && roleItems.length > 1}
-								<Select
-									transformInputSelectedText={(s) => `Role: ${s}`}
-									items={roleItems}
-									bind:value={uriState.selectedRole}
-									placeholder="Role"
-									size="md"
-								/>
-							{/if}
-						{/if}
-					{/snippet}
 				</DBManagerContent>
 			{/key}
 		{/if}

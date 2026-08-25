@@ -6,6 +6,8 @@
 		Loader2,
 		Plus,
 		Table2,
+		Database as DatabaseIcon,
+		Folder as FolderIcon,
 		Trash2Icon,
 		UploadIcon
 	} from 'lucide-svelte'
@@ -21,18 +23,16 @@
 	import DbTableEditor from './DBTableEditor.svelte'
 	import type { DbType } from './dbTypes'
 	import Portal from './Portal.svelte'
-	import Select from './select/Select.svelte'
-	import { safeSelectItems } from './select/utils.svelte'
-	import type { Snippet } from 'svelte'
 	import {
 		dbSupportsTransactionalDdl,
 		diffTableEditorValues
 	} from './apps/components/display/dbtable/queries/alterTable'
 	import { resource } from 'runed'
+	import type { Snippet } from 'svelte'
 	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import Star from './Star.svelte'
-	import type { Asset } from '$lib/gen'
+	import type { Asset, DataTableTables } from '$lib/gen'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -53,7 +53,15 @@
 		initialTableKey?: string
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
+		/** Every data table with its schemas and tables. Present only when the manager
+		 * is on a data table — that is what puts a data-table level at the top of the
+		 * tree; otherwise the tree starts at schemas. */
+		/** Multi-select pickers still choose their data table with a Select above the
+		 * list; the tree below is the navigator for the manager's normal mode. */
 		dbSelector?: Snippet<[]>
+		datatableTree?: DataTableTables[]
+		datatableTreeLoading?: boolean
+		onSelectDatatable?: (datatable: string) => void
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
 		/** Selected tables in multi-select mode */
@@ -78,6 +86,9 @@
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
 		dbSelector,
+		datatableTree,
+		datatableTreeLoading,
+		onSelectDatatable,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
@@ -152,6 +163,87 @@
 	}
 
 	let schemaKeys = $derived(Object.keys(dbSchema.schema ?? {}))
+
+	// --- Left-pane tree ---------------------------------------------------------
+	// Levels: data table -> schema -> table. The top two collapse away on their own
+	// terms: no `datatableTree` means this is not a data table, and a database
+	// without schemas has nothing to put between a data table and its tables.
+	const currentDatatable = $derived(
+		asset?.kind === 'datatable' ? asset.path : undefined
+	)
+
+	/** Tables per schema for a data table, as `schema -> table[]`. */
+	function schemasOf(datatable: string | undefined): Record<string, string[]> {
+		// The open data table reads from `dbSchema`, which is refetched after a DDL;
+		// the tree snapshot is not, so using it here would hide a table until the
+		// next full reload.
+		if (datatable === undefined || datatable === currentDatatable) {
+			return Object.fromEntries(
+				Object.entries(dbSchema.schema ?? {}).map(([sk, tables]) => [sk, Object.keys(tables ?? {})])
+			)
+		}
+		return datatableTree?.find((d) => d.datatable_name === datatable)?.schemas ?? {}
+	}
+
+	function errorOf(datatable: string): string | undefined {
+		return datatableTree?.find((d) => d.datatable_name === datatable)?.error
+	}
+
+	const matchesSearch = (t: string) => t.toLowerCase().includes(search.trim().toLowerCase())
+
+	/** The tree as rendered: only nodes with a matching descendant survive a search. */
+	let treeRoots = $derived.by(() => {
+		const datatables = datatableTree
+			? datatableTree.map((d) => d.datatable_name)
+			: [undefined as string | undefined]
+		return datatables.map((dt) => {
+			const schemas = Object.entries(schemasOf(dt))
+				.map(([schemaKey, tables]) => ({
+					schemaKey,
+					tables: tables.filter(matchesSearch).sort()
+				}))
+				.filter((sc) => search.trim() === '' || sc.tables.length > 0)
+			schemas.sort((a, b) => a.schemaKey.localeCompare(b.schemaKey))
+			return { datatable: dt, schemas, error: dt ? errorOf(dt) : undefined }
+		}).filter(
+			// A search narrows the tree to what matched; a data table with no match
+			// left in it would otherwise sit there as an empty row.
+			(root) => search.trim() === '' || root.schemas.length > 0
+		)
+	})
+
+	let expanded = $state<Set<string>>(new Set())
+	const nodeKey = (dt: string | undefined, schemaKey?: string) =>
+		`${dt ?? ''}${schemaKey === undefined ? '' : `/${schemaKey}`}`
+
+	function toggle(key: string) {
+		const next = new Set(expanded)
+		next.has(key) ? next.delete(key) : next.add(key)
+		expanded = next
+	}
+
+	// A node is open when explicitly expanded, when it holds the current selection,
+	// or when a search is narrowing the tree to what matched.
+	function isExpanded(dt: string | undefined, schemaKey?: string): boolean {
+		if (search.trim() !== '') return true
+		if (expanded.has(nodeKey(dt, schemaKey))) return true
+		if (dt !== undefined && dt !== currentDatatable) return false
+		return schemaKey === undefined || schemaKey === selected.schemaKey
+	}
+
+	function selectTable(dt: string | undefined, schemaKey: string, tableKey: string) {
+		if (dt !== undefined && dt !== currentDatatable) {
+			// Switching data table re-mounts this component against the new one, so
+			// the target has to travel through the bound keys the parent keeps —
+			// local state here is about to be thrown away.
+			selectedSchemaKey = schemaKey
+			selectedTableKey = tableKey
+			onSelectDatatable?.(dt)
+			return
+		}
+		selected = { schemaKey, tableKey }
+	}
+
 	let search = $state('')
 	let selected: {
 		schemaKey?: undefined | string
@@ -259,40 +351,8 @@
 <Splitpanes>
 	<Pane size={24} class="relative flex flex-col">
 		<div class="mx-3 mt-3 flex flex-col gap-2">
-			{#if dbSelector}
+			{#if multiSelectMode && dbSelector}
 				{@render dbSelector()}
-			{/if}
-			{#if dbSupportsSchemas && !multiSelectMode}
-				<Select
-					bind:value={selected.schemaKey}
-					items={safeSelectItems(schemaKeys)}
-					id="db-schema-select"
-					transformInputSelectedText={(s) => `Schema: ${s}`}
-					RightIcon={ChevronDownIcon}
-					placeholder="Search or create schema..."
-					showPlaceholderOnOpen
-					onCreateItem={(schema) => {
-						schema = schema.trim().replace(/[^a-zA-Z0-9_]/g, '')
-						if (dbType === 'snowflake') schema = schema.toUpperCase()
-						askingForConfirmation = {
-							confirmationText: `Create ${schema}`,
-							type: 'reload',
-							title: `This will run 'CREATE SCHEMA ${schema}' on your database. Are you sure ?`,
-							open: true,
-							id: 'db-create-schema-confirmation-modal',
-							onConfirm: async () => {
-								askingForConfirmation && (askingForConfirmation.loading = true)
-								try {
-									await dbSchemaOps.onCreateSchema({ schema })
-									refresh?.()
-									selected.schemaKey = schema
-								} finally {
-									askingForConfirmation = undefined
-								}
-							}
-						}
-					}}
-				/>
 			{/if}
 			<ClearableInput bind:value={search} placeholder="Search table..." />
 		</div>
@@ -462,69 +522,157 @@
 					</button>
 				{/each}
 			{:else}
-				<!-- Normal mode: show tables for selected schema -->
-				{#each filteredTableKeys as tableKey}
-					<!-- PLACEHOLDER -->
-					<button
-						class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
-							(selected.tableKey === tableKey ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
-						onclick={() => (selected.tableKey = tableKey)}
-					>
-						{#if asset}
-							<Star
-								kind="asset"
-								path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${selected.schemaKey}.${tableKey}`}
-							/>
-						{:else}
-							<Table2 class="text-primary shrink-0" size={14} />
-						{/if}
-
-						<p
-							class="db-manager-table-key truncate text-ellipsis grow text-left text-emphasis text-xs"
+				<!-- Normal mode: data table -> schema -> table, each level dropping out
+				     when it has nothing to say (no data table / no schemas). -->
+				{#if datatableTreeLoading && (datatableTree?.length ?? 0) === 0}
+					<div class="flex items-center gap-2 text-tertiary p-3">
+						<Loader2 class="animate-spin" size={14} />
+						<span class="text-xs">Loading...</span>
+					</div>
+				{/if}
+				{#each treeRoots as root (root.datatable ?? '')}
+					{@const dtOpen = isExpanded(root.datatable)}
+					{#if root.datatable !== undefined}
+						<button
+							class={'w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pl-2 pr-1 hover:bg-gray-500/10 border-b border-surface-secondary ' +
+								(root.datatable === currentDatatable ? 'text-emphasis' : 'text-secondary')}
+							onclick={() => toggle(nodeKey(root.datatable))}
 						>
-							{tableKey}
-						</p>
-						<DropdownV2
-							items={() => [
-								{
-									displayName: 'Delete table',
-									icon: Trash2Icon,
-									action: () =>
-										(askingForConfirmation = {
-											title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
-											confirmationText: 'Delete permanently',
-											open: true,
-											id: 'db-manager-delete-table-confirmation-modal',
-											onConfirm: async () => {
-												askingForConfirmation && (askingForConfirmation.loading = true)
-												try {
-													await dbSchemaOps.onDelete({ tableKey, schema: selected.schemaKey })
-													refresh?.()
-													sendUserToast(`Table '${tableKey}' deleted successfully`)
-												} catch (e) {
-													let msg: string | undefined = (e as any).body ?? (e as Error).message
-													if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
-													sendUserToast(msg ?? 'Action failed!', true)
-												}
-												askingForConfirmation = undefined
-											}
-										})
-								},
-								{
-									displayName: 'Alter table',
-									icon: EditIcon,
-									action: () => {
-										dbTableEditorState = {
-											open: true,
-											alterTableKey: tableKey
-										}
-									}
-								}
-							]}
-							class="w-fit"
-							btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
-						/>
-					</button>
+							<ChevronDownIcon
+								class={'shrink-0 transition-transform ' + (dtOpen ? '' : '-rotate-90')}
+								size={14}
+							/>
+							<DatabaseIcon class="shrink-0" size={14} />
+							<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
+						</button>
+					{/if}
+					{#if dtOpen}
+						{#if root.error}
+							<p class="text-xs text-red-400 px-3 py-2">{root.error}</p>
+						{/if}
+						{#each root.schemas as sc (sc.schemaKey)}
+							{@const schemaOpen = isExpanded(root.datatable, sc.schemaKey)}
+							{@const indent = root.datatable !== undefined ? 'pl-6' : 'pl-2'}
+							{#if dbSupportsSchemas}
+								<button
+									class={'w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pr-1 hover:bg-gray-500/10 border-b border-surface-secondary ' +
+										indent}
+									onclick={() => toggle(nodeKey(root.datatable, sc.schemaKey))}
+								>
+									<ChevronDownIcon
+										class={'shrink-0 transition-transform ' + (schemaOpen ? '' : '-rotate-90')}
+										size={14}
+									/>
+									<FolderIcon class="shrink-0 text-tertiary" size={14} />
+									<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
+								</button>
+							{/if}
+							{#if schemaOpen || !dbSupportsSchemas}
+								{@const tableIndent = dbSupportsSchemas
+									? root.datatable !== undefined
+										? 'pl-12'
+										: 'pl-8'
+									: root.datatable !== undefined
+										? 'pl-8'
+										: 'pl-3'}
+								{#each sc.tables as tableKey (tableKey)}
+									{@const isSelected =
+										root.datatable === currentDatatable &&
+										selected.schemaKey === sc.schemaKey &&
+										selected.tableKey === tableKey}
+									<button
+										class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pr-1 ' +
+											tableIndent +
+											' ' +
+											(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
+										onclick={() => selectTable(root.datatable, sc.schemaKey, tableKey)}
+									>
+										{#if asset}
+											<Star
+												kind="asset"
+												path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${sc.schemaKey}.${tableKey}`}
+											/>
+										{:else}
+											<Table2 class="text-primary shrink-0" size={14} />
+										{/if}
+										<p
+											class="db-manager-table-key truncate text-ellipsis grow text-left text-emphasis text-xs"
+										>
+											{tableKey}
+										</p>
+										{#if root.datatable === currentDatatable || root.datatable === undefined}
+											<DropdownV2
+												items={() => [
+													{
+														displayName: 'Delete table',
+														icon: Trash2Icon,
+														action: () =>
+															(askingForConfirmation = {
+																title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
+																confirmationText: 'Delete permanently',
+																open: true,
+																id: 'db-manager-delete-table-confirmation-modal',
+																onConfirm: async () => {
+																	askingForConfirmation && (askingForConfirmation.loading = true)
+																	try {
+																		await dbSchemaOps.onDelete({
+																			tableKey,
+																			schema: sc.schemaKey
+																		})
+																		refresh?.()
+																		sendUserToast(`Table '${tableKey}' deleted successfully`)
+																	} catch (e) {
+																		let msg: string | undefined =
+																			(e as any).body ?? (e as Error).message
+																		if (typeof msg !== 'string')
+																			msg = e ? JSON.stringify(e) : undefined
+																		sendUserToast(msg ?? 'Action failed!', true)
+																	}
+																	askingForConfirmation = undefined
+																}
+															})
+													},
+													{
+														displayName: 'Alter table',
+														icon: EditIcon,
+														action: () => {
+															selected = { schemaKey: sc.schemaKey, tableKey }
+															dbTableEditorState = { open: true, alterTableKey: tableKey }
+														}
+													}
+												]}
+												class="w-fit"
+												btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
+											/>
+										{/if}
+									</button>
+								{/each}
+								{#if root.datatable === currentDatatable || root.datatable === undefined}
+									<button
+										class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
+											tableIndent}
+										onclick={() => {
+											selected = { schemaKey: sc.schemaKey, tableKey: undefined }
+											dbTableEditorState = { open: true }
+										}}
+									>
+										<Plus class="shrink-0" size={14} />
+										<span class="text-xs">New table</span>
+									</button>
+								{/if}
+							{/if}
+						{/each}
+						{#if dbSupportsSchemas && (root.datatable === currentDatatable || root.datatable === undefined) && search.trim() === ''}
+							<button
+								class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
+									(root.datatable !== undefined ? 'pl-6' : 'pl-2')}
+								onclick={() => (newSchemaDialogOpen = true)}
+							>
+								<Plus class="shrink-0" size={14} />
+								<span class="text-xs">New schema</span>
+							</button>
+						{/if}
+					{/if}
 				{/each}
 			{/if}
 		</div>
