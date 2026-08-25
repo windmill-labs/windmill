@@ -34,6 +34,42 @@ describe('conformArgsToSchema', () => {
 		const { args } = conformArgsToSchema(JSON.parse('{"a":1}'), undefined)
 		expect(Object.getPrototypeOf(args)).toBe(Object.prototype)
 	})
+
+	// The mounted nested form prunes its own extras, but ArgInput renders only the first
+	// 50 array items, so past that nothing else would ever drop them.
+	it('drops undeclared arguments nested inside declared ones', () => {
+		const { args, droppedKeys } = conformArgsToSchema(
+			{ cfg: { batch: 10, evil: true }, rows: [{ mode: 'safe' }, { mode: 'safe', evil: true }] },
+			{
+				properties: {
+					cfg: { properties: { batch: { type: 'number' } } },
+					rows: { items: { properties: { mode: { type: 'string' } } } }
+				}
+			}
+		)
+		expect(args).toEqual({ cfg: { batch: 10 }, rows: [{ mode: 'safe' }, { mode: 'safe' }] })
+		expect(droppedKeys).toEqual(['cfg.evil', 'rows[1].evil'])
+	})
+
+	// ArgInput writes the tag itself and reads it back to pick the branch that opens, so
+	// dropping it would reopen the form on the wrong variant.
+	it('keeps the oneOf tag and every branch key', () => {
+		const { args, droppedKeys } = conformArgsToSchema(
+			{ either: { kind: 'b', level: 2, evil: true } },
+			{
+				properties: {
+					either: {
+						oneOf: [
+							{ title: 'a', properties: { name: { type: 'string' } } },
+							{ title: 'b', properties: { level: { type: 'number' } } }
+						]
+					}
+				}
+			}
+		)
+		expect(args).toEqual({ either: { kind: 'b', level: 2 } })
+		expect(droppedKeys).toEqual(['either.evil'])
+	})
 })
 
 describe('enforceDisabledDefaults', () => {
@@ -46,7 +82,8 @@ describe('enforceDisabledDefaults', () => {
 			},
 			either: {
 				oneOf: [
-					{ title: 'a', properties: { level: { type: 'number', default: 1, disabled: true } } }
+					{ title: 'a', properties: { level: { type: 'number', default: 1, disabled: true } } },
+					{ title: 'b', properties: { rate: { type: 'number', default: 5, disabled: true } } }
 				]
 			},
 			free: { type: 'string' }
@@ -80,6 +117,13 @@ describe('enforceDisabledDefaults', () => {
 		// otherwise would try to correct an argument it never sent.
 		expect(args.top).toBe('fixed')
 		expect(resetKeys).toEqual([])
+	})
+
+	// Every branch is visited because the tag is runtime state, so writing an absent
+	// default would hand the run an argument from the variant nobody selected.
+	it('leaves the unselected oneOf branch out of the run', () => {
+		const { args } = enforceDisabledDefaults({ either: { kind: 'a', level: 99 } }, schema)
+		expect(args.either).toEqual({ kind: 'a', level: 1 })
 	})
 })
 

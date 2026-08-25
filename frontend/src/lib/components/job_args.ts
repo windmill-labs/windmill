@@ -4,8 +4,9 @@ const isLockedProp = (prop: any) => !!prop?.disabled && 'default' in prop
 
 /**
  * A field the schema disables is not the caller's to set: whatever it holds, the run
- * sends the schema's default. Returns the paths it actually overwrote so the caller can
- * say so — notifying is the caller's job, this stays pure.
+ * sends the schema's default. Only a field's own `disabled` counts — `SchemaForm`
+ * propagates a parent's downward, so one locked by inheritance alone keeps its value.
+ * Returns the paths it overwrote so the caller can say so; notifying is the caller's job.
  */
 export function enforceDisabledDefaults(
 	args: Record<string, any>,
@@ -26,30 +27,76 @@ export function enforceDisabledDefaults(
 
 /**
  * Conform caller-supplied arguments to what a run form can actually show: drop what the
- * schema does not declare, then apply {@link enforceDisabledDefaults}. An argument with
- * no field — including every argument of a script whose schema declares none — would
- * otherwise be approved without ever being seen.
+ * schema does not declare at any level, then apply {@link enforceDisabledDefaults}. An
+ * argument with no field — including every argument of a script whose schema declares
+ * none — would otherwise be approved without ever being seen. A mounted nested form
+ * prunes its own extras, but `ArgInput` renders only the first 50 items of an array.
  */
 export function conformArgsToSchema(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined
 ): { args: Record<string, any>; resetKeys: string[]; droppedKeys: string[] } {
-	const properties = schema?.properties ?? {}
-	// hasOwn, not `in`: every object inherits `constructor` and `toString`, so `in` would
-	// wave through arguments no schema declares. Null prototype for the same reason from
-	// the other side: assigning a declared `__proto__` into a plain `{}` reaches the
-	// inherited setter instead, and the argument vanishes unreported.
-	const known: Record<string, any> = Object.create(null)
 	const droppedKeys: string[] = []
-	for (const [key, value] of Object.entries(args ?? {})) {
-		if (Object.hasOwn(properties, key)) {
-			known[key] = value
-		} else {
-			droppedKeys.push(key)
-		}
-	}
+	const known = dropUndeclaredArgs(args ?? {}, schema?.properties ?? {}, droppedKeys)
 	const { args: result, resetKeys } = enforceDisabledDefaults(known, schema)
 	return { args: result, resetKeys, droppedKeys }
+}
+
+/** The tag naming the selected `oneOf` branch. No branch has to declare it, but
+ * `ArgInput` writes it into the value and reads it back to pick the branch that opens. */
+const ONE_OF_TAG_KEYS = ['kind', 'label']
+
+/**
+ * Rebuild `holder` with only the arguments `properties` declares, appending the dotted
+ * path of each one removed. Recurses down the levels the form nests, so an undeclared
+ * argument cannot ride along inside a declared one.
+ */
+function dropUndeclaredArgs(
+	holder: Record<string, any>,
+	properties: Record<string, any>,
+	droppedKeys: string[],
+	path = '',
+	alsoAllowed?: string[]
+): Record<string, any> {
+	// hasOwn, not `in`: every object inherits `constructor` and `toString`, so `in` would
+	// wave through arguments no schema declares. Accumulated on a null prototype for the
+	// same reason from the other side: assigning a declared `__proto__` into a plain `{}`
+	// reaches the inherited setter instead, and the argument vanishes unreported.
+	const kept: Record<string, any> = Object.create(null)
+	for (const [key, value] of Object.entries(holder)) {
+		const keyPath = path ? `${path}.${key}` : key
+		if (!Object.hasOwn(properties, key)) {
+			if (alsoAllowed?.includes(key)) kept[key] = value
+			else droppedKeys.push(keyPath)
+			continue
+		}
+		kept[key] = dropUndeclaredNested(value, properties[key], droppedKeys, keyPath)
+	}
+	// Spread rather than the accumulator itself: $state.snapshot returns a null-prototype
+	// object by identity, and a form editing it in place would write into the stored copy.
+	return { ...kept }
+}
+
+function dropUndeclaredNested(value: any, prop: any, droppedKeys: string[], path: string): any {
+	if (value == null || typeof value !== 'object') return value
+	if (prop?.properties && !Array.isArray(value)) {
+		return dropUndeclaredArgs(value, prop.properties, droppedKeys, path)
+	}
+	if (prop?.items?.properties && Array.isArray(value)) {
+		return value.map((item: any, i: number) =>
+			item != null && typeof item === 'object' && !Array.isArray(item)
+				? dropUndeclaredArgs(item, prop.items.properties, droppedKeys, `${path}[${i}]`)
+				: item
+		)
+	}
+	if (Array.isArray(prop?.oneOf) && !Array.isArray(value)) {
+		// The union of every branch, not the one the tag names: which branch is selected is
+		// runtime state, and pruning by a stale tag would delete what the user typed.
+		const union: Record<string, any> = {}
+		for (const branch of prop.oneOf) Object.assign(union, branch?.properties ?? {})
+		return dropUndeclaredArgs(value, union, droppedKeys, path, ONE_OF_TAG_KEYS)
+	}
+	return value
 }
 
 /**
@@ -66,7 +113,8 @@ function mapMatchingArgs(
 	properties: Record<string, any>,
 	isLeaf: (prop: any) => boolean,
 	visit: (value: unknown, prop: any, path: string) => unknown,
-	path = ''
+	path = '',
+	inOneOf = false
 ): any {
 	if (holder == null || typeof holder !== 'object' || Array.isArray(holder)) return holder
 	const result = { ...holder }
@@ -75,6 +123,9 @@ function mapMatchingArgs(
 		// A matching object is a leaf, not a level: a password object is stored whole as a
 		// single $jsonvar: reference, and a file is one opaque base64 string.
 		if (isLeaf(prop)) {
+			// Every oneOf branch is visited, so an absent argument under one belongs to a
+			// variant that was not selected: a visitor that writes would add it to the run.
+			if (inOneOf && !Object.hasOwn(result, key)) continue
 			const mapped = visit(result[key], prop, keyPath)
 			if (mapped === undefined) delete result[key]
 			else result[key] = mapped
@@ -84,10 +135,10 @@ function mapMatchingArgs(
 		// leave the key behind holding undefined.
 		if (!Object.hasOwn(result, key)) continue
 		if (prop?.properties) {
-			result[key] = mapMatchingArgs(result[key], prop.properties, isLeaf, visit, keyPath)
+			result[key] = mapMatchingArgs(result[key], prop.properties, isLeaf, visit, keyPath, inOneOf)
 		} else if (prop?.items?.properties && Array.isArray(result[key])) {
 			result[key] = result[key].map((item: any, i: number) =>
-				mapMatchingArgs(item, prop.items.properties, isLeaf, visit, `${keyPath}[${i}]`)
+				mapMatchingArgs(item, prop.items.properties, isLeaf, visit, `${keyPath}[${i}]`, inOneOf)
 			)
 		} else if (Array.isArray(prop?.oneOf)) {
 			// Every branch, not the one the value's tag names: which branch is selected is
@@ -95,7 +146,14 @@ function mapMatchingArgs(
 			// is visited.
 			for (const branch of prop.oneOf) {
 				if (branch?.properties) {
-					result[key] = mapMatchingArgs(result[key], branch.properties, isLeaf, visit, keyPath)
+					result[key] = mapMatchingArgs(
+						result[key],
+						branch.properties,
+						isLeaf,
+						visit,
+						keyPath,
+						true
+					)
 				}
 			}
 		}
@@ -126,6 +184,20 @@ export function stripSecretArgs(
 	const properties = schema?.properties
 	if (!properties) return args
 	return mapMatchingArgs(args, properties, isSecretProp, () => undefined)
+}
+
+/**
+ * Drop every file argument, so a caller cannot propose file bytes on the user's behalf:
+ * the field opens empty and the user attaches the file. Bytes a form is prefilled with
+ * are bytes the stored transcript carries, unbounded, for a value no caller can produce.
+ */
+export function stripFileArgs(
+	args: Record<string, any>,
+	schema: { properties?: Record<string, any> } | undefined
+): Record<string, any> {
+	const properties = schema?.properties
+	if (!properties) return args
+	return mapMatchingArgs(args, properties, isFileProp, () => undefined)
 }
 
 /**

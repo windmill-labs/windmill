@@ -51,6 +51,7 @@ import {
 	conformArgsToSchema,
 	redactFileArgs,
 	redactSecretArgs,
+	stripFileArgs,
 	stripSecretArgs
 } from '$lib/components/job_args'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
@@ -5466,8 +5467,9 @@ async function runDeployedScript(
 	const schema = (script.schema as Record<string, any>) ?? {}
 	const conformed = conformArgsToSchema(normalizeTestRunArgs(args.args), schema)
 	// A secret the model picked is not consent, whatever it holds: a literal is a value
-	// the user never chose, a reference names something the card cannot show them.
-	const proposed = stripSecretArgs(conformed.args, schema as any)
+	// the user never chose, a reference names something the card cannot show them. Files
+	// go the same way — prefilled bytes are bytes the stored transcript then carries.
+	const proposed = stripFileArgs(stripSecretArgs(conformed.args, schema as any), schema as any)
 	const form: RunFormDisplay = {
 		path: args.path,
 		summary: script.summary || undefined,
@@ -5513,12 +5515,24 @@ async function runDeployedScript(
 		return PLAN_MODE_MESSAGES.blockedResult
 	}
 
-	// The card's details pane must show what ran, not what was proposed.
-	toolCallbacks.setToolStatus(toolId, { parameters: redactFileArgs(submitted, schema as any) })
+	// The card's details pane must show what ran, not what was proposed — and it is
+	// persisted, so it carries no more of a secret or a file than the model's copy does.
+	toolCallbacks.setToolStatus(toolId, {
+		parameters: redactFileArgs(redactSecretArgs(submitted, schema as any), schema as any)
+	})
 
 	const outcome = await executeTestRun({
-		jobStarter: () =>
-			JobService.runScriptByPath({ workspace, path: args.path, requestBody: submitted }),
+		jobStarter: async () => {
+			const jobId = await JobService.runScriptByPath({
+				workspace,
+				path: args.path,
+				requestBody: submitted
+			})
+			// The form's own submitted flag flips a round trip earlier, when the user presses
+			// Run; only from here is there a job for a stopped turn to say it left running.
+			toolCallbacks.markRunFormStarted?.(toolId)
+			return jobId
+		},
 		workspace,
 		toolCallbacks,
 		toolId,
