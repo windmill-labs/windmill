@@ -121,16 +121,34 @@
 		// Create the filter instance object
 		const filterInstance: { val: Partial<FilterInstanceRec<T>> } = $state({ val: {} })
 
-		// Sync URL params to filter instance on initialization and when URL changes
+		// Sync URL params to filter instance, reactively. Reading urlFilter[key] tracked
+		// means browser Back/Forward — which mutates useSearchParams' cells on popstate —
+		// flows into the instance (chips, kind toggle, results), not just the first render.
+		// The write happens untracked so it can't self-trigger, and the equality check plus
+		// the reverse effect's own guard keep the two directions from ping-ponging.
 		for (const key of Object.keys(schemaRec)) {
-			let urlValue = urlFilter[key]
-			if (schemaRec[key].type === 'date' && typeof urlValue === 'string') {
-				const d = new Date(urlValue)
-				urlValue = isNaN(d.getTime()) ? null : d
-			}
-			if (urlValue !== undefined && urlValue !== null) {
-				;(filterInstance.val as any)[key] = urlValue
-			}
+			$effect(() => {
+				let urlValue = urlFilter[key]
+				if (schemaRec[key].type === 'date' && typeof urlValue === 'string') {
+					const d = new Date(urlValue)
+					urlValue = isNaN(d.getTime()) ? null : d
+				}
+				untrack(() => {
+					const current = (filterInstance.val as any)[key]
+					const same =
+						urlValue instanceof Date && current instanceof Date
+							? urlValue.getTime() === current.getTime()
+							: current === (urlValue ?? undefined)
+					if (same) return
+					if (urlValue !== undefined && urlValue !== null) {
+						;(filterInstance.val as any)[key] = urlValue
+					} else if (current !== undefined) {
+						// Key dropped from the URL (Back to a state without it): clear it so a
+						// stale chip / filter doesn't linger against the navigated-to URL.
+						delete (filterInstance.val as any)[key]
+					}
+				})
+			})
 		}
 
 		// Sync filter instance changes back to URL params

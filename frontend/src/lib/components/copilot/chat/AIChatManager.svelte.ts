@@ -103,11 +103,7 @@ import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
 import { sanitizeToolCallArguments } from './toolCallArguments'
-import {
-	billedTokens,
-	normalizeContextUsage,
-	type ChatTokenUsage
-} from './tokenUsage'
+import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
 import { logAiUsage } from '$lib/utils/aiUsageReporter'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import {
@@ -361,27 +357,15 @@ function getSendRequestErrorMessage(err: unknown, webSearchUnavailable: boolean)
 	return appendWebSearchErrorHint(message, webSearchUnavailable)
 }
 
-/**
- * Re-fetch copilotInfo after a free-tier turn so its `freeTier.used_ratio` (and the usage
- * banner above the composer that reads it) tracks spend live, and so the turn that finally
- * exhausts the grant flips `freeTier.exhausted` — revealing the banner — instead of the
- * user seeing only a per-request error toast until a page reload. copilotInfo is otherwise
- * fetched only on workspace load.
- *
- * Scoped to users actually on the free tier and not already exhausted, so it costs one
- * extra request only while the grant is live, and never for configured-key users.
- * Keyed on that state rather than on matching an error message, which would break the
- * moment the copy changes.
- */
+/** Re-fetch copilotInfo after a free-tier turn so the usage banner tracks spend live and the
+ * exhausting turn flips `freeTier.exhausted`; otherwise these update only on the next workspace
+ * load. Scoped to a live (non-exhausted) free tier so configured-key users pay no extra request. */
 async function refreshFreeTierUsage(workspace: string | undefined) {
 	if (!workspace) return
-	// The global copilotInfo/client are a singleton shared by every mounted session. A warm
-	// session can finish a turn after the user has switched to another workspace; refreshing
-	// then would call loadCopilot for the completing manager's (now background) workspace and
-	// clobber the active one's models/client. Compare against the most-recently-*requested*
-	// workspace (set synchronously), not the last-*resolved* one — otherwise a refresh could
-	// fire while a newer workspace's load is still in flight, win the monotonic token, and
-	// restore this (stale) workspace over it.
+	// copilotInfo is a singleton shared across sessions: a warm session finishing after a
+	// workspace switch must not loadCopilot for its now-background workspace. Gate on the
+	// most-recently-*requested* workspace (set synchronously) so a refresh can't win the
+	// monotonic token over a newer load still in flight.
 	if (get(copilotWorkspaceRequested) !== workspace) return
 	const info = get(copilotInfo)
 	if (!info.freeTier || info.freeTier.exhausted) return

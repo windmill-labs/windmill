@@ -578,9 +578,8 @@
 					You have used all of your free Windmill AI tokens. Add your own API key to keep using AI.
 				</span>
 				<Button
-					size="xs2"
+					unifiedSize="2xs"
 					variant="accent"
-					color="red"
 					startIcon={{ icon: KeyRound }}
 					href="{base}/workspace_settings?tab=ai"
 				>
@@ -599,9 +598,8 @@
 			{freeTierUsedPct}% of your free Windmill AI used
 		</span>
 		<Button
-			size="xs2"
-			variant="border"
-			color="light"
+			unifiedSize="2xs"
+			variant="default"
 			startIcon={{ icon: KeyRound }}
 			href="{base}/workspace_settings?tab=ai"
 		>
