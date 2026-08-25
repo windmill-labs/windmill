@@ -114,6 +114,27 @@ describe('conformArgsToSchema', () => {
 		})
 	})
 
+	// A list element is bound to a widget the same way a top-level argument is, so an
+	// object in a scalar slot renders as [object Object] and the run carries it verbatim.
+	it('filters array elements whose schema declares no properties', () => {
+		expect(
+			conformArgsToSchema(
+				{ tags: ['ok', { token: '$var:u/ada/prod' }] },
+				{ properties: { tags: { type: 'array', items: { type: 'string' } } } }
+			)
+		).toMatchObject({ args: { tags: ['ok'] }, dropped: { unshowable: ['tags[1]'] } })
+		expect(
+			conformArgsToSchema(
+				{ rows: [{ n: 1, evil: 2 }] },
+				{
+					properties: {
+						rows: { items: { oneOf: [{ title: 'a', properties: { n: { type: 'number' } } }] } }
+					}
+				}
+			)
+		).toMatchObject({ args: { rows: [{ n: 1 }] }, dropped: { undeclared: ['rows[0].evil'] } })
+	})
+
 	// MultiSelect maps over the value while rendering, so a non-array here throws and
 	// takes the whole form with it — the user cannot even cancel what they were shown.
 	it('drops a non-array in a dyn-multiselect slot', () => {
@@ -180,6 +201,34 @@ describe('enforceDisabledDefaults', () => {
 		expect(enforceDisabledDefaults({ opts: { dry_run: false } }, objSchema).resetKeys).toEqual([
 			'opts'
 		])
+	})
+
+	// The tag picks the branch, as it does in ArgInput: a default read off the branch the
+	// form never showed both overwrites the value and reports a reset nobody made.
+	it('takes a disabled default two branches share from the one the form shows', () => {
+		const locked = (def: string) => ({ type: 'string', default: def, disabled: true })
+		const collide = {
+			properties: {
+				either: {
+					oneOf: [
+						{ title: 'a', properties: { mode: locked('alpha') } },
+						{ title: 'b', properties: { mode: locked('beta') } }
+					]
+				}
+			}
+		}
+		expect(enforceDisabledDefaults({ either: { kind: 'a', mode: 'alpha' } }, collide)).toEqual({
+			args: { either: { kind: 'a', mode: 'alpha' } },
+			resetKeys: []
+		})
+		expect(enforceDisabledDefaults({ either: { kind: 'b', mode: 'x' } }, collide)).toEqual({
+			args: { either: { kind: 'b', mode: 'beta' } },
+			resetKeys: ['either.mode']
+		})
+		// Untagged opens the first branch, so that is the default it must enforce.
+		expect(enforceDisabledDefaults({ either: { mode: 'x' } }, collide).args).toEqual({
+			either: { mode: 'alpha' }
+		})
 	})
 
 	it('reports only the arguments it actually overwrote', () => {

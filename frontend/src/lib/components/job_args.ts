@@ -17,14 +17,20 @@ export function enforceDisabledDefaults(
 	// it in place, and one branch returning the input would write through to their copy.
 	if (!schema?.properties) return { args: { ...args }, resetKeys: [] }
 	const resetKeys: string[] = []
-	const result = mapMatchingArgs(args, schema.properties, isLockedProp, (value, prop, path) => {
-		// An argument never supplied was not overwritten: the field shows the default
-		// either way, and a caller told otherwise would try to correct what it never sent.
-		// By value, since a default can be an object or an array: identity would report
-		// every run of such a field as overridden, the caller that got it right included.
-		if (value !== undefined && !deepEqual(value, prop.default)) resetKeys.push(path)
-		return prop.default
-	})
+	const result = mapMatchingArgs(
+		args,
+		schema.properties,
+		isLockedProp,
+		(value, prop, path) => {
+			// An argument never supplied was not overwritten: the field shows the default
+			// either way, and a caller told otherwise would try to correct what it never sent.
+			// By value, since a default can be an object or an array: identity would report
+			// every run of such a field as overridden, the caller that got it right included.
+			if (value !== undefined && !deepEqual(value, prop.default)) resetKeys.push(path)
+			return prop.default
+		},
+		true
+	)
 	return { args: result, resetKeys }
 }
 
@@ -120,7 +126,9 @@ function dropUndeclaredNested(value: any, prop: any, dropped: DroppedPaths, path
 	if (prop?.properties && !isArray) {
 		return dropUndeclaredArgs(value, prop.properties, dropped, path)
 	}
-	if (prop?.items?.properties && isArray) {
+	// Every declared element shape, not just an object one: the guards above are what drop
+	// an object in a scalar slot, so an element reaches them only by recursing here.
+	if (prop?.items && isArray) {
 		const kept: any[] = []
 		value.forEach((item: any, i: number) => {
 			const itemPath = `${path}[${i}]`
@@ -140,6 +148,13 @@ function dropUndeclaredNested(value: any, prop: any, dropped: DroppedPaths, path
 	return value
 }
 
+/** The `oneOf` branch the form shows: `ArgInput` opens the one the value's tag names,
+ * and the first branch when no tag names any. */
+function selectedOneOfBranch(value: any, oneOf: any[]): any {
+	const tag = ONE_OF_TAG_KEYS.map((key) => value?.[key]).find((v) => typeof v === 'string')
+	return oneOf.find((branch) => tag != null && branch?.title === tag) ?? oneOf[0]
+}
+
 /**
  * Rebuild `holder` with `visit` applied to every argument whose schema property matches
  * `isLeaf`, at any depth; returning `undefined` removes that argument.
@@ -148,12 +163,16 @@ function dropUndeclaredNested(value: any, prop: any, dropped: DroppedPaths, path
  * property, for each element of an object-typed array, and for a `oneOf` branch. A
  * matching field mounts the same way down any of them, so a level left unvisited here is
  * one the model can prefill.
+ *
+ * Set `selectedBranchOnly` for a visitor whose result comes from the property it is
+ * handed, so that a `oneOf` yields the branch the form shows rather than all of them.
  */
 function mapMatchingArgs(
 	holder: any,
 	properties: Record<string, any>,
 	isLeaf: (prop: any) => boolean,
 	visit: (value: unknown, prop: any, path: string) => unknown,
+	selectedBranchOnly = false,
 	path = '',
 	inOneOf = false
 ): any {
@@ -167,8 +186,8 @@ function mapMatchingArgs(
 		// A matching object is a leaf, not a level: a password object is stored whole as a
 		// single $jsonvar: reference, and a file is one opaque base64 string.
 		if (isLeaf(prop)) {
-			// Every oneOf branch is visited, so an absent argument under one belongs to a
-			// variant that was not selected: a visitor that writes would add it to the run.
+			// Reached only where every branch is visited, so an absent argument under one
+			// belongs to a variant nobody selected: writing it would add it to the run.
 			if (inOneOf && !Object.hasOwn(result, key)) continue
 			const mapped = visit(result[key], prop, keyPath)
 			if (mapped === undefined) delete result[key]
@@ -179,24 +198,44 @@ function mapMatchingArgs(
 		// leave the key behind holding undefined.
 		if (!Object.hasOwn(result, key)) continue
 		if (prop?.properties) {
-			result[key] = mapMatchingArgs(result[key], prop.properties, isLeaf, visit, keyPath, inOneOf)
+			result[key] = mapMatchingArgs(
+				result[key],
+				prop.properties,
+				isLeaf,
+				visit,
+				selectedBranchOnly,
+				keyPath,
+				inOneOf
+			)
 		} else if (prop?.items?.properties && Array.isArray(result[key])) {
 			result[key] = result[key].map((item: any, i: number) =>
-				mapMatchingArgs(item, prop.items.properties, isLeaf, visit, `${keyPath}[${i}]`, inOneOf)
+				mapMatchingArgs(
+					item,
+					prop.items.properties,
+					isLeaf,
+					visit,
+					selectedBranchOnly,
+					`${keyPath}[${i}]`,
+					inOneOf
+				)
 			)
 		} else if (Array.isArray(prop?.oneOf)) {
-			// Every branch, not the one the value's tag names: which branch is selected is
-			// runtime state, and a missing or stale tag must not decide whether an argument
-			// is visited.
-			for (const branch of prop.oneOf) {
+			// One branch or all of them, and the difference is the visitor: a value can carry
+			// a key from a variant nobody selected, so stripping has to reach every branch,
+			// while a default read off an unselected branch is one the form never showed.
+			const branches = selectedBranchOnly
+				? [selectedOneOfBranch(result[key], prop.oneOf)]
+				: prop.oneOf
+			for (const branch of branches) {
 				if (branch?.properties) {
 					result[key] = mapMatchingArgs(
 						result[key],
 						branch.properties,
 						isLeaf,
 						visit,
+						selectedBranchOnly,
 						keyPath,
-						true
+						!selectedBranchOnly
 					)
 				}
 			}
