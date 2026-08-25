@@ -93,7 +93,7 @@ import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import { sendUserToast } from '$lib/toast'
 import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-import { withRestoredPayloads, withoutHeavyPayloads } from './sessionMirrorPayload'
+import { withoutHeavyPayloads } from './sessionMirrorPayload'
 import {
 	broadcastMirror,
 	broadcastTurnEnd,
@@ -1017,6 +1017,13 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 // that reactive tracking of the array root would miss.
 const mirrorTimers = new Map<string, ReturnType<typeof setInterval>>()
 
+// Where the running turn's own messages start, per session. A frame never
+// reaches below it, which is what makes overwriting safe: everything at or after
+// it either is new this turn or is a stripped copy the watcher got from an
+// earlier frame of this same turn, so a frame can never replace a message the
+// watcher holds complete from the store. Reset to 0 by a rewrite (compaction),
+// after which no index is stable and whole transcripts travel instead.
+const turnStarts = new Map<string, number>()
 // The driver's transcript length at its last frame, so a shrink is detectable.
 const lastSentTotals = new Map<string, number>()
 
@@ -1031,10 +1038,14 @@ function mirrorSnapshotOf(sessionId: string, full: boolean): MirrorSnapshot | un
 	// lengths still line up. Send the whole thing instead.
 	const rewritten = total < (lastSentTotals.get(sessionId) ?? 0)
 	lastSentTotals.set(sessionId, total)
+	if (rewritten) turnStarts.set(sessionId, 0)
 	// Slice before cloning: `$state.snapshot` walks whatever it is handed, so
 	// snapshotting the whole transcript to send ten messages would traverse the
 	// entire conversation on every tick.
-	const baseIndex = mirrorBaseIndex(total, full || rewritten)
+	const baseIndex = Math.max(
+		turnStarts.get(sessionId) ?? 0,
+		mirrorBaseIndex(total, full || rewritten)
+	)
 	return {
 		sessionId,
 		chatId: m.historyManager.getCurrentChatId(),
@@ -1060,6 +1071,9 @@ function postMirror(sessionId: string, { full = false } = {}): void {
 function startMirroring(sessionId: string): void {
 	if (!RUN_OWNERSHIP_AVAILABLE) return
 	stopMirroring(sessionId)
+	// Captured before the turn pushes its first message, so it is the index of
+	// the oldest message this turn owns.
+	turnStarts.set(sessionId, runtimes.get(sessionId)?.manager.displayMessages.length ?? 0)
 	postMirror(sessionId)
 	mirrorTimers.set(
 		sessionId,
@@ -1073,6 +1087,7 @@ function stopMirroring(sessionId: string): void {
 	clearInterval(timer)
 	mirrorTimers.delete(sessionId)
 	lastSentTotals.delete(sessionId)
+	turnStarts.delete(sessionId)
 	// One last frame: the closing tokens of a turn usually land between ticks,
 	// and this is what the passive tabs render until their re-read completes.
 	postMirror(sessionId)
@@ -1102,12 +1117,12 @@ function applyMirror(msg: MirrorMsg): void {
 		m.historyManager.setCurrentChatId(msg.chatId)
 		setSessionChatId(msg.sessionId, msg.chatId)
 	}
-	// The frame's tail arrives stripped of attachment bytes; anything this tab
-	// already holds complete stays complete, so an earlier turn's screenshot does
-	// not blink out for the length of someone else's turn.
-	const tail = withRestoredPayloads(msg.tail, (i) => m.displayMessages[msg.baseIndex + i])
+	// Safe to overwrite wholesale: a frame reaches no further back than the
+	// running turn's first message, so everything it replaces is either new or a
+	// stripped copy of its own from an earlier frame — never a message this tab
+	// holds complete from the store.
 	m.displayMessages =
-		msg.baseIndex === 0 ? tail : [...m.displayMessages.slice(0, msg.baseIndex), ...tail]
+		msg.baseIndex === 0 ? msg.tail : [...m.displayMessages.slice(0, msg.baseIndex), ...msg.tail]
 	// The frame carries the rendered transcript but not the API-format history,
 	// so this manager is now holding a mismatched pair. Flag it: the save paths
 	// that run outside a turn would otherwise write that pair over the record the
@@ -1136,34 +1151,43 @@ async function applyTurnEnd(sessionId: string, chatId: string, committed: boolea
 	const runtime = runtimes.get(sessionId)
 	if (!runtime) return
 	const m = runtime.manager
-	// Cleared before the re-read, not after: loadPastChat refuses to run while
-	// the manager looks busy, and `loading` here is the mirrored driver's.
+	// `loading` has to go first: loadPastChat refuses to run while the manager
+	// looks busy, and this one is the mirrored driver's, not a turn of our own.
 	m.loading = false
-	// The re-read below restores a matched transcript/history pair.
-	m.mirroringRemoteRun = false
 	m.currentReply = ''
 	m.currentReasoning = ''
 	m.currentReasoningActive = false
 	m.loadingLabel = undefined
 	m.compacting = false
 	const id = chatId || m.historyManager.getCurrentChatId()
-	if (id && (await m.historyManager.reloadChat(id))) {
-		// `refresh`: this is the same conversation caught up from the store, so a
-		// message queued here while the other tab held the session is still meant
-		// for it — a plain load would drop it on the floor instead of sending it.
-		await m.loadPastChat(id, { refresh: true })
-	} else if (id && id !== m.historyManager.getCurrentChatId()) {
-		// The driver rotated to a chat with no record yet: it ran "/clear", or its
-		// turn rolled back to nothing. Either way this tab's transcript and model
-		// history belong to the conversation just left, and keeping them would
-		// send that history under the new id on the next turn.
-		m.adoptEmptyChat(id)
-		setSessionChatId(sessionId, id)
+	try {
+		if (!id) return
+		const found = await m.historyManager.reloadChat(id)
+		if (found === 'loaded') {
+			// `refresh`: the same conversation caught up from the store, so a message
+			// queued here while the other tab held the session is still meant for it.
+			// A plain load would drop it instead of sending it below.
+			await m.loadPastChat(id, { refresh: true })
+		} else if (found === 'missing') {
+			// The driver rotated to a chat that holds nothing: it ran "/clear", or its
+			// turn rolled back to empty. This tab's transcript and model history
+			// belong to the conversation just left, and keeping them would send that
+			// history to the model under the new id on the next turn.
+			m.adoptEmptyChat(id)
+			setSessionChatId(sessionId, id)
+		}
+		// 'unavailable' leaves everything as it is: the store is unreadable right
+		// now, which says nothing about the conversation.
+	} finally {
+		// Cleared only once the catch-up is done. Until then this manager still
+		// pairs a mirrored transcript with the pre-turn history, and the send and
+		// save paths gate on this flag to stay off that pair.
+		m.mirroringRemoteRun = false
 	}
 	// Anything typed here while the other tab held the session was queued rather
 	// than sent. Send it only after a turn that landed, which is the rule a turn
-	// follows locally: firing it into a failed turn, or into the gap left by a
-	// tab that vanished, is how a follow-up ends up answering nothing.
+	// follows locally: firing it into a failed turn, or into the gap left by a tab
+	// that vanished, is how a follow-up ends up answering nothing.
 	if (committed) await m.flushQueuedMessage()
 }
 

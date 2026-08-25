@@ -304,6 +304,24 @@ describe('AIChatManager cross-tab run guard', () => {
 		expect(saveChat).not.toHaveBeenCalled()
 	})
 
+	// The other tab's run has ended but this one is still reading what it left
+	// behind, so its transcript is mirrored while `messages` is the pre-turn
+	// history. A send in that window would put the stale history to the model and
+	// persist it over the completed turn.
+	it('refuses to send while still catching up on a finished remote turn', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.mirroringRemoteRun = true
+		const restoreInstructions = vi.fn(() => true)
+		manager.setAiChatInput({ restoreInstructions } as any)
+
+		const accepted = await manager.sendRequest({ instructions: 'too soon' })
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(accepted).toBe(false)
+		expect(restoreInstructions).toHaveBeenCalledWith('too soon', [], [], [])
+	})
+
 	// The composer hands its text over and clears itself before the send is even
 	// attempted, so a refusal that keeps no copy loses what the user typed.
 	it('hands a refused message back to the composer', async () => {

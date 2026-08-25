@@ -601,18 +601,23 @@ export default class HistoryManager {
 
 	/** Re-read one chat from the store into the in-memory mirror, for a record
 	 *  another tab wrote after this manager last read it. `init()` is the wrong
-	 *  tool: it re-reads the user's entire history to pick up a single chat. */
-	async reloadChat(id: string): Promise<boolean> {
+	 *  tool: it re-reads the user's entire history to pick up a single chat.
+	 *
+	 *  'missing' is a fact about the conversation (it holds nothing yet);
+	 *  'unavailable' is a fact about this browser. Callers act on the first and
+	 *  must not act on the second — treating a closed database as an empty chat
+	 *  would throw away a transcript that is merely unreadable right now. */
+	async reloadChat(id: string): Promise<'loaded' | 'missing' | 'unavailable'> {
 		const db = await this.dbh.whenReady()
-		if (!db) return false
+		if (!db) return 'unavailable'
 		try {
 			const chat = await db.get('chats', id)
-			if (!chat) return false
+			if (!chat) return 'missing'
 			this.savedChats = { ...this.savedChats, [id]: chat }
-			return true
+			return 'loaded'
 		} catch (err) {
 			console.error('Could not reload chat', err)
-			return false
+			return 'unavailable'
 		}
 	}
 

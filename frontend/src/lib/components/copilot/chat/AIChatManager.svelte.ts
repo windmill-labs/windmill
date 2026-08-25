@@ -1896,6 +1896,28 @@ export class AIChatManager {
 		void this.sendRequest({ instructions: text })
 	}
 
+	/** Hand a refused send's text back to the user. The composer takes the text
+	 *  and clears itself before the send is attempted, so a refusal that keeps no
+	 *  copy loses what they typed. An auto-sent queued message is excluded: the
+	 *  caller reports the failure instead, which puts that one back on the queue.
+	 */
+	private restoreRefusedSend(
+		options: NonNullable<Parameters<typeof this.sendRequestImpl>[0]>
+	): void {
+		if (options.queued) return
+		const restored = this.aiChatInput?.restoreInstructions(
+			options.instructions ?? '',
+			options.pastes ?? [],
+			options.images ?? [],
+			options.files ?? []
+		)
+		// No composer mounted (a programmatic send): park it on the queue so it is
+		// still the user's to send rather than silently gone.
+		if (restored !== true && options.instructions) {
+			this.restoreToInput(options.instructions, options.images, options.files)
+		}
+	}
+
 	/** Send the queued message, if there is one, as its own turn. Also the path a
 	 *  tab takes when the turn it was watching ends in another tab: the queue was
 	 *  filled here while that run held the session, and it is owed the same
@@ -2845,6 +2867,15 @@ export class AIChatManager {
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
 			return
 		}
+		// Still holding a mirrored transcript against the pre-turn history: the
+		// other tab's run has ended but this one has not finished reading what it
+		// left behind. Sending now would put that stale history to the model and
+		// persist it over the driver's completed turn.
+		if (this.mirroringRemoteRun) {
+			this.restoreRefusedSend(options)
+			sendUserToast('Catching up on the turn that just finished. Try again in a moment.', true)
+			return false
+		}
 		this.#sendsInFlight++
 		try {
 			// A guarded turn re-enters this method for the sends it spawns itself
@@ -2864,23 +2895,7 @@ export class AIChatManager {
 				}
 			})
 			if (outcome !== 'busy') return outcome
-			// Refused: the body never ran. The composer already took the text on
-			// submit, so hand it back rather than let the refusal eat it — an
-			// auto-sent queued message is excluded, since reporting the failure
-			// below is what puts that one back on the queue.
-			if (!options.queued) {
-				const restored = this.aiChatInput?.restoreInstructions(
-					options.instructions ?? '',
-					options.pastes ?? [],
-					options.images ?? [],
-					options.files ?? []
-				)
-				// No composer mounted (a programmatic send): park it on the queue so
-				// it is still the user's to send rather than silently gone.
-				if (restored !== true && options.instructions) {
-					this.restoreToInput(options.instructions, options.images, options.files)
-				}
-			}
+			this.restoreRefusedSend(options)
 			return false
 		} finally {
 			this.#sendsInFlight--
