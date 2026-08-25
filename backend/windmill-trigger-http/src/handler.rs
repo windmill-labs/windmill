@@ -570,8 +570,8 @@ impl TriggerCrud for HttpTrigger {
                 route_path,
                 &route_path_key,
                 Some(effective_workspaced),
-                trigger.config.wrap_body,
-                trigger.config.raw_string,
+                trigger.config.wrap_body.unwrap_or(false),
+                trigger.config.raw_string.unwrap_or(false),
                 trigger.config.authentication_resource_path,
                 trigger.base.script_path,
                 trigger.base.path,
@@ -626,8 +626,8 @@ impl TriggerCrud for HttpTrigger {
                 workspace_id = $20 AND
                 path = $21
             "#,
-                trigger.config.wrap_body,
-                trigger.config.raw_string,
+                trigger.config.wrap_body.unwrap_or(false),
+                trigger.config.raw_string.unwrap_or(false),
                 trigger.config.authentication_resource_path,
                 trigger.base.script_path,
                 trigger.base.path,
