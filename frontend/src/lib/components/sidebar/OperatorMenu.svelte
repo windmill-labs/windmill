@@ -338,16 +338,25 @@
 								{#if extraTriggerLinks.length}<div>
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
-											class="flex flex-row gap-3.5 items-center px-2 py-2 w-full text-secondary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer"
-											role="button"
-											tabindex="0"
-											onclick={(e) => {
-												e.stopPropagation()
+											onclickcapture={(e) => {
+												// This row expands the list below it instead of acting on the selection, and
+												// melt keeps the menu open only for a click it sees as defaultPrevented.
+												// Svelte delegates onclick to the root, which runs after melt's own listener,
+												// so the capture phase on this wrapper is what gets there first.
+												e.preventDefault()
 												showExtraTriggers = !showExtraTriggers
 											}}
 										>
-											<Plus size={12} />
-											<span class="text-2xs">More triggers</span>
+											<MenuItem
+												class={twMerge(
+													'flex flex-row gap-3.5 items-center px-2 py-2 w-full text-secondary text-2xs cursor-pointer',
+													'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+												)}
+												{item}
+											>
+												<Plus size={12} />
+												<span class="text-2xs">More triggers</span>
+											</MenuItem>
 										</div>
 										{#if showExtraTriggers}
 											{#each extraTriggerLinks as menuLink (menuLink.href)}
