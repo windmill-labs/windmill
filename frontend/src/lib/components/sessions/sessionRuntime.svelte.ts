@@ -93,6 +93,7 @@ import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import { sendUserToast } from '$lib/toast'
 import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+import { withoutHeavyPayloads } from './sessionMirrorPayload'
 import {
 	broadcastMirror,
 	broadcastTurnEnd,
@@ -937,19 +938,27 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// turns interleave into one chat id.
 	manager.runGuard = async (body) => {
 		const outcome = await withSessionRunLock(session.id, async () => {
+			// The whole turn protocol rides on ownership, not just the frames: a
+			// turn-end announced without it would reach tabs that were never
+			// mirroring and end a run of their own that is still going.
+			if (!RUN_OWNERSHIP_AVAILABLE) return body()
 			// The first frame doubles as the "a run started here" signal: it is
 			// posted immediately and carries the chat id the watchers need.
 			startMirroring(session.id)
-			let committed = false
 			try {
-				const result = await body()
-				committed = result !== false
-				return result
+				return await body()
 			} finally {
 				stopMirroring(session.id)
 				// The chat id is re-read here, not reused from above: the turn may
 				// have rotated it, and the listeners key their IndexedDB re-read on it.
-				broadcastTurnEnd(session.id, manager.historyManager.getCurrentChatId(), committed)
+				broadcastTurnEnd(
+					session.id,
+					manager.historyManager.getCurrentChatId(),
+					// Not "did the send return truthy": that means the input was
+					// consumed, and stays true through provider errors and rollbacks.
+					// The manager reports the rule it applies to its own queue.
+					manager.lastTurnAcceptsFollowUp
+				)
 			}
 		})
 		if (outcome === 'busy') {
@@ -1007,27 +1016,6 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 // still ticks), and it picks up in-place edits to already-rendered tool cards
 // that reactive tracking of the array root would miss.
 const mirrorTimers = new Map<string, ReturnType<typeof setInterval>>()
-
-// Attachments a frame does not carry. They are bounded only by the upload caps
-// (megabytes of base64 per image, and again per pasted file), they sit in the
-// tail unchanged for the whole turn, and a frame goes out several times a
-// second — so shipping them would re-clone and re-post the same bytes on every
-// tick. Watchers render a placeholder until the turn ends, where the IndexedDB
-// re-read hands them the real thing.
-function withoutHeavyPayloads(messages: DisplayMessage[]): DisplayMessage[] {
-	return messages.map((message) => {
-		const images = 'images' in message ? message.images : undefined
-		const files = 'files' in message ? message.files : undefined
-		const imageUrl = 'imageUrl' in message ? message.imageUrl : undefined
-		if (!images?.length && !files?.length && !imageUrl) return message
-		return {
-			...message,
-			...(images?.length ? { images: images.map((i) => ({ ...i, url: '' })) } : {}),
-			...(files?.length ? { files: files.map((f) => ({ ...f, content: '' })) } : {}),
-			...(imageUrl ? { imageUrl: '' } : {})
-		} as DisplayMessage
-	})
-}
 
 // The driver's transcript length at its last frame, so a shrink is detectable.
 const lastSentTotals = new Map<string, number>()

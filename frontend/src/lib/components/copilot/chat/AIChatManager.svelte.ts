@@ -701,6 +701,14 @@ export class AIChatManager {
 	 *  session runtime. */
 	mirroringRemoteRun = $state(false)
 
+	/** Whether the turn that just finished is one a follow-up should be sent
+	 *  after: it committed, or the user deliberately stopped it. False through a
+	 *  provider error, an empty-response rollback, or a programmatic cancel — the
+	 *  states this manager deliberately keeps its own queued message through. The
+	 *  session runtime reports it to the other tabs, whose queues follow the same
+	 *  rule. */
+	lastTurnAcceptsFollowUp = false
+
 	// Workspace items the CURRENT chat modified via AI tool calls, as
 	// `${UserDraftItemKind}:${storagePath}` keys (see modifiedItemsMask.ts).
 	// undefined = untracked: only the global side-panel chat (never initialised),
@@ -781,7 +789,10 @@ export class AIChatManager {
 	// turn-end save.
 	#maskPersistQueue: Promise<void> = Promise.resolve()
 	#persistModifiedItems(): Promise<void> {
-		// Runs outside any turn, so the run guard never sees it.
+		// Runs outside any turn, so the run guard never sees it. Dropped rather
+		// than deferred: the re-read when the run ends reseeds the mask from the
+		// driving tab's record, so a write held back here would be overwritten by
+		// it anyway — and writing now would put a mismatched pair in the record.
 		if (this.mirroringRemoteRun) return this.#maskPersistQueue
 		this.#maskPersistQueue = this.#maskPersistQueue.then(() =>
 			this.historyManager
@@ -2925,6 +2936,9 @@ export class AIChatManager {
 		// send exits before install. Kept in a mutable local so every exit path
 		// releases the right key.
 		let reservationKey = options.resendReservationKey
+		// Cleared up front so an exit before the verdict below (a refused mode, a
+		// pre-flight throw) reports this turn rather than the previous one's.
+		this.lastTurnAcceptsFollowUp = false
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
 			this.#releaseOutgoingReservation(reservationKey)
@@ -3812,7 +3826,8 @@ export class AIChatManager {
 		// empty-response rollback, or a programmatic cancel (panel teardown,
 		// save-and-clear) leaves it in place as a card so it isn't fired into a
 		// failed or torn-down turn.
-		if (turnCommittedCleanly || this.wasCancelledByUser()) {
+		this.lastTurnAcceptsFollowUp = turnCommittedCleanly || this.wasCancelledByUser()
+		if (this.lastTurnAcceptsFollowUp) {
 			await this.flushQueuedMessage()
 		}
 		// A background job may have finished mid-turn: its note missed this turn's
