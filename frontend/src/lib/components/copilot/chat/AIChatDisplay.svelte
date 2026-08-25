@@ -651,7 +651,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/snippet}
 				</Popover>
 				<Button
-					title="New chat"
+					title={aiChatManager.mirroringRemoteRun
+						? 'This session is running in another tab'
+						: 'New chat'}
+					disabled={aiChatManager.mirroringRemoteRun}
 					on:click={() => {
 						saveAndClear()
 					}}

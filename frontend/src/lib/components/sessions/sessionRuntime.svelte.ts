@@ -93,7 +93,7 @@ import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import { sendUserToast } from '$lib/toast'
 import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-import { withoutHeavyPayloads } from './sessionMirrorPayload'
+import { withRestoredPayloads, withoutHeavyPayloads } from './sessionMirrorPayload'
 import {
 	broadcastMirror,
 	broadcastTurnEnd,
@@ -1039,7 +1039,9 @@ function mirrorSnapshotOf(sessionId: string, full: boolean): MirrorSnapshot | un
 		sessionId,
 		chatId: m.historyManager.getCurrentChatId(),
 		baseIndex,
-		tail: withoutHeavyPayloads($state.snapshot(m.displayMessages.slice(baseIndex)) as DisplayMessage[]),
+		tail: withoutHeavyPayloads(
+			$state.snapshot(m.displayMessages.slice(baseIndex)) as DisplayMessage[]
+		),
 		total,
 		loading: m.loading,
 		currentReply: m.currentReply,
@@ -1085,7 +1087,8 @@ function applyMirror(msg: MirrorMsg): void {
 	if (!runtime) return
 	const m = runtime.manager
 	const onSameChat = m.historyManager.getCurrentChatId() === msg.chatId
-	const prefixFits = m.displayMessages.length >= msg.baseIndex && m.displayMessages.length <= msg.total
+	const prefixFits =
+		m.displayMessages.length >= msg.baseIndex && m.displayMessages.length <= msg.total
 	if (msg.baseIndex > 0 && !(onSameChat && prefixFits)) {
 		// Nothing here can host this tail: this tab joined mid-run, or the driver
 		// rotated to a chat it isn't on. Ask for the whole transcript instead of
@@ -1099,8 +1102,12 @@ function applyMirror(msg: MirrorMsg): void {
 		m.historyManager.setCurrentChatId(msg.chatId)
 		setSessionChatId(msg.sessionId, msg.chatId)
 	}
+	// The frame's tail arrives stripped of attachment bytes; anything this tab
+	// already holds complete stays complete, so an earlier turn's screenshot does
+	// not blink out for the length of someone else's turn.
+	const tail = withRestoredPayloads(msg.tail, (i) => m.displayMessages[msg.baseIndex + i])
 	m.displayMessages =
-		msg.baseIndex === 0 ? msg.tail : [...m.displayMessages.slice(0, msg.baseIndex), ...msg.tail]
+		msg.baseIndex === 0 ? tail : [...m.displayMessages.slice(0, msg.baseIndex), ...tail]
 	// The frame carries the rendered transcript but not the API-format history,
 	// so this manager is now holding a mismatched pair. Flag it: the save paths
 	// that run outside a turn would otherwise write that pair over the record the
@@ -1140,10 +1147,19 @@ async function applyTurnEnd(sessionId: string, chatId: string, committed: boolea
 	m.loadingLabel = undefined
 	m.compacting = false
 	const id = chatId || m.historyManager.getCurrentChatId()
-	// `refresh`: this is the same conversation caught up from the store, so a
-	// message queued here while the other tab held the session is still meant for
-	// it — a plain load would drop it on the floor instead of sending it below.
-	if (id && (await m.historyManager.reloadChat(id))) await m.loadPastChat(id, { refresh: true })
+	if (id && (await m.historyManager.reloadChat(id))) {
+		// `refresh`: this is the same conversation caught up from the store, so a
+		// message queued here while the other tab held the session is still meant
+		// for it — a plain load would drop it on the floor instead of sending it.
+		await m.loadPastChat(id, { refresh: true })
+	} else if (id && id !== m.historyManager.getCurrentChatId()) {
+		// The driver rotated to a chat with no record yet: it ran "/clear", or its
+		// turn rolled back to nothing. Either way this tab's transcript and model
+		// history belong to the conversation just left, and keeping them would
+		// send that history under the new id on the next turn.
+		m.adoptEmptyChat(id)
+		setSessionChatId(sessionId, id)
+	}
 	// Anything typed here while the other tab held the session was queued rather
 	// than sent. Send it only after a turn that landed, which is the rule a turn
 	// follows locally: firing it into a failed turn, or into the gap left by a

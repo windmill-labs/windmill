@@ -4093,6 +4093,22 @@ export class AIChatManager {
 		}
 	}
 
+	/** Point this manager at a conversation that has no stored record yet, with
+	 *  nothing in it. For a tab catching up on a chat rotation another tab made
+	 *  ("/clear", or a turn that rolled back to empty): its transcript and model
+	 *  history belong to the conversation just left, and carrying them into the
+	 *  new id would send that history back to the model and persist it there. */
+	adoptEmptyChat = (chatId: string) => {
+		this.historyManager.setCurrentChatId(chatId)
+		this.displayMessages = []
+		this.messages = []
+		this.contextUsage = undefined
+		this.clearBackgroundJobs()
+		if (this.modifiedItems) this.modifiedItems = new SvelteSet()
+		this.#syncMessageFiles()
+		this.planMode.resetRound()
+	}
+
 	private syncArtifactsSession = () => {
 		void this.artifacts.setSession(this.isSessionChat ? this.sessionId : undefined)
 	}
