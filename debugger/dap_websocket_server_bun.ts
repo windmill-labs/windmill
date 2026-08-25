@@ -1651,9 +1651,9 @@ export class DebugSession {
 		try {
 			await this.startBunProcess(cwd)
 		} catch (error) {
-			// Reachable after a successful run: a command still in flight when the script ended
-			// rejects on its own timer, long after onclose reported the termination. Saying the
-			// launch failed at that point contradicts the result the client already has.
+			// A launch failure is reported here, a finished script from onclose; whichever gets
+			// there first owns the terminated event, so a client that already has a result is
+			// never told afterwards that the launch failed.
 			if (!this.terminatedSent) {
 				this.terminatedSent = true
 				this.sendEvent('output', { category: 'stderr', output: `Failed to start Bun: ${error}\n` })
@@ -2046,12 +2046,16 @@ export class DebugSession {
 					await this.applyBreakpointsByUrl()
 
 					this.running = true
-					executionStarted = true
 
 					// CRITICAL: Call Inspector.initialized to start script execution
 					// Without this, Bun waits indefinitely with --inspect-wait
 					logger.info('Starting script execution with Inspector.initialized...')
 					await this.sendInspectorCommand('Inspector.initialized', {})
+
+					// Only past its reply is a later close a finished script rather than a lost
+					// connection. The reply precedes any close on this socket, so the continuation
+					// runs first and a real run is never misread as a failure.
+					executionStarted = true
 
 					resolve()
 				} catch (error) {
