@@ -1480,6 +1480,7 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		// Kept apart from the ranked hits rather than counted off the end, so capping
 		// below can keep the best of each instead of whatever the tail happens to hold.
 		let mentioned: HubScriptHit[] = []
+		let namedSlug: string | undefined
 		if (query) {
 			ranked = await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
 			// Ranking can bury an integration the query names: "look up an account in
@@ -1487,12 +1488,12 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 			// "Salesforce" too. Add its own hits rather than filtering to it, so a word
 			// that merely looks like a slug costs a few rows instead of the whole result.
 			if (!app) {
-				const named = await integrationNamedIn(query)
-				if (named && !ranked.some((s) => s.app === named)) {
+				namedSlug = await integrationNamedIn(query)
+				if (namedSlug && !ranked.some((s) => s.app === namedSlug)) {
 					const own = await ScriptService.queryHubScripts({
 						text: query,
 						kind: 'script',
-						app: named
+						app: namedSlug
 					})
 					mentioned = own.slice(0, MAX_MENTIONED_INTEGRATION_HITS)
 				}
@@ -1525,7 +1526,17 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		let matches = scripts
 		if (withContent && scripts.length > MAX_FETCHED_HUB_SCRIPTS) {
 			const keep = mentioned.slice(0, MAX_FETCHED_HUB_SCRIPTS - 1)
-			matches = [...ranked.slice(0, MAX_FETCHED_HUB_SCRIPTS - keep.length), ...keep]
+			let head = ranked.slice(0, MAX_FETCHED_HUB_SCRIPTS - keep.length)
+			// Ranking can place the named integration just below the cap, in which case
+			// no hits were fetched for it and trimming would drop it altogether.
+			const buried =
+				!keep.length && namedSlug && !head.some((s) => s.app === namedSlug)
+					? ranked.find((s) => s.app === namedSlug)
+					: undefined
+			if (buried) {
+				head = [...head.slice(0, head.length - 1), buried]
+			}
+			matches = [...head, ...keep]
 		}
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Found ${matches.length} hub script${matches.length === 1 ? '' : 's'} for ${subject}`

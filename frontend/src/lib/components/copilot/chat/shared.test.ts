@@ -1470,6 +1470,34 @@ describe('createSearchHubScriptsTool', () => {
 		expect(JSON.parse(raw).results.map((r: any) => r.summary)).toEqual(['A', 'Best', 'Second'])
 	})
 
+	// A named integration ranked just below the cap gets no dedicated lookup, so the
+	// content trim is the only thing standing between it and being dropped entirely.
+	it('keeps a named integration that ranking placed below the cap', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async () => [
+				hit(1, 'netlify', 'Create ticket'),
+				hit(2, 'zendesk', 'Create Ticket'),
+				hit(3, 'intercom', 'Create a ticket'),
+				hit(4, 'jira', 'Create issue')
+			]),
+			getHubScriptByPath: vi.fn(async () => ({ content: '// x', language: 'bun' }))
+		})
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'jira' }, { name: 'netlify' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool(true).fn({
+			args: { query: 'create a jira ticket' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).results.map((r: any) => r.integration)).toContain('jira')
+	})
+
 	// Ranking buries an integration the query names when other integrations' scripts
 	// mention it: none of Salesforce's own scripts come back for "an account in
 	// salesforce", because Pinterest's summaries say Salesforce too.

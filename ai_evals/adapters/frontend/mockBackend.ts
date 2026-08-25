@@ -1290,7 +1290,8 @@ function benchmarkDerivedFacts(app: string) {
     script_counts: {
       total: scripts.length,
       by_kind: scripts.reduce<Record<string, number>>((acc, script) => {
-        acc[script.kind] = (acc[script.kind] ?? 0) + 1;
+        const kind = script.kind ?? "script";
+        acc[kind] = (acc[kind] ?? 0) + 1;
         return acc;
       }, {}),
     },
@@ -1300,7 +1301,7 @@ function benchmarkDerivedFacts(app: string) {
       version_id: script.version_id,
       summary: script.summary,
       description: script.description ?? null,
-      kind: script.kind,
+      kind: script.kind ?? "script",
       language: script.language,
       views: 0,
       votes: 0,
