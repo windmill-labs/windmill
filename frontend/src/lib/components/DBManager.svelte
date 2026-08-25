@@ -170,6 +170,14 @@
 	// without schemas has nothing to put between a data table and its tables.
 	const currentDatatable = $derived(asset?.kind === 'datatable' ? asset.path : undefined)
 
+	/** Favourites are keyed by the table's own asset URI, so a row under another
+	 * data table must not borrow the one the manager is currently pointed at. */
+	function tableAssetPath(datatable: string | undefined, schemaKey: string, tableKey: string) {
+		const kind = datatable !== undefined ? 'datatable' : asset!.kind
+		const path = datatable ?? asset!.path
+		return `${kind}://${path === 'main' ? '' : path}/${schemaKey}.${tableKey}`
+	}
+
 	/** Tables per schema for a data table, as `schema -> table[]`. */
 	function schemasOf(datatable: string | undefined): Record<string, string[]> {
 		// The open data table reads from `dbSchema`, which is refetched after a DDL;
@@ -566,7 +574,7 @@
 										<span class="-ml-1 flex shrink-0">
 											<Star
 												kind="asset"
-												path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${sc.schemaKey}.${tableKey}`}
+												path={tableAssetPath(root.datatable, sc.schemaKey, tableKey)}
 											/>
 										</span>
 									{:else}
