@@ -47,7 +47,12 @@ import {
 	STARTER_RUNNABLE_KEY,
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
-import { conformArgsToSchema, redactSecretArgs, stripSecretArgs } from '$lib/components/job_args'
+import {
+	conformArgsToSchema,
+	redactFileArgs,
+	redactSecretArgs,
+	stripSecretArgs
+} from '$lib/components/job_args'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
@@ -5442,8 +5447,8 @@ async function testRunScriptByPath(
 const RUN_FORM_CANCELLED =
 	'The user cancelled the run form. The script did NOT run. Do not call run_script again unless the user asks for it.'
 
-/** The model only needs to see what the user changed, and a form can carry a base64
- * file argument — unbounded, this would eat the window with one attachment. */
+/** The model only needs to see what the user changed, and nothing bounds an object or
+ * array argument the form let them paste into. */
 const MAX_SUBMITTED_ARGS_LENGTH = 4000
 
 async function runDeployedScript(
@@ -5474,6 +5479,9 @@ async function runDeployedScript(
 	toolCallbacks.setToolStatus(toolId, {
 		content: `Waiting for you to confirm the arguments of "${args.path}"`,
 		runForm: form,
+		// Not the raw tool-call arguments: the card settles on what the form opened with.
+		// Only settles it — the raw proposal still renders while the call streams in.
+		parameters: proposed,
 		isLoading: true
 	})
 
@@ -5505,7 +5513,7 @@ async function runDeployedScript(
 	}
 
 	// The card's details pane must show what ran, not what was proposed.
-	toolCallbacks.setToolStatus(toolId, { parameters: submitted })
+	toolCallbacks.setToolStatus(toolId, { parameters: redactFileArgs(submitted, schema as any) })
 
 	const outcome = await executeTestRun({
 		jobStarter: () =>
@@ -5524,7 +5532,9 @@ async function runDeployedScript(
 		: ''
 	// Redacted: a variable path is enough to run a job on a value the model cannot read,
 	// and one shown a path proposes it back on the next call.
-	const submittedJson = JSON.stringify(redactSecretArgs(submitted, schema as any))
+	const submittedJson = JSON.stringify(
+		redactFileArgs(redactSecretArgs(submitted, schema as any), schema as any)
+	)
 	const shown =
 		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH
 			? submittedJson.slice(0, MAX_SUBMITTED_ARGS_LENGTH) + '... (truncated)'

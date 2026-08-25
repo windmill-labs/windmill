@@ -33,12 +33,13 @@ export function conformArgsToSchema(
 	schema: { properties?: Record<string, any> } | undefined
 ): { args: Record<string, any>; resetKeys: string[]; droppedKeys: string[] } {
 	const properties = schema?.properties ?? {}
-	const known: Record<string, any> = {}
+	// hasOwn, not `in`: every object inherits `constructor` and `toString`, so `in` would
+	// wave through arguments no schema declares. Null prototype for the same reason from
+	// the other side: assigning a declared `__proto__` into a plain `{}` reaches the
+	// inherited setter instead, and the argument vanishes unreported.
+	const known: Record<string, any> = Object.create(null)
 	const droppedKeys: string[] = []
 	for (const [key, value] of Object.entries(args ?? {})) {
-		// hasOwn, not `in`: every object inherits `constructor`, `toString` and
-		// `__proto__`, so `in` would wave through arguments no schema declares —
-		// and assigning `__proto__` would mutate the accumulator instead of it.
 		if (Object.hasOwn(properties, key)) {
 			known[key] = value
 		} else {
@@ -50,32 +51,64 @@ export function conformArgsToSchema(
 }
 
 /**
- * Rebuild `holder` with `visit` applied to every password-typed argument the schema
- * declares, at any depth; returning `undefined` removes that argument.
+ * Rebuild `holder` with `visit` applied to every argument whose schema property matches
+ * `isLeaf`, at any depth; returning `undefined` removes that argument.
  *
- * Recursive because the form is: `ArgInput` renders a nested `SchemaForm` for any object
- * property declaring properties of its own. Password props inside `items` or a `oneOf`
- * branch mount through a different path and are not reached — a known limit.
+ * Recursive because the form is: `ArgInput` mounts a nested `SchemaForm` for an object
+ * property, for each element of an object-typed array, and for a `oneOf` branch. A
+ * matching field mounts the same way down any of them, so a level left unvisited here is
+ * one the model can prefill.
  */
-function mapSecretArgs(
+function mapMatchingArgs(
 	holder: any,
 	properties: Record<string, any>,
+	isLeaf: (prop: any) => boolean,
 	visit: (value: unknown) => unknown
 ): any {
 	if (holder == null || typeof holder !== 'object' || Array.isArray(holder)) return holder
 	const result = { ...holder }
 	for (const [key, prop] of Object.entries<any>(properties)) {
-		// A password-typed object is a leaf, not a level: it is stored whole as one
-		// $jsonvar: reference rather than field by field.
-		if (prop?.password) {
+		// A matching object is a leaf, not a level: a password object is stored whole as a
+		// single $jsonvar: reference, and a file is one opaque base64 string.
+		if (isLeaf(prop)) {
 			const mapped = visit(result[key])
 			if (mapped === undefined) delete result[key]
 			else result[key] = mapped
-		} else if (prop?.properties) {
-			result[key] = mapSecretArgs(result[key], prop.properties, visit)
+			continue
+		}
+		// Absent means the form never carried this level; recursing would rebuild it and
+		// leave the key behind holding undefined.
+		if (!Object.hasOwn(result, key)) continue
+		if (prop?.properties) {
+			result[key] = mapMatchingArgs(result[key], prop.properties, isLeaf, visit)
+		} else if (prop?.items?.properties && Array.isArray(result[key])) {
+			result[key] = result[key].map((item: any) =>
+				mapMatchingArgs(item, prop.items.properties, isLeaf, visit)
+			)
+		} else if (Array.isArray(prop?.oneOf)) {
+			// Every branch, not the one the value's tag names: which branch is selected is
+			// runtime state, and a missing or stale tag must not decide whether an argument
+			// is visited.
+			for (const branch of prop.oneOf) {
+				if (branch?.properties) {
+					result[key] = mapMatchingArgs(result[key], branch.properties, isLeaf, visit)
+				}
+			}
 		}
 	}
 	return result
+}
+
+const isSecretProp = (prop: any) => !!prop?.password
+
+const isFileProp = (prop: any) =>
+	prop?.contentEncoding === 'base64' || prop?.items?.contentEncoding === 'base64'
+
+function fileMarker(base64: string): string {
+	const bytes = Math.floor((base64.length * 3) / 4)
+	return bytes < 1024 * 1024
+		? `<file: ${Math.max(1, Math.round(bytes / 1024))} KB>`
+		: `<file: ${(bytes / 1024 / 1024).toFixed(1)} MB>`
 }
 
 /**
@@ -88,7 +121,7 @@ export function stripSecretArgs(
 ): Record<string, any> {
 	const properties = schema?.properties
 	if (!properties) return args
-	return mapSecretArgs(args, properties, () => undefined)
+	return mapMatchingArgs(args, properties, isSecretProp, () => undefined)
 }
 
 /**
@@ -101,7 +134,26 @@ export function redactSecretArgs(
 ): Record<string, any> {
 	const properties = schema?.properties
 	if (!properties) return args
-	return mapSecretArgs(args, properties, (value) => (value == null ? undefined : '<hidden>'))
+	return mapMatchingArgs(args, properties, isSecretProp, (value) =>
+		value == null ? undefined : '<hidden>'
+	)
+}
+
+/**
+ * Replace every file argument with a marker naming its size. The base64 belongs in the
+ * job request and nowhere else: rendered it is unreadable, persisted it is unbounded, and
+ * a file small enough to survive truncation reaches the model whole.
+ */
+export function redactFileArgs(
+	args: Record<string, any>,
+	schema: { properties?: Record<string, any> } | undefined
+): Record<string, any> {
+	const properties = schema?.properties
+	if (!properties) return args
+	const mark = (value: unknown) => (typeof value === 'string' ? fileMarker(value) : value)
+	return mapMatchingArgs(args, properties, isFileProp, (value) =>
+		Array.isArray(value) ? value.map(mark) : mark(value)
+	)
 }
 
 export function isWindmillTooBigObject(obj: any): boolean {

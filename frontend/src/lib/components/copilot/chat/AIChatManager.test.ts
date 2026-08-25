@@ -243,6 +243,7 @@ describe('AIChatManager run form', () => {
 			}
 		]
 		expect(manager.isRunFormPending('call_r')).toBe(false)
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
 
 		manager.handleRunFormCancel('call_r')
 
@@ -251,6 +252,9 @@ describe('AIChatManager run form', () => {
 		expect(settled.runForm?.canceled).toBe(true)
 		expect(settled.isLoading).toBe(false)
 		expect(pendingUserAction(manager.displayMessages)).toBe(undefined)
+		// No turn is left to save it: unpersisted, the next load restores it pending.
+		expect(saveChat).toHaveBeenCalledOnce()
+		expect(saveChat.mock.calls[0][0][0].runForm?.canceled).toBe(true)
 	})
 
 	// Stop ends the turn, not the job: the deployed script is already running with all

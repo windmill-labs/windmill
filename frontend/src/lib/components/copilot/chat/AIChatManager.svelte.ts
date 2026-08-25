@@ -1836,6 +1836,11 @@ export class AIChatManager {
 				: message
 		)
 		if (!callback) {
+			// Nothing will resume the turn, so no later save carries this settled card the
+			// way the live path's end-of-turn write does.
+			void this.historyManager
+				.saveChat(this.displayMessages, this.messages, this.contextUsage)
+				.catch((e) => console.error('Failed to persist cancelled run form', e))
 			return
 		}
 		callback(undefined)
