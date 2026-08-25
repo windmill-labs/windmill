@@ -7,19 +7,22 @@
 
 	interface Props {
 		allowed_origins: string[] | undefined
+		/** Bound so the editor can block saving while the list is unusable. */
+		error?: string | undefined
 		disabled?: boolean
 		testingBadge?: Snippet | undefined
 	}
 
 	let {
 		allowed_origins = $bindable(),
+		error = $bindable(),
 		disabled = false,
 		testingBadge = undefined
 	}: Props = $props()
 
 	// The text field is the editing surface, `allowed_origins` the saved value.
 	// Keeping them separate lets a half-typed entry stay on screen while the
-	// trigger config holds only what parses.
+	// trigger config holds the parsed list.
 	let raw = $state(allowed_origins?.join(', ') ?? '')
 	let restricted = $state(allowed_origins !== undefined)
 
@@ -47,10 +50,25 @@
 	}
 
 	let origins = $derived(parse(raw))
-	let error = $derived(origins.map(originError).find((error) => error !== undefined))
+	// Split from `error` so an entry that is merely still empty reads as a hint
+	// rather than a rejection: both block the save, only one is a mistake.
+	let malformed = $derived(
+		restricted ? origins.map(originError).find((message) => message !== undefined) : undefined
+	)
 
 	$effect(() => {
-		allowed_origins = restricted && !error && origins.length > 0 ? origins : undefined
+		error = restricted
+			? (malformed ?? (origins.length === 0 ? 'Enter at least one origin' : undefined))
+			: undefined
+	})
+
+	// While the toggle is on, whatever is typed is what gets saved — a rejected
+	// entry must never collapse to `undefined`, because `undefined` is stored as
+	// NULL and NULL means "any origin". A typo would otherwise lift the
+	// restriction while the toggle still reads as on. `error` blocks the save,
+	// and the backend rejects the same values if one ever gets past it.
+	$effect(() => {
+		allowed_origins = restricted ? origins : undefined
 	})
 </script>
 
@@ -80,13 +98,15 @@
 		<TextInput
 			bind:value={raw}
 			inputProps={{ autocomplete: 'off', disabled, placeholder: 'https://app.example.com' }}
-			error={error !== undefined}
+			error={malformed !== undefined}
 		/>
 		<div class="text-2xs text-secondary">
 			Separate origins with commas. Use * to allow any origin.
 		</div>
-		{#if error}
-			<div class="text-2xs text-red-600 dark:text-red-400">{error}</div>
+		{#if malformed}
+			<div class="text-2xs text-red-600 dark:text-red-400">{malformed}</div>
+		{:else if error}
+			<div class="text-2xs text-hint">{error}</div>
 		{/if}
 	{/if}
 </Label>

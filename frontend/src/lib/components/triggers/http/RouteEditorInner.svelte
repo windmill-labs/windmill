@@ -112,6 +112,7 @@
 	let raw_string = $state(false)
 	let wrap_body = $state(false)
 	let allowed_origins = $state<string[] | undefined>(undefined)
+	let allowedOriginsError = $state<string | undefined>(undefined)
 	let drawerLoading = $state(true)
 	let showLoader = $state(false)
 	let authentication_resource_path = $state('')
@@ -162,6 +163,7 @@
 			!can_write ||
 			pathError != '' ||
 			!isValid ||
+			allowedOriginsError != undefined ||
 			(!static_asset_config && emptyString(script_path)) ||
 			!hasChanged
 	)
@@ -967,7 +969,12 @@
 										{testingBadge}
 									/>
 
-									<RouteCorsOption bind:allowed_origins disabled={!can_write} {testingBadge} />
+									<RouteCorsOption
+										bind:allowed_origins
+										bind:error={allowedOriginsError}
+										disabled={!can_write}
+										{testingBadge}
+									/>
 								</div>
 							{:else}
 								<TriggerRetriesAndErrorHandler

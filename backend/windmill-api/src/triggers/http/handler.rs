@@ -64,24 +64,57 @@ fn cors_lookup_method(req: &axum::extract::Request) -> Option<HttpMethod> {
     }
 }
 
+enum CorsRouteLookup {
+    /// The routers were readable: `Some` when a trigger matched the request.
+    Resolved(Option<CorsRoute>),
+    /// The routers could not be loaded, so whether this path is restricted is
+    /// unknown.
+    Unavailable,
+}
+
 /// Resolve the trigger a request targets, for CORS purposes only.
 ///
-/// Reads the cache without ever refreshing it from the DB:
-/// `refresh_routers_loop` keeps it current, and a cold miss falls back to the
-/// permissive default rather than putting a query on the CORS path.
-async fn resolve_cors_route(http_method: HttpMethod, requested_path: &str) -> Option<CorsRoute> {
+/// Loads the routers when the cache is cold, the way `get_http_route_trigger`
+/// does. Without that, a failed startup load would leave the middleware
+/// resolving nothing while `route_job` refreshes and serves a restricted route
+/// behind it, and the response would carry the permissive default.
+async fn resolve_cors_route(
+    db: &DB,
+    http_method: HttpMethod,
+    requested_path: &str,
+) -> CorsRouteLookup {
     let routers_cache = HTTP_ROUTERS_CACHE.read().await;
-    let trigger = routers_cache
-        .routers
-        .get(&http_method)?
-        .at(requested_path.trim_end_matches('/'))
-        .ok()?
-        .value;
 
-    Some(CorsRoute { allowed_origins: trigger.allowed_origins.clone(), http_method })
+    let routers_cache = if routers_cache.routers.is_empty() {
+        drop(routers_cache);
+        match refresh_routers(db).await {
+            Ok((_, routers_cache)) => routers_cache,
+            Err(err) => {
+                tracing::error!("Could not load HTTP routers to resolve CORS: {err:#}");
+                return CorsRouteLookup::Unavailable;
+            }
+        }
+    } else {
+        routers_cache
+    };
+
+    let Some(router) = routers_cache.routers.get(&http_method) else {
+        return CorsRouteLookup::Unavailable;
+    };
+
+    CorsRouteLookup::Resolved(
+        router
+            .at(requested_path.trim_end_matches('/'))
+            .ok()
+            .map(|trigger| CorsRoute {
+                allowed_origins: trigger.value.allowed_origins.clone(),
+                http_method,
+            }),
+    )
 }
 
 async fn conditional_cors_middleware(
+    Extension(db): Extension<DB>,
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
@@ -91,8 +124,10 @@ async fn conditional_cors_middleware(
     // borrow of the request itself.
     let lookup = cors_lookup_method(&req).map(|method| (method, req.uri().path().to_string()));
     let route = match lookup {
-        Some((method, path)) => resolve_cors_route(method, &path).await,
-        None => None,
+        Some((method, path)) => resolve_cors_route(&db, method, &path).await,
+        // Nothing to look up: not a preflight, and not a method any route can
+        // be registered under.
+        None => CorsRouteLookup::Resolved(None),
     };
 
     let mut response = next.run(req).await;
@@ -121,10 +156,16 @@ async fn conditional_cors_middleware(
         }
     }
 
-    if let Some(allowed_origins) = route
-        .as_ref()
-        .and_then(|route| route.allowed_origins.as_ref())
-    {
+    let resolved = match &route {
+        CorsRouteLookup::Resolved(resolved) => resolved.as_ref(),
+        // Whether this path is restricted could not be determined, and
+        // `route_job` may still load the routers and serve a restricted route
+        // behind this middleware. Emitting the permissive default here would
+        // hand that response to any origin, so emit nothing at all.
+        CorsRouteLookup::Unavailable => None,
+    };
+
+    if let Some(allowed_origins) = resolved.and_then(|route| route.allowed_origins.as_ref()) {
         // A configured allowlist decides, overriding any `wm_headers` value the
         // runnable set. The preflight is answered before any code runs, so
         // config is the only thing it can consult; letting the response widen
@@ -142,7 +183,7 @@ async fn conditional_cors_middleware(
         if !allowed_origins.iter().any(|allowed| allowed == "*") {
             headers.append(http::header::VARY, http::HeaderValue::from_static("origin"));
         }
-    } else if !not_insert_origin {
+    } else if !not_insert_origin && !matches!(route, CorsRouteLookup::Unavailable) {
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
             http::HeaderValue::from_static("*"),
@@ -154,7 +195,7 @@ async fn conditional_cors_middleware(
         // overstates it. Unresolved requests keep the historical list.
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_METHODS,
-            http::HeaderValue::from_static(match route.as_ref().map(|route| route.http_method) {
+            http::HeaderValue::from_static(match resolved.map(|route| route.http_method) {
                 Some(HttpMethod::Get) => "GET, OPTIONS",
                 Some(HttpMethod::Post) => "POST, OPTIONS",
                 Some(HttpMethod::Put) => "PUT, OPTIONS",
