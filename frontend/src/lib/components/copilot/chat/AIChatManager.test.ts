@@ -243,7 +243,6 @@ describe('AIChatManager run form', () => {
 			}
 		]
 		expect(manager.isRunFormPending('call_r')).toBe(false)
-		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
 
 		manager.handleRunFormCancel('call_r')
 
@@ -252,9 +251,33 @@ describe('AIChatManager run form', () => {
 		expect(settled.runForm?.canceled).toBe(true)
 		expect(settled.isLoading).toBe(false)
 		expect(pendingUserAction(manager.displayMessages)).toBe(undefined)
-		// No turn is left to save it: unpersisted, the next load restores it pending.
-		expect(saveChat).toHaveBeenCalledOnce()
-		expect(saveChat.mock.calls[0][0][0].runForm?.canceled).toBe(true)
+	})
+
+	// A save that fires mid-turn (jobs tray, review dock) stores a transcript nothing
+	// will resume. Storing a card still pending brings back a form whose Run resolves
+	// no callback.
+	it('stores loading cards settled when a mid-turn save fires', async () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_r',
+				content: 'Waiting for you to confirm the arguments of "f/a/b"',
+				isLoading: true,
+				runForm: { path: 'f/a/b', schema: {}, args: {} }
+			}
+		]
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		manager.markJobsReviewed([])
+		manager.dismissJob('nope')
+		await Promise.resolve()
+
+		const stored = saveChat.mock.calls.at(-1)?.[0]?.[0]
+		expect(stored?.isLoading).toBe(false)
+		expect(stored?.runForm?.canceled).toBe(true)
+		// The live card is untouched — the turn is still parked on it.
+		expect(manager.displayMessages[0].isLoading).toBe(true)
 	})
 
 	// Stop ends the turn, not the job: the deployed script is already running with all
