@@ -610,7 +610,7 @@
 										selected.schemaKey === sc.schemaKey &&
 										selected.tableKey === tableKey}
 									<button
-										class={'w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
+										class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
 											tableIndent +
 											' ' +
 											rowText(isSelected) +
@@ -670,7 +670,7 @@
 														}
 													}
 												]}
-												class="w-fit -mr-1"
+												class="w-fit -mr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
 												btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
 											/>
 										{/if}
