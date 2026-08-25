@@ -565,6 +565,10 @@ export type RunFormDisplay = {
 	/** Proposed arguments the schema does not declare, so they have no field. Named on
 	 * the card: approving a run is not consent to something it never showed. */
 	droppedKeys?: string[]
+	/** Proposed arguments the schema does declare, sent in a shape no field can hold.
+	 * Apart from {@link droppedKeys} because the fix differs: send this one again, shaped
+	 * the way the schema asks. */
+	unshowableKeys?: string[]
 	/** Proposed arguments a disabled field overrode with its default. Named for the same
 	 * reason: the field renders locked, so the value it holds is not the proposed one. */
 	resetKeys?: string[]

@@ -9,23 +9,23 @@ import {
 
 describe('conformArgsToSchema', () => {
 	it('drops what the schema does not declare, prototype names included', () => {
-		const { args, droppedKeys } = conformArgsToSchema(
+		const { args, dropped } = conformArgsToSchema(
 			JSON.parse('{"keep":1,"force":true,"constructor":"x","toString":"y","__proto__":{"p":1}}'),
 			{ properties: { keep: { type: 'number' } } }
 		)
 		expect(args).toEqual({ keep: 1 })
 		expect(Object.getPrototypeOf(args)).toBe(Object.prototype)
-		expect(droppedKeys.sort()).toEqual(['__proto__', 'constructor', 'force', 'toString'])
+		expect(dropped.undeclared.sort()).toEqual(['__proto__', 'constructor', 'force', 'toString'])
 	})
 
 	it('keeps a declared __proto__ instead of losing it to the setter', () => {
-		const { args, droppedKeys } = conformArgsToSchema(
+		const { args, dropped } = conformArgsToSchema(
 			JSON.parse('{"__proto__":"legit","keep":1}'),
 			JSON.parse('{"properties":{"__proto__":{"type":"string"},"keep":{"type":"number"}}}')
 		)
 		expect(Object.hasOwn(args, '__proto__')).toBe(true)
 		expect(args['__proto__']).toBe('legit')
-		expect(droppedKeys).toEqual([])
+		expect(dropped.undeclared).toEqual([])
 	})
 
 	// $state.snapshot deep-copies a plain object and hands back a null-prototype one by
@@ -38,7 +38,7 @@ describe('conformArgsToSchema', () => {
 	// The mounted nested form prunes its own extras, but ArgInput renders only the first
 	// 50 array items, so past that nothing else would ever drop them.
 	it('drops undeclared arguments nested inside declared ones', () => {
-		const { args, droppedKeys } = conformArgsToSchema(
+		const { args, dropped } = conformArgsToSchema(
 			{ cfg: { batch: 10, evil: true }, rows: [{ mode: 'safe' }, { mode: 'safe', evil: true }] },
 			{
 				properties: {
@@ -48,13 +48,13 @@ describe('conformArgsToSchema', () => {
 			}
 		)
 		expect(args).toEqual({ cfg: { batch: 10 }, rows: [{ mode: 'safe' }, { mode: 'safe' }] })
-		expect(droppedKeys).toEqual(['cfg.evil', 'rows[1].evil'])
+		expect(dropped.undeclared).toEqual(['cfg.evil', 'rows[1].evil'])
 	})
 
 	// ArgInput writes the tag itself and reads it back to pick the branch that opens, so
 	// dropping it would reopen the form on the wrong variant.
 	it('keeps the oneOf tag and every branch key', () => {
-		const { args, droppedKeys } = conformArgsToSchema(
+		const { args, dropped } = conformArgsToSchema(
 			{ either: { kind: 'b', level: 2, evil: true } },
 			{
 				properties: {
@@ -68,7 +68,7 @@ describe('conformArgsToSchema', () => {
 			}
 		)
 		expect(args).toEqual({ either: { kind: 'b', level: 2 } })
-		expect(droppedKeys).toEqual(['either.evil'])
+		expect(dropped.undeclared).toEqual(['either.evil'])
 	})
 
 	// A value shaped unlike its schema matches no level below, so every filter walked
@@ -83,14 +83,34 @@ describe('conformArgsToSchema', () => {
 		}
 		expect(
 			conformArgsToSchema({ rows: { token: '$var:u/ada/prod' }, cfg: [{ token: 'x' }] }, schema)
-		).toMatchObject({ args: {}, droppedKeys: ['rows', 'cfg'] })
+		).toMatchObject({ args: {}, dropped: { undeclared: [], unshowable: ['rows', 'cfg'] } })
 		// One level down too. A free-form object still passes unread: it declares no
 		// structure for the value to contradict, so its contents were never filtered.
 		expect(
 			conformArgsToSchema({ rows: [{ token: 'a' }, ['sneaky']], free: { anything: 1 } }, schema)
 		).toMatchObject({
 			args: { rows: [{ token: 'a' }], free: { anything: 1 } },
-			droppedKeys: ['rows[1]']
+			dropped: { undeclared: [], unshowable: ['rows[1]'] }
+		})
+	})
+
+	// The guard reads declared structure, never the declared `type`: a dyn-multiselect is
+	// `type: 'object'` holding an array, and reading `type` dropped what the user picked.
+	it('keeps a dyn-multiselect array and drops an object in a scalar slot', () => {
+		const schema = {
+			properties: {
+				tenants: { type: 'object', format: 'dynmultiselect-list_tenants' },
+				name: { type: 'string' }
+			}
+		}
+		expect(
+			conformArgsToSchema(
+				{ tenants: ['acme', 'globex'], name: { evil: '$var:u/ada/prod' } },
+				schema
+			)
+		).toMatchObject({
+			args: { tenants: ['acme', 'globex'] },
+			dropped: { undeclared: [], unshowable: ['name'] }
 		})
 	})
 })

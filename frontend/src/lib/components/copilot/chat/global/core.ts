@@ -5480,7 +5480,8 @@ async function runDeployedScript(
 		summary: script.summary || undefined,
 		schema,
 		args: proposed,
-		droppedKeys: conformed.droppedKeys.length ? conformed.droppedKeys : undefined,
+		droppedKeys: conformed.dropped.undeclared.length ? conformed.dropped.undeclared : undefined,
+		unshowableKeys: conformed.dropped.unshowable.length ? conformed.dropped.unshowable : undefined,
 		resetKeys: conformed.resetKeys.length ? conformed.resetKeys : undefined,
 		strippedKeys: strippedKeys.length ? strippedKeys : undefined
 	}
@@ -5548,8 +5549,13 @@ async function runDeployedScript(
 		label: args.path
 	})
 
-	const dropped = conformed.droppedKeys.length
-		? `\nThe deployed schema declares no ${conformed.droppedKeys.join(', ')}, so the form never offered ${conformed.droppedKeys.length > 1 ? 'them' : 'it'} and the run did not carry ${conformed.droppedKeys.length > 1 ? 'them' : 'it'}.`
+	const dropped = conformed.dropped.undeclared.length
+		? `\nThe deployed schema declares no ${conformed.dropped.undeclared.join(', ')}, so the form never offered ${conformed.dropped.undeclared.length > 1 ? 'them' : 'it'} and the run did not carry ${conformed.dropped.undeclared.length > 1 ? 'them' : 'it'}.`
+		: ''
+	// Told apart from `dropped`, or the model reads "no such argument" and stops sending
+	// one the script does have, instead of sending it in the shape the schema asks for.
+	const unshowable = conformed.dropped.unshowable.length
+		? `\nThe deployed schema does declare ${conformed.dropped.unshowable.join(', ')}, but you sent ${conformed.dropped.unshowable.length > 1 ? 'them in shapes' : 'it in a shape'} the form has no field for, so the run did not carry ${conformed.dropped.unshowable.length > 1 ? 'them' : 'it'}. Re-read the input schema and match ${conformed.dropped.unshowable.length > 1 ? 'their declared types' : 'its declared type'}.`
 		: ''
 	const reset = conformed.resetKeys.length
 		? `\nThe deployed schema disables ${conformed.resetKeys.join(', ')}, so the form held ${conformed.resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${conformed.resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${conformed.resetKeys.length > 1 ? 'them' : 'it'} again.`
@@ -5568,7 +5574,7 @@ async function runDeployedScript(
 		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH
 			? submittedJson.slice(0, MAX_SUBMITTED_ARGS_LENGTH) + '... (truncated)'
 			: submittedJson
-	return `Ran with arguments: ${shown}${dropped}${reset}${stripped}\n${outcome}`
+	return `Ran with arguments: ${shown}${dropped}${unshowable}${reset}${stripped}\n${outcome}`
 }
 
 async function testRunFlowByPath(
