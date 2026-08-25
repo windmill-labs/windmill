@@ -174,6 +174,7 @@
 	{#snippet children({ createMenu })}
 		<Menu
 			{createMenu}
+			placement="bottom-start"
 			openOnHover
 			usePointerDownOutside
 			on:close={() => (showExtraTriggers = false)}
