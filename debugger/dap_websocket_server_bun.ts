@@ -1651,11 +1651,12 @@ export class DebugSession {
 		try {
 			await this.startBunProcess(cwd)
 		} catch (error) {
-			this.sendEvent('output', { category: 'stderr', output: `Failed to start Bun: ${error}\n` })
-			// A socket that drops mid-handshake reports the termination from onclose and fails the
-			// launch; that first event carries the result, so it must not be overwritten here.
+			// Reachable after a successful run: a command still in flight when the script ended
+			// rejects on its own timer, long after onclose reported the termination. Saying the
+			// launch failed at that point contradicts the result the client already has.
 			if (!this.terminatedSent) {
 				this.terminatedSent = true
+				this.sendEvent('output', { category: 'stderr', output: `Failed to start Bun: ${error}\n` })
 				this.sendEvent('terminated', { error: String(error) })
 			}
 			// --inspect-wait blocks until a debugger attaches, so a bun we failed to attach to
@@ -1966,10 +1967,10 @@ export class DebugSession {
 
 				// Look for the WebSocket URL in Bun's inspector banner, e.g.
 				// "  ws://127.0.0.1:9229/848c719d-a52e-4610-8e94-99cd60f34af9".
-				// The token's alphabet is Bun's to change (it became a hyphenated UUID in 1.4),
-				// so take the whole path, and only once the line is terminated: a stderr chunk can
-				// end mid-URL, and connecting to a truncated path gets a 404 from the inspector.
-				const wsMatch = buffer.match(/ws:\/\/[\d.]+:\d+\/\S+(?=\r?\n)/)
+				// The token's alphabet is Bun's to change (it became a hyphenated UUID in 1.4), so
+				// take the whole path, and only once whitespace proves it complete: a stderr chunk
+				// can end mid-URL, and connecting to a truncated path gets a 404 from the inspector.
+				const wsMatch = buffer.match(/ws:\/\/[\d.]+:\d+\/\S+(?=\s)/)
 				if (wsMatch && this.inspectorWsUrlPromise) {
 					const wsUrl = wsMatch[0]
 					logger.info(`Found inspector WebSocket URL in stderr: ${wsUrl}`)
@@ -1999,9 +2000,13 @@ export class DebugSession {
 		return new Promise((resolve, reject) => {
 			this.inspectorWs = new WebSocket(wsUrl)
 
-			// A close before the handshake succeeds is a failed connection, not a finished
-			// script, and the two are reported to the client in opposite ways.
+			// A close before the script is running is a failed connection, not a finished script,
+			// and the two are reported to the client in opposite ways. The socket opening is not
+			// the line: the setup commands below run over an open socket and none of them reject
+			// when it drops (sendInspectorCommand only has its own timer), so a drop mid-setup
+			// would otherwise be indistinguishable from a clean exit.
 			let opened = false
+			let executionStarted = false
 			let handshakeError: string | null = null
 
 			const timeout = setTimeout(() => {
@@ -2041,6 +2046,7 @@ export class DebugSession {
 					await this.applyBreakpointsByUrl()
 
 					this.running = true
+					executionStarted = true
 
 					// CRITICAL: Call Inspector.initialized to start script execution
 					// Without this, Bun waits indefinitely with --inspect-wait
@@ -2068,11 +2074,11 @@ export class DebugSession {
 				logger.info('Inspector WebSocket closed')
 				this.inspectorWs = null
 
-				if (!opened) {
+				if (!executionStarted) {
 					clearTimeout(timeout)
 					reject(
 						new Error(
-							`Inspector connection failed: ${handshakeError ?? 'closed before the handshake completed'}`
+							`Inspector connection failed: ${handshakeError ?? (opened ? 'closed before setup completed' : 'closed before the handshake completed')}`
 						)
 					)
 					return
