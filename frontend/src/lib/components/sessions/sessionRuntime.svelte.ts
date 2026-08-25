@@ -96,10 +96,10 @@ import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import {
 	broadcastMirror,
 	broadcastTurnEnd,
-	broadcastTurnStart,
 	isLocallyDriven,
 	isRemotelyDriven,
 	MIRROR_THROTTLE_MS,
+	mirrorBaseIndex,
 	registerSyncHandlers,
 	requestCancel,
 	requestResync,
@@ -936,7 +936,8 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// turns interleave into one chat id.
 	manager.runGuard = async (body) => {
 		const outcome = await withSessionRunLock(session.id, async () => {
-			broadcastTurnStart(session.id, manager.historyManager.getCurrentChatId())
+			// The first frame doubles as the "a run started here" signal: it is
+			// posted immediately and carries the chat id the watchers need.
 			startMirroring(session.id)
 			try {
 				return await body()
@@ -956,7 +957,7 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// Stop is available wherever the run is visible, so from a watching tab it
 	// has to travel to the one holding the turn.
 	manager.remoteCancel = () => {
-		if (!isRemotelyDriven(session.id)) return false
+		if (isLocallyDriven(session.id) || !isRemotelyDriven(session.id)) return false
 		requestCancel(session.id)
 		return true
 	}
@@ -964,12 +965,12 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// Same for a run parked on the user: the tab showing the prompt is not
 	// necessarily the tab whose loop is awaiting the answer.
 	manager.remoteToolConfirmation = (toolId, confirmed) => {
-		if (!isRemotelyDriven(session.id)) return false
+		if (isLocallyDriven(session.id) || !isRemotelyDriven(session.id)) return false
 		sendToolConfirmation(session.id, toolId, confirmed)
 		return true
 	}
 	manager.remoteQuestionAnswer = (toolId, choices) => {
-		if (!isRemotelyDriven(session.id)) return false
+		if (isLocallyDriven(session.id) || !isRemotelyDriven(session.id)) return false
 		sendQuestionAnswer(session.id, toolId, choices)
 		return true
 	}
@@ -1003,14 +1004,20 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 // that reactive tracking of the array root would miss.
 const mirrorTimers = new Map<string, ReturnType<typeof setInterval>>()
 
-function mirrorSnapshotOf(sessionId: string): MirrorSnapshot | undefined {
+function mirrorSnapshotOf(sessionId: string, full: boolean): MirrorSnapshot | undefined {
 	const runtime = runtimes.get(sessionId)
 	if (!runtime) return undefined
 	const m = runtime.manager
+	// Slice before cloning: `$state.snapshot` walks whatever it is handed, and a
+	// transcript can hold pasted file contents and screenshot data URLs, so
+	// snapshotting the whole thing four times a second to send ten messages costs
+	// megabytes per tick on the tab that is already busy streaming.
+	const baseIndex = mirrorBaseIndex(m.displayMessages.length, full)
 	return {
 		sessionId,
 		chatId: m.historyManager.getCurrentChatId(),
-		displayMessages: $state.snapshot(m.displayMessages) as DisplayMessage[],
+		baseIndex,
+		tail: $state.snapshot(m.displayMessages.slice(baseIndex)) as DisplayMessage[],
 		loading: m.loading,
 		currentReply: m.currentReply,
 		currentReasoning: m.currentReasoning,
@@ -1020,9 +1027,9 @@ function mirrorSnapshotOf(sessionId: string): MirrorSnapshot | undefined {
 	}
 }
 
-function postMirror(sessionId: string, opts?: { full?: boolean }): void {
-	const snap = mirrorSnapshotOf(sessionId)
-	if (snap) broadcastMirror(snap, opts)
+function postMirror(sessionId: string, { full = false } = {}): void {
+	const snap = mirrorSnapshotOf(sessionId, full)
+	if (snap) broadcastMirror(snap)
 }
 
 function startMirroring(sessionId: string): void {
@@ -1100,7 +1107,10 @@ async function applyTurnEnd(sessionId: string, chatId: string): Promise<void> {
 	m.loadingLabel = undefined
 	m.compacting = false
 	const id = chatId || m.historyManager.getCurrentChatId()
-	if (id && (await m.historyManager.reloadChat(id))) await m.loadPastChat(id)
+	// `refresh`: this is the same conversation caught up from the store, so a
+	// message queued here while the other tab held the session is still meant for
+	// it — a plain load would drop it on the floor instead of sending it below.
+	if (id && (await m.historyManager.reloadChat(id))) await m.loadPastChat(id, { refresh: true })
 	// Anything typed here while the other tab held the session was queued rather
 	// than sent. The session is free now, so it goes out — the same auto-send it
 	// would have had if this tab had been the one running the turn.

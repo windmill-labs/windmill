@@ -241,9 +241,9 @@ describe('AIChatManager cross-tab run guard', () => {
 	})
 
 	// A turn flushes its queued message by re-entering sendRequest, and the lock
-	// behind the guard is not reentrant: applying it to the nested send would
+	// behind the guard is not reentrant: applying it to that nested send would
 	// refuse the queued message as though a rival tab held the session.
-	it('applies the guard to the outermost send only', async () => {
+	it('applies the guard to the turn, not to the sends it spawns', async () => {
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
 		const runGuard = vi.fn(async (body: () => Promise<unknown>) => body())
@@ -263,6 +263,44 @@ describe('AIChatManager cross-tab run guard', () => {
 
 		expect(mocks.runChatLoop).toHaveBeenCalledTimes(2)
 		expect(runGuard).toHaveBeenCalledTimes(1)
+	})
+
+	// A tab that watched another tab's turn re-reads the chat when it ends, and
+	// then sends what the user queued meanwhile. A plain load drops the queue (it
+	// assumes you are switching conversations), which would silently eat the
+	// follow-up on the one path that exists to deliver it.
+	it('keeps a queued message across a refresh of the same conversation', async () => {
+		const manager = new AIChatManager()
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockResolvedValue({
+			id: 'chat-1',
+			displayMessages: [],
+			actualMessages: [],
+			title: 'a chat',
+			lastModified: 0
+		} as any)
+		manager.queueMessage('follow up')
+
+		await manager.loadPastChat('chat-1', { refresh: true })
+		expect(manager.queuedMessage).toBe('follow up')
+
+		// Switching to a different conversation still drops it.
+		await manager.loadPastChat('chat-1')
+		expect(manager.queuedMessage).toBe('')
+	})
+
+	// The composer hands its text over and clears itself before the send is even
+	// attempted, so a refusal that keeps no copy loses what the user typed.
+	it('hands a refused message back to the composer', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runGuard = async () => 'busy'
+		const restoreInstructions = vi.fn(() => true)
+		manager.setAiChatInput({ restoreInstructions } as any)
+
+		await manager.sendRequest({ instructions: 'the message I typed' })
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(restoreInstructions).toHaveBeenCalledWith('the message I typed', [], [], [])
 	})
 
 	// A run parked on the user is answered from whichever tab the user is in, but

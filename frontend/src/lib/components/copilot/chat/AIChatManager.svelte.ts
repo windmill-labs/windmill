@@ -2817,6 +2817,10 @@ export class AIChatManager {
 		return this.#sendsInFlight > 0
 	}
 
+	/** True only while a guarded turn's body is running, so the sends that turn
+	 *  spawns itself are recognised as its own rather than as rivals. */
+	#inGuardedRun = false
+
 	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
 		// A turn with nowhere to render still streams, spends tokens and applies
 		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
@@ -2828,18 +2832,41 @@ export class AIChatManager {
 		}
 		this.#sendsInFlight++
 		try {
-			// Depth 1 only. A turn recursively flushes queued messages through this
-			// same method, and the guard's lock is not reentrant — running it on the
-			// nested send would refuse the queued message as if a rival tab held it.
-			const guard = this.#sendsInFlight === 1 ? this.runGuard : undefined
+			// A guarded turn re-enters this method for the sends it spawns itself
+			// (the queued-message flush, the background-job auto-resume), and the
+			// guard's lock is not reentrant — running it again would refuse them as
+			// if a rival held the session. `#sendsInFlight` cannot answer that: it
+			// counts pending sends, so two independent ones racing the pre-flight
+			// would look like recursion and both skip the guard.
+			const guard = this.#inGuardedRun ? undefined : this.runGuard
 			if (!guard) return await this.sendRequestImpl(options)
-			const outcome = await guard(() => this.sendRequestImpl(options))
-			// Refused: the body never ran, so the composer still holds the message
-			// and the user can retry here or carry on in the driving tab. Reported
-			// as a plain failed send so an auto-sent queued message is put back on
-			// the queue rather than dropped.
-			if (outcome === 'busy') return false
-			return outcome
+			const outcome = await guard(async () => {
+				this.#inGuardedRun = true
+				try {
+					return await this.sendRequestImpl(options)
+				} finally {
+					this.#inGuardedRun = false
+				}
+			})
+			if (outcome !== 'busy') return outcome
+			// Refused: the body never ran. The composer already took the text on
+			// submit, so hand it back rather than let the refusal eat it — an
+			// auto-sent queued message is excluded, since reporting the failure
+			// below is what puts that one back on the queue.
+			if (!options.queued) {
+				const restored = this.aiChatInput?.restoreInstructions(
+					options.instructions ?? '',
+					options.pastes ?? [],
+					options.images ?? [],
+					options.files ?? []
+				)
+				// No composer mounted (a programmatic send): park it on the queue so
+				// it is still the user's to send rather than silently gone.
+				if (restored !== true && options.instructions) {
+					this.restoreToInput(options.instructions, options.images, options.files)
+				}
+			}
+			return false
 		} finally {
 			this.#sendsInFlight--
 		}
@@ -3788,7 +3815,10 @@ export class AIChatManager {
 		// preamble (captured at the start) and the poller skipped auto-resume while
 		// we were loading. Now that we're idle, deliver it via an auto-resume. Skips
 		// itself if the queued-message flush above already carried the notes.
-		void this.#maybeAutoResumeFromJobs()
+		// Awaited, so a run guard bracketing this turn still holds while the resumed
+		// turn streams — releasing early would announce the session idle and free it
+		// for a rival turn on the same chat.
+		await this.#maybeAutoResumeFromJobs()
 		return true
 	}
 
@@ -3987,7 +4017,12 @@ export class AIChatManager {
 		this.onChatRotated?.(this.historyManager.getCurrentChatId())
 	}
 
-	loadPastChat = async (id: string) => {
+	/** `refresh` marks a re-read of the conversation already loaded here — the
+	 *  same chat, caught up from the store — rather than a switch to a different
+	 *  one. Only the queue distinguishes them: a message typed for THIS
+	 *  conversation is still meant for it, while one carried into a different
+	 *  conversation would auto-send somewhere it was never addressed to. */
+	loadPastChat = async (id: string, { refresh = false } = {}) => {
 		// A turn commits into whatever transcript it finds when it ends, so swapping
 		// one in underneath it misfiles the turn — or duplicates it, when the loaded
 		// chat already carries the turn's own checkpoint. Gated on `sendInFlight`
@@ -3997,7 +4032,7 @@ export class AIChatManager {
 		if (chat) {
 			// Drop any message queued in the current conversation so it doesn't
 			// auto-send into the loaded one or linger as a card across the switch.
-			this.#clearQueue()
+			if (!refresh) this.#clearQueue()
 			// Stop the poller for the conversation being left before swapping in the
 			// loaded chat's jobs below.
 			this.clearBackgroundJobs()

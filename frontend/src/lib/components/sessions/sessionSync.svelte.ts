@@ -2,7 +2,6 @@ import { BROWSER } from 'esm-env'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { onUserChange, scopedKey } from '$lib/userScopedStorage'
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
-import type { Session } from './sessionState.svelte'
 
 // Cross-tab coordination for AI sessions. Everything a session is made of —
 // the record list, the chat transcript, the run itself — lives in the tab, so
@@ -31,9 +30,12 @@ export const MIRROR_THROTTLE_MS = 250
  *  starved of frames for a while without actually having gone away. */
 const MIRROR_SILENCE_MS = 10_000
 
-type SessionPutMsg = { kind: 'session-put'; session: Session }
+/** Carries only the id on purpose. Broadcast delivery order and IndexedDB
+ *  commit order are independent, so shipping a copy of the record lets an older
+ *  write land on top of a newer one; re-reading converges on what the shared
+ *  store actually holds. */
+type SessionPutMsg = { kind: 'session-put'; id: string }
 type SessionDeleteMsg = { kind: 'session-delete'; id: string }
-type TurnStartMsg = { kind: 'turn-start'; sessionId: string; chatId: string }
 type TurnEndMsg = { kind: 'turn-end'; sessionId: string; chatId: string }
 type MirrorMsg = {
 	kind: 'mirror'
@@ -74,7 +76,6 @@ type QuestionAnswerMsg = {
 type SyncMsg =
 	| SessionPutMsg
 	| SessionDeleteMsg
-	| TurnStartMsg
 	| TurnEndMsg
 	| MirrorMsg
 	| ResyncRequestMsg
@@ -83,9 +84,8 @@ type SyncMsg =
 	| QuestionAnswerMsg
 
 type Handlers = {
-	onSessionPut: (session: Session) => void
+	onSessionPut: (id: string) => void
 	onSessionDelete: (id: string) => void
-	onTurnStart: (sessionId: string, chatId: string) => void
 	onTurnEnd: (sessionId: string, chatId: string) => void
 	onMirror: (msg: MirrorMsg) => void
 	onResyncRequest: (sessionId: string) => void
@@ -150,14 +150,10 @@ if (BROWSER) {
 function receive(msg: SyncMsg): void {
 	switch (msg.kind) {
 		case 'session-put':
-			emit('onSessionPut', msg.session)
+			emit('onSessionPut', msg.id)
 			break
 		case 'session-delete':
 			emit('onSessionDelete', msg.id)
-			break
-		case 'turn-start':
-			noteDriverAlive(msg.sessionId)
-			emit('onTurnStart', msg.sessionId, msg.chatId)
 			break
 		case 'turn-end':
 			remoteDriven.delete(msg.sessionId)
@@ -196,8 +192,8 @@ function post(msg: SyncMsg): void {
 // Record sync
 // ---------------------------------------------------------------------------
 
-export function broadcastSessionPut(session: Session): void {
-	post({ kind: 'session-put', session })
+export function broadcastSessionPut(id: string): void {
+	post({ kind: 'session-put', id })
 }
 
 export function broadcastSessionDelete(id: string): void {
@@ -209,9 +205,9 @@ export function broadcastSessionDelete(id: string): void {
 // ---------------------------------------------------------------------------
 
 /** Sessions currently being driven by another tab, with the time of the last
- *  sign of life. Reactive: the picker's status dot and the composer's disabled
- *  state read it directly. */
-export const remoteDriven = new SvelteMap<string, { lastAt: number }>()
+ *  sign of life. Reactive so a tab that starts or stops driving re-renders the
+ *  gates that read it. */
+const remoteDriven = new SvelteMap<string, { lastAt: number }>()
 
 function noteDriverAlive(sessionId: string): void {
 	remoteDriven.set(sessionId, { lastAt: Date.now() })
@@ -238,8 +234,8 @@ export function isRemotelyDriven(sessionId: string): boolean {
 	return remoteDriven.has(sessionId)
 }
 
-/** Sessions this tab is currently driving. Reactive so the per-runtime mirror
- *  effect starts and stops with the run it feeds. */
+/** Sessions this tab is currently driving. Reactive so the gates that read it
+ *  re-render when a run starts or ends. */
 const locallyDriven = new SvelteSet<string>()
 
 export function isLocallyDriven(sessionId: string): boolean {
@@ -263,7 +259,20 @@ export async function withSessionRunLock<T>(
 	sessionId: string,
 	body: () => Promise<T>
 ): Promise<T | 'busy'> {
-	if (!BROWSER || !navigator.locks) return body()
+	if (!BROWSER || !navigator.locks) {
+		// Web Locks is secure-context only while BroadcastChannel is not, so an
+		// instance served over plain HTTP gets the channel and no ownership. Mark
+		// the run as ours anyway: every mirror path is gated on that flag, so two
+		// tabs both driving simply ignore each other and behave as they did before
+		// any of this — rather than splicing each other's frames into their own
+		// live transcripts and ending each other's turns.
+		locallyDriven.add(sessionId)
+		try {
+			return await body()
+		} finally {
+			locallyDriven.delete(sessionId)
+		}
+	}
 	return (await navigator.locks.request(
 		lockName(sessionId),
 		{ mode: 'exclusive', ifAvailable: true },
@@ -297,9 +306,8 @@ async function runLockHeld(sessionId: string): Promise<boolean> {
 }
 
 /** Drop drivers that have gone silent and whose lock is no longer held, so a
- *  closed tab can't leave a session showing "generating" forever. Callers
- *  schedule this; it is cheap and a no-op while every driver is ticking. */
-export async function reapDeadDrivers(): Promise<void> {
+ *  closed tab can't leave a session showing "generating" forever. */
+async function reapDeadDrivers(): Promise<void> {
 	const now = Date.now()
 	const stale = [...remoteDriven.entries()]
 		.filter(([, v]) => now - v.lastAt > MIRROR_SILENCE_MS)
@@ -315,10 +323,6 @@ export async function reapDeadDrivers(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Live mirroring
 // ---------------------------------------------------------------------------
-
-export function broadcastTurnStart(sessionId: string, chatId: string): void {
-	post({ kind: 'turn-start', sessionId, chatId })
-}
 
 export function broadcastTurnEnd(sessionId: string, chatId: string): void {
 	post({ kind: 'turn-end', sessionId, chatId })
@@ -340,36 +344,20 @@ export function sendQuestionAnswer(sessionId: string, toolId: string, choices: s
 	post({ kind: 'question-answer', sessionId, toolId, choices })
 }
 
-export type MirrorSnapshot = {
-	sessionId: string
-	chatId: string
-	displayMessages: DisplayMessage[]
-	loading: boolean
-	currentReply: string
-	currentReasoning: string
-	currentReasoningActive: boolean
-	loadingLabel: string | undefined
-	compacting: boolean
+export type MirrorSnapshot = Omit<MirrorMsg, 'kind'>
+
+/** Where the tail a frame carries should start. Callers slice — and only then
+ *  clone — so a heartbeat on a long conversation never copies the messages it
+ *  is not going to send; a transcript holding pasted files or image data URLs
+ *  makes that difference megabytes per tick. `full` sends everything, which is
+ *  what answers a resync request. */
+export function mirrorBaseIndex(total: number, full = false): number {
+	return full ? 0 : Math.max(0, total - MIRROR_TAIL)
 }
 
-/** Send the driver's current view of a run. `full` forces the whole transcript
- *  (answering a resync request); otherwise only the tail travels. */
-export function broadcastMirror(snap: MirrorSnapshot, { full = false } = {}): void {
-	const total = snap.displayMessages.length
-	const baseIndex = full ? 0 : Math.max(0, total - MIRROR_TAIL)
-	post({
-		kind: 'mirror',
-		sessionId: snap.sessionId,
-		chatId: snap.chatId,
-		baseIndex,
-		tail: snap.displayMessages.slice(baseIndex),
-		loading: snap.loading,
-		currentReply: snap.currentReply,
-		currentReasoning: snap.currentReasoning,
-		currentReasoningActive: snap.currentReasoningActive,
-		loadingLabel: snap.loadingLabel,
-		compacting: snap.compacting
-	})
+/** Send the driver's current view of a run. */
+export function broadcastMirror(snap: MirrorSnapshot): void {
+	post({ kind: 'mirror', ...snap })
 }
 
 export type { MirrorMsg }

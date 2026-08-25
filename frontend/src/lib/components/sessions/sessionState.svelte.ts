@@ -439,6 +439,7 @@ export function __resetDeletedSessionIdsForTesting(): void {
 async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Promise<void> {
 	deletedSessionIds.add(id)
 	await db.delete('sessions', id)
+	broadcastSessionDelete(id)
 }
 
 // The one way to write a session's record, and the other half of the invariant above:
@@ -448,6 +449,12 @@ async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Pr
 async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promise<void> {
 	if (deletedSessionIds.has(s.id)) return
 	await db.put('sessions', s)
+	// Announced from the row funnels, not from putSession/deleteSessionRecord:
+	// the lifecycle passes (reconcile, archive-by-workspace, delete-by-workspace)
+	// write through here too, and a tab that missed those keeps a session the
+	// store no longer has. Announcing only what actually landed also keeps the
+	// tombstone short-circuit above from advertising a write it skipped.
+	broadcastSessionPut(s.id)
 }
 
 // Write-behind a single session record. Transient sessions are in-memory only
@@ -476,11 +483,7 @@ export async function putSession(s: Session): Promise<void> {
 	const db = await sessionsDb.whenReady()
 	if (!db) return
 	try {
-		const row = $state.snapshot(s)
-		await putSessionRow(db, row)
-		// Only after the row lands: the other tabs are being told what IndexedDB
-		// now holds, so a failed write must not announce itself.
-		broadcastSessionPut(row)
+		await putSessionRow(db, $state.snapshot(s))
 	} catch (e) {
 		console.error('Failed to persist session', e)
 	}
@@ -492,29 +495,50 @@ export async function deleteSessionRecord(id: string): Promise<void> {
 	if (!db) return
 	try {
 		await deleteSessionRow(db, id)
-		broadcastSessionDelete(id)
 	} catch (e) {
 		console.error('Failed to delete session record', e)
 	}
 }
 
-// Apply a record another tab just wrote. In-memory only: the row is already in
-// the shared IndexedDB, so re-persisting it here would echo back out through
-// putSession. The incoming copy wins wholesale rather than field-wise — it is
-// what the store now holds, and a merge would invent a third version that
-// matches neither tab.
-function applyRemoteSessionPut(session: Session): void {
-	if (deletedSessionIds.has(session.id)) return
-	const i = sessionState.sessions.findIndex((s) => s.id === session.id)
+// The read a notification schedules, per session id, so a slower read cannot
+// land on top of a newer one for the same record.
+const remoteReads = new Map<string, number>()
+let remoteReadSeq = 0
+
+// Catch up on a record another tab wrote. The notification carries only an id:
+// message delivery and IndexedDB commit are separately ordered, so a shipped
+// copy could be older than what this tab has already committed, and applying it
+// would roll the record back on the next write. Reading instead always lands on
+// what the shared store actually holds. In-memory only — re-persisting here
+// would echo straight back out through the row funnel.
+async function applyRemoteSessionPut(id: string): Promise<void> {
+	if (deletedSessionIds.has(id)) return
+	const token = ++remoteReadSeq
+	remoteReads.set(id, token)
+	const db = await sessionsDb.whenReady()
+	if (!db) return
+	let row: Session | undefined
+	try {
+		row = await db.get('sessions', id)
+	} catch (e) {
+		console.error('Failed to read a session another tab wrote', e)
+		return
+	}
+	// A later notification for this record overtook us; its read is the fresher
+	// answer, so drop this one rather than race it.
+	if (remoteReads.get(id) !== token) return
+	remoteReads.delete(id)
+	if (!row || deletedSessionIds.has(id)) return
+	const i = sessionState.sessions.findIndex((s) => s.id === id)
 	if (i >= 0) {
-		sessionState.sessions[i] = session
+		sessionState.sessions[i] = row
 		return
 	}
 	// New elsewhere: slot it in by createdAt, after any local transient drafts,
 	// reproducing the newest-first order hydrateSessions maintains.
-	const at = sessionState.sessions.findIndex((s) => !s.transient && s.createdAt < session.createdAt)
-	if (at < 0) sessionState.sessions.push(session)
-	else sessionState.sessions.splice(at, 0, session)
+	const at = sessionState.sessions.findIndex((s) => !s.transient && s.createdAt < row!.createdAt)
+	if (at < 0) sessionState.sessions.push(row)
+	else sessionState.sessions.splice(at, 0, row)
 }
 
 // Mirror of the local delete path: tombstone so this tab's own pending writes
@@ -528,7 +552,7 @@ function applyRemoteSessionDelete(id: string): void {
 }
 
 registerSyncHandlers({
-	onSessionPut: applyRemoteSessionPut,
+	onSessionPut: (id) => void applyRemoteSessionPut(id),
 	onSessionDelete: applyRemoteSessionDelete
 })
 
