@@ -754,7 +754,27 @@
 
 			// Filling one names its path up front; anything else reaching an occupied path got
 			// there by the user typing it, which is the case worth refusing.
-			const filling = exists && !!fillPath && path === fillPath
+			//
+			// The type is checked here and not only by the caller: `fillPath` says "write into
+			// this path", and a path says nothing about what lives at it. A workspace resource
+			// of another type sitting where the project wanted one of ours would otherwise have
+			// its value replaced with credentials for a different provider, while keeping its
+			// own type — destroying a working resource that has nothing to do with the import.
+			let filling = exists && !!fillPath && path === fillPath
+			if (filling) {
+				const occupantType = await ResourceService.getResource({
+					workspace: effectiveWorkspace,
+					path
+				})
+					.then((r) => r?.resource_type)
+					.catch(() => undefined)
+				if (occupantType && occupantType !== resourceType) {
+					throw Error(
+						`Resource at path ${path} is a ${occupantType} resource, not ${resourceType}. ` +
+							`Move or rename it, then import again.`
+					)
+				}
+			}
 			if (exists && !filling) {
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}

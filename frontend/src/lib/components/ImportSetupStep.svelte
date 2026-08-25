@@ -70,6 +70,12 @@
 		done: boolean
 		/** Plays the confirmation flash once, right after the save that flipped it. */
 		justSaved: boolean
+		/**
+		 * Something of another type already holds this path, named here. The import skipped it
+		 * on the path alone, so this row exists to say the project did not get the resource it
+		 * shipped — and to make sure nothing offers to write over what is there.
+		 */
+		occupiedBy?: string
 	}
 
 	let loading = $state(true)
@@ -252,8 +258,16 @@
 		const out: Blank[] = []
 		for (const r of resources) {
 			let value: any
+			let occupiedBy: string | undefined
 			try {
-				value = (await ResourceService.getResource({ workspace, path: r.path }))?.value
+				const found = await ResourceService.getResource({ workspace, path: r.path })
+				value = found?.value
+				// The presence probe matches on path, and a path says nothing about type. A
+				// resource of another kind sitting here is not this project's stub, however
+				// empty it looks — treating it as one offers to fill somebody else's resource.
+				if (found?.resource_type && found.resource_type !== r.resource_type) {
+					occupiedBy = found.resource_type
+				}
 			} catch {
 				continue // Not there — the import reported that failure already.
 			}
@@ -271,13 +285,16 @@
 				required = schema?.required ?? []
 			} catch {}
 			const missing = required.filter((k) => !filled.has(k))
-			if (missing.length > 0 || filled.size === 0) {
+			// A conflicting occupant is always listed, however full its value looks: the row is
+			// what tells the user the project is missing a resource it shipped.
+			if (occupiedBy || missing.length > 0 || filled.size === 0) {
 				out.push({
 					path: r.path,
 					resourceType: r.resource_type,
 					missing,
 					done: false,
-					justSaved: false
+					justSaved: false,
+					occupiedBy
 				})
 			}
 		}
@@ -587,7 +604,7 @@
 				>
 				<ul class="flex flex-col gap-1.5">
 					{#each blanks as b (b.path)}
-						{@const canConnect = !b.done && canConnectType(b.resourceType)}
+						{@const canConnect = !b.done && !b.occupiedBy && canConnectType(b.resourceType)}
 						<!-- Laid out like the resource type rows in the Add-a-resource drawer: the
 						     integration's own icon, its product name, and the raw identifier demoted
 						     beside it. The path only matters when two resources share a type, so it
@@ -596,6 +613,8 @@
 							{#snippet icon()}
 								{#if b.done}
 									<Check size={20} class="text-emerald-600" />
+								{:else if b.occupiedBy}
+									<TriangleAlert size={20} class="text-yellow-600" />
 								{:else}
 									<IconedResourceType name={b.resourceType} silent width="20px" height="20px" />
 								{/if}
@@ -611,7 +630,12 @@
 								</div>
 							{/snippet}
 							{#snippet detail()}
-								{#if !b.done && b.missing.length > 0}
+								{#if b.occupiedBy}
+									<span class="truncate text-secondary">
+										a {resourceTypeDisplayName(b.occupiedBy)} resource already holds this path — the
+										project did not get this one
+									</span>
+								{:else if !b.done && b.missing.length > 0}
 									<span class="truncate text-secondary">
 										Missing {b.missing.join(', ')}
 									</span>
@@ -621,17 +645,24 @@
 								<!-- Connect where the instance has a client for this type: asking for an
 								     OAuth resource by hand means pasting an access token that dies within
 								     the hour, since only a token Windmill obtained itself gets refreshed. -->
-								<Button
-									variant={b.done ? 'subtle' : 'accent'}
-									unifiedSize="sm"
-									disabled={working}
-									onClick={() =>
-										canConnect
-											? appConnect?.open(b.resourceType, b.path)
-											: resourceEditor?.initEdit(b.path)}
-								>
-									{b.done ? 'Saved' : canConnect ? 'Connect' : 'Fill in'}
-								</Button>
+								{#if b.occupiedBy}
+									<!-- No action: every one here writes to the path, and what is at this path
+									     belongs to someone else. Opening the editor on it would invite exactly
+									     the overwrite this row exists to prevent. -->
+									<span class="whitespace-nowrap text-2xs text-hint">Resolve in the workspace</span>
+								{:else}
+									<Button
+										variant={b.done ? 'subtle' : 'accent'}
+										unifiedSize="sm"
+										disabled={working}
+										onClick={() =>
+											canConnect
+												? appConnect?.open(b.resourceType, b.path)
+												: resourceEditor?.initEdit(b.path)}
+									>
+										{b.done ? 'Saved' : canConnect ? 'Connect' : 'Fill in'}
+									</Button>
+								{/if}
 							{/snippet}
 						</ImportSetupRow>
 					{/each}
