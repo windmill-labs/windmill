@@ -2818,8 +2818,10 @@ impl Drop for DumpFile {
 pub(crate) struct PgDumpOptions<'a> {
     pub(crate) schema_only: bool,
     pub(crate) exclude_tables: &'a [&'a str],
-    /// Leave out `ALTER ... OWNER TO`, `GRANT` and `ALTER DEFAULT PRIVILEGES`.
-    pub(crate) no_owner_or_acl: bool,
+    /// Leave out `ALTER ... OWNER TO`.
+    pub(crate) no_owner: bool,
+    /// Leave out `GRANT`, `REVOKE` and `ALTER DEFAULT PRIVILEGES`.
+    pub(crate) no_acl: bool,
 }
 
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
@@ -2840,8 +2842,11 @@ pub(crate) async fn pg_dump_database(
     if opts.schema_only {
         cmd.arg("--schema-only");
     }
-    if opts.no_owner_or_acl {
-        cmd.arg("--no-owner").arg("--no-privileges");
+    if opts.no_owner {
+        cmd.arg("--no-owner");
+    }
+    if opts.no_acl {
+        cmd.arg("--no-privileges");
     }
     for table in opts.exclude_tables {
         cmd.arg(format!("--exclude-table={table}"));
@@ -3146,15 +3151,15 @@ async fn import_pg_database(
     }
     windmill_common::validate_dbname(&target_pg.dbname)?;
 
-    // An instance data table connects as `custom_instance_user`, which owns neither the
-    // source's objects nor the target schema: replaying the dump's ownership and grant
-    // statements always fails for it, and a failed statement aborts the whole restore. Any
-    // other target owns its objects — keep its ACLs rather than widening its permissions.
-    let no_owner_or_acl = is_instance_datatable(&db, &w_id, &req.target).await?;
+    // Ownership statements can never be replayed: the restore runs as the target's own
+    // connection user, and what it creates it owns. Grants can, unless the target is an
+    // instance data table, whose `custom_instance_user` owns neither the source's objects
+    // nor the target schema — elsewhere dropping ACLs would widen what the source locked.
+    let no_acl = is_instance_datatable(&db, &w_id, &req.target).await?;
 
     let dump_file = pg_dump_database(
         &source_pg,
-        PgDumpOptions { schema_only, no_owner_or_acl, ..Default::default() },
+        PgDumpOptions { schema_only, no_owner: true, no_acl, ..Default::default() },
     )
     .await?;
     pg_import_dump(&db, &target_pg, &dump_file).await?;
