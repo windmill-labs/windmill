@@ -619,7 +619,7 @@
 									{/if}
 								</button>
 							{/each}
-							{#if !multiSelectMode && (root.datatable === currentDatatable || root.datatable === undefined)}
+							{#if root.datatable === currentDatatable || root.datatable === undefined}
 								<button
 									class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
 										tableIndent}
@@ -634,7 +634,7 @@
 							{/if}
 						{/if}
 					{/each}
-					{#if dbSupportsSchemas && !multiSelectMode && (root.datatable === currentDatatable || root.datatable === undefined) && search.trim() === ''}
+					{#if dbSupportsSchemas && (root.datatable === currentDatatable || root.datatable === undefined) && search.trim() === ''}
 						<button
 							class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
 								(root.datatable !== undefined ? 'pl-7' : 'pl-3')}
