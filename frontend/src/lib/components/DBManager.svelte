@@ -33,6 +33,7 @@
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import Star from './Star.svelte'
 	import type { Asset, DataTableTables } from '$lib/gen'
+	import TextInput from './text_input/TextInput.svelte'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -168,9 +169,7 @@
 	// Levels: data table -> schema -> table. The top two collapse away on their own
 	// terms: no `datatableTree` means this is not a data table, and a database
 	// without schemas has nothing to put between a data table and its tables.
-	const currentDatatable = $derived(
-		asset?.kind === 'datatable' ? asset.path : undefined
-	)
+	const currentDatatable = $derived(asset?.kind === 'datatable' ? asset.path : undefined)
 
 	/** Tables per schema for a data table, as `schema -> table[]`. */
 	function schemasOf(datatable: string | undefined): Record<string, string[]> {
@@ -196,20 +195,22 @@
 		const datatables = datatableTree
 			? datatableTree.map((d) => d.datatable_name)
 			: [undefined as string | undefined]
-		return datatables.map((dt) => {
-			const schemas = Object.entries(schemasOf(dt))
-				.map(([schemaKey, tables]) => ({
-					schemaKey,
-					tables: tables.filter(matchesSearch).sort()
-				}))
-				.filter((sc) => search.trim() === '' || sc.tables.length > 0)
-			schemas.sort((a, b) => a.schemaKey.localeCompare(b.schemaKey))
-			return { datatable: dt, schemas, error: dt ? errorOf(dt) : undefined }
-		}).filter(
-			// A search narrows the tree to what matched; a data table with no match
-			// left in it would otherwise sit there as an empty row.
-			(root) => search.trim() === '' || root.schemas.length > 0
-		)
+		return datatables
+			.map((dt) => {
+				const schemas = Object.entries(schemasOf(dt))
+					.map(([schemaKey, tables]) => ({
+						schemaKey,
+						tables: tables.filter(matchesSearch).sort()
+					}))
+					.filter((sc) => search.trim() === '' || sc.tables.length > 0)
+				schemas.sort((a, b) => a.schemaKey.localeCompare(b.schemaKey))
+				return { datatable: dt, schemas, error: dt ? errorOf(dt) : undefined }
+			})
+			.filter(
+				// A search narrows the tree to what matched; a data table with no match
+				// left in it would otherwise sit there as an empty row.
+				(root) => search.trim() === '' || root.schemas.length > 0
+			)
 	})
 
 	// Explicit open/closed choices, over a default rule. Storing only the
@@ -376,9 +377,9 @@
 			{#if multiSelectMode && dbSelector}
 				{@render dbSelector()}
 			{/if}
-			<ClearableInput bind:value={search} placeholder="Search table..." />
+			<TextInput bind:value={search} inputProps={{ placeholder: 'Search table...' }} />
 		</div>
-		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y flex-1">
+		<div class="overflow-x-clip overflow-y-auto relative mt-1.5 flex-1">
 			{#if multiSelectMode}
 				<!-- Multi-select mode: show all schemas with their tables -->
 				{#if dbSupportsSchemas}
@@ -625,9 +626,7 @@
 										{:else}
 											<Table2 class="shrink-0" size={14} />
 										{/if}
-										<p
-											class="db-manager-table-key truncate text-ellipsis grow text-left text-xs"
-										>
+										<p class="db-manager-table-key truncate text-ellipsis grow text-left text-xs">
 											{tableKey}
 										</p>
 										{#if root.datatable === currentDatatable || root.datatable === undefined}
@@ -671,7 +670,7 @@
 														}
 													}
 												]}
-												class="w-fit"
+												class="w-fit -mr-1"
 												btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
 											/>
 										{/if}
