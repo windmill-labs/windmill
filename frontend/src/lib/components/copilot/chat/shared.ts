@@ -568,12 +568,16 @@ export type RunFormDisplay = {
 	/** Proposed arguments a disabled field overrode with its default. Named for the same
 	 * reason: the field renders locked, so the value it holds is not the proposed one. */
 	resetKeys?: string[]
+	/** Secret and file arguments emptied out of the proposal. Named so an empty field
+	 * reads as the caller's value having been removed, not as the field having none. */
+	strippedKeys?: string[]
 	/** Either one unmounts the form, so set exactly one, and only once the loop has
 	 * stopped waiting on this card. */
 	submitted?: boolean
 	canceled?: boolean
-	/** The job exists. Distinct from `submitted`, which flips a round trip earlier: a turn
-	 * stopped in between must not record a run that never started. */
+	/** The job exists. Distinct from `submitted`, which flips a round trip earlier — in
+	 * between, whether the server queued a job is unknown, so a turn stopped there is
+	 * recorded as neither started nor canceled. */
 	started?: boolean
 }
 

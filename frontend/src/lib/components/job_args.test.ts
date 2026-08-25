@@ -70,6 +70,29 @@ describe('conformArgsToSchema', () => {
 		expect(args).toEqual({ either: { kind: 'b', level: 2 } })
 		expect(droppedKeys).toEqual(['either.evil'])
 	})
+
+	// A value shaped unlike its schema matches no level below, so every filter walked
+	// past it and the form rendered nothing over an argument the run still carried.
+	it('drops a value whose shape contradicts the declared one', () => {
+		const schema = {
+			properties: {
+				rows: { type: 'array', items: { properties: { token: { type: 'string' } } } },
+				cfg: { type: 'object', properties: { token: { type: 'string' } } },
+				free: { type: 'object' }
+			}
+		}
+		expect(
+			conformArgsToSchema({ rows: { token: '$var:u/ada/prod' }, cfg: [{ token: 'x' }] }, schema)
+		).toMatchObject({ args: {}, droppedKeys: ['rows', 'cfg'] })
+		// One level down too. A free-form object still passes unread: it declares no
+		// structure for the value to contradict, so its contents were never filtered.
+		expect(
+			conformArgsToSchema({ rows: [{ token: 'a' }, ['sneaky']], free: { anything: 1 } }, schema)
+		).toMatchObject({
+			args: { rows: [{ token: 'a' }], free: { anything: 1 } },
+			droppedKeys: ['rows[1]']
+		})
+	})
 })
 
 describe('enforceDisabledDefaults', () => {

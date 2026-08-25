@@ -25,14 +25,17 @@
 	// variables have to resolve there too.
 	const workspace = $derived(aiChatManager.operatingWorkspace)
 
-	const properties = $derived(runForm.schema?.properties ?? {})
-	const hasArgs = $derived(Object.keys(properties).length > 0)
-
-	// Deep copy, not a spread: runForm comes off displayMessages ($state), so its nested
+	// Deep copies, not spreads: runForm comes off displayMessages ($state), so its nested
 	// values are proxies that $state() hands back untouched. SchemaForm edits objects and
 	// arrays in place, so a shallow copy would write every keystroke — a password typed
-	// into a nested field included — straight into the persisted transcript.
+	// into a nested field included — straight into the persisted transcript. The schema
+	// goes the same way: SchemaForm binds it and reorders its properties on mount.
 	let args = $state($state.snapshot(runForm.args ?? {}) as Record<string, any>)
+	let schema = $state($state.snapshot(runForm.schema) as Record<string, any>)
+
+	const properties = $derived(schema?.properties ?? {})
+	const hasArgs = $derived(Object.keys(properties).length > 0)
+
 	let isValid = $state(true)
 	let submitting = $state(false)
 	let cardNode = $state<HTMLDivElement | undefined>()
@@ -56,8 +59,8 @@
 			processed = await processSecretArgs(
 				// Last gate before the job: what the card showed is what runs, conformed the
 				// same way the prefill was.
-				conformArgsToSchema(args ?? {}, runForm.schema).args,
-				runForm.schema as any,
+				conformArgsToSchema(args ?? {}, schema).args,
+				schema as any,
 				workspace
 			)
 		} catch (e) {
@@ -96,7 +99,7 @@
 	<div class="mt-3">
 		{#if hasArgs}
 			<SchemaForm
-				schema={runForm.schema}
+				bind:schema
 				helperScript={{ source: 'deployed', path: runForm.path, runnable_kind: 'script' }}
 				{workspace}
 				prettifyHeader
@@ -117,6 +120,12 @@
 			<p class="mt-2 text-2xs text-secondary">
 				Disabled by this script, so it will run with its default:
 				<span class="font-mono">{runForm.resetKeys.join(', ')}</span>
+			</p>
+		{/if}
+		{#if runForm.strippedKeys?.length}
+			<p class="mt-2 text-2xs text-secondary">
+				A secret or a file, so it opened empty for you to fill in:
+				<span class="font-mono">{runForm.strippedKeys.join(', ')}</span>
 			</p>
 		{/if}
 	</div>
