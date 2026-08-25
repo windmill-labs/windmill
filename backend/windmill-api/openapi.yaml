@@ -12295,9 +12295,7 @@ paths:
                 expiry_secs:
                   type: integer
                   format: int64
-                  description: how long the signature stays valid, in seconds (default 43200 = 12h). Clamped to [60, 604800].
-                  minimum: 60
-                  maximum: 604800
+                  description: how long the signature stays valid, in seconds. Defaults to 43200 (12h) and is clamped server-side to [60, 604800] (1 minute to 7 days).
               required:
                 - s3_objects
       responses:

@@ -11,7 +11,10 @@
 //!   - the non-admin CAN sign `allowed/*` (authorized), and the minted signature
 //!     validates end-to-end through the presigned s3_proxy fetch route;
 //!   - the non-admin CANNOT sign `secret/*` (bypass closed);
-//! Advanced S3 permissions are an enterprise feature, so this test requires the
+//! A second test pins the `expiry_secs` bounds: the signature's `exp` follows the
+//! caller's request, defaults to 12h, and is clamped to [60s, 7d].
+//!
+//! Advanced S3 permissions are an enterprise feature, so these tests require the
 //! `enterprise` + `private` + `parquet` features.
 #![cfg(all(feature = "enterprise", feature = "private", feature = "parquet"))]
 
@@ -118,6 +121,91 @@ async fn test_sign_s3_objects_enforces_read_authz(db: Pool<Postgres>) -> anyhow:
         body.as_ref(),
         b"authorized payload",
         "signed fetch must stream the authorized object's bytes"
+    );
+
+    Ok(())
+}
+
+/// `exp` is signed into the HMAC message, so the only way a caller can influence
+/// it is through `expiry_secs` — pin the default and both clamp bounds.
+#[sqlx::test(fixtures("base"))]
+async fn test_sign_s3_objects_expiry_secs(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let storage_dir = tempfile::tempdir()?;
+    configure_lfs(&db, &storage_dir.path().to_string_lossy()).await?;
+
+    async fn signed_exp(base: &str, body: serde_json::Value) -> anyhow::Result<i64> {
+        let resp = authed(
+            client().post(format!("{base}/apps/sign_s3_objects")),
+            "SECRET_TOKEN",
+        )
+        .json(&body)
+        .send()
+        .await?;
+        let status = resp.status();
+        let signed: serde_json::Value = resp.json().await?;
+        assert!(status.is_success(), "sign must succeed: {status} {signed}");
+        let presigned = signed[0]["presigned"]
+            .as_str()
+            .expect("sign must return a presigned string");
+        let exp = presigned
+            .split('&')
+            .find_map(|kv| kv.strip_prefix("exp="))
+            .expect("presigned string must carry exp");
+        Ok(exp.parse::<i64>()?)
+    }
+
+    let key = json!([{ "s3": "allowed/file.txt" }]);
+    // The handler stamps `now` itself, so assert on a window rather than an exact value.
+    // Keep the window well under the 60s lower bound, or an unclamped 1s would pass.
+    let ttl_around = |exp: i64| exp - chrono::Utc::now().timestamp();
+    let tolerance = 30;
+
+    let default_ttl = ttl_around(signed_exp(&base, json!({ "s3_objects": key.clone() })).await?);
+    assert!(
+        (43200 - tolerance..=43200).contains(&default_ttl),
+        "omitting expiry_secs must keep the 12h default, got {default_ttl}s"
+    );
+
+    let honored = ttl_around(
+        signed_exp(
+            &base,
+            json!({ "s3_objects": key.clone(), "expiry_secs": 300 }),
+        )
+        .await?,
+    );
+    assert!(
+        (300 - tolerance..=300).contains(&honored),
+        "expiry_secs must be honored verbatim inside the bounds, got {honored}s"
+    );
+
+    let clamped_low = ttl_around(
+        signed_exp(
+            &base,
+            json!({ "s3_objects": key.clone(), "expiry_secs": 1 }),
+        )
+        .await?,
+    );
+    assert!(
+        (60 - tolerance..=60).contains(&clamped_low),
+        "expiry_secs below 60s must clamp up to 60s, got {clamped_low}s"
+    );
+
+    let clamped_high = ttl_around(
+        signed_exp(
+            &base,
+            json!({ "s3_objects": key.clone(), "expiry_secs": 99_999_999 }),
+        )
+        .await?,
+    );
+    assert!(
+        (604800 - tolerance..=604800).contains(&clamped_high),
+        "expiry_secs above 7d must clamp down to 7d, got {clamped_high}s"
     );
 
     Ok(())
