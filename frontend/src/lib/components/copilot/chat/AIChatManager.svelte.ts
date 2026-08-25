@@ -1798,6 +1798,8 @@ export class AIChatManager {
 		})
 	}
 
+	markRunFormStarted = (toolId: string) => this.#patchRunForm(toolId, { started: true })
+
 	// A form restored from history has no callback: the loop that opened it is gone.
 	isRunFormPending = (toolId: string): boolean => this.runFormCallbacks.has(toolId)
 
@@ -3762,6 +3764,7 @@ export class AIChatManager {
 					onToolBlockedByPlanMode: this.planMode.noteBlockedTool,
 					requestUserQuestion: this.requestUserQuestion,
 					requestRunArgs: this.requestRunArgs,
+					markRunFormStarted: this.markRunFormStarted,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
 					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),
@@ -4591,9 +4594,9 @@ export class AIChatManager {
 	): DisplayMessage[] =>
 		messages.map((message) => {
 			if (message.role === 'tool' && (message.isLoading || message.isQueued)) {
-				// Stopping the turn does not stop the job: once the form was submitted the
-				// script is running for real, so the card must not claim it was canceled.
-				const ranAlready = message.runForm?.submitted === true
+				// Stopping the turn does not stop the job: once the job is queued the script
+				// is running for real, so the card must not claim it was canceled.
+				const ranAlready = message.runForm?.started === true
 				return {
 					...message,
 					isLoading: false,

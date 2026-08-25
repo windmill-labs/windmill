@@ -123,8 +123,8 @@
 
 	<!-- Both buttons rest while a submit is in flight: the ephemeral variables exist by
 	     then, so cancelling would settle the call as declined on a run that is already
-	     starting. Escape from a field still stops the turn. -->
-	<div class="mt-3 flex items-center gap-2">
+	     starting. Marked as the one part of the form Escape still stops the turn from. -->
+	<div class="mt-3 flex items-center gap-2" data-run-form-actions>
 		<Button
 			variant="accent"
 			unifiedSize="sm"

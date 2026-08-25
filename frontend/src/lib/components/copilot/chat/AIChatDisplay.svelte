@@ -224,12 +224,13 @@
 			const focusOnChat =
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
 			if (!focusOnChat) return
-			// The run form parks the loop on the user, so an Escape aimed at one of its
-			// fields must not discard what they typed. Only the fields: from its buttons
-			// Escape still stops the turn, which is the way out while a submit is in flight.
+			// The run form parks the loop on the user, so an Escape aimed at it must not
+			// discard what they typed — its widgets are buttons as often as fields (a oneOf
+			// branch toggle, add-item, the pickers). Only the action row still stops the
+			// turn, which is the way out while a submit is in flight.
 			if (
 				active?.closest('[data-chat-keyboard-scope="run-args-form"]') &&
-				active.matches('input, textarea, select, [contenteditable]')
+				!active.closest('[data-run-form-actions]')
 			) {
 				return
 			}

@@ -4709,6 +4709,7 @@ describe('global AI tools', () => {
 		} as any)
 
 		let shown: Record<string, any> | undefined
+		const statuses: any[] = []
 		const result = await withCompletedTestJob(() =>
 			callGlobalTool(
 				'run_script',
@@ -4722,6 +4723,7 @@ describe('global AI tools', () => {
 				},
 				{
 					...toolCallbacks,
+					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
 					requestRunArgs: async (_toolId, form) => {
 						shown = form.args
 						return { ...form.args, token: '$var:u/ada/secret_arg/typed' }
@@ -4735,6 +4737,9 @@ describe('global AI tools', () => {
 		expect(result).not.toContain('secret_arg')
 		expect(result).not.toContain('prod_api_key')
 		expect(result).toContain('ada')
+		// The card's parameters are persisted too: a variable path is enough to run a job
+		// on a value whoever reads the transcript cannot see.
+		expect(JSON.stringify(statuses)).not.toContain('secret_arg')
 	})
 
 	// The form is its own confirmation, so it never reaches processToolCall's second gate.
@@ -4815,18 +4820,25 @@ describe('global AI tools', () => {
 
 		const bytes = 'QUJD'.repeat(1024)
 		const statuses: any[] = []
+		let shown: Record<string, any> | undefined
 		const result = await withCompletedTestJob(() =>
 			callGlobalTool(
 				'run_script',
-				{ path: 'f/scripts/upload', args: {} },
+				// Proposed, not just user-attached: prefilled bytes are bytes the stored
+				// transcript carries, for a value no model can produce anyway.
+				{ path: 'f/scripts/upload', args: { doc: bytes } },
 				{
 					...toolCallbacks,
 					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
-					requestRunArgs: async () => ({ doc: bytes })
+					requestRunArgs: async (_toolId, form) => {
+						shown = form.args
+						return { doc: bytes }
+					}
 				}
 			)
 		)
 
+		expect(shown).toEqual({})
 		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
 			path: 'f/scripts/upload',

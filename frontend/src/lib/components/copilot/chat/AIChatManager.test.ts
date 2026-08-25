@@ -282,7 +282,29 @@ describe('AIChatManager run form', () => {
 
 	// Stop ends the turn, not the job: the deployed script is already running with all
 	// its side effects, so the transcript must not record it as cancelled.
-	it('does not mark a submitted run cancelled when the turn is stopped', () => {
+	it('does not mark a started run cancelled when the turn is stopped', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_s',
+				content: 'Running "f/a/b"...',
+				isLoading: true,
+				runForm: { path: 'f/a/b', schema: {}, args: {}, submitted: true, started: true }
+			}
+		]
+
+		manager.cancelLoadingTools()
+
+		const settled = manager.displayMessages[0]
+		expect(settled.runForm?.canceled).toBe(false)
+		expect(settled.error).toBe(undefined)
+		expect(settled.isLoading).toBe(false)
+	})
+
+	// Run flips `submitted` a round trip before the job exists. Stop in that window
+	// cancelled nothing that ran, so the card must not claim the script was left running.
+	it('marks a submitted run cancelled while its job has not started', () => {
 		const manager = new AIChatManager()
 		manager.displayMessages = [
 			{
@@ -297,9 +319,8 @@ describe('AIChatManager run form', () => {
 		manager.cancelLoadingTools()
 
 		const settled = manager.displayMessages[0]
-		expect(settled.runForm?.canceled).toBe(false)
-		expect(settled.error).toBe(undefined)
-		expect(settled.isLoading).toBe(false)
+		expect(settled.runForm?.canceled).toBe(true)
+		expect(settled.content).toBe('Run f/a/b — Canceled')
 	})
 })
 

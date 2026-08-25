@@ -572,6 +572,9 @@ export type RunFormDisplay = {
 	 * stopped waiting on this card. */
 	submitted?: boolean
 	canceled?: boolean
+	/** The job exists. Distinct from `submitted`, which flips a round trip earlier: a turn
+	 * stopped in between must not record a run that never started. */
+	started?: boolean
 }
 
 /** One page hit from a provider-side web search (OpenAI sources carry no title). */
@@ -1285,6 +1288,8 @@ export interface ToolCallbacks {
 		toolId: string,
 		form: RunFormDisplay
 	) => Promise<Record<string, any> | undefined>
+	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
+	markRunFormStarted?: (toolId: string) => void
 	/** Records a workspace item the tool call created/edited/deleted, by its
 	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
 	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */
