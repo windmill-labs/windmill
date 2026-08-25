@@ -14,25 +14,28 @@ services:
   ## is supported upstream until Nov 2028, so staying on `image: postgres:16` with
   ## the old `db_data:/var/lib/postgresql/data` mount remains a valid option.
   ##
-  ## To move the data across, dump first while the old 16 container is still the
-  ## one running (git checkout the previous docker-compose.yml if you already
-  ## replaced it), with only db up:
-  ##   docker compose stop windmill_server windmill_worker windmill_worker_native
-  ##   docker compose exec -T db pg_dumpall -U postgres --globals-only --no-role-passwords > globals.sql
-  ##   docker compose exec -T db pg_dump -U postgres -Fc windmill > windmill.dump
-  ## Check both files, then switch to this file and start 18 on an empty volume:
+  ## Migrating means moving the WHOLE CLUSTER, not the windmill database. Windmill
+  ## creates instance datatable, DuckLake and wm_fork_* databases alongside it, and
+  ## grants its row-level security policies to cluster-level roles; a single-database
+  ## pg_dump carries neither, and the volume is gone before anyone notices. Dump
+  ## while the 16 container is still the one running (git checkout the previous
+  ## docker-compose.yml if you already replaced it):
+  ##   docker compose down && docker compose up --wait db
+  ##   docker compose exec -T db pg_dumpall -U postgres > cluster.sql
+  ## Check cluster.sql lists every database, then switch to this file:
   ##   docker compose down
   ##   docker volume ls | grep db_data     # then remove the one this project owns
   ##   docker volume rm <that_volume>
-  ##   docker compose up -d db
-  ##   docker compose exec -T db psql -U postgres -d postgres < globals.sql
-  ##   docker compose exec -T db pg_restore -U postgres -d windmill --no-owner --exit-on-error < windmill.dump
+  ##   docker compose up --wait db
+  ##   docker compose exec -T db psql -U postgres -d postgres < cluster.sql
+  ##   docker compose exec -T db psql -U postgres -d windmill -c ANALYZE
   ##   docker compose up -d
-  ## Loading globals.sql is not optional. Windmill grants its row-level security
-  ## policies to the cluster-level windmill_admin and windmill_user roles, which a
-  ## database-only dump does not carry, and pg_restore silently drops every policy
-  ## whose grantee role is missing. The one error to expect is psql reporting
-  ## `role "postgres" already exists`, which the fresh cluster bootstraps itself.
+  ## `database "windmill" already exists` and `role "postgres" already exists` are
+  ## expected; the fresh cluster bootstraps both, and psql carries on to load into
+  ## them. ANALYZE is not optional: a restored cluster starts with no planner
+  ## statistics, which reads as "the upgrade made Windmill slow" until autovacuum
+  ## catches up. `up --wait` rather than `up -d` because psql would otherwise race
+  ## initdb on a fresh volume.
   db:
     deploy:
       # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
