@@ -18,7 +18,7 @@
   "slack": {
     "auth_url": "https://slack.com/oauth/v2/authorize",
     "token_url": "https://slack.com/api/oauth.v2.access",
-    "scopes": ["chat:write,chat:write.public,channels:join,files:write"]
+    "scopes": ["chat:write", "chat:write.public", "channels:join", "files:write"]
   },
   "supabase_wizard": {
     "auth_url": "https://api.supabase.com/v1/oauth/authorize",

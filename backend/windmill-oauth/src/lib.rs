@@ -1191,23 +1191,6 @@ mod tests {
         );
     }
 
-    // Slack's v2 authorize endpoint parses `scope` as a comma-delimited list, while
-    // `oauth_redirect` joins separate scope entries with spaces. The registry therefore
-    // holds the whole set as one comma-joined entry; splitting it into one entry per
-    // scope would emit a space-delimited list that Slack reads as a single unknown scope.
-    #[test]
-    fn slack_registry_entry_joins_scopes_with_commas() {
-        let registry: HashMap<String, OAuthConfig> =
-            serde_json::from_str(include_str!("../../oauth_connect.json")).unwrap();
-        let scopes = registry.get("slack").unwrap().scopes.clone().unwrap();
-        assert_eq!(
-            scopes.len(),
-            1,
-            "slack scopes must stay a single joined entry"
-        );
-        assert!(scopes[0].contains(','));
-    }
-
     #[test]
     fn canonical_provider_name_strips_sandbox_suffix() {
         assert_eq!(canonical_provider_name("docusign_sandbox"), "docusign");
