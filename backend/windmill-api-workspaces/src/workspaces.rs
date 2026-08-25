@@ -7161,17 +7161,16 @@ async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()
     enforce_cloud_fork_count(db, &root, 1).await
 }
 
-/// Cloud: refuse to attach a workspace that still has its own team plan.
+/// Cloud: refuse to attach a workspace that already has a paid plan of its own.
 ///
-/// Once attached it draws the root's plan and meters its usage there, and its billing page is
-/// replaced by the parent-managed notice, so a subscription of its own bills a second time for one
-/// plan with no way left to reach the portal that cancels it. Only an attach can reach this state:
-/// a fork is created as a fresh workspace and never had a plan to keep.
+/// Once attached it draws the root's plan and meters its usage there, so a subscription of its own
+/// bills a second time for one plan. Only an attach can reach this state: a fork is created as a
+/// fresh workspace and never had a plan to keep.
 ///
 /// Asked only of a candidate joining this family, never of one already under the same root: that
 /// one is already in the double-billed state, where the settings page surfaces the leftover
-/// subscription, and refusing there would block re-designating a renamed dev workspace over a
-/// billing problem the attach did not cause.
+/// subscription and the portal that cancels it, and refusing there would block re-designating a
+/// renamed dev workspace over a billing problem the attach did not cause.
 #[cfg(feature = "cloud")]
 async fn reject_attach_of_subscribed_workspace(db: &DB, dev_w_id: &str) -> Result<()> {
     let plan = sqlx::query_scalar!(
