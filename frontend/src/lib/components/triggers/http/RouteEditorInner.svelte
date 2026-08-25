@@ -12,6 +12,7 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import {
 		HttpTriggerService,
+		SettingService,
 		VariableService,
 		type AuthenticationMethod,
 		type ErrorHandler,
@@ -46,7 +47,14 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ItemPicker from '../../ItemPicker.svelte'
 	import { Popover } from '$lib/components/meltComponents'
-	import { HUB_SCRIPT_ID, saveHttpRouteFromCfg, SECRET_KEY_PATH } from './utils'
+	import {
+		HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
+		HUB_SCRIPT_ID,
+		isOriginRestricted,
+		parseAllowedOrigins,
+		saveHttpRouteFromCfg,
+		SECRET_KEY_PATH
+	} from './utils'
 	import { HubFlow } from '$lib/hub'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
 	import RouteCorsOption from './RouteCorsOption.svelte'
@@ -113,6 +121,20 @@
 	let wrap_body = $state(false)
 	let allowed_origins = $state<string[] | undefined>(undefined)
 	let allowedOriginsError = $state<string | undefined>(undefined)
+	// Fetched once here rather than in RouteCorsOption so the Advanced badge can
+	// show an inherited restriction without the section being expanded.
+	let instanceDefaultOrigins = $state<string[]>([])
+	async function loadInstanceDefaultOrigins() {
+		try {
+			const setting = await SettingService.getGlobal({
+				key: HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+			})
+			instanceDefaultOrigins = typeof setting === 'string' ? parseAllowedOrigins(setting) : []
+		} catch {
+			instanceDefaultOrigins = []
+		}
+	}
+	loadInstanceDefaultOrigins()
 	let drawerLoading = $state(true)
 	let showLoader = $state(false)
 	let authentication_resource_path = $state('')
@@ -770,7 +792,11 @@
 							extraBadges={[
 								{ name: 'Async', active: request_type === 'async' },
 								{ name: 'SSE', active: request_type === 'sync_sse' },
-								{ name: 'Authentication', active: authentication_method !== 'none' }
+								{ name: 'Authentication', active: authentication_method !== 'none' },
+								{
+									name: 'CORS',
+									active: isOriginRestricted(allowed_origins, instanceDefaultOrigins)
+								}
 							]}
 						/>
 					{/snippet}
@@ -977,6 +1003,7 @@
 									<RouteCorsOption
 										bind:allowed_origins
 										bind:error={allowedOriginsError}
+										{instanceDefaultOrigins}
 										disabled={!can_write}
 										{testingBadge}
 									/>

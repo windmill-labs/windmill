@@ -3,13 +3,15 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { SettingService } from '$lib/gen'
+	import { parseAllowedOrigins } from './utils'
 	import type { Snippet } from 'svelte'
 
 	interface Props {
 		allowed_origins: string[] | undefined
 		/** Bound so the editor can block saving while the list is unusable. */
 		error?: string | undefined
+		/** Fetched once by the editor, so the badge and this field agree. */
+		instanceDefaultOrigins?: string[]
 		disabled?: boolean
 		testingBadge?: Snippet | undefined
 	}
@@ -17,6 +19,7 @@
 	let {
 		allowed_origins = $bindable(),
 		error = $bindable(),
+		instanceDefaultOrigins = [],
 		disabled = false,
 		testingBadge = undefined
 	}: Props = $props()
@@ -27,12 +30,7 @@
 	let raw = $state(allowed_origins?.join(', ') ?? '')
 	let restricted = $state(allowed_origins !== undefined)
 
-	function parse(value: string): string[] {
-		return value
-			.split(',')
-			.map((origin) => origin.trim())
-			.filter((origin) => origin !== '')
-	}
+	const parse = parseAllowedOrigins
 
 	// Mirrors `validate_allowed_origins` in windmill-trigger-http so the error
 	// shows before saving rather than as a 400 from the API.
@@ -52,19 +50,8 @@
 
 	// Without this the toggle reading "off" would look like "callable from
 	// anywhere" on an instance that has narrowed the default.
-	let instanceDefault = $state<string>('')
-	async function loadInstanceDefault() {
-		try {
-			const setting = await SettingService.getGlobal({ key: 'http_route_default_allowed_origins' })
-			instanceDefault = typeof setting === 'string' ? setting.trim() : ''
-		} catch {
-			instanceDefault = ''
-		}
-	}
-	loadInstanceDefault()
-
 	let inheritsInstanceDefault = $derived(
-		!restricted && instanceDefault !== '' && instanceDefault !== '*'
+		!restricted && instanceDefaultOrigins.length > 0 && !instanceDefaultOrigins.includes('*')
 	)
 
 	let origins = $derived(parse(raw))
@@ -142,8 +129,8 @@
 		{/if}
 	{:else if inheritsInstanceDefault}
 		<div class="text-2xs text-secondary">
-			Inherits the instance default: {instanceDefault}. Turn this on to set origins for this route,
-			or enter * to allow any.
+			Inherits the instance default: {instanceDefaultOrigins.join(', ')}. Turn this on to set
+			origins for this route, or enter * to allow any.
 		</div>
 	{/if}
 </Label>

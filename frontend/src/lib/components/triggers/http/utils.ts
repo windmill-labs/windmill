@@ -9,6 +9,30 @@ import { type OpenAPI } from 'openapi-types'
 import type { Writable } from 'svelte/store'
 import { get } from 'svelte/store'
 
+export const HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING = 'http_route_default_allowed_origins'
+
+/** Split the comma-separated form the origins field and the setting both use. */
+export function parseAllowedOrigins(raw: string): string[] {
+	return raw
+		.split(',')
+		.map((origin) => origin.trim())
+		.filter((origin) => origin !== '')
+}
+
+/**
+ * Whether a route is restricted to specific origins, mirroring
+ * `effective_allowed_origins` in windmill-trigger-http: the route's own list
+ * when it has one, otherwise the instance default, and `*` in either means no
+ * restriction at all.
+ */
+export function isOriginRestricted(
+	allowed_origins: string[] | undefined,
+	instanceDefaultOrigins: string[]
+): boolean {
+	const effective = allowed_origins ?? instanceDefaultOrigins
+	return effective.length > 0 && !effective.includes('*')
+}
+
 export const SECRET_KEY_PATH = 'secret_key_path'
 export const HUB_SCRIPT_ID = 19670
 export const SIGNATURE_TEMPLATE_SCRIPT_HUB_PATH: string = `hub/${HUB_SCRIPT_ID}`
