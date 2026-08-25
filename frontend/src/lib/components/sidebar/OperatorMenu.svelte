@@ -228,7 +228,8 @@
 							class={twMerge(
 								'flex flex-row gap-3.5 items-center px-2 py-2',
 								sidebarClasses.text,
-								sidebarClasses.hoverBg
+								sidebarClasses.hoverBg,
+								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 							)}
 							lightMode
 							{item}
@@ -253,7 +254,8 @@
 							class={twMerge(
 								'w-full flex gap-3.5 px-2 py-2',
 								sidebarClasses.hoverBg,
-								sidebarClasses.text
+								sidebarClasses.text,
+								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 							)}
 							{item}
 						>
@@ -268,7 +270,12 @@
 							href="{base}/user/workspaces"
 							onClick={() => clearWorkspaceFromStorage()}
 							lightMode
-							class={twMerge('flex gap-3.5 px-2 py-2', sidebarClasses.hoverBg, sidebarClasses.text)}
+							class={twMerge(
+								'flex gap-3.5 px-2 py-2',
+								sidebarClasses.hoverBg,
+								sidebarClasses.text,
+								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+							)}
 							{item}
 						>
 							<Building size={14} />

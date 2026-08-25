@@ -62,10 +62,11 @@
 			{onclick}
 			class={twMerge(
 				'group flex items-center px-2 py-2 text-sm font-light rounded-md h-8 gap-2',
-				isSelected
-					? sidebarClasses.selectedBg
-					: sidebarClasses.hoverBg,
+				isSelected ? sidebarClasses.selectedBg : sidebarClasses.hoverBg,
 				isSelected ? sidebarClasses.selectedText : sidebarClasses.text,
+				// Keyboard navigation marks the current row with data-highlighted; without this
+				// it moves invisibly, since sidebarClasses.hoverBg only reacts to the pointer.
+				item ? 'data-[highlighted]:bg-surface-hover' : '',
 				classNames
 			)}
 			data-light-mode={lightMode}
@@ -77,7 +78,13 @@
 		>
 			{#if icon}
 				{@const SvelteComponent = icon}
-				<SvelteComponent size={16} class={twMerge('flex-shrink-0 transition-all', isSelected ? sidebarClasses.selectedText : sidebarClasses.iconText)} />
+				<SvelteComponent
+					size={16}
+					class={twMerge(
+						'flex-shrink-0 transition-all',
+						isSelected ? sidebarClasses.selectedText : sidebarClasses.iconText
+					)}
+				/>
 			{/if}
 
 			{#if !isCollapsed}
