@@ -256,8 +256,15 @@
 	// Row actions stay out of the way until you are on the row — or it is the one
 	// you are looking at, where the menu is part of the current context.
 	const rowActionsClass = (current: boolean) =>
-		'w-fit -mr-1 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ' +
+		'absolute right-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ' +
 		(current ? 'opacity-100' : 'opacity-0')
+
+	// The chevron is the resting state of that slot: it gives way to the menu
+	// rather than sitting beside it.
+	const rowChevronClass = (current: boolean, open: boolean) =>
+		'absolute right-0 pointer-events-none text-secondary transition-all group-hover:opacity-0 ' +
+		(current ? 'opacity-0 ' : 'opacity-100 ') +
+		(open ? '' : '-rotate-90')
 
 	/** Every row in the tree reads the same way: what you are looking at now is
 	 * emphasized, everything else recedes. */
@@ -582,44 +589,45 @@
 						>
 							<DatabaseIcon class="shrink-0" size={14} />
 							<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
-							{#if onDatatableAction}
-								{@const dt = root.datatable}
-								<DropdownV2
-									items={() => [
-										{
-											displayName: 'Migrations',
-											icon: HistoryIcon,
-											action: () => onDatatableAction?.(dt, 'migrations')
-										},
-										...(canManageDatatable
-											? [
-													{
-														displayName: 'Roles',
-														icon: KeyRoundIcon,
-														action: () => onDatatableAction?.(dt, 'roles')
-													}
-												]
-											: []),
-										{
-											displayName: 'Export',
-											icon: DownloadIcon,
-											action: () => onDatatableAction?.(dt, 'export')
-										},
-										{
-											displayName: 'Import',
-											icon: UploadIcon,
-											action: () => onDatatableAction?.(dt, 'import')
-										}
-									]}
-									class={rowActionsClass(root.datatable === currentDatatable)}
-									btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
+							<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-1">
+								{#if onDatatableAction}
+									{@const dt = root.datatable}
+									<DropdownV2
+										items={() => [
+											{
+												displayName: 'Migrations',
+												icon: HistoryIcon,
+												action: () => onDatatableAction?.(dt, 'migrations')
+											},
+											...(canManageDatatable
+												? [
+														{
+															displayName: 'Roles',
+															icon: KeyRoundIcon,
+															action: () => onDatatableAction?.(dt, 'roles')
+														}
+													]
+												: []),
+											{
+												displayName: 'Export',
+												icon: DownloadIcon,
+												action: () => onDatatableAction?.(dt, 'export')
+											},
+											{
+												displayName: 'Import',
+												icon: UploadIcon,
+												action: () => onDatatableAction?.(dt, 'import')
+											}
+										]}
+										class="-mr-2 {rowActionsClass(root.datatable === currentDatatable)}"
+										btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
+									/>
+								{/if}
+								<ChevronDownIcon
+									class={rowChevronClass(root.datatable === currentDatatable, dtOpen)}
+									size={14}
 								/>
-							{/if}
-							<ChevronDownIcon
-								class={'shrink-0 mr-1 text-secondary transition-transform ' +
-									(dtOpen ? '' : '-rotate-90')}
-								size={14}
-							/>
+							</div>
 						</button>
 					{/if}
 					{#if dtOpen}
@@ -641,24 +649,28 @@
 								>
 									<FolderIcon class="shrink-0" size={14} />
 									<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
-									<DropdownV2
-										items={() => [
-											{
-												displayName: 'Permissions',
-												icon: KeyRoundIcon,
-												action: () => (schemaPermissionsOpen = true)
-											}
-										]}
-										class={rowActionsClass(
-											root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey
-										)}
-										btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
-									/>
-									<ChevronDownIcon
-										class={'shrink-0 mr-1 text-secondary transition-transform ' +
-											(schemaOpen ? '' : '-rotate-90')}
-										size={14}
-									/>
+									<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-1">
+										<DropdownV2
+											items={() => [
+												{
+													displayName: 'Permissions',
+													icon: KeyRoundIcon,
+													action: () => (schemaPermissionsOpen = true)
+												}
+											]}
+											class="-mr-2 {rowActionsClass(
+												root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey
+											)}"
+											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
+										/>
+										<ChevronDownIcon
+											class={rowChevronClass(
+												root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey,
+												schemaOpen
+											)}
+											size={14}
+										/>
+									</div>
 								</button>
 							{/if}
 							{#if schemaOpen || !dbSupportsSchemas}
@@ -809,10 +821,10 @@
 
 <Portal>
 	<Drawer bind:open={schemaPermissionsOpen} size="900px">
-	<DrawerContent title="Schema permissions" on:close={() => (schemaPermissionsOpen = false)} />
-</Drawer>
+		<DrawerContent title="Schema permissions" on:close={() => (schemaPermissionsOpen = false)} />
+	</Drawer>
 
-<ConfirmationModal
+	<ConfirmationModal
 		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
 		on:canceled={() => (askingForConfirmation = undefined)}
 		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
