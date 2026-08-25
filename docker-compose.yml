@@ -8,42 +8,13 @@ x-logging: &default-logging
     compress: "true"
 
 services:
-  ## UPGRADING AN EXISTING STACK: a db_data volume written by postgres:16 holds a
-  ## cluster that 18 cannot read. The container exits with an explanatory error
-  ## instead of coming up blank, so nothing is lost before you migrate. Postgres 16
-  ## is supported upstream until Nov 2028, so staying on `image: postgres:16` with
-  ## the old `db_data:/var/lib/postgresql/data` mount remains a valid option.
-  ##
-  ## Migrating means moving the WHOLE CLUSTER, not the windmill database. Windmill
-  ## creates instance datatable, DuckLake and wm_fork_* databases alongside it, and
-  ## grants its row-level security policies to cluster-level roles; a single-database
-  ## pg_dump carries neither, and the volume is gone before anyone notices. Dump
-  ## while the 16 container is still the one running (git checkout the previous
-  ## docker-compose.yml if you already replaced it):
-  ##   docker compose down && docker compose up --wait db
-  ##   docker compose exec -T db pg_dumpall -U postgres > cluster.sql
-  ## Check cluster.sql lists every database, then switch to this file:
-  ##   docker compose down
-  ##   docker volume ls | grep db_data     # then remove the one this project owns
-  ##   docker volume rm <that_volume>
-  ##   docker compose up --wait db
-  ##   docker compose exec -T db psql -U postgres -d postgres -c 'DROP DATABASE windmill'
-  ##   docker compose exec -T db psql -U postgres -d postgres < cluster.sql > restore.log 2>&1
-  ##   grep -i '^ERROR' restore.log      # only `role "postgres" already exists`
-  ##   docker compose exec -T db vacuumdb -U postgres --all --analyze-in-stages
-  ##   docker compose up -d
-  ## `up --wait` because psql would otherwise race initdb on a fresh volume. The
-  ## DROP is what lets the dump's own `CREATE DATABASE windmill` run: POSTGRES_DB
-  ## has already made an empty one, and loading into it would keep the new cluster's
-  ## encoding and collation instead of the dumped ones, for that database only.
-  ## psql does not stop on error and the old volume is already gone by then, so grep
-  ## the log rather than trust its exit code; the fresh cluster bootstraps `postgres`
-  ## itself, so that role is the one error left. vacuumdb spans every restored
-  ## database, which a plain ANALYZE would not: each comes back with no planner
-  ## statistics, and a fork database is where the stall shows. Postgres triggers
-  ## reading a database in this cluster come back disabled with "replication slot
-  ## ... no longer exists", since slots are never dumped; re-saving the trigger
-  ## recreates the slot, then re-enable it.
+  ## UPGRADING FROM POSTGRES 16: db_data holds a cluster 18 cannot read, so the
+  ## container exits with an explanatory error rather than coming up blank. Migrating
+  ## means dumping the WHOLE cluster (pg_dumpall), never just the windmill database:
+  ## Windmill keeps datatable, DuckLake and wm_fork_* databases beside it and grants
+  ## its RLS policies to cluster-level roles, and a single-database dump loses both
+  ## silently. Full procedure, and why 16 is still a valid choice until Nov 2028:
+  ## https://gist.github.com/rubenfiszel/4f2807b0fc685865f6e97d352681b9a8
   db:
     deploy:
       # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
