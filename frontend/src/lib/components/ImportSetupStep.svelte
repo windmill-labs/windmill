@@ -84,7 +84,13 @@
 	// Split because the two say different things to the user: one data table was never
 	// created, the other exists and could not be read. Telling someone to set up what they
 	// have already set up is how a warning stops being believed.
-	const unmadeTables = $derived(rows.filter((r) => r.status === 'unconfigured'))
+	// Grouped by what it costs the project, not by row status. A row whose migrations failed is
+	// configured, but its tables are as absent as one that was never created and the remedy is
+	// the same — so they share a message. An `unknown` row is the odd one: it is set up, and
+	// whether its tables are there is precisely what could not be established.
+	const missingTables = $derived(
+		rows.filter((r) => r.status === 'unconfigured' || r.status === 'failed')
+	)
 	const uncheckedTables = $derived(rows.filter((r) => r.status === 'unknown'))
 	/** Rows the user has not dealt with, of either kind. */
 	const outstanding = $derived(pendingTables.length + blanks.filter((b) => !b.done).length)
@@ -360,26 +366,38 @@
 			// hub export. A hub is not ours — `hub_base_url` is an instance setting and the
 			// wizard can be pointed at any of them — so a name carrying an event-bearing
 			// element would otherwise run script in this authenticated origin.
-			const names = pendingTables.map((r) => escapeHtml(r.name)).join(', ')
-			const one = pendingTables.length === 1
-			// An `unknown` row is set up — only its schema could not be read — so it cannot be
-			// told it is "not set up". Where the list mixes the two, say the weaker thing that
-			// is true of both rather than the stronger one that is false of half.
-			const anyUnmade = unmadeTables.length > 0
-			const confirmed = await confirmationModal.ask({
-				title: anyUnmade ? 'The project will not run' : 'This has not been verified',
-				confirmationText: 'Skip anyway',
-				type: anyUnmade ? 'danger' : 'info',
-				children: anyUnmade
-					? `${one ? 'The data table' : 'The data tables'} <b>${names}</b> ` +
-						`${one ? 'is' : 'are'} not set up, so the tables this project's apps and flows read ` +
-						`do not exist. Every one of them will fail as soon as it opens.<br /><br />` +
+			// One block per outcome, the way the footer alert does it. A single sentence over a
+			// mixed list has to be wrong about half of it: an `unknown` data table is set up —
+			// only its schema could not be read — so naming it under "not set up" tells the user
+			// to do something they have already done.
+			const missing = missingTables
+			const unverified = uncheckedTables
+			const listOf = (rs: Row[]) => rs.map((r) => escapeHtml(r.name)).join(', ')
+			const blocks: string[] = []
+			if (missing.length > 0) {
+				const one = missing.length === 1
+				blocks.push(
+					`The tables ${one ? 'the data table' : 'the data tables'} <b>${listOf(missing)}</b> ` +
+						`${one ? 'holds' : 'hold'} do not exist, and this project's apps and flows read ` +
+						`them. Every one of those fails as soon as it opens.<br /><br />` +
 						`Setting ${one ? 'it' : 'them'} up later from workspace settings creates the ` +
 						`connection but not the tables — only this step runs the project's migration.`
-					: `${one ? 'The data table' : 'The data tables'} <b>${names}</b> ` +
+				)
+			}
+			if (unverified.length > 0) {
+				const one = unverified.length === 1
+				blocks.push(
+					`${one ? 'The data table' : 'The data tables'} <b>${listOf(unverified)}</b> ` +
 						`${one ? 'is' : 'are'} set up, but ${one ? 'its' : 'their'} schema could not be ` +
 						`read, so whether this project's tables exist is unknown. Its apps and flows will ` +
 						`fail wherever they query a table that is missing.`
+				)
+			}
+			const confirmed = await confirmationModal.ask({
+				title: missing.length > 0 ? 'The project will not run' : 'This has not been verified',
+				confirmationText: 'Skip anyway',
+				type: missing.length > 0 ? 'danger' : 'info',
+				children: blocks.join('<br /><br />')
 			})
 			if (!confirmed) return
 		}
@@ -501,7 +519,22 @@
 						<!-- The wizard owns creating a data table: picking or provisioning the
 						     database, writing the config, and reporting the connection. This step
 						     only says which name it needs and runs the migrations afterwards. -->
-						{#if hasTable && row.status !== 'done' && row.status !== 'running'}
+						{#if row.status === 'unknown'}
+							<!-- Never runs the SQL. `unknown` covers two different unknowns — the schema
+							     could not be read, or the SQL names no table this can resolve — and the
+							     second is arbitrary published SQL that may carry a non-idempotent INSERT
+							     or ALTER. Applying it a second time on the chance it never applied once
+							     is a worse outcome than saying so. Reading again is free and settles the
+							     case that actually recovers: a database that was briefly unreachable. -->
+							<Button
+								variant="subtle"
+								unifiedSize="sm"
+								disabled={working || loading}
+								onClick={() => void load()}
+							>
+								Check again
+							</Button>
+						{:else if hasTable && row.status !== 'done' && row.status !== 'running'}
 							<!-- The data table is there and its tables are not, so the thing left
 							     to do is run the migrations. Reopening the wizard would ask for a
 							     name it now holds itself, which it rejects as taken — leaving no
@@ -605,24 +638,21 @@
 		{:else if pendingTables.length > 0}
 			<Alert
 				type="warning"
-				title={unmadeTables.length > 0
+				title={missingTables.length > 0
 					? 'The project will not run without this'
 					: 'This could not be checked'}
 				size="xs"
 			>
-				{#if unmadeTables.length > 0}
-					{unmadeTables.length === 1 ? 'This data table does not' : 'These data tables do not'} exist
-					yet, and the project's apps and flows query
-					{unmadeTables.length === 1 ? 'tables inside it' : 'tables inside them'}. Until
-					{unmadeTables.length === 1 ? 'it is' : 'they are'} set up, every one of them fails as soon
+				{#if missingTables.length > 0}
+					The tables {missingTables.length === 1 ? 'this data table holds' : 'these data tables hold'}
+					do not exist, and the project's apps and flows read them. Every one of those fails as soon
 					as it opens.
 				{/if}
 				{#if uncheckedTables.length > 0}
-					{#if unmadeTables.length > 0}<br /><br />{/if}
+					{#if missingTables.length > 0}<br /><br />{/if}
 					{uncheckedTables.length === 1 ? 'One data table is' : 'Some data tables are'} set up, but
 					{uncheckedTables.length === 1 ? 'its' : 'their'} schema could not be read, so whether the
-					project's tables are there is unknown. Running the migrations again is safe — they create
-					nothing that already exists.
+					project's tables are there is unknown. Check again once the database is reachable.
 				{/if}
 			</Alert>
 		{:else}
