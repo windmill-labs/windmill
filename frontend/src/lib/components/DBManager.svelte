@@ -252,8 +252,10 @@
 	// The chevron is the resting state of that slot: it gives way to the menu
 	// rather than sitting beside it.
 	const rowChevronClass = (current: boolean, open: boolean) =>
-		'absolute right-0 pointer-events-none text-secondary transition-all group-hover:opacity-0 ' +
-		(current ? 'opacity-0 ' : 'opacity-100 ') +
+		'absolute right-0 pointer-events-none text-secondary transition-all ' +
+		(multiSelectMode
+			? 'opacity-100 '
+			: 'group-hover:opacity-0 ' + (current ? 'opacity-0 ' : 'opacity-100 ')) +
 		(open ? '' : '-rotate-90')
 
 	/** Every row in the tree reads the same way: what you are looking at now is
@@ -409,23 +411,25 @@
 							rowText(root.datatable === currentDatatable)}
 						onclick={() => toggle(root.datatable)}
 					>
+						{#if multiSelectMode}
+							{@const state = batchState(root.datatable)}
+							<Checkbox
+								checked={state.checked}
+								indeterminate={state.indeterminate}
+								disabled={state.disabled}
+								onChange={() => toggleBatch(root.datatable)}
+								onClick={(e) => e.stopPropagation()}
+								class="shrink-0"
+							/>
+						{/if}
 						<DatabaseIcon class="shrink-0" size={14} />
 						<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
 						<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
-							{#if multiSelectMode}
-								{@const state = batchState(root.datatable)}
-								<Checkbox
-									checked={state.checked}
-									indeterminate={state.indeterminate}
-									disabled={state.disabled}
-									onChange={() => toggleBatch(root.datatable)}
-									onClick={(e) => e.stopPropagation()}
-								/>
-							{:else}
-								<ChevronDownIcon
-									class={rowChevronClass(root.datatable === currentDatatable, dtOpen)}
-									size={14}
-								/>
+							<ChevronDownIcon
+								class={rowChevronClass(root.datatable === currentDatatable, dtOpen)}
+								size={14}
+							/>
+							{#if !multiSelectMode}
 								{#if onDatatableAction}
 									{@const dt = root.datatable}
 									<DropdownV2
@@ -480,26 +484,28 @@
 									)}
 								onclick={() => toggle(root.datatable, sc.schemaKey)}
 							>
+								{#if multiSelectMode}
+									{@const state = batchState(root.datatable, sc.schemaKey)}
+									<Checkbox
+										checked={state.checked}
+										indeterminate={state.indeterminate}
+										disabled={state.disabled}
+										onChange={() => toggleBatch(root.datatable, sc.schemaKey)}
+										onClick={(e) => e.stopPropagation()}
+										class="shrink-0"
+									/>
+								{/if}
 								<FolderIcon class="shrink-0" size={14} />
 								<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
 								<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
-									{#if multiSelectMode}
-										{@const state = batchState(root.datatable, sc.schemaKey)}
-										<Checkbox
-											checked={state.checked}
-											indeterminate={state.indeterminate}
-											disabled={state.disabled}
-											onChange={() => toggleBatch(root.datatable, sc.schemaKey)}
-											onClick={(e) => e.stopPropagation()}
-										/>
-									{:else}
-										<ChevronDownIcon
-											class={rowChevronClass(
-												root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey,
-												schemaOpen
-											)}
-											size={14}
-										/>
+									<ChevronDownIcon
+										class={rowChevronClass(
+											root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey,
+											schemaOpen
+										)}
+										size={14}
+									/>
+									{#if !multiSelectMode}
 										<DropdownV2
 											items={() => [
 												{
@@ -531,11 +537,10 @@
 									schema: sc.schemaKey,
 									table: tableKey
 								}}
-								{@const isSelected = multiSelectMode
-									? isTableSelected(entry) || isTableDisabled(entry)
-									: root.datatable === currentDatatable &&
-										selected.schemaKey === sc.schemaKey &&
-										selected.tableKey === tableKey}
+								{@const isSelected =
+									root.datatable === currentDatatable &&
+									selected.schemaKey === sc.schemaKey &&
+									selected.tableKey === tableKey}
 								<button
 									class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
 										tableIndent +
@@ -543,11 +548,20 @@
 										rowText(isSelected) +
 										' ' +
 										(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
-									onclick={() =>
-										multiSelectMode
-											? toggleTableSelection(entry)
-											: selectTable(root.datatable, sc.schemaKey, tableKey)}
+									onclick={() => {
+										// Picking a table both ticks it and previews it on the right.
+										if (multiSelectMode) toggleTableSelection(entry)
+										selectTable(root.datatable, sc.schemaKey, tableKey)
+									}}
 								>
+									{#if multiSelectMode}
+										<Checkbox
+											checked={isTableSelected(entry) || isTableDisabled(entry)}
+											disabled={isTableDisabled(entry)}
+											title={isTableDisabled(entry) ? 'Already added' : undefined}
+											class="shrink-0 pointer-events-none"
+										/>
+									{/if}
 									{#if asset}
 										<!-- Star carries its own p-1 for a bigger hit area; pull it back so its
 											     glyph lands on the same indent grid as a bare icon. -->
@@ -563,16 +577,7 @@
 									<p class="db-manager-table-key truncate text-ellipsis grow text-left text-xs">
 										{tableKey}
 									</p>
-									{#if multiSelectMode}
-										<div class="shrink-0 w-6 h-8 flex items-center justify-end mr-2">
-											<Checkbox
-												checked={isTableSelected(entry) || isTableDisabled(entry)}
-												disabled={isTableDisabled(entry)}
-												title={isTableDisabled(entry) ? 'Already added' : undefined}
-												class="pointer-events-none"
-											/>
-										</div>
-									{:else if root.datatable === currentDatatable || root.datatable === undefined}
+									{#if !multiSelectMode && (root.datatable === currentDatatable || root.datatable === undefined)}
 										<DropdownV2
 											items={() => [
 												{

@@ -78,15 +78,10 @@
 		open = true
 	}
 
-	let initialTableKey: string | undefined = $state<string | undefined>(undefined)
-	let initialSchemaKey: string | undefined = $state<string | undefined>(undefined)
-
 	export function openDrawerWithRef(ref: DataTableRef) {
 		selectedDatatable = ref.datatable
 		selectedSchemaKey = ref.schema
 		selectedTableKey = ref.table
-		initialTableKey = ref.table
-		initialSchemaKey = ref.schema
 		selectedTables = []
 		expand = false
 		open = true
@@ -119,14 +114,16 @@
 		selectedTables = []
 	}
 
+	// Carries the picked schema/table, so a click on a row of another data table
+	// lands on that table once the manager re-mounts against it.
 	const dbInput: DbInput | undefined = $derived(
 		selectedDatatable
 			? {
 					type: 'database' as const,
 					resourceType: 'postgresql' as const,
 					resourcePath: `datatable://${selectedDatatable}`,
-					specificSchema: initialSchemaKey,
-					specificTable: initialTableKey
+					specificSchema: selectedSchemaKey,
+					specificTable: selectedTableKey
 				}
 			: undefined
 	)
@@ -183,6 +180,7 @@
 					{disabledTables}
 					datatableTree={datatableTree.current}
 					datatableTreeLoading={datatableTree.loading}
+					onSelectDatatable={(dt) => (selectedDatatable = dt)}
 				/>
 			{/key}
 		{:else}
