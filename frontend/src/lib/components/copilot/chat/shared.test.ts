@@ -1671,13 +1671,38 @@ describe('getHubIntegrationTool', () => {
 		expect(!!parsed.scripts_note).toBe(expected)
 	})
 
+	// A hub that times out has said nothing about whether the integration exists, and
+	// reporting it as absent would stick for the rest of the conversation.
+	it('does not report a transient hub failure as a missing integration', async () => {
+		const { IntegrationService } = await import('$lib/gen')
+		Object.assign(IntegrationService, {
+			getHubIntegrationMeta: vi.fn(async () => {
+				throw Object.assign(new Error('Service Unavailable'), { status: 503 })
+			}),
+			listHubIntegrations: vi.fn(async () => [{ name: 'confluence' }])
+		})
+
+		const { getHubIntegrationTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const parsed = JSON.parse(
+			await getHubIntegrationTool.fn({
+				args: { integration: 'confluence' },
+				toolId: 't1',
+				toolCallbacks: { setToolStatus: vi.fn() }
+			} as any)
+		)
+
+		expect(parsed.error).toContain('Could not reach the hub')
+		expect(parsed.error).not.toContain('No hub metadata')
+	})
+
 	// A hub with no such integration and one too old to serve the endpoint both 404;
 	// neither may surface as a tool error, since the model can still read scripts.
 	it('suggests real slugs instead of failing when the integration is unknown', async () => {
 		const { IntegrationService } = await import('$lib/gen')
 		Object.assign(IntegrationService, {
 			getHubIntegrationMeta: vi.fn(async () => {
-				throw new Error('Not Found')
+				throw Object.assign(new Error('Not Found'), { status: 404 })
 			}),
 			listHubIntegrations: vi.fn(async () => [{ name: 'stripe' }, { name: 'slack' }])
 		})

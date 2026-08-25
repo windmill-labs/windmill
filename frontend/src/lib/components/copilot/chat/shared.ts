@@ -1247,9 +1247,15 @@ export function isHubPath(path: string): boolean {
 const MAX_BROWSED_HUB_SCRIPTS = 20
 const MAX_SUGGESTED_INTEGRATIONS = 5
 
-/** Common shape of the two hub listings. Both carry a description, but the hub
- * has none for roughly a fifth of its scripts. */
-type HubScriptHit = { version_id: number; app: string; summary: string; description?: string }
+/** Common shape of the two hub listings. Both carry a description, but the hub has
+ * none for roughly a fifth of its scripts, and says so as a null rather than by
+ * omitting the key. */
+type HubScriptHit = {
+	version_id: number
+	app: string
+	summary: string
+	description?: string | null
+}
 
 /** The integration slugs are a large but static list, so one fetch per session
  * is enough. Only matched slugs ever reach the model, never the whole list. */
@@ -1281,12 +1287,10 @@ async function suggestHubIntegrations(query: string): Promise<string[]> {
 		.slice(0, MAX_SUGGESTED_INTEGRATIONS)
 }
 
-/** Matches a query word against a slug on word boundaries rather than by bare
- * substring. A substring test reads every three-letter English word as a hit —
- * `for` in sales*for*ce, `the` in basis_*the*ory — so a request that names no
- * integration still came back with five confident-looking ones. Short tokens must
- * equal a slug or one of its parts, which is also what reaches the two-character
- * slugs (`s3`, `wiz`) that a length filter alone hides. */
+/** Matches a query word against a slug on word boundaries. A bare substring test
+ * makes every three-letter English word a hit — `for` in sales*for*ce, `the` in
+ * basis_*the*ory. Short tokens must equal a slug or a part, which is also what
+ * reaches the two-character slugs (`s3`, `wiz`) a length floor would hide. */
 function tokenMatchesSlug(token: string, slug: string): boolean {
 	const parts = slug.split(/[_-]/).filter(Boolean)
 	if (slug === token || parts.includes(token)) {
@@ -1307,12 +1311,9 @@ function tokenMatchesSlug(token: string, slug: string): boolean {
 }
 
 /** The slug of an integration the query names outright, when it names exactly one.
- * Semantic search ranks on the whole of a script's text, so a named vendor is weak
- * signal against the task words: "create a jira ticket" ranks netlify, zendesk and
- * intercom above every Jira script, and "look up an account in salesforce" puts
- * Pinterest first, because its summaries say Salesforce. Narrowing to the named
- * integration fixes both. The test is deliberately exact — a fuzzy one reads `send`
- * in "send an invoice" as sendgrid and quietly searches the wrong integration. */
+ * Semantic search ranks a named vendor weakly against the task words — "create a jira
+ * ticket" puts netlify and zendesk above every Jira script — so narrowing to it wins.
+ * Matching must stay exact: fuzzily, `send` in "send an invoice" is sendgrid. */
 async function integrationNamedIn(query: string): Promise<string | undefined> {
 	const list = await loadHubIntegrations()
 	const words = new Set(
@@ -1373,14 +1374,20 @@ export const getHubIntegrationTool = {
 		let doc: Awaited<ReturnType<typeof IntegrationService.getHubIntegrationMeta>>
 		try {
 			doc = await IntegrationService.getHubIntegrationMeta({ app: integration })
-		} catch {
-			// An unknown slug and a hub predating the endpoint both answer 404, and the
-			// response is the same either way: hand back real slugs so the model can
-			// retry or fall back to reading scripts.
-			toolCallbacks.setToolStatus(toolId, { content: `No hub integration named ${integration}` })
+		} catch (err) {
+			// Only a 404 means the integration is absent — an unknown slug, or a hub
+			// predating the endpoint. Reporting a timeout the same way would teach the
+			// model that a real integration does not exist for the rest of the chat.
+			const absent = (err as { status?: number } | undefined)?.status === 404
+			const label = absent
+				? `No hub integration named ${integration}`
+				: `Could not reach the hub for ${integration}`
+			toolCallbacks.setToolStatus(toolId, { content: label })
 			const suggested = await suggestHubIntegrations(integration)
 			return JSON.stringify({
-				error: `No hub metadata for "${integration}".`,
+				error: absent
+					? `No hub metadata for "${integration}".`
+					: `Could not reach the hub for "${integration}"; it may still exist. Read its scripts instead, or try again.`,
 				suggested_integrations: suggested
 			})
 		}

@@ -720,6 +720,31 @@ pub fn global_service() -> Router {
 mod tests {
     use super::trim_to_top_score;
 
+    // The blob carries an explicit `"description": null` for roughly a fifth of hub
+    // scripts, and an older hub omits the key entirely. A bare String here fails the
+    // whole 155 MB array and takes hub search down with it.
+    #[test]
+    fn reads_a_hub_script_whether_or_not_it_has_a_description() {
+        let present = r#"{"ask_id":1,"id":2,"version_id":3,"summary":"s","description":"d","app":"a","kind":"script","embedding":[]}"#;
+        let null = r#"{"ask_id":1,"id":2,"version_id":3,"summary":"s","description":null,"app":"a","kind":"script","embedding":[]}"#;
+        let missing = r#"{"ask_id":1,"id":2,"version_id":3,"summary":"s","app":"a","kind":"script","embedding":[]}"#;
+
+        assert_eq!(
+            serde_json::from_str::<super::HubScript>(present)
+                .unwrap()
+                .description,
+            Some("d".to_string())
+        );
+        for without in [null, missing] {
+            assert_eq!(
+                serde_json::from_str::<super::HubScript>(without)
+                    .unwrap()
+                    .description,
+                None
+            );
+        }
+    }
+
     #[test]
     fn trims_scores_more_than_5pct_below_top() {
         // top=1.0, cutoff at 0.95: 0.96 stays (0.04 drop), 0.93 is the first

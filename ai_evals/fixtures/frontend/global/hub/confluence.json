@@ -15,7 +15,7 @@
 		],
 		"validation": {
 			"status": "live_validated",
-			"method": "smoke test via `bun --env-file=.env.test -e` (+ `bun test` with the windmill-client fake for the trigger) against a free Confluence Cloud site (edwind-wm-confluence.atlassian.net) with an API token. All 13 actions + the trigger returned 2xx: full page lifecycle (create -> get -> update -> list -> delete), blog post create/update/delete, list_spaces, search_content (CQL), get_current_user, and the new_or_updated_page polling trigger.",
+			"method": "smoke test via `bun --env-file=.env.test -e` (+ `bun test` with the windmill-client fake for the trigger) against a free Confluence Cloud site (an Atlassian Cloud site) with an API token. All 13 actions + the trigger returned 2xx: full page lifecycle (create -> get -> update -> list -> delete), blog post create/update/delete, list_spaces, search_content (CQL), get_current_user, and the new_or_updated_page polling trigger.",
 			"sources": {
 				"pages": "HIGH \u2014 Pipedream actions + official v2 OpenAPI; create/get/update/list/delete all run live (2xx)",
 				"blogposts": "HIGH \u2014 Pipedream actions + official v2 OpenAPI; create/update/delete all run live (2xx)",
@@ -101,7 +101,7 @@
 					"type": "string"
 				},
 				"baseUrl": {
-					"description": "Base URL of your Confluence Cloud site, e.g. https://your-domain.atlassian.net (no trailing slash, no /wiki).",
+					"description": "Base URL of your Confluence Cloud site, e.g. https://an Atlassian Cloud site (no trailing slash, no /wiki).",
 					"type": "string"
 				},
 				"email": {

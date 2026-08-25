@@ -15,7 +15,7 @@
 		],
 		"validation": {
 			"status": "live_validated",
-			"method": "All surfaces run live against a ServiceNow PDI (dev209312, Zurich) on 2026-06-04 with Basic auth: Table CRUD (create / get / update PATCH+PUT / delete on incident, delete verified by 404), list_records (encoded query + fields + pagination), aggregate (Stats group-by count), get_current_user, list_tables, and the table/fields/group_by dynselect resolvers. Attachment upload (binary /file) -> list -> download -> delete round-trip with the downloaded bytes byte-for-byte matching the upload. insert_import_set + get_import_set_result against imp_user (transform status surfaced). Trigger e2e-tested via bun test with the windmill-client fake. All created records cleaned up.",
+			"method": "All surfaces run live against a ServiceNow PDI (a developer instance, Zurich) on 2026-06-04 with Basic auth: Table CRUD (create / get / update PATCH+PUT / delete on incident, delete verified by 404), list_records (encoded query + fields + pagination), aggregate (Stats group-by count), get_current_user, list_tables, and the table/fields/group_by dynselect resolvers. Attachment upload (binary /file) -> list -> download -> delete round-trip with the downloaded bytes byte-for-byte matching the upload. insert_import_set + get_import_set_result against imp_user (transform status surfaced). Trigger e2e-tested via bun test with the windmill-client fake. All created records cleaned up.",
 			"sources": {
 				"table_crud": "HIGH - run live (create/get/update PATCH & PUT/delete on incident)",
 				"aggregate_stats": "HIGH - run live (/api/now/stats group-by count on incident)",
@@ -95,8 +95,8 @@
 			"properties": {
 				"instance_url": {
 					"default": "",
-					"description": "Instance base URL, e.g. https://dev12345.service-now.com (no trailing slash). Every REST call is made against this host.",
-					"placeholder": "https://dev12345.service-now.com",
+					"description": "Instance base URL, e.g. https://a developer a ServiceNow instance (no trailing slash). Every REST call is made against this host.",
+					"placeholder": "https://a developer a ServiceNow instance",
 					"type": "string"
 				},
 				"password": {
