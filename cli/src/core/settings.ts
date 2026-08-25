@@ -34,12 +34,21 @@ export interface SuccessHandlerConfig {
   extra_args?: any;
 }
 
+export interface VariableExpirationHandlerConfig {
+  path?: string;
+  extra_args?: any;
+  muted_on_user_path?: boolean;
+}
+
 export interface SimplifiedSettings {
-  // Grouped format (current). Explicit `null` on error_handler / success_handler
-  // signals "clear the remote value"; `undefined` means "not managed by git".
+  // Grouped format (current). On push the YAML is canonical: a handler that is
+  // absent or explicitly `null` clears the remote value, a present object upserts.
+  // An omitted handler reaches that clear only when some other setting differs:
+  // `isSuperset` compares local's own keys, so it never sees the missing one.
   auto_invite?: AutoInviteConfig;
   error_handler?: ErrorHandlerConfig | null;
   success_handler?: SuccessHandlerConfig | null;
+  variable_expiration_handler?: VariableExpirationHandlerConfig | null;
 
   // Other fields
   webhook?: string;
@@ -150,6 +159,17 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
     };
   }
 
+  // Handle variable_expiration_handler: same null-clears semantics. It has no flat
+  // legacy form — the setting postdates the grouped format.
+  if (settings.variable_expiration_handler === null) {
+    result.variable_expiration_handler = null;
+  } else if (
+    settings.variable_expiration_handler &&
+    typeof settings.variable_expiration_handler === "object"
+  ) {
+    result.variable_expiration_handler = settings.variable_expiration_handler;
+  }
+
   return result;
 }
 
@@ -192,6 +212,9 @@ export async function pushWorkspaceSettings(
       auto_invite: remoteSettings.auto_invite as AutoInviteConfig | undefined,
       error_handler: remoteSettings.error_handler as ErrorHandlerConfig | undefined,
       success_handler: remoteSettings.success_handler as SuccessHandlerConfig | undefined,
+      variable_expiration_handler: remoteSettings.variable_expiration_handler as
+        | VariableExpirationHandlerConfig
+        | undefined,
       webhook: remoteSettings.webhook,
       ai_config: remoteSettings.ai_config,
       large_file_storage: remoteSettings.large_file_storage,
@@ -307,6 +330,26 @@ export async function pushWorkspaceSettings(
       requestBody: {
         path: localSuccessHandler?.path,
         extra_args: localSuccessHandler?.extra_args,
+      },
+    });
+  }
+
+  // Handle variable_expiration_handler using grouped format. Same semantics as error_handler.
+  if (
+    !deepEqual(
+      localSettings.variable_expiration_handler,
+      settings.variable_expiration_handler
+    )
+  ) {
+    log.debug(`Updating variable expiration handler...`);
+    const localVariableExpirationHandler = localSettings.variable_expiration_handler;
+    await wmill.editVariableExpirationHandler({
+      workspace,
+      requestBody: {
+        path: localVariableExpirationHandler?.path,
+        extra_args: localVariableExpirationHandler?.extra_args,
+        muted_on_user_path:
+          localVariableExpirationHandler?.muted_on_user_path ?? false,
       },
     });
   }

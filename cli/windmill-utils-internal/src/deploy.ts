@@ -598,6 +598,10 @@ export async function deployItem(
             value: variable.value ?? "",
             is_secret: variable.is_secret,
             description: variable.description ?? "",
+            // Sent as an explicit null when the source has no expiry: an absent key means
+            // "leave the stored date alone", which would strand the target on a date the
+            // source has already moved or cleared.
+            value_expires_at: variable.value_expires_at ?? null,
           },
           alreadyEncrypted: false,
         });
@@ -609,6 +613,7 @@ export async function deployItem(
             value: variable.value ?? "",
             is_secret: variable.is_secret,
             description: variable.description ?? "",
+            value_expires_at: variable.value_expires_at ?? null,
           },
         });
       }
