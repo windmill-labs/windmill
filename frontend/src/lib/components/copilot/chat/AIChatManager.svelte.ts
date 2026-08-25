@@ -679,29 +679,27 @@ export class AIChatManager {
 	// chat's items. Set here (not imported) to avoid a copilot→sessions cycle.
 	onChatRotated: ((chatId: string) => void) | undefined = undefined
 
-	// Wraps a whole turn so an external coordinator can bracket it or refuse it
-	// outright by returning 'busy' without running the body. Session runtimes
-	// wire this to the cross-tab run lock: two tabs sending on one session append
-	// to the same chat id, and the loser's turn is dropped by the next saveChat
-	// after its tool calls have already hit the workspace. Undefined everywhere
-	// else, where a turn has no rival. Set here (not imported) to avoid a
-	// copilot→sessions cycle.
+	// Hooks the session runtime fills in to coordinate a session open in more than
+	// one browser tab; see sessions/sessionSync.svelte.ts for what they connect
+	// to. All undefined elsewhere, where a chat has no rival, and all assigned
+	// rather than imported to avoid a copilot→sessions cycle.
+	//
+	// Wraps a whole turn so the coordinator can bracket it, or refuse it outright
+	// by returning 'busy' without running the body.
 	runGuard: (<T>(body: () => Promise<T>) => Promise<T | 'busy'>) | undefined = undefined
-
-	// Routes a Stop to whatever is actually running the turn. A tab mirroring
-	// another tab's run has no abortController to abort, so its Stop button would
-	// otherwise do nothing at all. Returns true once the request is on its way,
-	// and the local cancel is skipped. Set here (not imported) to avoid a
-	// copilot→sessions cycle.
+	// A tab rendering someone else's run holds no abortController and no pending
+	// resolvers, so its Stop and its answers have to reach the tab that does.
+	// Each returns true once the request is on its way, and the local path is skipped.
 	remoteCancel: (() => boolean) | undefined = undefined
-
-	// Route a blocked run's answer to the tab holding the resolver. A run parked
-	// on a tool confirmation or a question is exactly when the user is most likely
-	// to be looking at another tab, and the promise waiting on the answer lives
-	// only in the driver. Each returns true once the answer is on its way. Set
-	// here (not imported) to avoid a copilot→sessions cycle.
 	remoteToolConfirmation: ((toolId: string, confirmed: boolean) => boolean) | undefined = undefined
 	remoteQuestionAnswer: ((toolId: string, choices: string[]) => boolean) | undefined = undefined
+
+	/** True while this manager is rendering a run another tab is driving. Its
+	 *  transcript then comes from mirror frames while `messages` still holds the
+	 *  pre-run history, so the pair is mismatched and must not be written to the
+	 *  shared record — the driving tab owns it until the run ends. Set by the
+	 *  session runtime. */
+	mirroringRemoteRun = $state(false)
 
 	// Workspace items the CURRENT chat modified via AI tool calls, as
 	// `${UserDraftItemKind}:${storagePath}` keys (see modifiedItemsMask.ts).
@@ -783,6 +781,8 @@ export class AIChatManager {
 	// turn-end save.
 	#maskPersistQueue: Promise<void> = Promise.resolve()
 	#persistModifiedItems(): Promise<void> {
+		// Runs outside any turn, so the run guard never sees it.
+		if (this.mirroringRemoteRun) return this.#maskPersistQueue
 		this.#maskPersistQueue = this.#maskPersistQueue.then(() =>
 			this.historyManager
 				.saveChat(
@@ -1086,6 +1086,8 @@ export class AIChatManager {
 	// (saveChat keeps the prior mask when it is undefined).
 	#jobPersistQueue: Promise<void> = Promise.resolve()
 	#persistBackgroundJobs(): Promise<void> {
+		// Runs outside any turn, so the run guard never sees it.
+		if (this.mirroringRemoteRun) return this.#jobPersistQueue
 		this.#jobPersistQueue = this.#jobPersistQueue.then(() =>
 			this.historyManager
 				.saveChat(
@@ -1509,7 +1511,9 @@ export class AIChatManager {
 	 * summary, leaving history untouched.
 	 */
 	compactManually = async (): Promise<void> => {
-		if (this.loading) {
+		// `loading` is the mirrored driver's while another tab runs the session;
+		// compacting here would rewrite a conversation this tab does not own.
+		if (this.loading || this.mirroringRemoteRun) {
 			return
 		}
 		// A summary round-trip only pays off once there's a prior exchange to fold
@@ -3985,6 +3989,9 @@ export class AIChatManager {
 	}
 
 	saveAndClear = async () => {
+		// The transcript on screen belongs to a run another tab owns; saving it
+		// here would write a history this manager does not have.
+		if (this.mirroringRemoteRun) return
 		this.cancel('saveAndClear')
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.

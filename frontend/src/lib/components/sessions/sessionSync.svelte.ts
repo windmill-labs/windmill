@@ -9,10 +9,21 @@ import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 // is the one channel between them: it mirrors record writes, elects a single
 // driving tab per run, and streams the driver's live transcript to the others.
 //
+// Why a run needs an owner at all: two tabs sending on one session append to
+// the same chat id, and whichever saveChat lands last silently drops the other's
+// turn — after its tool calls have already run against the workspace.
+//
 // The channel is per-user (same email scoping as the IndexedDB stores), so a
 // browser shared by two accounts never crosses them.
 
 const CHANNEL_BASE = 'windmill-sessions-sync'
+
+/** Web Locks is secure-context only; BroadcastChannel is not. Without it there
+ *  is no way to retire a driver that closed mid-turn, and a watcher would sit on
+ *  "generating" forever with a Stop that reaches nobody — worse than not
+ *  mirroring at all. So run mirroring rides on this and record sync, which needs
+ *  no ownership, does not. */
+export const RUN_OWNERSHIP_AVAILABLE = BROWSER && !!globalThis.navigator?.locks?.query
 
 /** Tail length of the transcript sent on each mirror tick. In-place edits to
  *  already-rendered messages (tool cards settling) land within a few messages
@@ -36,7 +47,10 @@ const MIRROR_SILENCE_MS = 10_000
  *  store actually holds. */
 type SessionPutMsg = { kind: 'session-put'; id: string }
 type SessionDeleteMsg = { kind: 'session-delete'; id: string }
-type TurnEndMsg = { kind: 'turn-end'; sessionId: string; chatId: string }
+/** `committed` distinguishes a turn that landed from one that errored, was
+ *  rolled back, or belonged to a tab that vanished. Watchers auto-send what the
+ *  user queued only on the first, matching the rule a turn follows locally. */
+type TurnEndMsg = { kind: 'turn-end'; sessionId: string; chatId: string; committed: boolean }
 type MirrorMsg = {
 	kind: 'mirror'
 	sessionId: string
@@ -45,6 +59,10 @@ type MirrorMsg = {
 	 *  asks for a full snapshot when it has no prefix that reaches this far. */
 	baseIndex: number
 	tail: DisplayMessage[]
+	/** The driver's whole transcript length. A watcher holding more than this has
+	 *  a prefix the driver no longer has, so its splice would invent a transcript
+	 *  that never existed; it resyncs instead. */
+	total: number
 	loading: boolean
 	currentReply: string
 	currentReasoning: string
@@ -86,7 +104,7 @@ type SyncMsg =
 type Handlers = {
 	onSessionPut: (id: string) => void
 	onSessionDelete: (id: string) => void
-	onTurnEnd: (sessionId: string, chatId: string) => void
+	onTurnEnd: (sessionId: string, chatId: string, committed: boolean) => void
 	onMirror: (msg: MirrorMsg) => void
 	onResyncRequest: (sessionId: string) => void
 	onCancelRequest: (sessionId: string) => void
@@ -157,7 +175,7 @@ function receive(msg: SyncMsg): void {
 			break
 		case 'turn-end':
 			remoteDriven.delete(msg.sessionId)
-			emit('onTurnEnd', msg.sessionId, msg.chatId)
+			emit('onTurnEnd', msg.sessionId, msg.chatId, msg.committed)
 			break
 		case 'mirror':
 			noteDriverAlive(msg.sessionId)
@@ -249,30 +267,17 @@ function lockName(sessionId: string): string {
 /** Run `body` as the session's sole driver, or return 'busy' without running it
  *  when another tab already holds the run.
  *
- *  The Web Locks API is what makes this safe across a crash: the lock is held
- *  by the tab, not by a record someone has to clean up, so a driver that dies
- *  mid-turn releases it and the next send succeeds. Without a lock, two tabs
- *  sending on one session append to the same chat id and the later
- *  `saveChat` silently discards the other's turn — after its tool calls have
- *  already run against the workspace. */
+ *  Web Locks is what makes this safe across a crash: the lock is held by the tab,
+ *  not by a record someone has to clean up, so a driver that dies mid-turn
+ *  releases it and the next send succeeds. */
 export async function withSessionRunLock<T>(
 	sessionId: string,
 	body: () => Promise<T>
 ): Promise<T | 'busy'> {
-	if (!BROWSER || !navigator.locks) {
-		// Web Locks is secure-context only while BroadcastChannel is not, so an
-		// instance served over plain HTTP gets the channel and no ownership. Mark
-		// the run as ours anyway: every mirror path is gated on that flag, so two
-		// tabs both driving simply ignore each other and behave as they did before
-		// any of this — rather than splicing each other's frames into their own
-		// live transcripts and ending each other's turns.
-		locallyDriven.add(sessionId)
-		try {
-			return await body()
-		} finally {
-			locallyDriven.delete(sessionId)
-		}
-	}
+	// No ownership to take: the run proceeds unguarded, and the caller mirrors
+	// nothing (see RUN_OWNERSHIP_AVAILABLE), leaving tabs as independent as they
+	// were before any of this.
+	if (!RUN_OWNERSHIP_AVAILABLE) return body()
 	return (await navigator.locks.request(
 		lockName(sessionId),
 		{ mode: 'exclusive', ifAvailable: true },
@@ -295,7 +300,6 @@ export async function withSessionRunLock<T>(
  *  settle a driver that stopped mirroring: a released lock proves the tab is
  *  gone, where silence alone only suggests it. */
 async function runLockHeld(sessionId: string): Promise<boolean> {
-	if (!BROWSER || !navigator.locks?.query) return true
 	try {
 		const state = await navigator.locks.query()
 		const name = lockName(sessionId)
@@ -315,7 +319,8 @@ async function reapDeadDrivers(): Promise<void> {
 	for (const id of stale) {
 		if (!(await runLockHeld(id))) {
 			remoteDriven.delete(id)
-			emit('onTurnEnd', id, '')
+			// A driver that disappeared mid-turn committed nothing.
+			emit('onTurnEnd', id, '', false)
 		}
 	}
 }
@@ -324,8 +329,8 @@ async function reapDeadDrivers(): Promise<void> {
 // Live mirroring
 // ---------------------------------------------------------------------------
 
-export function broadcastTurnEnd(sessionId: string, chatId: string): void {
-	post({ kind: 'turn-end', sessionId, chatId })
+export function broadcastTurnEnd(sessionId: string, chatId: string, committed: boolean): void {
+	post({ kind: 'turn-end', sessionId, chatId, committed })
 }
 
 export function requestResync(sessionId: string): void {

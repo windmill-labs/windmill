@@ -288,6 +288,22 @@ describe('AIChatManager cross-tab run guard', () => {
 		expect(manager.queuedMessage).toBe('')
 	})
 
+	// The save paths that run outside a turn have no guard over them, and a tab
+	// rendering someone else's run holds a transcript that does not match its own
+	// `messages` — writing that pair would clobber the record the driving tab is
+	// still appending to.
+	it('does not persist while rendering a run another tab owns', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+		manager.mirroringRemoteRun = true
+
+		await manager.saveAndClear()
+		await manager.compactManually()
+
+		expect(saveChat).not.toHaveBeenCalled()
+	})
+
 	// The composer hands its text over and clears itself before the send is even
 	// attempted, so a refusal that keeps no copy loses what the user typed.
 	it('hands a refused message back to the composer', async () => {

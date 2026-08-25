@@ -98,6 +98,7 @@ import {
 	broadcastTurnEnd,
 	isLocallyDriven,
 	isRemotelyDriven,
+	RUN_OWNERSHIP_AVAILABLE,
 	MIRROR_THROTTLE_MS,
 	mirrorBaseIndex,
 	registerSyncHandlers,
@@ -939,13 +940,16 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 			// The first frame doubles as the "a run started here" signal: it is
 			// posted immediately and carries the chat id the watchers need.
 			startMirroring(session.id)
+			let committed = false
 			try {
-				return await body()
+				const result = await body()
+				committed = result !== false
+				return result
 			} finally {
 				stopMirroring(session.id)
 				// The chat id is re-read here, not reused from above: the turn may
 				// have rotated it, and the listeners key their IndexedDB re-read on it.
-				broadcastTurnEnd(session.id, manager.historyManager.getCurrentChatId())
+				broadcastTurnEnd(session.id, manager.historyManager.getCurrentChatId(), committed)
 			}
 		})
 		if (outcome === 'busy') {
@@ -1004,20 +1008,51 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 // that reactive tracking of the array root would miss.
 const mirrorTimers = new Map<string, ReturnType<typeof setInterval>>()
 
+// Attachments a frame does not carry. They are bounded only by the upload caps
+// (megabytes of base64 per image, and again per pasted file), they sit in the
+// tail unchanged for the whole turn, and a frame goes out several times a
+// second — so shipping them would re-clone and re-post the same bytes on every
+// tick. Watchers render a placeholder until the turn ends, where the IndexedDB
+// re-read hands them the real thing.
+function withoutHeavyPayloads(messages: DisplayMessage[]): DisplayMessage[] {
+	return messages.map((message) => {
+		const images = 'images' in message ? message.images : undefined
+		const files = 'files' in message ? message.files : undefined
+		const imageUrl = 'imageUrl' in message ? message.imageUrl : undefined
+		if (!images?.length && !files?.length && !imageUrl) return message
+		return {
+			...message,
+			...(images?.length ? { images: images.map((i) => ({ ...i, url: '' })) } : {}),
+			...(files?.length ? { files: files.map((f) => ({ ...f, content: '' })) } : {}),
+			...(imageUrl ? { imageUrl: '' } : {})
+		} as DisplayMessage
+	})
+}
+
+// The driver's transcript length at its last frame, so a shrink is detectable.
+const lastSentTotals = new Map<string, number>()
+
 function mirrorSnapshotOf(sessionId: string, full: boolean): MirrorSnapshot | undefined {
 	const runtime = runtimes.get(sessionId)
 	if (!runtime) return undefined
 	const m = runtime.manager
-	// Slice before cloning: `$state.snapshot` walks whatever it is handed, and a
-	// transcript can hold pasted file contents and screenshot data URLs, so
-	// snapshotting the whole thing four times a second to send ten messages costs
-	// megabytes per tick on the tab that is already busy streaming.
-	const baseIndex = mirrorBaseIndex(m.displayMessages.length, full)
+	const total = m.displayMessages.length
+	// A shrink means the transcript was rewritten, not appended to: compaction
+	// folds the head into a summary mid-turn. A watcher's prefix is then a
+	// conversation that no longer exists, and no index check can tell — the
+	// lengths still line up. Send the whole thing instead.
+	const rewritten = total < (lastSentTotals.get(sessionId) ?? 0)
+	lastSentTotals.set(sessionId, total)
+	// Slice before cloning: `$state.snapshot` walks whatever it is handed, so
+	// snapshotting the whole transcript to send ten messages would traverse the
+	// entire conversation on every tick.
+	const baseIndex = mirrorBaseIndex(total, full || rewritten)
 	return {
 		sessionId,
 		chatId: m.historyManager.getCurrentChatId(),
 		baseIndex,
-		tail: $state.snapshot(m.displayMessages.slice(baseIndex)) as DisplayMessage[],
+		tail: withoutHeavyPayloads($state.snapshot(m.displayMessages.slice(baseIndex)) as DisplayMessage[]),
+		total,
 		loading: m.loading,
 		currentReply: m.currentReply,
 		currentReasoning: m.currentReasoning,
@@ -1033,6 +1068,7 @@ function postMirror(sessionId: string, { full = false } = {}): void {
 }
 
 function startMirroring(sessionId: string): void {
+	if (!RUN_OWNERSHIP_AVAILABLE) return
 	stopMirroring(sessionId)
 	postMirror(sessionId)
 	mirrorTimers.set(
@@ -1046,6 +1082,7 @@ function stopMirroring(sessionId: string): void {
 	if (!timer) return
 	clearInterval(timer)
 	mirrorTimers.delete(sessionId)
+	lastSentTotals.delete(sessionId)
 	// One last frame: the closing tokens of a turn usually land between ticks,
 	// and this is what the passive tabs render until their re-read completes.
 	postMirror(sessionId)
@@ -1060,7 +1097,8 @@ function applyMirror(msg: MirrorMsg): void {
 	if (!runtime) return
 	const m = runtime.manager
 	const onSameChat = m.historyManager.getCurrentChatId() === msg.chatId
-	if (msg.baseIndex > 0 && !(onSameChat && m.displayMessages.length >= msg.baseIndex)) {
+	const prefixFits = m.displayMessages.length >= msg.baseIndex && m.displayMessages.length <= msg.total
+	if (msg.baseIndex > 0 && !(onSameChat && prefixFits)) {
 		// Nothing here can host this tail: this tab joined mid-run, or the driver
 		// rotated to a chat it isn't on. Ask for the whole transcript instead of
 		// splicing onto a prefix that isn't the same conversation.
@@ -1075,6 +1113,11 @@ function applyMirror(msg: MirrorMsg): void {
 	}
 	m.displayMessages =
 		msg.baseIndex === 0 ? msg.tail : [...m.displayMessages.slice(0, msg.baseIndex), ...msg.tail]
+	// The frame carries the rendered transcript but not the API-format history,
+	// so this manager is now holding a mismatched pair. Flag it: the save paths
+	// that run outside a turn would otherwise write that pair over the record the
+	// driving tab is still appending to.
+	m.mirroringRemoteRun = true
 	m.loading = msg.loading
 	m.currentReply = msg.currentReply
 	m.currentReasoning = msg.currentReasoning
@@ -1093,7 +1136,7 @@ function answerResync(sessionId: string): void {
  *  only, so re-read the record the driver just saved for everything else — the
  *  API-format history, context usage, the edits mask, background jobs — leaving
  *  this tab able to take the conversation over. */
-async function applyTurnEnd(sessionId: string, chatId: string): Promise<void> {
+async function applyTurnEnd(sessionId: string, chatId: string, committed: boolean): Promise<void> {
 	if (isLocallyDriven(sessionId)) return
 	const runtime = runtimes.get(sessionId)
 	if (!runtime) return
@@ -1101,6 +1144,8 @@ async function applyTurnEnd(sessionId: string, chatId: string): Promise<void> {
 	// Cleared before the re-read, not after: loadPastChat refuses to run while
 	// the manager looks busy, and `loading` here is the mirrored driver's.
 	m.loading = false
+	// The re-read below restores a matched transcript/history pair.
+	m.mirroringRemoteRun = false
 	m.currentReply = ''
 	m.currentReasoning = ''
 	m.currentReasoningActive = false
@@ -1112,9 +1157,10 @@ async function applyTurnEnd(sessionId: string, chatId: string): Promise<void> {
 	// it — a plain load would drop it on the floor instead of sending it below.
 	if (id && (await m.historyManager.reloadChat(id))) await m.loadPastChat(id, { refresh: true })
 	// Anything typed here while the other tab held the session was queued rather
-	// than sent. The session is free now, so it goes out — the same auto-send it
-	// would have had if this tab had been the one running the turn.
-	await m.flushQueuedMessage()
+	// than sent. Send it only after a turn that landed, which is the rule a turn
+	// follows locally: firing it into a failed turn, or into the gap left by a
+	// tab that vanished, is how a follow-up ends up answering nothing.
+	if (committed) await m.flushQueuedMessage()
 }
 
 /** A Stop pressed in a watching tab reaches the run here. */
@@ -1144,7 +1190,7 @@ registerSyncHandlers({
 	onCancelRequest: applyCancelRequest,
 	onToolConfirmation: applyToolConfirmation,
 	onQuestionAnswer: applyQuestionAnswer,
-	onTurnEnd: (sessionId, chatId) => void applyTurnEnd(sessionId, chatId),
+	onTurnEnd: (sessionId, chatId, committed) => void applyTurnEnd(sessionId, chatId, committed),
 	// A session deleted in another tab takes its runtime with it, so an open
 	// chat for it stops streaming and releases its editors.
 	onSessionDelete: (id) => disposeRuntime(id)
