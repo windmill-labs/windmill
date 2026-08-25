@@ -33,9 +33,9 @@
 	     stays aligned with it instead of bleeding to the viewport edges. -->
 	<div class="w-full text-xs max-w-7xl mx-auto px-4 sm:px-8 pt-2">
 		<div class="bg-blue-50 dark:bg-blue-900 rounded-md px-4 py-2">
-			<div class="flex items-center justify-between">
-				<div class="flex items-center gap-3">
-					<Pencil class="w-4 h-4 text-accent" />
+			<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+				<div class="flex items-center gap-3 min-w-0">
+					<Pencil class="w-4 h-4 text-accent shrink-0" />
 					<span class="text-xs font-medium text-blue-900 dark:text-blue-100">
 						This workspace has {draftCount} draft{draftCount !== 1 ? 's' : ''}
 					</span>

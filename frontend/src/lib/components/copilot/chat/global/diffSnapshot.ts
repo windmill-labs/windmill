@@ -433,10 +433,10 @@ export function maskVariableDiffSides(
 		before !== null && typeof before === 'object' ? (before as Record<string, unknown>) : undefined
 	const afterObj =
 		after !== null && typeof after === 'object' ? (after as Record<string, unknown>) : undefined
-	// A secret's sides are already masked upstream (draft rows store '' and the
-	// deployed value is never decrypted), so equality between them proves
-	// nothing — the value may have changed invisibly. Only non-secret sides
-	// carry real content worth comparing.
+	// A secret's sides are never comparable: the deployed value is never decrypted, and a
+	// draft holds '' only when it stages no new value — otherwise an `$encrypted:` marker.
+	// So equality proves nothing; the value may have changed invisibly. Only non-secret
+	// sides carry real content worth comparing.
 	const secret = beforeObj?.is_secret === true || afterObj?.is_secret === true
 	const valueUncomparable = secret && beforeObj !== undefined && afterObj !== undefined
 	const valueChanged =
@@ -620,7 +620,7 @@ const FORK_COMPARISON_REUSE_MS = 30_000
 export type ForkDiffStatus =
 	| 'modified'
 	| 'only_in_fork'
-	| 'deleted_in_fork'
+	| 'only_in_parent'
 	| 'unchanged'
 	| 'pending'
 	| 'error'
@@ -657,7 +657,7 @@ export interface ForkDiffIndexView {
 }
 
 interface ForkMaterialized {
-	status: 'modified' | 'only_in_fork' | 'deleted_in_fork' | 'unchanged' | 'error'
+	status: 'modified' | 'only_in_fork' | 'only_in_parent' | 'unchanged' | 'error'
 	patch: string
 	lineCount: number
 	files?: Record<string, DiffFileView>
@@ -1023,7 +1023,7 @@ async function materializeFork(
 			const forkValue = forkSide?.value
 			const valueMasked = parentSide?.valueMasked === true || forkSide?.valueMasked === true
 			const oneSidedStatus = !entry.existsInFork
-				? 'deleted_in_fork'
+				? 'only_in_parent'
 				: !entry.existsInParent
 					? 'only_in_fork'
 					: undefined

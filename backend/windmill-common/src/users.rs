@@ -27,15 +27,27 @@ pub const PERMISSIONED_AS_USER_PREFIX: &str = "u/";
 pub const PERMISSIONED_AS_GROUP_PREFIX: &str = "g/";
 /// Prefix for group-based usernames: "group-"
 pub const USERNAME_GROUP_PREFIX: &str = "group-";
+/// Widest principal a job row can carry (`v2_job.permissioned_as`), which is narrower than the
+/// columns runnables and triggers store one in.
+pub const PERMISSIONED_AS_MAX_LEN: usize = 55;
 
+/// An email-shaped username is its own principal, which is how a superadmin acting without a
+/// `usr` row is named (`usr.username` is constrained to `[\w-]+`, so a member never is). It is
+/// decided before the group convention — an address is never a group's username — and one
+/// containing `/` is prefixed, since readers split on the first `/` and would otherwise take
+/// `g/alice@example.com` for a group.
 pub fn username_to_permissioned_as(user: &str) -> String {
     if user.contains('@') {
-        user.to_string()
-    } else if let Some(group) = user.strip_prefix(USERNAME_GROUP_PREFIX) {
-        format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)
-    } else {
-        format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
+        return if user.contains('/') {
+            format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
+        } else {
+            user.to_string()
+        };
     }
+    if let Some(group) = user.strip_prefix(USERNAME_GROUP_PREFIX) {
+        return format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group);
+    }
+    format!("{}{}", PERMISSIONED_AS_USER_PREFIX, user)
 }
 
 /// Borrowed key for zero-allocation cache lookups via `Equivalent<(String, String)>`.
@@ -81,6 +93,128 @@ pub async fn resolve_username_to_email<'c>(
     .flatten())
 }
 
+/// Whether a permissioned_as names something that exists in this workspace.
+///
+/// An existence probe over the non-RLS pool, no authorization of its own: callers must
+/// already be authorized for `w_id`. Same contract for [`permissioned_as_from_email`] and
+/// [`resolve_username_to_email`].
+///
+/// Accepts the three forms `username_to_permissioned_as` can produce: `u/{username}`,
+/// `g/{group}`, and a bare address when the username is itself email-shaped. Anything else
+/// is malformed — `fetch_authed_from_permissioned_as` would take its least-privileged
+/// branch rather than fail, so callers reject instead of storing it.
+///
+/// Decided prefix first, like `fetch_authed_from_permissioned_as` and
+/// [`get_email_from_permissioned_as`]: a group name may contain `@` while a username never
+/// carries a `u/`/`g/` prefix, so a bare address is only ever what is left over. Validating
+/// by a different rule than dispatch reads by is what lets a stored identity run as someone
+/// else.
+pub async fn permissioned_as_exists(
+    workspace_id: &str,
+    permissioned_as: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> crate::error::Result<bool> {
+    if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
+        return Ok(resolve_username_to_email(workspace_id, username, db)
+            .await?
+            .is_some());
+    }
+    if let Some(group) = permissioned_as.strip_prefix(PERMISSIONED_AS_GROUP_PREFIX) {
+        return Ok(sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+            workspace_id,
+            group
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(false));
+    }
+    // The bare form names an account acting without a `usr` row, not anyone who merely holds
+    // that address: `u/{username}` is the canonical principal for a member, and the bare branch
+    // of `fetch_authed_from_permissioned_as` grants neither their groups nor their folders.
+    // Anything unprefixed that is not an address at all is malformed.
+    if !permissioned_as.contains('@') {
+        return Ok(false);
+    }
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(
+            SELECT 1 FROM usr WHERE workspace_id = $1 AND username = $2
+            UNION ALL
+            SELECT 1 FROM password WHERE email = $2 AND super_admin
+        )",
+        workspace_id,
+        permissioned_as
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false))
+}
+
+/// Drop a cached address so a transactional email change is visible immediately.
+///
+/// The address is derived at dispatch and feeds the instance-superadmin check and
+/// `email_to_igroup`, so serving a stale one would run jobs with the wrong authorization
+/// for up to the cache TTL.
+pub fn invalidate_email_cache(workspace_id: &str, username: &str) {
+    EMAIL_CACHE.remove(&(workspace_id.to_string(), username.to_string()));
+}
+
+/// Inverse of [`get_email_from_permissioned_as`]: the principal an on-behalf-of email
+/// names in this workspace, for callers that supply the email alone.
+///
+/// Mirrors [`resolve_username_to_email`] branch for branch, including its fallback to
+/// `password` — a superadmin acting in a workspace they are not a member of has no `usr`
+/// row, and dropping them here would hand their runnables back to the deployer while
+/// keeping their superadmin email.
+///
+/// `None` when the email names nobody at all — an address outside the workspace that is
+/// not a superadmin's, or a group that no longer exists. Callers then leave the identity
+/// unrecorded rather than storing a principal that cannot authenticate.
+///
+/// Reads through the non-RLS pool and authorizes nothing: callers must already be authorized
+/// for `workspace_id`.
+pub async fn permissioned_as_from_email(
+    workspace_id: &str,
+    email: &str,
+    db: &sqlx::Pool<sqlx::Postgres>,
+) -> crate::error::Result<Option<String>> {
+    let mut conn = db.acquire().await?;
+    // A real account always wins: the synthetic group namespace below is not reserved,
+    // so a user may legitimately hold a `group-*@windmill.dev` address, and resolving it
+    // to the like-named group would hand their runnables that group's folder access.
+    if let Some(username) = sqlx::query_scalar!(
+        "SELECT COALESCE(
+            (SELECT username FROM usr WHERE workspace_id = $1 AND email = $2),
+            (SELECT COALESCE(username, email) FROM password WHERE email = $2 AND super_admin = true)
+        )",
+        workspace_id,
+        email
+    )
+    .fetch_optional(&mut *conn)
+    .await?
+    .flatten()
+    {
+        return Ok(Some(username_to_permissioned_as(&username)));
+    }
+    // Groups have no address of their own; `get_email_from_permissioned_as` mints this
+    // synthetic one, so it is the only form that can be read back as a group.
+    let Some(group) = email
+        .strip_prefix(USERNAME_GROUP_PREFIX)
+        .and_then(|rest| rest.strip_suffix("@windmill.dev"))
+    else {
+        return Ok(None);
+    };
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM group_ WHERE workspace_id = $1 AND name = $2)",
+        workspace_id,
+        group
+    )
+    .fetch_one(&mut *conn)
+    .await?
+    .unwrap_or(false);
+    Ok(exists.then(|| format!("{}{}", PERMISSIONED_AS_GROUP_PREFIX, group)))
+}
+
 /// Get email from permissioned_as string.
 /// - "u/{username}" → resolve via [`resolve_username_to_email`] (cached)
 /// - "g/{group}" → "group-{group}@windmill.dev"
@@ -90,11 +224,37 @@ pub async fn get_email_from_permissioned_as<'c>(
     workspace_id: &str,
     db: impl sqlx::PgExecutor<'c>,
 ) -> crate::error::Result<String> {
+    get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, true).await
+}
+
+/// [`get_email_from_permissioned_as`] without the address cache. Nothing evicts that cache
+/// across processes, so for a minute after an email change it still serves the old address —
+/// fine where the address only labels something on screen, wrong where it decides whether a
+/// write is accepted or is copied onto a job row that outlives the window.
+///
+/// Reads through the non-RLS pool and authorizes nothing, like the cached one: callers must
+/// already be authorized for `workspace_id`.
+pub async fn get_email_from_permissioned_as_uncached<'c>(
+    permissioned_as: &str,
+    workspace_id: &str,
+    db: impl sqlx::PgExecutor<'c>,
+) -> crate::error::Result<String> {
+    get_email_from_permissioned_as_inner(permissioned_as, workspace_id, db, false).await
+}
+
+async fn get_email_from_permissioned_as_inner<'c>(
+    permissioned_as: &str,
+    workspace_id: &str,
+    db: impl sqlx::PgExecutor<'c>,
+    use_cache: bool,
+) -> crate::error::Result<String> {
     if let Some(username) = permissioned_as.strip_prefix(PERMISSIONED_AS_USER_PREFIX) {
-        let lookup = EmailCacheKey(workspace_id, username);
-        if let Some((email, cached_at)) = EMAIL_CACHE.get(&lookup) {
-            if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
-                return Ok(email);
+        if use_cache {
+            let lookup = EmailCacheKey(workspace_id, username);
+            if let Some((email, cached_at)) = EMAIL_CACHE.get(&lookup) {
+                if cached_at.elapsed().as_secs() < EMAIL_CACHE_TTL_SECS {
+                    return Ok(email);
+                }
             }
         }
         let email = resolve_username_to_email(workspace_id, username, db)
@@ -171,6 +331,19 @@ mod tests {
         assert_eq!(
             username_to_permissioned_as("alice@example.com"),
             "alice@example.com"
+        );
+        assert_eq!(
+            username_to_permissioned_as("g/alice@example.com"),
+            "u/g/alice@example.com"
+        );
+        // The `group-` convention is for usernames, and an address is never one.
+        assert_eq!(
+            username_to_permissioned_as("group-ops/alice@example.com"),
+            "u/group-ops/alice@example.com"
+        );
+        assert_eq!(
+            username_to_permissioned_as("group-ops@example.com"),
+            "group-ops@example.com"
         );
         assert_eq!(username_to_permissioned_as("group-all"), "g/all");
         assert_eq!(username_to_permissioned_as("group-my-team"), "g/my-team");

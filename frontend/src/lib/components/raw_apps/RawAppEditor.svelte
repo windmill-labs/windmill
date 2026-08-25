@@ -7,7 +7,8 @@
 	import RawAppYamlEditor, { type RawAppYamlUpdate } from './RawAppYamlEditor.svelte'
 	import type Drawer from '../common/drawer/Drawer.svelte'
 	import Alert from '../common/alert/Alert.svelte'
-	import { type Policy, WorkspaceService } from '$lib/gen'
+	import { Button } from '../common'
+	import { AppService, type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
 
@@ -28,6 +29,7 @@
 	} from './utils'
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
 	import InlineElementPrompt from './InlineElementPrompt.svelte'
+	import RawAppCoepWarning from './RawAppCoepWarning.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -54,9 +56,13 @@
 	} from 'lucide-svelte'
 	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
 	import { runScriptAndPollResult } from '../jobs/utils'
+	import { writingJobOptions } from '../jobs/writingJob'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
+	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -207,6 +213,51 @@
 	// drawers, DB selector) so their lookups target the app's workspace too.
 	setRawAppOperatingWorkspace(() => opWorkspace)
 
+	// The path autosaves land on, which is what the session preview loads the app by.
+	const draftStoragePath = $derived(autosavePath ?? liveEditorDraftStoragePath)
+
+	// Materialize a brand-new app's draft before the session preview loads it by
+	// path — an untouched new app never autosaved, so forcePersist is the only
+	// thing that creates the row. Gated to never-deployed: forcePersist skips the
+	// discardIf baseline, safe only when there is none.
+	async function persistDraftForSession(): Promise<void> {
+		if (!opWorkspace || draftStoragePath === undefined) return
+		await UserDraftDbSyncer.flush({
+			workspace: opWorkspace,
+			itemKind: 'raw_app',
+			path: draftStoragePath
+		})
+		if (newApp) {
+			await UserDraft.forcePersist('raw_app', draftStoragePath, { workspace: opWorkspace })
+		}
+	}
+
+	const sessionOpen = $derived(
+		path
+			? {
+					target: { kind: 'raw_app' as const, path },
+					workspaceId: opWorkspace ?? undefined,
+					beforeOpen: persistDraftForSession
+				}
+			: undefined
+	)
+
+	// Reaches the AI entry point in an inline script's toolbar, which sits too deep
+	// in the sidebar to be handed a prop. A raw app has no addressable sub-editor,
+	// so the preview just opens the app.
+	setOpenInSessionHandoff({ source: () => sessionOpen })
+
+	/** Hand this app off to a fresh AI session, seeding `seedPrompt` and sending
+	 * it on arrival. Exposed for the template picker's "Start in AI session": the
+	 * route owns the prompt, but the draft persistence the preview depends on
+	 * lives here. False when there is no path to open yet, so the caller can fall
+	 * back rather than swallow the click. */
+	export async function openInSession(seedPrompt: string): Promise<boolean> {
+		if (!sessionOpen) return false
+		await openSourceInSession(sessionOpen, { seedPrompt, autoSend: true })
+		return true
+	}
+
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
 	let dataTableWhitelist = $derived(buildDataTableWhitelist(dataTableRefsObjects))
@@ -299,13 +350,19 @@
 	historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
+	const PREVIEW_SHELL_URL = '/ui_builder/app-preview.html'
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
+	let coepWarning: RawAppCoepWarning | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
 	let lastBuild: { css: string; js: string } | undefined = undefined
 	// Detached preview tab/window rendering the same app-preview bundle as the
 	// inline pane. Kept live-synced: every build is replayed into it until the
 	// user closes it. Not reactive — it's a window handle, not UI state.
 	let externalPreviewWindow: Window | null = null
+	// Mirrors `previewIframeLoaded` for the detached window: its reload is only
+	// initiated, never awaited, so a build posted meanwhile would run in the
+	// retiring document and again in its replacement.
+	let externalPreviewReady = $state(false)
 	let inspectorEnabled = $state(false)
 	let bundlerType: 'esbuild' | 'rolldown' = $state('esbuild')
 
@@ -1020,14 +1077,17 @@
 				}
 
 				try {
-					const result = await runScriptAndPollResult({
-						workspace: opWorkspace,
-						requestBody: {
-							language: 'postgresql',
-							content: sql,
-							args: { database: `datatable://${datatableName}` }
-						}
-					})
+					const result = await runScriptAndPollResult(
+						{
+							workspace: opWorkspace,
+							requestBody: {
+								language: 'postgresql',
+								content: sql,
+								args: { database: `datatable://${datatableName}` }
+							}
+						},
+						writingJobOptions
+					)
 
 					// If newTable was specified and the query succeeded, add it to data.tables
 					if (newTable) {
@@ -1104,7 +1164,11 @@
 			e.source === externalPreviewWindow &&
 			e.origin === window.location.origin
 		) {
+			externalPreviewReady = true
 			feedExternalPreview()
+			// The detached window is cross-origin isolated like the inline preview,
+			// so blocked external resources warrant the same COEP warning.
+			coepWarning?.attachTo(externalPreviewWindow)
 			return
 		}
 
@@ -1274,6 +1338,7 @@
 	function postToExternalPreview(msg: Record<string, unknown>) {
 		if (!externalPreviewWindow || externalPreviewWindow.closed) {
 			externalPreviewWindow = null
+			externalPreviewReady = false
 			return
 		}
 		// Restrict to our own origin: the detached window loads same-origin
@@ -1282,9 +1347,105 @@
 		externalPreviewWindow.postMessage(msg, window.location.origin)
 	}
 
+	// `app-preview.html` evaluates the js we post, so prefixing the env is what a
+	// bundled `windmill-client` needs — it reads `window.process.env` at module
+	// load. Gated and scoped exactly like a deployed app — sandbox off or no
+	// scopes means no env at all — so preview hits the same 403s, and the same
+	// misconfiguration, as the deployed bundle.
+
+	// Stated on every payload, tokenless included: the preview shell reuses one
+	// window across builds, so omitting it would leave an old token in place.
+	// Deleting rather than blanking matches a deployed app with no scopes.
+	const NO_SDK_ENV_JS = 'try { delete window.process } catch (_) {}\n'
+	let previewSdkEnvJs = $state(NO_SDK_ENV_JS)
+	// Identifies the request whose answer is still wanted. Toggling scopes starts a
+	// new mint while an older one is in flight, and an out-of-order answer would
+	// otherwise hand the preview the wrong scope set — or restore a token after all
+	// scopes were removed.
+	let previewSdkKey: string | undefined = undefined
+	// Holds the build back between dropping a credential and settling its
+	// replacement, so the app mounts once — with the final credential — instead of
+	// once tokenless and again tokenful, running mount-time side effects twice.
+	let previewSdkPending = $state(false)
+
+	/** Discard the running app. The shell resets the DOM but keeps the JavaScript
+	 * realm, so only a reload drops the old bundle's timers, listeners and the
+	 * token its client captured at module load. */
+	function restartPreviewRealm() {
+		if (!lastBuild) return // nothing running yet
+		previewIframeLoaded = false
+		if (previewIframe) previewIframe.src = PREVIEW_SHELL_URL
+		if (externalPreviewWindow && !externalPreviewWindow.closed) {
+			externalPreviewReady = false
+			// User app code can navigate this window elsewhere, which makes its
+			// location cross-origin and unreachable — that document holds no token.
+			try {
+				externalPreviewWindow.location.replace(PREVIEW_SHELL_URL)
+			} catch (_) {}
+		}
+	}
+
+	/** Settle the credential and let the app start: the reloaded shells replay the
+	 * build themselves (the iframe from its `load` handler, the detached window
+	 * from `appPreviewReady`), so this only covers a shell already back up. */
+	function applyPreviewSdkEnv(js: string) {
+		previewSdkEnvJs = js
+		previewSdkPending = false
+		if (lastBuild) feedPreviewIframe(lastBuild)
+		syncExternalPreview()
+	}
+
+	$effect(() => {
+		// Frontend SDK access is sandbox-only, so isolation off gets no credential
+		// here either, however the policy's scope list reads.
+		const scopes = policy?.sandbox === true ? (policy?.frontend_sdk_scopes ?? []) : []
+		const ws = opWorkspace
+		const key = `${ws ?? ''}|${scopes.join(',')}`
+		if (key === previewSdkKey) return
+		previewSdkKey = key
+		// Drop the old credential before asking for its replacement, never after:
+		// a mint is asynchronous, and until it answers the running preview — and
+		// any build fed meanwhile — would keep scopes the policy just removed, or
+		// a token for the workspace we just left.
+		const willMint = scopes.length > 0 && !!ws
+		previewSdkPending = willMint
+		previewSdkEnvJs = NO_SDK_ENV_JS
+		restartPreviewRealm()
+		if (willMint) mintPreviewSdkToken(scopes, ws, key)
+	})
+
+	async function mintPreviewSdkToken(scopes: string[], ws: string, key: string) {
+		try {
+			const token = await AppService.mintPreviewSdkToken({
+				workspace: ws,
+				requestBody: { path, scopes }
+			})
+			if (key !== previewSdkKey) return
+			applyPreviewSdkEnv(
+				`window.process = { env: ${JSON.stringify({
+					WM_RAW_APP: 'true',
+					WM_TOKEN: token,
+					BASE_URL: window.location.origin,
+					WM_WORKSPACE: ws
+				}).replace(/</g, '\\u003c')} };\n`
+			)
+		} catch (e) {
+			// Already tokenless — the effect cleared the env before calling us — so
+			// this only releases the build. The key stays set, so a failed mint is not
+			// retried until the scopes or workspace actually change.
+			console.warn('Could not mint a preview SDK token', e)
+			if (key === previewSdkKey) applyPreviewSdkEnv(NO_SDK_ENV_JS)
+		}
+	}
+
 	function syncExternalPreview() {
+		if (previewSdkPending || !externalPreviewReady) return
 		if (lastBuild) {
-			postToExternalPreview({ type: 'preview', css: lastBuild.css, js: lastBuild.js })
+			postToExternalPreview({
+				type: 'preview',
+				css: lastBuild.css,
+				js: previewSdkEnvJs + lastBuild.js
+			})
 		}
 	}
 
@@ -1292,11 +1453,17 @@
 	// overlays first: a fresh render supersedes the old crash or blank, and
 	// app-preview.html re-posts if the new render fails the same way.
 	function feedPreviewIframe(build: { css: string; js: string }) {
+		// Between dropping a credential and settling its replacement the shell stays
+		// blank; whichever settles last — the mint or the shell's own `load` — starts
+		// the app. Same for a shell still reloading: its `load` handler replays.
+		if (previewSdkPending || !previewIframeLoaded) return
 		runtimeError = undefined
 		emptyRender = false
+		// Same-origin app-preview.html, and the payload now carries a token — address
+		// it to our origin rather than '*', as the detached preview already does.
 		previewIframe?.contentWindow?.postMessage(
-			{ type: 'preview', css: build.css, js: build.js },
-			'*'
+			{ type: 'preview', css: build.css, js: previewSdkEnvJs + build.js },
+			window.location.origin
 		)
 	}
 
@@ -1326,22 +1493,26 @@
 		}
 		// Scope the window name per app path so two open editors don't fight over
 		// (or take over / close) one shared OS-level preview window.
-		const win = window.open(
-			'/ui_builder/app-preview.html',
-			`windmillRawAppPreview:${encodeURIComponent(path)}`
-		)
+		const win = window.open(PREVIEW_SHELL_URL, `windmillRawAppPreview:${encodeURIComponent(path)}`)
 		if (!win) {
 			sendUserToast('Could not open the preview window (popup blocked?)', true)
 			return
 		}
 		externalPreviewWindow = win
+		externalPreviewReady = false
 		// Initial feed: fires once when the freshly opened tab loads. This is the
 		// only feed path against an app-preview.html that predates the
 		// `appPreviewReady` handshake, so the window isn't blank on first open
 		// regardless of the pinned UI Builder artifact. A manual refresh is
 		// covered separately by the handshake in `listener` (this listener is
 		// bound to the now-stale document and won't fire again).
-		win.addEventListener('load', () => feedExternalPreview())
+		win.addEventListener('load', () => {
+			externalPreviewReady = true
+			feedExternalPreview()
+			// Attach here too: against an artifact that predates the handshake, this
+			// is the only place the freshly opened window is ever seen loaded.
+			coepWarning?.attachTo(win)
+		})
 	}
 
 	let getBundleResolve: (({ css, js }: { css: string; js: string }) => void) | undefined = undefined
@@ -1705,9 +1876,14 @@
 	// mount: a reactive src would reload the iframe on every theme toggle. Live
 	// theme changes travel through postMessage instead (see the $effect below).
 	function uiBuilderIframeSrc(): string {
-		const dark = document.documentElement.classList.contains('dark')
-		const variant = getAppliedDarkModeVariant()
-		return `/ui_builder/index.html?dark=${dark}&variant=${variant}`
+		const params = new URLSearchParams({
+			dark: String(document.documentElement.classList.contains('dark')),
+			variant: getAppliedDarkModeVariant()
+		})
+		// `workspace` lets the in-browser npm installer reach /api/w/<ws>/npm_proxy so
+		// package installs honour the instance's .npmrc instead of the public registry.
+		if (opWorkspace) params.set('workspace', opWorkspace)
+		return `/ui_builder/index.html?${params}`
 	}
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
 	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
@@ -2087,6 +2263,7 @@
 		{newPath}
 		{labels}
 		appPath={path}
+		{sessionOpen}
 		{liveEditorDraftStoragePath}
 		{autosaveWorkspace}
 		{autosavePath}
@@ -2201,19 +2378,19 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<button
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Columns2 }}
+												selected={splitWithPreview}
 												title={splitWithPreview
 													? 'Move preview back into a tab'
 													: 'Pin preview to the right'}
 												aria-label="Toggle split with preview"
 												aria-pressed={splitWithPreview}
-												class={splitWithPreview
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-												onclick={toggleSplit}
-											>
-												<Columns2 size={14} />
-											</button>
+												onClick={toggleSplit}
+											/>
 										</div>
 									{/snippet}
 								</DraggableTabs>
@@ -2286,27 +2463,33 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
 												title="Switch bundler"
-												onclick={() => {
+												onClick={() => {
 													const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
 													bundlerType = next
 													iframe?.contentWindow?.postMessage(
 														{ type: 'setBundlerType', bundlerType: next },
 														'*'
 													)
-												}}>{bundlerType}</button
+												}}
 											>
-											<button
+												{bundlerType}
+											</Button>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: MousePointerSquareDashed }}
+												selected={inspectorEnabled}
 												title={inspectorEnabled
 													? 'Click to disable element inspector'
 													: 'Click to enable element inspector'}
-												class={inspectorEnabled
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
 												aria-label="Toggle element inspector"
-												onclick={() => {
+												aria-pressed={inspectorEnabled}
+												onClick={() => {
 													if (inspectorEnabled) {
 														// Turning off is a full exit: stop picking and clear the
 														// selection + inline prompt (mirrors Escape).
@@ -2319,51 +2502,52 @@
 														)
 													}
 												}}
-											>
-												<MousePointerSquareDashed size={14} />
-											</button>
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: RefreshCw }}
 												title="Replay the last build into the preview"
 												aria-label="Rebuild"
-												onclick={() => {
+												onClick={() => {
 													if (lastBuild) {
 														feedPreviewIframe(lastBuild)
 													}
 												}}
-											>
-												<RefreshCw size={14} />
-											</button>
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: SquareArrowOutUpRight }}
 												title="Open preview in a separate window"
 												aria-label="Open preview in a separate window"
-												onclick={openExternalPreview}
-											>
-												<SquareArrowOutUpRight size={14} />
-											</button>
-											<button
+												onClick={openExternalPreview}
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Columns2 }}
+												selected={splitWithPreview}
 												title={splitWithPreview
 													? 'Move preview back into a tab'
 													: 'Pin preview to the right'}
 												aria-label="Toggle split with preview"
 												aria-pressed={splitWithPreview}
-												class={splitWithPreview
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-												onclick={toggleSplit}
-											>
-												<Columns2 size={14} />
-											</button>
+												onClick={toggleSplit}
+											/>
 										</div>
 									{/snippet}
 								</DraggableTabs>
 								<iframe
 									bind:this={previewIframe}
 									title="App preview"
-									src="/ui_builder/app-preview.html"
+									src={PREVIEW_SHELL_URL}
 									class="w-full flex-1 block"
 								></iframe>
+								<RawAppCoepWarning bind:this={coepWarning} iframe={previewIframe} />
 								{#if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->

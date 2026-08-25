@@ -11,7 +11,12 @@ import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
 import { wrapDucklakeQuery } from '../../../../../ducklake'
 import type { DbType, DbInput } from '$lib/components/dbTypes'
 import { buildParameters } from '../utils'
-import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
+import {
+	getLanguageByResourceType,
+	type ColumnDef,
+	buildVisibleFieldList,
+	duckdbQuicksearchColumns
+} from '../utils'
 
 function makeSnowflakeSelectQuery(
 	table: string,
@@ -298,8 +303,8 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				)
 				.join(',\n')}`
 
-			quicksearchCondition = `($quicksearch = '' OR CONCAT(${filteredColumns.join(
-				', '
+			quicksearchCondition = `($quicksearch = '' OR CONCAT(${duckdbQuicksearchColumns(
+				columnDefs
 			)}) ILIKE '%' || $quicksearch || '%')`
 
 			query += `SELECT ${filteredColumns.join(', ')} FROM ${table}\n`

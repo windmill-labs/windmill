@@ -22,7 +22,9 @@
 //!   - run mode against a deployed Viewer app rejects caller-supplied inline
 //!     `raw_code` whose sha is not publisher-pinned (CVE-2026-22683 residual:
 //!     the Viewer default-triggerable fallback let any caller / an operator run
-//!     arbitrary code as themselves, bypassing the content-hash pin).
+//!     arbitrary code as themselves, bypassing the content-hash pin), and
+//!   - a path-qualified `apps:run|write:<path>` token reaches only that app
+//!     (the route layer is resource-blind, so the handler must path-check).
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -343,6 +345,48 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
         body.contains("forbidden by policy"),
         "rejection must be the content-hash pin (unpinned app_script sha), got: {body}"
     );
+
+    // 12. Path confinement: the scope picker mints `apps:run:<path>` /
+    //     `apps:write:<path>`, but the route layer matches domain + action only, so the
+    //     handler is the only place the path is enforced. A token scoped to `vapp` must
+    //     not execute another app's components — those run under that app's identity.
+    for token in ["APPS_RUN_VAPP_TOKEN", "APPS_WRITE_VAPP_TOKEN"] {
+        let resp = authed(client().post(format!("{base}/u/test-user/private")), token)
+            .json(&json!({ "args": {}, "component": "comp", "path": "script/u/test-user/private" }))
+            .send()
+            .await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        assert_eq!(
+            status, 403,
+            "{token} must not execute an app outside its scope path (got {status}): {body}"
+        );
+        assert!(
+            body.contains("apps:run:u/test-user/private"),
+            "rejection must be the app path scope gate, got: {body}"
+        );
+    }
+
+    // 13. ...and must not over-block the app it IS scoped to: both tokens clear the
+    //     scope gate for `vapp` and reach the policy (which then rejects the unpinned
+    //     code, as in step 9). `apps:write` covering run is what keeps an app-editor
+    //     token working without it also holding `apps:run`.
+    for token in ["APPS_RUN_VAPP_TOKEN", "APPS_WRITE_VAPP_TOKEN"] {
+        let resp = authed(client().post(format!("{base}/u/test-user/vapp")), token)
+            .json(&run_mode_raw_code)
+            .send()
+            .await?;
+        let status = resp.status();
+        let body = resp.text().await?;
+        assert_eq!(
+            status, 400,
+            "{token} must clear the scope gate for its own app and reach the policy (got {status}): {body}"
+        );
+        assert!(
+            body.contains("forbidden by policy"),
+            "{token} must be stopped by the policy, not the scope gate, got: {body}"
+        );
+    }
 
     Ok(())
 }

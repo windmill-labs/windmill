@@ -14,6 +14,9 @@ export function markSessionSeen(sessionId: string, count: number) {
 	if (!s) return
 	if ((s.lastSeenCount ?? 0) >= count) return
 	s.lastSeenCount = count
+	// Reading a session's new messages is activity — the last-activity filter
+	// would otherwise only see edits to the record.
+	s.lastActivityAt = Date.now()
 	void putSession(s)
 }
 

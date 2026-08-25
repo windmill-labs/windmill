@@ -46,6 +46,32 @@ async function readFilesetDirectory(dirPath: string): Promise<Record<string, str
   return result;
 }
 
+/**
+ * A fileset directory must live at the server-canonical location
+ * `<resource path>.fileset` — that is the only layout the sync diff engine
+ * can round-trip (remote state is always rendered there, including for
+ * workspace-specific resources). Any other pointer breaks change detection:
+ * children are planned as full delete/re-add churn and adds under the custom
+ * directory are dropped, which manifests as erased or stale fileset content.
+ */
+export function validateFilesetPointer(
+  dirPath: string,
+  remotePath: string,
+): void {
+  const normalize = (p: string) =>
+    p.replaceAll("\\", "/").replace(/\/+$/, "");
+  const pointer = normalize(dirPath);
+  const expected = normalize(remotePath.replaceAll(SEP, "/")) + ".fileset";
+  if (pointer !== expected) {
+    throw new Error(
+      `Resource ${remotePath.replaceAll(SEP, "/")} uses '!inline_fileset ${dirPath}', ` +
+        `but a fileset directory must live next to its resource file, at '${expected}'. ` +
+        `Move the directory there (e.g. 'git mv ${pointer} ${expected}') and update the ` +
+        `'!inline_fileset' value to match.`,
+    );
+  }
+}
+
 export async function pushResource(
   workspace: string,
   remotePath: string,
@@ -53,6 +79,10 @@ export async function pushResource(
   localResource: ResourceFile,
   originalLocalPath?: string,
   wsSpecific?: boolean,
+  // Sync pushes reject non-canonical fileset pointers (the diff engine can
+  // only round-trip the canonical layout); the standalone `resource push`
+  // command pushes a single explicit file, where any pointer is fine.
+  enforceCanonicalFileset?: boolean,
 ): Promise<void> {
   remotePath = removeType(remotePath, "resource");
   try {
@@ -68,6 +98,9 @@ export async function pushResource(
   const resolveInlineContent = async () => {
     if (typeof localResource.value === "string" && localResource.value.startsWith("!inline_fileset ")) {
       const dirPath = localResource.value.split(" ")[1];
+      if (enforceCanonicalFileset) {
+        validateFilesetPointer(dirPath, remotePath);
+      }
       localResource.value = await readFilesetDirectory(dirPath.replaceAll("/", SEP));
     } else if (localResource.value["content"]?.startsWith("!inline ")) {
       const basePath = localResource.value["content"].split(" ")[1];

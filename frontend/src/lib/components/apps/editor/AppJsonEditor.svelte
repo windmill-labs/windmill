@@ -11,6 +11,7 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import { Globe, Loader2, Save } from 'lucide-svelte'
+	import { deployRawAppValue } from '$lib/rawAppDeploy'
 
 	let jsonViewerDrawer: Drawer | undefined = $state()
 
@@ -50,7 +51,17 @@
 		loading = false
 	}
 
+	// The button drops a rejection, so failures — invalid JSON, a raw app whose
+	// sources don't bundle — have to surface here or Deploy looks like a no-op.
 	export async function saveApp() {
+		try {
+			await deploy()
+		} catch (err: any) {
+			sendUserToast(`Could not save app: ${err.body ?? err.message}`, true)
+		}
+	}
+
+	async function deploy() {
 		const parsed = JSON.parse(code)
 		if (isDraftOnly) {
 			// No deployed row — `updateApp` would 404. Route through the syncer
@@ -65,6 +76,19 @@
 			})
 			dispatch('change')
 			sendUserToast('Draft saved')
+		} else if (isRawApp) {
+			// A raw app's value holds its sources, so deploying it means re-bundling.
+			await deployRawAppValue({
+				workspace: $workspaceStore!,
+				path,
+				value: parsed,
+				summary: app?.summary,
+				policy: app?.policy,
+				customPath: app?.custom_path
+			})
+			dispatch('change')
+			UserDraft.remove('raw_app', path)
+			sendUserToast('App deployed')
 		} else {
 			await AppService.updateApp({
 				workspace: $workspaceStore!,

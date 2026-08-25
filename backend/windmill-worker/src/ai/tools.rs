@@ -489,6 +489,7 @@ async fn execute_windmill_tool(
         permissioned_as,
         Some(&format!("job-span-{}", ctx.job.id)),
         None,
+        None,
         ctx.job.schedule_path(),
         Some(ctx.job.id),
         ctx.job.root_job.or(Some(ctx.job.id)),

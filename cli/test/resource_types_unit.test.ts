@@ -52,6 +52,26 @@ test("non-identifier property names are double-quoted", () => {
   expect(out).toContain('  "3leading": boolean');
 });
 
+// WIN-2392: hub types like `record` (schema `{}`) or `dbt_profile`
+// (`{"type":"object"}`) have no `properties`, and the schema column itself is
+// nullable. A type whose property map is missing must still compile, otherwise
+// it aborts the whole rt.d.ts generation.
+test("schemas without a usable property map compile to any", () => {
+  expect(compileResourceTypeToTsType(undefined)).toBe("any");
+  expect(compileResourceTypeToTsType(null)).toBe("any");
+  expect(compileResourceTypeToTsType({ type: "object" } as any)).toBe("any");
+  expect(compileResourceTypeToTsType({ properties: null } as any)).toBe("any");
+  expect(compileResourceTypeToTsType(schema({}))).toBe("any");
+});
+
+test("a null property compiles to any instead of throwing", () => {
+  const out = compileResourceTypeToTsType(
+    schema({ host: null, port: { type: "integer" } } as any)
+  );
+  expect(out).toContain("  host: any");
+  expect(out).toContain("  port: number");
+});
+
 test("nested object and array property names are quoted too", () => {
   const out = compileResourceTypeToTsType(
     schema({

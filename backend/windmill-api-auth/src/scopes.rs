@@ -120,6 +120,10 @@ impl ScopeDefinition {
 
         match (self.action.as_str(), other.action.as_str()) {
             (a, b) if (a == "write" && b == "read") || (a == b) => {}
+            // Apps only: `write` can rewrite the app and its policy, so it also covers
+            // running its components. Not general — `jobs:write` must not grant
+            // `jobs:run`. The resource check below still confines it to the same app.
+            ("write", "run") if self.domain == "apps" => {}
             _ => return false,
         }
 
@@ -143,7 +147,11 @@ impl ScopeDefinition {
             (Some(self_resources), Some(other_resources)) => {
                 resources_match(self_resources, other_resources)
             }
-            (Some(_), None) => false,
+            // A requirement naming no path is the whole domain, so only a grant that
+            // itself spans every path satisfies it. `*` is that grant — the scope UI
+            // accepts it as a resource path and `resources_match` already reads it as
+            // everything — while any listed path leaves the collection unauthorized.
+            (Some(self_resources), None) => self_resources.iter().any(|r| r == "*"),
             (None, _) => true,
         }
     }
@@ -270,6 +278,7 @@ pub enum ScopeDomain {
 
     // Native trigger domains
     NativeTriggers,
+    TriggersHistory,
 
     // System domains
     Audit,
@@ -280,6 +289,7 @@ pub enum ScopeDomain {
     OAuth,
     AI,
     AiSkills,
+    AiEvals, // AI agent eval datasets
 
     Indexer,
     Teams,   // Microsoft Teams integration
@@ -331,6 +341,7 @@ impl ScopeDomain {
             Self::PostgresTriggers => "postgres_triggers",
             Self::EmailTriggers => "email_triggers",
             Self::NativeTriggers => "native_triggers",
+            Self::TriggersHistory => "triggers_history",
             Self::Audit => "audit",
             Self::Settings => "settings",
             Self::Workers => "workers",
@@ -339,6 +350,7 @@ impl ScopeDomain {
             Self::OAuth => "oauth",
             Self::AI => "ai",
             Self::AiSkills => "ai_skills",
+            Self::AiEvals => "ai_evals",
             Self::Capture => "capture",
             Self::Drafts => "drafts",
             Self::Favorites => "favorites",
@@ -394,9 +406,11 @@ impl ScopeDomain {
             "oauth" => Some(Self::OAuth),
             "ai" => Some(Self::AI),
             "ai_skills" => Some(Self::AiSkills),
+            "ai_evals" => Some(Self::AiEvals),
             "indexer" | "srch" => Some(Self::Indexer),
             "teams" => Some(Self::Teams),
             "native_triggers" => Some(Self::NativeTriggers),
+            "triggers_history" => Some(Self::TriggersHistory),
             "git_sync" | "github_app" => Some(Self::GitSync),
             "capture" => Some(Self::Capture),
             "drafts" => Some(Self::Drafts),
@@ -485,6 +499,25 @@ pub fn check_route_access(
             // separate read-only check.
             if suffix.starts_with("jobs_u/queue/cancel/") {
                 return Ok(());
+            }
+        }
+    }
+
+    // Each declared scope must grant what its prompt said and no more:
+    // `jobs:run` only deployed runnables, `users:read` only the viewer's identity.
+    if has_raw_app_sdk_sentinel(Some(token_scopes)) {
+        if let Some(suffix) = route_suffix.as_deref() {
+            if is_request_supplied_code_route(suffix) {
+                return Err(Error::PermissionDenied(
+                    "Access denied. A raw app frontend SDK token cannot run request-supplied code."
+                        .to_string(),
+                ));
+            }
+            if required_domain == ScopeDomain::Users && suffix != "users/whoami" {
+                return Err(Error::PermissionDenied(
+                    "Access denied. A raw app frontend SDK token can only read the viewer's own identity."
+                        .to_string(),
+                ));
             }
         }
     }
@@ -666,27 +699,49 @@ fn extract_domain_from_route(
     )))
 }
 
-const RUN_WHITELISTED_GET_PATHS: [&'static str; 20] = [
+/// The reads a `jobs:run` scope implies: following, by id, a run the token started.
+/// Every entry is keyed by a job id and confines an authenticated caller to its own
+/// runnable — through `require_job_read_access`, through its own `jobs:run:flows:<path>`
+/// check, or, where an approval token or resume secret bypasses that gate, through a
+/// direct `require_job_within_run_scope`. The one exception is
+/// `jobs_u/get_root_job_id/`, which has no check at all but discloses only flow lineage,
+/// to anyone, authenticated or not. Workspace-wide enumeration (`jobs/list`, counts,
+/// exports) and credential minting (`job_view_token`) are deliberately absent — those are
+/// `jobs:read`. Keep by-id read routes here in sync as they are added, or a run token
+/// loses the ability to follow its own run through them.
+const RUN_WHITELISTED_GET_PATHS: [&'static str; 32] = [
     "jobs_u/get_flow/",
     "jobs_u/get_root_job_id/",
     "jobs_u/get/",
     "jobs_u/get_logs/",
+    "jobs_u/get_completed_logs_tail/",
     "jobs_u/get_flow_all_logs/",
+    "jobs_u/get_flow_all_logs_structured/",
+    "jobs_u/get_flow_all_results/",
     "jobs_u/get_args/",
     "jobs_u/get_flow_debug_info/",
     "jobs_u/completed/get/",
     "jobs_u/completed/get_result/",
     "jobs_u/completed/get_result_maybe/",
+    "jobs_u/completed/get_timing/",
+    "jobs_u/dispatch_events/",
     "jobs_u/getupdate/",
     "jobs_u/getupdate_sse/",
     "jobs_u/get_log_file/",
+    "jobs/run_progress/",
+    "jobs/dbt_graph/",
+    "jobs/dbt_resumable/",
+    "jobs/dbt_resumable_script/p/",
     "jobs/result_by_id/",
     "jobs/resume_urls/",
     "jobs/flow/user_states/",
     "jobs/job_signature/",
+    "jobs/wac_approval_urls/",
     "jobs/completed/get/",
     "jobs/completed/get_result/",
     "jobs/completed/get_result_maybe/",
+    "jobs/completed/get_timing/",
+    "jobs/get_otel_traces/",
 ];
 
 /// Sentinel scope in app embed tokens. Grants nothing itself; `check_route_access`
@@ -699,6 +754,34 @@ pub const APP_EMBED_SENTINEL: &str = "app_embed";
 /// so several handlers confine them to the app's own resources/runs.
 pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
     scopes.is_some_and(|s| s.iter().any(|x| x == APP_EMBED_SENTINEL))
+}
+
+/// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
+/// to narrow the declared scopes to what the viewer's prompt promised.
+pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
+
+pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
+    scopes.is_some_and(|s| s.iter().any(|x| x == RAW_APP_SDK_SENTINEL))
+}
+
+/// Endpoints that run code the caller supplies or names by job id (the latter
+/// with no ownership check). Their jobs get an unscoped credential as the viewer,
+/// so reaching one would make a captured SDK token a full account takeover.
+fn is_request_supplied_code_route(suffix: &str) -> bool {
+    // Prefixes, so the `_async` variants are covered too.
+    const CODE_ROUTES: [&str; 10] = [
+        "jobs/run/preview",
+        "jobs/run_inline/preview",
+        "jobs/run_wait_result/preview",
+        "jobs/run/preview_bundle",
+        "jobs/run/preview_flow",
+        "jobs/run_wait_result/preview_flow",
+        "jobs/run/dependencies",
+        "jobs/run/flow_dependencies",
+        "jobs/run/workflow_as_code",
+        "jobs/restart/f",
+    ];
+    CODE_ROUTES.iter().any(|p| suffix.starts_with(p))
 }
 
 /// Routes an app embed token (sentinel) is denied. Its broad scopes (`apps:run`,
@@ -775,6 +858,60 @@ fn resource_metadata_route_allowed(suffix: &str) -> bool {
         || suffix.starts_with("resources/type/")
 }
 
+/// The `jobs:run` scopes a token's job reads are confined to, or `None` when they are
+/// not confined to particular runnables.
+///
+/// A run scope is what the trigger UI mints per script or flow and hands to a webhook
+/// caller / CI job: it may start the runnables it names and follow those runs, so its
+/// by-id job reads must stay within what it can start (enforced by
+/// `require_job_read_access`). Both the path (`jobs:run:flows:f/team/etl`) and the
+/// kind-only (`jobs:run:scripts`, which legacy `jobs:runscript` tokens carry) forms
+/// confine, since `ScopeDefinition::includes` already matches a candidate
+/// `jobs:run:<kind>:<path>` against either.
+///
+/// Returns `None` — unconfined — when the token is effectively unscoped, or carries a
+/// jobs scope that grants job reads in its own right: `jobs:read`/`jobs:write`, or a
+/// bare `jobs:run` (it can start anything, so confining its reads to "what it may run"
+/// would restrict nothing).
+pub fn job_read_run_confinement(scopes: Option<&[String]>) -> Option<Vec<ScopeDefinition>> {
+    let mut confinement = Vec::new();
+    for scope in scopes?
+        .iter()
+        .filter(|s| !s.starts_with("if_jobs:filter_tags:"))
+    {
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            continue;
+        };
+        if ScopeDomain::from_str(&scope.domain) != Some(ScopeDomain::Jobs) {
+            continue;
+        }
+        match ScopeAction::from_str(&scope.action) {
+            Some(ScopeAction::Run) if scope.kind.is_some() || scope.resource.is_some() => {
+                confinement.push(scope)
+            }
+            Some(_) => return None,
+            None => continue,
+        }
+    }
+    (!confinement.is_empty()).then_some(confinement)
+}
+
+/// Whether a job that ran `runnable_path` as `kind` (`scripts` or `flows`) is inside a
+/// [`job_read_run_confinement`] set.
+pub fn run_confinement_admits(
+    confinement: &[ScopeDefinition],
+    kind: &str,
+    runnable_path: &str,
+) -> bool {
+    let required = ScopeDefinition::new(
+        ScopeDomain::Jobs.as_str(),
+        ScopeAction::Run.as_str(),
+        Some(kind),
+        Some(vec![runnable_path.to_string()]),
+    );
+    confinement.iter().any(|scope| scope.includes(&required))
+}
+
 fn scope_grants_access(
     scope: &ScopeDefinition,
     required_domain: ScopeDomain,
@@ -802,15 +939,35 @@ fn scope_grants_access(
             && route_path.is_some_and(resource_metadata_route_allowed));
     }
 
-    if !scope_action.includes(&required_action)
-        && !(scope_domain == ScopeDomain::Jobs
-            && required_action == ScopeAction::Read
-            && route_path.is_some_and(|p| {
-                RUN_WHITELISTED_GET_PATHS
-                    .iter()
-                    .any(|path| p.starts_with(path))
-            }))
+    // Apps `write` covers `run` (see `ScopeDefinition::includes`). Like every domain
+    // here this layer is resource-blind; the Run handlers path-check the app.
+    if scope_domain == ScopeDomain::Apps
+        && scope_action == ScopeAction::Write
+        && required_action == ScopeAction::Run
     {
+        return Ok(true);
+    }
+
+    // `jobs:run` is a grant to *start* a runnable. The only reads it implies are the
+    // by-id routes a caller needs to follow the run it started
+    // (`RUN_WHITELISTED_GET_PATHS`) — never workspace-wide enumeration (`jobs/list`,
+    // counts, exports), which is what `jobs:read` is for. Those by-id reads are in turn
+    // confined to the runnable a path-scoped token names, by `require_job_read_access`.
+    // `ScopeAction::Run.includes(&Read)` (which exists so `apps:run` can fetch the app
+    // it runs) must not reach this domain, so decide it here rather than falling
+    // through to the hierarchy below.
+    if scope_domain == ScopeDomain::Jobs
+        && scope_action == ScopeAction::Run
+        && required_action == ScopeAction::Read
+    {
+        return Ok(route_path.is_some_and(|p| {
+            RUN_WHITELISTED_GET_PATHS
+                .iter()
+                .any(|path| p.starts_with(path))
+        }));
+    }
+
+    if !scope_action.includes(&required_action) {
         return Ok(false);
     }
 
@@ -830,6 +987,91 @@ fn scope_grants_access(
 
     // No resource specified means access to entire domain
     Ok(true)
+}
+
+/// The workspace-less routes a job token (`$WM_TOKEN`) may still read. A route qualifies
+/// only when it answers from the caller's own account, from the request body, or with
+/// content identical for every workspace (the Hub proxy, the documentation) — never
+/// naming another workspace, and never disclosing instance configuration. `usage` reads
+/// the caller's own row; `email` and `allowed_domain_auto_invite` are derived from the
+/// token itself and touch no table.
+///
+/// Deliberately absent, as each crosses that line: `users/list_invites` (returns the
+/// workspace ids the identity was invited to), `users/tokens/list` (credential metadata
+/// of the borrowed identity), `users/exists/{email}` (an oracle over arbitrary
+/// addresses, not the caller's own), and `workspaces/list` / `workspaces/users`.
+///
+/// Read methods only — a mutating handler added on one of these paths must be
+/// reconsidered rather than inherit the grant.
+fn is_global_read_open_to_job_token(route_path: &str) -> bool {
+    matches!(
+        route_path,
+        "/api/users/whoami"
+            | "/api/users/email"
+            | "/api/users/usage"
+            | "/api/users/tutorial_progress"
+            | "/api/workspaces/allowed_domain_auto_invite"
+            | "/api/docs/search"
+            | "/api/docs/page"
+            | "/api/integrations/hub/list"
+            | "/api/embeddings/query_hub_scripts"
+    ) || route_path.starts_with("/api/scripts/hub/")
+        || route_path.starts_with("/api/flows/hub/")
+        || route_path.starts_with("/api/apps/hub/")
+}
+
+/// The workspace-less POSTs a job token keeps. Each takes a `POST` for the sake of a
+/// request body rather than to commit anything of consequence: none writes Windmill state
+/// outside the caller's own account. The object-storage probe does write to the store the
+/// body names — see its entry. What each may *read* is bounded per entry below — the
+/// workspace-existence check answers for any id, the rest only from the body or the
+/// caller's own row:
+/// - a resource editor's object-storage "Test connection" runs as a preview job that POSTs
+///   the storage config (`TestConnection.svelte`). It puts and deletes an object to prove
+///   the credentials work, so it does write — but only to the store the body names, and a
+///   failure between the two can leave that object behind. No Windmill state of any
+///   workspace is touched.
+/// - `wmill workspace add`, how a job points the CLI at its own instance, checks the
+///   workspace exists before accepting the credentials — the git-sync hub scripts run
+///   exactly this. `workspace` carries no row-level security, so the bare boolean it
+///   answers is instance-wide rather than membership-filtered; what it discloses is
+///   only whether a workspace id is taken.
+/// - the cron preview computes the next occurrences of the expression in the body. It
+///   takes no `ApiAuthed` and opens no transaction, so it returns nothing the caller did
+///   not send.
+/// - tutorial progress upserts a UI bitfield keyed on the caller's own email. Its path
+///   serves a `GET` too, which the read list above carries.
+const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 4] = [
+    "/api/settings/test_object_storage_config",
+    "/api/workspaces/exists",
+    "/api/schedules/preview",
+    "/api/users/tutorial_progress",
+];
+
+/// Confines a job token (`$WM_TOKEN`) to routes that name a workspace. It is minted
+/// for one job in one workspace yet carries that job's full user privileges, so on an
+/// instance-wide route it would mint a permanent workspace-less API token, read
+/// worker-group configuration, or manage global users. The token lookup already
+/// rejects a workspace-bound API token on those routes; this is the same rule for
+/// job tokens.
+///
+/// Keyed on the job token specifically: an MCP token is workspace-bound too, but
+/// deliberately publishes instance-wide tools. Callers pass only routes whose path
+/// carries no workspace.
+pub fn check_job_token_for_global_route(route_path: &str, http_method: &str) -> Result<()> {
+    let is_read = map_http_method_to_action(http_method, route_path) == ScopeAction::Read;
+    if (is_read && is_global_read_open_to_job_token(route_path))
+        || (http_method.eq_ignore_ascii_case("POST")
+            && GLOBAL_WRITES_OPEN_TO_JOB_TOKEN.contains(&route_path))
+    {
+        Ok(())
+    } else {
+        Err(Error::PermissionDenied(format!(
+            "A job token ($WM_TOKEN) is confined to the workspace of its job and cannot be used \
+             on {route_path}, which is not workspace-scoped. Use an API token created for the \
+             user instead."
+        )))
+    }
 }
 
 /// Enforces a token's `read_only` flag: only methods classified as `Read`
@@ -1016,6 +1258,92 @@ mod tests {
         assert!(check_route_access(&sc, "/api/w/test/data_metrics/list", "GET").is_err());
     }
 
+    /// `apps_u/execute_component` (and the S3 upload the same components drive) is a
+    /// Run action, so a scoped token needs `apps:run`. `apps:write` must keep reaching
+    /// it too: it can rewrite the app and its policy, so withholding execution from it
+    /// protects nothing while breaking every app-scoped token.
+    #[test]
+    fn apps_run_routes_accept_run_and_write_scopes() {
+        let execute = "/api/w/test/apps_u/execute_component/u/admin/app";
+        for scope in ["apps:run", "apps:write"] {
+            assert!(
+                check_route_access(&[scope.to_string()], execute, "POST").is_ok(),
+                "{scope} must reach execute_component"
+            );
+        }
+        assert!(check_route_access(&["apps:read".to_string()], execute, "POST").is_err());
+        // The write-satisfies-run allowance is confined to the apps domain.
+        assert!(check_route_access(
+            &["jobs:write".to_string()],
+            "/api/w/test/jobs/run/p/u/admin/script",
+            "POST"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn jobs_run_reads_are_limited_to_the_by_id_poll_routes() {
+        let job = "/api/w/test/jobs_u/completed/get_result/019ff012-6b1e-0d6b-fc0d-0c85d34d9cec";
+        let list = "/api/w/test/jobs/list";
+        for scope in ["jobs:run", "jobs:run:scripts:u/admin/script"] {
+            // Following the run it started stays available...
+            assert!(
+                check_route_access(&[scope.to_string()], job, "GET").is_ok(),
+                "{scope} must reach the by-id job poll routes"
+            );
+            // ...but a run grant is not a licence to enumerate the workspace's jobs.
+            assert!(
+                check_route_access(&[scope.to_string()], list, "GET").is_err(),
+                "{scope} must not reach jobs/list"
+            );
+        }
+        assert!(check_route_access(&["jobs:read".to_string()], list, "GET").is_ok());
+    }
+
+    #[test]
+    fn run_scopes_confine_job_reads_by_kind_and_path() {
+        let confinement =
+            job_read_run_confinement(Some(&["jobs:run:flows:f/team/*".to_string()])).unwrap();
+        assert!(run_confinement_admits(&confinement, "flows", "f/team/etl"));
+        // Right path, wrong kind — a script named like the flow is not the flow.
+        assert!(!run_confinement_admits(
+            &confinement,
+            "scripts",
+            "f/team/etl"
+        ));
+        assert!(!run_confinement_admits(
+            &confinement,
+            "flows",
+            "f/other/etl"
+        ));
+
+        // A kind-only scope confines to that kind, at any path.
+        let kind_only = job_read_run_confinement(Some(&["jobs:run:scripts".to_string()])).unwrap();
+        assert!(run_confinement_admits(
+            &kind_only,
+            "scripts",
+            "u/admin/anything"
+        ));
+        assert!(!run_confinement_admits(&kind_only, "flows", "f/team/etl"));
+
+        // Scopes that grant job reads in their own right leave reads unconfined.
+        for scopes in [
+            vec!["jobs:read".to_string()],
+            vec!["jobs:run".to_string()],
+            vec![
+                "jobs:run:scripts:u/admin/script".to_string(),
+                "jobs:read".to_string(),
+            ],
+            vec!["if_jobs:filter_tags:deno".to_string()],
+        ] {
+            assert!(
+                job_read_run_confinement(Some(&scopes)).is_none(),
+                "{scopes:?} must not confine job reads"
+            );
+        }
+        assert!(job_read_run_confinement(None).is_none());
+    }
+
     #[test]
     fn test_new_domain_parsing() {
         // Test that new domains are properly parsed
@@ -1111,6 +1439,24 @@ mod tests {
             "DELETE"
         )
         .is_ok());
+    }
+
+    // Whole-collection reads (the workspace export, `apps:read`, ...) require the
+    // domain with no path. Only a grant spanning every path may satisfy that.
+    #[test]
+    fn test_unqualified_requirement_needs_a_whole_domain_grant() {
+        let unqualified = ScopeDefinition::new("resources", "read", None, None);
+
+        let wildcard = ScopeDefinition::new("resources", "read", None, Some(vec!["*".to_string()]));
+        assert!(wildcard.includes(&unqualified));
+
+        let path_scoped = ScopeDefinition::new(
+            "resources",
+            "read",
+            None,
+            Some(vec!["f/team/db".to_string(), "u/alice/db".to_string()]),
+        );
+        assert!(!path_scoped.includes(&unqualified));
     }
 
     #[test]

@@ -14,13 +14,17 @@
 		Loader2,
 		Plus,
 		ShieldCheck,
-		ShieldAlert
+		ShieldAlert,
+		CheckCircle2,
+		XCircle
 	} from 'lucide-svelte'
 	import type { ScriptLang } from '$lib/gen'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
 	import { PIPELINE_LANGUAGES } from './pipelineLanguages'
 	import type { PipelineOutputKind } from './pipelineTemplates'
+	import type { DbtAssetProvenance } from './types'
+	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 
 	// Shape used for both the data prop and the run callback. Drafts carry
 	// `content` / `language` so the page-level run handler can dispatch to
@@ -44,6 +48,15 @@
 			// "current view of <dim>" marker so it reads as a derived node, not an
 			// unrelated table.
 			derived_from?: string
+			// dbt provenance when this warehouse table is a dbt node: which model
+			// it is, how dbt materializes it, its tags and its generic tests.
+			dbt?: DbtAssetProvenance
+			/** Hovering the dbt chip emphasizes the project node that
+			 *  materializes this model — the association the graph deliberately
+			 *  does not draw as an edge. */
+			onDbtHover?: (on: boolean) => void
+			/** Clicking it selects that project node. */
+			onDbtSelect?: () => void
 			onAddScript?: (
 				asset: { kind: AssetKind; path: string },
 				language: ScriptLang,
@@ -78,6 +91,11 @@
 			// producer just recomputed it. A change triggers a one-shot green
 			// fade so a freshly-written table stands out as the run progresses.
 			recomputePulse?: number
+			// What the run being viewed is doing to this relation. dbt records it
+			// per model as it walks the DAG, so the graph moves with the run
+			// instead of only settling once the job ends.
+			runStatus?: 'running' | 'materialized' | 'failed'
+			runRowCount?: number | null
 		}
 		// SvelteFlow injects this on the node component when the user clicks
 		// the node. Combined with our own `hovered` state to drive the
@@ -132,6 +150,40 @@
 	}
 
 	let showAdd = $derived(data.onAddScript != undefined)
+
+	// dbt badge. `materialized` is dbt's own word rather than the Windmill
+	// strategy because `view` and `ephemeral` have no strategy, and showing the
+	// dbt word keeps the node legible to someone reading their own project.
+	let dbtLabel = $derived(data.dbt?.materialized ?? data.dbt?.resource_type)
+	let dbtTitle = $derived.by(() => {
+		const d = data.dbt
+		if (!d) return ''
+		const lines = [`dbt ${d.resource_type}: ${d.unique_id}`]
+		if (d.materialized) {
+			const strategy = d.materialize_strategy ? ` -> ${d.materialize_strategy}` : ''
+			lines.push(`materialized: ${d.materialized}${strategy}`)
+		}
+		if (d.tags?.length) lines.push(`tags: ${d.tags.join(', ')}`)
+		for (const t of d.data_tests ?? []) {
+			const col = t.column ? ` on ${t.column}` : ''
+			lines.push(`test ${t.kind}${col}${t.severity ? ` [${t.severity}]` : ''}`)
+		}
+		const cols = Object.entries(d.columns ?? {})
+		if (cols.length) {
+			lines.push(
+				`columns: ${cols.map(([c, desc]) => (desc ? `${c} (${desc})` : c)).join(', ')}`
+			)
+		}
+		if (d.freshness) {
+			const f = d.freshness as Record<string, { count?: number; period?: string }>
+			const window = (k: string) =>
+				f[k]?.count != null ? `${k.replace('_after', '')} after ${f[k].count}${f[k].period?.[0] ?? ''}` : ''
+			const windows = ['warn_after', 'error_after'].map(window).filter(Boolean)
+			if (windows.length) lines.push(`freshness: ${windows.join(', ')}`)
+		}
+		if (d.description) lines.push(d.description)
+		return lines.join('\n')
+	})
 
 	// Data-test outcome badge. Only guarded assets show it. The write's fate on a
 	// failing test differs by edition — surface which one applies so a shared
@@ -200,6 +252,39 @@
 			class={`shrink-0 ml-2 mr-2 ${selected ? 'text-accent' : 'text-blue-600 dark:text-blue-400'}`}
 			size="14px"
 		/>
+		{#if data.runStatus}
+			<!-- The run in view, per relation: a spinner while its producer is
+			     building it, then its outcome. Left of the name so the eye finds
+			     the moving nodes first on a wide graph. -->
+			<span
+				class="shrink-0 mr-1 {data.runStatus === 'failed'
+					? 'text-red-600 dark:text-red-400'
+					: data.runStatus === 'materialized'
+						? 'text-green-600 dark:text-green-400'
+						: 'text-blue-600 dark:text-blue-400'}"
+				title={data.runStatus}
+			>
+				{#if data.runStatus === 'running'}
+					<Loader2 size={11} class="animate-spin" />
+				{:else if data.runStatus === 'failed'}
+					<XCircle size={11} />
+				{:else}
+					<CheckCircle2 size={11} />
+				{/if}
+			</span>
+			<!-- Rows the run wrote. Recorded per relation already, and the cheapest
+			     answer to "did this model actually produce anything" — a model that
+			     built green but emitted 0 rows is the failure that looks like a
+			     success. Only once settled: mid-build the number is not yet real. -->
+			{#if data.runStatus === 'materialized' && data.runRowCount != undefined}
+				<span
+					class="shrink-0 mr-1 text-3xs tabular-nums text-tertiary"
+					title="{data.runRowCount} rows written by this run"
+				>
+					{Intl.NumberFormat().format(data.runRowCount)}
+				</span>
+			{/if}
+		{/if}
 		<span class="flex-1 min-w-0 pr-1 py-0.5 text-2xs font-mono text-emphasis truncate">
 			{formatShortAssetPath(asset)}
 		</span>
@@ -224,6 +309,34 @@
 				<GitFork size={10} />
 				fork
 			</span>
+		{/if}
+		<!-- dbt chip: names the materialization dbt declares, plus a test count
+		     when the model carries generic tests. Orange keeps it visually
+		     separate from the fork/SCD2 chips, which describe Windmill state.
+		     Where the project node is on the graph it also stands in for the edge
+		     to it: hovering lights that node up, clicking selects it. Where it is
+		     not — the run page, and a pipeline holding a dbt project — there is
+		     nothing to point at, so the chip renders inert. -->
+		{#if data.dbt}
+			<button
+				type="button"
+				class="shrink-0 mr-1.5 flex items-center gap-0.5 rounded px-1 py-px text-3xs font-semibold tracking-wide bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 border border-orange-300 dark:border-orange-700 {data.onDbtSelect
+					? 'hover:brightness-95 cursor-pointer'
+					: 'cursor-default'}"
+				title={dbtTitle}
+				onmouseenter={() => data.onDbtHover?.(true)}
+				onmouseleave={() => data.onDbtHover?.(false)}
+				onclick={(e) => {
+					e.stopPropagation()
+					data.onDbtSelect?.()
+				}}
+			>
+				<DbtIcon width={9} height={9} />
+				{dbtLabel}
+				{#if data.dbt.data_tests?.length}
+					<span class="opacity-70">&middot; {data.dbt.data_tests.length}T</span>
+				{/if}
+			</button>
 		{/if}
 		<!-- SCD2 companion marker: this node is the `<dim>_current` "latest row
 		     per key" view its producer maintains alongside the base dimension.

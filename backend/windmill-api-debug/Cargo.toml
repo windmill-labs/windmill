@@ -8,6 +8,10 @@ edition.workspace = true
 name = "windmill_api_debug"
 path = "src/lib.rs"
 
+[features]
+default = []
+enterprise = []
+
 [dependencies]
 windmill-api-auth.workspace = true
 windmill-common = { workspace = true, default-features = false }

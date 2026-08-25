@@ -3,6 +3,8 @@
 
 	import { Highlight } from 'svelte-highlight'
 	import { json } from 'svelte-highlight/languages'
+	import DbtRunResult from '$lib/components/dbt/DbtRunResult.svelte'
+	import { parseDbtRun } from '$lib/components/dbt/parseDbtRun'
 	import { copyToClipboard, parseS3Object, roughSizeOfObject } from '$lib/utils'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import { base } from '$lib/base'
@@ -704,12 +706,23 @@
 		}
 		return undefined
 	})
+
+	// Per-node breakdown of a dbt invocation, rendered above the raw result. On
+	// success it IS the result; on failure the worker puts the same JSON in the
+	// error message after the exit-status line, and that is the case worth
+	// rendering — the failing node is what the user came for. Inert (undefined)
+	// for every other DisplayResult use.
+	let dbtRun = $derived(parseDbtRun(result))
 </script>
 
 <HighlightTheme />
 
 {#if dataTests}
 	<DataTestsResult tests={dataTests} />
+{/if}
+
+{#if dbtRun}
+	<DbtRunResult run={dbtRun} />
 {/if}
 
 {#if result_stream && result == undefined}

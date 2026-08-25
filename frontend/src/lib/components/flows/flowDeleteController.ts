@@ -56,7 +56,9 @@ export function executeDeletePlan(
 	if (plan.selection.kind === 'clear') {
 		args.selectionManager.clearSelection()
 	} else {
-		args.selectionManager.selectId(plan.selection.id)
+		// Whatever remains selected after a delete was not asked for, so it must not
+		// pop the modal panel open.
+		args.selectionManager.selectId(plan.selection.id, { openPanel: false })
 	}
 
 	if (plan.targets.some((target) => target.kind === 'preprocessor')) {

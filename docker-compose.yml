@@ -187,6 +187,10 @@ services:
       # - DEBUG_ALLOWED_ORIGINS=https://your-windmill-host # Optional CSWSH hardening: comma-separated allowlist of browser Origins permitted to open debug WebSockets
     volumes:
       - lsp_cache:/pyls/.cache
+      # Behind a TLS-intercepting proxy, mount its CA here (as .crt) and it is registered in the
+      # system trust store before any service starts. That alone does not cover dependency
+      # installation — see debugger/README.md for the variables it also needs
+      # - ./corp-ca.crt:/usr/local/share/ca-certificates/corp-ca.crt:ro
     logging: *default-logging
 
   caddy:

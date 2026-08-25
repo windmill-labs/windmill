@@ -101,6 +101,12 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
         ("ai", "AI", "AI feature management", false),
         ("ai_skills", "AI Skills", "AI skill management", false),
         (
+            "ai_evals",
+            "AI Evals",
+            "AI agent eval datasets and standalone runs",
+            false,
+        ),
+        (
             "agent_workers",
             "Agent Workers",
             "Agent worker management",
@@ -143,14 +149,8 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
 
     STANDARD_DOMAINS
         .iter()
-        .map(|(key, name, desc, req)| ScopeDomain {
-            name: name.to_string(),
-            description: if desc.is_empty() {
-                None
-            } else {
-                Some(desc.to_string())
-            },
-            scopes: vec![
+        .map(|(key, name, desc, req)| {
+            let mut scopes = vec![
                 ScopeOption {
                     value: format!("{key}:read"),
                     label: "Read".to_string(),
@@ -161,7 +161,26 @@ fn build_standard_scope_domains() -> Vec<ScopeDomain> {
                     label: "Write".to_string(),
                     requires_resource_path: *req,
                 },
-            ],
+            ];
+            // `apps_u/execute_component` and `apps_u/upload_s3_file` are classified as
+            // Run actions, so running a deployed app's components needs `apps:run`:
+            // without it here no supported token can be granted that access.
+            if *key == "apps" {
+                scopes.push(ScopeOption {
+                    value: "apps:run".to_string(),
+                    label: "Run".to_string(),
+                    requires_resource_path: *req,
+                });
+            }
+            ScopeDomain {
+                name: name.to_string(),
+                description: if desc.is_empty() {
+                    None
+                } else {
+                    Some(desc.to_string())
+                },
+                scopes,
+            }
         })
         .collect()
 }
@@ -223,6 +242,26 @@ lazy_static! {
             }],
         });
 
+        // Read-only: `trigger_history` is append-only and written by the server
+        // alone, so there is no `triggers_history:write`. Its own domain rather
+        // than a `schedules`/`*_triggers` alias: one listing spans every kind,
+        // and a history row quotes the whole trigger row (a schedule's `args`
+        // included), so reading it is an explicit grant rather than a side
+        // effect of being able to read the trigger. Path-selectable because the
+        // route filters rows by the caller's path grants.
+        groups.push(ScopeDomain {
+            name: "Trigger History".to_string(),
+            description: Some(
+                "Read-only access to the modification history of schedules and triggers"
+                    .to_string(),
+            ),
+            scopes: vec![ScopeOption {
+                value: "triggers_history:read".to_string(),
+                label: "Read".to_string(),
+                requires_resource_path: true,
+            }],
+        });
+
         groups.extend(build_standard_scope_domains());
         groups.extend(build_trigger_scope_domains());
 
@@ -256,6 +295,22 @@ mod tests {
             "docs:read must be selectable"
         );
         assert!(!values.contains(&"docs:write"), "docs has no write surface");
+    }
+
+    /// Running a deployed app's components is enforced as a Run action, so `apps:run`
+    /// must be selectable here or no supported token can be granted that access.
+    #[test]
+    fn apps_run_scope_is_exposed_and_path_selectable() {
+        let apps = ALL_SCOPES
+            .iter()
+            .find(|d| d.name == "Apps")
+            .expect("Apps domain must exist");
+        let opt = apps
+            .scopes
+            .iter()
+            .find(|s| s.value == "apps:run")
+            .expect("apps:run must be selectable");
+        assert!(opt.requires_resource_path, "apps:run is path-scoped");
     }
 
     /// The `data_metrics` route enforces its own scope domain, so `data_metrics:read`

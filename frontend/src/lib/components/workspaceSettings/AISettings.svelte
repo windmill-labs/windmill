@@ -5,9 +5,11 @@
 		type AIConfig,
 		type AIProvider,
 		type GetCopilotSettingsStateResponse,
-		type InstanceAISummary
+		type InstanceAISummary,
+		type ModelPriceOverride
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { sendUserToast } from '$lib/toast'
 	import { AI_PROVIDERS, fetchAvailableModels, providerSupportsWebSearch } from '../copilot/lib'
 	import { supportsAutocomplete } from '../copilot/utils'
@@ -25,6 +27,8 @@
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
+	import ModelPricing from './ModelPricing.svelte'
+	import AiUsagePanel from './AiUsagePanel.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
 	import { Settings } from 'lucide-svelte'
@@ -57,7 +61,7 @@
 		usesInstanceAiConfig?: boolean
 		instanceAiSummary?: InstanceAISummary
 		customSave?: (config: AIConfig) => Promise<void>
-		onSave?: (info?: GetCopilotSettingsStateResponse) => void | Promise<void>
+		onSave?: (savedConfig: AIConfig, info?: GetCopilotSettingsStateResponse) => void | Promise<void>
 		title?: string
 		description?: string
 		link?: string
@@ -73,6 +77,7 @@
 	let metadataModel: string | undefined = $state(undefined)
 	let customPrompts: Record<string, string> = $state({})
 	let maxTokensPerModel: Record<string, number> = $state({})
+	let modelPricing: Record<string, ModelPriceOverride> = $state({})
 	let usingOpenaiClientCredentialsOauth = $state(false)
 	let workspaceOverrideEditorOpened = $state(false)
 
@@ -83,6 +88,7 @@
 	let initialMetadataModel: string | undefined = $state(undefined)
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
+	let initialModelPricing: Record<string, ModelPriceOverride> = $state({})
 	let initialPrompts: Record<string, string> = $state({})
 	let lastLoadedConfigKey = $state<string | undefined>(undefined)
 
@@ -110,6 +116,7 @@
 		codeCompletionModel = config?.code_completion_model?.model
 		customPrompts = clone(config?.custom_prompts ?? {})
 		maxTokensPerModel = clone(config?.max_tokens_per_model ?? {})
+		modelPricing = clone(config?.model_pricing ?? {})
 		for (const mode of ['edit', 'fix', 'gen']) {
 			if (!(mode in customPrompts)) {
 				customPrompts[mode] = ''
@@ -124,6 +131,7 @@
 		initialCodeCompletionModel = codeCompletionModel
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
+		initialModelPricing = clone(modelPricing)
 		initialPrompts = clone(customPrompts)
 	}
 
@@ -139,6 +147,7 @@
 		codeCompletionModel = initialCodeCompletionModel
 		customPrompts = clone(initialCustomPrompts)
 		maxTokensPerModel = clone(initialMaxTokensPerModel)
+		modelPricing = clone(initialModelPricing)
 	}
 
 	$effect(() => {
@@ -172,7 +181,8 @@
 			metadataModel !== initialMetadataModel ||
 			codeCompletionModel !== initialCodeCompletionModel ||
 			JSON.stringify(customPrompts) !== JSON.stringify(initialCustomPrompts) ||
-			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel)
+			JSON.stringify(maxTokensPerModel) !== JSON.stringify(initialMaxTokensPerModel) ||
+			JSON.stringify(modelPricing) !== JSON.stringify(initialModelPricing)
 	)
 
 	$effect(() => {
@@ -285,7 +295,8 @@
 					metadata_model,
 					custom_prompts: Object.keys(custom_prompts).length > 0 ? custom_prompts : undefined,
 					max_tokens_per_model:
-						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined
+						Object.keys(maxTokensPerModel).length > 0 ? maxTokensPerModel : undefined,
+					model_pricing: Object.keys(modelPricing).length > 0 ? modelPricing : undefined
 				}
 			: {}
 	}
@@ -332,7 +343,14 @@
 			sendUserToast('AI settings updated')
 		}
 		storeInitialState()
-		await onSave?.(settingsState)
+		// Hand the parent what was persisted: it owns `initialConfig`, and this component is
+		// destroyed on a settings tab switch, so a stale prop returns as editor state on remount
+		// and is written back by the next save. Clone it, since `providers` aliases our `$state`
+		// and the `lastLoadedConfigKey` guard would then track our own edits; pre-arm that guard
+		// so the prop update does not re-apply the config over what the editor now shows.
+		const savedConfig = clone(config)
+		lastLoadedConfigKey = JSON.stringify(savedConfig)
+		await onSave?.(savedConfig, settingsState)
 	}
 
 	async function onAiProviderChange(provider: AIProvider) {
@@ -602,6 +620,24 @@
 	hasChanges={hasPromptsChanges}
 	scope={promptScope}
 />
+
+{#if promptScope === 'workspace'}
+	<!-- Recorded usage must be priced with the rates the chats actually ran under.
+	     A workspace on instance defaults has no rates of its own, so the effective
+	     ones come from copilotInfo rather than from this form's (empty) workspace
+	     config. -->
+	<AiUsagePanel
+		workspace={effectiveWorkspace}
+		modelPricing={usesInstanceAiConfig ? ($copilotInfo.modelPricing ?? {}) : modelPricing}
+	/>
+{/if}
+
+<!-- Below the usage it explains: the rates are read as a correction to what the
+     table above already shows. Kept on its own `showWorkspaceOverrideEditor` gate so
+     the instance scope, which has no usage panel, still edits rates. -->
+{#if showWorkspaceOverrideEditor}
+	<ModelPricing {aiProviders} bind:modelPricing />
+{/if}
 
 {#if showWorkspaceOverrideEditor}
 	<SettingsFooter

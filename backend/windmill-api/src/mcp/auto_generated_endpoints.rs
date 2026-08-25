@@ -162,7 +162,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "value",
                 "is_secret",
                 "description"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -244,7 +245,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "The path to the variable (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -392,7 +394,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "path",
                 "value",
                 "resource_type"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -464,7 +467,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "The path to the resource (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -674,9 +678,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
     },
     EndpointTool {
         name: Cow::Borrowed("createScript"),
-        description: Cow::Borrowed("create script: Creates a new script when the path does not already exist.
-Creates a new version of an existing script when called with the same path and the current `parent_hash`"),
-        instructions: Cow::Borrowed("To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history."),
+        description: Cow::Borrowed("create script: Creates a script at a path that does not already hold one"),
+        instructions: Cow::Borrowed("Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on."),
         path: Cow::Borrowed("/w/{workspace}/scripts/create"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,
@@ -685,9 +688,6 @@ Creates a new version of an existing script when called with the same path and t
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string"
-                },
-                "parent_hash": {
                         "type": "string"
                 },
                 "summary": {
@@ -701,7 +701,7 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "language": {
                         "type": "string",
-                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative"
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
                 },
                 "kind": {
                         "type": "string",
@@ -719,10 +719,74 @@ Creates a new version of an existing script when called with the same path and t
                 "summary",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("updateScript"),
+        description: Cow::Borrowed("update script: Deploys a new version of the script at `path`, which must already hold one.
+The body's `path` is the destination: the same path leaves the script where it
+is, a different one moves it there and archives the old path"),
+        instructions: Cow::Borrowed("Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on."),
+        path: Cow::Borrowed("/w/{workspace}/scripts/update/{path}"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "content": {
+                        "type": "string"
+                },
+                "language": {
+                        "type": "string",
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
+                },
+                "kind": {
+                        "type": "string",
+                        "description": "Possible values: script, failure, trigger, command, approval, preprocessor"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
+                }
+        },
+        "required": [
+                "summary",
+                "content",
+                "language"
+        ],
+        "minProperties": 1
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
+})),
     },
     EndpointTool {
         name: Cow::Borrowed("deleteScriptByHash"),
@@ -980,7 +1044,8 @@ Creates a new version of an existing script when called with the same path and t
                 "value",
                 "path"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -1035,7 +1100,8 @@ Creates a new version of an existing script when called with the same path and t
                 "summary",
                 "value"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -1074,10 +1140,61 @@ Creates a new version of an existing script when called with the same path and t
         body_field_renames: None,
     },
     EndpointTool {
+        name: Cow::Borrowed("listApps"),
+        description: Cow::Borrowed("list all apps"),
+        instructions: Cow::Borrowed("Lists every app, low-code and full-code alike. `raw_app` tells them apart: true is a full-code app, which getAppByPath then reads and updateApp deploys. An app with no `raw_app` field is low-code — the field is omitted rather than sent as false. A low-code app can only be read here — editing one is a job for its editor in the UI."),
+        path: Cow::Borrowed("/w/{workspace}/apps/list"),
+        method: Cow::Borrowed("GET"),
+        path_params_schema: None,
+        query_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "page": {
+                        "type": "integer",
+                        "description": "which page to return (start at 1, default 1)"
+                },
+                "per_page": {
+                        "type": "integer",
+                        "description": "number of items to return for a given page (default 30, max 100)"
+                },
+                "path_start": {
+                        "type": "string",
+                        "description": "mask to filter matching starting path"
+                }
+        },
+        "required": []
+})),
+        body_schema: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("getAppByPath"),
+        description: Cow::Borrowed("get app by path"),
+        instructions: Cow::Borrowed("Returns the app's whole `value`, which is what updateApp needs: it takes the whole thing, not a patch. A big enough app is truncated by the tool-result limit; sending that back fails the build rather than deploying something partial, so edit those in the app editor or with the CLI. `raw_app` says whether this is a full-code app (its value holds `files`/`runnables`) or a low-code one (a `grid`), and only a full-code app can be deployed through MCP."),
+        path: Cow::Borrowed("/w/{workspace}/apps/get/p/{path}"),
+        method: Cow::Borrowed("GET"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: None,
+        query_field_renames: None,
+        body_field_renames: None,
+    },
+    EndpointTool {
         name: Cow::Borrowed("createApp"),
-        description: Cow::Borrowed("create app"),
-        instructions: Cow::Borrowed(""),
-        path: Cow::Borrowed("/w/{workspace}/apps/create"),
+        description: Cow::Borrowed("create a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)"),
+        instructions: Cow::Borrowed("Creates a raw (full-code) app: `value.files` holds its sources, keyed by path (`/index.tsx`, `/App.tsx`, `/package.json`), and needs an entry point (`/index.tsx`, `/index.ts` or `/index.js`). The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are built in their editor."),
+        path: Cow::Borrowed("/w/{workspace}/apps/create_raw_source"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,
         query_params_schema: None,
@@ -1087,17 +1204,87 @@ Creates a new version of an existing script when called with the same path and t
                 "path": {
                         "type": "string"
                 },
-                "value": {
-                        "type": "object"
-                },
                 "summary": {
                         "type": "string"
                 },
-                "policy": {
-                        "type": "object"
+                "value": {
+                        "type": "object",
+                        "description": "The raw app's value. `files` maps each source path to its content and must contain an entry point; `runnables` and `data` are carried through unchanged.",
+                        "properties": {
+                                "files": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "string"
+                                        }
+                                },
+                                "runnables": {
+                                        "type": "object"
+                                },
+                                "data": {
+                                        "type": "object"
+                                }
+                        },
+                        "required": [
+                                "files"
+                        ]
                 },
-                "deployment_message": {
-                        "type": "string"
+                "policy": {
+                        "type": "object",
+                        "properties": {
+                                "triggerables": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "object"
+                                        }
+                                },
+                                "triggerables_v2": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "object"
+                                        }
+                                },
+                                "s3_inputs": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "object"
+                                        }
+                                },
+                                "allowed_s3_keys": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                        "s3_path": {
+                                                                "type": "string"
+                                                        },
+                                                        "resource": {
+                                                                "type": "string"
+                                                        }
+                                                }
+                                        }
+                                },
+                                "execution_mode": {
+                                        "type": "string",
+                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
+                                },
+                                "on_behalf_of": {
+                                        "type": "string"
+                                },
+                                "on_behalf_of_email": {
+                                        "type": "string"
+                                },
+                                "sandbox": {
+                                        "type": "boolean",
+                                        "description": "Publisher opt-in to app sandbox isolation (alpha). When true the app is isolated from each viewer's Windmill session. When false/absent the app runs same-origin with the viewer's full session (the default, pre-isolation behavior).\n"
+                                },
+                                "frontend_sdk_scopes": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "string"
+                                        },
+                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true — an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
+                                }
+                        }
                 }
         },
         "required": [
@@ -1105,16 +1292,17 @@ Creates a new version of an existing script when called with the same path and t
                 "value",
                 "summary",
                 "policy"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
     },
     EndpointTool {
         name: Cow::Borrowed("updateApp"),
-        description: Cow::Borrowed("update app"),
-        instructions: Cow::Borrowed(""),
-        path: Cow::Borrowed("/w/{workspace}/apps/update/{path}"),
+        description: Cow::Borrowed("update a raw app from its sources, compiling them on a worker (which runs the app's own dependencies to do so)"),
+        instructions: Cow::Borrowed("Use this to change a raw (full-code) app — an app whose `raw_app` field is true. Send the whole `value` (`files`, `runnables`, `data`), not a patch: read the current one with getAppByPath first and edit it. The sources are compiled on a worker by the same build the editor and the CLI run, so a compile error comes back as the error of this call. Compiling runs the app's own dependencies on a worker, so this tool can execute code there. Low-code apps are legacy and have no MCP tool at all — they are edited in their editor."),
+        path: Cow::Borrowed("/w/{workspace}/apps/update_raw_source/{path}"),
         method: Cow::Borrowed("POST"),
         path_params_schema: Some(serde_json::json!({
         "type": "object",
@@ -1135,19 +1323,93 @@ Creates a new version of an existing script when called with the same path and t
                         "type": "string"
                 },
                 "value": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "The raw app's value. `files` maps each source path (e.g. `/index.tsx`, `/App.tsx`, `/package.json`) to its content and must contain an entry point (`/index.tsx`, `/index.ts` or `/index.js`); `runnables` and `data` are carried through unchanged.",
+                        "properties": {
+                                "files": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "string"
+                                        }
+                                },
+                                "runnables": {
+                                        "type": "object"
+                                },
+                                "data": {
+                                        "type": "object"
+                                }
+                        },
+                        "required": [
+                                "files"
+                        ]
                 },
                 "policy": {
-                        "type": "object"
-                },
-                "deployment_message": {
-                        "type": "string"
+                        "type": "object",
+                        "properties": {
+                                "triggerables": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "object"
+                                        }
+                                },
+                                "triggerables_v2": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                                "type": "object"
+                                        }
+                                },
+                                "s3_inputs": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "object"
+                                        }
+                                },
+                                "allowed_s3_keys": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                        "s3_path": {
+                                                                "type": "string"
+                                                        },
+                                                        "resource": {
+                                                                "type": "string"
+                                                        }
+                                                }
+                                        }
+                                },
+                                "execution_mode": {
+                                        "type": "string",
+                                        "description": "Who the app's runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Either way `anonymous`, which makes the app publicly executable, is never assumed. Possible values: viewer, publisher, anonymous"
+                                },
+                                "on_behalf_of": {
+                                        "type": "string"
+                                },
+                                "on_behalf_of_email": {
+                                        "type": "string"
+                                },
+                                "sandbox": {
+                                        "type": "boolean",
+                                        "description": "Publisher opt-in to app sandbox isolation (alpha). When true the app is isolated from each viewer's Windmill session. When false/absent the app runs same-origin with the viewer's full session (the default, pre-isolation behavior).\n"
+                                },
+                                "frontend_sdk_scopes": {
+                                        "type": "array",
+                                        "items": {
+                                                "type": "string"
+                                        },
+                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true — an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
+                                }
+                        }
                 },
                 "path__body": {
                         "type": "string",
                         "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "required": [
+                "value"
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -1210,7 +1472,7 @@ Creates a new version of an existing script when called with the same path and t
                 },
                 "language": {
                         "type": "string",
-                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative"
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
                 },
                 "tag": {
                         "type": "string"
@@ -1242,7 +1504,7 @@ Creates a new version of an existing script when called with the same path and t
                                         },
                                         "language": {
                                                 "type": "string",
-                                                "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative"
+                                                "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
                                         },
                                         "lock": {
                                                 "type": "string",
@@ -1269,7 +1531,8 @@ Creates a new version of an existing script when called with the same path and t
                 "args",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -1520,6 +1783,10 @@ Creates a new version of an existing script when called with the same path and t
                 "is_skipped": {
                         "type": "boolean",
                         "description": "is the job skipped"
+                },
+                "resolved": {
+                        "type": "boolean",
+                        "description": "filter on whether a failure has been marked as handled. true keeps only resolved failures, false hides them"
                 },
                 "is_flow_step": {
                         "type": "boolean",
@@ -1836,7 +2103,8 @@ You should get the schema of the script or flow before creating the schedule to 
                 "script_path",
                 "is_flow",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -2041,7 +2309,8 @@ You should get the schema of the script or flow before updating the schedule to 
                 "schedule",
                 "timezone",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,

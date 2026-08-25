@@ -699,7 +699,23 @@ pub mod script {
             Ok(RawScript {
                 content: r.content,
                 lock: r.lock,
-                modules: r.modules.and_then(|v| serde_json::from_value(v).ok()),
+                modules: r.modules.and_then(|v| match serde_json::from_value(v) {
+                    Ok(modules) => Some(modules),
+                    // Not fatal: a script whose `modules` column cannot be read
+                    // still runs, just without its own files. But the result is
+                    // then cached under the script's hash, which never changes,
+                    // so the degraded run is what every later one gets too --
+                    // and for dbt "no modules" means no project at all. Say so
+                    // loudly, or the only symptom is a script that behaves as
+                    // if its files were never there.
+                    Err(err) => {
+                        tracing::error!(
+                            "Script {hash} has modules that cannot be deserialized, \
+                             running it without them: {err:#}"
+                        );
+                        None
+                    }
+                }),
                 meta: Some(ScriptMetadata {
                     language: r.language,
                     envs: r.envs,
@@ -1085,7 +1101,12 @@ const _: () = {
             let content = src.get_utf8("code.txt")?;
             let lock = src.get_utf8("lock.txt").ok();
             let meta = src.get_json("info.json").ok();
-            Ok(Self { content, lock, meta, modules: None })
+            // Required, even when empty: a script's modules are part of what it
+            // IS, so an entry without them must fail to import and be refetched
+            // rather than serve the script stripped of its own files.
+            let modules: Option<std::collections::HashMap<String, ScriptModule>> =
+                src.get_json("modules.json")?;
+            Ok(Self { content, lock, meta, modules })
         }
     }
 
@@ -1101,6 +1122,7 @@ const _: () = {
             if let Some(lock) = self.lock.as_ref() {
                 dst.put("lock.txt", lock.as_bytes())?;
             }
+            dst.put("modules.json", serde_json::to_vec(&self.modules)?)?;
             Ok(())
         }
     }
@@ -1310,6 +1332,38 @@ mod tests {
             .filter(|e| e.file_name().to_string_lossy().contains(".tmp."))
             .collect();
         assert!(leftover.is_empty(), "temp files must be renamed/cleaned up");
+    }
+
+    // The first fetch of a script goes to the database, every later one to this
+    // directory. A module lost in between makes a worker restart silently start
+    // running the script without its own files — for dbt, without its project.
+    #[test]
+    fn a_scripts_modules_survive_the_file_system_cache() {
+        use crate::scripts::ScriptModule;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        let data = ScriptData {
+            code: "profile: {}".to_string(),
+            lock: None,
+            modules: Some(std::collections::HashMap::from([(
+                "dbt_project.yml".to_string(),
+                ScriptModule {
+                    content: "name: p".to_string(),
+                    language: ScriptLang::Dbt,
+                    lock: None,
+                },
+            )])),
+        };
+        data.export(&root).unwrap();
+        let back = ScriptData::resolve(RawScript::import(&root).unwrap()).unwrap();
+        assert_eq!(back.modules.unwrap()["dbt_project.yml"].content, "name: p");
+
+        // An entry written before modules were cached has no `modules.json`.
+        // It must fail to import so the caller refetches, rather than serving a
+        // script stripped of its files for as long as the directory lives.
+        std::fs::remove_file(root.join("modules.json")).unwrap();
+        assert!(RawScript::import(&root).is_err());
     }
 
     #[test]

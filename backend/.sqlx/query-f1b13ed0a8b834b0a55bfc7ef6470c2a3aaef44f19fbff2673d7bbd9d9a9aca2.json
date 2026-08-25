@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_by, runnable_path,\n                CASE WHEN kind = 'script' THEN runnable_id END AS script_hash,\n                -- Whether this job PARSED a graph of its own with no version\n                -- behind it: the dbt editor refreshing its buffer. That graph is\n                -- reachable no other way, so the job pins to it; every other\n                -- versionless job keeps answering with the workspace graph.\n                EXISTS (SELECT 1 FROM dbt_graph_snapshot g\n                         WHERE g.workspace_id = $2 AND g.job_id = $1\n                           AND g.script_hash IS NULL) AS \"editor_graph!\"\n           FROM v2_job WHERE id = $1 AND workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "script_hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "editor_graph!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "f1b13ed0a8b834b0a55bfc7ef6470c2a3aaef44f19fbff2673d7bbd9d9a9aca2"
+}

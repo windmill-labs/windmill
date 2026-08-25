@@ -82,6 +82,7 @@ tokio.workspace = true
 tokio-stream.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_yml.workspace = true
 futures.workspace = true
 async-recursion.workspace = true
 async-trait.workspace = true
@@ -130,6 +131,7 @@ hex.workspace = true
 tiberius = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 tar.workspace = true
+flate2.workspace = true
 convert_case.workspace = true
 yaml-rust.workspace = true
 backon.workspace = true

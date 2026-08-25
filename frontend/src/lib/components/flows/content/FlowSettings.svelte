@@ -47,6 +47,7 @@
 		customUi,
 		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
+		savedOnBehalfOfPermissionedAs,
 		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -55,6 +56,7 @@
 	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
+	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 
 	function asSchema(x: any) {
 		return x as Schema
@@ -114,7 +116,7 @@
 
 <div class="h-full flex flex-col">
 	<FlowCard {noEditor} title="Settings">
-		<div class="grow min-h-0 p-4 h-full flex flex-col gap-6">
+		<div class="grow min-h-0 p-4 h-full flex flex-col gap-6 overflow-y-auto">
 			<!-- Metadata Section -->
 			<div class="gap-6 flex flex-col">
 				<Label label="Summary">
@@ -186,7 +188,7 @@
 				label="Advanced"
 				collapsable={true}
 				small={true}
-				class="h-full grow mt-2 min-h-0 flex flex-col gap-6"
+				class="h-full grow mt-2 min-h-0 flex flex-col gap-6 pb-2"
 			>
 				<!-- Worker Group Section -->
 				{#if customUi?.settingsTabs?.workerGroup != false}
@@ -457,10 +459,12 @@
 						on:change={() => {
 							if (flowStore.val.on_behalf_of_email) {
 								flowStore.val.on_behalf_of_email = undefined
+								flowStore.val.on_behalf_of = undefined
 								$preserveOnBehalfOf = false
 								onBehalfOfChoice = undefined
 							} else {
 								flowStore.val.on_behalf_of_email = $userStore?.email
+								flowStore.val.on_behalf_of = myPermissionedAs
 							}
 						}}
 						options={{
@@ -478,14 +482,19 @@
 								onBehalfOfChoice = choice
 								if (choice === 'me') {
 									flowStore.val.on_behalf_of_email = $userStore?.email
+									flowStore.val.on_behalf_of = myPermissionedAs
 									customOnBehalfOfEmail = ''
 									$preserveOnBehalfOf = false
 								} else if (choice === 'target') {
+									// Keep the saved pair. A flow that has no recorded principal yet
+									// sends the email alone and the backend derives one from it.
 									flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
+									flowStore.val.on_behalf_of = $savedOnBehalfOfPermissionedAs
 									customOnBehalfOfEmail = ''
 									$preserveOnBehalfOf = true
 								} else if (choice === 'custom' && details) {
 									flowStore.val.on_behalf_of_email = details.email
+									flowStore.val.on_behalf_of = details.permissionedAs
 									customOnBehalfOfEmail = details.email
 									$preserveOnBehalfOf = true
 								}
@@ -617,11 +626,10 @@
 							flowStore.val.value.priority = 100
 						}
 					}}
+					eeOnly={true}
 					options={{
 						right: `Label as high priority`,
-						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first. ${
-							!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''
-						}`,
+						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first.`,
 						rightDocumentationLink: 'https://www.windmill.dev/docs/flows/priority'
 					}}
 				>
@@ -644,9 +652,6 @@
 								}
 							}}
 						/>
-						{#if !$enterpriseLicense || isCloudHosted()}
-							<EEOnly />
-						{/if}
 					{/snippet}
 				</Toggle>
 
@@ -664,7 +669,7 @@
 					}}
 					options={{
 						right: 'Delete all step results after completion',
-						rightTooltip: `When enabled, the logs, arguments and results of all flow steps will be deleted after the specified delay once the flow completes. Set to 0 for immediate deletion. The deletion is irreversible. ${!$enterpriseLicense ? 'This is a feature only available on enterprise edition.' : ''}`
+						rightTooltip: `When enabled, the logs, arguments and results of all flow steps will be deleted after the specified delay once the flow completes. Set to 0 for immediate deletion. The deletion is irreversible.`
 					}}
 					eeOnly={true}
 				/>

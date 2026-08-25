@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT on_behalf_of FROM flow WHERE workspace_id = 'wm-fork-obo'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "on_behalf_of",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "1e044b8f64184393953dfeadbeda8af703060a604e68f32e714610513aa284eb"
+}

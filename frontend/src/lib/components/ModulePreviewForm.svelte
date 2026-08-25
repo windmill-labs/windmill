@@ -13,6 +13,7 @@
 	import type SimpleEditor from './SimpleEditor.svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import { twMerge } from 'tailwind-merge'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
@@ -32,8 +33,10 @@
 		focusArg = undefined
 	}: Props = $props()
 
-	const { stepsInputArgs, flowStateStore, flowStore, previewArgs } =
+	const { stepsInputArgs, flowStateStore, flowStore, previewArgs, opWorkspace } =
 		getContext<FlowEditorContext>('FlowEditorContext')
+
+	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
 
 	let inputCheck: { [id: string]: boolean } = $state({})
 	$effect(() => {
@@ -152,6 +155,7 @@
 								nullable={schema.properties[argName].nullable}
 								title={schema.properties[argName].title}
 								placeholder={schema.properties[argName].placeholder}
+								workspace={opWs}
 							>
 								{#snippet fieldHeaderActions()}
 									{#if stepsInputArgs?.isArgManuallySet(mod.id, argName)}

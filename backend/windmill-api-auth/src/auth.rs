@@ -26,7 +26,8 @@ use windmill_common::DB;
 
 use windmill_common::{
     auth::{
-        get_folders_for_user, get_groups_for_user, hash_token, safe_token_prefix, JWTAuthClaims,
+        get_folders_for_user, get_groups_for_user, hash_token, is_session_label, safe_token_prefix,
+        JWTAuthClaims,
     },
     error::{Error, JsonResult},
     jwt,
@@ -137,6 +138,20 @@ impl AuthCache {
         w_id: Option<String>,
         token: &str,
     ) -> Option<OptJobAuthed> {
+        let mut opt_job_authed = self.get_opt_job_authed_inner(w_id, token).await?;
+        // Single source of truth: mirror the resolved job_id onto the authed so
+        // every consumer (require_super_admin, ...) sees that this identity came
+        // from a job's WM_TOKEN, even on an AUTH_CACHE hit whose cached authed
+        // predates this field.
+        opt_job_authed.authed.job_id = opt_job_authed.job_id;
+        Some(opt_job_authed)
+    }
+
+    async fn get_opt_job_authed_inner(
+        &self,
+        w_id: Option<String>,
+        token: &str,
+    ) -> Option<OptJobAuthed> {
         // In no-auth mode there are no real tokens: resolve directly as the
         // admin superadmin so direct cache callers (e.g. get_all_runnables,
         // which re-validates the request token per workspace) don't reject the
@@ -196,7 +211,9 @@ impl AuthCache {
                             tracing::error!("JWT auth error: workspace_id mismatch");
                             return None;
                         }
-                        let username_override = username_override_from_label(claims.label);
+                        let is_session_token = is_session_label(claims.label.as_deref());
+                        let (username_override, username_override_is_token_label) =
+                            username_override_from_label(claims.label);
 
                         let authed = ApiAuthed {
                             email: claims.email,
@@ -211,10 +228,25 @@ impl AuthCache {
                             // WM_TOKEN) keeps full user privileges as before.
                             scopes: claims.scopes,
                             username_override,
+                            username_override_is_token_label,
+                            is_session_token,
                             token_prefix: claims.audit_span,
                             read_only: false,
+                            job_id: None,
                         };
-                        let job_id = claims.job_id.and_then(|j| uuid::Uuid::from_str(&j).ok());
+                        // Fail closed: a `job_id` claim that does not parse must reject
+                        // the token rather than resolve to `None`, which would clear the
+                        // job provenance and uncap the token (GHSA-hfh4-cx4h-3fcr).
+                        let job_id = match claims.job_id {
+                            Some(j) => match uuid::Uuid::from_str(&j) {
+                                Ok(job_id) => Some(job_id),
+                                Err(_) => {
+                                    tracing::error!("JWT auth error: job_id claim is not a uuid");
+                                    return None;
+                                }
+                            },
+                            None => None,
+                        };
                         AUTH_CACHE.insert(
                             key,
                             ExpiringAuthCache {
@@ -265,7 +297,9 @@ impl AuthCache {
                             (Some(owner), Some(email), super_admin, _, label, read_only)
                                 if w_id.is_some() =>
                             {
-                                let username_override = username_override_from_label(label);
+                                let is_session_token = is_session_label(label.as_deref());
+                                let (username_override, username_override_is_token_label) =
+                                    username_override_from_label(label);
                                 if let Some((prefix, name)) = owner.split_once('/') {
                                     if prefix == "u" {
                                         let lookup = if super_admin {
@@ -308,8 +342,11 @@ impl AuthCache {
                                                 folders,
                                                 scopes: None,
                                                 username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                job_id: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -358,8 +395,11 @@ impl AuthCache {
                                                 folders,
                                                 scopes: None,
                                                 username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                job_id: None,
                                             })
                                         } else {
                                             tracing::warn!(
@@ -386,7 +426,9 @@ impl AuthCache {
                                 }
                             }
                             (_, Some(email), super_admin, scopes, label, read_only) => {
-                                let username_override = username_override_from_label(label);
+                                let is_session_token = is_session_label(label.as_deref());
+                                let (username_override, username_override_is_token_label) =
+                                    username_override_from_label(label);
                                 if w_id.is_some() {
                                     let row_o = sqlx::query!(
                                         "SELECT username, is_admin, operator FROM usr WHERE
@@ -429,8 +471,11 @@ impl AuthCache {
                                                 folders,
                                                 scopes,
                                                 username_override,
+                                                username_override_is_token_label,
+                                                is_session_token,
                                                 token_prefix: Some(safe_token_prefix(token)),
                                                 read_only,
+                                                job_id: None,
                                             })
                                         }
                                         None if super_admin => {
@@ -450,8 +495,11 @@ impl AuthCache {
                                                     folders: vec![],
                                                     scopes,
                                                     username_override,
+                                                    username_override_is_token_label,
+                                                    is_session_token,
                                                     token_prefix: Some(safe_token_prefix(token)),
                                                     read_only,
+                                                    job_id: None,
                                                 }),
                                                 Err(e) => {
                                                     tracing::error!(
@@ -473,8 +521,11 @@ impl AuthCache {
                                         folders: Vec::new(),
                                         scopes,
                                         username_override,
+                                        username_override_is_token_label,
+                                        is_session_token,
                                         token_prefix: Some(safe_token_prefix(token)),
                                         read_only,
+                                        job_id: None,
                                     })
                                 }
                             }
@@ -508,8 +559,11 @@ impl AuthCache {
                         folders: Vec::new(),
                         scopes: None,
                         username_override: None,
+                        username_override_is_token_label: false,
+                        is_session_token: false,
                         token_prefix: Some(safe_token_prefix(token)),
                         read_only: false,
+                        job_id: None,
                     };
                     Some(OptJobAuthed { authed, job_id: None })
                 } else {
@@ -715,8 +769,11 @@ fn no_auth_admin_authed() -> ApiAuthed {
         folders: Vec::new(),
         scopes: None,
         username_override: None,
+        username_override_is_token_label: false,
+        is_session_token: false,
         token_prefix: None,
         read_only: false,
+        job_id: None,
     }
 }
 
@@ -769,9 +826,15 @@ pub async fn resolve_opt_job_authed(
             if let Some(mut opt_job_authed) =
                 cache.get_opt_job_authed(workspace_id.clone(), &token).await
             {
-                let authed = &mut opt_job_authed.authed;
                 let path = original_uri.path();
                 let method = parts.method.as_str();
+                if workspace_id.is_none() && opt_job_authed.job_id.is_some() {
+                    if let Err(err) = crate::scopes::check_job_token_for_global_route(path, method)
+                    {
+                        return Err((err, parts));
+                    }
+                }
+                let authed = &mut opt_job_authed.authed;
                 if authed.scopes.is_some() {
                     transform_old_scope_to_new_scope(authed.scopes.as_mut());
 
@@ -835,27 +898,47 @@ pub async fn resolve_opt_job_authed(
     Err((Error::NotAuthorized("Unauthorized".to_string()), parts))
 }
 
-fn username_override_from_label(label: Option<String>) -> Option<String> {
+/// Returns the override and whether it names the token's *label* rather than the entity that
+/// fired the request. Callers must not re-derive the second element from the first: the
+/// `ephemeral-script-end-user-` arm forwards a `created_by` verbatim, and `created_by` is
+/// unconstrained, so it may itself look like any of these shapes.
+///
+/// Only namespaces `create_token` rejects (`is_server_minted_label`) are trusted to name the
+/// entity acting, so the label can only have come from a server-side mint. Tokens minted
+/// before that guard existed are the remaining hole; closing it needs the token row to record
+/// who minted it rather than inferring it from the label.
+///
+/// Note that a trigger whose identity is set server-side — the SMTP one builds an `email-*`
+/// override directly — does not rely on this at all, so its prefix must not be trusted here.
+pub(crate) fn username_override_from_label(label: Option<String>) -> (Option<String>, bool) {
     match label {
+        Some(label) if label.starts_with("ephemeral-webhook-") => (Some(label), false),
+        Some(label) if label.starts_with("ephemeral-script-end-user-") => (
+            Some(
+                label
+                    .trim_start_matches("ephemeral-script-end-user-")
+                    .to_string(),
+            ),
+            false,
+        ),
+        // User-mintable, so they name nobody in particular — the trigger panels merely
+        // pre-fill `webhook-`/`http-`, and the editor mints the lsp one. The override keeps
+        // its value because `require_job_read_access` matches it against the `created_by` of
+        // jobs launched under it, which these shapes produced while they were trusted.
+        Some(label) if label == "Ephemeral lsp token" => (Some("lsp".to_string()), true),
         Some(label)
-            if label.starts_with("ephemeral-webhook-")
-                || label.starts_with("webhook-")
+            if label.starts_with("webhook-")
                 || label.starts_with("http-")
                 || label.starts_with("email-")
                 || label.starts_with("ws-") =>
         {
-            Some(label)
+            (Some(label), true)
         }
-        Some(label) if label.starts_with("ephemeral-script-end-user-") => Some(
-            label
-                .trim_start_matches("ephemeral-script-end-user-")
-                .to_string(),
+        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => (
+            Some(format!("{}{label}", crate::GENERIC_TOKEN_LABEL_PREFIX)),
+            true,
         ),
-        Some(label) if label == "Ephemeral lsp token" => Some("lsp".to_string()),
-        Some(label) if label != "ephemeral-script" && label != "session" && !label.is_empty() => {
-            Some(format!("label-{label}"))
-        }
-        _ => None,
+        _ => (None, false),
     }
 }
 

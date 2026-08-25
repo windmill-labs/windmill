@@ -22,7 +22,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -43,7 +43,7 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import MqttTriggerEditor from '$lib/components/triggers/mqtt/MqttTriggerEditor.svelte'
-	import { MqttIcon } from '$lib/components/icons'
+	import MqttIcon from '$lib/components/icons/MqttIcon.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
@@ -338,7 +338,18 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-primary mt-2"> No MQTT triggers </div>
+			<EmptyState
+				icon={MqttIcon}
+				title="No MQTT triggers yet"
+				description="Windmill can connect to an MQTT broker, subscribe to specific topics, and trigger scripts or flows based on those topics."
+				action={{
+					label: 'Add an MQTT trigger',
+					icon: Plus,
+					onClick: () => mqttTriggerEditor?.openNew(false),
+					aiId: 'mqtt-triggers-empty-add',
+					aiDescription: 'Add MQTT trigger'
+				}}
+			/>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, extra_perms, canWrite, error, last_server_ping, server_id, mode, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}

@@ -4,7 +4,6 @@
 	import { GripVertical, Pen, Trash, Plus } from 'lucide-svelte'
 	import EditableSchemaForm from '../EditableSchemaForm.svelte'
 	import { Drawer, DrawerContent } from '../common'
-	import AddProperty from './AddProperty.svelte'
 	import { dragHandle, dragHandleZone } from '@windmill-labs/svelte-dnd-action'
 	import { flip } from 'svelte/animate'
 	import { emptyString, generateRandomString } from '$lib/utils'
@@ -19,7 +18,9 @@
 
 	const dispatch = createEventDispatcher()
 
-	let addPropertyComponent: AddProperty | undefined = $state(undefined)
+	let addPropertyComponent: AddPropertyV2 | undefined = $state(undefined)
+	// The list's instance is absent in `drawerOnly` mode, so the drawer keeps its own.
+	let drawerAddProperty: AddPropertyV2 | undefined = $state(undefined)
 	let schemaFormDrawer: Drawer | undefined = $state(undefined)
 	let editableSchemaForm: EditableSchemaForm | undefined = $state(undefined)
 
@@ -53,13 +54,23 @@
 		jsonView?: boolean
 		hiddenArgs?: string[]
 		onClose?: () => void
+		/** Render only the editing drawer: the caller shows its own view of the schema and
+		 *  opens the drawer through `openDrawer()`. */
+		drawerOnly?: boolean
+		workspace?: string | undefined
 	}
 
 	let {
 		schema = $bindable(),
 		jsonView = $bindable(false),
-		hiddenArgs = undefined
+		hiddenArgs = undefined,
+		drawerOnly = false,
+		workspace
 	}: Props = $props()
+
+	export function openDrawer() {
+		schemaFormDrawer?.openDrawer()
+	}
 
 	// let schema = $state(structuredClone($state.snapshot(schema)))
 
@@ -82,108 +93,7 @@
 	const rnd = generateRandomString()
 </script>
 
-<div class="flex flex-wrap justify-between mb-2 w-full items-center gap-y-2">
-	<AddProperty
-		on:change={() => {
-			if (jsonView) {
-				schemaString = JSON.stringify(schema, null, '\t')
-				editor?.setCode(schemaString)
-			}
-		}}
-		bind:schema
-		bind:this={addPropertyComponent}
-	/>
-
-	<Toggle
-		bind:checked={jsonView}
-		size="xs"
-		options={{
-			right: 'JSON editor',
-			rightTooltip:
-				'Arguments can be edited either using the wizard, or by editing their JSON schema.'
-		}}
-		lightMode
-		on:change={() => {
-			schemaString = JSON.stringify(schema, null, '\t')
-			editor?.setCode(schemaString)
-		}}
-	/>
-</div>
-
-{#if !jsonView}
-	{#key rnd}
-		<div
-			use:dragHandleZone={{
-				items,
-				flipDurationMs,
-				dropTargetStyle: {},
-				type: rnd
-			}}
-			onconsider={handleConsider}
-			onfinalize={handleFinalize}
-			class="gap-1 flex flex-col mt-2"
-		>
-			{#if items?.length > 0}
-				{#each items as item (item.id)}
-					<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-					<div
-						animate:flip={{ duration: 200 }}
-						class="w-full flex flex-col justify-between border items-center py-1 px-2 rounded-md bg-surface text-sm"
-					>
-						{#if schema.properties?.[item.value]}
-							<div class="flex flex-row justify-between items-center w-full">
-								{`${item.value}${
-									schema.properties?.[item.value]?.title
-										? ` (title: ${schema.properties?.[item.value]?.title})`
-										: ''
-								} `}
-								<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-								<!-- svelte-ignore a11y_no_static_element_interactions -->
-								<div class="flex flex-row gap-1 item-center h-full justify-center">
-									<Button
-										iconOnly
-										size="xs2"
-										color="light"
-										startIcon={{ icon: Trash }}
-										on:click={() => {
-											addPropertyComponent?.handleDeleteArgument([item.value])
-										}}
-									/>
-									<Button
-										iconOnly
-										size="xs2"
-										color="light"
-										startIcon={{ icon: Pen }}
-										on:click={() => {
-											schemaFormDrawer?.openDrawer()
-
-											tick().then(() => {
-												editableSchemaForm?.openField(item.value)
-											})
-										}}
-									/>
-
-									<div class="flex items-center handle" use:dragHandle>
-										<GripVertical size={16} />
-									</div>
-								</div>
-							</div>
-
-							{#if schema.properties[item.value]?.type === 'object' && !(schema.properties[item.value].oneOf && schema.properties[item.value].oneOf.length >= 2)}
-								<div class="flex flex-col w-full mt-2">
-									<Label label="Nested properties">
-										<EditableSchemaDrawer bind:schema={schema.properties[item.value]} />
-									</Label>
-								</div>
-							{/if}
-						{:else}
-							<div class="text-primary"> Value is undefined </div>
-						{/if}
-					</div>
-				{/each}
-			{/if}
-		</div>
-	{/key}
+{#snippet editorDrawer()}
 	<Drawer bind:this={schemaFormDrawer} size="1200px">
 		{#snippet children()}
 			<DrawerContent title="UI Customisation" on:close={() => schemaFormDrawer?.closeDrawer()}>
@@ -191,12 +101,10 @@
 					schemaFormClassName="min-h-full"
 					bind:this={editableSchemaForm}
 					bind:schema
+					{workspace}
 					isAppInput
-					on:edit={(e) => {
-						addPropertyComponent?.openDrawer(e.detail)
-					}}
 					on:delete={(e) => {
-						addPropertyComponent?.handleDeleteArgument([e.detail])
+						;(addPropertyComponent ?? drawerAddProperty)?.handleDeleteArgument([e.detail])
 					}}
 					{hiddenArgs}
 					editTab="inputEditor"
@@ -204,6 +112,7 @@
 					{#snippet addProperty()}
 						<AddPropertyV2
 							bind:schema
+							bind:this={drawerAddProperty}
 							onAddNew={(argName) => {
 								editableSchemaForm?.openField(argName)
 							}}
@@ -221,29 +130,150 @@
 			</DrawerContent>
 		{/snippet}
 	</Drawer>
+{/snippet}
+
+{#if drawerOnly}
+	{@render editorDrawer()}
 {:else}
-	<div class="mt-2 bg-surface-tertiary rounded-md border py-2.5">
-		<SimpleEditor
-			bind:this={editor}
-			small
-			fixedOverflowWidgets={false}
-			on:change={() => {
-				try {
-					schema = JSON.parse(schemaString)
-					error = ''
-				} catch (err) {
-					error = err.message
-				}
+	<div class="flex flex-wrap justify-end mb-2 w-full items-center gap-y-2">
+		<Toggle
+			bind:checked={jsonView}
+			size="2xs"
+			options={{
+				right: 'JSON editor',
+				rightTooltip:
+					'Arguments can be edited either using the wizard, or by editing their JSON schema.'
 			}}
-			bind:code={schemaString}
-			lang="json"
-			autoHeight
-			automaticLayout
+			lightMode
+			on:change={() => {
+				schemaString = JSON.stringify(schema, null, '\t')
+				editor?.setCode(schemaString)
+			}}
 		/>
 	</div>
-	{#if !emptyString(error)}
-		<div class="text-red-400 text-xs">{error}</div>
+
+	{#if !jsonView}
+		{#key rnd}
+			<div
+				use:dragHandleZone={{
+					items,
+					flipDurationMs,
+					dropTargetStyle: {},
+					type: rnd
+				}}
+				onconsider={handleConsider}
+				onfinalize={handleFinalize}
+				class="gap-1 flex flex-col mt-2"
+			>
+				{#if items?.length > 0}
+					{#each items as item (item.id)}
+						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+						<div
+							animate:flip={{ duration: 200 }}
+							class="w-full flex flex-col justify-between border items-center py-1 px-2 rounded-md bg-surface text-sm"
+						>
+							{#if schema.properties?.[item.value]}
+								<div class="flex flex-row justify-between items-center w-full">
+									{`${item.value}${
+										schema.properties?.[item.value]?.title
+											? ` (title: ${schema.properties?.[item.value]?.title})`
+											: ''
+									} `}
+									<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div class="flex flex-row gap-1 item-center h-full justify-center">
+										<Button
+											iconOnly
+											size="xs2"
+											color="light"
+											startIcon={{ icon: Trash }}
+											on:click={() => {
+												addPropertyComponent?.handleDeleteArgument([item.value])
+											}}
+										/>
+										<Button
+											iconOnly
+											size="xs2"
+											color="light"
+											startIcon={{ icon: Pen }}
+											on:click={() => {
+												schemaFormDrawer?.openDrawer()
+
+												tick().then(() => {
+													editableSchemaForm?.openField(item.value)
+												})
+											}}
+										/>
+
+										<div class="flex items-center handle" use:dragHandle>
+											<GripVertical size={16} />
+										</div>
+									</div>
+								</div>
+
+								{#if schema.properties[item.value]?.type === 'object' && !(schema.properties[item.value].oneOf && schema.properties[item.value].oneOf.length >= 2)}
+									<div class="flex flex-col w-full mt-2">
+										<Label label="Nested properties">
+											<EditableSchemaDrawer
+												bind:schema={schema.properties[item.value]}
+												{workspace}
+											/>
+										</Label>
+									</div>
+								{/if}
+							{:else}
+								<div class="text-primary"> Value is undefined </div>
+							{/if}
+						</div>
+					{/each}
+				{/if}
+			</div>
+		{/key}
+
+		<AddPropertyV2
+			bind:schema
+			bind:this={addPropertyComponent}
+			onAddNew={() => {
+				if (jsonView) {
+					schemaString = JSON.stringify(schema, null, '\t')
+					editor?.setCode(schemaString)
+				}
+			}}
+		>
+			{#snippet trigger()}
+				<div
+					class="w-full py-2 mt-1 flex justify-center items-center border border-dashed rounded-md hover:bg-surface-hover"
+				>
+					<Plus size={14} />
+				</div>
+			{/snippet}
+		</AddPropertyV2>
+
+		{@render editorDrawer()}
 	{:else}
-		<div><br /> </div>
+		<div class="mt-2 bg-surface-tertiary rounded-md border py-2.5">
+			<SimpleEditor
+				bind:this={editor}
+				small
+				fixedOverflowWidgets={false}
+				on:change={() => {
+					try {
+						schema = JSON.parse(schemaString)
+						error = ''
+					} catch (err) {
+						error = err.message
+					}
+				}}
+				bind:code={schemaString}
+				lang="json"
+				autoHeight
+				automaticLayout
+			/>
+		</div>
+		{#if !emptyString(error)}
+			<div class="text-red-400 text-xs">{error}</div>
+		{:else}
+			<div><br /> </div>
+		{/if}
 	{/if}
 {/if}

@@ -37,7 +37,9 @@ use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::to_raw_value;
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
 use windmill_common::{PgDatabase, DB};
-use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_git_sync::{
+    handle_deployment_metadata, handle_deployment_metadata_batch, DeployedObject,
+};
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
 pub(crate) fn routes() -> Router {
@@ -164,6 +166,7 @@ async fn run_datatable_migration_job(
         &authed.email,
         username_to_permissioned_as(&authed.username),
         authed.token_prefix.as_deref(),
+        authed.username_override.as_deref(),
         None,
         None,
         None,
@@ -774,7 +777,7 @@ async fn datatable_migrations_status(
 /// Only workspace admins and super admins may opt a data table in or out of
 /// migrations.
 async fn require_datatable_migrations_manager(db: &DB, authed: &ApiAuthed) -> Result<()> {
-    if authed.is_admin || require_super_admin(db, &authed.email).await.is_ok() {
+    if authed.is_admin || require_super_admin(db, &authed).await.is_ok() {
         Ok(())
     } else {
         Err(Error::BadRequest(
@@ -929,6 +932,37 @@ pub(crate) fn validate_datatable_path_segment(datatable: &str) -> Result<()> {
     Ok(())
 }
 
+/// A data table's name is a path segment of every migration it owns, and git sync
+/// carries that path through three matchers that all speak the same restricted
+/// charset: `transform_regexp` expands a repo's `**` filter to `[a-zA-Z0-9_\-./]*`,
+/// the CLI reuses the path as a minimatch pattern (where a leading `.` also needs
+/// `dot: true`, which the CLI does not set), and the deploy stages it as a
+/// `git add` pathspec. A name outside the charset matches nothing in all three, so
+/// its migrations would silently never reach the repo.
+///
+/// Only names being introduced are held to this — an existing data table keeps
+/// saving (and can be renamed to a syncable name) instead of locking its workspace
+/// out of the settings form.
+pub(crate) fn validate_new_datatable_name(datatable: &str) -> Result<()> {
+    validate_datatable_path_segment(datatable)?;
+    let starts_alphanumeric = datatable
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric());
+    if !starts_alphanumeric
+        || !datatable
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+    {
+        return Err(Error::BadRequest(format!(
+            "Invalid data table name '{datatable}': start with a letter or digit and use only \
+             letters, digits, '_', '-' and '.' so its SQL migrations can be synced to a git \
+             repository"
+        )));
+    }
+    Ok(())
+}
+
 /// Record a data table migration change as a deployed object so it is tallied
 /// into `workspace_diff` and shows up as a `datatable_migration` item in the
 /// workspace-merge diff. The diff path is `<datatable>/<timestamp>_<name>`,
@@ -941,6 +975,15 @@ async fn record_datatable_migration_deployment(
     timestamp: i64,
     name: &str,
 ) -> Result<()> {
+    // A data table predating `validate_new_datatable_name` can carry a name no
+    // repo filter can match; say so once per change instead of letting the deploy
+    // vanish inside the path filter.
+    if validate_new_datatable_name(datatable).is_err() {
+        tracing::warn!(
+            "Data table '{datatable}' has a name git sync cannot match, so its SQL migrations \
+             will not reach a linked repository. Rename it to letters, digits, '_', '-' and '.'."
+        );
+    }
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -1201,7 +1244,9 @@ async fn upsert_datatable_migration(
     // its SQL, so a later `migrate up` would skip it and a rollback would run a
     // `down` that doesn't correspond to what was applied. Only an actual change
     // to an existing migration is guarded; unchanged re-pushes (e.g.
-    // `wmill sync push`) always proceed.
+    // `wmill sync push`) always proceed, and so does filling in a down migration
+    // that was missing — the up that ran is untouched, and that is the only way
+    // to make an already-applied migration revertable.
     let existing = sqlx::query!(
         "SELECT name, code_up, code_down FROM datatable_migrations \
          WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
@@ -1211,16 +1256,26 @@ async fn upsert_datatable_migration(
     )
     .fetch_optional(&db)
     .await?;
-    // When modifying an existing definition, hold the run-serialization lock
-    // across the applied-check and the write below so an in-flight run can't
-    // record a version for the SQL we're about to overwrite. Held until the end
-    // of the handler (well past the write); a new/unchanged upsert needs no lock.
-    let _run_lock = match existing {
-        Some(existing)
-            if !(existing.name == payload.name
-                && existing.code_up == payload.code_up
-                && existing.code_down == payload.code_down) =>
-        {
+    // When overwriting the SQL of an existing definition, hold the
+    // run-serialization lock across the applied-check and the write below so an
+    // in-flight run can't record a version for the SQL we're about to overwrite.
+    // Held until the end of the handler (well past the write). The exempt
+    // upserts need no lock: a new or unchanged one overwrites nothing, and one
+    // that only adds a down leaves the `code_up` a concurrent run is recording
+    // a version for untouched.
+    let only_adds_down = existing.as_ref().is_some_and(|existing| {
+        existing.name == payload.name
+            && existing.code_up == payload.code_up
+            && existing.code_down.is_none()
+            && payload.code_down.is_some()
+    });
+    let unchanged = existing.as_ref().is_some_and(|existing| {
+        existing.name == payload.name
+            && existing.code_up == payload.code_up
+            && existing.code_down == payload.code_down
+    });
+    let _run_lock = match existing.as_ref() {
+        Some(_) if !only_adds_down && !unchanged => {
             // Fail closed: if we can't lock/read the applied set (e.g. the
             // data-table database is temporarily unreachable), refuse the change
             // rather than risk overwriting a migration that has already run.
@@ -1250,20 +1305,44 @@ async fn upsert_datatable_migration(
         _ => None,
     };
 
-    sqlx::query!(
+    // An exempt upsert judged the row from an unlocked read and then writes
+    // without the lock, so that whole read is re-tested here, where `ON CONFLICT
+    // DO UPDATE` re-reads the row under a row lock. Otherwise a request working
+    // from a stale definition silently reverts whatever changed in between — a
+    // second addition's down, or a locked rewrite of the up whose new SQL a run
+    // may already have recorded a version for. Reading no row at all is part of
+    // the premise: the equality is NULL when `$8` is, so a version created in the
+    // meantime is refused rather than overwritten.
+    let recheck_observed = _run_lock.is_none();
+    let written = sqlx::query!(
         "INSERT INTO datatable_migrations (workspace_id, datatable, timestamp, name, code_up, code_down) \
          VALUES ($1, $2, $3, $4, $5, $6) \
          ON CONFLICT (workspace_id, datatable, timestamp) DO UPDATE \
-         SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down",
+         SET name = EXCLUDED.name, code_up = EXCLUDED.code_up, code_down = EXCLUDED.code_down \
+         WHERE NOT $7 \
+            OR (datatable_migrations.name = $8::text \
+                AND datatable_migrations.code_up = $9::text \
+                AND datatable_migrations.code_down IS NOT DISTINCT FROM $10::text)",
         &w_id,
         &datatable_name,
         payload.timestamp,
         &payload.name,
         &payload.code_up,
         payload.code_down.as_deref(),
+        recheck_observed,
+        existing.as_ref().map(|e| e.name.as_str()),
+        existing.as_ref().map(|e| e.code_up.as_str()),
+        existing.as_ref().and_then(|e| e.code_down.as_deref()),
     )
     .execute(&db)
     .await?;
+    if written.rows_affected() == 0 {
+        return Err(Error::BadRequest(format!(
+            "Migration {} on data table '{}' changed while this change was being saved. \
+             Reload it before editing.",
+            payload.timestamp, datatable_name
+        )));
+    }
     // The definition is written; runs may resume (audit/deploy metadata below
     // don't need the lock).
     drop(_run_lock);
@@ -1536,21 +1615,33 @@ async fn remote_rename_datatable_migrations(
 /// temporarily unreachable data-table database is logged rather than failing the
 /// whole config edit. If one is missed, the next run re-applies its migrations
 /// against the existing schema.
+///
+/// Returns every migration path the cascade moved or removed, so the caller can
+/// deploy them once `tx` commits — otherwise a linked git repo keeps the files of
+/// a deleted or pre-rename data table forever.
 pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
     db: &DB,
     tx: &mut Transaction<'_, Postgres>,
     w_id: &str,
     renames: &[DatatableRename],
     deleted_datatables: &[String],
-) -> Result<()> {
+) -> Result<Vec<String>> {
+    let mut changed_paths: Vec<String> = vec![];
+
     if !deleted_datatables.is_empty() {
-        sqlx::query!(
-            "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = ANY($2::text[])",
+        let deleted = sqlx::query!(
+            "DELETE FROM datatable_migrations WHERE workspace_id = $1 AND datatable = ANY($2::text[]) \
+             RETURNING datatable, timestamp, name",
             w_id,
             deleted_datatables
         )
-        .execute(&mut **tx)
+        .fetch_all(&mut **tx)
         .await?;
+        changed_paths.extend(
+            deleted
+                .into_iter()
+                .map(|m| format!("{}/{}_{}", m.datatable, m.timestamp, m.name)),
+        );
     }
 
     for (i, r) in renames.iter().enumerate() {
@@ -1566,14 +1657,21 @@ pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
     }
     for (i, r) in renames.iter().enumerate() {
         let tmp = format!("__wm_rename_tmp/{i}");
-        sqlx::query!(
-            "UPDATE datatable_migrations SET datatable = $3 WHERE workspace_id = $1 AND datatable = $2",
+        let moved = sqlx::query!(
+            "UPDATE datatable_migrations SET datatable = $3 WHERE workspace_id = $1 AND datatable = $2 \
+             RETURNING timestamp, name",
             w_id,
             &tmp,
             &r.to
         )
-        .execute(&mut **tx)
+        .fetch_all(&mut **tx)
         .await?;
+        for m in moved {
+            // Both ends: the old path so its files are dropped from the repo, the
+            // new one so they reappear under the renamed data table.
+            changed_paths.push(format!("{}/{}_{}", r.from, m.timestamp, m.name));
+            changed_paths.push(format!("{}/{}_{}", r.to, m.timestamp, m.name));
+        }
     }
 
     for name in deleted_datatables {
@@ -1602,7 +1700,34 @@ pub(crate) async fn cascade_datatable_migration_renames_and_deletes(
         }
     }
 
-    Ok(())
+    Ok(changed_paths)
+}
+
+/// Deploy the migration paths a data table rename/delete moved or removed, so a
+/// linked git repo drops the stale files and picks up the renamed ones. Call
+/// after the config transaction commits — the deploy reads the workspace export.
+pub(crate) async fn record_datatable_cascade_deployments(
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    changed_paths: Vec<String>,
+) -> Result<()> {
+    if changed_paths.is_empty() {
+        return Ok(());
+    }
+    let objs = changed_paths
+        .into_iter()
+        .map(|path| DeployedObject::DatatableMigration { path })
+        .collect();
+    handle_deployment_metadata_batch(
+        &authed.email,
+        &authed.username,
+        db,
+        w_id,
+        objs,
+        Some("Data table migrations updated by a data table rename or deletion".to_string()),
+    )
+    .await
 }
 
 /// Copy a workspace's migration definitions to another workspace, so a fork
@@ -1673,6 +1798,30 @@ mod tests {
         }
     }
 
+    // A new name must survive the git-sync path matchers; an existing one is only
+    // held to the escape rule, so a workspace carrying a legacy name can still save
+    // its settings and rename its way out.
+    #[test]
+    fn validate_new_datatable_name_requires_a_sync_safe_charset() {
+        for ok in ["mydt", "my-dt", "my_dt.v2", "main"] {
+            assert!(validate_new_datatable_name(ok).is_ok(), "{ok} should be ok");
+        }
+        for bad in [
+            "a b", "a*b", "a[b]", "a{b}", "a?b", "café", ".staging", "-dt", "a/b", "",
+        ] {
+            assert!(
+                validate_new_datatable_name(bad).is_err(),
+                "{bad} should be rejected"
+            );
+            if bad != "a/b" && !bad.is_empty() {
+                assert!(
+                    validate_datatable_path_segment(bad).is_ok(),
+                    "{bad} should still be storable once persisted"
+                );
+            }
+        }
+    }
+
     #[test]
     fn parse_datatable_migration_diff_path_roundtrips() {
         assert_eq!(
@@ -1730,8 +1879,9 @@ mod tests {
     }
 
     // The cascade keeps each data table's migrations attached to its name when a
-    // data table is renamed, drops them when it is deleted, and survives a swap
-    // (A->B, B->A) at a shared timestamp without a primary-key collision.
+    // data table is renamed, drops them when it is deleted, survives a swap
+    // (A->B, B->A) at a shared timestamp without a primary-key collision, and
+    // reports both ends of every move so git sync drops the stale files.
     #[sqlx::test(migrations = "../migrations")]
     async fn cascade_renames_and_deletes_datatable_migrations(pool: DB) {
         let w_id = format!("dtmig{}", uuid::Uuid::new_v4().simple());
@@ -1748,7 +1898,7 @@ mod tests {
         seed_migration(&pool, &w_id, "sb", 5000, "sb_mig").await;
 
         let mut tx = pool.begin().await.unwrap();
-        cascade_datatable_migration_renames_and_deletes(
+        let mut changed = cascade_datatable_migration_renames_and_deletes(
             &pool,
             &mut tx,
             &w_id,
@@ -1769,6 +1919,20 @@ mod tests {
                 ("a2".to_string(), "a_mig".to_string()),
                 ("sa".to_string(), "sb_mig".to_string()),
                 ("sb".to_string(), "sa_mig".to_string()),
+            ]
+        );
+
+        changed.sort();
+        assert_eq!(
+            changed,
+            vec![
+                "a/1_a_mig".to_string(),
+                "a2/1_a_mig".to_string(),
+                "d/1_d_mig".to_string(),
+                "sa/5000_sa_mig".to_string(),
+                "sa/5000_sb_mig".to_string(),
+                "sb/5000_sa_mig".to_string(),
+                "sb/5000_sb_mig".to_string(),
             ]
         );
     }

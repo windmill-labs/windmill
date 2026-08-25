@@ -72,6 +72,38 @@ pub async fn prefetch_cached_script(
     script: Script<ScriptRunnableSettingsHandle>,
     db: &DB,
 ) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    prefetch_cached_script_inner(script, db, true).await
+}
+
+/// [`prefetch_cached_script`] without deriving the address, for callers that resolve it
+/// themselves — the workspace export memoizes one lookup per distinct principal, and skips it
+/// altogether for clients that only want the marker.
+pub async fn prefetch_cached_script_without_email(
+    script: Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    prefetch_cached_script_inner(script, db, false).await
+}
+
+async fn prefetch_cached_script_inner(
+    script: Script<ScriptRunnableSettingsHandle>,
+    db: &DB,
+    derive_email: bool,
+) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+    let derived_email = match script.on_behalf_of.as_deref().filter(|_| derive_email) {
+        // Uncached: the client preserves this pair and sends it back, where the write path
+        // validates it against an uncached lookup. A cached address would pair a live principal
+        // with an address the account no longer holds, and the redeploy would be rejected.
+        Some(permissioned_as) => Some(
+            crate::users::get_email_from_permissioned_as_uncached(
+                permissioned_as,
+                &script.workspace_id,
+                db,
+            )
+            .await?,
+        ),
+        None => None,
+    };
     let rs = runnable_settings::from_handle(script.runnable_settings.runnable_settings_handle, db)
         .await?;
     let (debouncing_settings, concurrency_settings) =
@@ -111,7 +143,9 @@ pub async fn prefetch_cached_script(
         auto_kind: script.auto_kind,
         codebase: script.codebase,
         has_preprocessor: script.has_preprocessor,
-        on_behalf_of_email: script.on_behalf_of_email,
+        // Derived, not stored: see the field's doc comment.
+        on_behalf_of_email: derived_email,
+        on_behalf_of: script.on_behalf_of,
         assets: script.assets,
         modules: script.modules,
         labels: script.labels,
@@ -387,6 +421,7 @@ pub async fn clone_script<'c>(
         codebase: s.codebase,
         has_preprocessor: s.has_preprocessor,
         on_behalf_of_email: s.on_behalf_of_email,
+        on_behalf_of: s.on_behalf_of,
         preserve_on_behalf_of: None,
         assets: s.assets,
         modules: s.modules,
@@ -411,14 +446,14 @@ pub async fn clone_script<'c>(
     envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
-    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels)
+    codebase, has_preprocessor, on_behalf_of, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
             envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, delete_after_secs, timeout, concurrency_key, visible_to_runner_only, auto_kind, \
-            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels
+            codebase, has_preprocessor, on_behalf_of, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle, modules, labels
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
             ", new_hash, s.hash.0, w_id).execute(&mut *tx).await?;

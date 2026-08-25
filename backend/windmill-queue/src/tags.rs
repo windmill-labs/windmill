@@ -31,20 +31,26 @@ pub const FORK_LINEAGE_CHANGE_CHANNEL: &str = "notify_fork_lineage_change";
 /// set of descendants, which is not worth enumerating; a change to what a single id denotes is.
 const CLEAR_ALL: &str = "*";
 
-/// Drop one cached tag workspace in THIS process only. Resolution walks ancestors, so a mutation
+/// Drop the lineage-derived caches of one workspace id in THIS process only: the tag workspace
+/// here, and the root workspace a job reads as `WM_ROOT_WORKSPACE`. Both answer a walk up the
+/// ancestor chain, so every mutation invalidating one invalidates the other, and both are swept
+/// together rather than through parallel call sites. Resolution walks ancestors, so a mutation
 /// also invalidates every descendant; sweep them here as well. Replicas need a broadcast to match:
 /// [`notify_fork_lineage_reset`] when a subtree moved (attach, detach, archive, rename, a delete
 /// that orphans), or [`notify_fork_lineage_change`] when a single id changed what it denotes.
 pub fn invalidate_fork_parent_cache(workspace_id: &str) {
     FORK_PARENT_CACHE.remove(workspace_id);
+    windmill_common::workspaces::invalidate_root_workspace_cache(workspace_id);
 }
 
-/// Apply a broadcast lineage change to this process's cache.
+/// Apply a broadcast lineage change to this process's caches.
 pub fn apply_fork_lineage_change(payload: &str) {
     if payload == CLEAR_ALL {
         FORK_PARENT_CACHE.clear();
+        windmill_common::workspaces::clear_root_workspace_cache();
     } else {
         FORK_PARENT_CACHE.remove(payload);
+        windmill_common::workspaces::invalidate_root_workspace_cache(payload);
     }
 }
 

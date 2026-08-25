@@ -14,6 +14,7 @@
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { clone } from '$lib/utils'
+	import { DEV_WORKSPACE_LOCK_RULE_NAME } from '$lib/workspaceProtectionRules.svelte'
 	import { untrack } from 'svelte'
 	import { Save, X, Plus } from 'lucide-svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
@@ -28,6 +29,9 @@
 
 	// Create mode vs Edit mode
 	const isCreateMode = $derived(!rule)
+	// The dev-workspace feature creates, finds and removes its rule by name, so this one name is
+	// fixed. Its restrictions and bypassers stay editable.
+	const isNameLocked = $derived(rule?.name === DEV_WORKSPACE_LOCK_RULE_NAME)
 
 	// Helper function to check if a rule is in the array
 	const hasRule = (ruleKind: string) => rule?.rules?.includes(ruleKind as any) ?? false
@@ -38,6 +42,7 @@
 	let disableFork = $state(hasRule('DisableWorkspaceForking'))
 	let restrictDeployToDeployers = $state(hasRule('RestrictDeployToDeployers'))
 	let restrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
+	let restrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let selectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
 	)
@@ -51,6 +56,7 @@
 	let initialDisableFork = $state(hasRule('DisableWorkspaceForking'))
 	let initialRestrictDeployToDeployers = $state(hasRule('RestrictDeployToDeployers'))
 	let initialRestrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
+	let initialRestrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let initialSelectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups
 			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
@@ -118,6 +124,7 @@
 					disableFork ||
 					restrictDeployToDeployers ||
 					restrictAnonymousAppDeployment ||
+					restrictPublicRunSharing ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0
 			: name !== initialName ||
@@ -125,6 +132,7 @@
 					disableFork !== initialDisableFork ||
 					restrictDeployToDeployers !== initialRestrictDeployToDeployers ||
 					restrictAnonymousAppDeployment !== initialRestrictAnonymousAppDeployment ||
+					restrictPublicRunSharing !== initialRestrictPublicRunSharing ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !==
@@ -167,7 +175,8 @@
 							: []),
 						...(restrictAnonymousAppDeployment
 							? ['RestrictAnonymousAppDeployment' as ProtectionRuleKind]
-							: [])
+							: []),
+						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -190,6 +199,7 @@
 				workspace: $workspaceStore,
 				ruleName: initialName,
 				requestBody: {
+					name,
 					rules: [
 						...(disableDirectDeployment ? ['DisableDirectDeployment' as ProtectionRuleKind] : []),
 						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
@@ -198,7 +208,8 @@
 							: []),
 						...(restrictAnonymousAppDeployment
 							? ['RestrictAnonymousAppDeployment' as ProtectionRuleKind]
-							: [])
+							: []),
+						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -213,6 +224,7 @@
 			initialDisableFork = disableFork
 			initialRestrictDeployToDeployers = restrictDeployToDeployers
 			initialRestrictAnonymousAppDeployment = restrictAnonymousAppDeployment
+			initialRestrictPublicRunSharing = restrictPublicRunSharing
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 
@@ -235,10 +247,16 @@
 			bind:value={name}
 			error={nameError}
 			inputProps={{
-				placeholder: 'Enter rule name'
+				placeholder: 'Enter rule name',
+				disabled: isNameLocked
 			}}
 		/>
-		{#if nameError}
+		{#if isNameLocked}
+			<div class="text-xs text-secondary">
+				Managed by the dev workspace pairing, which locates this rule by name. Its restrictions and
+				bypassers below can still be changed.
+			</div>
+		{:else if nameError}
 			<div class="text-xs text-red-600">{nameError}</div>
 		{/if}
 	</Section>
@@ -358,6 +376,20 @@
 				<div class="text-xs text-secondary ml-6">
 					Only workspace admins and bypass users can make an app publicly accessible without login
 					(anonymous execution mode). Apps that are already public can still be redeployed.
+				</div>
+			</div>
+
+			<!-- Restrict public run sharing -->
+			<div class="flex flex-col gap-2">
+				<Toggle
+					bind:checked={restrictPublicRunSharing}
+					options={{
+						right: 'Restrict public run sharing'
+					}}
+				/>
+				<div class="text-xs text-secondary ml-6">
+					Only workspace admins and bypass users can mint a public link to a run (readable without
+					login). The read-only link for workspace members stays available to everyone.
 				</div>
 			</div>
 		</div>

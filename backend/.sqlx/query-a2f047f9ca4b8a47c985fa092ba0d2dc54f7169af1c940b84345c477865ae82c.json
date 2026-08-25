@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT trigger_kind::text AS \"kind!\", COUNT(*)::BIGINT AS \"count!\"\n           FROM capture_config GROUP BY trigger_kind",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "a2f047f9ca4b8a47c985fa092ba0d2dc54f7169af1c940b84345c477865ae82c"
+}
