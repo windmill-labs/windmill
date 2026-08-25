@@ -1,6 +1,6 @@
 use super::{
-    http_trigger_args::RawHttpTriggerArgs, refresh_routers, AuthenticationMethod, HttpMethod,
-    RequestType, TriggerRoute, HTTP_ACCESS_CACHE, HTTP_AUTH_CACHE, HTTP_ROUTERS_CACHE,
+    http_trigger_args::RawHttpTriggerArgs, match_origin, refresh_routers, AuthenticationMethod,
+    HttpMethod, RequestType, TriggerRoute, HTTP_ACCESS_CACHE, HTTP_AUTH_CACHE, HTTP_ROUTERS_CACHE,
 };
 use crate::{
     auth::{AuthCache, OptTokened},
@@ -37,10 +37,64 @@ use {
     windmill_object_store::build_object_store_client,
 };
 
+/// The route a CORS decision is about, resolved before the request is consumed.
+struct CorsRoute {
+    allowed_origins: Option<Vec<String>>,
+    http_method: HttpMethod,
+}
+
+/// Which router a request's CORS decision must be looked up in.
+///
+/// A preflight names the method it is asking about in
+/// `Access-Control-Request-Method`; the routers are keyed by method, so without
+/// that header there is nothing to look up.
+fn cors_lookup_method(req: &axum::extract::Request) -> Option<HttpMethod> {
+    let method = req.method();
+    if method == http::Method::OPTIONS {
+        req.headers()
+            .get(http::header::ACCESS_CONTROL_REQUEST_METHOD)
+            .and_then(|method| method.to_str().ok())
+            .and_then(|method| http::Method::try_from(method).ok())
+            .as_ref()
+            .and_then(|method| HttpMethod::try_from(method).ok())
+    } else if method == http::Method::HEAD {
+        Some(HttpMethod::Get)
+    } else {
+        HttpMethod::try_from(method).ok()
+    }
+}
+
+/// Resolve the trigger a request targets, for CORS purposes only.
+///
+/// Reads the cache without ever refreshing it from the DB:
+/// `refresh_routers_loop` keeps it current, and a cold miss falls back to the
+/// permissive default rather than putting a query on the CORS path.
+async fn resolve_cors_route(http_method: HttpMethod, requested_path: &str) -> Option<CorsRoute> {
+    let routers_cache = HTTP_ROUTERS_CACHE.read().await;
+    let trigger = routers_cache
+        .routers
+        .get(&http_method)?
+        .at(requested_path.trim_end_matches('/'))
+        .ok()?
+        .value;
+
+    Some(CorsRoute { allowed_origins: trigger.allowed_origins.clone(), http_method })
+}
+
 async fn conditional_cors_middleware(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
+    let origin = req.headers().get(http::header::ORIGIN).cloned();
+    // Resolved before `next.run` consumes the request. `&Request` is not `Send`
+    // (`Body` is not `Sync`), so the lookup takes owned pieces rather than a
+    // borrow of the request itself.
+    let lookup = cors_lookup_method(&req).map(|method| (method, req.uri().path().to_string()));
+    let route = match lookup {
+        Some((method, path)) => resolve_cors_route(method, &path).await,
+        None => None,
+    };
+
     let mut response = next.run(req).await;
 
     let headers = response.headers_mut();
@@ -67,8 +121,28 @@ async fn conditional_cors_middleware(
         }
     }
 
-    // Insert only the missing headers
-    if !not_insert_origin {
+    if let Some(allowed_origins) = route
+        .as_ref()
+        .and_then(|route| route.allowed_origins.as_ref())
+    {
+        // A configured allowlist decides, overriding any `wm_headers` value the
+        // runnable set. The preflight is answered before any code runs, so
+        // config is the only thing it can consult; letting the response widen
+        // what the preflight advertised would make the two disagree and leave
+        // the allowlist bounding nothing.
+        match match_origin(allowed_origins, origin.as_ref()) {
+            Some(value) => headers.insert(http::header::ACCESS_CONTROL_ALLOW_ORIGIN, value),
+            // No match: omit the header entirely so the browser blocks the
+            // read, and drop any value the runnable set.
+            None => headers.remove(http::header::ACCESS_CONTROL_ALLOW_ORIGIN),
+        };
+        // Appended, not inserted: the answer now depends on the request's
+        // Origin, and a shared cache that ignores it would hand one origin's
+        // response to another.
+        if !allowed_origins.iter().any(|allowed| allowed == "*") {
+            headers.append(http::header::VARY, http::HeaderValue::from_static("origin"));
+        }
+    } else if !not_insert_origin {
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
             http::HeaderValue::from_static("*"),
@@ -76,9 +150,18 @@ async fn conditional_cors_middleware(
     }
 
     if !not_insert_methods {
+        // A resolved route accepts exactly one method, so advertising all seven
+        // overstates it. Unresolved requests keep the historical list.
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_METHODS,
-            http::HeaderValue::from_static("GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS"),
+            http::HeaderValue::from_static(match route.as_ref().map(|route| route.http_method) {
+                Some(HttpMethod::Get) => "GET, OPTIONS",
+                Some(HttpMethod::Post) => "POST, OPTIONS",
+                Some(HttpMethod::Put) => "PUT, OPTIONS",
+                Some(HttpMethod::Delete) => "DELETE, OPTIONS",
+                Some(HttpMethod::Patch) => "PATCH, OPTIONS",
+                None => "GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS",
+            }),
         );
     }
 

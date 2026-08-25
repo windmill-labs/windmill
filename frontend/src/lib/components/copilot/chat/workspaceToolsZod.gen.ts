@@ -69,6 +69,7 @@ export const httpTriggerRequestSchema = z.object({
 	"wrap_body": z.boolean().describe("If true, wraps the request body in a 'body' parameter").optional(),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
 	"raw_string": z.boolean().describe("If true, passes the request body as a raw string instead of parsing as JSON").optional(),
+	"allowed_origins": z.array(z.string()).describe("Origins allowed to call this route cross-origin, matched against the request's Origin header (ignoring case) and echoed back on a match. Use ['*'] to allow any origin. When null, the route answers Access-Control-Allow-Origin: * and the runnable's wm_headers can override it; when set, the configured list governs both the preflight and the response.").nullable().optional(),
 	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({

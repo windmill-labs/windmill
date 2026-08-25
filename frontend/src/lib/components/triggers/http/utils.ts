@@ -56,6 +56,7 @@ export async function saveHttpRouteFromCfg(
 		authentication_resource_path: routeCfg.authentication_resource_path,
 		wrap_body: routeCfg.wrap_body,
 		raw_string: routeCfg.raw_string,
+		allowed_origins: routeCfg.allowed_origins,
 		description: routeCfg.description,
 		summary: routeCfg.summary,
 		error_handler_path: routeCfg.error_handler_path,

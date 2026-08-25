@@ -95,6 +95,15 @@ properties:
     type: boolean
     description: If true, passes the request body as a raw string instead of parsing
       as JSON
+  allowed_origins:
+    type: array
+    items:
+      type: string
+    description: 'Origins allowed to call this route cross-origin, matched against
+      the request''s Origin header (ignoring case) and echoed back on a match. Use
+      [''*''] to allow any origin. When null, the route answers Access-Control-Allow-Origin:
+      * and the runnable''s wm_headers can override it; when set, the configured list
+      governs both the preflight and the response.'
   error_handler_path:
     type: string
     description: Path to a script or flow to run when the triggered job fails

@@ -1,6 +1,6 @@
 use super::{
-    validate_authentication_method, HttpConfig, HttpConfigRequest, HttpMethod, HttpTrigger,
-    RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
+    validate_allowed_origins, validate_authentication_method, HttpConfig, HttpConfigRequest,
+    HttpMethod, HttpTrigger, RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
 };
 use async_trait::async_trait;
 use axum::{extract::Path, routing::post, Extension, Json, Router};
@@ -189,6 +189,7 @@ pub async fn insert_new_trigger_into_db(
                 authentication_resource_path,
                 wrap_body,
                 raw_string,
+                allowed_origins,
                 script_path,
                 summary,
                 description,
@@ -207,7 +208,7 @@ pub async fn insert_new_trigger_into_db(
                 retry
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), $20, $21, $22, $23
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, now(), $21, $22, $23, $24
             )
             "#,
             w_id,
@@ -218,6 +219,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.authentication_resource_path,
             trigger.config.wrap_body.unwrap_or(false),
             trigger.config.raw_string.unwrap_or(false),
+            trigger.config.allowed_origins.as_deref(),
             trigger.base.script_path,
             trigger.config.summary,
             trigger.config.description,
@@ -435,6 +437,7 @@ impl TriggerCrud for HttpTrigger {
         "workspaced_route",
         "wrap_body",
         "raw_string",
+        "allowed_origins",
     ];
 
     fn get_deployed_object(path: String, parent_path: Option<String>) -> DeployedObject {
@@ -465,6 +468,8 @@ impl TriggerCrud for HttpTrigger {
 
         validate_authentication_method(new.authentication_method, new.raw_string)?;
 
+        validate_allowed_origins(new.allowed_origins.as_ref())?;
+
         Ok(())
     }
 
@@ -482,6 +487,8 @@ impl TriggerCrud for HttpTrigger {
         }
 
         validate_authentication_method(edit.authentication_method, edit.raw_string)?;
+
+        validate_allowed_origins(edit.allowed_origins.as_ref())?;
 
         Ok(())
     }
@@ -545,33 +552,35 @@ impl TriggerCrud for HttpTrigger {
                 workspaced_route = $3,
                 wrap_body = $4,
                 raw_string = $5,
-                authentication_resource_path = $6,
-                script_path = $7,
-                path = $8,
-                is_flow = $9,
-                mode = $10,
-                http_method = $11,
-                static_asset_config = $12,
-                edited_by = $13,
-                permissioned_as = $14,
-                request_type = $15,
-                authentication_method = $16,
-                summary = $17,
-                description = $18,
+                allowed_origins = $6,
+                authentication_resource_path = $7,
+                script_path = $8,
+                path = $9,
+                is_flow = $10,
+                mode = $11,
+                http_method = $12,
+                static_asset_config = $13,
+                edited_by = $14,
+                permissioned_as = $15,
+                request_type = $16,
+                authentication_method = $17,
+                summary = $18,
+                description = $19,
                 edited_at = now(),
-                is_static_website = $19,
-                error_handler_path = $20,
-                error_handler_args = $21,
-                retry = $22
+                is_static_website = $20,
+                error_handler_path = $21,
+                error_handler_args = $22,
+                retry = $23
             WHERE
-                workspace_id = $23 AND
-                path = $24
+                workspace_id = $24 AND
+                path = $25
             "#,
                 route_path,
                 &route_path_key,
                 Some(effective_workspaced),
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
+                trigger.config.allowed_origins.as_deref(),
                 trigger.config.authentication_resource_path,
                 trigger.base.script_path,
                 trigger.base.path,
@@ -604,30 +613,32 @@ impl TriggerCrud for HttpTrigger {
             SET
                 wrap_body = $1,
                 raw_string = $2,
-                authentication_resource_path = $3,
-                script_path = $4,
-                path = $5,
-                is_flow = $6,
-                mode = $7,
-                http_method = $8,
-                static_asset_config = $9,
-                edited_by = $10,
-                permissioned_as = $11,
-                request_type = $12,
-                authentication_method = $13,
-                summary = $14,
-                description = $15,
+                allowed_origins = $3,
+                authentication_resource_path = $4,
+                script_path = $5,
+                path = $6,
+                is_flow = $7,
+                mode = $8,
+                http_method = $9,
+                static_asset_config = $10,
+                edited_by = $11,
+                permissioned_as = $12,
+                request_type = $13,
+                authentication_method = $14,
+                summary = $15,
+                description = $16,
                 edited_at = now(),
-                is_static_website = $16,
-                error_handler_path = $17,
-                error_handler_args = $18,
-                retry = $19
+                is_static_website = $17,
+                error_handler_path = $18,
+                error_handler_args = $19,
+                retry = $20
             WHERE
-                workspace_id = $20 AND
-                path = $21
+                workspace_id = $21 AND
+                path = $22
             "#,
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
+                trigger.config.allowed_origins.as_deref(),
                 trigger.config.authentication_resource_path,
                 trigger.base.script_path,
                 trigger.base.path,

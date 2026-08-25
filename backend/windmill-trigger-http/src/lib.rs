@@ -47,6 +47,7 @@ pub struct TriggerRoute {
     pub workspaced_route: bool,
     pub wrap_body: bool,
     pub raw_string: bool,
+    pub allowed_origins: Option<Vec<String>>,
     pub error_handler_path: Option<String>,
     pub error_handler_args: Option<sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     pub retry: Option<sqlx::types::Json<Retry>>,
@@ -119,6 +120,7 @@ pub struct HttpConfig {
     pub workspaced_route: bool,
     pub wrap_body: bool,
     pub raw_string: bool,
+    pub allowed_origins: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -136,6 +138,7 @@ pub struct HttpConfigRequest {
     pub workspaced_route: Option<bool>,
     pub wrap_body: Option<bool>,
     pub raw_string: Option<bool>,
+    pub allowed_origins: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -154,6 +157,7 @@ struct HttpConfigRequestHelper {
     workspaced_route: Option<bool>,
     wrap_body: Option<bool>,
     raw_string: Option<bool>,
+    allowed_origins: Option<Vec<String>>,
 }
 
 impl<'de> Deserialize<'de> for HttpConfigRequest {
@@ -189,6 +193,7 @@ impl<'de> Deserialize<'de> for HttpConfigRequest {
             workspaced_route: helper.workspaced_route,
             wrap_body: helper.wrap_body,
             raw_string: helper.raw_string,
+            allowed_origins: normalize_allowed_origins(helper.allowed_origins),
         })
     }
 }
@@ -206,6 +211,95 @@ pub struct RouteExists {
     pub http_method: HttpMethod,
     pub trigger_path: Option<String>,
     pub workspaced_route: Option<bool>,
+}
+
+/// Collapse an empty list to `None` so "no allowlist configured" has a single
+/// representation. `NULL` is the only value that means "keep the historical
+/// `Access-Control-Allow-Origin: *`", and an empty array reaching the column
+/// would be a second, silently different one.
+pub fn normalize_allowed_origins(allowed_origins: Option<Vec<String>>) -> Option<Vec<String>> {
+    allowed_origins.filter(|origins| !origins.is_empty())
+}
+
+/// Resolve the `Access-Control-Allow-Origin` value for a request, or `None` to
+/// omit the header so the browser blocks the read.
+///
+/// The request's `Origin` is echoed back only on a match against the allowlist.
+/// Reflecting it unchecked is the classic way this feature turns into no
+/// restriction at all.
+///
+/// The comparison ignores ASCII case because a browser lowercases the scheme and
+/// host it sends, so a configured `https://App.Example.com` would otherwise name
+/// a real origin and still match nothing.
+pub fn match_origin(
+    allowed_origins: &[String],
+    origin: Option<&http::HeaderValue>,
+) -> Option<http::HeaderValue> {
+    if allowed_origins.iter().any(|allowed| allowed == "*") {
+        return Some(http::HeaderValue::from_static("*"));
+    }
+
+    let origin = origin?;
+    let origin_str = origin.to_str().ok()?;
+    allowed_origins
+        .iter()
+        .any(|allowed| allowed.eq_ignore_ascii_case(origin_str))
+        .then(|| origin.clone())
+}
+
+/// Reject allowlist entries a browser would silently ignore.
+///
+/// An origin is a bare `scheme://host[:port]`: anything with a path, query,
+/// fragment or userinfo never equals the `Origin` header a browser sends, so it
+/// would look configured while matching nothing. `null` is rejected outright —
+/// every sandboxed iframe sends `Origin: null`, so allowing it grants access to
+/// any page that can open one.
+pub fn validate_allowed_origins(allowed_origins: Option<&Vec<String>>) -> Result<()> {
+    let Some(allowed_origins) = allowed_origins else {
+        return Ok(());
+    };
+
+    for origin in allowed_origins {
+        if origin == "*" {
+            continue;
+        }
+
+        let invalid = |reason: &str| {
+            Error::BadRequest(format!(
+                "Invalid allowed origin '{}': {}. Expected an origin such as https://app.example.com, or * to allow any origin.",
+                origin, reason
+            ))
+        };
+
+        if http::HeaderValue::from_str(origin).is_err() {
+            return Err(invalid("not a valid header value"));
+        }
+
+        let Some((scheme, rest)) = origin.split_once("://") else {
+            return Err(invalid("missing scheme"));
+        };
+        if scheme.is_empty()
+            || !scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '+' || c == '-')
+        {
+            return Err(invalid("invalid scheme"));
+        }
+        if rest.is_empty() {
+            return Err(invalid("missing host"));
+        }
+        if rest.contains('/') {
+            return Err(invalid("must not contain a path or trailing slash"));
+        }
+        if rest.contains('?') || rest.contains('#') {
+            return Err(invalid("must not contain a query or fragment"));
+        }
+        if rest.contains('@') {
+            return Err(invalid("must not contain userinfo"));
+        }
+    }
+
+    Ok(())
 }
 
 pub fn validate_authentication_method(
@@ -256,6 +350,7 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                         static_asset_config AS "static_asset_config: _",
                         wrap_body,
                         raw_string,
+                        allowed_origins,
                         workspaced_route,
                         is_static_website,
                         error_handler_path,
@@ -274,7 +369,8 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
             .await?;
 
             let mut router = matchit::Router::new();
-            let http_route_workspaced = HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+            let http_route_workspaced =
+                HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             for trigger in triggers {
                 let full_path =
@@ -547,6 +643,102 @@ mod tests {
     #[test]
     fn test_validate_auth_signature_without_raw_ok() {
         assert!(validate_authentication_method(AuthenticationMethod::Signature, None).is_ok());
+    }
+
+    // --- CORS allowed origins ---
+
+    fn origin(value: &str) -> http::HeaderValue {
+        http::HeaderValue::from_str(value).unwrap()
+    }
+
+    #[test]
+    fn test_match_origin_exact_match_echoes_request_origin() {
+        let allowed = vec!["https://a.com".to_string(), "https://b.com".to_string()];
+        assert_eq!(
+            match_origin(&allowed, Some(&origin("https://b.com"))),
+            Some(origin("https://b.com"))
+        );
+    }
+
+    #[test]
+    fn test_match_origin_ignores_case() {
+        let allowed = vec!["https://App.Example.com".to_string()];
+        assert_eq!(
+            match_origin(&allowed, Some(&origin("https://app.example.com"))),
+            Some(origin("https://app.example.com"))
+        );
+    }
+
+    #[test]
+    fn test_match_origin_no_match_omits_header() {
+        let allowed = vec!["https://a.com".to_string()];
+        assert_eq!(
+            match_origin(&allowed, Some(&origin("https://evil.com"))),
+            None
+        );
+        // A prefix of an allowed origin must not match: https://a.com.evil.com
+        // is a different site entirely.
+        assert_eq!(
+            match_origin(&allowed, Some(&origin("https://a.com.evil.com"))),
+            None
+        );
+    }
+
+    #[test]
+    fn test_match_origin_wildcard_allows_any() {
+        let allowed = vec!["*".to_string()];
+        assert_eq!(
+            match_origin(&allowed, Some(&origin("https://evil.com"))),
+            Some(origin("*"))
+        );
+        // `*` holds even with no Origin header, matching the historical default.
+        assert_eq!(match_origin(&allowed, None), Some(origin("*")));
+    }
+
+    #[test]
+    fn test_match_origin_missing_origin_header_omits_header() {
+        let allowed = vec!["https://a.com".to_string()];
+        assert_eq!(match_origin(&allowed, None), None);
+    }
+
+    #[test]
+    fn test_validate_allowed_origins_accepts_origins_and_wildcard() {
+        let allowed = vec![
+            "https://app.example.com".to_string(),
+            "http://localhost:3000".to_string(),
+            "*".to_string(),
+        ];
+        assert!(validate_allowed_origins(Some(&allowed)).is_ok());
+        assert!(validate_allowed_origins(None).is_ok());
+    }
+
+    #[test]
+    fn test_validate_allowed_origins_rejects_non_origins() {
+        for invalid in [
+            "https://app.example.com/",
+            "https://app.example.com/path",
+            "https://user@app.example.com",
+            "https://app.example.com?a=b",
+            "app.example.com",
+            // Every sandboxed iframe sends `Origin: null`, so allowing it would
+            // grant access to any page that can open one.
+            "null",
+        ] {
+            assert!(
+                validate_allowed_origins(Some(&vec![invalid.to_string()])).is_err(),
+                "expected {invalid} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_normalize_allowed_origins_collapses_empty_to_none() {
+        assert_eq!(normalize_allowed_origins(Some(vec![])), None);
+        assert_eq!(normalize_allowed_origins(None), None);
+        assert_eq!(
+            normalize_allowed_origins(Some(vec!["*".to_string()])),
+            Some(vec!["*".to_string()])
+        );
     }
 
     // --- Route path regex ---

@@ -49,6 +49,7 @@
 	import { HUB_SCRIPT_ID, saveHttpRouteFromCfg, SECRET_KEY_PATH } from './utils'
 	import { HubFlow } from '$lib/hub'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
+	import RouteCorsOption from './RouteCorsOption.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
@@ -110,6 +111,7 @@
 	let workspaced_route = $state(false)
 	let raw_string = $state(false)
 	let wrap_body = $state(false)
+	let allowed_origins = $state<string[] | undefined>(undefined)
 	let drawerLoading = $state(true)
 	let showLoader = $state(false)
 	let authentication_resource_path = $state('')
@@ -295,6 +297,7 @@
 			signature_options_type = defaultValues?.signature_options_type ?? 'custom_signature'
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
+			allowed_origins = defaultValues?.allowed_origins ?? undefined
 			summary = defaultValues?.summary ?? ''
 			routeDescription = defaultValues?.description ?? ''
 			error_handler_path = defaultValues?.error_handler_path ?? undefined
@@ -323,6 +326,7 @@
 		workspaced_route = cfg?.workspaced_route ?? false
 		wrap_body = cfg?.wrap_body ?? false
 		raw_string = cfg?.raw_string ?? false
+		allowed_origins = cfg?.allowed_origins ?? undefined
 		summary = cfg?.summary ?? ''
 		mode = cfg?.mode ?? 'enabled'
 		routeDescription = cfg?.description ?? ''
@@ -423,6 +427,7 @@
 			mode,
 			wrap_body,
 			raw_string,
+			allowed_origins,
 			authentication_resource_path,
 			authentication_method: auth_method,
 			static_asset_config,
@@ -961,6 +966,8 @@
 										disabled={!can_write}
 										{testingBadge}
 									/>
+
+									<RouteCorsOption bind:allowed_origins disabled={!can_write} {testingBadge} />
 								</div>
 							{:else}
 								<TriggerRetriesAndErrorHandler
