@@ -1519,14 +1519,13 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		}
 
 		// Each result costs a content fetch, so cap the fan-out when content is wanted.
-		// Keep the tail: hits appended for a named integration sit there, and dropping
-		// them would undo the reason they were fetched.
-		const matches = withContent
-			? [
-					...scripts.slice(0, MAX_FETCHED_HUB_SCRIPTS - mentionedHits),
-					...scripts.slice(scripts.length - mentionedHits)
-				]
-			: scripts
+		// Cut from the middle: hits appended for a named integration sit at the tail,
+		// and dropping those would undo the reason they were fetched.
+		let matches = scripts
+		if (withContent && scripts.length > MAX_FETCHED_HUB_SCRIPTS) {
+			const mentioned = scripts.slice(scripts.length - mentionedHits)
+			matches = [...scripts.slice(0, MAX_FETCHED_HUB_SCRIPTS - mentioned.length), ...mentioned]
+		}
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Found ${matches.length} hub script${matches.length === 1 ? '' : 's'} for ${subject}`
 		})

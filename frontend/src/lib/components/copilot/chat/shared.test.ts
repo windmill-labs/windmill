@@ -1433,7 +1433,10 @@ describe('createSearchHubScriptsTool', () => {
 			toolCallbacks: { setToolStatus: vi.fn() }
 		} as any)
 
-		expect(JSON.parse(raw).results.map((r: any) => r.integration)).toContain('salesforce')
+		const integrations = JSON.parse(raw).results.map((r: any) => r.integration)
+		expect(integrations).toContain('salesforce')
+		// reserving room for the tail must not re-emit it when nothing was cut
+		expect(new Set(integrations).size).toBe(integrations.length)
 	})
 
 	// Ranking buries an integration the query names when other integrations' scripts
