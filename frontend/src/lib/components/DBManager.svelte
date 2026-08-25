@@ -589,7 +589,7 @@
 						>
 							<DatabaseIcon class="shrink-0" size={14} />
 							<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
-							<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-1">
+							<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
 								{#if onDatatableAction}
 									{@const dt = root.datatable}
 									<DropdownV2
@@ -649,7 +649,7 @@
 								>
 									<FolderIcon class="shrink-0" size={14} />
 									<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
-									<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-1">
+									<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
 										<DropdownV2
 											items={() => [
 												{
@@ -747,7 +747,7 @@
 														}
 													}
 												]}
-												class={rowActionsClass(isSelected)}
+												class="mr-1 {rowActionsClass(isSelected)}"
 												btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
 											/>
 										{/if}
