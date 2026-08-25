@@ -476,31 +476,35 @@ async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined
 /**
  * Sign S3 objects to be used by anonymous users in public apps
  * @param s3objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 objects
  */
-async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
+async signS3Objects(s3objects: S3Object[], { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object[]>
 
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 object
  */
-async signS3Object(s3object: S3Object): Promise<S3Object>
+async signS3Object(s3object: S3Object, { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object>
 
 /**
  * Generate a presigned public URL for an array of S3 objects.
  * If an S3 object is not signed yet, it will be signed first.
  * @param s3Objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns list of signed public URLs
  */
-async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
+async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string[]>
 
 /**
  * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
  * @param s3Object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed public URL
  */
-async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
+async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string>
 
 /**
  * Get URLs needed for resuming a flow after this step

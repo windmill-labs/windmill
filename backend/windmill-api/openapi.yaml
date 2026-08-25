@@ -13468,6 +13468,10 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/S3Object"
+                expiry_secs:
+                  type: integer
+                  format: int64
+                  description: how long the signature stays valid, in seconds. Defaults to 43200 (12h) and is clamped server-side to [60, 604800] (1 minute to 7 days).
               required:
                 - s3_objects
       responses:
