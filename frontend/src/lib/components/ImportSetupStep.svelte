@@ -558,13 +558,21 @@
 								{row.status === 'failed' ? 'Run migrations again' : 'Run migrations'}
 							</Button>
 						{:else}
+							<!-- Everything the branches above do not claim: a configured row, one whose
+							     migrations are running, and one whose data table does not exist yet. -->
 							<Button
 								variant={row.status === 'done' ? 'subtle' : 'accent'}
 								unifiedSize="sm"
 								disabled={working}
 								onClick={() => openWizard(row.name)}
 							>
-								{row.status === 'done' ? 'Configured' : 'Set up'}
+								{#if row.status === 'done'}
+									Configured
+								{:else if row.status === 'running'}
+									Setting up…
+								{:else}
+									Set up
+								{/if}
 							</Button>
 						{/if}
 					{/snippet}
