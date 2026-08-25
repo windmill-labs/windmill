@@ -27,19 +27,23 @@ services:
   ##   docker volume ls | grep db_data     # then remove the one this project owns
   ##   docker volume rm <that_volume>
   ##   docker compose up --wait db
+  ##   docker compose exec -T db psql -U postgres -d postgres -c 'DROP DATABASE windmill'
   ##   docker compose exec -T db psql -U postgres -d postgres < cluster.sql > restore.log 2>&1
-  ##   grep -i '^ERROR' restore.log      # only the two expected ones, see below
+  ##   grep -i '^ERROR' restore.log      # only `role "postgres" already exists`
   ##   docker compose exec -T db vacuumdb -U postgres --all --analyze-in-stages
   ##   docker compose up -d
-  ## `up --wait` because psql would otherwise race initdb on a fresh volume. psql
-  ## does not stop on error and the old volume is already gone by then, so grep the
-  ## log rather than trust its exit code; `database "windmill" already exists` and
-  ## `role "postgres" already exists` are the two the fresh cluster causes itself.
-  ## vacuumdb spans every restored database, which a plain ANALYZE would not: each
-  ## comes back with no planner statistics, and a fork database is where the stall
-  ## shows. Postgres triggers reading a database in this cluster come back disabled
-  ## with "replication slot ... no longer exists", since slots are never dumped;
-  ## re-saving the trigger recreates the slot.
+  ## `up --wait` because psql would otherwise race initdb on a fresh volume. The
+  ## DROP is what lets the dump's own `CREATE DATABASE windmill` run: POSTGRES_DB
+  ## has already made an empty one, and loading into it would keep the new cluster's
+  ## encoding and collation instead of the dumped ones, for that database only.
+  ## psql does not stop on error and the old volume is already gone by then, so grep
+  ## the log rather than trust its exit code; the fresh cluster bootstraps `postgres`
+  ## itself, so that role is the one error left. vacuumdb spans every restored
+  ## database, which a plain ANALYZE would not: each comes back with no planner
+  ## statistics, and a fork database is where the stall shows. Postgres triggers
+  ## reading a database in this cluster come back disabled with "replication slot
+  ## ... no longer exists", since slots are never dumped; re-saving the trigger
+  ## recreates the slot, then re-enable it.
   db:
     deploy:
       # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
