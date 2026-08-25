@@ -182,8 +182,8 @@ jobs:
           # backend/Cargo.toml keeps line tables on profile.dev for the (large)
           # windmill workspace crates; that debuginfo is emitted into every
           # object file and embedded in each test binary, and on windows-msvc
-          # also spawns the mspdbsrv.exe PDB type server. Across a full
-          # --all --features build it drives the peak on the ~63GB free of the
+          # also spawns the mspdbsrv.exe PDB type server. Across the worker
+          # crates' test build it drives the peak on the ~63GB free of the
           # runner disk (LNK1180 / disk-full during linking). CI reads no
           # backtraces, so drop it entirely for the dev/test profiles here:
           # debug = 0 means no .pdb and no LNK1318 type-server limit.
