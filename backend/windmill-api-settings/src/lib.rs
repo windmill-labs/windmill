@@ -1287,6 +1287,11 @@ pub async fn get_global_setting(
         && key != EMAIL_DOMAIN_SETTING
         && key != APP_WORKSPACED_ROUTE_SETTING
         && key != HTTP_ROUTE_WORKSPACED_ROUTE_SETTING
+        // The route editor shows the inherited default to whoever is editing a
+        // trigger, who is usually not a superadmin. Not a secret either: any
+        // browser discovers the list by reading Access-Control-Allow-Origin off
+        // a response.
+        && key != HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
         && key != WS_BASE_URL_SETTING
     {
         require_super_admin(&db, &authed).await?;
