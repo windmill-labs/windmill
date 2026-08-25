@@ -6559,17 +6559,18 @@ pub async fn run_flow_by_version_inner(
     Ok((uuid, early_return, has_failure_module))
 }
 
+/// Path parameters of `POST /w/{workspace}/jobs/restart/f/{job_id}`, shared by the CE and EE
+/// handlers. Axum only checks the tuple against the route at request time and rejects a
+/// mismatch with an opaque 500 before the handler runs, so both must be declared from here:
+/// an arity that drifts from the route hides the handler behind what reads as a broken route.
+type RestartFlowPath = Path<(String, Uuid)>;
+
 #[cfg(not(feature = "enterprise"))]
 pub async fn restart_flow(
     _authed: ApiAuthed,
     Extension(_db): Extension<DB>,
     Extension(_user_db): Extension<UserDB>,
-    Path((_w_id, _job_id, _step_id, _branch_or_iteration_n)): Path<(
-        String,
-        Uuid,
-        String,
-        Option<usize>,
-    )>,
+    Path((_w_id, _job_id)): RestartFlowPath,
     Query(_run_query): Query<RunJobQuery>,
 ) -> error::Result<(StatusCode, String)> {
     return Err(Error::BadRequest(
@@ -6798,7 +6799,7 @@ pub async fn restart_flow(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, job_id)): Path<(String, Uuid)>,
+    Path((w_id, job_id)): RestartFlowPath,
     Query(run_query): Query<RunJobQuery>,
     Json(RestartFlowRequestBody {
         step_id,
