@@ -1405,6 +1405,56 @@ describe('createSearchHubScriptsTool', () => {
 		expect(results[1].content).toBe('ok')
 	})
 
+	// Semantic search ranks a named vendor weakly against the task words, so "create a
+	// jira ticket" put netlify, zendesk and intercom above every Jira script.
+	it('narrows the search to an integration the query names outright', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		const queryHubScripts = vi.fn(async () => [hit(9, 'jira', 'Create issue')])
+		Object.assign(ScriptService, { queryHubScripts })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'jira' }, { name: 'netlify' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		await createSearchHubScriptsTool().fn({
+			args: { query: 'create a jira ticket' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(queryHubScripts).toHaveBeenCalledWith({
+			text: 'create a jira ticket',
+			kind: 'script',
+			app: 'jira'
+		})
+	})
+
+	// A fuzzy test would read `send` in "send an invoice" as sendgrid and search the
+	// wrong integration outright, which is worse than not narrowing at all.
+	it('leaves the search broad when no integration is named exactly', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		const queryHubScripts = vi.fn(async () => [hit(9, 'paypal', 'Create invoice')])
+		Object.assign(ScriptService, { queryHubScripts })
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'sendgrid' }, { name: 'paypal' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		await createSearchHubScriptsTool().fn({
+			args: { query: 'send an invoice to a client' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(queryHubScripts).toHaveBeenCalledWith({
+			text: 'send an invoice to a client',
+			kind: 'script',
+			app: undefined
+		})
+	})
+
 	// Browsing by app is what surfaces an integration's other scripts as examples,
 	// and only the top-scripts endpoint takes no query and applies no similarity
 	// floor, so the near-misses worth reading survive instead of being cut.

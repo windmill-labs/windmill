@@ -1255,10 +1255,9 @@ type HubScriptHit = { version_id: number; app: string; summary: string; descript
  * is enough. Only matched slugs ever reach the model, never the whole list. */
 let hubIntegrationsCache: string[] | undefined
 
-async function suggestHubIntegrations(query: string): Promise<string[]> {
-	// Suggestions are a bonus on an already-empty search, so an unreachable hub must
-	// degrade to "no results" rather than turn the whole search into a tool error.
-	// A failed or empty response is left uncached so the next search retries.
+/** An unreachable hub must degrade to "no suggestions" rather than turn the search
+ * into a tool error, so a failed or empty response is left uncached and retried. */
+async function loadHubIntegrations(): Promise<string[]> {
 	if (!hubIntegrationsCache?.length) {
 		try {
 			const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
@@ -1268,11 +1267,16 @@ async function suggestHubIntegrations(query: string): Promise<string[]> {
 			return []
 		}
 	}
+	return hubIntegrationsCache
+}
+
+async function suggestHubIntegrations(query: string): Promise<string[]> {
+	const available = await loadHubIntegrations()
 	const tokens = query
 		.toLowerCase()
 		.split(/[^a-z0-9]+/)
 		.filter((t) => t.length >= 2)
-	return hubIntegrationsCache
+	return available
 		.filter((name) => tokens.some((t) => tokenMatchesSlug(t, name.toLowerCase())))
 		.slice(0, MAX_SUGGESTED_INTEGRATIONS)
 }
@@ -1300,6 +1304,28 @@ function tokenMatchesSlug(token: string, slug: string): boolean {
 		// "google sheet" has to reach `gsheets`, "google drive" `gdrive`.
 		parts.some((p) => p.length >= 5 && extends_(p.slice(1), token))
 	)
+}
+
+/** The slug of an integration the query names outright, when it names exactly one.
+ * Semantic search ranks on the whole of a script's text, so a named vendor is weak
+ * signal against the task words: "create a jira ticket" ranks netlify, zendesk and
+ * intercom above every Jira script, and "look up an account in salesforce" puts
+ * Pinterest first, because its summaries say Salesforce. Narrowing to the named
+ * integration fixes both. The test is deliberately exact — a fuzzy one reads `send`
+ * in "send an invoice" as sendgrid and quietly searches the wrong integration. */
+async function integrationNamedIn(query: string): Promise<string | undefined> {
+	const list = await loadHubIntegrations()
+	const words = new Set(
+		query
+			.toLowerCase()
+			.split(/[^a-z0-9]+/)
+			.filter(Boolean)
+	)
+	const named = list.filter((name) => {
+		const slug = name.toLowerCase()
+		return words.has(slug) || slug.split(/[_-]/).some((part) => part && words.has(part))
+	})
+	return named.length === 1 ? named[0] : undefined
 }
 
 export const clearHubIntegrationsCache = () => {
@@ -1424,15 +1450,25 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		// than the semantic one: it takes no query, and it applies no similarity
 		// floor, so the near-misses worth reading as examples of how the integration
 		// is used survive instead of being cut.
-		const scripts: HubScriptHit[] = query
-			? await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
-			: ((
+		let scripts: HubScriptHit[]
+		if (query) {
+			const narrowTo = app ?? (await integrationNamedIn(query))
+			scripts = await ScriptService.queryHubScripts({ text: query, kind: 'script', app: narrowTo })
+			// An integration the hub covers thinly can have nothing above the similarity
+			// floor, and a named vendor must not turn a search into no result at all.
+			if (scripts.length === 0 && narrowTo !== app) {
+				scripts = await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
+			}
+		} else {
+			scripts =
+				(
 					await ScriptService.getTopHubScripts({
 						app,
 						kind: 'script',
 						limit: MAX_BROWSED_HUB_SCRIPTS
 					})
-				).asks ?? [])
+				).asks ?? []
+		}
 
 		if (scripts.length === 0) {
 			// A whiffed search still leaves the integration browsable, which is what
