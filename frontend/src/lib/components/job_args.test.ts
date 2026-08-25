@@ -71,6 +71,50 @@ describe('conformArgsToSchema', () => {
 		expect(dropped.undeclared).toEqual(['either.evil'])
 	})
 
+	// Merging the branches last-writer-wins validated the value against a branch the user
+	// never opened, so submitting deleted what they had just filled in — and blamed the
+	// script for it. Both orders, because either branch can be the one that loses.
+	it('shape-checks a colliding oneOf key against the branch it fits', () => {
+		const obj = {
+			title: 'obj',
+			properties: { src: { properties: { bucket: { type: 'string' } } } }
+		}
+		const list = { title: 'list', properties: { src: { items: { type: 'string' } } } }
+		for (const branches of [
+			[obj, list],
+			[list, obj]
+		]) {
+			const schema = { properties: { either: { oneOf: branches } } }
+			expect(
+				conformArgsToSchema({ either: { kind: 'obj', src: { bucket: 'b' } } }, schema)
+			).toEqual({
+				args: { either: { kind: 'obj', src: { bucket: 'b' } } },
+				resetKeys: [],
+				dropped: { undeclared: [], unshowable: [] }
+			})
+			expect(conformArgsToSchema({ either: { kind: 'list', src: ['a'] } }, schema).args).toEqual({
+				either: { kind: 'list', src: ['a'] }
+			})
+		}
+		// Fitting no branch is still unshowable: the collision widens what the form can
+		// show, it does not stop dropping what it cannot.
+		expect(
+			conformArgsToSchema(
+				{ either: { kind: 'a', src: { evil: 1 } } },
+				{
+					properties: {
+						either: {
+							oneOf: [
+								{ title: 'a', properties: { src: { type: 'string' } } },
+								{ title: 'b', properties: { src: { type: 'number' } } }
+							]
+						}
+					}
+				}
+			)
+		).toMatchObject({ args: { either: { kind: 'a' } }, dropped: { unshowable: ['either.src'] } })
+	})
+
 	// A value shaped unlike its schema matches no level below, so every filter walked
 	// past it and the form rendered nothing over an argument the run still carried.
 	it('drops a value whose shape contradicts the declared one', () => {

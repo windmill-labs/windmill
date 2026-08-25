@@ -109,20 +109,30 @@ const SCALAR_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
 const declaresDynMultiselect = (prop: any) =>
 	typeof prop?.format === 'string' && prop.format.startsWith('dynmultiselect-')
 
-function dropUndeclaredNested(value: any, prop: any, dropped: DroppedPaths, path: string): any {
-	if (value == null) return value
-	if (declaresDynMultiselect(prop) && !Array.isArray(value)) return DROP
-	if (typeof value !== 'object') return value
-	// A value the form cannot show is one the user would approve unseen: it matches no
-	// level below, so every filter falls straight through it, and `ArgInput` binds it to
-	// a widget that renders nothing — an object in a list slot, or in a scalar input.
-	if (SCALAR_TYPES.has(prop?.type)) return DROP
+/**
+ * Whether `prop` declares a slot the form can show `value` in. A value that fits nowhere
+ * is one the user would approve unseen: it matches no level below, so every filter falls
+ * straight through it, and `ArgInput` binds it to a widget that renders nothing — an
+ * object in a list slot, or in a scalar input.
+ */
+function fitsDeclaredShape(value: any, prop: any): boolean {
+	if (value == null) return true
+	if (declaresDynMultiselect(prop)) return Array.isArray(value)
+	if (typeof value !== 'object') return true
+	if (SCALAR_TYPES.has(prop?.type)) return false
 	const isArray = Array.isArray(value)
 	// Declared nested structure, never the declared `type`: a dyn-multiselect argument is
 	// `type: 'object'` holding an array, so reading `type` would drop what the user picked.
 	const declaresArray = prop?.items != null
 	const declaresObject = prop?.properties != null || Array.isArray(prop?.oneOf)
-	if (isArray ? declaresObject && !declaresArray : declaresArray && !declaresObject) return DROP
+	return !(isArray ? declaresObject && !declaresArray : declaresArray && !declaresObject)
+}
+
+function dropUndeclaredNested(value: any, prop: any, dropped: DroppedPaths, path: string): any {
+	if (value == null) return value
+	if (!fitsDeclaredShape(value, prop)) return DROP
+	if (typeof value !== 'object') return value
+	const isArray = Array.isArray(value)
 	if (prop?.properties && !isArray) {
 		return dropUndeclaredArgs(value, prop.properties, dropped, path)
 	}
@@ -142,7 +152,19 @@ function dropUndeclaredNested(value: any, prop: any, dropped: DroppedPaths, path
 		// The union of every branch, not the one the tag names: which branch is selected is
 		// runtime state, and pruning by a stale tag would delete what the user typed.
 		const union: Record<string, any> = {}
-		for (const branch of prop.oneOf) Object.assign(union, branch?.properties ?? {})
+		for (const branch of prop.oneOf) {
+			for (const [key, declared] of Object.entries(branch?.properties ?? {})) {
+				// Two branches can declare one key with shapes that exclude each other, so the
+				// declaration the value fits wins the union: a last-writer-wins merge validates
+				// what the user filled in against a branch they never opened, and drops it.
+				const held = union[key]
+				if (
+					held === undefined ||
+					(!fitsDeclaredShape(value[key], held) && fitsDeclaredShape(value[key], declared))
+				)
+					union[key] = declared
+			}
+		}
 		return dropUndeclaredArgs(value, union, dropped, path, ONE_OF_TAG_KEYS)
 	}
 	return value
