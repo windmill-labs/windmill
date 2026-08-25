@@ -106,9 +106,9 @@
 	<div class="mt-3">
 		{#if hasArgs}
 			<!-- The one thing here that runs before Run: a `dynselect-`/`dynmultiselect-`
-			argument makes DynamicInput execute that entrypoint on mount to fill its options,
-			so opening this card runs it, and Cancel does not undo it. Everything else waits
-			for the user, and a new surface added here must keep it that way. -->
+			argument makes DynamicInput execute that entrypoint on mount to fill its options —
+			a real job on the deployed script, carrying the other args as proposed, and Cancel
+			does not undo it. Everything else waits for the user; keep it that way. -->
 			<SchemaForm
 				bind:schema
 				helperScript={{ source: 'deployed', path: runForm.path, runnable_kind: 'script' }}
