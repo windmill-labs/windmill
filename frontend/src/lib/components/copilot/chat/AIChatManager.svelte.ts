@@ -811,7 +811,7 @@ export class AIChatManager {
 		this.#maskPersistQueue = this.#maskPersistQueue.then(() =>
 			this.historyManager
 				.saveChat(
-					this.displayMessages,
+					this.#interruptedSnapshot(),
 					this.messages,
 					this.contextUsage,
 					this.modifiedItems ? [...this.modifiedItems] : undefined
@@ -1135,7 +1135,7 @@ export class AIChatManager {
 		this.#jobPersistQueue = this.#jobPersistQueue.then(() =>
 			this.historyManager
 				.saveChat(
-					this.displayMessages,
+					this.#interruptedSnapshot(),
 					this.messages,
 					this.contextUsage,
 					undefined,
@@ -1836,11 +1836,6 @@ export class AIChatManager {
 				: message
 		)
 		if (!callback) {
-			// Nothing will resume the turn, so no later save carries this settled card the
-			// way the live path's end-of-turn write does.
-			void this.historyManager
-				.saveChat(this.displayMessages, this.messages, this.contextUsage)
-				.catch((e) => console.error('Failed to persist cancelled run form', e))
 			return
 		}
 		callback(undefined)
@@ -4632,6 +4627,13 @@ export class AIChatManager {
 	cancelLoadingTools = (messageText: 'Canceled' | 'Error' = 'Canceled') => {
 		this.displayMessages = this.settledToolDisplay(this.displayMessages, messageText)
 	}
+
+	/** What the transcript would be if the turn stopped here — for the writes that fire
+	 * mid-turn without ending it. Loading is a property of this page: reloading resolves
+	 * no card, so one stored still pending comes back asking for input nothing can
+	 * deliver. Settles the stored copy only; the live turn keeps its cards. */
+	#interruptedSnapshot = (): DisplayMessage[] =>
+		this.settledToolDisplay(this.displayMessages, 'Interrupted')
 }
 
 export const aiChatManager = new AIChatManager()

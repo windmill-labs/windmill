@@ -909,7 +909,7 @@ const runScriptSchema = z.object({
 const runScriptToolDef = createToolDef(
 	runScriptSchema,
 	'run_script',
-	"Run a DEPLOYED script for real, under the user's own permissions. The user always gets an argument form prefilled with `args` and decides what actually runs, so fill in every argument you can infer rather than leaving the form empty. Use this when the user asks to run or execute something; use test_run_script instead to try out a script you are writing.",
+	"Run a DEPLOYED script for real, under the user's own permissions. The user always gets an argument form prefilled with `args` and decides what actually runs, so fill in every argument you can infer rather than leaving the form empty. Call it even when you cannot supply them all: the form is where the user enters what you cannot, including required files and secrets, so open it rather than asking for those in chat. Use this when the user asks to run or execute something; use test_run_script instead to try out a script you are writing.",
 	{ strict: false }
 )
 
