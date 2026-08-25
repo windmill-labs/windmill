@@ -21,6 +21,8 @@
 		FolderService,
 		OauthService,
 		ResourceService,
+		UserService,
+		type User,
 		VariableService,
 		WorkspaceService
 	} from '$lib/gen'
@@ -87,7 +89,12 @@
 		defaultInstanceDbName: () => string
 		/** Name to open with, when the caller needs a table of a particular name rather
 		 * than whatever the user picks — the import wizard configures the one a project's
-		 * migrations target. Still editable; it is a starting point, not a lock. */
+		 * migrations target.
+		 *
+		 * Locked when `onFinishAlso` is also given, because that work targets this name and
+		 * nothing carries an edit through to it: renaming `main` to `other` would create
+		 * `other`, then run the migrations against `main`, fail, and leave a data table
+		 * nobody asked for. Editable without one, where the name is only a name. */
 		initialName?: string
 		/** Where the dialog portals to. `#content` is the app shell's scroll container,
 		 * which only exists inside the `(logged)` layout; a page reparented out of it
@@ -130,8 +137,46 @@
 		workspace: workspaceProp
 	}: Props = $props()
 
+	/** The caller needs this exact table, and has follow-up work bound to its name. */
+	const nameLocked = $derived(!!initialName && !!onFinishAlso)
+
 	/** Every write and every check goes through this, never `$workspaceStore` directly. */
 	const targetWorkspace = $derived(workspaceProp ?? $workspaceStore ?? '')
+
+	/**
+	 * Who the caller is *in the destination*, which is not who `$userStore` describes.
+	 *
+	 * `$userStore` is the membership of the workspace the app is in. Routing the API calls
+	 * elsewhere without routing this leaves the username behind: after a reload on the import
+	 * wizard's step 4 it names the workspace the user came from, and a resource path built
+	 * from it lands on `u/<someone-else>` inside the destination — failing an ownership check,
+	 * or for an admin, quietly putting database credentials in another member's namespace.
+	 */
+	let targetUser = $state<User | undefined>(undefined)
+	const aimedElsewhere = $derived(!!workspaceProp && workspaceProp !== $workspaceStore)
+	const ambientUsername = $derived($userStore?.username ?? '')
+	const targetUsername = $derived(aimedElsewhere ? (targetUser?.username ?? '') : ambientUsername)
+	$effect(() => {
+		const ws = workspaceProp
+		if (!ws || ws === $workspaceStore) {
+			targetUser = undefined
+			return
+		}
+		let live = true
+		UserService.whoami({ workspace: ws })
+			.then((u) => {
+				if (live) targetUser = u
+			})
+			.catch(() => {
+				// Not a member, or the call failed. Left unset: an empty username makes the
+				// default path obviously wrong rather than confidently wrong, and the create
+				// it feeds would be refused anyway.
+				if (live) targetUser = undefined
+			})
+		return () => {
+			live = false
+		}
+	})
 
 	const STEPS = ['Choose a database', 'Set it up', 'Review']
 
@@ -228,7 +273,7 @@
 	function defaultFolder(list: string[] = folders): string {
 		// The first folder this admin can write to, so the resource lands somewhere the team
 		// can find and repair. A workspace with no folders falls back to the personal space.
-		return list.length ? `f/${list[0]}` : `u/${$userStore?.username ?? 'admin'}`
+		return list.length ? `f/${list[0]}` : `u/${targetUsername || 'admin'}`
 	}
 
 	// A row this run wrote and could not take back out is still its own: `removeRow` reports
@@ -736,7 +781,7 @@
 				onPoolerUnavailable: (reason) => (poolerUnavailable = reason),
 				createdProjects,
 				claims,
-				username: $userStore?.username ?? ''
+				username: targetUsername
 			})
 		} finally {
 			// The caller's own finishing work, appended to the same checklist. It only runs
@@ -1436,8 +1481,14 @@
 		<TextInput
 			bind:value={wiz.review.name}
 			error={!!nameError || !!nameConflict}
-			inputProps={{ placeholder: 'main' }}
+			inputProps={{ placeholder: 'main', disabled: nameLocked }}
 		/>
+		{#if nameLocked}
+			<p class="text-2xs text-secondary">
+				Fixed: the project's migrations target this name, and they run against it whatever
+				this table ends up called.
+			</p>
+		{/if}
 		<InputError error={nameError ?? (nameConflict || undefined)} />
 	</Label>
 
