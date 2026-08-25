@@ -289,11 +289,10 @@
 		expandOverrides = next
 	}
 
-	// The row menu takes the place of the row's own icon while you are on the row.
+	// The row menu appears while you are on the row, just left of the chevron or
+	// star. Out of flow, so rows without one are not padded to make room.
 	const rowActionsClass =
-		'absolute left-1/2 -translate-x-1/2 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100'
-	const rowIconClass = (hasMenu: boolean) =>
-		'shrink-0 transition-opacity ' + (hasMenu ? 'group-hover:opacity-0' : '')
+		'absolute right-full mr-0.5 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100'
 
 	const rowChevronClass = (open: boolean) =>
 		'shrink-0 text-secondary transition-transform ' + (open ? '' : '-rotate-90')
@@ -525,8 +524,18 @@
 								class="shrink-0"
 							/>
 						{/if}
-						<div class="relative shrink-0 h-8 w-3.5 flex items-center justify-center">
-							<DatabaseIcon class={rowIconClass(hasMenu)} size={14} />
+						<DatabaseIcon class="shrink-0" size={14} />
+						<span class="truncate text-ellipsis text-left text-xs">{root.datatable}</span>
+						{#if roleInfo}
+							{@const dt = root.datatable}
+							<DatatableRoleBadge
+								role={roleInfo.role}
+								roles={roleInfo.roles}
+								onSelect={(role) => onSelectRole?.(dt, role)}
+							/>
+						{/if}
+						<div class="grow"></div>
+						<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
 							{#if hasMenu}
 								{@const dt = root.datatable}
 								<DropdownV2
@@ -561,18 +570,6 @@
 									btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
 								/>
 							{/if}
-						</div>
-						<span class="truncate text-ellipsis text-left text-xs">{root.datatable}</span>
-						{#if roleInfo}
-							{@const dt = root.datatable}
-							<DatatableRoleBadge
-								role={roleInfo.role}
-								roles={roleInfo.roles}
-								onSelect={(role) => onSelectRole?.(dt, role)}
-							/>
-						{/if}
-						<div class="grow"></div>
-						<div class="shrink-0 w-6 h-8 flex items-center justify-end mr-2">
 							<ChevronDownIcon class={rowChevronClass(dtOpen)} size={14} />
 						</div>
 					</button>
@@ -601,8 +598,9 @@
 										class="shrink-0"
 									/>
 								{/if}
-								<div class="relative shrink-0 h-8 w-3.5 flex items-center justify-center">
-									<FolderIcon class={rowIconClass(!multiSelectMode)} size={14} />
+								<FolderIcon class="shrink-0" size={14} />
+								<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
+								<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
 									{#if !multiSelectMode}
 										<DropdownV2
 											enableFlyTransition
@@ -617,9 +615,6 @@
 											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
 										/>
 									{/if}
-								</div>
-								<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
-								<div class="shrink-0 w-6 h-8 flex items-center justify-end mr-2">
 									<ChevronDownIcon class={rowChevronClass(schemaOpen)} size={14} />
 								</div>
 							</button>
@@ -660,8 +655,11 @@
 											class="shrink-0"
 										/>
 									{/if}
-									<div class="relative shrink-0 h-8 w-3.5 flex items-center justify-center">
-										<Table2 class={rowIconClass(hasMenu)} size={14} />
+									<Table2 class="shrink-0" size={14} />
+									<p class="db-manager-table-key truncate text-ellipsis grow text-left text-xs">
+										{tableKey}
+									</p>
+									<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-1">
 										{#if hasMenu}
 											<DropdownV2
 												enableFlyTransition
@@ -681,18 +679,13 @@
 												btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
 											/>
 										{/if}
-									</div>
-									<p class="db-manager-table-key truncate text-ellipsis grow text-left text-xs">
-										{tableKey}
-									</p>
-									{#if asset}
-										<div class="shrink-0 w-6 h-8 flex items-center justify-end mr-1">
+										{#if asset}
 											<Star
 												kind="asset"
 												path={tableAssetPath(root.datatable, sc.schemaKey, tableKey)}
 											/>
-										</div>
-									{/if}
+										{/if}
+									</div>
 								</button>
 							{/each}
 							<button
