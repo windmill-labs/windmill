@@ -5498,7 +5498,9 @@ async fn handle_code_execution_job(
         None => job,
     };
 
-    // For preview jobs, extract modules from args._MODULES if not already set
+    // Any job kind, not just previews: whatever is here is what gets written to the job dir
+    // and built in, so the agent-worker server precomputing a cache name has to resolve
+    // modules the same way (`windmill-api-agent-workers`, `get_code_and_lock`).
     let modules = modules_from_data.clone().or_else(|| {
         job.args.as_ref().and_then(|args| {
             args.get("_MODULES").and_then(|raw| {
