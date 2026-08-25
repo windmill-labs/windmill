@@ -2743,6 +2743,30 @@ pub(crate) async fn resolve_pg_source_checked(
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
 }
 
+/// Whether `source` names a data table backed by the Windmill instance's own
+/// PostgreSQL rather than a user resource.
+async fn is_instance_datatable(db: &DB, w_id: &str, source: &str) -> Result<bool> {
+    let Some(dt_name) = source.strip_prefix("datatable://") else {
+        return Ok(false);
+    };
+    let config = sqlx::query_scalar!(
+        "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
+        w_id,
+        dt_name
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    Ok(config
+        .and_then(|v| {
+            v.get("database")
+                .and_then(|d| d.get("resource_type"))
+                .and_then(|r| r.as_str())
+                .map(|s| s == "instance")
+        })
+        .unwrap_or(false))
+}
+
 /// A temporary file for pg_dump output that is automatically deleted when dropped.
 pub(crate) struct DumpFile {
     pub(crate) path: std::path::PathBuf,
@@ -2794,10 +2818,7 @@ impl Drop for DumpFile {
 pub(crate) struct PgDumpOptions<'a> {
     pub(crate) schema_only: bool,
     pub(crate) exclude_tables: &'a [&'a str],
-    /// Leave out `ALTER ... OWNER TO`, `GRANT` and `ALTER DEFAULT PRIVILEGES`: a
-    /// dump replayed through a data table's own connection user is neither a member
-    /// of the source's roles nor the owner of the target schema, so it can neither
-    /// hand over ownership nor re-grant. Windmill grants the target its own.
+    /// Leave out `ALTER ... OWNER TO`, `GRANT` and `ALTER DEFAULT PRIVILEGES`.
     pub(crate) no_owner_or_acl: bool,
 }
 
@@ -2871,12 +2892,10 @@ fn preamble_setting_name(line: &[u8]) -> Option<&str> {
     std::str::from_utf8(name).ok()
 }
 
-/// pg_dump's preamble is generated from the *client's* version, and Windmill ships
-/// the newest postgres client, so a server a few majors behind is handed GUCs it
-/// does not have (`transaction_timeout` is PG 17+). They only tune the session the
-/// dump was taken in, yet one of them failing is enough to abort a restore that
-/// stops on the first error, so comment out the ones this server does not know —
-/// in place, three bytes each, so the offsets of the data section stay put.
+/// Windmill ships the newest postgres client, whose dump preamble sets GUCs an older
+/// server does not have (`transaction_timeout` is PG 17+) — harmless session tuning,
+/// but one failing statement aborts a restore that stops on the first error. Comment
+/// them out in place, three bytes each, so the data section's offsets stay put.
 async fn comment_out_unsupported_settings(
     dump_file: &DumpFile,
     supported_settings: &HashSet<String>,
@@ -2945,11 +2964,10 @@ async fn server_setting_names(db: &DB, pg_db: &PgDatabase) -> Result<HashSet<Str
 
 /// Import a pg_dump file into a target database using psql.
 ///
-/// Left to its defaults psql reports a failed statement, carries on with the rest
-/// of the script and still exits 0, so a dump that breaks partway through imports
-/// partially and is reported as a success. ON_ERROR_STOP surfaces the failure and
-/// --single-transaction makes the restore all-or-nothing, leaving the target as it
-/// was and the import retryable rather than half-populated.
+/// Left to its defaults psql reports a failed statement, carries on and still exits 0,
+/// so a dump that breaks partway through imports partially and reads as a success.
+/// ON_ERROR_STOP surfaces the failure and --single-transaction makes the restore
+/// all-or-nothing, leaving the target as it was and the import retryable.
 async fn pg_import_dump(db: &DB, target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
     let supported_settings = server_setting_names(db, target_db).await?;
     comment_out_unsupported_settings(dump_file, &supported_settings).await?;
@@ -3030,29 +3048,7 @@ async fn create_pg_database(
         }
     }
 
-    // Determine if this is an instance or resource-backed datatable
-    let is_instance_datatable = if let Some(dt_name) = req.source.strip_prefix("datatable://") {
-        let config = sqlx::query_scalar!(
-            "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
-            &w_id,
-            dt_name
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten();
-        config
-            .and_then(|v| {
-                v.get("database")
-                    .and_then(|d| d.get("resource_type"))
-                    .and_then(|r| r.as_str())
-                    .map(|s| s == "instance")
-            })
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if is_instance_datatable {
+    if is_instance_datatable(&db, &w_id, &req.source).await? {
         windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
             .await?;
     } else {
@@ -3150,9 +3146,15 @@ async fn import_pg_database(
     }
     windmill_common::validate_dbname(&target_pg.dbname)?;
 
+    // An instance data table connects as `custom_instance_user`, which owns neither the
+    // source's objects nor the target schema: replaying the dump's ownership and grant
+    // statements always fails for it, and a failed statement aborts the whole restore. Any
+    // other target owns its objects — keep its ACLs rather than widening its permissions.
+    let no_owner_or_acl = is_instance_datatable(&db, &w_id, &req.target).await?;
+
     let dump_file = pg_dump_database(
         &source_pg,
-        PgDumpOptions { schema_only, no_owner_or_acl: true, ..Default::default() },
+        PgDumpOptions { schema_only, no_owner_or_acl, ..Default::default() },
     )
     .await?;
     pg_import_dump(&db, &target_pg, &dump_file).await?;
