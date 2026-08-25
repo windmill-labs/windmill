@@ -4,7 +4,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { untrack } from 'svelte'
-	import { resource } from 'runed'
+	import { resource, watch } from 'runed'
 	import { Button } from './common'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
@@ -109,11 +109,10 @@
 			: true
 	})
 
-	// The bare read is the dependency: `loadItems` closes over `ws`.
-	$effect(() => {
-		ws
-		untrack(() => itemPicker?.reloadItems())
-	})
+	watch(
+		() => ws,
+		() => itemPicker?.reloadItems()
+	)
 
 	let keys: string[] = $state([])
 	$effect(() => {

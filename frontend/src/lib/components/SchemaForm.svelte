@@ -15,6 +15,7 @@
 	import { Plus } from 'lucide-svelte'
 	import ArgInput from './ArgInput.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
+	import { watch } from 'runed'
 	import { deepEqual } from 'fast-equals'
 	import {
 		dragHandleZone,
@@ -155,11 +156,10 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	// The bare read is the dependency: `loadItems` closes over `ws`.
-	$effect(() => {
-		ws
-		untrack(() => itemPicker?.reloadItems())
-	})
+	watch(
+		() => ws,
+		() => itemPicker?.reloadItems()
+	)
 
 	let resourceTypes: string[] | undefined = $state(undefined)
 
