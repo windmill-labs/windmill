@@ -48,9 +48,15 @@
 		table: string
 	}
 
-	/** A create started from a row of another data table. Switching data table
-	 * re-mounts this component, so the request has to travel through the parent. */
-	export type PendingCreate = { kind: 'table'; schema: string } | { kind: 'schema' }
+	/** A row action started on a data table other than the current one. Switching
+	 * data table re-mounts this component, so the request — which has to run
+	 * against the connection of the data table it names — travels through the
+	 * parent. */
+	export type PendingRowAction =
+		| { kind: 'create-table'; schema: string }
+		| { kind: 'create-schema' }
+		| { kind: 'alter-table'; schema: string; table: string }
+		| { kind: 'delete-table'; schema: string; table: string }
 
 	type Props = {
 		dbType: DbType
@@ -73,7 +79,7 @@
 		onSelectDatatable?: (datatable: string) => void
 		/** Role the manager is connected as, when it is not the default one. */
 		currentRole?: string
-		pendingCreate?: PendingCreate | undefined
+		pendingAction?: PendingRowAction | undefined
 		/** Row-menu actions on a data table, run against that row's data table. */
 		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
 		canManageDatatable?: boolean
@@ -104,7 +110,7 @@
 		datatableTreeLoading,
 		onSelectDatatable,
 		currentRole,
-		pendingCreate = $bindable(undefined),
+		pendingAction = $bindable(undefined),
 		onDatatableAction,
 		canManageDatatable = false,
 		multiSelectMode = false,
@@ -278,16 +284,14 @@
 		expandOverrides = next
 	}
 
-	// Row actions stay out of the way until you are on the row.
+	// The row menu takes the place of the row's own icon while you are on the row.
 	const rowActionsClass =
-		'absolute right-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100'
+		'absolute left-1/2 -translate-x-1/2 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100'
+	const rowIconClass = (hasMenu: boolean) =>
+		'shrink-0 transition-opacity ' + (hasMenu ? 'group-hover:opacity-0' : '')
 
-	// The chevron is the resting state of that slot: it gives way to the menu
-	// rather than sitting beside it.
 	const rowChevronClass = (open: boolean) =>
-		'absolute right-0 pointer-events-none text-secondary transition-all opacity-100 ' +
-		(multiSelectMode ? '' : 'group-hover:opacity-0 ') +
-		(open ? '' : '-rotate-90')
+		'shrink-0 text-secondary transition-transform ' + (open ? '' : '-rotate-90')
 
 	/** Reveal a node, dropping a stale "closed" that would hide a new selection. */
 	function reveal(dt: string | undefined, schemaKey?: string) {
@@ -311,38 +315,71 @@
 		selected = { schemaKey, tableKey }
 	}
 
-	function startCreateTable(dt: string | undefined, schemaKey: string) {
-		if (dt !== undefined && dt !== currentDatatable) {
-			selectedSchemaKey = schemaKey
-			pendingCreate = { kind: 'table', schema: schemaKey }
-			onSelectDatatable?.(dt)
-			return
-		}
-		selected = { schemaKey, tableKey: undefined }
+	/** Run a row action on the data table it belongs to, switching to it first
+	 * when it is not the one the manager is connected to. */
+	function onDatatable(dt: string | undefined, action: PendingRowAction): boolean {
+		if (dt === undefined || dt === currentDatatable) return true
+		if ('schema' in action) selectedSchemaKey = action.schema
+		if ('table' in action) selectedTableKey = action.table
+		pendingAction = action
+		onSelectDatatable?.(dt)
+		return false
+	}
+
+	function startCreateTable(dt: string | undefined, schema: string) {
+		if (!onDatatable(dt, { kind: 'create-table', schema })) return
+		selected = { schemaKey: schema, tableKey: undefined }
 		dbTableEditorState = { open: true }
 	}
 
 	function startCreateSchema(dt: string | undefined) {
-		if (dt !== undefined && dt !== currentDatatable) {
-			pendingCreate = { kind: 'schema' }
-			onSelectDatatable?.(dt)
-			return
-		}
+		if (!onDatatable(dt, { kind: 'create-schema' })) return
 		newSchemaDialogOpen = true
 	}
 
-	// Finishes a create requested before the switch, now that this component is
+	function startAlterTable(dt: string | undefined, schema: string, table: string) {
+		if (!onDatatable(dt, { kind: 'alter-table', schema, table })) return
+		selected = { schemaKey: schema, tableKey: table }
+		dbTableEditorState = { open: true, alterTableKey: table }
+	}
+
+	function startDeleteTable(dt: string | undefined, schema: string, table: string) {
+		if (!onDatatable(dt, { kind: 'delete-table', schema, table })) return
+		askingForConfirmation = {
+			title: `Are you sure you want to delete ${table} ? This action is irreversible`,
+			confirmationText: 'Delete permanently',
+			open: true,
+			id: 'db-manager-delete-table-confirmation-modal',
+			onConfirm: async () => {
+				askingForConfirmation && (askingForConfirmation.loading = true)
+				try {
+					await dbSchemaOps.onDelete({ tableKey: table, schema })
+					refresh?.()
+					sendUserToast(`Table '${table}' deleted successfully`)
+				} catch (e) {
+					let msg: string | undefined = (e as any).body ?? (e as Error).message
+					if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
+					sendUserToast(msg ?? 'Action failed!', true)
+				}
+				askingForConfirmation = undefined
+			}
+		}
+	}
+
+	// Finishes an action requested before the switch, now that this component is
 	// mounted against the data table it targeted.
 	$effect(() => {
-		const req = pendingCreate
+		const req = pendingAction
 		if (!req || !schemaKeys.length) return
-		pendingCreate = undefined
-		if (req.kind === 'schema') {
+		pendingAction = undefined
+		if (req.kind === 'create-schema') {
 			newSchemaDialogOpen = true
-		} else if (schemaKeys.includes(req.schema)) {
-			selected = { schemaKey: req.schema, tableKey: undefined }
-			dbTableEditorState = { open: true }
+			return
 		}
+		if (!schemaKeys.includes(req.schema)) return
+		if (req.kind === 'create-table') startCreateTable(undefined, req.schema)
+		else if (req.kind === 'alter-table') startAlterTable(undefined, req.schema, req.table)
+		else startDeleteTable(undefined, req.schema, req.table)
 	})
 
 	let search = $state('')
@@ -466,6 +503,7 @@
 			{#each treeRoots as root (root.datatable ?? '')}
 				{@const dtOpen = isExpanded(root.datatable)}
 				{#if root.datatable !== undefined}
+					{@const hasMenu = !multiSelectMode && onDatatableAction !== undefined}
 					<button
 						class="group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10"
 						onclick={() => toggle(root.datatable)}
@@ -481,50 +519,50 @@
 								class="shrink-0"
 							/>
 						{/if}
-						<DatabaseIcon class="shrink-0" size={14} />
+						<div class="relative shrink-0 h-8 w-3.5 flex items-center justify-center">
+							<DatabaseIcon class={rowIconClass(hasMenu)} size={14} />
+							{#if hasMenu}
+								{@const dt = root.datatable}
+								<DropdownV2
+									enableFlyTransition
+									items={() => [
+										{
+											displayName: 'Migrations',
+											icon: HistoryIcon,
+											action: () => onDatatableAction?.(dt, 'migrations')
+										},
+										...(canManageDatatable
+											? [
+													{
+														displayName: 'Roles',
+														icon: KeyRoundIcon,
+														action: () => onDatatableAction?.(dt, 'roles')
+													}
+												]
+											: []),
+										{
+											displayName: 'Export',
+											icon: DownloadIcon,
+											action: () => onDatatableAction?.(dt, 'export')
+										},
+										{
+											displayName: 'Import',
+											icon: UploadIcon,
+											action: () => onDatatableAction?.(dt, 'import')
+										}
+									]}
+									class={rowActionsClass}
+									btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
+								/>
+							{/if}
+						</div>
 						<span class="truncate text-ellipsis text-left text-xs">{root.datatable}</span>
 						{#if roleOf(root.datatable) !== undefined}
 							<Badge small color="gray">{roleOf(root.datatable)}</Badge>
 						{/if}
 						<div class="grow"></div>
-						<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+						<div class="shrink-0 w-6 h-8 flex items-center justify-end mr-2">
 							<ChevronDownIcon class={rowChevronClass(dtOpen)} size={14} />
-							{#if !multiSelectMode}
-								{#if onDatatableAction}
-									{@const dt = root.datatable}
-									<DropdownV2
-										enableFlyTransition
-										items={() => [
-											{
-												displayName: 'Migrations',
-												icon: HistoryIcon,
-												action: () => onDatatableAction?.(dt, 'migrations')
-											},
-											...(canManageDatatable
-												? [
-														{
-															displayName: 'Roles',
-															icon: KeyRoundIcon,
-															action: () => onDatatableAction?.(dt, 'roles')
-														}
-													]
-												: []),
-											{
-												displayName: 'Export',
-												icon: DownloadIcon,
-												action: () => onDatatableAction?.(dt, 'export')
-											},
-											{
-												displayName: 'Import',
-												icon: UploadIcon,
-												action: () => onDatatableAction?.(dt, 'import')
-											}
-										]}
-										class="-mr-2 {rowActionsClass}"
-										btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
-									/>
-								{/if}
-							{/if}
 						</div>
 					</button>
 				{/if}
@@ -552,10 +590,8 @@
 										class="shrink-0"
 									/>
 								{/if}
-								<FolderIcon class="shrink-0" size={14} />
-								<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
-								<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
-									<ChevronDownIcon class={rowChevronClass(schemaOpen)} size={14} />
+								<div class="relative shrink-0 h-8 w-3.5 flex items-center justify-center">
+									<FolderIcon class={rowIconClass(!multiSelectMode)} size={14} />
 									{#if !multiSelectMode}
 										<DropdownV2
 											enableFlyTransition
@@ -566,10 +602,14 @@
 													action: () => (schemaPermissionsOpen = true)
 												}
 											]}
-											class="-mr-2 {rowActionsClass}"
+											class={rowActionsClass}
 											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
 										/>
 									{/if}
+								</div>
+								<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
+								<div class="shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+									<ChevronDownIcon class={rowChevronClass(schemaOpen)} size={14} />
 								</div>
 							</button>
 						{/if}
@@ -587,6 +627,7 @@
 									schema: sc.schemaKey,
 									table: tableKey
 								}}
+								{@const hasMenu = !multiSelectMode}
 								{@const isSelected =
 									root.datatable === currentDatatable &&
 									selected.schemaKey === sc.schemaKey &&
@@ -608,66 +649,38 @@
 											class="shrink-0"
 										/>
 									{/if}
+									<div class="relative shrink-0 h-8 w-3.5 flex items-center justify-center">
+										<Table2 class={rowIconClass(hasMenu)} size={14} />
+										{#if hasMenu}
+											<DropdownV2
+												enableFlyTransition
+												items={() => [
+													{
+														displayName: 'Delete table',
+														icon: Trash2Icon,
+														action: () => startDeleteTable(root.datatable, sc.schemaKey, tableKey)
+													},
+													{
+														displayName: 'Alter table',
+														icon: EditIcon,
+														action: () => startAlterTable(root.datatable, sc.schemaKey, tableKey)
+													}
+												]}
+												class={rowActionsClass}
+												btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
+											/>
+										{/if}
+									</div>
+									<p class="db-manager-table-key truncate text-ellipsis grow text-left text-xs">
+										{tableKey}
+									</p>
 									{#if asset}
-										<!-- Star carries its own p-1 for a bigger hit area; pull it back so its
-											     glyph lands on the same indent grid as a bare icon. -->
-										<span class="-ml-1 flex shrink-0">
+										<div class="shrink-0 w-6 h-8 flex items-center justify-end mr-1">
 											<Star
 												kind="asset"
 												path={tableAssetPath(root.datatable, sc.schemaKey, tableKey)}
 											/>
-										</span>
-									{:else}
-										<Table2 class="shrink-0" size={14} />
-									{/if}
-									<p class="db-manager-table-key truncate text-ellipsis grow text-left text-xs">
-										{tableKey}
-									</p>
-									{#if !multiSelectMode && (root.datatable === currentDatatable || root.datatable === undefined)}
-										<DropdownV2
-											enableFlyTransition
-											items={() => [
-												{
-													displayName: 'Delete table',
-													icon: Trash2Icon,
-													action: () =>
-														(askingForConfirmation = {
-															title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
-															confirmationText: 'Delete permanently',
-															open: true,
-															id: 'db-manager-delete-table-confirmation-modal',
-															onConfirm: async () => {
-																askingForConfirmation && (askingForConfirmation.loading = true)
-																try {
-																	await dbSchemaOps.onDelete({
-																		tableKey,
-																		schema: sc.schemaKey
-																	})
-																	refresh?.()
-																	sendUserToast(`Table '${tableKey}' deleted successfully`)
-																} catch (e) {
-																	let msg: string | undefined =
-																		(e as any).body ?? (e as Error).message
-																	if (typeof msg !== 'string')
-																		msg = e ? JSON.stringify(e) : undefined
-																	sendUserToast(msg ?? 'Action failed!', true)
-																}
-																askingForConfirmation = undefined
-															}
-														})
-												},
-												{
-													displayName: 'Alter table',
-													icon: EditIcon,
-													action: () => {
-														selected = { schemaKey: sc.schemaKey, tableKey }
-														dbTableEditorState = { open: true, alterTableKey: tableKey }
-													}
-												}
-											]}
-											class="mr-1 {rowActionsClass}"
-											btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
-										/>
+										</div>
 									{/if}
 								</button>
 							{/each}
