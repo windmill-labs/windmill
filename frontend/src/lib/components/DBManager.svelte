@@ -8,6 +8,9 @@
 		Table2,
 		Database as DatabaseIcon,
 		Folder as FolderIcon,
+		History as HistoryIcon,
+		KeyRound as KeyRoundIcon,
+		Download as DownloadIcon,
 		Trash2Icon,
 		UploadIcon
 	} from 'lucide-svelte'
@@ -33,6 +36,7 @@
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import Star from './Star.svelte'
 	import type { Asset, DataTableTables } from '$lib/gen'
+	import type { DatatableRowAction } from './dbTypes'
 	import TextInput from './text_input/TextInput.svelte'
 
 	/** Represents a selected table with its schema */
@@ -63,6 +67,9 @@
 		datatableTree?: DataTableTables[]
 		datatableTreeLoading?: boolean
 		onSelectDatatable?: (datatable: string) => void
+		/** Row-menu actions on a data table, run against that row's data table. */
+		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
+		canManageDatatable?: boolean
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
 		/** Selected tables in multi-select mode */
@@ -90,6 +97,8 @@
 		datatableTree,
 		datatableTreeLoading,
 		onSelectDatatable,
+		onDatatableAction,
+		canManageDatatable = false,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
@@ -217,6 +226,10 @@
 	// overrides is what lets the current data table and selected schema — which
 	// default to open — actually be folded; a plain "expanded" set could never
 	// close them, since the default would keep winning.
+	// Schema-level permissions are not built yet; the drawer is the shell the row
+	// menu already opens onto.
+	let schemaPermissionsOpen = $state(false)
+
 	let expandOverrides = $state<Map<string, boolean>>(new Map())
 	const nodeKey = (dt: string | undefined, schemaKey?: string) =>
 		`${dt ?? ''}${schemaKey === undefined ? '' : `/${schemaKey}`}`
@@ -239,6 +252,12 @@
 		next.set(key, !open)
 		expandOverrides = next
 	}
+
+	// Row actions stay out of the way until you are on the row — or it is the one
+	// you are looking at, where the menu is part of the current context.
+	const rowActionsClass = (current: boolean) =>
+		'w-fit -mr-1 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ' +
+		(current ? 'opacity-100' : 'opacity-0')
 
 	/** Every row in the tree reads the same way: what you are looking at now is
 	 * emphasized, everything else recedes. */
@@ -557,12 +576,45 @@
 					{@const dtOpen = isExpanded(root.datatable)}
 					{#if root.datatable !== undefined}
 						<button
-							class={'w-full text-sm flex gap-2 items-center h-8 cursor-pointer pl-2 pr-1 hover:bg-gray-500/10 ' +
+							class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pl-2 pr-1 hover:bg-gray-500/10 ' +
 								rowText(root.datatable === currentDatatable)}
 							onclick={() => toggle(root.datatable)}
 						>
 							<DatabaseIcon class="shrink-0" size={14} />
 							<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
+							{#if onDatatableAction}
+								{@const dt = root.datatable}
+								<DropdownV2
+									items={() => [
+										{
+											displayName: 'Migrations',
+											icon: HistoryIcon,
+											action: () => onDatatableAction?.(dt, 'migrations')
+										},
+										...(canManageDatatable
+											? [
+													{
+														displayName: 'Roles',
+														icon: KeyRoundIcon,
+														action: () => onDatatableAction?.(dt, 'roles')
+													}
+												]
+											: []),
+										{
+											displayName: 'Export',
+											icon: DownloadIcon,
+											action: () => onDatatableAction?.(dt, 'export')
+										},
+										{
+											displayName: 'Import',
+											icon: UploadIcon,
+											action: () => onDatatableAction?.(dt, 'import')
+										}
+									]}
+									class={rowActionsClass(root.datatable === currentDatatable)}
+									btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
+								/>
+							{/if}
 							<ChevronDownIcon
 								class={'shrink-0 mr-1 text-secondary transition-transform ' +
 									(dtOpen ? '' : '-rotate-90')}
@@ -579,7 +631,7 @@
 							{@const indent = root.datatable !== undefined ? 'pl-6' : 'pl-2'}
 							{#if dbSupportsSchemas}
 								<button
-									class={'w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
+									class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
 										indent +
 										' ' +
 										rowText(
@@ -589,6 +641,19 @@
 								>
 									<FolderIcon class="shrink-0" size={14} />
 									<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
+									<DropdownV2
+										items={() => [
+											{
+												displayName: 'Permissions',
+												icon: KeyRoundIcon,
+												action: () => (schemaPermissionsOpen = true)
+											}
+										]}
+										class={rowActionsClass(
+											root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey
+										)}
+										btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
+									/>
 									<ChevronDownIcon
 										class={'shrink-0 mr-1 text-secondary transition-transform ' +
 											(schemaOpen ? '' : '-rotate-90')}
@@ -670,7 +735,7 @@
 														}
 													}
 												]}
-												class="w-fit -mr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+												class={rowActionsClass(isSelected)}
 												btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
 											/>
 										{/if}
@@ -743,7 +808,11 @@
 </Splitpanes>
 
 <Portal>
-	<ConfirmationModal
+	<Drawer bind:open={schemaPermissionsOpen} size="900px">
+	<DrawerContent title="Schema permissions" on:close={() => (schemaPermissionsOpen = false)} />
+</Drawer>
+
+<ConfirmationModal
 		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
 		on:canceled={() => (askingForConfirmation = undefined)}
 		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}

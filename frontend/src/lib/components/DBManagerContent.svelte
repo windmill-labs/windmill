@@ -2,6 +2,7 @@
 	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
 	import type { Snippet } from 'svelte'
 	import type { DataTableTables } from '$lib/gen'
+	import type { DatatableRowAction } from './dbTypes'
 	import { sortArray } from '$lib/utils'
 	import { Loader2, RefreshCcw } from 'lucide-svelte'
 	import Alert from './common/alert/Alert.svelte'
@@ -44,6 +45,8 @@
 		datatableTree?: DataTableTables[]
 		datatableTreeLoading?: boolean
 		onSelectDatatable?: (datatable: string) => void
+		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
+		canManageDatatable?: boolean
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
 		/** Selected tables in multi-select mode */
@@ -70,6 +73,8 @@
 		datatableTree,
 		datatableTreeLoading,
 		onSelectDatatable,
+		onDatatableAction,
+		canManageDatatable,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
@@ -322,6 +327,8 @@
 				{datatableTree}
 				{datatableTreeLoading}
 				{onSelectDatatable}
+				{onDatatableAction}
+				{canManageDatatable}
 				{onImport}
 				bind:selectedSchemaKey
 				bind:selectedTableKey

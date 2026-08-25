@@ -26,3 +26,6 @@ export const dbTypes = [
 	'duckdb'
 ] as const
 export const isDbType = (str?: string): str is DbType => !!str && dbTypes.includes(str as DbType)
+
+/** A row-menu action on a data table in the database manager's tree. */
+export type DatatableRowAction = 'migrations' | 'roles' | 'export' | 'import'

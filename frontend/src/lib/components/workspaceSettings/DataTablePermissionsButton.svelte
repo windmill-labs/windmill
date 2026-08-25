@@ -31,11 +31,15 @@
 	let {
 		workspace,
 		datatable,
-		disabled = false
+		disabled = false,
+		hideTrigger = false
 	}: {
 		workspace: string
 		datatable: string
 		disabled?: boolean
+		/** Mount the drawer without its button, so a caller can drive it via `open()`
+		 * (the database manager opens it from the tree's row menu). */
+		hideTrigger?: boolean
 	} = $props()
 
 	const ADMIN_ROLE = 'admin'
@@ -124,6 +128,12 @@
 		load()
 	}
 
+	/** Open the drawer without the trigger button (the database manager's tree
+	 * row menu drives it). Not named `open`: that is the drawer's own state. */
+	export function openPermissions() {
+		openDrawer()
+	}
+
 	function addRole() {
 		roles.push({ id: randomUUID(), name: '', tenants: [] })
 	}
@@ -208,16 +218,18 @@
 	}
 </script>
 
-<Button
-	size="xs"
-	color="light"
-	variant="border"
-	startIcon={{ icon: KeyRound }}
-	iconOnly
-	{disabled}
-	title="Permissions: restrict who can use this data table, and as which database role"
-	on:click={openDrawer}
-/>
+{#if !hideTrigger}
+	<Button
+		size="xs"
+		color="light"
+		variant="border"
+		startIcon={{ icon: KeyRound }}
+		iconOnly
+		{disabled}
+		title="Permissions: restrict who can use this data table, and as which database role"
+		on:click={openDrawer}
+	/>
+{/if}
 
 <Drawer bind:open size="900px">
 	<DrawerContent

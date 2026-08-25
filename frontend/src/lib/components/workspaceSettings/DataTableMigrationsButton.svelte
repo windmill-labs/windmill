@@ -106,6 +106,11 @@
 
 	// Open the list modal and the detail view for a specific migration. Used to
 	// jump to a just-created migration from the "See migration" toast action.
+	/** Open the migrations list without the trigger button (tree menus drive it). */
+	export function open() {
+		openList()
+	}
+
 	export async function openMigration(timestamp: number) {
 		listOpen = true
 		await loadMigrations()

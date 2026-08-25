@@ -8,18 +8,17 @@
 	import {
 		ArrowLeft,
 		Copy,
-		Download,
 		Expand,
 		Minimize,
 		RefreshCcw,
-		Upload
 	} from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import DataTablePermissionsButton from './workspaceSettings/DataTablePermissionsButton.svelte'
 	import { resource } from 'runed'
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import type { DbManagerUriState } from './dbManagerDrawerModel.svelte'
+	import type { DatatableRowAction } from './dbTypes'
 	import ResourcePicker from './ResourcePicker.svelte'
 	import Alert from './common/alert/Alert.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -135,6 +134,8 @@
 	let importDrawerOpen = $state(false)
 	let importLoading = $state(false)
 	let importSource = $state<string | undefined>(undefined)
+	/** Which database an import writes into; set when driven from a tree row. */
+	let importTarget = $state<string | undefined>(undefined)
 	let importBehavior = $state<'schema_only' | 'schema_and_data'>('schema_only')
 
 	let isPostgresqlInput = $derived(
@@ -154,13 +155,41 @@
 		return toSourceIdentifier(input.resourcePath)
 	}
 
+	// The tree's row menus act on the data table of the row that was clicked, which
+	// is not necessarily the one currently open — so the target is set first and the
+	// headless modals are keyed on it.
+	let actionDatatable = $state<string | undefined>(undefined)
+	let migrationsModal = $state<DataTableMigrationsButton | undefined>()
+	let permissionsDrawer = $state<DataTablePermissionsButton | undefined>()
+
+	async function runDatatableAction(datatable: string, action: DatatableRowAction) {
+		actionDatatable = datatable
+		// Let the keyed block above mount against the new target before driving it.
+		await tick()
+		switch (action) {
+			case 'migrations':
+				migrationsModal?.open()
+				break
+			case 'roles':
+				permissionsDrawer?.openPermissions()
+				break
+			case 'export':
+				await handleExportSchema(`datatable://${datatable}`)
+				break
+			case 'import':
+				importTarget = `datatable://${datatable}`
+				importDrawerOpen = true
+				break
+		}
+	}
+
 	function refreshManager() {
 		dbManagerContent?.refresh()
 		dbManagerContent?.dbManager()?.dbTable()?.refresh()
 	}
 
-	async function handleExportSchema() {
-		const source = currentSourceIdentifier()
+	async function handleExportSchema(explicitSource?: string) {
+		const source = explicitSource ?? currentSourceIdentifier()
 		if (!source || !ws) return
 		try {
 			exportResult = await WorkspaceService.exportPgSchema({
@@ -175,7 +204,7 @@
 
 	async function handleImportDatabase() {
 		if (!importSource || !ws) return
-		const target = currentSourceIdentifier()
+		const target = importTarget ?? currentSourceIdentifier()
 		if (!target) return
 		importLoading = true
 		try {
@@ -230,6 +259,8 @@
 					datatableTree={uriState.isDatatableInput ? datatables.current : undefined}
 					datatableTreeLoading={datatables.loading}
 					onSelectDatatable={(dt) => (uriState.selectedDatatable = dt)}
+					canManageDatatable={!!($superadmin || $userStore?.is_admin)}
+					onDatatableAction={runDatatableAction}
 					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
 					bind:hasReplResult
 					bind:selectedSchemaKey={uriState.selectedSchema}
@@ -242,22 +273,6 @@
 			{/key}
 		{/if}
 		{#snippet actions()}
-			{#if uriState.isDatatableInput && uriState.selectedDatatable && ws}
-				<DataTableMigrationsButton
-					workspace={ws}
-					datatable={uriState.selectedDatatable}
-					onSchemaChanged={refreshManager}
-				/>
-				{#if $superadmin || $userStore?.is_admin}
-					<DataTablePermissionsButton workspace={ws} datatable={uriState.selectedDatatable} />
-				{/if}
-			{/if}
-			{#if enableImportExport}
-				<Button startIcon={{ icon: Download }} onClick={handleExportSchema}>Export</Button>
-				<Button startIcon={{ icon: Upload }} onClick={() => (importDrawerOpen = true)}>
-					Import
-				</Button>
-			{/if}
 			{#if uriState.effectiveInput && ws}
 				<DbWorkerTagButton
 					bind:tag={() => workerTag.tag, (v) => (workerTag.tag = v)}
@@ -285,6 +300,22 @@
 		{/snippet}
 	</DrawerContent>
 </Drawer>
+
+{#if actionDatatable && ws}
+	<DataTableMigrationsButton
+		bind:this={migrationsModal}
+		hideTrigger
+		workspace={ws}
+		datatable={actionDatatable}
+		onSchemaChanged={refreshManager}
+	/>
+	<DataTablePermissionsButton
+		bind:this={permissionsDrawer}
+		hideTrigger
+		workspace={ws}
+		datatable={actionDatatable}
+	/>
+{/if}
 
 <Drawer bind:open={exportDrawerOpen} size="800px" offset={offset + 1}>
 	<DrawerContent title="Export Schemas" on:close={() => (exportDrawerOpen = false)}>
