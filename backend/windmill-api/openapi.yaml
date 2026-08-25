@@ -32898,7 +32898,7 @@ components:
 
     DataTableTables:
       type: object
-      required: [datatable_name, schemas]
+      required: [datatable_name, schemas, default_role]
       properties:
         datatable_name:
           type: string
@@ -32911,6 +32911,14 @@ components:
               type: string
         error:
           type: string
+        usable_roles:
+          type: array
+          description: roles the caller may run this data table as, empty when it has no permissions
+          items:
+            type: string
+        default_role:
+          type: string
+          description: the role the caller gets without naming one
 
     DataTableTableSchema:
       type: object

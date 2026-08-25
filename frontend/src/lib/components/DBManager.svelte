@@ -34,8 +34,9 @@
 	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import Star from './Star.svelte'
+	import Badge from './common/badge/Badge.svelte'
 	import type { Asset, DataTableTables } from '$lib/gen'
-	import type { DatatableRowAction } from './dbTypes'
+	import { ADMIN_DATATABLE_ROLE, type DatatableRowAction } from './dbTypes'
 	import TextInput from './text_input/TextInput.svelte'
 	import Checkbox from './common/checkbox/Checkbox.svelte'
 
@@ -70,6 +71,8 @@
 		datatableTree?: DataTableTables[]
 		datatableTreeLoading?: boolean
 		onSelectDatatable?: (datatable: string) => void
+		/** Role the manager is connected as, when it is not the default one. */
+		currentRole?: string
 		pendingCreate?: PendingCreate | undefined
 		/** Row-menu actions on a data table, run against that row's data table. */
 		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
@@ -100,6 +103,7 @@
 		datatableTree,
 		datatableTreeLoading,
 		onSelectDatatable,
+		currentRole,
 		pendingCreate = $bindable(undefined),
 		onDatatableAction,
 		canManageDatatable = false,
@@ -201,6 +205,18 @@
 		return datatableTree?.find((d) => d.datatable_name === datatable)?.error
 	}
 
+	/** The role a data table row is reached through, shown as a badge. Left out
+	 * where naming it says nothing: a data table without permissions, or one whose
+	 * single usable role is already the implicit `admin`. */
+	function roleOf(datatable: string): string | undefined {
+		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
+		const usable = entry?.usable_roles ?? []
+		if (usable.length === 0 || (usable.length === 1 && usable[0] === ADMIN_DATATABLE_ROLE)) {
+			return undefined
+		}
+		return (datatable === currentDatatable ? currentRole : undefined) ?? entry?.default_role
+	}
+
 	const matchesSearch = (t: string) => t.toLowerCase().includes(search.trim().toLowerCase())
 
 	/** The tree as rendered: only nodes with a matching descendant survive a search. */
@@ -213,9 +229,14 @@
 				const schemas = Object.entries(schemasOf(dt))
 					.map(([schemaKey, tables]) => ({
 						schemaKey,
-						tables: tables.filter(matchesSearch).sort()
+						// A schema that matches keeps all of its tables — the search named
+						// the schema, so what is in it is the answer. Copy before sorting:
+						// `tables` belongs to the tree snapshot, which is reactive state.
+						tables: (matchesSearch(schemaKey) ? [...tables] : tables.filter(matchesSearch)).sort()
 					}))
-					.filter((sc) => search.trim() === '' || sc.tables.length > 0)
+					.filter(
+						(sc) => search.trim() === '' || matchesSearch(sc.schemaKey) || sc.tables.length > 0
+					)
 				schemas.sort((a, b) => a.schemaKey.localeCompare(b.schemaKey))
 				return { datatable: dt, schemas, error: dt ? errorOf(dt) : undefined }
 			})
@@ -431,7 +452,7 @@
 <Splitpanes>
 	<Pane size={24} class="relative flex flex-col">
 		<div class="mx-3 mt-3 flex flex-col gap-2">
-			<TextInput bind:value={search} inputProps={{ placeholder: 'Search table...' }} />
+			<TextInput bind:value={search} inputProps={{ placeholder: 'Search table or schema...' }} />
 		</div>
 		<div class="overflow-x-clip overflow-y-auto relative mt-1.5 flex-1">
 			<!-- Normal mode: data table -> schema -> table, each level dropping out
@@ -461,7 +482,11 @@
 							/>
 						{/if}
 						<DatabaseIcon class="shrink-0" size={14} />
-						<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
+						<span class="truncate text-ellipsis text-left text-xs">{root.datatable}</span>
+						{#if roleOf(root.datatable) !== undefined}
+							<Badge small color="gray">{roleOf(root.datatable)}</Badge>
+						{/if}
+						<div class="grow"></div>
 						<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
 							<ChevronDownIcon class={rowChevronClass(dtOpen)} size={14} />
 							{#if !multiSelectMode}

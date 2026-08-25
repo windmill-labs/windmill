@@ -44,12 +44,12 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
-    get_datatable_resource_from_db_unchecked, redact_datatable_settings_for_export,
-    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, DatatableAccess, ProtectionRuleKind,
-    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
-    DEV_WORKSPACE_LOCK_RULE_NAME,
+    can_use_datatable_role, check_deploy_rules, check_user_against_rule,
+    get_datatable_resource_from_db, get_datatable_resource_from_db_unchecked,
+    redact_datatable_settings_for_export, validate_dev_workspace_id, validate_fork_workspace_id,
+    validate_workspace_name, DataTable, DataTableCatalogResourceType, DataTableForkBehavior,
+    DatatableAccess, ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
+    WorkspaceGitSyncSettings, ADMIN_DATATABLE_ROLE, DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -2105,6 +2105,12 @@ struct DataTableTables {
     schemas: TableListMap,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+    /// The roles the caller may run this data table as. Empty when it has no
+    /// permissions, which is also what tells the UI it has no role to show.
+    #[serde(default)]
+    usable_roles: Vec<String>,
+    /// The role the caller gets without naming one.
+    default_role: String,
 }
 
 #[derive(Deserialize)]
@@ -2272,21 +2278,68 @@ async fn list_datatable_tables(
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<DataTableTables>> {
     let datatable_names = list_datatable_names(&db, &w_id).await?;
+    let mut roles = list_datatable_roles(&db, &authed, &w_id).await?;
     let mut results = Vec::new();
 
     for datatable_name in datatable_names {
+        let (usable_roles, default_role) = roles
+            .remove(&datatable_name)
+            .unwrap_or_else(|| (vec![], ADMIN_DATATABLE_ROLE.to_string()));
         let tables = match get_datatable_tables(&db, &authed, &w_id, &datatable_name).await {
-            Ok(schemas) => DataTableTables { datatable_name, schemas, error: None },
+            Ok(schemas) => {
+                DataTableTables { datatable_name, schemas, error: None, usable_roles, default_role }
+            }
             Err(e) => DataTableTables {
                 datatable_name,
                 schemas: HashMap::new(),
                 error: Some(e.to_string()),
+                usable_roles,
+                default_role,
             },
         };
         results.push(tables);
     }
 
     Ok(Json(results))
+}
+
+/// Which roles the caller may use on each data table of the workspace, and the
+/// one they get by default. Read in one go: the tree lists every data table, and
+/// this is config only, so it costs a single query rather than one per table.
+async fn list_datatable_roles(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+) -> Result<HashMap<String, (Vec<String>, String)>> {
+    let Some(datatables) = sqlx::query_scalar!(
+        "SELECT ws.datatable->'datatables' FROM workspace_settings ws WHERE ws.workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten()
+    .and_then(|v| serde_json::from_value::<HashMap<String, DataTable>>(v).ok()) else {
+        return Ok(HashMap::new());
+    };
+
+    let authed_ref = authed.to_authed_ref();
+    Ok(datatables
+        .into_iter()
+        .map(|(name, dt)| {
+            let info = match dt.permissions.filter(|p| p.enabled) {
+                Some(p) => (
+                    p.roles
+                        .iter()
+                        .filter(|(_, role)| can_use_datatable_role(role, &authed_ref))
+                        .map(|(role_name, _)| role_name.clone())
+                        .collect(),
+                    p.default_role().to_string(),
+                ),
+                None => (vec![], ADMIN_DATATABLE_ROLE.to_string()),
+            };
+            (name, info)
+        })
+        .collect())
 }
 
 async fn get_datatable_table_schema(

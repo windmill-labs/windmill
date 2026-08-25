@@ -25,6 +25,7 @@
 	} from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { randomUUID } from '$lib/utils/uuid'
+	import { ADMIN_DATATABLE_ROLE } from '../dbTypes'
 	import { resource } from 'runed'
 	import { deepEqual } from 'fast-equals'
 
@@ -42,7 +43,6 @@
 		hideTrigger?: boolean
 	} = $props()
 
-	const ADMIN_ROLE = 'admin'
 	// Matches every workspace member, unlike the `all` group whose membership is
 	// bookkeeping that can drift.
 	const WILDCARD_TENANT = '*'
@@ -102,11 +102,14 @@
 			// since it is the one every other role is defined against.
 			const loaded = res.roles
 				.map(toEdited)
-				.sort((a, b) => Number(b.name === ADMIN_ROLE) - Number(a.name === ADMIN_ROLE))
+				.sort(
+					(a, b) =>
+						Number(b.name === ADMIN_DATATABLE_ROLE) - Number(a.name === ADMIN_DATATABLE_ROLE)
+				)
 			// A data table that has never been opted in comes back with no roles;
 			// showing admin straight away is what the toggle is about to create.
-			if (!loaded.some((r) => r.name === ADMIN_ROLE)) {
-				loaded.unshift({ id: randomUUID(), name: ADMIN_ROLE, tenants: [] })
+			if (!loaded.some((r) => r.name === ADMIN_DATATABLE_ROLE)) {
+				loaded.unshift({ id: randomUUID(), name: ADMIN_DATATABLE_ROLE, tenants: [] })
 			}
 			enabled = res.enabled
 			roles = loaded
@@ -143,7 +146,7 @@
 		if (defaultRoleId === id) {
 			// Deleting the default falls back to admin rather than leaving the save
 			// pointing at a role that no longer exists.
-			defaultRoleId = roles.find((r) => r.name === ADMIN_ROLE)?.id
+			defaultRoleId = roles.find((r) => r.name === ADMIN_DATATABLE_ROLE)?.id
 		}
 	}
 
@@ -172,7 +175,7 @@
 		return {
 			enabled,
 			roles: roles.map((r) => ({ name: r.name.trim(), tenants: $state.snapshot(r.tenants) })),
-			default_role: roles.find((r) => r.id === defaultRoleId)?.name.trim() ?? ADMIN_ROLE,
+			default_role: roles.find((r) => r.id === defaultRoleId)?.name.trim() ?? ADMIN_DATATABLE_ROLE,
 			renames: roles
 				.filter((r) => savedById.has(r.id) && savedById.get(r.id) !== r.name.trim())
 				.map((r) => ({ from: savedById.get(r.id)!, to: r.name.trim() }))
@@ -283,7 +286,7 @@
 						</Head>
 						<tbody class="divide-y bg-surface-tertiary">
 							{#each roles as role (role.id)}
-								{@const isRoot = role.name === ADMIN_ROLE}
+								{@const isRoot = role.name === ADMIN_DATATABLE_ROLE}
 								<Row>
 									<Cell first class="w-56 align-top">
 										<div class="flex flex-col gap-1">

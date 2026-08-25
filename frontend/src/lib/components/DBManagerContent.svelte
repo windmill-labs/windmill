@@ -325,6 +325,7 @@
 				{datatableTree}
 				{datatableTreeLoading}
 				{onSelectDatatable}
+				currentRole={input.type === 'database' ? input.role : undefined}
 				bind:pendingCreate
 				{onDatatableAction}
 				{canManageDatatable}
