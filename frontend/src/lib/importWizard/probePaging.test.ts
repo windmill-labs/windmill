@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  */
 
 const calls = vi.hoisted(() => ({ script: [] as { page?: number; perPage?: number }[] }))
+/** What the destination's trigger listing answers with, per test. */
+const triggerRows = vi.hoisted(() => ({ rows: [] as { kind: string; path: string }[] }))
 
 /** 150 scripts in the folder — more than one page at any page size the probe might pick. */
 const ALL = Array.from({ length: 150 }, (_, i) => ({ path: `f/calendly/s${i}` }))
@@ -25,7 +27,7 @@ vi.mock('$lib/gen', () => ({
 	WorkspaceService: { listWorkspaces: vi.fn(async () => []), getDatatableFullSchema: vi.fn() }
 }))
 vi.mock('$lib/components/triggers/workspaceTriggersList', () => ({
-	listAllWorkspaceTriggers: vi.fn(async () => ({ triggers: [], failedKinds: [] }))
+	listAllWorkspaceTriggers: vi.fn(async () => ({ triggers: triggerRows.rows, failedKinds: [] }))
 }))
 
 import { probeImportedPaths } from './probe'
@@ -49,5 +51,25 @@ describe('probeImportedPaths paging', () => {
 		const pages = calls.script.map((c) => c.page)
 		expect(pages).toEqual([1, 2])
 		expect(new Set(calls.script.map((c) => c.perPage))).toEqual(new Set([100]))
+	})
+})
+
+describe('trigger presence keys', () => {
+	beforeEach(() => {
+		triggerRows.rows = []
+	})
+
+	/**
+	 * Each trigger kind is its own table keyed on `(path, workspace_id)`, so a workspace can
+	 * hold a schedule and an HTTP trigger both called `f/calendly/sync`. The probe builds the
+	 * keys and `installProject` reads them, so they have to agree that those are two things —
+	 * key on the path alone and the one that exists reports the other as already imported.
+	 */
+	it('keys a trigger by its kind, so one kind cannot answer for another', async () => {
+		triggerRows.rows = [{ kind: 'http_trigger', path: 'f/calendly/sync' }]
+		const found = await probeImportedPaths('w', 'calendly', { triggers: true })
+		expect(found.has(presenceKey('trigger:http_trigger', 'f/calendly/sync'))).toBe(true)
+		// The schedule the project also ships at that path has not been imported.
+		expect(found.has(presenceKey('trigger:schedule', 'f/calendly/sync'))).toBe(false)
 	})
 })

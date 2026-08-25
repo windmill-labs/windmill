@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ResourceService, WorkspaceService } from '$lib/gen'
-	import { ArrowLeft, Check, Database, Loader2, X } from 'lucide-svelte'
+	import { ArrowLeft, Check, Database, Loader2, TriangleAlert, X } from 'lucide-svelte'
 	import { tick } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { Button } from '$lib/components/common'
@@ -18,7 +18,7 @@
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
 	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
-	import { probeMigrationApplied } from '$lib/importWizard/probe'
+	import { probeMigrationsApplied } from '$lib/importWizard/probe'
 	import {
 		retargetProjectExport,
 		type ProjectExport,
@@ -53,7 +53,7 @@
 	type Row = {
 		name: string
 		migrations: ProjectMigration[]
-		status: 'unconfigured' | 'running' | 'done' | 'failed'
+		status: 'unconfigured' | 'running' | 'done' | 'failed' | 'unknown'
 		error?: string
 		/** Plays the confirmation flash once, right after the run that configured it. */
 		justSaved: boolean
@@ -119,8 +119,17 @@
 	let wizardFor = $state<string | undefined>(undefined)
 	let configuredNames = $state<{ name: string; resourcePath: string | undefined }[]>([])
 
+	/**
+	 * Which row the open dialog runs migrations for. Separate from `wizardFor`, which
+	 * `afterWizard()` clears as soon as the run reports — while the dialog stays up offering
+	 * "Try again" for exactly that row. Read by `onFinishAlso`, so it has to outlive the run
+	 * rather than the opening.
+	 */
+	let retryTarget = $state<string | undefined>(undefined)
+
 	function openWizard(name: string) {
 		wizardFor = name
+		retryTarget = name
 		// `open()`, not `opened = true`: only the method runs the wizard's own reset, which
 		// is what applies `initialName` and clears whatever a previous run left behind.
 		wizardOpen = true
@@ -143,21 +152,24 @@
 	 * reading it as "done" would let the step say "You're all set" over a project whose apps
 	 * all fail on open.
 	 *
-	 * `probeMigrationApplied` answers `undefined` when it cannot tell (unreadable schema, or
-	 * SQL it cannot resolve to table names). That is not evidence of failure, so it keeps
-	 * whatever the row already said instead of manufacturing an outstanding row nobody can
-	 * clear.
+	 * `probeMigrationsApplied` answers `undefined` when it cannot tell — an unreadable schema
+	 * (the data table's database is down, or its credentials have gone bad) or SQL naming no
+	 * tables it can resolve. That is neither done nor missing, and claiming either goes beyond
+	 * what the code knows: reading it as done is how this step ends up reporting "You're all
+	 * set" over a project whose apps fail on open. `unknown` says what is true, and still
+	 * counts as outstanding so nothing is finished on top of it.
 	 */
 	async function settle(
+		name: string,
 		ms: ProjectMigration[],
 		absent: boolean,
 		prev: Row | undefined
 	): Promise<Row['status']> {
 		if (absent) return 'unconfigured'
-		const applied = await Promise.all(ms.map((m) => probeMigrationApplied(workspace, m)))
-		if (applied.every((a) => a === true)) return 'done'
-		if (applied.some((a) => a === false)) return prev?.status === 'failed' ? 'failed' : 'unconfigured'
-		return prev?.status === 'failed' ? 'failed' : 'done'
+		const applied = await probeMigrationsApplied(workspace, name, ms)
+		if (applied === true) return 'done'
+		if (applied === false) return prev?.status === 'failed' ? 'failed' : 'unconfigured'
+		return prev?.status === 'failed' ? 'failed' : 'unknown'
 	}
 
 	/** Which data tables the project needs that the destination does not have yet. */
@@ -188,7 +200,7 @@
 				[...new Set(enabled.map((m) => m.datatable_name))].map(async (name) => {
 					const ms = enabled.filter((m) => m.datatable_name === name)
 					const prev = previous.get(name)
-					const status = await settle(ms, missing.includes(name), prev)
+					const status = await settle(name, ms, missing.includes(name), prev)
 					return prev
 						? { ...prev, migrations: ms, status, error: status === 'done' ? undefined : prev.error }
 						: { name, migrations: ms, status, justSaved: false }
@@ -298,7 +310,10 @@
 	 */
 	async function runMigrationsFor(name: string): Promise<void> {
 		const row = rows.find((r) => r.name === name)
-		if (!row) return
+		// Thrown, not returned: this also runs as the wizard's appended step, which reads a
+		// resolved promise as "the migrations ran". Resolving for a name that matches no row
+		// would report success over SQL that never executed.
+		if (!row) throw new Error(`No data table named '${name}' in this project`)
 		working = true
 		row.status = 'running'
 		try {
@@ -428,6 +443,8 @@
 							<Loader2 size={20} class="animate-spin text-blue-500" />
 						{:else if row.status === 'failed'}
 							<X size={20} class="text-red-500" />
+						{:else if row.status === 'unknown'}
+							<TriangleAlert size={20} class="text-yellow-600" />
 						{:else}
 							<Database size={20} class="text-secondary" />
 						{/if}
@@ -443,6 +460,8 @@
 								running migrations…
 							{:else if row.status === 'failed'}
 								<span class="text-red-500">{row.error}</span>
+							{:else if row.status === 'unknown'}
+								set up, but its tables could not be read — the database may be unreachable
 							{:else}
 								not configured yet
 							{/if}
@@ -469,7 +488,7 @@
 						<!-- The wizard owns creating a data table: picking or provisioning the
 						     database, writing the config, and reporting the connection. This step
 						     only says which name it needs and runs the migrations afterwards. -->
-						{#if hasTable && (row.status === 'failed' || row.status === 'unconfigured')}
+						{#if hasTable && row.status !== 'done' && row.status !== 'running'}
 							<!-- The data table is there and its tables are not, so the thing left
 							     to do is run the migrations. Reopening the wizard would ask for a
 							     name it now holds itself, which it rejects as taken — leaving no
@@ -634,7 +653,7 @@
 		modalTarget="body"
 		{workspace}
 		finishAlso="run migrations"
-		onFinishAlso={() => runMigrationsFor(wizardFor ?? '')}
+		onFinishAlso={() => runMigrationsFor(retryTarget ?? '')}
 		existingNames={configuredNames.map((c) => c.name)}
 		existingDataTables={configuredNames}
 		onDone={() => void afterWizard()}

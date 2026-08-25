@@ -263,12 +263,24 @@ export async function applyOneMigration(
  * reviewed) migrations. Each item's outcome is reported through `onResult`;
  * failures never abort the remaining items.
  */
-/** The kinds an import writes that carry a path and can therefore already be there. */
-export type ImportedKind = 'script' | 'flow' | 'app' | 'resource' | 'trigger'
+/**
+ * The kinds an import writes that carry a path and can therefore already be there.
+ *
+ * Triggers carry their own kind too (`trigger:schedule`, `trigger:http_trigger`, …): each
+ * trigger kind is a separate table keyed on `(path, workspace_id)`, so one workspace can hold
+ * a schedule and an HTTP trigger both called `f/cal/sync`. Flattening them to `trigger` would
+ * let whichever exists answer for the other.
+ */
+export type ImportedKind =
+	| 'script'
+	| 'flow'
+	| 'app'
+	| 'resource'
+	| `trigger:${string}`
 
 /**
- * The key `alreadyPresent` is built and read with. Kind and path together, because the five
- * kinds share one path namespace and a bare path cannot say which of them is already there.
+ * The key `alreadyPresent` is built and read with. Kind and path together, because the kinds
+ * share one path namespace and a bare path cannot say which of them is already there.
  */
 export function presenceKey(kind: ImportedKind, path: string): string {
 	return `${kind}:${path}`
@@ -446,7 +458,7 @@ export async function installProject(args: {
 	}
 	for (const t of proj.triggers) {
 		if (halted()) return
-		if (present('trigger', String(t.path))) continue
+		if (present(`trigger:${t.kind}`, String(t.path))) continue
 		const violation = guard(t.path, t.runnable_path) ?? triggerConfigViolation(t)
 		await record(
 			String(t.path),

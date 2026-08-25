@@ -22,9 +22,12 @@ vi.mock('$lib/gen', () => {
 })
 
 vi.mock('../triggers/workspaceTriggersList', () => ({
-	TRIGGER_KINDS: { schedule: { badge: 'Schedule', resourceField: undefined } },
-	createWorkspaceTriggerDisabled: vi.fn(async (_ws: string, t: { path: string }) => {
-		created.triggers.push(t.path)
+	TRIGGER_KINDS: {
+		schedule: { badge: 'Schedule', resourceField: undefined },
+		http_trigger: { badge: 'HTTP', resourceField: undefined }
+	},
+	createWorkspaceTriggerDisabled: vi.fn(async (_ws: string, t: { path: string; kind: string }) => {
+		created.triggers.push(`${t.kind}:${t.path}`)
 	}),
 	triggerHandlerRefs: () => []
 }))
@@ -72,14 +75,14 @@ describe('installProject presence', () => {
 
 	it('creates a trigger the destination does not have', async () => {
 		const results = await run(new Set())
-		expect(created.triggers).toEqual(['f/calendly/nightly'])
+		expect(created.triggers).toEqual(['schedule:f/calendly/nightly'])
 		expect(results).toContainEqual({ path: 'f/calendly/nightly', ok: true })
 	})
 
 	// Without the skip the retry calls the create API again, which rejects the existing
 	// path, and the row reads as a failure for something that is already there.
 	it('skips a trigger that is already there instead of re-creating it', async () => {
-		const results = await run(new Set([presenceKey('trigger', 'f/calendly/nightly')]))
+		const results = await run(new Set([presenceKey('trigger:schedule', 'f/calendly/nightly')]))
 		expect(created.triggers).toEqual([])
 		expect(results).toContainEqual({ path: 'f/calendly/nightly', ok: true, skipped: true })
 	})
@@ -88,7 +91,16 @@ describe('installProject presence', () => {
 	// the same name is not this trigger and must not stand in for it.
 	it('does not let another kind at the same path mask the trigger', async () => {
 		const results = await run(new Set([presenceKey('script', 'f/calendly/nightly')]))
-		expect(created.triggers).toEqual(['f/calendly/nightly'])
+		expect(created.triggers).toEqual(['schedule:f/calendly/nightly'])
+		expect(results).toContainEqual({ path: 'f/calendly/nightly', ok: true })
+	})
+
+	// Each trigger kind is its own table keyed on (path, workspace_id), so a workspace can
+	// hold a schedule and an HTTP trigger both called `f/calendly/nightly`. The one that
+	// exists must not answer for the one that does not.
+	it('does not let another trigger kind at the same path mask this one', async () => {
+		const results = await run(new Set([presenceKey('trigger:http_trigger', 'f/calendly/nightly')]))
+		expect(created.triggers).toEqual(['schedule:f/calendly/nightly'])
 		expect(results).toContainEqual({ path: 'f/calendly/nightly', ok: true })
 	})
 })

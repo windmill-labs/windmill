@@ -217,11 +217,10 @@ export class ImportExecution {
 	}
 
 	/**
-	 * Runs every task that has not already succeeded. Safe to call again after a
-	 * failure: a created workspace and a fetched export are reused rather than
-	 * repeated. The granularity is the task, not the item — a retry re-runs
-	 * `installProject` over the whole bundle, which is idempotent per item but does
-	 * not skip the ones that already landed.
+	 * Runs every task that has not already succeeded. Safe to call again after a failure: the
+	 * destination is asked what it already holds, so a workspace that exists is entered rather
+	 * than recreated and an item that landed is skipped rather than rewritten. What a second
+	 * run costs is the reads, not the writes.
 	 */
 	async run(): Promise<void> {
 		if (this.running) return

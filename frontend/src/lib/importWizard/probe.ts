@@ -132,7 +132,7 @@ export async function probeImportedPaths(
 				includeEeOnly: opts.hasEeLicense === true
 			}).then(({ triggers }) => {
 				for (const t of triggers) {
-					if (t.path?.startsWith(pathStart)) found.add(presenceKey('trigger', t.path))
+					if (t.path?.startsWith(pathStart)) found.add(presenceKey(`trigger:${t.kind}`, t.path))
 				}
 			})
 		)
@@ -144,27 +144,31 @@ export async function probeImportedPaths(
 }
 
 /**
- * Whether a migration's tables are in the data table it targets.
+ * Whether every table a data table's migrations create is in it.
  *
  * The ground truth for "did this run", and the only one that covers both paths
  * `applyOneMigration` takes: it records a migration when the data table has migrations
  * enabled, and otherwise runs the SQL once as a job that nothing remembers. The tables
  * outlive both.
  *
+ * Every migration for one data table at once: they all target the same schema, so asking
+ * per migration would introspect the same database N times for one answer.
+ *
  * `undefined` means the question could not be answered — the schema was unreadable, or the
  * SQL named no tables this can recognise. Distinct from `false`, because "not there" invites
  * a caller to run the migration and "cannot tell" does not.
  */
-export async function probeMigrationApplied(
+export async function probeMigrationsApplied(
 	workspace: string,
-	migration: ProjectMigration
+	datatableName: string,
+	migrations: ProjectMigration[]
 ): Promise<boolean | undefined> {
-	const wanted = expectedTables(migration.sql ?? '')
+	const wanted = [...new Set(migrations.flatMap((m) => expectedTables(m.sql ?? '')))]
 	if (wanted.length === 0) return undefined
 	try {
 		const schema = (await WorkspaceService.getDatatableFullSchema({
 			workspace,
-			requestBody: { source: `datatable://${migration.datatable_name}` }
+			requestBody: { source: `datatable://${datatableName}` }
 		})) as Record<string, Record<string, unknown>>
 		const present = new Set<string>()
 		for (const [schemaName, tables] of Object.entries(schema ?? {})) {
