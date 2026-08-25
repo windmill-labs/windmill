@@ -31,16 +31,18 @@
 		diffTableEditorValues
 	} from './apps/components/display/dbtable/queries/alterTable'
 	import { resource } from 'runed'
-	import type { Snippet } from 'svelte'
 	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import Star from './Star.svelte'
 	import type { Asset, DataTableTables } from '$lib/gen'
 	import type { DatatableRowAction } from './dbTypes'
 	import TextInput from './text_input/TextInput.svelte'
+	import Checkbox from './common/checkbox/Checkbox.svelte'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
+		/** Absent when the tree has no data table level (a plain database). */
+		datatable?: string
 		schema: string
 		table: string
 	}
@@ -61,9 +63,6 @@
 		/** Every data table with its schemas and tables. Present only when the manager
 		 * is on a data table — that is what puts a data-table level at the top of the
 		 * tree; otherwise the tree starts at schemas. */
-		/** Multi-select pickers still choose their data table with a Select above the
-		 * list; the tree below is the navigator for the manager's normal mode. */
-		dbSelector?: Snippet<[]>
 		datatableTree?: DataTableTables[]
 		datatableTreeLoading?: boolean
 		onSelectDatatable?: (datatable: string) => void
@@ -93,7 +92,6 @@
 		initialTableKey,
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
-		dbSelector,
 		datatableTree,
 		datatableTreeLoading,
 		onSelectDatatable,
@@ -107,68 +105,60 @@
 		onImport
 	}: Props = $props()
 
-	// Helper to check if a table is selected in multi-select mode
-	function isTableSelected(schema: string, table: string): boolean {
-		return selectedTables.some((t) => t.schema === schema && t.table === table)
+	const sameTable = (a: SelectedTable, b: SelectedTable) =>
+		a.datatable === b.datatable && a.schema === b.schema && a.table === b.table
+
+	function isTableSelected(t: SelectedTable): boolean {
+		return selectedTables.some((s) => sameTable(s, t))
 	}
 
-	// Helper to check if a table is disabled (already added)
-	function isTableDisabled(schema: string, table: string): boolean {
-		return disabledTables.some((t) => t.schema === schema && t.table === table)
+	/** Already added by the caller: shown ticked and locked. */
+	function isTableDisabled(t: SelectedTable): boolean {
+		return disabledTables.some((s) => sameTable(s, t))
 	}
 
-	// Toggle table selection in multi-select mode
-	function toggleTableSelection(schema: string, table: string) {
-		if (isTableDisabled(schema, table)) return
+	function toggleTableSelection(t: SelectedTable) {
+		if (isTableDisabled(t)) return
+		selectedTables = isTableSelected(t)
+			? selectedTables.filter((s) => !sameTable(s, t))
+			: [...selectedTables, t]
+	}
 
-		const idx = selectedTables.findIndex((t) => t.schema === schema && t.table === table)
-		if (idx >= 0) {
-			selectedTables = selectedTables.filter((_, i) => i !== idx)
-		} else {
-			selectedTables = [...selectedTables, { schema, table }]
+	/** Every table under a node, as it is currently rendered — so a batch toggle
+	 * acts on what the user can see, search filter included. */
+	function tablesUnder(datatable: string | undefined, schemaKey?: string): SelectedTable[] {
+		return treeRoots
+			.filter((r) => r.datatable === datatable)
+			.flatMap((r) =>
+				r.schemas
+					.filter((sc) => schemaKey === undefined || sc.schemaKey === schemaKey)
+					.flatMap((sc) => sc.tables.map((table) => ({ datatable, schema: sc.schemaKey, table })))
+			)
+	}
+
+	/** Tri-state of a node's batch checkbox. Locked tables count as ticked, so a
+	 * node whose tables were all already added reads as full rather than empty. */
+	function batchState(
+		datatable: string | undefined,
+		schemaKey?: string
+	): { checked: boolean; indeterminate: boolean; disabled: boolean } {
+		const tables = tablesUnder(datatable, schemaKey)
+		const selectable = tables.filter((t) => !isTableDisabled(t))
+		const n = tables.filter((t) => isTableSelected(t) || isTableDisabled(t)).length
+		return {
+			checked: tables.length > 0 && n === tables.length,
+			indeterminate: n > 0 && n < tables.length,
+			disabled: selectable.length === 0
 		}
 	}
 
-	// Get tables for a schema (filtered by search)
-	function getTablesForSchema(schema: string): string[] {
-		const tables = Object.keys(dbSchema.schema[schema] ?? {})
-		if (search) {
-			return tables.filter((t) => t.toLowerCase().includes(search.toLowerCase())).sort()
-		}
-		return tables.sort()
-	}
-
-	// Check if all selectable tables in a schema are selected
-	function isSchemaFullySelected(schema: string): boolean {
-		const tables = getTablesForSchema(schema)
-		if (tables.length === 0) return false
-		const selectableTables = tables.filter((t) => !isTableDisabled(schema, t))
-		if (selectableTables.length === 0) return true // All disabled means "fully selected"
-		return selectableTables.every((t) => isTableSelected(schema, t))
-	}
-
-	// Check if some (but not all) tables in a schema are selected
-	function isSchemaPartiallySelected(schema: string): boolean {
-		const tables = getTablesForSchema(schema)
-		const selectableTables = tables.filter((t) => !isTableDisabled(schema, t))
-		const selectedCount = selectableTables.filter((t) => isTableSelected(schema, t)).length
-		return selectedCount > 0 && selectedCount < selectableTables.length
-	}
-
-	// Toggle all tables in a schema
-	function toggleSchemaSelection(schema: string) {
-		const tables = getTablesForSchema(schema)
-		const selectableTables = tables.filter((t) => !isTableDisabled(schema, t))
-
-		if (isSchemaFullySelected(schema)) {
-			// Deselect all selectable tables in this schema
-			selectedTables = selectedTables.filter((t) => t.schema !== schema)
+	function toggleBatch(datatable: string | undefined, schemaKey?: string) {
+		const selectable = tablesUnder(datatable, schemaKey).filter((t) => !isTableDisabled(t))
+		if (selectable.every((t) => isTableSelected(t))) {
+			selectedTables = selectedTables.filter((s) => !selectable.some((t) => sameTable(s, t)))
 		} else {
-			// Select all selectable tables in this schema
-			const newSelections = selectableTables
-				.filter((t) => !isTableSelected(schema, t))
-				.map((t) => ({ schema, table: t }))
-			selectedTables = [...selectedTables, ...newSelections]
+			const missing = selectable.filter((t) => !isTableSelected(t))
+			selectedTables = [...selectedTables, ...missing]
 		}
 	}
 
@@ -400,196 +390,38 @@
 <Splitpanes>
 	<Pane size={24} class="relative flex flex-col">
 		<div class="mx-3 mt-3 flex flex-col gap-2">
-			{#if multiSelectMode && dbSelector}
-				{@render dbSelector()}
-			{/if}
 			<TextInput bind:value={search} inputProps={{ placeholder: 'Search table...' }} />
 		</div>
 		<div class="overflow-x-clip overflow-y-auto relative mt-1.5 flex-1">
-			{#if multiSelectMode}
-				<!-- Multi-select mode: show all schemas with their tables -->
-				{#if dbSupportsSchemas}
-					<!-- New schema button -->
-					<button
-						class="w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 border-b border-surface-secondary text-tertiary"
-						onclick={() => (newSchemaDialogOpen = true)}
-					>
-						<Plus class="shrink-0" size={14} />
-						<span class="text-xs">New schema</span>
-					</button>
-				{/if}
-				{#each schemaKeys as schemaKey}
-					{@const schemaTables = getTablesForSchema(schemaKey)}
-					{@const isFullySelected = isSchemaFullySelected(schemaKey)}
-					{@const isPartiallySelected = isSchemaPartiallySelected(schemaKey)}
-					{@const hasNoTables = schemaTables.length === 0}
-					<!-- Schema header with checkbox (or just label if empty) -->
-					<div
-						class="group w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 border-b border-surface-secondary"
-						role="button"
-						tabindex="0"
-						onclick={() => {
-							if (!hasNoTables) {
-								toggleSchemaSelection(schemaKey)
-							}
-						}}
-						onkeydown={(e) => {
-							if (e.key === 'Enter' || e.key === ' ') {
-								if (!hasNoTables) {
-									toggleSchemaSelection(schemaKey)
-								}
-							}
-						}}
-					>
-						{#if hasNoTables}
-							<!-- Empty schema: no checkbox, just indent space -->
-							<span class="shrink-0 w-4"></span>
-						{:else}
-							<span class="shrink-0">
-								<input
-									type="checkbox"
-									checked={isFullySelected}
-									indeterminate={isPartiallySelected}
-									class="w-4 h-4 cursor-pointer"
-									onclick={(e) => e.stopPropagation()}
-									onchange={() => toggleSchemaSelection(schemaKey)}
-								/>
-							</span>
-						{/if}
-						<span class="truncate text-ellipsis grow text-left text-tertiary text-xs"
-							>{schemaKey}</span
-						>
-						<span class="text-2xs text-tertiary mr-2 group-hover:hidden">
-							{schemaTables.length}
-						</span>
-						<!-- Delete schema button (on hover) -->
-						<button
-							class="hidden group-hover:flex p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors mr-1"
-							title="Delete schema"
-							onclick={(e) => {
-								e.stopPropagation()
-								askingForConfirmation = {
-									title: `Are you sure you want to delete schema "${schemaKey}"? This will drop all tables in this schema. This action is irreversible.`,
-									confirmationText: 'Drop schema',
-									open: true,
-									onConfirm: async () => {
-										askingForConfirmation && (askingForConfirmation.loading = true)
-										try {
-											await dbSchemaOps.onDeleteSchema({ schema: schemaKey })
-											refresh?.()
-											sendUserToast(`Schema '${schemaKey}' deleted successfully`)
-										} catch (e) {
-											let msg: string | undefined = (e as any).body ?? (e as Error).message
-											if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
-											sendUserToast(msg ?? 'Action failed!', true)
-										}
-										askingForConfirmation = undefined
-									}
-								}
-							}}
-						>
-							<Trash2Icon size={12} class="text-red-500" />
-						</button>
-					</div>
-					<!-- Tables under this schema -->
-					{#each schemaTables as tableKey}
-						{@const isDisabled = isTableDisabled(schemaKey, tableKey)}
-						{@const isChecked = isTableSelected(schemaKey, tableKey) || isDisabled}
-						{@const isCurrentPreview =
-							selected.schemaKey === schemaKey && selected.tableKey === tableKey}
-						<div
-							class={'group w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 ' +
-								(isCurrentPreview ? 'bg-gray-500/25' : 'hover:bg-gray-500/10') +
-								(isDisabled ? ' opacity-50' : '')}
-							role="button"
-							tabindex="0"
-							onclick={() => {
-								selected.schemaKey = schemaKey
-								selected.tableKey = tableKey
-								toggleTableSelection(schemaKey, tableKey)
-							}}
-							onkeydown={(e) => {
-								if (e.key === 'Enter' || e.key === ' ') {
-									selected.schemaKey = schemaKey
-									selected.tableKey = tableKey
-									toggleTableSelection(schemaKey, tableKey)
-								}
-							}}
-						>
-							<span class="shrink-0">
-								<input
-									type="checkbox"
-									checked={isChecked}
-									disabled={isDisabled}
-									class="w-4 h-4 cursor-pointer"
-									onclick={(e) => e.stopPropagation()}
-									onchange={() => toggleTableSelection(schemaKey, tableKey)}
-								/>
-							</span>
-							<Table2 class="text-primary shrink-0" size={14} />
-							<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p>
-							<!-- Delete table button (on hover) -->
-							<button
-								class="hidden group-hover:flex p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors mr-1"
-								title="Delete table"
-								onclick={(e) => {
-									e.stopPropagation()
-									askingForConfirmation = {
-										title: `Are you sure you want to delete table "${tableKey}"? This action is irreversible.`,
-										confirmationText: 'Drop table',
-										open: true,
-										onConfirm: async () => {
-											askingForConfirmation && (askingForConfirmation.loading = true)
-											try {
-												await dbSchemaOps.onDelete({ tableKey, schema: schemaKey })
-												refresh?.()
-												sendUserToast(`Table '${tableKey}' deleted successfully`)
-											} catch (e) {
-												let msg: string | undefined = (e as any).body ?? (e as Error).message
-												if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
-												sendUserToast(msg ?? 'Action failed!', true)
-											}
-											askingForConfirmation = undefined
-										}
-									}
-								}}
-							>
-								<Trash2Icon size={12} class="text-red-500" />
-							</button>
-						</div>
-					{/each}
-					<!-- New table button for this schema -->
-					<button
-						class="w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 hover:bg-gray-500/10 text-tertiary"
-						onclick={() => {
-							selected.schemaKey = schemaKey
-							dbTableEditorState = { open: true }
-						}}
-					>
-						<Plus class="shrink-0" size={14} />
-						<span class="text-xs">New table</span>
-					</button>
-				{/each}
-			{:else}
-				<!-- Normal mode: data table -> schema -> table, each level dropping out
+			<!-- Normal mode: data table -> schema -> table, each level dropping out
 				     when it has nothing to say (no data table / no schemas). -->
-				{#if datatableTreeLoading && (datatableTree?.length ?? 0) === 0}
-					<div class="flex items-center gap-2 text-tertiary p-3">
-						<Loader2 class="animate-spin" size={14} />
-						<span class="text-xs">Loading...</span>
-					</div>
-				{/if}
-				{#each treeRoots as root (root.datatable ?? '')}
-					{@const dtOpen = isExpanded(root.datatable)}
-					{#if root.datatable !== undefined}
-						<button
-							class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 ' +
-								rowText(root.datatable === currentDatatable)}
-							onclick={() => toggle(root.datatable)}
-						>
-							<DatabaseIcon class="shrink-0" size={14} />
-							<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
-							<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+			{#if datatableTreeLoading && (datatableTree?.length ?? 0) === 0}
+				<div class="flex items-center gap-2 text-tertiary p-3">
+					<Loader2 class="animate-spin" size={14} />
+					<span class="text-xs">Loading...</span>
+				</div>
+			{/if}
+			{#each treeRoots as root (root.datatable ?? '')}
+				{@const dtOpen = isExpanded(root.datatable)}
+				{#if root.datatable !== undefined}
+					<button
+						class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 ' +
+							rowText(root.datatable === currentDatatable)}
+						onclick={() => toggle(root.datatable)}
+					>
+						<DatabaseIcon class="shrink-0" size={14} />
+						<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
+						<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+							{#if multiSelectMode}
+								{@const state = batchState(root.datatable)}
+								<Checkbox
+									checked={state.checked}
+									indeterminate={state.indeterminate}
+									disabled={state.disabled}
+									onChange={() => toggleBatch(root.datatable)}
+									onClick={(e) => e.stopPropagation()}
+								/>
+							{:else}
 								<ChevronDownIcon
 									class={rowChevronClass(root.datatable === currentDatatable, dtOpen)}
 									size={14}
@@ -627,33 +459,43 @@
 										btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
 									/>
 								{/if}
-							</div>
-						</button>
+							{/if}
+						</div>
+					</button>
+				{/if}
+				{#if dtOpen}
+					{#if root.error}
+						<p class="text-xs text-red-400 px-3 py-2">{root.error}</p>
 					{/if}
-					{#if dtOpen}
-						{#if root.error}
-							<p class="text-xs text-red-400 px-3 py-2">{root.error}</p>
-						{/if}
-						{#each root.schemas as sc (sc.schemaKey)}
-							{@const schemaOpen = isExpanded(root.datatable, sc.schemaKey)}
-							{@const indent = root.datatable !== undefined ? 'pl-7' : 'pl-3'}
-							{#if dbSupportsSchemas}
-								<button
-									class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
-										indent +
-										' ' +
-										rowText(
-											root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey
-										)}
-									onclick={() => toggle(root.datatable, sc.schemaKey)}
-								>
-									<FolderIcon class="shrink-0" size={14} />
-									<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
-									<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+					{#each root.schemas as sc (sc.schemaKey)}
+						{@const schemaOpen = isExpanded(root.datatable, sc.schemaKey)}
+						{@const indent = root.datatable !== undefined ? 'pl-7' : 'pl-3'}
+						{#if dbSupportsSchemas}
+							<button
+								class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
+									indent +
+									' ' +
+									rowText(
+										root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey
+									)}
+								onclick={() => toggle(root.datatable, sc.schemaKey)}
+							>
+								<FolderIcon class="shrink-0" size={14} />
+								<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
+								<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+									{#if multiSelectMode}
+										{@const state = batchState(root.datatable, sc.schemaKey)}
+										<Checkbox
+											checked={state.checked}
+											indeterminate={state.indeterminate}
+											disabled={state.disabled}
+											onChange={() => toggleBatch(root.datatable, sc.schemaKey)}
+											onClick={(e) => e.stopPropagation()}
+										/>
+									{:else}
 										<ChevronDownIcon
 											class={rowChevronClass(
-												root.datatable === currentDatatable &&
-													sc.schemaKey === selected.schemaKey,
+												root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey,
 												schemaOpen
 											)}
 											size={14}
@@ -671,122 +513,139 @@
 											)}"
 											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
 										/>
-
-									</div>
-								</button>
-							{/if}
-							{#if schemaOpen || !dbSupportsSchemas}
-								{@const tableIndent = dbSupportsSchemas
-									? root.datatable !== undefined
-										? 'pl-11'
-										: 'pl-7'
-									: root.datatable !== undefined
-										? 'pl-7'
-										: 'pl-3'}
-								{#each sc.tables as tableKey (tableKey)}
-									{@const isSelected =
-										root.datatable === currentDatatable &&
-										selected.schemaKey === sc.schemaKey &&
-										selected.tableKey === tableKey}
-									<button
-										class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
-											tableIndent +
-											' ' +
-											rowText(isSelected) +
-											' ' +
-											(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
-										onclick={() => selectTable(root.datatable, sc.schemaKey, tableKey)}
-									>
-										{#if asset}
-											<!-- Star carries its own p-1 for a bigger hit area; pull it back so its
-											     glyph lands on the same indent grid as a bare icon. -->
-											<span class="-ml-1 flex shrink-0">
-												<Star
-													kind="asset"
-													path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${sc.schemaKey}.${tableKey}`}
-												/>
-											</span>
-										{:else}
-											<Table2 class="shrink-0" size={14} />
-										{/if}
-										<p class="db-manager-table-key truncate text-ellipsis grow text-left text-xs">
-											{tableKey}
-										</p>
-										{#if root.datatable === currentDatatable || root.datatable === undefined}
-											<DropdownV2
-												items={() => [
-													{
-														displayName: 'Delete table',
-														icon: Trash2Icon,
-														action: () =>
-															(askingForConfirmation = {
-																title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
-																confirmationText: 'Delete permanently',
-																open: true,
-																id: 'db-manager-delete-table-confirmation-modal',
-																onConfirm: async () => {
-																	askingForConfirmation && (askingForConfirmation.loading = true)
-																	try {
-																		await dbSchemaOps.onDelete({
-																			tableKey,
-																			schema: sc.schemaKey
-																		})
-																		refresh?.()
-																		sendUserToast(`Table '${tableKey}' deleted successfully`)
-																	} catch (e) {
-																		let msg: string | undefined =
-																			(e as any).body ?? (e as Error).message
-																		if (typeof msg !== 'string')
-																			msg = e ? JSON.stringify(e) : undefined
-																		sendUserToast(msg ?? 'Action failed!', true)
-																	}
-																	askingForConfirmation = undefined
-																}
-															})
-													},
-													{
-														displayName: 'Alter table',
-														icon: EditIcon,
-														action: () => {
-															selected = { schemaKey: sc.schemaKey, tableKey }
-															dbTableEditorState = { open: true, alterTableKey: tableKey }
-														}
-													}
-												]}
-												class="mr-1 {rowActionsClass(isSelected)}"
-												btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
-											/>
-										{/if}
-									</button>
-								{/each}
-								{#if root.datatable === currentDatatable || root.datatable === undefined}
-									<button
-										class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
-											tableIndent}
-										onclick={() => {
-											selected = { schemaKey: sc.schemaKey, tableKey: undefined }
-											dbTableEditorState = { open: true }
-										}}
-									>
-										<Plus class="shrink-0" size={14} />
-										<span class="text-xs">New table</span>
-									</button>
-								{/if}
-							{/if}
-						{/each}
-						{#if dbSupportsSchemas && (root.datatable === currentDatatable || root.datatable === undefined) && search.trim() === ''}
-							<button
-								class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
-									(root.datatable !== undefined ? 'pl-7' : 'pl-3')}
-								onclick={() => (newSchemaDialogOpen = true)}
-							>
-								<Plus class="shrink-0" size={14} />
-								<span class="text-xs">New schema</span>
+									{/if}
+								</div>
 							</button>
 						{/if}
+						{#if schemaOpen || !dbSupportsSchemas}
+							{@const tableIndent = dbSupportsSchemas
+								? root.datatable !== undefined
+									? 'pl-11'
+									: 'pl-7'
+								: root.datatable !== undefined
+									? 'pl-7'
+									: 'pl-3'}
+							{#each sc.tables as tableKey (tableKey)}
+								{@const entry = {
+									datatable: root.datatable,
+									schema: sc.schemaKey,
+									table: tableKey
+								}}
+								{@const isSelected = multiSelectMode
+									? isTableSelected(entry) || isTableDisabled(entry)
+									: root.datatable === currentDatatable &&
+										selected.schemaKey === sc.schemaKey &&
+										selected.tableKey === tableKey}
+								<button
+									class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
+										tableIndent +
+										' ' +
+										rowText(isSelected) +
+										' ' +
+										(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
+									onclick={() =>
+										multiSelectMode
+											? toggleTableSelection(entry)
+											: selectTable(root.datatable, sc.schemaKey, tableKey)}
+								>
+									{#if asset}
+										<!-- Star carries its own p-1 for a bigger hit area; pull it back so its
+											     glyph lands on the same indent grid as a bare icon. -->
+										<span class="-ml-1 flex shrink-0">
+											<Star
+												kind="asset"
+												path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${sc.schemaKey}.${tableKey}`}
+											/>
+										</span>
+									{:else}
+										<Table2 class="shrink-0" size={14} />
+									{/if}
+									<p class="db-manager-table-key truncate text-ellipsis grow text-left text-xs">
+										{tableKey}
+									</p>
+									{#if multiSelectMode}
+										<div class="shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+											<Checkbox
+												checked={isTableSelected(entry) || isTableDisabled(entry)}
+												disabled={isTableDisabled(entry)}
+												title={isTableDisabled(entry) ? 'Already added' : undefined}
+												class="pointer-events-none"
+											/>
+										</div>
+									{:else if root.datatable === currentDatatable || root.datatable === undefined}
+										<DropdownV2
+											items={() => [
+												{
+													displayName: 'Delete table',
+													icon: Trash2Icon,
+													action: () =>
+														(askingForConfirmation = {
+															title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
+															confirmationText: 'Delete permanently',
+															open: true,
+															id: 'db-manager-delete-table-confirmation-modal',
+															onConfirm: async () => {
+																askingForConfirmation && (askingForConfirmation.loading = true)
+																try {
+																	await dbSchemaOps.onDelete({
+																		tableKey,
+																		schema: sc.schemaKey
+																	})
+																	refresh?.()
+																	sendUserToast(`Table '${tableKey}' deleted successfully`)
+																} catch (e) {
+																	let msg: string | undefined =
+																		(e as any).body ?? (e as Error).message
+																	if (typeof msg !== 'string')
+																		msg = e ? JSON.stringify(e) : undefined
+																	sendUserToast(msg ?? 'Action failed!', true)
+																}
+																askingForConfirmation = undefined
+															}
+														})
+												},
+												{
+													displayName: 'Alter table',
+													icon: EditIcon,
+													action: () => {
+														selected = { schemaKey: sc.schemaKey, tableKey }
+														dbTableEditorState = { open: true, alterTableKey: tableKey }
+													}
+												}
+											]}
+											class="mr-1 {rowActionsClass(isSelected)}"
+											btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
+										/>
+									{/if}
+								</button>
+							{/each}
+							{#if !multiSelectMode && (root.datatable === currentDatatable || root.datatable === undefined)}
+								<button
+									class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
+										tableIndent}
+									onclick={() => {
+										selected = { schemaKey: sc.schemaKey, tableKey: undefined }
+										dbTableEditorState = { open: true }
+									}}
+								>
+									<Plus class="shrink-0" size={14} />
+									<span class="text-xs">New table</span>
+								</button>
+							{/if}
+						{/if}
+					{/each}
+					{#if dbSupportsSchemas && !multiSelectMode && (root.datatable === currentDatatable || root.datatable === undefined) && search.trim() === ''}
+						<button
+							class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
+								(root.datatable !== undefined ? 'pl-7' : 'pl-3')}
+							onclick={() => (newSchemaDialogOpen = true)}
+						>
+							<Plus class="shrink-0" size={14} />
+							<span class="text-xs">New schema</span>
+						</button>
 					{/if}
-				{/each}
-			{/if}
+				{/if}
+			{/each}
 		</div>
 	</Pane>
 	<Pane class="p-3 pt-1">

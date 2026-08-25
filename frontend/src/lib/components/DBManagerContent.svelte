@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
-	import type { Snippet } from 'svelte'
 	import type { DataTableTables } from '$lib/gen'
 	import type { DatatableRowAction } from './dbTypes'
 	import { sortArray } from '$lib/utils'
@@ -41,7 +40,6 @@
 		/** Every data table with its schemas and tables, for the left-pane tree.
 		 * Undefined when the drawer is not on a data table, which is what collapses
 		 * the tree's top level away. */
-		dbSelector?: Snippet<[]>
 		datatableTree?: DataTableTables[]
 		datatableTreeLoading?: boolean
 		onSelectDatatable?: (datatable: string) => void
@@ -69,7 +67,6 @@
 		hasReplResult = $bindable(false),
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
-		dbSelector,
 		datatableTree,
 		datatableTreeLoading,
 		onSelectDatatable,
@@ -323,7 +320,6 @@
 						: undefined}
 				{dbType}
 				refresh={() => refresh()}
-				{dbSelector}
 				{datatableTree}
 				{datatableTreeLoading}
 				{onSelectDatatable}

@@ -4,17 +4,17 @@
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import Button from '../common/button/Button.svelte'
-	import Select from '../select/Select.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import type { DataTableRef } from './dataTableRefUtils'
 	import { resource } from 'runed'
-	import { ArrowLeft, Expand, LoaderCircle, Minimize, Plus, RefreshCcw } from 'lucide-svelte'
+	import { ArrowLeft, Expand, Minimize, Plus, RefreshCcw } from 'lucide-svelte'
 	import DBManagerContent from '../DBManagerContent.svelte'
 	import type { DbInput } from '../dbTypes'
 	import type { SelectedTable } from '../DBManager.svelte'
 	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useDbManagerTag } from '../dbManagerTag.svelte'
 	import DbWorkerTagButton from '../DbWorkerTagButton.svelte'
+	import type { DataTableTables } from '$lib/gen'
 
 	const getOpWs = getRawAppOperatingWorkspace()
 	let opWs = $derived(getOpWs?.() ?? $workspaceStore)
@@ -55,15 +55,22 @@
 		}
 	})
 
-	export function openDrawer() {
-		// Auto-select first datatable if only one exists
-		if (datatables.current.length === 1) {
-			selectedDatatable = datatables.current[0]
-		} else if (datatables.current.length > 1 && datatables.current.includes('main')) {
-			selectedDatatable = 'main'
-		} else {
-			selectedDatatable = undefined
+	// Every data table with its schemas and tables: the tree is the picker, so it
+	// has to cover the data tables the query editor is not pointed at.
+	const datatableTree = resource<DataTableTables[]>([], async () => {
+		if (!opWs) return []
+		try {
+			return await WorkspaceService.listDataTableTables({ workspace: opWs })
+		} catch (e) {
+			console.error('Failed to load datatable tables:', e)
+			return []
 		}
+	})
+
+	export function openDrawer() {
+		// The tree shows every data table; this only picks which one the query
+		// editor and the table preview run against.
+		selectedDatatable = datatables.current.includes('main') ? 'main' : datatables.current[0]
 		selectedSchemaKey = undefined
 		selectedTableKey = undefined
 		selectedTables = []
@@ -91,20 +98,16 @@
 	}
 
 	function handleAddTables() {
-		if (!selectedDatatable) {
-			sendUserToast('Please select a data table first', true)
-			return
-		}
-
 		if (selectedTables.length === 0) {
 			sendUserToast('Please select at least one table', true)
 			return
 		}
 
-		// Add all selected tables
 		for (const table of selectedTables) {
+			const datatable = table.datatable ?? selectedDatatable
+			if (!datatable) continue
 			const ref: DataTableRef = {
-				datatable: selectedDatatable,
+				datatable,
 				schema: table.schema,
 				table: table.table
 			}
@@ -115,13 +118,6 @@
 		sendUserToast(`Added ${count} table${count > 1 ? 's' : ''} to app`)
 		selectedTables = []
 	}
-
-	const datatableItems = $derived(
-		datatables.current.map((dt) => ({
-			value: dt,
-			label: dt
-		}))
-	)
 
 	const dbInput: DbInput | undefined = $derived(
 		selectedDatatable
@@ -141,15 +137,13 @@
 		}
 	})
 
-	// Convert existingRefs to disabledTables format for the current datatable
 	const disabledTables = $derived(
 		existingRefs
-			.filter((ref) => ref.datatable === selectedDatatable && ref.schema && ref.table)
-			.map((ref) => ({ schema: ref.schema!, table: ref.table! }))
+			.filter((ref) => ref.schema && ref.table)
+			.map((ref) => ({ datatable: ref.datatable, schema: ref.schema!, table: ref.table! }))
 	)
 
-	// Can add: has tables selected
-	const canAdd = $derived(selectedDatatable && selectedTables.length > 0)
+	const canAdd = $derived(selectedTables.length > 0)
 
 	// Shares the drawer-set override with the Database Manager: same data table,
 	// same worker group needed to reach it.
@@ -187,24 +181,9 @@
 					multiSelectMode={true}
 					bind:selectedTables
 					{disabledTables}
-				>
-					{#snippet dbSelector()}
-						{#if datatables.loading}
-							<div class="flex items-center gap-2 text-tertiary ml-2">
-								<LoaderCircle size={14} class="animate-spin" />
-								<span class="text-sm">Loading...</span>
-							</div>
-						{:else if datatables.current.length >= 1}
-							<Select
-								transformInputSelectedText={(s) => `Datatable: ${s}`}
-								items={datatableItems}
-								bind:value={selectedDatatable}
-								placeholder="Select data table"
-								size="md"
-							/>
-						{/if}
-					{/snippet}
-				</DBManagerContent>
+					datatableTree={datatableTree.current}
+					datatableTreeLoading={datatableTree.loading}
+				/>
 			{/key}
 		{:else}
 			<div class="flex items-center justify-center h-full text-tertiary">
