@@ -5,14 +5,9 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Select from './select/Select.svelte'
-	import {
-		ArrowLeft,
-		Copy,
-		Expand,
-		Minimize,
-		RefreshCcw,
-	} from 'lucide-svelte'
+	import { ArrowLeft, Copy, Expand, Minimize, RefreshCcw } from 'lucide-svelte'
 	import DBManagerContent from './DBManagerContent.svelte'
+	import type { PendingCreate } from './DBManager.svelte'
 	import DataTableMigrationsButton from './workspaceSettings/DataTableMigrationsButton.svelte'
 	import DataTablePermissionsButton from './workspaceSettings/DataTablePermissionsButton.svelte'
 	import { resource } from 'runed'
@@ -39,6 +34,10 @@
 	// The workspace the drawer's DB operations run against — the acting workspace of
 	// the editor that opened it (set via openDrawer), else the nav workspace.
 	let ws = $derived(uriState.workspace ?? $workspaceStore)
+
+	// A create started on a data table other than the current one: survives the
+	// re-mount the switch causes.
+	let pendingCreate = $state<PendingCreate | undefined>(undefined)
 
 	// Every data table with its schemas and tables, in one call: this is what the
 	// left pane's tree navigates, so it has to cover the data tables the user is
@@ -83,7 +82,6 @@
 					usableRoles.current.roles.length === 0 ||
 					uriState.selectedRole !== undefined))
 	)
-
 
 	// Settle the role before anything queries the data table: the schema and
 	// metadata fetches run as whatever role the input carries, so leaving it unset
@@ -259,6 +257,7 @@
 					datatableTree={uriState.isDatatableInput ? datatables.current : undefined}
 					datatableTreeLoading={datatables.loading}
 					onSelectDatatable={(dt) => (uriState.selectedDatatable = dt)}
+					bind:pendingCreate
 					canManageDatatable={!!($superadmin || $userStore?.is_admin)}
 					onDatatableAction={runDatatableAction}
 					bind:workerTag={() => workerTag.tag, (v) => (workerTag.tag = v)}
@@ -268,8 +267,7 @@
 					onImport={enableImportExport
 						? (mode) => ((importDrawerOpen = true), (importBehavior = mode))
 						: undefined}
-				>
-				</DBManagerContent>
+				></DBManagerContent>
 			{/key}
 		{/if}
 		{#snippet actions()}

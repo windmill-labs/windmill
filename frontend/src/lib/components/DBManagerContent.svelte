@@ -23,7 +23,7 @@
 	import type { DbInput } from './dbTypes'
 	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
-	import type { SelectedTable } from './DBManager.svelte'
+	import type { PendingCreate, SelectedTable } from './DBManager.svelte'
 	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import { resource } from 'runed'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -43,6 +43,7 @@
 		datatableTree?: DataTableTables[]
 		datatableTreeLoading?: boolean
 		onSelectDatatable?: (datatable: string) => void
+		pendingCreate?: PendingCreate | undefined
 		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
 		canManageDatatable?: boolean
 		/** Enable multi-select mode with checkboxes in sidebar */
@@ -70,6 +71,7 @@
 		datatableTree,
 		datatableTreeLoading,
 		onSelectDatatable,
+		pendingCreate = $bindable(undefined),
 		onDatatableAction,
 		canManageDatatable,
 		multiSelectMode = false,
@@ -323,6 +325,7 @@
 				{datatableTree}
 				{datatableTreeLoading}
 				{onSelectDatatable}
+				bind:pendingCreate
 				{onDatatableAction}
 				{canManageDatatable}
 				{onImport}

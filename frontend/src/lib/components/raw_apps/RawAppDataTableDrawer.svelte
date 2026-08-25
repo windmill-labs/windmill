@@ -10,7 +10,7 @@
 	import { ArrowLeft, Expand, Minimize, Plus, RefreshCcw } from 'lucide-svelte'
 	import DBManagerContent from '../DBManagerContent.svelte'
 	import type { DbInput } from '../dbTypes'
-	import type { SelectedTable } from '../DBManager.svelte'
+	import type { PendingCreate, SelectedTable } from '../DBManager.svelte'
 	import { getRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useDbManagerTag } from '../dbManagerTag.svelte'
 	import DbWorkerTagButton from '../DbWorkerTagButton.svelte'
@@ -39,6 +39,9 @@
 
 	// Multi-select mode: selected tables
 	let selectedTables = $state<SelectedTable[]>([])
+
+	// Survives the re-mount a data table switch causes.
+	let pendingCreate = $state<PendingCreate | undefined>(undefined)
 
 	// Selected schema/table from DBManager (for preview)
 	let selectedSchemaKey = $state<string | undefined>(undefined)
@@ -181,6 +184,7 @@
 					datatableTree={datatableTree.current}
 					datatableTreeLoading={datatableTree.loading}
 					onSelectDatatable={(dt) => (selectedDatatable = dt)}
+					bind:pendingCreate
 				/>
 			{/key}
 		{:else}

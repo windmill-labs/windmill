@@ -47,6 +47,10 @@
 		table: string
 	}
 
+	/** A create started from a row of another data table. Switching data table
+	 * re-mounts this component, so the request has to travel through the parent. */
+	export type PendingCreate = { kind: 'table'; schema: string } | { kind: 'schema' }
+
 	type Props = {
 		dbType: DbType
 		dbSchema: DBSchema
@@ -66,6 +70,7 @@
 		datatableTree?: DataTableTables[]
 		datatableTreeLoading?: boolean
 		onSelectDatatable?: (datatable: string) => void
+		pendingCreate?: PendingCreate | undefined
 		/** Row-menu actions on a data table, run against that row's data table. */
 		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
 		canManageDatatable?: boolean
@@ -95,6 +100,7 @@
 		datatableTree,
 		datatableTreeLoading,
 		onSelectDatatable,
+		pendingCreate = $bindable(undefined),
 		onDatatableAction,
 		canManageDatatable = false,
 		multiSelectMode = false,
@@ -266,11 +272,6 @@
 			: 'group-hover:opacity-0 ' + (current ? 'opacity-0 ' : 'opacity-100 ')) +
 		(open ? '' : '-rotate-90')
 
-	/** Every row in the tree reads the same way: what you are looking at now is
-	 * emphasized, everything else recedes. */
-	const rowText = (current: boolean) =>
-		current ? 'text-primary font-semibold' : 'text-secondary font-normal'
-
 	/** Reveal a node, dropping a stale "closed" that would hide a new selection. */
 	function reveal(dt: string | undefined, schemaKey?: string) {
 		const next = new Map(expandOverrides)
@@ -292,6 +293,40 @@
 		reveal(dt, schemaKey)
 		selected = { schemaKey, tableKey }
 	}
+
+	function startCreateTable(dt: string | undefined, schemaKey: string) {
+		if (dt !== undefined && dt !== currentDatatable) {
+			selectedSchemaKey = schemaKey
+			pendingCreate = { kind: 'table', schema: schemaKey }
+			onSelectDatatable?.(dt)
+			return
+		}
+		selected = { schemaKey, tableKey: undefined }
+		dbTableEditorState = { open: true }
+	}
+
+	function startCreateSchema(dt: string | undefined) {
+		if (dt !== undefined && dt !== currentDatatable) {
+			pendingCreate = { kind: 'schema' }
+			onSelectDatatable?.(dt)
+			return
+		}
+		newSchemaDialogOpen = true
+	}
+
+	// Finishes a create requested before the switch, now that this component is
+	// mounted against the data table it targeted.
+	$effect(() => {
+		const req = pendingCreate
+		if (!req || !schemaKeys.length) return
+		pendingCreate = undefined
+		if (req.kind === 'schema') {
+			newSchemaDialogOpen = true
+		} else if (schemaKeys.includes(req.schema)) {
+			selected = { schemaKey: req.schema, tableKey: undefined }
+			dbTableEditorState = { open: true }
+		}
+	})
 
 	let search = $state('')
 	let selected: {
@@ -415,8 +450,7 @@
 				{@const dtOpen = isExpanded(root.datatable)}
 				{#if root.datatable !== undefined}
 					<button
-						class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 ' +
-							rowText(root.datatable === currentDatatable)}
+						class="group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10"
 						onclick={() => toggle(root.datatable)}
 					>
 						{#if multiSelectMode}
@@ -484,12 +518,8 @@
 						{@const indent = root.datatable !== undefined ? 'pl-7' : 'pl-3'}
 						{#if dbSupportsSchemas}
 							<button
-								class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
-									indent +
-									' ' +
-									rowText(
-										root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey
-									)}
+								class={'group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
+									indent}
 								onclick={() => toggle(root.datatable, sc.schemaKey)}
 							>
 								{#if multiSelectMode}
@@ -550,10 +580,8 @@
 									selected.schemaKey === sc.schemaKey &&
 									selected.tableKey === tableKey}
 								<button
-									class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
+									class={'group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
 										tableIndent +
-										' ' +
-										rowText(isSelected) +
 										' ' +
 										(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
 									onclick={() => selectTable(root.datatable, sc.schemaKey, tableKey)}
@@ -630,26 +658,21 @@
 									{/if}
 								</button>
 							{/each}
-							{#if root.datatable === currentDatatable || root.datatable === undefined}
-								<button
-									class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
-										tableIndent}
-									onclick={() => {
-										selected = { schemaKey: sc.schemaKey, tableKey: undefined }
-										dbTableEditorState = { open: true }
-									}}
-								>
-									<Plus class="shrink-0" size={14} />
-									<span class="text-xs">New table</span>
-								</button>
-							{/if}
+							<button
+								class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
+									tableIndent}
+								onclick={() => startCreateTable(root.datatable, sc.schemaKey)}
+							>
+								<Plus class="shrink-0" size={14} />
+								<span class="text-xs">New table</span>
+							</button>
 						{/if}
 					{/each}
-					{#if dbSupportsSchemas && (root.datatable === currentDatatable || root.datatable === undefined) && search.trim() === ''}
+					{#if dbSupportsSchemas && search.trim() === ''}
 						<button
-							class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
+							class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
 								(root.datatable !== undefined ? 'pl-7' : 'pl-3')}
-							onclick={() => (newSchemaDialogOpen = true)}
+							onclick={() => startCreateSchema(root.datatable)}
 						>
 							<Plus class="shrink-0" size={14} />
 							<span class="text-xs">New schema</span>
