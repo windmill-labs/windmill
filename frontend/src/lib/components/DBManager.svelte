@@ -257,19 +257,15 @@
 		expandOverrides = next
 	}
 
-	// Row actions stay out of the way until you are on the row — or it is the one
-	// you are looking at, where the menu is part of the current context.
-	const rowActionsClass = (current: boolean) =>
-		'absolute right-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 ' +
-		(current ? 'opacity-100' : 'opacity-0')
+	// Row actions stay out of the way until you are on the row.
+	const rowActionsClass =
+		'absolute right-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100'
 
 	// The chevron is the resting state of that slot: it gives way to the menu
 	// rather than sitting beside it.
-	const rowChevronClass = (current: boolean, open: boolean) =>
-		'absolute right-0 pointer-events-none text-secondary transition-all ' +
-		(multiSelectMode
-			? 'opacity-100 '
-			: 'group-hover:opacity-0 ' + (current ? 'opacity-0 ' : 'opacity-100 ')) +
+	const rowChevronClass = (open: boolean) =>
+		'absolute right-0 pointer-events-none text-secondary transition-all opacity-100 ' +
+		(multiSelectMode ? '' : 'group-hover:opacity-0 ') +
 		(open ? '' : '-rotate-90')
 
 	/** Reveal a node, dropping a stale "closed" that would hide a new selection. */
@@ -467,10 +463,7 @@
 						<DatabaseIcon class="shrink-0" size={14} />
 						<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
 						<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
-							<ChevronDownIcon
-								class={rowChevronClass(root.datatable === currentDatatable, dtOpen)}
-								size={14}
-							/>
+							<ChevronDownIcon class={rowChevronClass(dtOpen)} size={14} />
 							{#if !multiSelectMode}
 								{#if onDatatableAction}
 									{@const dt = root.datatable}
@@ -501,7 +494,7 @@
 												action: () => onDatatableAction?.(dt, 'import')
 											}
 										]}
-										class="-mr-2 {rowActionsClass(root.datatable === currentDatatable)}"
+										class="-mr-2 {rowActionsClass}"
 										btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
 									/>
 								{/if}
@@ -536,13 +529,7 @@
 								<FolderIcon class="shrink-0" size={14} />
 								<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
 								<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
-									<ChevronDownIcon
-										class={rowChevronClass(
-											root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey,
-											schemaOpen
-										)}
-										size={14}
-									/>
+									<ChevronDownIcon class={rowChevronClass(schemaOpen)} size={14} />
 									{#if !multiSelectMode}
 										<DropdownV2
 											items={() => [
@@ -552,9 +539,7 @@
 													action: () => (schemaPermissionsOpen = true)
 												}
 											]}
-											class="-mr-2 {rowActionsClass(
-												root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey
-											)}"
+											class="-mr-2 {rowActionsClass}"
 											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
 										/>
 									{/if}
@@ -652,7 +637,7 @@
 													}
 												}
 											]}
-											class="mr-1 {rowActionsClass(isSelected)}"
+											class="mr-1 {rowActionsClass}"
 											btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
 										/>
 									{/if}
