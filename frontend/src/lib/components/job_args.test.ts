@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { conformArgsToSchema } from './job_args'
+import { conformArgsToSchema, redactFileArgs, redactSecretArgs, stripSecretArgs } from './job_args'
 
 describe('conformArgsToSchema', () => {
 	it('drops what the schema does not declare, prototype names included', () => {
@@ -10,5 +10,84 @@ describe('conformArgsToSchema', () => {
 		expect(args).toEqual({ keep: 1 })
 		expect(Object.getPrototypeOf(args)).toBe(Object.prototype)
 		expect(droppedKeys.sort()).toEqual(['__proto__', 'constructor', 'force', 'toString'])
+	})
+
+	it('keeps a declared __proto__ instead of losing it to the setter', () => {
+		const { args, droppedKeys } = conformArgsToSchema(
+			JSON.parse('{"__proto__":"legit","keep":1}'),
+			JSON.parse('{"properties":{"__proto__":{"type":"string"},"keep":{"type":"number"}}}')
+		)
+		expect(Object.hasOwn(args, '__proto__')).toBe(true)
+		expect(args['__proto__']).toBe('legit')
+		expect(droppedKeys).toEqual([])
+	})
+})
+
+describe('secret args at every level the form nests', () => {
+	const schema = {
+		properties: {
+			top: { type: 'string', password: true },
+			obj: { properties: { inner: { type: 'string', password: true } } },
+			list: { items: { properties: { secret: { type: 'string', password: true } } } },
+			either: {
+				oneOf: [
+					{ title: 'a', properties: { key: { type: 'string', password: true } } },
+					{ title: 'b', properties: { other: { type: 'string', password: true } } }
+				]
+			}
+		}
+	}
+	const args = {
+		top: 'hunter2',
+		obj: { inner: '$var:u/ada/prod', keep: 1 },
+		list: [{ secret: 'one', name: 'a' }, { secret: 'two' }],
+		// Tagged as branch 'a', but 'b' is stripped too: the tag is runtime state.
+		either: { kind: 'a', key: 'k', other: 'o' }
+	}
+
+	it('strips every one of them', () => {
+		expect(stripSecretArgs(args, schema)).toEqual({
+			obj: { keep: 1 },
+			list: [{ name: 'a' }, {}],
+			either: { kind: 'a' }
+		})
+	})
+
+	it('redacts every one of them', () => {
+		const redacted = JSON.stringify(redactSecretArgs(args, schema))
+		for (const secret of ['hunter2', 'prod', 'one', 'two', '"k"', '"o"']) {
+			expect(redacted).not.toContain(secret)
+		}
+		expect(redacted).toContain('<hidden>')
+		expect(redacted).toContain('"name":"a"')
+	})
+
+	it('leaves no key behind for a level the args never carried', () => {
+		expect(Object.keys(stripSecretArgs({ top: 'x' }, schema))).toEqual([])
+	})
+})
+
+describe('redactFileArgs', () => {
+	const schema = {
+		properties: {
+			doc: { type: 'string', contentEncoding: 'base64' },
+			pics: { type: 'array', items: { type: 'string', contentEncoding: 'base64' } },
+			wrap: { properties: { inner: { type: 'string', contentEncoding: 'base64' } } },
+			note: { type: 'string' }
+		}
+	}
+
+	it('replaces the bytes with a size marker at every level, and keeps the rest', () => {
+		const oneMeg = 'A'.repeat(1024 * 1024 * 2)
+		const redacted = redactFileArgs(
+			{ doc: oneMeg, pics: ['B'.repeat(4096)], wrap: { inner: 'C'.repeat(2048) }, note: 'hi' },
+			schema
+		)
+		expect(redacted).toEqual({
+			doc: '<file: 1.5 MB>',
+			pics: ['<file: 3 KB>'],
+			wrap: { inner: '<file: 2 KB>' },
+			note: 'hi'
+		})
 	})
 })
