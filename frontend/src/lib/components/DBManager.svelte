@@ -212,23 +212,44 @@
 		)
 	})
 
-	let expanded = $state<Set<string>>(new Set())
+	// Explicit open/closed choices, over a default rule. Storing only the
+	// overrides is what lets the current data table and selected schema — which
+	// default to open — actually be folded; a plain "expanded" set could never
+	// close them, since the default would keep winning.
+	let expandOverrides = $state<Map<string, boolean>>(new Map())
 	const nodeKey = (dt: string | undefined, schemaKey?: string) =>
 		`${dt ?? ''}${schemaKey === undefined ? '' : `/${schemaKey}`}`
 
-	function toggle(key: string) {
-		const next = new Set(expanded)
-		next.has(key) ? next.delete(key) : next.add(key)
-		expanded = next
-	}
-
-	// A node is open when explicitly expanded, when it holds the current selection,
-	// or when a search is narrowing the tree to what matched.
-	function isExpanded(dt: string | undefined, schemaKey?: string): boolean {
-		if (search.trim() !== '') return true
-		if (expanded.has(nodeKey(dt, schemaKey))) return true
+	function defaultExpanded(dt: string | undefined, schemaKey?: string): boolean {
 		if (dt !== undefined && dt !== currentDatatable) return false
 		return schemaKey === undefined || schemaKey === selected.schemaKey
+	}
+
+	function isExpanded(dt: string | undefined, schemaKey?: string): boolean {
+		// A search narrows the tree to what matched, so everything left is shown.
+		if (search.trim() !== '') return true
+		return expandOverrides.get(nodeKey(dt, schemaKey)) ?? defaultExpanded(dt, schemaKey)
+	}
+
+	function toggle(dt: string | undefined, schemaKey?: string) {
+		const key = nodeKey(dt, schemaKey)
+		const open = expandOverrides.get(key) ?? defaultExpanded(dt, schemaKey)
+		const next = new Map(expandOverrides)
+		next.set(key, !open)
+		expandOverrides = next
+	}
+
+	/** Every row in the tree reads the same way: what you are looking at now is
+	 * emphasized, everything else recedes. */
+	const rowText = (current: boolean) =>
+		current ? 'text-primary font-semibold' : 'text-secondary font-normal'
+
+	/** Reveal a node, dropping a stale "closed" that would hide a new selection. */
+	function reveal(dt: string | undefined, schemaKey?: string) {
+		const next = new Map(expandOverrides)
+		next.delete(nodeKey(dt))
+		next.delete(nodeKey(dt, schemaKey))
+		expandOverrides = next
 	}
 
 	function selectTable(dt: string | undefined, schemaKey: string, tableKey: string) {
@@ -241,6 +262,7 @@
 			onSelectDatatable?.(dt)
 			return
 		}
+		reveal(dt, schemaKey)
 		selected = { schemaKey, tableKey }
 	}
 
@@ -534,16 +556,17 @@
 					{@const dtOpen = isExpanded(root.datatable)}
 					{#if root.datatable !== undefined}
 						<button
-							class={'w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pl-2 pr-1 hover:bg-gray-500/10 border-b border-surface-secondary ' +
-								(root.datatable === currentDatatable ? 'text-emphasis' : 'text-secondary')}
-							onclick={() => toggle(nodeKey(root.datatable))}
+							class={'w-full text-sm flex gap-2 items-center h-8 cursor-pointer pl-2 pr-1 hover:bg-gray-500/10 ' +
+								rowText(root.datatable === currentDatatable)}
+							onclick={() => toggle(root.datatable)}
 						>
-							<ChevronDownIcon
-								class={'shrink-0 transition-transform ' + (dtOpen ? '' : '-rotate-90')}
-								size={14}
-							/>
 							<DatabaseIcon class="shrink-0" size={14} />
 							<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
+							<ChevronDownIcon
+								class={'shrink-0 mr-1 text-secondary transition-transform ' +
+									(dtOpen ? '' : '-rotate-90')}
+								size={14}
+							/>
 						</button>
 					{/if}
 					{#if dtOpen}
@@ -555,16 +578,21 @@
 							{@const indent = root.datatable !== undefined ? 'pl-6' : 'pl-2'}
 							{#if dbSupportsSchemas}
 								<button
-									class={'w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pr-1 hover:bg-gray-500/10 border-b border-surface-secondary ' +
-										indent}
-									onclick={() => toggle(nodeKey(root.datatable, sc.schemaKey))}
+									class={'w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
+										indent +
+										' ' +
+										rowText(
+											root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey
+										)}
+									onclick={() => toggle(root.datatable, sc.schemaKey)}
 								>
+									<FolderIcon class="shrink-0" size={14} />
+									<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
 									<ChevronDownIcon
-										class={'shrink-0 transition-transform ' + (schemaOpen ? '' : '-rotate-90')}
+										class={'shrink-0 mr-1 text-secondary transition-transform ' +
+											(schemaOpen ? '' : '-rotate-90')}
 										size={14}
 									/>
-									<FolderIcon class="shrink-0 text-tertiary" size={14} />
-									<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
 								</button>
 							{/if}
 							{#if schemaOpen || !dbSupportsSchemas}
@@ -581,8 +609,10 @@
 										selected.schemaKey === sc.schemaKey &&
 										selected.tableKey === tableKey}
 									<button
-										class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pr-1 ' +
+										class={'w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
 											tableIndent +
+											' ' +
+											rowText(isSelected) +
 											' ' +
 											(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
 										onclick={() => selectTable(root.datatable, sc.schemaKey, tableKey)}
@@ -593,10 +623,10 @@
 												path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${sc.schemaKey}.${tableKey}`}
 											/>
 										{:else}
-											<Table2 class="text-primary shrink-0" size={14} />
+											<Table2 class="shrink-0" size={14} />
 										{/if}
 										<p
-											class="db-manager-table-key truncate text-ellipsis grow text-left text-emphasis text-xs"
+											class="db-manager-table-key truncate text-ellipsis grow text-left text-xs"
 										>
 											{tableKey}
 										</p>
@@ -676,16 +706,6 @@
 				{/each}
 			{/if}
 		</div>
-		{#if !multiSelectMode}
-			<Button
-				on:click={() => (dbTableEditorState = { open: true })}
-				wrapperClasses="mx-2 my-2 text-sm"
-				startIcon={{ icon: Plus }}
-				variant={tableKeys.length === 0 ? 'accent' : 'default'}
-			>
-				New table
-			</Button>
-		{/if}
 	</Pane>
 	<Pane class="p-3 pt-1">
 		{#if tableKey && colDefs?.[tableKey]?.length}
