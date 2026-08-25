@@ -288,6 +288,49 @@ async fn test_tarball_export_gates_values_on_item_scopes(db: Pool<Postgres>) -> 
     Ok(())
 }
 
+/// The tarball filter keys on `expires_at` (garbage collection) and must ignore
+/// `value_expires_at`, so an expiry set on a variable does not drop it from `wmill sync
+/// pull`. The exported entry has to carry the date back, or a pull/push round-trip clears it.
+#[sqlx::test(fixtures("base"))]
+async fn test_tarball_export_excludes_only_gc_variables(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base_url = format!("http://localhost:{}", server.addr.port());
+
+    sqlx::query(
+        r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, expires_at, value_expires_at)
+           VALUES ('test-workspace', 'u/test-user/expiring', 'v', false, '', NULL, now() + interval '30 days'),
+                  ('test-workspace', 'u/test-user/ephemeral', 'v', false, '', now() + interval '7 days', NULL)"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = reqwest::Client::new()
+        .get(format!(
+            "{base_url}/api/w/test-workspace/workspaces/tarball"
+        ))
+        .bearer_auth("SECRET_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(resp.status().as_u16(), 200);
+    let body = String::from_utf8_lossy(&resp.bytes().await?).into_owned();
+
+    assert!(
+        body.contains("u/test-user/expiring.variable.json"),
+        "a variable with an expiry must still reach git sync"
+    );
+    assert!(
+        body.contains("value_expires_at"),
+        "the exported entry must carry the expiry back"
+    );
+    assert!(
+        !body.contains("u/test-user/ephemeral.variable.json"),
+        "a variable awaiting garbage collection must stay out of the export"
+    );
+
+    Ok(())
+}
+
 /// `settings.json` carries the admin-managed integration config that `get_settings`
 /// is admin-only for (the webhook URL, ai_config, git_sync, handler extra_args), so
 /// `include_settings` takes the same admin check as `get_settings` rather than

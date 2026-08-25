@@ -149,6 +149,7 @@ async fn list_variables(
             "resource.path IS NOT NULL as is_linked",
             "account.refresh_token != '' as is_refreshed",
             "variable.expires_at",
+            "variable.value_expires_at",
             "variable.labels",
             "folder_labels(variable.workspace_id, variable.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
@@ -245,7 +246,7 @@ async fn list_variables(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
-            // VariableEditor's `VariableState`: { path, variable: { value, is_secret, description }, labels?, wsSpecific }
+            // VariableEditor's `VariableState`: { path, variable: { value, is_secret, description }, labels?, wsSpecific, value_expires_at? }
             let path = v
                 .get("path")
                 .and_then(|s| s.as_str())
@@ -284,6 +285,11 @@ async fn list_variables(
                 })
             });
             let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+            let value_expires_at = v
+                .get("value_expires_at")
+                .and_then(|x| x.as_str())
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.with_timezone(&chrono::Utc));
 
             rows.push(ListableVariable {
                 workspace_id: w_id.clone(),
@@ -299,6 +305,7 @@ async fn list_variables(
                 refresh_error: None,
                 is_linked: None,
                 expires_at: None,
+                value_expires_at,
                 labels,
                 // No deployed row to inherit folder labels from.
                 inherited_labels: None,
@@ -339,7 +346,7 @@ async fn get_variable(
     let variable_o = sqlx::query_as::<_, ListableVariable>(
         "SELECT variable.workspace_id, variable.path, variable.value, variable.is_secret,
         variable.description, variable.extra_perms, variable.account, variable.is_oauth,
-        variable.expires_at, variable.labels,
+        variable.expires_at, variable.value_expires_at, variable.labels,
         folder_labels(variable.workspace_id, variable.path) as inherited_labels,
         variable.edited_at, variable.edited_by,
         (now() > account.expires_at) as is_expired, account.refresh_error,
@@ -648,8 +655,8 @@ async fn create_variable(
 
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, labels, edited_by)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, value_expires_at, labels, edited_by)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         &w_id,
         variable.path,
         value,
@@ -658,6 +665,7 @@ async fn create_variable(
         variable.account,
         variable.is_oauth.unwrap_or(false),
         variable.expires_at,
+        variable.value_expires_at,
         variable.labels.as_deref() as Option<&[String]>,
         &authed.username
     )
@@ -1053,6 +1061,16 @@ async fn delete_variables_bulk(
     Ok(Json(deleted_paths))
 }
 
+/// Distinguishes an absent JSON field from an explicit `null`. A plain `Option<Option<T>>`
+/// cannot: the outer `Option`'s own impl already maps `null` to `None`.
+fn double_option<'de, T, D>(deserializer: D) -> std::result::Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
+
 #[derive(Deserialize)]
 struct EditVariable {
     path: Option<String>,
@@ -1062,6 +1080,10 @@ struct EditVariable {
     account: Option<i32>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
+    /// Absent leaves the stored expiry alone; an explicit `null` clears it — a caller
+    /// patching one field must not have its omissions read as "clear".
+    #[serde(default, deserialize_with = "double_option")]
+    value_expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
 }
 
 #[derive(Deserialize)]
@@ -1158,6 +1180,17 @@ async fn update_variable(
 
     if let Some(account_id) = ns.account {
         sqlb.set_str("account", account_id);
+        has_sql_updates = true;
+    }
+
+    if let Some(nvalue_expires_at) = ns.value_expires_at {
+        // No bookkeeping to reset: the sweep compares this against
+        // `expiration_dispatched_for`, so moving the date re-arms the handler on its own and
+        // rewriting the same date (an unchanged CLI push) leaves it disarmed.
+        match nvalue_expires_at {
+            Some(ts) => sqlb.set("value_expires_at", "?".bind(&ts.to_rfc3339())),
+            None => sqlb.set("value_expires_at", "NULL"),
+        };
         has_sql_updates = true;
     }
 

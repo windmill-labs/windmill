@@ -215,12 +215,15 @@ pub async fn require_is_owner(
 }
 
 async fn _check_nb_of_groups(db: &DB) -> Result<()> {
-    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all' AND name != 'error_handler' AND name != 'slack' AND name != 'wm_deployers'",)
+    // The exempt names are enumerated, not derived from how the group was created: these back
+    // workspace settings rather than the user's own org structure, and the limit prices the
+    // latter. `success_handler` is provisioned the same way but is not in the list.
+    let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all' AND name != 'error_handler' AND name != 'slack' AND name != 'wm_deployers' AND name != 'variable_expiration_handler'",)
         .fetch_one(db)
         .await?;
     if nb_groups.unwrap_or(0) >= 3 {
         return Err(Error::BadRequest(
-            "You have reached the maximum number of groups (3 outside of native groups 'all', 'slack', 'error_handler' and 'wm_deployers') without an enterprise license"
+            "You have reached the maximum number of groups (3 outside of native groups 'all', 'slack', 'error_handler', 'wm_deployers' and 'variable_expiration_handler') without an enterprise license"
                 .to_string(),
         ));
     }
