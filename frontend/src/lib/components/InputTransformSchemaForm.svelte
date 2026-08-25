@@ -109,6 +109,7 @@
 			: true
 	})
 
+	// The bare read is the dependency: `loadItems` closes over `ws`.
 	$effect(() => {
 		ws
 		untrack(() => itemPicker?.reloadItems())

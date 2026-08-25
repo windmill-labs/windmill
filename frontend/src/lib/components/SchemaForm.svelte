@@ -155,6 +155,7 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
+	// The bare read is the dependency: `loadItems` closes over `ws`.
 	$effect(() => {
 		ws
 		untrack(() => itemPicker?.reloadItems())

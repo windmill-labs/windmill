@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
-	import { getContext, setContext } from 'svelte'
+	import { getContext, setContext, untrack } from 'svelte'
 	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
 	import { writable } from 'svelte/store'
 	import type { FlowEditorContext } from '../types'
@@ -228,6 +228,12 @@
 
 	let variablePicker: ItemPicker | undefined = $state(undefined)
 	let pickForKey: string | undefined = $state(undefined)
+
+	// The bare read is the dependency: `loadItems` closes over `opWs`.
+	$effect(() => {
+		opWs
+		untrack(() => variablePicker?.reloadItems())
+	})
 
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		inputMatches: writable(undefined),

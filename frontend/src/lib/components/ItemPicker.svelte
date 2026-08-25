@@ -62,14 +62,19 @@
 				}
 			})
 			.catch((err) => {
+				if (seq !== loadSeq) return
 				// Drop the list rather than keep offering entries the failed load may have
-				// superseded — they can belong to another workspace. `loadError` then has to
-				// carry the reason, or an empty list reads as an empty workspace.
-				if (seq === loadSeq) {
-					items = []
-					loadError = err.body ?? err.message ?? String(err)
-					sendUserToast(`Failed to load ${itemName.toLowerCase()}s: ${loadError}`, true)
+				// superseded. `loadError` then has to carry the reason, or an empty list reads
+				// as an empty workspace. An empty body must not win over the message, or the
+				// error state is skipped for a falsy `loadError` — hence `||`, not `??`.
+				items = []
+				loadError = err.body || err.message || String(err)
+				// 401/403 are handled globally by onunhandledrejection (logout, privilege
+				// toast). No caller awaits load(), so rethrowing still reaches it.
+				if (err?.status === 401 || err?.status === 403) {
+					throw err
 				}
+				sendUserToast(`Failed to load ${itemName.toLowerCase()}s: ${loadError}`, true)
 			})
 			.finally(() => {
 				if (seq === loadSeq) {
@@ -87,8 +92,6 @@
 	 * opening reloads anyway. */
 	export function reloadItems() {
 		if (drawer?.isOpen()) {
-			// What is on screen came from the previous workspace: it must stop being
-			// pickable now, not once the new list lands.
 			load(true)
 		}
 	}
