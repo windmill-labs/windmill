@@ -1,9 +1,10 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
-	import { VariableService, WorkspaceService, type InputTransform } from '$lib/gen'
+	import { CancelError, VariableService, WorkspaceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { untrack } from 'svelte'
+	import { resource } from 'runed'
 	import { Button } from './common'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
@@ -81,21 +82,37 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	let s3StorageConfigured = $state(true)
-
-	async function checkS3Storage() {
-		try {
-			if (ws) {
-				const settings = await WorkspaceService.getPublicSettings({ workspace: ws })
-				s3StorageConfigured = settings.large_file_storage?.s3_resource_path !== undefined
+	const settings = resource(
+		() => ws,
+		async (ws, _previousWs, { onCleanup }) => {
+			if (!ws) return undefined
+			const req = WorkspaceService.getPublicSettings({ workspace: ws })
+			// `resource` keeps whatever lands last: cancel a superseded request so a slow
+			// reply for a workspace we have left cannot overwrite the current one.
+			onCleanup(() => req.cancel())
+			try {
+				return { ws, settings: await req }
+			} catch (err) {
+				if (!(err instanceof CancelError)) {
+					console.error('Failed to fetch workspace settings:', err)
+				}
+				return undefined
 			}
-		} catch (error) {
-			console.error('Failed to fetch workspace settings:', error)
-			s3StorageConfigured = true
 		}
-	}
+	)
+	// Assume configured until this workspace's own answer lands: the warning must not
+	// linger from the previous workspace, nor appear merely because the fetch failed.
+	let s3StorageConfigured = $derived.by(() => {
+		const loaded = settings.current
+		return loaded && loaded.ws === ws
+			? loaded.settings.large_file_storage?.s3_resource_path !== undefined
+			: true
+	})
 
-	checkS3Storage()
+	$effect(() => {
+		ws
+		untrack(() => itemPicker?.reloadItems())
+	})
 
 	let keys: string[] = $state([])
 	$effect(() => {

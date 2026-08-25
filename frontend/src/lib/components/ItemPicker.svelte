@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { RotateCw } from 'lucide-svelte'
-	import { Button, Drawer, Skeleton } from './common'
+	import { Alert, Button, Drawer, Skeleton } from './common'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import NoItemFound from './home/NoItemFound.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import SearchItems from './SearchItems.svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	type Item = Record<string, any>
 
@@ -39,20 +40,57 @@
 	}: Props = $props()
 
 	let loading = $state(false)
+	let loadError: string | undefined = $state(undefined)
 	let items: Item[] | undefined = $state([])
 	let filteredItems: Item[] | undefined = $state([])
 	let filter = $state('')
 
-	export function openDrawer() {
-		loading = true
-		loadItems()
+	// Only the newest load may write `items`: a slower earlier request can resolve last.
+	// Skeletons replace a list that is known-stale; the refresh button omits them so a
+	// known-good list does not flicker.
+	let loadSeq = 0
+	function load(showSkeleton = false): Promise<void> {
+		const seq = ++loadSeq
+		if (showSkeleton) {
+			loading = true
+		}
+		return loadItems()
 			.then((v) => {
-				items = v
+				if (seq === loadSeq) {
+					items = v
+					loadError = undefined
+				}
+			})
+			.catch((err) => {
+				// Drop the list rather than keep offering entries the failed load may have
+				// superseded — they can belong to another workspace. `loadError` then has to
+				// carry the reason, or an empty list reads as an empty workspace.
+				if (seq === loadSeq) {
+					items = []
+					loadError = err.body ?? err.message ?? String(err)
+					sendUserToast(`Failed to load ${itemName.toLowerCase()}s: ${loadError}`, true)
+				}
 			})
 			.finally(() => {
-				loading = false
+				if (seq === loadSeq) {
+					loading = false
+				}
 			})
+	}
+
+	export function openDrawer() {
+		load(true)
 		drawer?.openDrawer?.()
+	}
+
+	/** Re-runs `loadItems` against what it closes over now. No-op while closed —
+	 * opening reloads anyway. */
+	export function reloadItems() {
+		if (drawer?.isOpen()) {
+			// What is on screen came from the previous workspace: it must stop being
+			// pickable now, not once the new list lands.
+			load(true)
+		}
 	}
 
 	let drawer: Drawer | undefined = $state()
@@ -94,14 +132,9 @@
 				<Button
 					on:click={() => {
 						refreshing = true
-						loadItems()
-							.then((v) => {
-								items = v
-							})
-							.finally(() => {
-								loading = false
-								refreshing = false
-							})
+						load().finally(() => {
+							refreshing = false
+						})
 					}}
 					iconOnly
 					startIcon={{ icon: RotateCw, classes: loading || refreshing ? 'animate-spin' : '' }}
@@ -111,6 +144,10 @@
 				{#each new Array(3) as _}
 					<Skeleton layout={[[5], 0.2]} />
 				{/each}
+			{:else if loadError}
+				<Alert type="error" size="xs" title="Failed to load {itemName.toLowerCase()}s">
+					{loadError}
+				</Alert>
 			{:else if !items?.length}
 				<div class="text-center text-sm text-primary mt-2">
 					{@html noItemMessage}

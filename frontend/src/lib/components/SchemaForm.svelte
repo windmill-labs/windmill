@@ -155,6 +155,11 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
+	$effect(() => {
+		ws
+		untrack(() => itemPicker?.reloadItems())
+	})
+
 	let resourceTypes: string[] | undefined = $state(undefined)
 
 	async function loadResourceTypes() {
