@@ -39,6 +39,7 @@
 		errorHandlerArgs,
 		slackErrorHandlerHubPathEnding
 	} from '../ErrorOrRecoveryHandler.svelte'
+	import { stripScriptPrefix } from './workspaceTriggersList'
 
 	type Props = {
 		triggerPath: string
@@ -264,12 +265,6 @@
 			default:
 				throw new Error(`Unknown job kind: ${jobKind}`)
 		}
-	}
-
-	// The backend strips this prefix off a trigger error handler before baking it
-	// into the job's failure module, so the two only compare equal once stripped.
-	function stripScriptPrefix(path: string | undefined): string | undefined {
-		return path?.startsWith('script/') ? path.slice('script/'.length) : path
 	}
 
 	async function checkIfAdvancedOptionsChanged(job: QueuedJob): Promise<boolean> {
