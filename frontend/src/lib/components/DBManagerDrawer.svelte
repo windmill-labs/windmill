@@ -257,6 +257,11 @@
 					datatableTree={uriState.isDatatableInput ? datatables.current : undefined}
 					datatableTreeLoading={datatables.loading}
 					onSelectDatatable={(dt) => (uriState.selectedDatatable = dt)}
+					onSelectRole={(dt, role) => {
+						// Setting the data table clears the role, so the order matters.
+						uriState.selectedDatatable = dt
+						uriState.selectedRole = role
+					}}
 					bind:pendingAction
 					canManageDatatable={!!($superadmin || $userStore?.is_admin)}
 					onDatatableAction={runDatatableAction}

@@ -43,6 +43,7 @@
 		datatableTree?: DataTableTables[]
 		datatableTreeLoading?: boolean
 		onSelectDatatable?: (datatable: string) => void
+		onSelectRole?: (datatable: string, role: string) => void
 		pendingAction?: PendingRowAction | undefined
 		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
 		canManageDatatable?: boolean
@@ -71,6 +72,7 @@
 		datatableTree,
 		datatableTreeLoading,
 		onSelectDatatable,
+		onSelectRole,
 		pendingAction = $bindable(undefined),
 		onDatatableAction,
 		canManageDatatable,
@@ -325,6 +327,7 @@
 				{datatableTree}
 				{datatableTreeLoading}
 				{onSelectDatatable}
+				{onSelectRole}
 				currentRole={input.type === 'database' ? input.role : undefined}
 				bind:pendingAction
 				{onDatatableAction}

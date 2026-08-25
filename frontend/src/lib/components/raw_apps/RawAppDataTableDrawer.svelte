@@ -30,6 +30,8 @@
 
 	let open = $state(false)
 	let selectedDatatable = $state<string | undefined>(undefined)
+	/** Role the query editor connects as; undefined means the data table's default. */
+	let selectedRole = $state<string | undefined>(undefined)
 
 	// For DB manager
 	let dbManagerContent: DBManagerContent | undefined = $state()
@@ -125,6 +127,7 @@
 					type: 'database' as const,
 					resourceType: 'postgresql' as const,
 					resourcePath: `datatable://${selectedDatatable}`,
+					role: selectedRole,
 					specificSchema: selectedSchemaKey,
 					specificTable: selectedTableKey
 				}
@@ -169,7 +172,7 @@
 		noPadding
 	>
 		{#if dbInput && opWs}
-			{#key selectedDatatable}
+			{#key `${selectedDatatable}~${selectedRole ?? ''}`}
 				<DBManagerContent
 					bind:this={dbManagerContent}
 					input={dbInput}
@@ -183,7 +186,8 @@
 					{disabledTables}
 					datatableTree={datatableTree.current}
 					datatableTreeLoading={datatableTree.loading}
-					onSelectDatatable={(dt) => (selectedDatatable = dt)}
+					onSelectDatatable={(dt) => ((selectedDatatable = dt), (selectedRole = undefined))}
+					onSelectRole={(dt, role) => ((selectedDatatable = dt), (selectedRole = role))}
 					bind:pendingAction
 				/>
 			{/key}

@@ -34,7 +34,7 @@
 	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import Star from './Star.svelte'
-	import Badge from './common/badge/Badge.svelte'
+	import DatatableRoleBadge from './DatatableRoleBadge.svelte'
 	import type { Asset, DataTableTables } from '$lib/gen'
 	import { ADMIN_DATATABLE_ROLE, type DatatableRowAction } from './dbTypes'
 	import TextInput from './text_input/TextInput.svelte'
@@ -79,6 +79,8 @@
 		onSelectDatatable?: (datatable: string) => void
 		/** Role the manager is connected as, when it is not the default one. */
 		currentRole?: string
+		/** Switch a data table's role from its row badge. */
+		onSelectRole?: (datatable: string, role: string) => void
 		pendingAction?: PendingRowAction | undefined
 		/** Row-menu actions on a data table, run against that row's data table. */
 		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
@@ -110,6 +112,7 @@
 		datatableTreeLoading,
 		onSelectDatatable,
 		currentRole,
+		onSelectRole,
 		pendingAction = $bindable(undefined),
 		onDatatableAction,
 		canManageDatatable = false,
@@ -211,16 +214,18 @@
 		return datatableTree?.find((d) => d.datatable_name === datatable)?.error
 	}
 
-	/** The role a data table row is reached through, shown as a badge. Left out
-	 * where naming it says nothing: a data table without permissions, or one whose
-	 * single usable role is already the implicit `admin`. */
-	function roleOf(datatable: string): string | undefined {
+	/** The role a data table row is reached through, and what it can be switched
+	 * to. Absent where naming the role says nothing: a data table without
+	 * permissions, or one whose single usable role is already the implicit
+	 * `admin`. */
+	function roleOf(datatable: string): { role: string; roles: string[] } | undefined {
 		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
-		const usable = entry?.usable_roles ?? []
-		if (usable.length === 0 || (usable.length === 1 && usable[0] === ADMIN_DATATABLE_ROLE)) {
+		const roles = entry?.usable_roles ?? []
+		if (roles.length === 0 || (roles.length === 1 && roles[0] === ADMIN_DATATABLE_ROLE)) {
 			return undefined
 		}
-		return (datatable === currentDatatable ? currentRole : undefined) ?? entry?.default_role
+		const role = (datatable === currentDatatable ? currentRole : undefined) ?? entry?.default_role
+		return role ? { role, roles } : undefined
 	}
 
 	const matchesSearch = (t: string) => t.toLowerCase().includes(search.trim().toLowerCase())
@@ -504,6 +509,7 @@
 				{@const dtOpen = isExpanded(root.datatable)}
 				{#if root.datatable !== undefined}
 					{@const hasMenu = !multiSelectMode && onDatatableAction !== undefined}
+					{@const roleInfo = roleOf(root.datatable)}
 					<button
 						class="group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10"
 						onclick={() => toggle(root.datatable)}
@@ -557,8 +563,13 @@
 							{/if}
 						</div>
 						<span class="truncate text-ellipsis text-left text-xs">{root.datatable}</span>
-						{#if roleOf(root.datatable) !== undefined}
-							<Badge small color="gray">{roleOf(root.datatable)}</Badge>
+						{#if roleInfo}
+							{@const dt = root.datatable}
+							<DatatableRoleBadge
+								role={roleInfo.role}
+								roles={roleInfo.roles}
+								onSelect={(role) => onSelectRole?.(dt, role)}
+							/>
 						{/if}
 						<div class="grow"></div>
 						<div class="shrink-0 w-6 h-8 flex items-center justify-end mr-2">
