@@ -339,8 +339,29 @@
 		}
 		blanks = blanks.map((b) => {
 			const f = stillBlank.get(b.path)
-			if (f) return { ...b, missing: f.missing, done: false, justSaved: false }
-			return { ...b, missing: [], done: true, justSaved: !b.done }
+			// Every field the fresh read decides is taken from it, not merged selectively: these
+			// describe what is at the path *now*. Keeping a stale `unreadable` leaves a resource
+			// that has since come back blocked until a reload, and keeping a stale absence hides
+			// one that has just become unreadable.
+			if (f) {
+				return {
+					...b,
+					missing: f.missing,
+					unreadable: f.unreadable,
+					occupiedBy: f.occupiedBy,
+					done: false,
+					justSaved: false
+				}
+			}
+			// Gone from the blank list entirely: it was read, and it is filled.
+			return {
+				...b,
+				missing: [],
+				unreadable: undefined,
+				occupiedBy: undefined,
+				done: true,
+				justSaved: !b.done
+			}
 		})
 		// The flash is a one-shot; clear it so a later refresh does not replay it.
 		for (const b of blanks) {
