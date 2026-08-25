@@ -113,6 +113,12 @@
 				<span class="font-mono">{runForm.droppedKeys.join(', ')}</span>
 			</p>
 		{/if}
+		{#if runForm.resetKeys?.length}
+			<p class="mt-2 text-2xs text-secondary">
+				Disabled by this script, so it will run with its default:
+				<span class="font-mono">{runForm.resetKeys.join(', ')}</span>
+			</p>
+		{/if}
 	</div>
 
 	<!-- Both buttons rest while a submit is in flight: the ephemeral variables exist by

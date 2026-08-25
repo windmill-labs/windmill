@@ -565,6 +565,9 @@ export type RunFormDisplay = {
 	/** Proposed arguments the schema does not declare, so they have no field. Named on
 	 * the card: approving a run is not consent to something it never showed. */
 	droppedKeys?: string[]
+	/** Proposed arguments a disabled field overrode with its default. Named for the same
+	 * reason: the field renders locked, so the value it holds is not the proposed one. */
+	resetKeys?: string[]
 	/** Either one unmounts the form, so set exactly one, and only once the loop has
 	 * stopped waiting on this card. */
 	submitted?: boolean

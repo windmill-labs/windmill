@@ -4763,33 +4763,78 @@ describe('global AI tools', () => {
 		expect(result).toContain('plan mode is active')
 	})
 
-	it('run_script prefills a locked field with its default, not the proposed value', async () => {
+	it('run_script prefills a locked field with its default, at every level', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/locked',
 			schema: {
 				properties: {
 					locked: { type: 'string', default: 'fixed', disabled: true },
+					cfg: {
+						type: 'object',
+						properties: { force_delete: { type: 'boolean', default: false, disabled: true } }
+					},
 					other: { type: 'string' }
 				}
 			}
 		} as any)
 
 		let shown: Record<string, any> | undefined
-		await withCompletedTestJob(() =>
+		let reset: string[] | undefined
+		const result = await withCompletedTestJob(() =>
 			callGlobalTool(
 				'run_script',
-				{ path: 'f/scripts/locked', args: { locked: 'tampered', other: 'hello' } },
+				{
+					path: 'f/scripts/locked',
+					args: { locked: 'tampered', cfg: { force_delete: true }, other: 'hello' }
+				},
 				{
 					...toolCallbacks,
 					requestRunArgs: async (_toolId, form) => {
 						shown = form.args
+						reset = form.resetKeys
 						return form.args
 					}
 				}
 			)
 		)
 
-		expect(shown).toEqual({ locked: 'fixed', other: 'hello' })
+		expect(shown).toEqual({ locked: 'fixed', cfg: { force_delete: false }, other: 'hello' })
+		// Named on the card and to the model, like a dropped argument: the field renders
+		// locked, so what it carries is not what was proposed.
+		expect(reset).toEqual(['locked', 'cfg.force_delete'])
+		expect(result).toContain('cfg.force_delete')
+	})
+
+	// The bytes belong in the job request and nowhere else: the card is persisted, and a
+	// file small enough to survive truncation would reach the model whole.
+	it('run_script sends the file bytes to the job and a size marker everywhere else', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/upload',
+			schema: { properties: { doc: { type: 'string', contentEncoding: 'base64' } } }
+		} as any)
+
+		const bytes = 'QUJD'.repeat(1024)
+		const statuses: any[] = []
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/upload', args: {} },
+				{
+					...toolCallbacks,
+					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
+					requestRunArgs: async () => ({ doc: bytes })
+				}
+			)
+		)
+
+		expect(JobService.runScriptByPath).toHaveBeenCalledWith({
+			workspace: WORKSPACE,
+			path: 'f/scripts/upload',
+			requestBody: { doc: bytes }
+		})
+		expect(JSON.stringify(statuses)).not.toContain(bytes)
+		expect(result).not.toContain(bytes)
+		expect(result).toContain('<file: 3 KB>')
 	})
 
 	it('run_script runs the arguments the user submitted, not the ones proposed', async () => {

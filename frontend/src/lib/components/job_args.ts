@@ -1,24 +1,26 @@
 import { deepEqual } from 'fast-equals'
 
+const isLockedProp = (prop: any) => !!prop?.disabled && 'default' in prop
+
 /**
  * A field the schema disables is not the caller's to set: whatever it holds, the run
- * sends the schema's default. Returns the keys it actually overwrote so the caller can
+ * sends the schema's default. Returns the paths it actually overwrote so the caller can
  * say so — notifying is the caller's job, this stays pure.
- *
- * Top-level properties only; a disabled field nested in an object is not normalized.
  */
 export function enforceDisabledDefaults(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined
 ): { args: Record<string, any>; resetKeys: string[] } {
-	if (!schema?.properties) return { args, resetKeys: [] }
-	const result = { ...args }
+	// Copied even with nothing to enforce: callers hand the result to a form that edits
+	// it in place, and one branch returning the input would write through to their copy.
+	if (!schema?.properties) return { args: { ...args }, resetKeys: [] }
 	const resetKeys: string[] = []
-	for (const [key, prop] of Object.entries(schema.properties) as [string, any][]) {
-		if (!prop?.disabled || !('default' in prop)) continue
-		if (result[key] !== prop.default) resetKeys.push(key)
-		result[key] = prop.default
-	}
+	const result = mapMatchingArgs(args, schema.properties, isLockedProp, (value, prop, path) => {
+		// An argument never supplied was not overwritten: the field shows the default
+		// either way, and a caller told otherwise would try to correct what it never sent.
+		if (value !== undefined && value !== prop.default) resetKeys.push(path)
+		return prop.default
+	})
 	return { args: result, resetKeys }
 }
 
@@ -63,15 +65,17 @@ function mapMatchingArgs(
 	holder: any,
 	properties: Record<string, any>,
 	isLeaf: (prop: any) => boolean,
-	visit: (value: unknown) => unknown
+	visit: (value: unknown, prop: any, path: string) => unknown,
+	path = ''
 ): any {
 	if (holder == null || typeof holder !== 'object' || Array.isArray(holder)) return holder
 	const result = { ...holder }
 	for (const [key, prop] of Object.entries<any>(properties)) {
+		const keyPath = path ? `${path}.${key}` : key
 		// A matching object is a leaf, not a level: a password object is stored whole as a
 		// single $jsonvar: reference, and a file is one opaque base64 string.
 		if (isLeaf(prop)) {
-			const mapped = visit(result[key])
+			const mapped = visit(result[key], prop, keyPath)
 			if (mapped === undefined) delete result[key]
 			else result[key] = mapped
 			continue
@@ -80,10 +84,10 @@ function mapMatchingArgs(
 		// leave the key behind holding undefined.
 		if (!Object.hasOwn(result, key)) continue
 		if (prop?.properties) {
-			result[key] = mapMatchingArgs(result[key], prop.properties, isLeaf, visit)
+			result[key] = mapMatchingArgs(result[key], prop.properties, isLeaf, visit, keyPath)
 		} else if (prop?.items?.properties && Array.isArray(result[key])) {
-			result[key] = result[key].map((item: any) =>
-				mapMatchingArgs(item, prop.items.properties, isLeaf, visit)
+			result[key] = result[key].map((item: any, i: number) =>
+				mapMatchingArgs(item, prop.items.properties, isLeaf, visit, `${keyPath}[${i}]`)
 			)
 		} else if (Array.isArray(prop?.oneOf)) {
 			// Every branch, not the one the value's tag names: which branch is selected is
@@ -91,7 +95,7 @@ function mapMatchingArgs(
 			// is visited.
 			for (const branch of prop.oneOf) {
 				if (branch?.properties) {
-					result[key] = mapMatchingArgs(result[key], branch.properties, isLeaf, visit)
+					result[key] = mapMatchingArgs(result[key], branch.properties, isLeaf, visit, keyPath)
 				}
 			}
 		}

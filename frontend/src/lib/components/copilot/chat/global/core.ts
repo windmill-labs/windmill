@@ -5473,7 +5473,8 @@ async function runDeployedScript(
 		summary: script.summary || undefined,
 		schema,
 		args: proposed,
-		droppedKeys: conformed.droppedKeys.length ? conformed.droppedKeys : undefined
+		droppedKeys: conformed.droppedKeys.length ? conformed.droppedKeys : undefined,
+		resetKeys: conformed.resetKeys.length ? conformed.resetKeys : undefined
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
@@ -5530,6 +5531,9 @@ async function runDeployedScript(
 	const dropped = conformed.droppedKeys.length
 		? `\nThe deployed schema declares no ${conformed.droppedKeys.join(', ')}, so the form never offered ${conformed.droppedKeys.length > 1 ? 'them' : 'it'} and the run did not carry ${conformed.droppedKeys.length > 1 ? 'them' : 'it'}.`
 		: ''
+	const reset = conformed.resetKeys.length
+		? `\nThe deployed schema disables ${conformed.resetKeys.join(', ')}, so the form held ${conformed.resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${conformed.resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${conformed.resetKeys.length > 1 ? 'them' : 'it'} again.`
+		: ''
 	// Redacted: a variable path is enough to run a job on a value the model cannot read,
 	// and one shown a path proposes it back on the next call.
 	const submittedJson = JSON.stringify(
@@ -5539,7 +5543,7 @@ async function runDeployedScript(
 		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH
 			? submittedJson.slice(0, MAX_SUBMITTED_ARGS_LENGTH) + '... (truncated)'
 			: submittedJson
-	return `Ran with arguments: ${shown}${dropped}\n${outcome}`
+	return `Ran with arguments: ${shown}${dropped}${reset}\n${outcome}`
 }
 
 async function testRunFlowByPath(
