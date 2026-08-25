@@ -100,6 +100,10 @@ path = "./src/main.rs"
 opt-level = 0
 incremental = true
 split-debuginfo = "unpacked"
+# Type and variable DWARF is the single largest thing in target/ and nothing in the dev loop
+# reads it; backtraces only need the line tables, which this keeps. Raise to `true` when you
+# actually need to inspect variables in gdb/lldb.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
