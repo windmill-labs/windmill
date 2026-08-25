@@ -8504,12 +8504,11 @@ paths:
                       required:
                         - name
                         - schema
+                # `derived` and `resource_types` are omitted by a hub older than the
+                # client, which reads every section as optional.
                 required:
                   - app
                   - display_name
-                  - metadata_source
-                  - derived
-                  - resource_types
 
   /flows/hub/list:
     get:

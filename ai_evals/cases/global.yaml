@@ -1933,11 +1933,9 @@
           - email
   skipJudge: true
 
-# Confluence ships 13 real actions, and `List Pages` takes a cursor without ever
-# following one — so where the next cursor comes from (`_links.next`) is stated in the
-# integration's authored metadata and appears in no script body. A task that has to
-# paginate is therefore the one place the two routes to an integration's conventions
-# are not interchangeable.
+# `List Pages` takes a cursor without ever following one, so where the next cursor
+# comes from (`_links.next`) is stated in the authored metadata and in no script body.
+# Paginating is therefore the one task where reading scripts is not an equal route.
 - id: global-hub4-confluence-paginate-all-pages
   prompt: |-
     I need a script that returns every page in one of my Confluence spaces, not just the

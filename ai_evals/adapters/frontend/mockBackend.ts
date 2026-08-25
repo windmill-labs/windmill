@@ -1215,11 +1215,9 @@ function listBenchmarkHubScriptsByApp(app: string | null, kind: string | null) {
   }));
 }
 
-/** What `/integrations/hub/<app>/meta` serves: the provider knowledge the content
- * repo authored, plus facts computed off the shipped scripts. Deliberately carries
- * the integration's conventions and none of the endpoints a case asks the model to
- * write, so the tool shortens the path to that knowledge without supplying answers.
- * `derived` is computed from the fixture scripts so it cannot drift from them. */
+/** What `/integrations/hub/<app>/meta` serves. Carries the integration's conventions
+ * and none of the endpoints a case asks the model to write, so the tool shortens the
+ * path to that knowledge without supplying answers. */
 const BENCHMARK_HUB_INTEGRATION_META: Record<
   string,
   {

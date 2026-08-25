@@ -1476,29 +1476,29 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		// than the semantic one: it takes no query, and it applies no similarity
 		// floor, so the near-misses worth reading as examples of how the integration
 		// is used survive instead of being cut.
-		let scripts: HubScriptHit[]
-		let mentionedHits = 0
+		let ranked: HubScriptHit[]
+		// Kept apart from the ranked hits rather than counted off the end, so capping
+		// below can keep the best of each instead of whatever the tail happens to hold.
+		let mentioned: HubScriptHit[] = []
 		if (query) {
-			scripts = await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
+			ranked = await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
 			// Ranking can bury an integration the query names: "look up an account in
 			// salesforce" returns none of Salesforce's scripts, because Pinterest's say
 			// "Salesforce" too. Add its own hits rather than filtering to it, so a word
 			// that merely looks like a slug costs a few rows instead of the whole result.
 			if (!app) {
-				const mentioned = await integrationNamedIn(query)
-				if (mentioned && !scripts.some((s) => s.app === mentioned)) {
+				const named = await integrationNamedIn(query)
+				if (named && !ranked.some((s) => s.app === named)) {
 					const own = await ScriptService.queryHubScripts({
 						text: query,
 						kind: 'script',
-						app: mentioned
+						app: named
 					})
-					const added = own.slice(0, MAX_MENTIONED_INTEGRATION_HITS)
-					mentionedHits = Math.min(added.length, MAX_FETCHED_HUB_SCRIPTS - 1)
-					scripts = [...scripts, ...added]
+					mentioned = own.slice(0, MAX_MENTIONED_INTEGRATION_HITS)
 				}
 			}
 		} else {
-			scripts =
+			ranked =
 				(
 					await ScriptService.getTopHubScripts({
 						app,
@@ -1507,6 +1507,7 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 					})
 				).asks ?? []
 		}
+		const scripts = [...ranked, ...mentioned]
 
 		if (scripts.length === 0) {
 			// A whiffed search still leaves the integration browsable, which is what
@@ -1518,13 +1519,13 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 			return JSON.stringify({ results: [], suggested_integrations: suggested })
 		}
 
-		// Each result costs a content fetch, so cap the fan-out when content is wanted.
-		// Cut from the middle: hits appended for a named integration sit at the tail,
-		// and dropping those would undo the reason they were fetched.
+		// Each result costs a content fetch, so cap the fan-out when content is wanted,
+		// keeping the best of both lists — dropping the named integration's hits would
+		// undo the reason they were fetched.
 		let matches = scripts
 		if (withContent && scripts.length > MAX_FETCHED_HUB_SCRIPTS) {
-			const mentioned = scripts.slice(scripts.length - mentionedHits)
-			matches = [...scripts.slice(0, MAX_FETCHED_HUB_SCRIPTS - mentioned.length), ...mentioned]
+			const keep = mentioned.slice(0, MAX_FETCHED_HUB_SCRIPTS - 1)
+			matches = [...ranked.slice(0, MAX_FETCHED_HUB_SCRIPTS - keep.length), ...keep]
 		}
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Found ${matches.length} hub script${matches.length === 1 ? '' : 's'} for ${subject}`

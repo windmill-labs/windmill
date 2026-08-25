@@ -1435,8 +1435,39 @@ describe('createSearchHubScriptsTool', () => {
 
 		const integrations = JSON.parse(raw).results.map((r: any) => r.integration)
 		expect(integrations).toContain('salesforce')
-		// reserving room for the tail must not re-emit it when nothing was cut
-		expect(new Set(integrations).size).toBe(integrations.length)
+		// reserving room for the named hits must not re-emit them when nothing was cut
+		expect(new Set(JSON.parse(raw).results.map((r: any) => r.path)).size).toBe(integrations.length)
+	})
+
+	// Capping has to keep the best of each list: taking the named integration's hits
+	// off the end of the combined one drops its highest-ranked script.
+	it('keeps the best-ranked named hits when both lists overflow the cap', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async ({ app }: { app?: string }) =>
+				app === 'salesforce'
+					? [
+							hit(7, 'salesforce', 'Best'),
+							hit(8, 'salesforce', 'Second'),
+							hit(9, 'salesforce', 'Third')
+						]
+					: [hit(1, 'pinterest', 'A'), hit(2, 'salesflare', 'B'), hit(3, 'salesflare', 'C')]
+			),
+			getHubScriptByPath: vi.fn(async () => ({ content: '// x', language: 'bun' }))
+		})
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'salesforce' }, { name: 'pinterest' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool(true).fn({
+			args: { query: 'look up an account in salesforce' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).results.map((r: any) => r.summary)).toEqual(['A', 'Best', 'Second'])
 	})
 
 	// Ranking buries an integration the query names when other integrations' scripts
