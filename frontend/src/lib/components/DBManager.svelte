@@ -678,11 +678,11 @@
 							{#if schemaOpen || !dbSupportsSchemas}
 								{@const tableIndent = dbSupportsSchemas
 									? root.datatable !== undefined
-										? 'pl-[3.25rem]'
-										: 'pl-9'
+										? 'pl-11'
+										: 'pl-7'
 									: root.datatable !== undefined
-										? 'pl-9'
-										: 'pl-4'}
+										? 'pl-7'
+										: 'pl-3'}
 								{#each sc.tables as tableKey (tableKey)}
 									{@const isSelected =
 										root.datatable === currentDatatable &&
@@ -698,10 +698,14 @@
 										onclick={() => selectTable(root.datatable, sc.schemaKey, tableKey)}
 									>
 										{#if asset}
-											<Star
-												kind="asset"
-												path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${sc.schemaKey}.${tableKey}`}
-											/>
+											<!-- Star carries its own p-1 for a bigger hit area; pull it back so its
+											     glyph lands on the same indent grid as a bare icon. -->
+											<span class="-ml-1 flex shrink-0">
+												<Star
+													kind="asset"
+													path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${sc.schemaKey}.${tableKey}`}
+												/>
+											</span>
 										{:else}
 											<Table2 class="shrink-0" size={14} />
 										{/if}
