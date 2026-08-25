@@ -66,9 +66,9 @@ describe('trigger presence keys', () => {
 	 * key on the path alone and the one that exists reports the other as already imported.
 	 */
 	it('keys a trigger by its kind, so one kind cannot answer for another', async () => {
-		triggerRows.rows = [{ kind: 'http_trigger', path: 'f/calendly/sync' }]
+		triggerRows.rows = [{ kind: 'http', path: 'f/calendly/sync' }]
 		const found = await probeImportedPaths('w', 'calendly', { triggers: true })
-		expect(found.has(presenceKey('trigger:http_trigger', 'f/calendly/sync'))).toBe(true)
+		expect(found.has(presenceKey('trigger:http', 'f/calendly/sync'))).toBe(true)
 		// The schedule the project also ships at that path has not been imported.
 		expect(found.has(presenceKey('trigger:schedule', 'f/calendly/sync'))).toBe(false)
 	})

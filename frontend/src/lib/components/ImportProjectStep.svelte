@@ -374,8 +374,9 @@
 		bgClass="border-0"
 		collapsible
 	>
-		Resources are imported as empty stubs — set their values after import; a resource whose path
-		already exists is reported as failed (existing values are never overwritten). Trigger kinds are
+		Resources are imported as empty stubs — set their values after import; one whose path is
+		already in the workspace is left exactly as it is and reported as already there, so a value
+		you have since filled in is never overwritten. Trigger kinds are
 		recreated disabled, except GCP and Azure triggers, which manage cloud subscriptions at creation
 		and must be re-created manually after filling their resource. Kafka, NATS, SQS, GCP and Azure
 		triggers all require Enterprise. Triggers that reference a resource depend on stubs imported

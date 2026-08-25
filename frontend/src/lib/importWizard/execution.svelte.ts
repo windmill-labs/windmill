@@ -324,6 +324,26 @@ export class ImportExecution {
 		}
 	}
 
+	/**
+	 * Leave the checklist saying what actually happened, from wherever the run stopped.
+	 *
+	 * Reached from every point after `import` goes `running`, so nothing is left spinning on a
+	 * run that has ended. A partial import is failed rather than done: calling it done reports
+	 * a clean import over items that never started, and the resumed step offers Continue where
+	 * it should offer Retry.
+	 */
+	#settleAbandoned() {
+		const landed = this.itemResults.length
+		this.#set('import', 'failed', `stopped after ${landed} item${landed === 1 ? '' : 's'}`)
+		// The migrate row is appended once the review settles and set running by
+		// `onMigrationsStart`. Stopping before its loop leaves it spinning forever, which
+		// reads as work still in progress on a run that has stopped.
+		if (this.tasks.some((t) => t.key === 'migrate' && t.status === 'running')) {
+			this.#set('migrate', 'pending')
+		}
+		this.error = 'Import stopped. Retry to import what is left.'
+	}
+
 	async #import(workspace: string, exportData: ProjectExport): Promise<void> {
 		this.#set('import', 'running')
 		const folder = this.#plan.folder?.trim() || exportData.project.slug
@@ -366,7 +386,12 @@ export class ImportExecution {
 			triggers: exportData.triggers.length > 0,
 			hasEeLicense: this.#deps.hasEeLicense
 		})
-		if (this.#abandoned) return
+		// Settled, not just returned: `import` has been `running` since before the probe, and
+		// leaving it there shows a spinner on a run that has stopped, next to a Retry button.
+		if (this.#abandoned) {
+			this.#settleAbandoned()
+			return
+		}
 		try {
 			await installProject({
 				alreadyPresent,
@@ -392,15 +417,7 @@ export class ImportExecution {
 		// what it got through; calling that `done` reports a clean import over items that
 		// never started, and the resumed step would offer Continue instead of Retry.
 		if (this.#abandoned) {
-			const landed = this.itemResults.length
-			this.#set('import', 'failed', `stopped after ${landed} item${landed === 1 ? '' : 's'}`)
-			// The migrate row is appended once the review settles and set running by
-			// `onMigrationsStart`. Stopping before its loop leaves it spinning forever, which
-			// reads as work still in progress on a run that has stopped.
-			if (this.tasks.some((t) => t.key === 'migrate' && t.status === 'running')) {
-				this.#set('migrate', 'pending')
-			}
-			this.error = 'Import stopped. Retry to import what is left.'
+			this.#settleAbandoned()
 			return
 		}
 

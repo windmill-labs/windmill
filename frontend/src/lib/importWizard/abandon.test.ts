@@ -18,11 +18,18 @@ vi.mock('$lib/gen', () => ({
 vi.mock('$lib/storeUtils', () => ({ switchWorkspace: vi.fn() }))
 // What the destination already holds. A test sets this to stand in for a workspace that has
 // some of the bundle in it — a half-finished run, or an existing workspace.
-const present = vi.hoisted(() => ({ paths: new Set<string>() }))
+const present = vi.hoisted(() => ({
+	paths: new Set<string>(),
+	/** Fires when the probe is entered, so a test can abandon while it is in flight. */
+	onProbe: undefined as (() => void) | undefined
+}))
 vi.mock('./probe', async (orig) => ({
 	...(await orig<typeof import('./probe')>()),
 	probeWorkspace: vi.fn(async () => ({ exists: false, ours: false })),
-	probeImportedPaths: vi.fn(async () => present.paths)
+	probeImportedPaths: vi.fn(async () => {
+		present.onProbe?.()
+		return present.paths
+	})
 }))
 vi.mock('$lib/user', () => ({ getUserExt: vi.fn(async () => ({ username: 'u' })) }))
 // Let a test abandon *during* a write loop, which is the only way it happens for real:
@@ -202,5 +209,29 @@ describe('retrying over what is already there', () => {
 		await run.run()
 		expect(run.itemResults.every((r) => !r.skipped)).toBe(true)
 		expect(run.tasks.find((t) => t.key === 'import')?.detail).toMatch(/3 imported/)
+	})
+})
+
+describe('abandoning while the presence probe is in flight', () => {
+	beforeEach(() => {
+		present.paths = new Set()
+		present.onProbe = undefined
+	})
+
+	/**
+	 * `import` goes `running` before the probe is asked, so returning straight out of an
+	 * abandon here leaves a spinner on a run that has stopped — next to an enabled Retry and
+	 * with no explanation of why it stopped.
+	 */
+	it('leaves no task running', async () => {
+		const run = new ImportExecution(PLAN, deps as any)
+		// Abandoned from inside the probe: `import` is already `running` by then, and the
+		// executor's next look at the flag is the early return under test.
+		present.onProbe = () => run.abandon()
+		await run.run()
+		expect(run.tasks.find((t) => t.status === 'running')).toBeUndefined()
+		expect(run.tasks.find((t) => t.key === 'import')?.status).toBe('failed')
+		expect(run.error).toBeTruthy()
+		expect(run.done).toBe(false)
 	})
 })

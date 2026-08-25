@@ -266,10 +266,11 @@ export async function applyOneMigration(
 /**
  * The kinds an import writes that carry a path and can therefore already be there.
  *
- * Triggers carry their own kind too (`trigger:schedule`, `trigger:http_trigger`, …): each
- * trigger kind is a separate table keyed on `(path, workspace_id)`, so one workspace can hold
- * a schedule and an HTTP trigger both called `f/cal/sync`. Flattening them to `trigger` would
- * let whichever exists answer for the other.
+ * Triggers carry their own kind too (`trigger:schedule`, `trigger:http`, … — the values of
+ * `WorkspaceTriggerKind`): each trigger kind is a separate table keyed on
+ * `(path, workspace_id)`, so one workspace can hold a schedule and an HTTP trigger both
+ * called `f/cal/sync`. Flattening them to `trigger` would let whichever exists answer for
+ * the other.
  */
 export type ImportedKind =
 	| 'script'

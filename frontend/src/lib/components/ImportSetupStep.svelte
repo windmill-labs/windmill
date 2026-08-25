@@ -81,6 +81,11 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
 
 	const pendingTables = $derived(rows.filter((r) => r.status !== 'done'))
+	// Split because the two say different things to the user: one data table was never
+	// created, the other exists and could not be read. Telling someone to set up what they
+	// have already set up is how a warning stops being believed.
+	const unmadeTables = $derived(rows.filter((r) => r.status === 'unconfigured'))
+	const uncheckedTables = $derived(rows.filter((r) => r.status === 'unknown'))
 	/** Rows the user has not dealt with, of either kind. */
 	const outstanding = $derived(pendingTables.length + blanks.filter((b) => !b.done).length)
 
@@ -357,16 +362,24 @@
 			// element would otherwise run script in this authenticated origin.
 			const names = pendingTables.map((r) => escapeHtml(r.name)).join(', ')
 			const one = pendingTables.length === 1
+			// An `unknown` row is set up — only its schema could not be read — so it cannot be
+			// told it is "not set up". Where the list mixes the two, say the weaker thing that
+			// is true of both rather than the stronger one that is false of half.
+			const anyUnmade = unmadeTables.length > 0
 			const confirmed = await confirmationModal.ask({
-				title: 'The project will not run',
+				title: anyUnmade ? 'The project will not run' : 'This has not been verified',
 				confirmationText: 'Skip anyway',
-				type: 'danger',
-				children:
-					`${one ? 'The data table' : 'The data tables'} <b>${names}</b> ` +
-					`${one ? 'is' : 'are'} not set up, so the tables this project's apps and flows read ` +
-					`do not exist. Every one of them will fail as soon as it opens.<br /><br />` +
-					`Setting ${one ? 'it' : 'them'} up later from workspace settings creates the ` +
-					`connection but not the tables — only this step runs the project's migration.`
+				type: anyUnmade ? 'danger' : 'info',
+				children: anyUnmade
+					? `${one ? 'The data table' : 'The data tables'} <b>${names}</b> ` +
+						`${one ? 'is' : 'are'} not set up, so the tables this project's apps and flows read ` +
+						`do not exist. Every one of them will fail as soon as it opens.<br /><br />` +
+						`Setting ${one ? 'it' : 'them'} up later from workspace settings creates the ` +
+						`connection but not the tables — only this step runs the project's migration.`
+					: `${one ? 'The data table' : 'The data tables'} <b>${names}</b> ` +
+						`${one ? 'is' : 'are'} set up, but ${one ? 'its' : 'their'} schema could not be ` +
+						`read, so whether this project's tables exist is unknown. Its apps and flows will ` +
+						`fail wherever they query a table that is missing.`
 			})
 			if (!confirmed) return
 		}
@@ -590,12 +603,27 @@
 				Everything this project needs is configured. Finish, and it is ready to run.
 			</Alert>
 		{:else if pendingTables.length > 0}
-			<Alert type="warning" title="The project will not run without this" size="xs">
-				{pendingTables.length === 1 ? 'This data table does not' : 'These data tables do not'} exist
-				yet, and the project's apps and flows query
-				{pendingTables.length === 1 ? 'tables inside it' : 'tables inside them'}. Until
-				{pendingTables.length === 1 ? 'it is' : 'they are'} set up, every one of them fails as soon as
-				it opens.
+			<Alert
+				type="warning"
+				title={unmadeTables.length > 0
+					? 'The project will not run without this'
+					: 'This could not be checked'}
+				size="xs"
+			>
+				{#if unmadeTables.length > 0}
+					{unmadeTables.length === 1 ? 'This data table does not' : 'These data tables do not'} exist
+					yet, and the project's apps and flows query
+					{unmadeTables.length === 1 ? 'tables inside it' : 'tables inside them'}. Until
+					{unmadeTables.length === 1 ? 'it is' : 'they are'} set up, every one of them fails as soon
+					as it opens.
+				{/if}
+				{#if uncheckedTables.length > 0}
+					{#if unmadeTables.length > 0}<br /><br />{/if}
+					{uncheckedTables.length === 1 ? 'One data table is' : 'Some data tables are'} set up, but
+					{uncheckedTables.length === 1 ? 'its' : 'their'} schema could not be read, so whether the
+					project's tables are there is unknown. Running the migrations again is safe — they create
+					nothing that already exists.
+				{/if}
 			</Alert>
 		{:else}
 			<Alert type="info" title="You can skip this" size="xs" collapsible>

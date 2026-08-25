@@ -24,7 +24,7 @@ vi.mock('$lib/gen', () => {
 vi.mock('../triggers/workspaceTriggersList', () => ({
 	TRIGGER_KINDS: {
 		schedule: { badge: 'Schedule', resourceField: undefined },
-		http_trigger: { badge: 'HTTP', resourceField: undefined }
+		http: { badge: 'HTTP', resourceField: undefined }
 	},
 	createWorkspaceTriggerDisabled: vi.fn(async (_ws: string, t: { path: string; kind: string }) => {
 		created.triggers.push(`${t.kind}:${t.path}`)
@@ -99,7 +99,7 @@ describe('installProject presence', () => {
 	// hold a schedule and an HTTP trigger both called `f/calendly/nightly`. The one that
 	// exists must not answer for the one that does not.
 	it('does not let another trigger kind at the same path mask this one', async () => {
-		const results = await run(new Set([presenceKey('trigger:http_trigger', 'f/calendly/nightly')]))
+		const results = await run(new Set([presenceKey('trigger:http', 'f/calendly/nightly')]))
 		expect(created.triggers).toEqual(['schedule:f/calendly/nightly'])
 		expect(results).toContainEqual({ path: 'f/calendly/nightly', ok: true })
 	})
