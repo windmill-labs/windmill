@@ -31,6 +31,15 @@ logger = logging.getLogger("windmill_client")
 JobStatus = Literal["RUNNING", "WAITING", "COMPLETED"]
 
 
+def _sign_s3_objects_body(s3_objects: list, expiry_secs: int | None) -> dict:
+    # `expiry_secs` is optional but not nullable in the spec, so omit it rather than
+    # sending an explicit null a validating gateway would reject.
+    body: dict = {"s3_objects": s3_objects}
+    if expiry_secs is not None:
+        body["expiry_secs"] = expiry_secs
+    return body
+
+
 class Windmill:
     """Windmill client for interacting with the Windmill API."""
 
@@ -1059,10 +1068,7 @@ class Windmill:
         """
         return self.post(
             f"/w/{self.workspace}/apps/sign_s3_objects",
-            json={
-                "s3_objects": list(map(parse_s3_object, s3_objects)),
-                "expiry_secs": expiry_secs,
-            },
+            json=_sign_s3_objects_body(list(map(parse_s3_object, s3_objects)), expiry_secs),
         ).json()
 
     def sign_s3_object(self, s3_object: S3Object | str, expiry_secs: int | None = None) -> S3Object:
@@ -1078,7 +1084,7 @@ class Windmill:
         """
         return self.post(
             f"/w/{self.workspace}/apps/sign_s3_objects",
-            json={"s3_objects": [s3_object], "expiry_secs": expiry_secs},
+            json=_sign_s3_objects_body([s3_object], expiry_secs),
         ).json()[0]
 
     def get_presigned_s3_public_urls(
