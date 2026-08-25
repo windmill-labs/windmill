@@ -2951,20 +2951,60 @@ async fn comment_out_unsupported_settings(
     Ok(())
 }
 
+/// A psql invocation against `pg_db`, carrying the connection settings the CLI reads
+/// from the environment.
+fn psql_command(pg_db: &PgDatabase) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new("psql");
+    cmd.arg("--host")
+        .arg(&pg_db.host)
+        .arg("--port")
+        .arg(pg_db.port.unwrap_or(5432).to_string())
+        .arg("--username")
+        .arg(pg_db.login_name())
+        .arg("--dbname")
+        .arg(&pg_db.dbname)
+        .arg("--no-psqlrc")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+
+    if let Some(ref password) = pg_db.password {
+        cmd.env("PGPASSWORD", password);
+    }
+    if let Some(ref sslmode) = pg_db.sslmode {
+        cmd.env("PGSSLMODE", sslmode);
+    }
+    cmd
+}
+
 /// GUC names the server backing `pg_db` knows about.
-async fn server_setting_names(db: &DB, pg_db: &PgDatabase) -> Result<HashSet<String>> {
-    let (client, connection) = pg_db.connect(Some(db)).await?;
-    let join_handle = tokio::spawn(async move { connection.await });
-    let rows = client.query("SELECT name FROM pg_settings", &[]).await;
-    drop(client);
-    windmill_common::shutdown_pg_connection(join_handle).await?;
-    let rows = rows.map_err(|e| {
-        Error::internal_err(format!(
+///
+/// Asked through psql rather than a tokio-postgres connection so the lookup reaches
+/// exactly the servers the restore itself can: libpq negotiates TLS for `sslmode=prefer`
+/// and an unset mode, where `PgDatabase::connect` would hand a TLS-only server a
+/// plaintext socket and fail before the import ever starts.
+async fn server_setting_names(pg_db: &PgDatabase) -> Result<HashSet<String>> {
+    let output = psql_command(pg_db)
+        .arg("--tuples-only")
+        .arg("--no-align")
+        .arg("--command")
+        .arg("SELECT name FROM pg_settings")
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute psql: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::internal_err(format!(
             "Failed to list the settings of the target server: {}",
-            pg_error_message(&e)
-        ))
-    })?;
-    Ok(rows.iter().map(|row| row.get(0)).collect())
+            stderr
+        )));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect())
 }
 
 /// Import a pg_dump file into a target database using psql.
@@ -2973,42 +3013,16 @@ async fn server_setting_names(db: &DB, pg_db: &PgDatabase) -> Result<HashSet<Str
 /// so a dump that breaks partway through imports partially and reads as a success.
 /// ON_ERROR_STOP surfaces the failure and --single-transaction makes the restore
 /// all-or-nothing, leaving the target as it was and the import retryable.
-async fn pg_import_dump(db: &DB, target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
-    let supported_settings = server_setting_names(db, target_db).await?;
+async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
+    let supported_settings = server_setting_names(target_db).await?;
     comment_out_unsupported_settings(dump_file, &supported_settings).await?;
 
-    let host = &target_db.host;
-    let port = target_db.port.unwrap_or(5432).to_string();
-    let user = target_db.login_name();
-    let dbname = &target_db.dbname;
-
-    let mut cmd = tokio::process::Command::new("psql");
-    cmd.arg("--host")
-        .arg(host)
-        .arg("--port")
-        .arg(&port)
-        .arg("--username")
-        .arg(user)
-        .arg("--dbname")
-        .arg(dbname)
-        .arg("--no-psqlrc")
+    let output = psql_command(target_db)
         .arg("--set")
         .arg("ON_ERROR_STOP=1")
         .arg("--single-transaction")
         .arg("--file")
         .arg(&dump_file.path)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-
-    if let Some(ref password) = target_db.password {
-        cmd.env("PGPASSWORD", password);
-    }
-
-    if let Some(ref sslmode) = target_db.sslmode {
-        cmd.env("PGSSLMODE", sslmode);
-    }
-
-    let output = cmd
         .output()
         .await
         .map_err(|e| Error::internal_err(format!("Failed to execute psql: {}", e)))?;
@@ -3151,18 +3165,19 @@ async fn import_pg_database(
     }
     windmill_common::validate_dbname(&target_pg.dbname)?;
 
-    // Ownership statements can never be replayed: the restore runs as the target's own
-    // connection user, and what it creates it owns. Grants can, unless the target is an
-    // instance data table, whose `custom_instance_user` owns neither the source's objects
-    // nor the target schema — elsewhere dropping ACLs would widen what the source locked.
-    let no_acl = is_instance_datatable(&db, &w_id, &req.target).await?;
+    // Ownership never replays: the restore runs as the target's own connection user, and
+    // what it creates it owns. Grants do, except around an instance data table — Windmill
+    // plants `custom_instance_user` grants in one, which nothing else can replay. Elsewhere
+    // the ACLs are user intent (`REVOKE ... FROM PUBLIC`) and dropping them widens access.
+    let no_acl = is_instance_datatable(&db, &w_id, &req.target).await?
+        || is_instance_datatable(&db, &w_id, &req.source).await?;
 
     let dump_file = pg_dump_database(
         &source_pg,
         PgDumpOptions { schema_only, no_owner: true, no_acl, ..Default::default() },
     )
     .await?;
-    pg_import_dump(&db, &target_pg, &dump_file).await?;
+    pg_import_dump(&target_pg, &dump_file).await?;
 
     Ok(format!(
         "Imported from '{}' into '{}'",
