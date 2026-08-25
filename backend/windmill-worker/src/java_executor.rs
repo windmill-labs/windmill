@@ -634,16 +634,12 @@ async fn compile<'a>(
                 .map(|x| x.to_string())
                 .unwrap_or_default()
         );
-        calculate_hash(&crate::worker::fold_modules_into_cache_key(base, modules))
+        crate::worker::artifact_cache_name(base, modules)
     }
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
     let ws_suffix = crate::workspace_registry_cache_suffix(&job.workspace_id).await;
-    let mut hash = crate::worker::versioned_artifact_key(compute_hash(
-        inner_content,
-        *requirements_o,
-        *modules,
-    ));
+    let mut hash = compute_hash(inner_content, *requirements_o, *modules);
     hash.push_str(&ws_suffix);
     let bin_path = format!("{}/{hash}", *JAVA_CACHE_DIR);
     let remote_path = format!("java_jar/{hash}");

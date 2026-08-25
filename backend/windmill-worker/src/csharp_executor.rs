@@ -86,9 +86,7 @@ async fn csharp_cache_key(
         requirements_o.unwrap_or(""),
         DOTNET_TARGET_FRAMEWORK.as_str()
     );
-    let mut hash = crate::worker::versioned_artifact_key(calculate_hash(
-        &crate::worker::fold_modules_into_cache_key(base, modules),
-    ));
+    let mut hash = crate::worker::artifact_cache_name(base, modules);
     hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
     hash
 }

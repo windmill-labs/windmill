@@ -608,8 +608,7 @@ async fn rust_cache_key(
     w_id: &str,
     modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> String {
-    let mut hash =
-        crate::worker::versioned_artifact_key(compute_rust_hash(code, requirements_o, modules));
+    let mut hash = compute_rust_hash(code, requirements_o, modules);
     hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
     hash
 }
@@ -674,7 +673,7 @@ pub fn compute_rust_hash(
             .map(|x| x.to_string())
             .unwrap_or_default()
     );
-    calculate_hash(&crate::worker::fold_modules_into_cache_key(base, modules))
+    crate::worker::artifact_cache_name(base, modules)
 }
 
 #[tracing::instrument(level = "trace", skip_all)]

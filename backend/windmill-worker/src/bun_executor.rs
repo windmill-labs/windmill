@@ -1475,10 +1475,8 @@ pub async fn compute_bundle_local_and_remote_path(
     input_src.push_str(&ws_suffix);
 
     // The loader resolves relative imports against the module files in the job dir, so
-    // their content is inlined into the bundle this key names.
-    let input_src = crate::worker::fold_modules_into_cache_key(input_src, modules);
-    let hash =
-        crate::worker::versioned_artifact_key(windmill_common::utils::calculate_hash(&input_src));
+    // their content is inlined into the bundle this name covers.
+    let hash = crate::worker::artifact_cache_name(input_src, modules);
     let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 
     #[cfg(windows)]

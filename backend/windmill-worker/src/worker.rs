@@ -950,52 +950,47 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
-/// Bump to abandon every artifact cached under the current keyspace.
-const ARTIFACT_CACHE_KEY_VERSION: &str = "m1";
-
-/// Namespaces a computed artifact hash by keyspace version, yielding the name the artifact
-/// is stored under. Every build artifact cache must route its hash through this before
-/// building a path from it.
+/// The name a build artifact is cached under, derived from `base` — the runnable's own
+/// cache-key input — and its inline modules.
 ///
-/// The version has to land here rather than in the hash preimage: a caller chooses their own
-/// preimage (a preview brings its own source and lockfile), so a versioned preimage is one
-/// they could have fed the old hash before the upgrade, planting an artifact at what becomes
-/// a post-upgrade address. A prefix on the output is not reachable that way.
-pub(crate) fn versioned_artifact_key(hash: String) -> String {
-    format!("{ARTIFACT_CACHE_KEY_VERSION}-{hash}")
-}
-
-/// Folds a runnable's inline modules into `base`, the pre-hash input of a build artifact's
-/// cache key. `write_module_files` puts module content in the job dir where the build
-/// inlines it into the artifact, so a key without it serves one runnable's modules to
-/// another whose main content and lockfile match — across workspaces, the cache being global.
-pub(crate) fn fold_modules_into_cache_key(
+/// `write_module_files` puts module content in the job dir where the build inlines it into
+/// the artifact, so a name without it serves one runnable's modules to another whose main
+/// content and lockfile match — across workspaces, the cache being global.
+///
+/// Only the path and content may name the artifact, because they are all the build reads.
+/// `ScriptModule::lock` especially must stay out: deploy regenerates it *after* the parent
+/// has prebuilt, so naming it would strand every prebuilt artifact.
+pub(crate) fn artifact_cache_name(
     base: String,
     modules: Option<&std::collections::HashMap<String, ScriptModule>>,
 ) -> String {
-    // `base` ends in caller-supplied bytes, so it is sealed to a fixed width before anything
-    // is appended — including on the module-free branch, or a crafted lockfile could spell
-    // out a module-bearing runnable's whole key and reach its slot.
-    let sealed = windmill_common::utils::calculate_hash(&base);
     let Some(modules) = modules.filter(|m| !m.is_empty()) else {
-        return sealed;
+        // Byte-identical to the name a module-free runnable had before modules entered
+        // this, so its cached artifacts stay reachable.
+        return windmill_common::utils::calculate_hash(&base);
     };
     let mut entries: Vec<(&String, &ScriptModule)> = modules.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
-    let mut out = format!("{sealed}:modules:{}", entries.len());
+    // `base` ends in caller-supplied bytes (a preview brings its own lockfile), so it is
+    // sealed to a fixed width before the module block is appended — raw, a crafted lockfile
+    // could spell out another runnable's block and reach its slot.
+    let mut keyed = format!(
+        "{}:modules:{}",
+        windmill_common::utils::calculate_hash(&base),
+        entries.len()
+    );
     for (path, module) in entries {
-        // Path and content only: they are all the build reads, and deploy fills
-        // `ScriptModule::lock` in after the parent prebuilt, so keying on it would strand
-        // every prebuilt artifact. Both are length-prefixed, else `{"a": "bc"}` and
-        // `{"ab": "c"}` encode alike.
-        out.push_str(&format!(
+        // Both length-prefixed, else `{"a": "bc"}` and `{"ab": "c"}` encode alike.
+        keyed.push_str(&format!(
             ":{}:{path}:{}:{}",
             path.len(),
             module.content.len(),
             module.content,
         ));
     }
-    out
+    // Its own namespace: `calculate_hash` emits hex, so however a module-free runnable
+    // crafts its content and lockfile it can never land on a module-bearing name.
+    format!("mod-{}", windmill_common::utils::calculate_hash(&keyed))
 }
 
 pub fn is_sandboxing_enabled() -> bool {
@@ -5700,82 +5695,70 @@ mod write_module_files_tests {
         ScriptModule { content: content.to_string(), language: ScriptLang::Python3, lock: None }
     }
 
-    /// Every language's artifact cache key funnels module content through this, so an
-    /// ambiguous encoding puts two different scripts back in one cache slot.
+    /// Every language's artifact cache name funnels module content through this, so an
+    /// ambiguous encoding puts two different runnables back on one name.
     #[test]
-    fn module_cache_key_cannot_be_re_cut_into_another_map() {
-        fn key(entries: &[(&str, &str)]) -> String {
+    fn artifact_name_cannot_be_re_cut_into_another_module_map() {
+        fn name(entries: &[(&str, &str)]) -> String {
             let map: HashMap<String, ScriptModule> = entries
                 .iter()
                 .map(|(p, c)| (p.to_string(), module(c)))
                 .collect();
-            fold_modules_into_cache_key("base".to_string(), Some(&map))
+            artifact_cache_name("base".to_string(), Some(&map))
         }
 
         // Naive `path + content` concatenation renders both of these as "abc".
-        assert_ne!(key(&[("a", "bc")]), key(&[("ab", "c")]));
+        assert_ne!(name(&[("a", "bc")]), name(&[("ab", "c")]));
         // Splitting one module into two must not read back as the joined one.
-        assert_ne!(key(&[("a", "b"), ("c", "d")]), key(&[("ac", "bd")]));
-        // Iteration order of the map must not move the key.
+        assert_ne!(name(&[("a", "b"), ("c", "d")]), name(&[("ac", "bd")]));
+        // Iteration order of the map must not move the name.
         assert_eq!(
-            key(&[("a", "1"), ("b", "2")]),
-            key(&[("b", "2"), ("a", "1")])
-        );
-
-        // An absent map and an empty one are the same runnable, so they must agree.
-        assert_eq!(
-            fold_modules_into_cache_key("code+lock".to_string(), None),
-            fold_modules_into_cache_key("code+lock".to_string(), Some(&HashMap::new()))
+            name(&[("a", "1"), ("b", "2")]),
+            name(&[("b", "2"), ("a", "1")])
         );
     }
 
-    /// The version namespaces the stored name, not the hash preimage. In the preimage a
-    /// caller could have fed the same bytes to the old hash before the upgrade, planting an
-    /// artifact at what becomes a post-upgrade address.
+    /// A module-free runnable must keep the exact name it had before modules entered the
+    /// derivation, or upgrading strands every artifact already in the cache.
     #[test]
-    fn artifact_key_version_namespaces_the_stored_name() {
-        let hash = calculate_hash("anything");
+    fn artifact_name_is_unchanged_without_modules() {
         assert_eq!(
-            versioned_artifact_key(hash.clone()),
-            format!("{ARTIFACT_CACHE_KEY_VERSION}-{hash}")
+            artifact_cache_name("code+lock".to_string(), None),
+            calculate_hash("code+lock")
         );
-        // A pre-upgrade name is a bare hash, so no crafted preimage lands in the new
-        // namespace: `calculate_hash` never emits the version prefix.
-        assert!(!hash.starts_with(&format!("{ARTIFACT_CACHE_KEY_VERSION}-")));
+        assert_eq!(
+            artifact_cache_name("code+lock".to_string(), Some(&HashMap::new())),
+            calculate_hash("code+lock")
+        );
     }
 
-    /// A preview supplies its own lockfile, so `base` ends in caller-controlled bytes. If
-    /// the module block were concatenated onto it, a lock spelling out another runnable's
-    /// block would reach that runnable's cache slot.
+    /// A preview brings its own source and lockfile, so a module-free runnable picks its
+    /// whole `base`. Module-bearing names live in their own namespace precisely so that no
+    /// crafted `base` can be made to land on one.
     #[test]
-    fn module_cache_key_base_cannot_be_extended_into_the_module_block() {
+    fn a_module_free_runnable_cannot_forge_a_module_bearing_name() {
         let modules = HashMap::from([("h.ts".to_string(), module("evil"))]);
-        let victim = fold_modules_into_cache_key("code+lock".to_string(), Some(&modules));
+        let victim = artifact_cache_name("code+lock".to_string(), Some(&modules));
 
-        // The forger appends the victim's whole module block to their own lockfile and
-        // declares no modules of their own.
-        let forged_tail = victim.strip_prefix(&calculate_hash("code+lock")).unwrap();
-        let forged = fold_modules_into_cache_key(format!("code+lock{forged_tail}"), None);
-
-        assert_ne!(victim, forged);
-
-        // Sealing the module-free branch is what makes that hold: it returns a bare hash,
-        // which can never carry the `:modules:` a module-bearing key ends with.
-        assert!(!fold_modules_into_cache_key("anything".to_string(), None).contains(":modules:"));
+        // `calculate_hash` emits hex, so the namespace is unreachable however `base` is
+        // chosen — including by feeding it the victim's own name.
+        assert!(victim.starts_with("mod-"));
+        assert_ne!(artifact_cache_name(victim.clone(), None), victim);
+        assert!(!artifact_cache_name("anything".to_string(), None).starts_with("mod-"));
     }
 
-    /// Deploy fills a module's lock in after the parent has prebuilt, so a key that moved
+    /// Deploy fills a module's lock in after the parent has prebuilt, so a name that moved
     /// with it would leave every prebuilt artifact unreachable by the runs it was built for.
     #[test]
-    fn module_cache_key_ignores_the_lock_deploy_fills_in_later() {
-        let prebuild = fold_modules_into_cache_key(
+    fn artifact_name_ignores_the_lock_deploy_fills_in_later() {
+        let prebuild = artifact_cache_name(
             "base".to_string(),
             Some(&HashMap::from([("h.ts".to_string(), module("x"))])),
         );
 
         let mut locked = module("x");
         locked.lock = Some("{}\n//bun.lock\n<empty>".to_string());
-        let after_deploy = fold_modules_into_cache_key(
+        let after_deploy = artifact_cache_name(
             "base".to_string(),
             Some(&HashMap::from([("h.ts".to_string(), locked)])),
         );
