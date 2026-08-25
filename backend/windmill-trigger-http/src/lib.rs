@@ -297,6 +297,11 @@ pub fn validate_allowed_origins(allowed_origins: Option<&Vec<String>>) -> Result
         if rest.contains('@') {
             return Err(invalid("must not contain userinfo"));
         }
+        // A space is a legal header-value byte, so this survives
+        // `HeaderValue::from_str` and would sit in the list matching nothing.
+        if rest.contains(|c: char| c.is_whitespace()) {
+            return Err(invalid("must not contain whitespace"));
+        }
     }
 
     Ok(())
@@ -720,6 +725,10 @@ mod tests {
             "https://user@app.example.com",
             "https://app.example.com?a=b",
             "app.example.com",
+            // Legal header-value bytes, so nothing downstream rejects them, but
+            // no browser ever sends an Origin with a space in it.
+            "https://app.example.com ",
+            "https://a b.com",
             // Every sandboxed iframe sends `Origin: null`, so allowing it would
             // grant access to any page that can open one.
             "null",

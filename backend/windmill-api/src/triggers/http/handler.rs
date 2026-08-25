@@ -64,6 +64,21 @@ fn cors_lookup_method(req: &axum::extract::Request) -> Option<HttpMethod> {
     }
 }
 
+/// The key to look a request up by, matching what `route_job` resolves it to.
+///
+/// `Path<StripPath>` percent-decodes before `get_http_route_trigger` builds its
+/// lookup key, so decoding here is what keeps the two agreeing: on the raw path,
+/// `/us%65rs` misses the trigger registered at `/users` that goes on to serve the
+/// request, and the response would carry the permissive default instead of that
+/// trigger's allowlist.
+fn cors_lookup_path(raw_path: &str) -> Option<String> {
+    let decoded = urlencoding::decode(raw_path).ok()?;
+    // `StripPath::to_path` strips one leading slash and the handler trims
+    // trailing ones, before a single `/` is prefixed back on.
+    let stripped = decoded.strip_prefix('/').unwrap_or(&decoded);
+    Some(format!("/{}", stripped.trim_end_matches('/')))
+}
+
 enum CorsRouteLookup {
     /// The routers were readable: `Some` when a trigger matched the request.
     Resolved(Option<CorsRoute>),
@@ -102,15 +117,10 @@ async fn resolve_cors_route(
         return CorsRouteLookup::Unavailable;
     };
 
-    CorsRouteLookup::Resolved(
-        router
-            .at(requested_path.trim_end_matches('/'))
-            .ok()
-            .map(|trigger| CorsRoute {
-                allowed_origins: trigger.value.allowed_origins.clone(),
-                http_method,
-            }),
-    )
+    CorsRouteLookup::Resolved(router.at(requested_path).ok().map(|trigger| CorsRoute {
+        allowed_origins: trigger.value.allowed_origins.clone(),
+        http_method,
+    }))
 }
 
 async fn conditional_cors_middleware(
@@ -122,11 +132,11 @@ async fn conditional_cors_middleware(
     // Resolved before `next.run` consumes the request. `&Request` is not `Send`
     // (`Body` is not `Sync`), so the lookup takes owned pieces rather than a
     // borrow of the request itself.
-    let lookup = cors_lookup_method(&req).map(|method| (method, req.uri().path().to_string()));
+    let lookup = cors_lookup_method(&req).zip(cors_lookup_path(req.uri().path()));
     let route = match lookup {
         Some((method, path)) => resolve_cors_route(&db, method, &path).await,
-        // Nothing to look up: not a preflight, and not a method any route can
-        // be registered under.
+        // Nothing to look up: not a preflight, not a method any route can be
+        // registered under, or a path that does not decode.
         None => CorsRouteLookup::Resolved(None),
     };
 
@@ -191,11 +201,14 @@ async fn conditional_cors_middleware(
     }
 
     if !not_insert_methods {
-        // A resolved route accepts exactly one method, so advertising all seven
-        // overstates it. Unresolved requests keep the historical list.
+        // A route accepts exactly one method, so advertising all seven
+        // overstates it — but only routes that opted into an allowlist get the
+        // narrower answer. A route with no allowlist must respond exactly as it
+        // did before this existed.
+        let restricted_route = resolved.filter(|route| route.allowed_origins.is_some());
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_METHODS,
-            http::HeaderValue::from_static(match resolved.map(|route| route.http_method) {
+            http::HeaderValue::from_static(match restricted_route.map(|route| route.http_method) {
                 Some(HttpMethod::Get) => "GET, OPTIONS",
                 Some(HttpMethod::Post) => "POST, OPTIONS",
                 Some(HttpMethod::Put) => "PUT, OPTIONS",

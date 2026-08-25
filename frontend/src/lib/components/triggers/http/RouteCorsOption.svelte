@@ -70,6 +70,20 @@
 	$effect(() => {
 		allowed_origins = restricted ? origins : undefined
 	})
+
+	// Re-seed the text field when the value is replaced from outside — applying
+	// a draft, or resetting to deployed, both write the prop while this
+	// component stays mounted. Comparing against what this component would
+	// itself produce is what tells an external write apart from its own, so
+	// typing is never clobbered mid-edit.
+	$effect(() => {
+		const incoming = allowed_origins
+		const own = restricted ? origins : undefined
+		if (JSON.stringify(incoming) !== JSON.stringify(own)) {
+			raw = incoming?.join(', ') ?? ''
+			restricted = incoming !== undefined
+		}
+	})
 </script>
 
 <Label label="Restrict origins" for="allowed-origins-toggle" class="w-full">

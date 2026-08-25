@@ -300,6 +300,7 @@
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
 			allowed_origins = defaultValues?.allowed_origins ?? undefined
+			allowedOriginsError = undefined
 			summary = defaultValues?.summary ?? ''
 			routeDescription = defaultValues?.description ?? ''
 			error_handler_path = defaultValues?.error_handler_path ?? undefined
@@ -329,6 +330,10 @@
 		wrap_body = cfg?.wrap_body ?? false
 		raw_string = cfg?.raw_string ?? false
 		allowed_origins = cfg?.allowed_origins ?? undefined
+		// RouteCorsOption only lives on the request-options tab, so its error
+		// would otherwise outlive the trigger it came from and block saving one
+		// that has nothing wrong with it.
+		allowedOriginsError = undefined
 		summary = cfg?.summary ?? ''
 		mode = cfg?.mode ?? 'enabled'
 		routeDescription = cfg?.description ?? ''
