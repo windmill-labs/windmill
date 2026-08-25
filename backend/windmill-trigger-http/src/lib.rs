@@ -7,7 +7,9 @@ use tokio::sync::{RwLock, RwLockReadGuard};
 use windmill_common::{
     error::{Error, Result},
     flows::Retry,
-    global_settings::HTTP_ROUTE_WORKSPACED_ROUTE,
+    global_settings::{
+        allows_any_origin, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS, HTTP_ROUTE_WORKSPACED_ROUTE,
+    },
     utils::ExpiringCacheEntry,
     worker::CLOUD_HOSTED,
     DB,
@@ -193,7 +195,7 @@ impl<'de> Deserialize<'de> for HttpConfigRequest {
             workspaced_route: helper.workspaced_route,
             wrap_body: helper.wrap_body,
             raw_string: helper.raw_string,
-            allowed_origins: normalize_allowed_origins(helper.allowed_origins),
+            allowed_origins: helper.allowed_origins,
         })
     }
 }
@@ -213,12 +215,21 @@ pub struct RouteExists {
     pub workspaced_route: Option<bool>,
 }
 
-/// Collapse an empty list to `None` so "no allowlist configured" has a single
-/// representation. `NULL` is the only value that means "keep the historical
-/// `Access-Control-Allow-Origin: *`", and an empty array reaching the column
-/// would be a second, silently different one.
-pub fn normalize_allowed_origins(allowed_origins: Option<Vec<String>>) -> Option<Vec<String>> {
-    allowed_origins.filter(|origins| !origins.is_empty())
+/// The allowlist that governs a route: its own when it has one, otherwise the
+/// instance-wide default. `None` means nothing is configured at either level, so
+/// the route keeps the historical permissive behaviour.
+///
+/// A list containing `*` is treated as no restriction, which is how a route opts
+/// out of a stricter instance default.
+pub fn effective_allowed_origins(
+    route_allowed_origins: Option<&Vec<String>>,
+) -> Option<Vec<String>> {
+    let effective = match route_allowed_origins {
+        Some(route_allowed_origins) => route_allowed_origins.clone(),
+        None => HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load().as_ref().clone(),
+    };
+
+    (!effective.is_empty() && !allows_any_origin(&effective)).then_some(effective)
 }
 
 /// Resolve the `Access-Control-Allow-Origin` value for a request, or `None` to
@@ -235,76 +246,12 @@ pub fn match_origin(
     allowed_origins: &[String],
     origin: Option<&http::HeaderValue>,
 ) -> Option<http::HeaderValue> {
-    if allowed_origins.iter().any(|allowed| allowed == "*") {
-        return Some(http::HeaderValue::from_static("*"));
-    }
-
     let origin = origin?;
     let origin_str = origin.to_str().ok()?;
     allowed_origins
         .iter()
         .any(|allowed| allowed.eq_ignore_ascii_case(origin_str))
         .then(|| origin.clone())
-}
-
-/// Reject allowlist entries a browser would silently ignore.
-///
-/// An origin is a bare `scheme://host[:port]`: anything with a path, query,
-/// fragment or userinfo never equals the `Origin` header a browser sends, so it
-/// would look configured while matching nothing. `null` is rejected outright —
-/// every sandboxed iframe sends `Origin: null`, so allowing it grants access to
-/// any page that can open one.
-pub fn validate_allowed_origins(allowed_origins: Option<&Vec<String>>) -> Result<()> {
-    let Some(allowed_origins) = allowed_origins else {
-        return Ok(());
-    };
-
-    for origin in allowed_origins {
-        if origin == "*" {
-            continue;
-        }
-
-        let invalid = |reason: &str| {
-            Error::BadRequest(format!(
-                "Invalid allowed origin '{}': {}. Expected an origin such as https://app.example.com, or * to allow any origin.",
-                origin, reason
-            ))
-        };
-
-        if http::HeaderValue::from_str(origin).is_err() {
-            return Err(invalid("not a valid header value"));
-        }
-
-        let Some((scheme, rest)) = origin.split_once("://") else {
-            return Err(invalid("missing scheme"));
-        };
-        if scheme.is_empty()
-            || !scheme
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '+' || c == '-')
-        {
-            return Err(invalid("invalid scheme"));
-        }
-        if rest.is_empty() {
-            return Err(invalid("missing host"));
-        }
-        if rest.contains('/') {
-            return Err(invalid("must not contain a path or trailing slash"));
-        }
-        if rest.contains('?') || rest.contains('#') {
-            return Err(invalid("must not contain a query or fragment"));
-        }
-        if rest.contains('@') {
-            return Err(invalid("must not contain userinfo"));
-        }
-        // A space is a legal header-value byte, so this survives
-        // `HeaderValue::from_str` and would sit in the list matching nothing.
-        if rest.contains(|c: char| c.is_whitespace()) {
-            return Err(invalid("must not contain whitespace"));
-        }
-    }
-
-    Ok(())
 }
 
 pub fn validate_authentication_method(
@@ -690,14 +637,34 @@ mod tests {
     }
 
     #[test]
-    fn test_match_origin_wildcard_allows_any() {
-        let allowed = vec!["*".to_string()];
+    fn test_wildcard_entry_means_unrestricted() {
+        // `*` is handled before matching: it means "no restriction", which is
+        // how a route opts out of a stricter instance default.
+        assert!(allows_any_origin(&["*".to_string()]));
+        assert!(allows_any_origin(&[
+            "https://a.com".to_string(),
+            "*".to_string()
+        ]));
+        assert!(!allows_any_origin(&["https://a.com".to_string()]));
         assert_eq!(
-            match_origin(&allowed, Some(&origin("https://evil.com"))),
-            Some(origin("*"))
+            effective_allowed_origins(Some(&vec!["*".to_string()])),
+            None
         );
-        // `*` holds even with no Origin header, matching the historical default.
-        assert_eq!(match_origin(&allowed, None), Some(origin("*")));
+    }
+
+    #[test]
+    fn test_effective_allowed_origins_prefers_the_route() {
+        let route = vec!["https://a.com".to_string()];
+        assert_eq!(
+            effective_allowed_origins(Some(&route)),
+            Some(vec!["https://a.com".to_string()])
+        );
+        // No route list and no instance default: nothing is restricted, so the
+        // historical permissive behaviour is kept.
+        assert_eq!(effective_allowed_origins(None), None);
+        // An empty route list is a restriction that matches nothing, distinct
+        // from `NULL` which inherits the instance default.
+        assert_eq!(effective_allowed_origins(Some(&vec![])), None);
     }
 
     #[test]
@@ -713,8 +680,8 @@ mod tests {
             "http://localhost:3000".to_string(),
             "*".to_string(),
         ];
-        assert!(validate_allowed_origins(Some(&allowed)).is_ok());
-        assert!(validate_allowed_origins(None).is_ok());
+        assert!(validate_allowed_origins(&allowed).is_ok());
+        assert!(validate_allowed_origins(&[]).is_ok());
     }
 
     #[test]
@@ -734,20 +701,10 @@ mod tests {
             "null",
         ] {
             assert!(
-                validate_allowed_origins(Some(&vec![invalid.to_string()])).is_err(),
+                validate_allowed_origins(&[invalid.to_string()]).is_err(),
                 "expected {invalid} to be rejected"
             );
         }
-    }
-
-    #[test]
-    fn test_normalize_allowed_origins_collapses_empty_to_none() {
-        assert_eq!(normalize_allowed_origins(Some(vec![])), None);
-        assert_eq!(normalize_allowed_origins(None), None);
-        assert_eq!(
-            normalize_allowed_origins(Some(vec!["*".to_string()])),
-            Some(vec!["*".to_string()])
-        );
     }
 
     // --- Route path regex ---

@@ -100,10 +100,11 @@ properties:
     items:
       type: string
     description: 'Origins allowed to call this route cross-origin, matched against
-      the request''s Origin header (ignoring case) and echoed back on a match. Use
-      [''*''] to allow any origin. When null, the route answers Access-Control-Allow-Origin:
-      * and the runnable''s wm_headers can override it; when set, the configured list
-      governs both the preflight and the response.'
+      the request''s Origin header (ignoring case) and echoed back on a match. When
+      set, the list governs both the preflight and the response, overriding any Access-Control-Allow-Origin
+      the runnable returns via wm_headers. Use [''*''] to opt out of any restriction,
+      including the http_route_default_allowed_origins instance setting. When null,
+      the instance setting applies, or Access-Control-Allow-Origin: * if it is unset.'
   error_handler_path:
     type: string
     description: Path to a script or flow to run when the triggered job fails

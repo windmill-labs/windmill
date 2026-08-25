@@ -1,6 +1,7 @@
 use super::{
-    http_trigger_args::RawHttpTriggerArgs, match_origin, refresh_routers, AuthenticationMethod,
-    HttpMethod, RequestType, TriggerRoute, HTTP_ACCESS_CACHE, HTTP_AUTH_CACHE, HTTP_ROUTERS_CACHE,
+    effective_allowed_origins, http_trigger_args::RawHttpTriggerArgs, match_origin,
+    refresh_routers, AuthenticationMethod, HttpMethod, RequestType, TriggerRoute,
+    HTTP_ACCESS_CACHE, HTTP_AUTH_CACHE, HTTP_ROUTERS_CACHE,
 };
 use crate::{
     auth::{AuthCache, OptTokened},
@@ -175,12 +176,26 @@ async fn conditional_cors_middleware(
         CorsRouteLookup::Unavailable => None,
     };
 
-    if let Some(allowed_origins) = resolved.and_then(|route| route.allowed_origins.as_ref()) {
+    // The route's own list, or the instance-wide default when it has none.
+    // `None` means neither is configured, or one of them opted out with `*`.
+    // Nothing is applied when the routers were unreadable: the instance default
+    // is not necessarily what the route this request lands on would have used.
+    let allowed_origins = match &route {
+        CorsRouteLookup::Unavailable => None,
+        CorsRouteLookup::Resolved(resolved) => effective_allowed_origins(
+            resolved
+                .as_ref()
+                .and_then(|route| route.allowed_origins.as_ref()),
+        ),
+    };
+
+    if let Some(allowed_origins) = allowed_origins.as_ref() {
         // A configured allowlist decides, overriding any `wm_headers` value the
         // runnable set. The preflight is answered before any code runs, so
         // config is the only thing it can consult; letting the response widen
         // what the preflight advertised would make the two disagree and leave
-        // the allowlist bounding nothing.
+        // the allowlist bounding nothing. A route escapes a stricter instance
+        // default — `wm_headers` included — by setting its own list to `*`.
         match match_origin(allowed_origins, origin.as_ref()) {
             Some(value) => headers.insert(http::header::ACCESS_CONTROL_ALLOW_ORIGIN, value),
             // No match: omit the header entirely so the browser blocks the
@@ -190,9 +205,7 @@ async fn conditional_cors_middleware(
         // Appended, not inserted: the answer now depends on the request's
         // Origin, and a shared cache that ignores it would hand one origin's
         // response to another.
-        if !allowed_origins.iter().any(|allowed| allowed == "*") {
-            headers.append(http::header::VARY, http::HeaderValue::from_static("origin"));
-        }
+        headers.append(http::header::VARY, http::HeaderValue::from_static("origin"));
     } else if !not_insert_origin && !matches!(route, CorsRouteLookup::Unavailable) {
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
@@ -202,10 +215,10 @@ async fn conditional_cors_middleware(
 
     if !not_insert_methods {
         // A route accepts exactly one method, so advertising all seven
-        // overstates it — but only routes that opted into an allowlist get the
-        // narrower answer. A route with no allowlist must respond exactly as it
-        // did before this existed.
-        let restricted_route = resolved.filter(|route| route.allowed_origins.is_some());
+        // overstates it — but only routes under an allowlist get the narrower
+        // answer. An unrestricted route must respond exactly as it did before
+        // this existed.
+        let restricted_route = resolved.filter(|_| allowed_origins.is_some());
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_METHODS,
             http::HeaderValue::from_static(match restricted_route.map(|route| route.http_method) {

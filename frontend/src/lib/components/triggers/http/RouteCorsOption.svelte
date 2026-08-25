@@ -3,6 +3,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { SettingService } from '$lib/gen'
 	import type { Snippet } from 'svelte'
 
 	interface Props {
@@ -48,6 +49,23 @@
 		if (!/^[A-Za-z0-9.+-]+$/.test(scheme)) return `'${origin}' has an invalid scheme`
 		return undefined
 	}
+
+	// Without this the toggle reading "off" would look like "callable from
+	// anywhere" on an instance that has narrowed the default.
+	let instanceDefault = $state<string>('')
+	async function loadInstanceDefault() {
+		try {
+			const setting = await SettingService.getGlobal({ key: 'http_route_default_allowed_origins' })
+			instanceDefault = typeof setting === 'string' ? setting.trim() : ''
+		} catch {
+			instanceDefault = ''
+		}
+	}
+	loadInstanceDefault()
+
+	let inheritsInstanceDefault = $derived(
+		!restricted && instanceDefault !== '' && instanceDefault !== '*'
+	)
 
 	let origins = $derived(parse(raw))
 	// Split from `error` so an entry that is merely still empty reads as a hint
@@ -122,5 +140,10 @@
 		{:else if error}
 			<div class="text-2xs text-hint">{error}</div>
 		{/if}
+	{:else if inheritsInstanceDefault}
+		<div class="text-2xs text-secondary">
+			Inherits the instance default: {instanceDefault}. Turn this on to set origins for this route,
+			or enter * to allow any.
+		</div>
 	{/if}
 </Label>

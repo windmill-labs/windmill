@@ -109,6 +109,7 @@ pub const OTEL_SETTING: &str = "otel";
 pub const OTEL_TRACING_PROXY_SETTING: &str = "otel_tracing_proxy";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
+pub const HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING: &str = "http_route_default_allowed_origins";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
@@ -247,6 +248,113 @@ use std::sync::atomic::AtomicBool;
 lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
+    /// Origins HTTP routes allow cross-origin when they configure none of their
+    /// own. Empty means unset, which keeps the historical `*`.
+    pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
+        arc_swap::ArcSwap::from_pointee(vec![]);
+}
+
+/// Whether an allowlist places no restriction at all.
+///
+/// `*` is the explicit "open on purpose" entry, and a route carrying it behaves
+/// exactly as an unconfigured one: it is how a route opts out of a stricter
+/// instance default, including back into the `wm_headers` escape hatch.
+pub fn allows_any_origin(allowed_origins: &[String]) -> bool {
+    allowed_origins.iter().any(|allowed| allowed == "*")
+}
+
+/// Reject allowlist entries a browser would silently ignore.
+///
+/// An origin is a bare `scheme://host[:port]`: anything with a path, query,
+/// fragment, userinfo or whitespace never equals the `Origin` header a browser
+/// sends, so it would look configured while matching nothing. `null` is rejected
+/// outright — every sandboxed iframe sends `Origin: null`, so allowing it grants
+/// access to any page that can open one.
+pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Result<()> {
+    for origin in allowed_origins {
+        if origin == "*" {
+            continue;
+        }
+
+        let invalid = |reason: &str| {
+            crate::error::Error::BadRequest(format!(
+                "Invalid allowed origin '{}': {}. Expected an origin such as https://app.example.com, or * to allow any origin.",
+                origin, reason
+            ))
+        };
+
+        // An Origin header is always visible ASCII — browsers punycode IDNs —
+        // so this is both the header-value check and a whitespace check.
+        if !origin.chars().all(|c| c.is_ascii_graphic()) {
+            return Err(invalid(
+                "must contain only visible ASCII, with no whitespace",
+            ));
+        }
+
+        let Some((scheme, rest)) = origin.split_once("://") else {
+            return Err(invalid("missing scheme"));
+        };
+        if scheme.is_empty()
+            || !scheme
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '+' || c == '-')
+        {
+            return Err(invalid("invalid scheme"));
+        }
+        if rest.is_empty() {
+            return Err(invalid("missing host"));
+        }
+        if rest.contains('/') {
+            return Err(invalid("must not contain a path or trailing slash"));
+        }
+        if rest.contains('?') || rest.contains('#') {
+            return Err(invalid("must not contain a query or fragment"));
+        }
+        if rest.contains('@') {
+            return Err(invalid("must not contain userinfo"));
+        }
+    }
+
+    Ok(())
+}
+
+/// Read [`HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING`] from its stored value.
+///
+/// Accepts the comma-separated string the settings UI writes, or a JSON array
+/// for anything setting it through the API directly.
+pub fn parse_allowed_origins_setting(
+    value: Option<&serde_json::Value>,
+) -> crate::error::Result<Vec<String>> {
+    let origins = match value {
+        None | Some(serde_json::Value::Null) => vec![],
+        Some(serde_json::Value::String(raw)) => raw
+            .split(',')
+            .map(|origin| origin.trim().to_string())
+            .filter(|origin| !origin.is_empty())
+            .collect(),
+        Some(serde_json::Value::Array(entries)) => entries
+            .iter()
+            .map(|entry| match entry {
+                serde_json::Value::String(origin) => Ok(origin.trim().to_string()),
+                _ => Err(crate::error::Error::BadRequest(format!(
+                    "{} entries must be strings",
+                    HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+                ))),
+            })
+            .collect::<crate::error::Result<Vec<_>>>()?
+            .into_iter()
+            .filter(|origin| !origin.is_empty())
+            .collect(),
+        Some(_) => {
+            return Err(crate::error::Error::BadRequest(format!(
+                "{} expected to be a comma-separated string or an array of strings",
+                HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+            )))
+        }
+    };
+
+    validate_allowed_origins(&origins)?;
+    Ok(origins)
 }
 
 pub const ENV_SETTINGS: &[&str] = &[

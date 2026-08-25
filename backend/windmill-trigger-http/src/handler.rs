@@ -1,6 +1,6 @@
 use super::{
-    validate_allowed_origins, validate_authentication_method, HttpConfig, HttpConfigRequest,
-    HttpMethod, HttpTrigger, RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
+    validate_authentication_method, HttpConfig, HttpConfigRequest, HttpMethod, HttpTrigger,
+    RouteExists, ROUTE_PATH_KEY_RE, VALID_ROUTE_PATH_RE,
 };
 use async_trait::async_trait;
 use axum::{extract::Path, routing::post, Extension, Json, Router};
@@ -9,7 +9,7 @@ use sqlx::PgConnection;
 use std::collections::HashSet;
 use windmill_api_auth::{check_scopes, ApiAuthed};
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
+use windmill_common::global_settings::{validate_allowed_origins, HTTP_ROUTE_WORKSPACED_ROUTE};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
@@ -468,7 +468,7 @@ impl TriggerCrud for HttpTrigger {
 
         validate_authentication_method(new.authentication_method, new.raw_string)?;
 
-        validate_allowed_origins(new.allowed_origins.as_ref())?;
+        validate_allowed_origins(new.allowed_origins.as_deref().unwrap_or_default())?;
 
         Ok(())
     }
@@ -488,7 +488,7 @@ impl TriggerCrud for HttpTrigger {
 
         validate_authentication_method(edit.authentication_method, edit.raw_string)?;
 
-        validate_allowed_origins(edit.allowed_origins.as_ref())?;
+        validate_allowed_origins(edit.allowed_origins.as_deref().unwrap_or_default())?;
 
         Ok(())
     }
