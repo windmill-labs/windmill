@@ -31,6 +31,12 @@
 		// on it clips submenus that open to the side. Opt in only when using a submenu — the
 		// default keeps the existing single-element markup untouched for every other menu.
 		submenuSafe?: boolean
+		// Open on hover without pinning, so the menu closes again once the pointer leaves.
+		// A click then pins it open until a click outside or on the trigger.
+		openOnHover?: boolean
+		// Grace period before a hover-opened menu closes, so the pointer can travel from
+		// the trigger to the content.
+		debounceDelay?: number
 		classNames?: string
 		triggr?: import('svelte').Snippet<[any]>
 		children?: import('svelte').Snippet<[any]>
@@ -50,6 +56,8 @@
 		open = $bindable(false),
 		renderContent = false,
 		submenuSafe = false,
+		openOnHover = false,
+		debounceDelay = 150,
 		class: classNames = '',
 		triggr,
 		children
@@ -99,6 +107,77 @@
 		open = false
 	}
 
+	// A hover-opened menu is unpinned; a click pins it until a click outside or on the trigger.
+	let pinned = $state(false)
+	let closeTimeout: ReturnType<typeof setTimeout> | undefined
+	let triggerEl: HTMLElement | undefined = $state()
+	let clickingTrigger = false
+
+	watch(
+		() => open,
+		() => {
+			if (!open) {
+				pinned = false
+				cancelPendingClose()
+			}
+		}
+	)
+
+	// Setting `open` doesn't open a menubar menu: melt shows the content only once the
+	// trigger's own click handler has registered it as the active trigger. So every
+	// hover-driven open and close goes through a click on the trigger instead.
+	function toggleViaTrigger() {
+		const el = triggerEl?.querySelector('[data-melt-menubar-trigger]')
+		if (!(el instanceof HTMLElement)) return
+		// click() dispatches synchronously, so the flag only covers our own event.
+		clickingTrigger = true
+		try {
+			el.click()
+		} finally {
+			clickingTrigger = false
+		}
+	}
+
+	function cancelPendingClose() {
+		if (closeTimeout != undefined) {
+			clearTimeout(closeTimeout)
+			closeTimeout = undefined
+		}
+	}
+
+	function handleHoverEnter() {
+		if (!openOnHover) return
+		cancelPendingClose()
+		if (!open) toggleViaTrigger()
+	}
+
+	function scheduleClose() {
+		if (!openOnHover) return
+		cancelPendingClose()
+		if (pinned) return
+		// The content is portaled away from the trigger, so moving between the two fires a
+		// leave on the one being left; the delay lets the matching enter cancel it.
+		closeTimeout = setTimeout(() => {
+			closeTimeout = undefined
+			if (open && !pinned) toggleViaTrigger()
+		}, debounceDelay)
+	}
+
+	function handleTriggerClick(e: MouseEvent) {
+		if (!openOnHover || clickingTrigger) return
+		cancelPendingClose()
+		if (open && !pinned) {
+			// Hover already opened it: swallow the click before melt's trigger handler
+			// toggles it shut, and pin it instead.
+			e.preventDefault()
+			e.stopPropagation()
+			pinned = true
+			return
+		}
+		// Melt handles the toggle itself: closed becomes open and pinned, pinned closes.
+		pinned = !open
+	}
+
 	async function getMenuElements(): Promise<HTMLElement[]> {
 		// Tooltip content counts as menu territory for the same reason as the
 		// onOutsideClick veto above.
@@ -112,8 +191,12 @@
 	<ResolveOpen {open} on:open on:close />
 
 	<button
+		bind:this={triggerEl}
 		class={twMerge('w-full h-full', justifyEnd ? 'flex justify-end' : '')}
 		{disabled}
+		onmouseenter={handleHoverEnter}
+		onmouseleave={scheduleClose}
+		onclickcapture={handleTriggerClick}
 		use:pointerDownOutside={{
 			capture: true,
 			stopPropagation: false,
@@ -135,6 +218,8 @@
 		<div
 			use:melt={$menuElement}
 			data-menu
+			onmouseenter={cancelPendingClose}
+			onmouseleave={scheduleClose}
 			transition:placementFly={{ duration: 100, placement }}
 			class={twMerge(
 				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none',
