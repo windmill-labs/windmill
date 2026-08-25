@@ -191,10 +191,10 @@ function createSveltePlugin(appDir: string): any {
 
         // Convert Svelte syntax to JavaScript
         try {
-          // `css: "injected"` puts each component's <style> into its own js
-          // output. Svelte's default ("external") returns it on a separate
-          // `css` field that an esbuild onLoad has no way to emit, so the
-          // markup keeps its `svelte-<hash>` class and the rule is dropped.
+          // The raw-app editor's in-browser bundler compiles with
+          // `css: "injected"`, so this must too, or the same app renders
+          // styled there and unstyled once the CLI builds it: Svelte's default
+          // ("external") hands the <style> back on a `css` field nothing emits.
           const { js, warnings } = svelte.compile(source, {
             filename,
             css: "injected",
