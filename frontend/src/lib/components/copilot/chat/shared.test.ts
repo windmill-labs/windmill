@@ -1972,6 +1972,14 @@ describe('createSearchHubScriptsTool', () => {
 })
 
 describe('getHubIntegrationTool', () => {
+	// The plan-mode gate fails closed, so a read-only tool that is not tagged is
+	// silently unusable while planning.
+	it('is usable while planning, like the hub search beside it', async () => {
+		const { getHubIntegrationTool, createSearchHubScriptsTool } = await import('./shared')
+		expect(getHubIntegrationTool.planModeSafe).toBe(true)
+		expect(createSearchHubScriptsTool().planModeSafe).toBe(true)
+	})
+
 	const doc = {
 		app: 'confluence',
 		display_name: 'Confluence',

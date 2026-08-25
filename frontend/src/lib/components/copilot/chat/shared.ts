@@ -1516,6 +1516,8 @@ function parseResourceTypeSchema(schema: unknown): unknown {
 
 export const getHubIntegrationTool = {
 	def: getHubIntegrationToolDef,
+	// Reads one hub document over a GET and writes nothing, so planning may use it.
+	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		const { integration } = getHubIntegrationSchema.parse(args)
 		toolCallbacks.setToolStatus(toolId, { content: `Reading the ${integration} integration...` })
