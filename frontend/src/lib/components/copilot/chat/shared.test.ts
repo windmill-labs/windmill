@@ -1405,51 +1405,57 @@ describe('createSearchHubScriptsTool', () => {
 		expect(results[1].content).toBe('ok')
 	})
 
-	// Semantic search ranks a named vendor weakly against the task words, so "create a
-	// jira ticket" put netlify, zendesk and intercom above every Jira script.
-	it('narrows the search to an integration the query names outright', async () => {
+	// Ranking buries an integration the query names when other integrations' scripts
+	// mention it: none of Salesforce's own scripts come back for "an account in
+	// salesforce", because Pinterest's summaries say Salesforce too.
+	it("adds a named integration's own scripts when ranking left them out", async () => {
 		const { ScriptService, IntegrationService } = await import('$lib/gen')
-		const queryHubScripts = vi.fn(async () => [hit(9, 'jira', 'Create issue')])
+		const queryHubScripts = vi.fn(async ({ app }: { app?: string }) =>
+			app === 'salesforce'
+				? [hit(9, 'salesforce', 'SOSL Search')]
+				: [hit(1, 'pinterest', 'Get Salesforce account details')]
+		)
 		Object.assign(ScriptService, { queryHubScripts })
 		Object.assign(IntegrationService, {
-			listHubIntegrations: vi.fn(async () => [{ name: 'jira' }, { name: 'netlify' }])
+			listHubIntegrations: vi.fn(async () => [{ name: 'salesforce' }, { name: 'pinterest' }])
 		})
 
 		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
 		clearHubIntegrationsCache()
-		await createSearchHubScriptsTool().fn({
-			args: { query: 'create a jira ticket' },
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'look up an account in salesforce' },
 			toolId: 't1',
 			toolCallbacks: { setToolStatus: vi.fn() }
 		} as any)
 
-		expect(queryHubScripts).toHaveBeenCalledWith({
-			text: 'create a jira ticket',
-			kind: 'script',
-			app: 'jira'
-		})
+		// the broad hits survive; the named integration is added, not substituted
+		expect(JSON.parse(raw).results.map((r: any) => r.integration)).toEqual([
+			'pinterest',
+			'salesforce'
+		])
 	})
 
-	// A fuzzy test would read `send` in "send an invoice" as sendgrid and search the
-	// wrong integration outright, which is worse than not narrowing at all.
-	it('leaves the search broad when no integration is named exactly', async () => {
+	// `monday`, `box` and `linear` are integrations and ordinary words, so a mention
+	// must never filter the results — semantic search already ranks them when meant.
+	it('leaves results alone when the named integration is already among them', async () => {
 		const { ScriptService, IntegrationService } = await import('$lib/gen')
-		const queryHubScripts = vi.fn(async () => [hit(9, 'paypal', 'Create invoice')])
+		const queryHubScripts = vi.fn(async () => [hit(1, 'monday', 'Create item')])
 		Object.assign(ScriptService, { queryHubScripts })
 		Object.assign(IntegrationService, {
-			listHubIntegrations: vi.fn(async () => [{ name: 'sendgrid' }, { name: 'paypal' }])
+			listHubIntegrations: vi.fn(async () => [{ name: 'monday' }])
 		})
 
 		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
 		clearHubIntegrationsCache()
 		await createSearchHubScriptsTool().fn({
-			args: { query: 'send an invoice to a client' },
+			args: { query: 'run this every monday' },
 			toolId: 't1',
 			toolCallbacks: { setToolStatus: vi.fn() }
 		} as any)
 
+		expect(queryHubScripts).toHaveBeenCalledTimes(1)
 		expect(queryHubScripts).toHaveBeenCalledWith({
-			text: 'send an invoice to a client',
+			text: 'run this every monday',
 			kind: 'script',
 			app: undefined
 		})

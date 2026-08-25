@@ -1245,6 +1245,7 @@ export function isHubPath(path: string): boolean {
 }
 
 const MAX_BROWSED_HUB_SCRIPTS = 20
+const MAX_MENTIONED_INTEGRATION_HITS = 3
 const MAX_SUGGESTED_INTEGRATIONS = 5
 
 /** Common shape of the two hub listings. Both carry a description, but the hub has
@@ -1311,9 +1312,9 @@ function tokenMatchesSlug(token: string, slug: string): boolean {
 }
 
 /** The slug of an integration the query names outright, when it names exactly one.
- * Semantic search ranks a named vendor weakly against the task words — "create a jira
- * ticket" puts netlify and zendesk above every Jira script — so narrowing to it wins.
- * Matching must stay exact: fuzzily, `send` in "send an invoice" is sendgrid. */
+ * Exact only: fuzzily, `send` in "send an invoice" reads as sendgrid. Even exact, a
+ * match is weak evidence of intent — `monday`, `box` and `linear` are ordinary words
+ * — so callers must treat it as a hint, never as a filter. */
 async function integrationNamedIn(query: string): Promise<string | undefined> {
 	const list = await loadHubIntegrations()
 	const words = new Set(
@@ -1350,6 +1351,18 @@ const getHubIntegrationToolDef = createToolDef(
 /** Enough to show the integration's idiom; search_hub_scripts is the way to find
  * a specific one. */
 const MAX_INTEGRATION_EXAMPLES = 5
+
+/** `validation` records how the authored notes were checked — the smoke-test method,
+ * per-surface confidence, the instance used. That is provenance for a human reviewing
+ * the hub, and up to a third of the document; the model can only act on its verdict. */
+function withoutProvenance(meta: unknown): unknown {
+	if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
+		return meta
+	}
+	const { validation, ...rest } = meta as Record<string, unknown>
+	const status = (validation as { status?: unknown } | undefined)?.status
+	return status === undefined ? rest : { ...rest, validation: { status } }
+}
 
 /** The hub keeps a resource type's schema in a text column and hands it back as a
  * JSON string, so parse it rather than passing an escaped blob to the model.
@@ -1404,7 +1417,7 @@ export const getHubIntegrationTool = {
 			...(doc.docs_url ? { docs_url: doc.docs_url } : {}),
 			// Authored provider knowledge and facts inferred from the scripts stay
 			// separate: only the former was checked against the live API.
-			...(doc.meta ? { verified_provider_notes: doc.meta } : {}),
+			...(doc.meta ? { verified_provider_notes: withoutProvenance(doc.meta) } : {}),
 			...(derived
 				? {
 						observed_from_scripts: {
@@ -1459,12 +1472,21 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		// is used survive instead of being cut.
 		let scripts: HubScriptHit[]
 		if (query) {
-			const narrowTo = app ?? (await integrationNamedIn(query))
-			scripts = await ScriptService.queryHubScripts({ text: query, kind: 'script', app: narrowTo })
-			// An integration the hub covers thinly can have nothing above the similarity
-			// floor, and a named vendor must not turn a search into no result at all.
-			if (scripts.length === 0 && narrowTo !== app) {
-				scripts = await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
+			scripts = await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
+			// Ranking can bury an integration the query names: "look up an account in
+			// salesforce" returns none of Salesforce's scripts, because Pinterest's say
+			// "Salesforce" too. Add its own hits rather than filtering to it, so a word
+			// that merely looks like a slug costs a few rows instead of the whole result.
+			if (!app) {
+				const mentioned = await integrationNamedIn(query)
+				if (mentioned && !scripts.some((s) => s.app === mentioned)) {
+					const own = await ScriptService.queryHubScripts({
+						text: query,
+						kind: 'script',
+						app: mentioned
+					})
+					scripts = [...scripts, ...own.slice(0, MAX_MENTIONED_INTEGRATION_HITS)]
+				}
 			}
 		} else {
 			scripts =
