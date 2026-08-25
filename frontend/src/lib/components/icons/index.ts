@@ -337,6 +337,12 @@ import type { Component } from 'svelte'
  * Most variants are the pre-audit artwork painted with currentColor. GoogleCloudIcon is
  * greyscale instead — four grey tones rather than one flat colour — because Google's
  * cloud loses its internal shape when flattened. If the artwork changes, change both.
+ *
+ * Brand marks carry a viewBox that centres the artwork in a box 24/22 of its bounding
+ * size, so the mark occupies the same safe area a lucide glyph does on its 24 grid.
+ * Vendor SVGs come with whatever padding the vendor chose — none for Google, 10% for
+ * GitHub — so a raw viewBox makes them render at visibly different sizes from each other
+ * and from the lucide icons beside them. Re-derive the viewBox when replacing artwork.
  */
 
 export const APP_TO_ICON_COMPONENT = {

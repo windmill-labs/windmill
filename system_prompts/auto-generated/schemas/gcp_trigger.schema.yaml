@@ -33,13 +33,21 @@ properties:
   gcp_resource_path:
     type: string
     description: Path to the GCP resource containing service account credentials for
-      authentication.
+      authentication. Omit to authenticate with the instance's application default
+      credentials.
+  project_id:
+    type: string
+    description: GCP project the client operates in. Defaults to the project of the
+      credentials. Topics and subscriptions given as fully qualified names are reached
+      whatever it is.
   topic_id:
     type: string
-    description: Google Cloud Pub/Sub topic ID to subscribe to.
+    description: Google Cloud Pub/Sub topic ID to subscribe to. Accepts a bare ID
+      or a fully qualified name (projects/<project>/topics/<id>).
   subscription_id:
     type: string
-    description: Google Cloud Pub/Sub subscription ID.
+    description: Google Cloud Pub/Sub subscription ID. Accepts a bare ID or a fully
+      qualified name (projects/<project>/subscriptions/<id>).
   delivery_type:
     type: string
     enum:
@@ -109,7 +117,6 @@ properties:
 required:
 - script_path
 - is_flow
-- gcp_resource_path
 - topic_id
 - subscription_id
 - delivery_type

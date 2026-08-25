@@ -4,6 +4,7 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { AIMode } from './AIChatManager.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import { formatTokenCount } from './tokenUsage'
 
 	const aiChatManager = getAiChatManager()
 
@@ -45,16 +46,6 @@
 					? 'bg-amber-500'
 					: 'bg-surface-accent-primary'
 	)
-
-	function formatTokenCount(tokens: number): string {
-		if (tokens >= 1_000_000) {
-			return `${(tokens / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
-		}
-		if (tokens >= 1000) {
-			return `${Math.round(tokens / 1000)}k`
-		}
-		return `${tokens}`
-	}
 </script>
 
 {#if visible}

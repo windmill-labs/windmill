@@ -891,6 +891,13 @@ async fn run_setting_pre_write_hook(
     value: &serde_json::Value,
 ) -> error::Result<()> {
     match key {
+        // The instance AI config is written as an untyped blob through this generic
+        // endpoint, so it never passes the typed check the workspace handler applies.
+        // Rates that reach a cost total unbounded would make it negative or infinite.
+        AI_CONFIG_SETTING => {
+            windmill_ai::ai_types::validate_model_pricing_json(value)
+                .map_err(error::Error::BadRequest)?;
+        }
         AUTOMATE_USERNAME_CREATION_SETTING => {
             if value.as_bool().unwrap_or(false) {
                 generate_instance_username_for_all_users(db)

@@ -8,7 +8,13 @@
 </script>
 
 <!-- #FFD130 per zammad.com favicon-32x32.svg. -->
-<svg {width} {height} viewBox="0 0 168 168" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-6.563 -6.891 181.125 181.125"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path d="M114.807 61.0046L154.093 48.9456L130.823 63.7367L114.807 61.0046Z" fill="#CD2015" />
 	<path
 		d="M138.736 90.3985L130.823 63.7367L154.093 48.9456L147.121 72.8752L138.736 90.3985Z"

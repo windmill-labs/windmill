@@ -156,11 +156,23 @@ export interface ModelResponse {
 	}
 }
 
+/** `boundedJson` is imported only when a caller asks for a cap: this module is already slow to
+ * load, and a static edge is paid by every importer. */
+async function readListing(response: Response, maxBytes: number | undefined): Promise<unknown> {
+	if (maxBytes === undefined) {
+		return response.json()
+	}
+	const { readJsonWithLimit } = await import('./boundedJson')
+	return readJsonWithLimit(response, maxBytes)
+}
+
 export async function fetchAvailableModels(
 	resourcePath: string,
 	workspace: string,
 	provider: AIProvider,
-	signal?: AbortSignal
+	signal?: AbortSignal,
+	/** Cap on the listing response, for callers that fetch without a user asking. */
+	maxBytes?: number
 ): Promise<string[]> {
 	// Handle AWS Bedrock separately (needs both foundation-models and inference-profiles)
 	if (provider === 'aws_bedrock') {
@@ -186,7 +198,7 @@ export async function fetchAvailableModels(
 			throw new Error('Failed to fetch foundation models for AWS Bedrock')
 		}
 
-		const foundationModelsData = (await foundationModelsResp.json()) as {
+		const foundationModelsData = (await readListing(foundationModelsResp, maxBytes)) as {
 			modelSummaries: Array<{
 				modelId: string
 				modelArn: string
@@ -203,7 +215,7 @@ export async function fetchAvailableModels(
 		}> = []
 
 		if (inferenceProfilesResp.ok) {
-			const inferenceProfilesData = (await inferenceProfilesResp.json()) as {
+			const inferenceProfilesData = (await readListing(inferenceProfilesResp, maxBytes)) as {
 				inferenceProfileSummaries: Array<{
 					inferenceProfileId: string
 					models: Array<{ modelArn: string }>
@@ -258,7 +270,7 @@ export async function fetchAvailableModels(
 		throw new Error(`Failed to fetch models for provider ${provider}`)
 	}
 
-	const data = (await models.json()) as { data: ModelResponse[] }
+	const data = (await readListing(models, maxBytes)) as { data: ModelResponse[] }
 	if (data.data.length > 0) {
 		const sortFunc = (provider: AIProvider) => (a: string, b: string) => {
 			// First prioritize models in defaultModels array
@@ -1077,6 +1089,23 @@ export async function getFimCompletion(
 	}
 }
 
+// A streamed OpenAI-compatible response carries no usage at all unless the request
+// asks for it, so a provider missing from this set reports zero tokens — no context
+// gauge, no cost. `stream_options.include_usage` is part of the OpenAI streaming
+// spec and these providers document supporting it; `customai` is deliberately absent
+// because it points at an arbitrary endpoint that may reject the field outright.
+const STREAM_USAGE_PROVIDERS = new Set<AIProvider>([
+	'openai',
+	'azure_openai',
+	'azure_foundry',
+	'googleai',
+	'openrouter',
+	'groq',
+	'deepseek',
+	'mistral',
+	'togetherai'
+])
+
 export async function getCompletion(
 	messages: ChatCompletionMessageParam[],
 	abortController: AbortController,
@@ -1120,17 +1149,17 @@ export async function getCompletion(
 	// Use Completions API for other providers
 	const client = options?.openaiClient ?? workspaceAIClients.getOpenaiClient()
 	const completionConfig = applyReasoningToConfig(
-		(provider === 'openai' ||
-			provider === 'azure_openai' ||
-			provider === 'azure_foundry' ||
-			provider === 'googleai') &&
-			config.stream
+		config.stream && STREAM_USAGE_PROVIDERS.has(provider)
 			? {
 					...config,
 					stream_options: {
 						...(config.stream_options ?? {}),
 						include_usage: true
-					}
+					},
+					// OpenRouter's own extension, on top of stream_options: it returns the
+					// credits actually charged next to the token counts, which is the one
+					// route by which the chat sees a real cost rather than an estimate.
+					...(provider === 'openrouter' ? { usage: { include: true } } : {})
 				}
 			: config,
 		provider === 'deepseek' ? 'deepseek' : provider === 'mistral' ? 'mistral' : 'completions',
@@ -1166,7 +1195,11 @@ export async function parseOpenAICompletion(
 	tools: Tool<any>[],
 	helpers: any,
 	_abortController?: AbortController, // unused, for signature compatibility with parseAnthropicCompletion
-	options?: { workspace?: string; provider?: string }
+	options?: {
+		workspace?: string
+		provider?: string
+		onTokenUsage?: (usage: ChatTokenUsage) => void
+	}
 ): Promise<{ shouldContinue: boolean; tokenUsage: ChatTokenUsage }> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
 	// The tool call currently receiving argument deltas; when the stream moves on
@@ -1316,6 +1349,7 @@ export async function parseOpenAICompletion(
 
 	callbacks.onMessageEnd()
 
+	options?.onTokenUsage?.(tokenUsage)
 	// Stream over: every parsed call is queued until its turn in processToolCall.
 	for (const toolCall of Object.values(finalToolCalls)) {
 		if (toolCall.id) {

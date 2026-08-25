@@ -192,6 +192,8 @@
 			inlineScript?: InlineScript
 			script?: { path: string; summary: string; hash: string | undefined }
 			flow?: { path: string; summary: string }
+			/** Saved `ai_agent` resource the inserted agent step links to, for `kind: 'aiagent'`. */
+			agentPath?: string
 			kind: InsertKind
 			expandGroup?: { groupId: string; position: 'top' | 'bottom' }
 		}) => Promise<void>

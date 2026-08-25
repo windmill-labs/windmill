@@ -7,7 +7,10 @@ import type {
   FrontendBenchmarkProgressEvent,
   ModeRunner,
 } from "./types";
-import { validateToolExpectations } from "./validators";
+import {
+  validateAssistantExpectations,
+  validateToolExpectations,
+} from "./validators";
 
 export async function runSuite<TInitial, TExpected, TActual>(input: {
   modeRunner: ModeRunner<TInitial, TExpected, TActual>;
@@ -182,6 +185,10 @@ async function runCaseAttempts<TInitial, TExpected, TActual>(input: {
           ...validateToolExpectations({
             run,
             toolExpect: input.evalCase.toolExpect,
+          }),
+          ...validateAssistantExpectations({
+            run,
+            assistantExpect: input.evalCase.assistantExpect,
           })
         );
       }

@@ -18,6 +18,10 @@
 		autocomplete?: HTMLInputAttributes['autocomplete']
 		/** Off for login-style fields: keeps Enter free to submit. Overrides `minRows`. */
 		allowMultiline?: boolean
+		/** Renders the field in its error state; the message itself is the caller's to display. */
+		error?: boolean
+		/** id of the element holding that message, wired up as aria-describedby. */
+		describedBy?: string
 		onKeyDown?: (event: KeyboardEvent) => void
 		onBlur?: (event: FocusEvent) => void
 	}
@@ -32,11 +36,14 @@
 		id,
 		autocomplete = 'new-password',
 		allowMultiline = true,
+		error = false,
+		describedBy = undefined,
 		onKeyDown,
 		onBlur
 	}: Props = $props()
 
 	let red = $derived(required && (password == '' || password == undefined))
+	let hasError = $derived(red || error)
 	let hideValue = $state(true)
 	let forceMultiline = $state(false)
 	let isMultiline = $derived(
@@ -76,7 +83,7 @@
 		<TextInput
 			bind:this={textareaRef}
 			size="md"
-			error={red}
+			error={hasError}
 			bind:value={password}
 			underlyingInputEl="textarea"
 			inputProps={{
@@ -85,6 +92,8 @@
 				placeholder,
 				rows: minRows ?? 3,
 				autocomplete,
+				'aria-invalid': hasError ? 'true' : undefined,
+				'aria-describedby': describedBy,
 				onblur: (e) => onBlur?.(e),
 				onkeydown: (e) => {
 					onKeyDown?.(e)
@@ -99,13 +108,15 @@
 		<TextInput
 			bind:this={inputRef}
 			size="md"
-			error={red}
+			error={hasError}
 			bind:value={password}
 			inputProps={{
 				id,
 				disabled,
 				placeholder,
 				autocomplete,
+				'aria-invalid': hasError ? 'true' : undefined,
+				'aria-describedby': describedBy,
 				onblur: (e) => onBlur?.(e),
 				onkeydown: (e) => {
 					if (allowMultiline && e.key === 'Enter') {

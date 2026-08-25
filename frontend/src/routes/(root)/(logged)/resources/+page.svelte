@@ -68,6 +68,7 @@
 		Plus,
 		RotateCw,
 		Save,
+		FlaskConical,
 		SearchX,
 		Shield,
 		Trash,
@@ -82,6 +83,7 @@
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
+	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -133,6 +135,8 @@
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
 	let deletePath = $state('')
+	let evalsOpen = $state(false)
+	let evalsAgentPath = $state<string | undefined>(undefined)
 	let loading = $state({
 		resources: true,
 		types: true
@@ -1262,6 +1266,18 @@
 													<Dropdown
 														class="w-fit"
 														items={[
+															...(resource_type === 'ai_agent' && !draft_only
+																? [
+																		{
+																			displayName: 'Evals',
+																			icon: FlaskConical,
+																			action: () => {
+																				evalsAgentPath = path
+																				evalsOpen = true
+																			}
+																		}
+																	]
+																: []),
 															{
 																displayName: 'Permissions',
 																icon: Shield,
@@ -1462,6 +1478,8 @@
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
+<AgentEvalModal agentPath={evalsAgentPath} bind:open={evalsOpen} />
+
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
 	on:refresh={loadResources}

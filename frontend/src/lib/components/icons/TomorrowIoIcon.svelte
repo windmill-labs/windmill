@@ -8,7 +8,7 @@
 </script>
 
 <!-- #004CF8 per tomorrow.io's own design tokens (--color-logo-blue in site-frame.min.css, matching the header lockup SVG and logo-490.png). Their stylesheet reverses only the wordmark on dark headers (path.logo-letter{fill:#fff}); the mark itself stays logo blue in both themes. -->
-<svg {width} {height} viewBox="0 0 96 96" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-4.364 -4.083 104.727 104.727" xmlns="http://www.w3.org/2000/svg">
 	<path
 		d="M56.3667 0.728149C60.7404 1.49912 64.985 2.87707 68.9775 4.82209C63.0324 9.60417 55.6297 12.2074 48 12.1988C40.3671 12.2096 32.9606 9.60624 27.013 4.82209C31.0085 2.87623 35.2564 1.49826 39.6333 0.728149C42.3059 1.74315 45.1412 2.26258 48 2.26098C50.8589 2.26258 53.6941 1.74315 56.3667 0.728149Z"
 		fill="#004CF8"

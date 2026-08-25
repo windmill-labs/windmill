@@ -8,7 +8,7 @@
 </script>
 
 <!-- #7AA116 per AWS Architecture Icons (Icon-package_07312026, Arch_Storage/64/Arch_Amazon-Simple-Storage-Service_64.svg). AWS ships no dark variant for service icons. -->
-<svg {width} {height} viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-11.636 -11.636 279.273 279.273" xmlns="http://www.w3.org/2000/svg">
 	<g>
 		<rect fill="#7AA116" x="0" y="0" width="256" height="256"></rect>
 		<path

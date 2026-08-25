@@ -49,6 +49,7 @@
 			| undefined
 		typeeditor?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		workspace?: string | undefined
 	}
 
 	let {
@@ -72,7 +73,8 @@
 		order = $bindable(),
 		itemsType = $bindable(undefined),
 		typeeditor,
-		children
+		children,
+		workspace
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -225,6 +227,7 @@
 				bind:itemsType
 				canEditResourceType={isFlowInput || isAppInput}
 				bind:nonEmpty
+				{workspace}
 			/>
 		{:else if type == 'string' || ['number', 'integer'].includes(type ?? '')}
 			<div>
@@ -276,6 +279,7 @@
 						uiOnly
 						jsonEnabled={false}
 						editTab="inputEditor"
+						{workspace}
 					/>
 				</div>
 			{/if}
@@ -288,6 +292,7 @@
 					uiOnly
 					jsonEnabled={false}
 					editTab="inputEditor"
+					{workspace}
 				/>
 			</div>
 		{/if}

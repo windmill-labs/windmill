@@ -8,7 +8,13 @@
 </script>
 
 <!-- #FF6600 per news.ycombinator.com/y18.svg. -->
-<svg {width} {height} viewBox="0 0 168 168" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-7.636 -7.636 183.273 183.273"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<g clip-path="url(#clip0_210_234)">
 		<path d="M168 0H0V168H168V0Z" fill="#FF6600" />
 		<path

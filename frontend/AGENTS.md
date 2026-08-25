@@ -3,6 +3,7 @@
 - **Coding patterns**: MUST use the `svelte-frontend` skill when writing Svelte code
 - **Validation**: `docs/validation.md` — `npm run check:fast` (2s) for iteration, `npm run check` (50s) for final PR
 - **UI components**: use Windmill's design-system components — never raw HTML elements. Start from the barrel `src/lib/components/common/index.ts` and grep `src/lib/components/`; the component you need almost certainly exists
+- **Never pass a `@deprecated` prop.** On `<Button>` that means `size`, `spacingSize`, `extendedSize` and the `contained`/`border`/`divider` variants — size buttons with `unifiedSize` (`2xs` | `xs` | `sm` | `md` | `lg`). Deprecated props survive at old call sites; copying one forward is still a bug. Check the prop's JSDoc in the component before using it
 - **Brand/design**: `frontend/brand-guidelines.md` — read the relevant section before building UI, not after; the `svelte-frontend` skill maps which section covers what
 - **Backend API**: routes in `../backend/windmill-api/openapi.yaml`, generated types in `src/lib/gen/`
 - **Regenerate client**: `npm run generate-backend-client` after backend API changes

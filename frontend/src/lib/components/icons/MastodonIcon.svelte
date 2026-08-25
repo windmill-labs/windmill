@@ -8,7 +8,13 @@
 </script>
 
 <!-- Gradient #6364FF -> #563ACC, both official palette colours per https://joinmastodon.org/branding. Swap to the black or white logo rather than recolouring when contrast fails. -->
-<svg {width} {height} viewBox="0 0 512 512" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-23.273 -23.273 558.545 558.545"
+	fill="currentColor"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<linearGradient
 		id="mastodon-a"
 		x1="254"

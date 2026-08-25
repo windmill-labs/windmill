@@ -347,6 +347,17 @@ mod app_s3_display_stubs {
 pub use app_s3_display_stubs::*;
 
 #[cfg(not(feature = "private"))]
+pub async fn get_large_file_storage(
+    _db: &DB,
+    _w_id: &str,
+    _storage: Option<String>,
+) -> windmill_common::error::Result<Option<windmill_types::s3::LargeFileStorage>> {
+    Err(windmill_common::error::Error::internal_err(
+        "Not implemented in Windmill's Open Source repository".to_string(),
+    ))
+}
+
+#[cfg(not(feature = "private"))]
 pub async fn get_workspace_s3_resource_and_check_paths<'c>(
     _db_with_opt_authed: &DbWithOptAuthed<'c, ApiAuthed>,
     _authed_api: Option<&ApiAuthed>,

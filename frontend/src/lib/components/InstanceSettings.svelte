@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { scimSamlSetting, settings, settingsKeys, instanceSettingsSaved } from './instanceSettings'
+	import {
+		scimSamlSetting,
+		settings,
+		settingsKeys,
+		instanceSettingsSaved
+	} from './instanceSettings'
 	import { Alert, Button, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { SettingService, SettingsService } from '$lib/gen'
 	import type { TeamsChannel } from '$lib/gen/types.gen'
@@ -1064,7 +1069,8 @@
 						<li>git sync repo count (sync vs promotion mode)</li>
 						<li
 							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers and the names of public hub scripts used, last 30 days)</li
+							model identifiers, the names of public hub scripts used, and the plan tier and quota
+							shown when the execution meter is opened, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your
@@ -1115,7 +1121,8 @@
 						<li>development instance status</li>
 						<li
 							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers and the names of public hub scripts used, last 30 days)</li
+							model identifiers, the names of public hub scripts used, and the plan tier and quota
+							shown when the execution meter is opened, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your

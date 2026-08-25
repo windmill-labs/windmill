@@ -380,10 +380,11 @@ export const sqsTriggerRequestSchema = z.object({
 })
 
 export const gcpTriggerRequestSchema = z.object({
-	"gcp_resource_path": z.string().describe("Path to the GCP resource containing service account credentials for authentication."),
+	"gcp_resource_path": z.string().describe("Path to the GCP resource containing service account credentials for authentication. Omit to authenticate with the instance's application default credentials, which only workspace admins may select.").optional(),
+	"project_id": z.string().describe("GCP project the client operates in. Defaults to the project of the credentials. Topics and subscriptions given as fully qualified names are reached whatever it is.").optional(),
 	"subscription_mode": z.enum(["existing", "create_update"]).describe("The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription."),
-	"topic_id": z.string().describe("Google Cloud Pub/Sub topic ID to subscribe to."),
-	"subscription_id": z.string().describe("Google Cloud Pub/Sub subscription ID.").optional(),
+	"topic_id": z.string().describe("Google Cloud Pub/Sub topic ID to subscribe to. Accepts a bare ID or a fully qualified name (projects/<project>/topics/<id>)."),
+	"subscription_id": z.string().describe("Google Cloud Pub/Sub subscription ID. Accepts a bare ID or a fully qualified name (projects/<project>/subscriptions/<id>).").optional(),
 	"base_endpoint": z.string().describe("Base URL for push delivery endpoint.").optional(),
 	"delivery_type": z.enum(["push", "pull"]).describe("Delivery mode for messages. 'push' for HTTP push delivery where messages are sent to a webhook endpoint, 'pull' for polling where the trigger actively fetches messages.").optional(),
 	"delivery_config": z.object({

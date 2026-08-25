@@ -13,7 +13,7 @@
 	{width}
 	id="svg3430"
 	version="1.1"
-	viewBox="0 0 711.20123 383.5975"
+	viewBox="-21.72 -185.522 754.641 754.641"
 	xml:space="preserve"
 	xmlns="http://www.w3.org/2000/svg"
 >

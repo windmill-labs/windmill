@@ -59,7 +59,11 @@
 	let can_write = $state(true)
 	let drawerLoading = $state(true)
 	let topic_id: string = $state('')
-	let gcp_resource_path: string = $state('')
+	let gcp_resource_path: string | undefined = $state('')
+	// `undefined` rather than `''` is what marks application default credentials, and the two
+	// survive a round trip through the deployed config and the draft as `null` vs `''`.
+	let use_default_credentials = $state(false)
+	let project_id: string | undefined = $state(undefined)
 	let subscription_id: string = $state('')
 	let isValid = $state(false)
 	let delivery_config: PushConfig | undefined = $state(undefined)
@@ -79,6 +83,11 @@
 	let retry: Retry | undefined = $state()
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
+	/** The credential mode the config was loaded in, as opposed to the one currently selected in
+	 * the form. A non-admin may keep a trigger that already uses the instance's credentials, but
+	 * may not move one onto them, so the permission has to key off this rather than the live mode.
+	 * Set at load rather than derived from the deployed row, so a draft-only trigger counts too. */
+	let loadedUsesDefaultCredentials = $state(false)
 	let {
 		useDrawer = true,
 		description = undefined,
@@ -177,7 +186,20 @@
 			initialScriptPath = ''
 			fixedScriptPath = fixedScriptPath_ ?? ''
 			script_path = fixedScriptPath
-			gcp_resource_path = defaultValues?.gcp_resource_path ?? ''
+			// A draft or capture config reaches `openNew` too, and it stores the credentials mode as
+			// an explicit `gcp_resource_path: null`. Only an absent key means "fresh trigger", so
+			// collapsing null and missing here would silently reopen an ADC config in service
+			// account mode.
+			const reopenedAsDefaultCredentials =
+				!!defaultValues &&
+				'gcp_resource_path' in defaultValues &&
+				defaultValues.gcp_resource_path == null
+			gcp_resource_path = reopenedAsDefaultCredentials
+				? undefined
+				: (defaultValues?.gcp_resource_path ?? '')
+			use_default_credentials = reopenedAsDefaultCredentials
+			loadedUsesDefaultCredentials = reopenedAsDefaultCredentials
+			project_id = defaultValues?.project_id ?? undefined
 			delivery_type = defaultValues?.delivery_type ?? 'pull'
 			delivery_config = defaultValues?.delivery_config ?? undefined
 			subscription_id = ''
@@ -234,7 +256,10 @@
 	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
 		script_path = cfg?.script_path
 		initialScriptPath = cfg?.script_path
-		gcp_resource_path = cfg?.gcp_resource_path
+		gcp_resource_path = cfg?.gcp_resource_path ?? undefined
+		use_default_credentials = cfg?.gcp_resource_path == null
+		loadedUsesDefaultCredentials = use_default_credentials
+		project_id = cfg?.project_id ?? undefined
 		delivery_type = cfg?.delivery_type
 		subscription_id = cfg?.subscription_id
 		delivery_config = cfg?.delivery_config
@@ -277,7 +302,8 @@
 
 	function getGcpConfig() {
 		return {
-			gcp_resource_path,
+			gcp_resource_path: gcp_resource_path ?? null,
+			project_id,
 			subscription_mode,
 			subscription_id,
 			delivery_type,
@@ -300,7 +326,8 @@
 
 	function getGcpCaptureConfig() {
 		return {
-			gcp_resource_path,
+			gcp_resource_path: gcp_resource_path ?? null,
+			project_id,
 			subscription_mode,
 			subscription_id,
 			delivery_type,
@@ -317,15 +344,26 @@
 		const previousMode = mode
 		mode = newMode
 		if (!trigger?.draftConfig) {
-			const ok = await withForkConflictRetry(
-				(force) =>
-					GcpTriggerService.setGcpTriggerMode({
-						path: initialPath,
-						workspace: wsId ?? '',
-						requestBody: { mode: newMode, force }
-					}),
-				'GCP Pub/Sub trigger'
-			)
+			let ok: boolean
+			try {
+				ok = await withForkConflictRetry(
+					(force) =>
+						GcpTriggerService.setGcpTriggerMode({
+							path: initialPath,
+							workspace: wsId ?? '',
+							requestBody: { mode: newMode, force }
+						}),
+					'GCP Pub/Sub trigger'
+				)
+			} catch (err) {
+				// `withForkConflictRetry` re-throws anything that is not a fork conflict, and
+				// enabling a trigger on application default credentials is rejected for non-admins,
+				// so a refusal here is expected rather than exceptional: put the toggle back and say
+				// why, instead of leaving it showing a mode the server did not accept.
+				mode = previousMode
+				sendUserToast(err?.body ?? err?.message ?? 'Could not change trigger mode', true)
+				return
+			}
 			if (!ok) {
 				mode = previousMode
 				return
@@ -516,6 +554,9 @@
 			<GcpTriggerEditorConfigSection
 				bind:isValid
 				bind:gcp_resource_path
+				bind:use_default_credentials
+				loaded_uses_default_credentials={loadedUsesDefaultCredentials}
+				bind:project_id
 				bind:subscription_id
 				bind:delivery_type
 				bind:delivery_config

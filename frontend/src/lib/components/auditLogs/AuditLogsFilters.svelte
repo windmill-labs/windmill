@@ -217,6 +217,7 @@
 		INSTANCE_GROUPS_SCIM_DELETE: 'instance_groups.scim_delete',
 		INSTANCE_GROUPS_SCIM_UPDATE: 'instance_groups.scim_update',
 		VARIABLES_DECRYPT_SECRET: 'variables.decrypt_secret',
+		WORKSPACES_READ_ENCRYPTION_KEY: 'workspaces.read_encryption_key',
 		WORKSPACES_EDIT_COMMAND_SCRIPT: 'workspaces.edit_command_script',
 		WORKSPACES_EDIT_DEPLOY_TO: 'workspaces.edit_deploy_to',
 		WORKSPACES_EDIT_AUTO_INVITE_DOMAIN: 'workspaces.edit_auto_invite_domain',

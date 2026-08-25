@@ -51,7 +51,7 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db, strip_json_nul};
-use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::worker::Connection;
 
 use windmill_common::otel_oss::{
     otel_incr_queue_delete_count, otel_incr_queue_pull_count, otel_incr_queue_push_count,
@@ -3493,7 +3493,7 @@ pub async fn create_token(db: &DB, job: &MiniPulledJob, perms: Option<JobPerms>)
             &job.workspace_id,
             &job.permissioned_as,
             &label,
-            *SCRIPT_TOKEN_EXPIRY,
+            windmill_common::auth::job_token_expiry_secs(db, &job.workspace_id).await,
             &job.permissioned_as_email,
             &job.id,
             perms,

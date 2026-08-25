@@ -147,7 +147,11 @@ impl ScopeDefinition {
             (Some(self_resources), Some(other_resources)) => {
                 resources_match(self_resources, other_resources)
             }
-            (Some(_), None) => false,
+            // A requirement naming no path is the whole domain, so only a grant that
+            // itself spans every path satisfies it. `*` is that grant — the scope UI
+            // accepts it as a resource path and `resources_match` already reads it as
+            // everything — while any listed path leaves the collection unauthorized.
+            (Some(self_resources), None) => self_resources.iter().any(|r| r == "*"),
             (None, _) => true,
         }
     }
@@ -285,6 +289,7 @@ pub enum ScopeDomain {
     OAuth,
     AI,
     AiSkills,
+    AiEvals, // AI agent eval datasets
 
     Indexer,
     Teams,   // Microsoft Teams integration
@@ -345,6 +350,7 @@ impl ScopeDomain {
             Self::OAuth => "oauth",
             Self::AI => "ai",
             Self::AiSkills => "ai_skills",
+            Self::AiEvals => "ai_evals",
             Self::Capture => "capture",
             Self::Drafts => "drafts",
             Self::Favorites => "favorites",
@@ -400,6 +406,7 @@ impl ScopeDomain {
             "oauth" => Some(Self::OAuth),
             "ai" => Some(Self::AI),
             "ai_skills" => Some(Self::AiSkills),
+            "ai_evals" => Some(Self::AiEvals),
             "indexer" | "srch" => Some(Self::Indexer),
             "teams" => Some(Self::Teams),
             "native_triggers" => Some(Self::NativeTriggers),
@@ -982,6 +989,91 @@ fn scope_grants_access(
     Ok(true)
 }
 
+/// The workspace-less routes a job token (`$WM_TOKEN`) may still read. A route qualifies
+/// only when it answers from the caller's own account, from the request body, or with
+/// content identical for every workspace (the Hub proxy, the documentation) — never
+/// naming another workspace, and never disclosing instance configuration. `usage` reads
+/// the caller's own row; `email` and `allowed_domain_auto_invite` are derived from the
+/// token itself and touch no table.
+///
+/// Deliberately absent, as each crosses that line: `users/list_invites` (returns the
+/// workspace ids the identity was invited to), `users/tokens/list` (credential metadata
+/// of the borrowed identity), `users/exists/{email}` (an oracle over arbitrary
+/// addresses, not the caller's own), and `workspaces/list` / `workspaces/users`.
+///
+/// Read methods only — a mutating handler added on one of these paths must be
+/// reconsidered rather than inherit the grant.
+fn is_global_read_open_to_job_token(route_path: &str) -> bool {
+    matches!(
+        route_path,
+        "/api/users/whoami"
+            | "/api/users/email"
+            | "/api/users/usage"
+            | "/api/users/tutorial_progress"
+            | "/api/workspaces/allowed_domain_auto_invite"
+            | "/api/docs/search"
+            | "/api/docs/page"
+            | "/api/integrations/hub/list"
+            | "/api/embeddings/query_hub_scripts"
+    ) || route_path.starts_with("/api/scripts/hub/")
+        || route_path.starts_with("/api/flows/hub/")
+        || route_path.starts_with("/api/apps/hub/")
+}
+
+/// The workspace-less POSTs a job token keeps. Each takes a `POST` for the sake of a
+/// request body rather than to commit anything of consequence: none writes Windmill state
+/// outside the caller's own account. The object-storage probe does write to the store the
+/// body names — see its entry. What each may *read* is bounded per entry below — the
+/// workspace-existence check answers for any id, the rest only from the body or the
+/// caller's own row:
+/// - a resource editor's object-storage "Test connection" runs as a preview job that POSTs
+///   the storage config (`TestConnection.svelte`). It puts and deletes an object to prove
+///   the credentials work, so it does write — but only to the store the body names, and a
+///   failure between the two can leave that object behind. No Windmill state of any
+///   workspace is touched.
+/// - `wmill workspace add`, how a job points the CLI at its own instance, checks the
+///   workspace exists before accepting the credentials — the git-sync hub scripts run
+///   exactly this. `workspace` carries no row-level security, so the bare boolean it
+///   answers is instance-wide rather than membership-filtered; what it discloses is
+///   only whether a workspace id is taken.
+/// - the cron preview computes the next occurrences of the expression in the body. It
+///   takes no `ApiAuthed` and opens no transaction, so it returns nothing the caller did
+///   not send.
+/// - tutorial progress upserts a UI bitfield keyed on the caller's own email. Its path
+///   serves a `GET` too, which the read list above carries.
+const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 4] = [
+    "/api/settings/test_object_storage_config",
+    "/api/workspaces/exists",
+    "/api/schedules/preview",
+    "/api/users/tutorial_progress",
+];
+
+/// Confines a job token (`$WM_TOKEN`) to routes that name a workspace. It is minted
+/// for one job in one workspace yet carries that job's full user privileges, so on an
+/// instance-wide route it would mint a permanent workspace-less API token, read
+/// worker-group configuration, or manage global users. The token lookup already
+/// rejects a workspace-bound API token on those routes; this is the same rule for
+/// job tokens.
+///
+/// Keyed on the job token specifically: an MCP token is workspace-bound too, but
+/// deliberately publishes instance-wide tools. Callers pass only routes whose path
+/// carries no workspace.
+pub fn check_job_token_for_global_route(route_path: &str, http_method: &str) -> Result<()> {
+    let is_read = map_http_method_to_action(http_method, route_path) == ScopeAction::Read;
+    if (is_read && is_global_read_open_to_job_token(route_path))
+        || (http_method.eq_ignore_ascii_case("POST")
+            && GLOBAL_WRITES_OPEN_TO_JOB_TOKEN.contains(&route_path))
+    {
+        Ok(())
+    } else {
+        Err(Error::PermissionDenied(format!(
+            "A job token ($WM_TOKEN) is confined to the workspace of its job and cannot be used \
+             on {route_path}, which is not workspace-scoped. Use an API token created for the \
+             user instead."
+        )))
+    }
+}
+
 /// Enforces a token's `read_only` flag: only methods classified as `Read`
 /// (GET/HEAD/OPTIONS) are allowed. Run actions and mutating methods are
 /// rejected. Independent of `scopes`.
@@ -1227,7 +1319,11 @@ mod tests {
 
         // A kind-only scope confines to that kind, at any path.
         let kind_only = job_read_run_confinement(Some(&["jobs:run:scripts".to_string()])).unwrap();
-        assert!(run_confinement_admits(&kind_only, "scripts", "u/admin/anything"));
+        assert!(run_confinement_admits(
+            &kind_only,
+            "scripts",
+            "u/admin/anything"
+        ));
         assert!(!run_confinement_admits(&kind_only, "flows", "f/team/etl"));
 
         // Scopes that grant job reads in their own right leave reads unconfined.
@@ -1343,6 +1439,24 @@ mod tests {
             "DELETE"
         )
         .is_ok());
+    }
+
+    // Whole-collection reads (the workspace export, `apps:read`, ...) require the
+    // domain with no path. Only a grant spanning every path may satisfy that.
+    #[test]
+    fn test_unqualified_requirement_needs_a_whole_domain_grant() {
+        let unqualified = ScopeDefinition::new("resources", "read", None, None);
+
+        let wildcard = ScopeDefinition::new("resources", "read", None, Some(vec!["*".to_string()]));
+        assert!(wildcard.includes(&unqualified));
+
+        let path_scoped = ScopeDefinition::new(
+            "resources",
+            "read",
+            None,
+            Some(vec!["f/team/db".to_string(), "u/alice/db".to_string()]),
+        );
+        assert!(!path_scoped.includes(&unqualified));
     }
 
     #[test]

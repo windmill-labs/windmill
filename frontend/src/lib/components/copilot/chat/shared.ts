@@ -657,8 +657,8 @@ export type DisplayMessage =
 
 // A tool message whose askUserQuestion is still awaiting an answer: the AI loop
 // is paused on the user. Drives the question card's interactivity, the
-// "waiting for user" indicator, and disabling the main chat input — keep those
-// in sync by going through this single predicate.
+// "waiting for user" indicator, and routing a composer send to the answer —
+// keep those in sync by going through this single predicate.
 export function isActiveUserQuestion(message: DisplayMessage | undefined): boolean {
 	return Boolean(
 		message &&
@@ -676,17 +676,27 @@ export function isActiveUserQuestion(message: DisplayMessage | undefined): boole
 // rendering progress must ask here first or it reports "the AI is working".
 export type PendingUserAction = 'question' | 'confirmation'
 
+export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+	return pendingUserActionDetail(messages)?.action
+}
+
 // Scans back to the turn boundary, not just the last message: a turn's cards are
 // created up front and run one at a time, and text between two tool calls pushes
 // an assistant card between them, so the blocked card is rarely last. Only cards
 // of a live turn can match — every resolution path clears `isLoading`.
-export function pendingUserAction(messages: DisplayMessage[]): PendingUserAction | undefined {
+export function pendingUserActionDetail(
+	messages: DisplayMessage[]
+): { action: PendingUserAction; toolCallId: string } | undefined {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const message = messages[i]
 		if (message.role === 'user') break
 		if (message.role !== 'tool') continue
-		if (isActiveUserQuestion(message)) return 'question'
-		if (message.needsConfirmation && message.isLoading) return 'confirmation'
+		if (isActiveUserQuestion(message)) {
+			return { action: 'question', toolCallId: message.tool_call_id }
+		}
+		if (message.needsConfirmation && message.isLoading) {
+			return { action: 'confirmation', toolCallId: message.tool_call_id }
+		}
 	}
 	return undefined
 }
@@ -1024,20 +1034,29 @@ export async function processToolCall<T>({
  * id is already answered by its tool result before this non-tool message. The image
  * parts ride the same `image_url` carrier that the provider converters translate.
  */
-export function appendPendingToolImages(
-	messages: ChatCompletionMessageParam[],
-	addedMessages: ChatCompletionMessageParam[],
-	toolCallbacks: ToolCallbacks
-): void {
-	const images = toolCallbacks.takePendingToolImages?.() ?? []
-	if (images.length === 0) return
-	const message: ChatCompletionMessageParam = {
+/** The message that hands tool-produced images to the model, or undefined when
+ *  there are none. Split out so a snapshot of a turn still buffering them can
+ *  build the same message without draining the buffer the live turn still owns. */
+export function pendingToolImagesMessage(
+	images: AttachedImage[]
+): ChatCompletionMessageParam | undefined {
+	if (images.length === 0) return undefined
+	return {
 		role: 'user',
 		content: [
 			{ type: 'text', text: 'Screenshot(s) of the app preview:' },
 			...images.map((img) => dataUrlToImagePart(img.dataUrl))
 		]
 	}
+}
+
+export function appendPendingToolImages(
+	messages: ChatCompletionMessageParam[],
+	addedMessages: ChatCompletionMessageParam[],
+	toolCallbacks: ToolCallbacks
+): void {
+	const message = pendingToolImagesMessage(toolCallbacks.takePendingToolImages?.() ?? [])
+	if (!message) return
 	messages.push(message)
 	addedMessages.push(message)
 }
@@ -1519,6 +1538,10 @@ export interface TestRunConfig {
 	/** Overrides the default "…test started, waiting for completion" status while the
 	 * job runs inline (e.g. an SQL tool shows "SQL running…"). */
 	runningMessage?: string
+	/** Noun for the human-facing status strings ("<X> test completed successfully").
+	 * Defaults to `contextName`, which also carries the jobs-tray kind and so cannot
+	 * always name what ran: an app's path runnable queues a flow job. */
+	completionName?: string
 	/** Custom terminal formatting for the INLINE completion path (callers whose
 	 * result isn't a plain test-run summary, e.g. exec_datatable_sql shaping rows).
 	 * Returns the string handed to the model plus the tool-card patch. When omitted,
@@ -1739,7 +1762,8 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 
 		const jobId = await config.jobStarter()
 
-		const contextName = config.contextName.charAt(0).toUpperCase() + config.contextName.slice(1)
+		const shown = config.completionName ?? config.contextName
+		const contextName = shown.charAt(0).toUpperCase() + shown.slice(1)
 
 		// Register the job so the tray shows it from the moment it is queued. Carry the
 		// serializable resultFormat so a job that later detaches (and may outlive a
@@ -1811,7 +1835,11 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 		}
 		return summary
 	} catch (error) {
-		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
+		// formatToolError, not `error.message`: the generated client puts the server's
+		// message in `body` and leaves `message` as the bare status text, so a path
+		// runnable aimed at an undeployed flow reported "Not Found" instead of naming
+		// the flow it could not find — losing the one diagnostic the run exists for.
+		const errorMessage = formatToolError(error)
 		config.toolCallbacks.setToolStatus(config.toolId, {
 			content: `Test execution failed`,
 			error: errorMessage

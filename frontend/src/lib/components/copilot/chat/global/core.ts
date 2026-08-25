@@ -56,6 +56,8 @@ import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '..
 import { modelSupportsVision } from '../../modelConfig'
 import { tryGetCurrentModel } from '$lib/aiStore'
 import { isChromiumBrowser } from '$lib/utils'
+import { isCloudHosted } from '$lib/cloud'
+import { BROWSER } from 'esm-env'
 import {
 	applyEditableFlowJsonToFlow,
 	buildEditableFlowJson,
@@ -67,6 +69,14 @@ import {
 	restoreSpecialRawscriptModule,
 	validateEditableFlowJson
 } from '../flow/editableFlowJson'
+import {
+	getAiAgentProviderCatalog,
+	getAiAgentProviderCatalogFor
+} from '../flow/aiAgentProviderCatalog'
+import {
+	formatAiAgentProviderWarnings,
+	formatAiAgentProvidersPrompt
+} from '../flow/aiAgentProviders'
 import {
 	createInlineScriptSession,
 	findUnresolvedInlineScriptRefs
@@ -114,6 +124,7 @@ import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
 import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
+import type { Runnable } from '$lib/components/apps/inputType'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import { inferArgs } from '$lib/infer'
@@ -141,8 +152,11 @@ import {
 	devopsRole,
 	enterpriseLicense,
 	userWorkspaces,
+	usersWorkspaceStore,
+	NON_MEMBER_USERNAME,
 	workspaceStore
 } from '$lib/stores'
+import { getWorkspaceRole, type RoleLookup } from '$lib/user'
 import { get } from 'svelte/store'
 import {
 	canonicalDraftSideValue,
@@ -295,7 +309,7 @@ const getInstructionsSchema = z.object({
 	language: scriptLangSchema
 		.optional()
 		.describe(
-			'The target language. Required when subject is script. For subject "datatable" it selects which SDK to return (e.g. "bun" for TypeScript, "python3" for Python) and defaults to TypeScript if omitted. Use the existing language when modifying, or the requested target language when creating. Other subjects ignore it.'
+			'The target language. Required when subject is script. For subjects "datatable" and "app" it selects which SDK reference to return (e.g. "bun" for TypeScript, "python3" for Python) and defaults to TypeScript if omitted. Use the existing language when modifying, or the requested target language when creating. Other subjects ignore it.'
 		)
 })
 
@@ -1029,6 +1043,21 @@ const deleteAppRunnableSchema = z.object({
 	key: z.string().describe('Key of the backend runnable to remove.')
 })
 
+const testRunAppRunnableSchema = z.object({
+	path: z.string().describe('Workspace path of the app.'),
+	key: z.string().describe('Key of the backend runnable to run.'),
+	args: testRunArgsSchema,
+	background: backgroundArgSchema,
+	wait_seconds: waitSecondsArgSchema
+})
+
+const testRunAppRunnableToolDef = createToolDef(
+	testRunAppRunnableSchema,
+	'test_run_app_runnable',
+	"Run one of an app's backend runnables with test arguments, the way the editor preview runs it. An inline runnable executes the draft code; a path runnable executes the deployed script/flow it points at. A deployed app runs under its stored policy instead, so this does not prove the runnable is reachable once deployed.",
+	{ strict: false }
+)
+
 const openPreviewSchema = z.object({
 	kind: z
 		.enum(['script', 'flow', 'raw_app', 'pipeline'])
@@ -1153,7 +1182,9 @@ const createFolderSchema = z.object({
 	summary: z.string().optional().describe('Optional human-readable description of the folder.')
 })
 
-type FolderPromptContext = { folders: string[]; foldersRead: string[]; isAdmin: boolean }
+// `folders`/`foldersRead` are undefined when the user's role in this workspace could not
+// be resolved.
+type FolderPromptContext = { folders?: string[]; foldersRead?: string[]; isAdmin: boolean }
 
 // Renders the folders the current user can act on into the system prompt so the
 // model can pick an `f/<folder>/...` path without a discovery round-trip (there
@@ -1182,6 +1213,11 @@ function buildFolderGuidance(username: string, ctx?: FolderPromptContext): strin
 				: ''
 		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it; if they explicitly ask for a new folder, create it with \`create_folder\`; otherwise ask them which folder to use rather than guessing or creating one unprompted.`
 	}
+	// Everything below states the writable set as fact, including the empty case, so an
+	// unresolved role has to say nothing at all: "you have no shared folders" is a claim,
+	// and a wrong one steers shared work into personal paths. The admin branch above
+	// asserts nothing about the list, so it stands whether or not the ACLs are known.
+	if (!ctx.folders) return ''
 	const readOnly = (ctx.foldersRead ?? []).filter((f) => !writable.includes(f))
 	const lines: string[] = []
 	if (writable.length > 0) {
@@ -1224,9 +1260,21 @@ const buildGlobalSystemPrompt = (
 		? '\n- If the user message includes an ACTIVE PREVIEW section, that is the page the side panel is showing — resolve "this page", "here" and "it" against it, and against `open` (the row the page is anchored at, whose drawer the user opened) when there is one. It already tells you what get_preview_status would, so do not call that tool to learn what is on screen; call it only to check the panel\'s *other* tabs.'
 		: ''
 	const pipelineBullet = `- A "data pipeline" is NOT a flow: it is a DAG of independent scripts in one folder, wired by storage assets (DuckLake/data tables/S3) and triggers via top-of-file \`pipeline\` / \`on <ref>\` annotation comments written in each script's comment syntax (\`--\` for SQL, \`#\` for Python/Bash, \`//\` for TS — a \`//\` line in a SQL node is a syntax error). When the user asks for a data pipeline (or to ingest/transform/materialize data across steps), call get_instructions with subject "pipeline" and build annotated script drafts — do not build a flow.${pipelineAlphaNote}`
+	// Hosting and edition come from the hostname and a store the app populates at init, so
+	// they are knowable only in the browser: a non-browser caller reads false for both and
+	// would be told "self-hosted Community Edition" whatever it targets. No base URL here
+	// either — offering one is what invites a hardcoded URL into a script.
+	const instanceLine = BROWSER
+		? ` This is ${
+				isCloudHosted() ? 'Windmill Cloud (app.windmill.dev)' : 'a self-hosted Windmill instance'
+			}, running ${
+				get(enterpriseLicense) ? 'Enterprise Edition' : 'Community Edition'
+			}. Use that to judge whether a feature is available before promising it.`
+		: ''
+
 	return `You are Windmill's global workspace assistant.
 
-The current user's workspace username is "${username}".
+The current user's workspace username is "${username}".${instanceLine}
 
 Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.
 
@@ -1252,6 +1300,7 @@ Rules:
 - Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}
 - After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
+- Do the same for a raw app: run test_run_app_runnable on each backend runnable you wrote or changed before saying the app works. A bundle that compiles proves nothing about whether the runnables run. An inline runnable executes the app's draft code; a path runnable executes the DEPLOYED script/flow it names, so a path runnable aimed at something you have not deployed fails here — that failure is the point: report it and offer to deploy that one target. The app itself does not need deploying to be tested.
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_job_logs with a returned id to inspect a specific run's logs — without starting a new test run.
 - To see what a flow run actually did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — use get_flow_run_details with the run id (it also works while the flow is still running). Pass step to read one step's result in full (capped at 12k chars). Prefer it over get_job_logs when you need step results rather than logs.
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
@@ -1550,12 +1599,26 @@ function buildPersistedRunnable(
 			)
 		: (existing?.fields ?? {})
 
+	// Converting between kinds must drop the other kind's fields. Every consumer dispatches on
+	// `type` (isRunnableByName / isRunnableByPath), so a leftover does not change which code
+	// runs — it contradicts it: a runnable reported back as inline still names a flow in
+	// `path`, and that is what the model reads on its next turn.
+	const { runType: _runType, path: _path, inlineScript: _inlineScript, ...carried } = existing ?? {}
+
+	// `schema` describes the item a path runnable points at, so it only survives while that
+	// target is unchanged. Carried across a retarget it types `backend.<key>(args)` from the
+	// previous item's inputs, because hiddenRunnableToTsType reads it for the path branch.
+	const sameTarget =
+		(existing?.type === 'path' || existing?.type === 'runnableByPath') &&
+		existing?.runType === input.type &&
+		existing?.path === input.path
+
 	if (input.type === 'inline') {
 		if (!input.inlineScript) {
 			throw new Error('inlineScript is required when runnable type is "inline".')
 		}
 		return {
-			...(existing ?? {}),
+			...carried,
 			name: input.name,
 			type: 'inline',
 			inlineScript: {
@@ -1570,13 +1633,13 @@ function buildPersistedRunnable(
 		throw new Error('path is required when runnable type is "script", "flow", or "hubscript".')
 	}
 	return {
-		...(existing ?? {}),
+		...carried,
 		name: input.name,
 		type: 'path',
 		runType: input.type,
 		path: input.path,
 		fields,
-		schema: existing?.schema ?? {}
+		schema: sameTarget ? (existing?.schema ?? {}) : {}
 	}
 }
 
@@ -2052,7 +2115,13 @@ function getScriptInstructions(language: ScriptLang | undefined): string {
 ${getScriptPrompt(selected)}`
 }
 
-function getFlowInstructions(): string {
+async function getFlowInstructions(workspace: string | undefined): Promise<string> {
+	const aiAgentProviders = formatAiAgentProvidersPrompt(
+		await getAiAgentProviderCatalog(workspace),
+		{
+			canAskUser: true
+		}
+	)
 	return `# Global draft flow instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
@@ -2090,6 +2159,7 @@ function getFlowInstructions(): string {
 - \`write_flow\` is for full overwrites / create-from-scratch. Its \`modules\`, \`preprocessor_module\`, and \`failure_module\` arguments are **non-compact** flow modules: inline each rawscript body directly in \`content\` by default. But if a body is long or quote/backslash-heavy enough that escaping it into the JSON string is error-prone — or if a \`write_flow\` call comes back with a JSON parse error — create that module with **empty content** (\`"content": ""\`) and fill it with \`set_flow_module_code(path, module_id, code)\`, whose \`code\` is a plain argument with no nested escaping. \`write_flow\` reports which modules still have empty bodies so you know what to fill.
   - When overwriting an **existing** flow, set \`"content": "inline_script.<moduleId>"\` on any rawscript module whose code you are not changing — the placeholder resolves to that module's current body, so you never re-send (or re-read) unchanged code. Placeholders that match no existing rawscript module and are not the module's own id are rejected.
 
+${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
 # Windmill flow authoring reference
 
 ${getFlowPrompt()}`
@@ -2097,7 +2167,14 @@ ${getFlowPrompt()}`
 
 type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
 
-function getAppInstructions(): string {
+function getAppInstructions(language?: ScriptLang): string {
+	// getRawAppPrompt swaps in the Python SDK for python3, so the pointer has to swap with
+	// it: telling the model to re-fetch a reference it is already holding wastes a turn, and
+	// naming the wrong SDK contradicts the text right below the sentence.
+	const sdkLine =
+		language === 'python3'
+			? '- The authoring reference below carries the Python SDK, for `python3` inline runnables. For a `bun` runnable, call `get_instructions` again with `subject: "app"` and no language.'
+			: '- The authoring reference below carries the TypeScript SDK. For a `python3` runnable, call `get_instructions` again with `subject: "app"` and `language: "python3"`.'
 	return `# Global draft app instructions
 
 - Global mode edits raw app drafts only; it does not save or deploy unless the user explicitly asks to deploy.
@@ -2108,6 +2185,8 @@ function getAppInstructions(): string {
 - Backend inline runnables are addressed as \`backend/<key>/main.{ts|py}\` from the file tools, but you create or update them via \`write_app_runnable\` / \`delete_app_runnable\` (which take the runnable shape directly: \`{ name, type, inlineScript?, path?, staticInputs? }\`).
 - \`/wmill.d.ts\` (or \`wmill.ts\`) is generated automatically from the backend runnables — never write it directly.
 - Inline runnables only support \`bun\` or \`python3\` in chat. Path runnables (\`script\`/\`flow\`/\`hubscript\`) reference an existing item.
+- Inline runnables run the app's DRAFT code, so they work in the preview with nothing deployed. Path runnables — and \`wmill.runFlow*\` / \`runScriptByPath\` called from inside any runnable — run the DEPLOYED item at that path, and a draft is invisible to them. An app wired to a flow you just drafted does nothing until that flow is deployed — but the APP does not have to be deployed for that: the preview runs its draft. So offer to deploy just the referenced flow/script with deploy_workspace_item and leave the app a draft the user keeps testing in the preview; don't route a one-item dependency deploy through the compare page, and don't ask them to deploy the app unless they want to ship it. Never dodge it by reimplementing the flow inside an inline runnable — that leaves two copies of the same logic and an app that ignores the flow they asked for.
+${sdkLine}
 - Use \`deploy_workspace_item\` after explicit user deploy intent. The deploy tool bundles JS/CSS before saving the raw app.
 - Use \`read_workspace_item\` with \`type: 'app'\` for a metadata summary (file paths and runnable list, no contents). Use \`read_app_file\` to read an individual file; large files are truncated to a head slice, so pass \`offset\`/\`limit\` to page through the rest rather than re-reading the whole file.
 - To find where a symbol or string lives across the app, call \`search_app\` (greps every frontend file and inline runnable, returns matching \`file:line\` rows) instead of reading files one by one — then \`read_app_file\` only the ranges you need. The loop is list (\`read_workspace_item\`) → locate (\`search_app\`) → inspect (\`read_app_file\` with \`offset\`/\`limit\`).
@@ -2115,7 +2194,7 @@ function getAppInstructions(): string {
 
 # Windmill raw app authoring reference
 
-${getRawAppPrompt()}`
+${getRawAppPrompt(language)}`
 }
 
 function getResourceInstructions(): string {
@@ -2153,16 +2232,20 @@ function getPipelineInstructions(): string {
 	return getPipelinePrompt()
 }
 
-function getInstructions(subject: InstructionSubject, language?: ScriptLang): string {
+function getInstructions(
+	subject: InstructionSubject,
+	language: ScriptLang | undefined,
+	workspace: string | undefined
+): string | Promise<string> {
 	switch (subject) {
 		case 'script':
 			return getScriptInstructions(language)
 		case 'flow':
-			return getFlowInstructions()
+			return getFlowInstructions(workspace)
 		case 'resource':
 			return getResourceInstructions()
 		case 'app':
-			return getAppInstructions()
+			return getAppInstructions(language)
 		case 'datatable':
 			return getDatatableInstructions(language)
 		case 'pipeline':
@@ -2315,43 +2398,144 @@ function allowedTriggerKinds(): PageTriggerKind[] {
 	return (Object.keys(TRIGGER_PAGES) as PageTriggerKind[]).filter((k) => ee || !TRIGGER_PAGES[k].ee)
 }
 
-// Which pages the current user can actually reach — mirrors the sidebar's gating.
-// Operators see exactly the pages enabled in the operating workspace's operator_settings
-// (the same source OperatorMenu gates on); a missing/false flag means no access, and
-// operators are never admins so workspace_settings is always excluded. Non-operators
-// get every page except workspace_settings, which is admin/superadmin only. `workspaceId`
-// is the chat's operating workspace (a session targets its own, possibly forked workspace);
-// it defaults to the navigation workspace for the global side-panel chat. The tool only
-// ever advertises, and only ever acts on, pages in this set.
-function allowedOpenPages(workspaceId: string | undefined = get(workspaceStore)): OpenPageName[] {
-	const u = get(userStore)
-	const isAdmin = !!u?.is_admin || !!get(superadmin)
-	if (u?.operator) {
-		const settings = get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings
-		return OPEN_PAGE_NAMES.filter(
-			(p) =>
-				p !== 'workspace_settings' && settings?.[p as keyof NonNullable<typeof settings>] === true
-		)
+// Pages an operator may reach: exactly the ones enabled in the workspace's
+// operator_settings, the same source OperatorMenu gates on. Operators are never admins, so
+// workspace_settings is excluded whatever the settings say.
+function operatorOpenPages(workspaceId: string | undefined): OpenPageName[] {
+	const settings = get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings
+	return OPEN_PAGE_NAMES.filter(
+		(p) =>
+			p !== 'workspace_settings' && settings?.[p as keyof NonNullable<typeof settings>] === true
+	)
+}
+
+// workspace_settings is admin/superadmin only; the rest are open to any non-operator member.
+const NON_ADMIN_OPEN_PAGES = new Set<OpenPageName>([
+	'runs',
+	'assets',
+	'schedules',
+	'variables',
+	'resources',
+	'audit_logs',
+	'folders',
+	'groups',
+	'triggers',
+	'compare'
+])
+
+// What to advertise before the role in `workspaceId` has been resolved.
+// `user_workspaces` nulls operator_settings for a workspace the user is not an operator
+// in, so a non-null value narrows an operator correctly; the converse does not hold,
+// which is why the real role is still fetched.
+function restrictedOpenPages(workspaceId: string | undefined): OpenPageName[] {
+	if (get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings) {
+		return operatorOpenPages(workspaceId)
 	}
-	const allowed = new Set<OpenPageName>([
-		'runs',
-		'assets',
-		'schedules',
-		'variables',
-		'resources',
-		'audit_logs',
-		'folders',
-		'groups',
-		'triggers',
-		'compare'
-	])
-	if (isAdmin) allowed.add('workspace_settings')
-	return OPEN_PAGE_NAMES.filter((p) => allowed.has(p))
+	return OPEN_PAGE_NAMES.filter((p) => NON_ADMIN_OPEN_PAGES.has(p))
+}
+
+// The role to gate `workspaceId` on. `userStore` answers only when it describes that same
+// workspace: a session operates on its own, possibly forked workspace where the user's
+// role can differ, and right after a switch the store still carries the previous
+// workspace's role while the new whoami is in flight.
+async function roleForWorkspace(
+	workspaceId: string | undefined
+): Promise<RoleLookup | { kind: 'no_workspace_context' } | { kind: 'not_a_member' }> {
+	if (!workspaceId) return { kind: 'no_workspace_context' }
+	const u = get(userStore)
+	if (u?.workspace_id === workspaceId) return { kind: 'resolved', user: u }
+	// A workspace missing from the user's own list is one they hold no membership in, so
+	// `whoami` would reject it every time. Settle it here: the rejection is a bare 401,
+	// which cannot be told apart from an expired session, and a superadmin resolves on a
+	// workspace they are not a member of, so neither the status nor the list alone decides.
+	// Both stores start undefined and load asynchronously, and the list can exhaust its
+	// retries for good, so an unloaded one must never read as an empty one: that denies
+	// every other workspace, permanently. Unknown membership means ask `whoami`.
+	const membershipKnown = get(usersWorkspaceStore) != undefined && get(superadmin) != undefined
+	if (
+		membershipKnown &&
+		!get(superadmin) &&
+		!get(userWorkspaces).some((w) => w.id === workspaceId)
+	) {
+		return { kind: 'not_a_member' }
+	}
+	return getWorkspaceRole(workspaceId)
+}
+
+// Who the user is in the workspace the chat operates on, for the prompt's path-convention
+// and folder guidance. Both are per-workspace: usernames come from that workspace's `usr`
+// row, and the writable/readable folder sets are its own ACLs.
+export type GlobalPromptIdentity = {
+	username: string
+	is_admin?: boolean
+	folders?: string[]
+	folders_read?: string[]
+}
+
+// `userWorkspaces` carries the real per-workspace username for every membership at no
+// request cost; the ambient store's belongs to the workspace being browsed, so it is the
+// last resort. Undefined rather than empty when neither names anybody — the prompt would
+// otherwise render `u//<name>`.
+function fallbackUsername(workspaceId: string): string | undefined {
+	const listed = get(userWorkspaces).find((w) => w.id === workspaceId)?.username
+	if (listed && listed !== NON_MEMBER_USERNAME) return listed
+	return get(userStore)?.username || undefined
+}
+
+export async function resolveGlobalPromptIdentity(
+	workspaceId: string | undefined
+): Promise<GlobalPromptIdentity | undefined> {
+	const role = await roleForWorkspace(workspaceId)
+	if (role.kind === 'resolved') {
+		const u = role.user
+		return {
+			username: u.username,
+			is_admin: u.is_admin,
+			folders: u.folders,
+			folders_read: u.folders_read
+		}
+	}
+	// Headless callers (the eval harness) hold no workspace and pass their own identity.
+	if (role.kind === 'no_workspace_context') return undefined
+	// The role is the only source for the folder sets, so an unresolved one leaves them out:
+	// the browsed workspace's would name folders that may not exist where the chat writes.
+	const username = fallbackUsername(workspaceId!)
+	return username ? { username } : undefined
+}
+
+// Which pages the user can actually reach in `workspaceId` — mirrors the sidebar's gating.
+// `workspaceId` is the chat's operating workspace, defaulting to the navigation workspace
+// for the global side-panel chat. The tool only ever advertises, and only ever acts on,
+// `pages`.
+async function allowedOpenPages(
+	workspaceId: string | undefined = get(workspaceStore)
+): Promise<{ pages: OpenPageName[]; roleUnverified: boolean }> {
+	const role = await roleForWorkspace(workspaceId)
+	// A failed lookup says nothing about the role, so guessing a page set can offer one the
+	// sidebar hides; advertising none is the only answer that can't. A known non-member also
+	// reaches nothing, but that is settled rather than unverified — saying "try again" about
+	// it would be false. Headless callers have no workspace and keep the pre-resolution set.
+	if (role.kind === 'lookup_failed') return { pages: [], roleUnverified: true }
+	if (role.kind === 'not_a_member') return { pages: [], roleUnverified: false }
+	if (role.kind === 'no_workspace_context') {
+		return { pages: restrictedOpenPages(workspaceId), roleUnverified: false }
+	}
+	const u = role.user
+	if (u.operator) return { pages: operatorOpenPages(workspaceId), roleUnverified: false }
+	const isAdmin = !!u.is_admin || !!u.is_super_admin || !!get(superadmin)
+	return {
+		pages: OPEN_PAGE_NAMES.filter(
+			(p) => NON_ADMIN_OPEN_PAGES.has(p) || (isAdmin && p === 'workspace_settings')
+		),
+		roleUnverified: false
+	}
 }
 
 // The Runs page only offers its cross-workspace filter to a superadmin or devops user in
 // the admins workspace (RunsPage builds its filter schema with the same condition, and
 // without the key the page ignores the query param), so the tool mirrors that gate.
+// superadmin and devops are instance-level: they hold in whichever workspace the chat
+// operates on, so this gate needs no per-workspace role lookup.
 function allowsAllWorkspacesRuns(workspaceId: string | undefined = get(workspaceStore)): boolean {
 	return (!!get(superadmin) || !!get(devopsRole)) && workspaceId === 'admins'
 }
@@ -2594,16 +2778,25 @@ function buildOpenPageDefSchema(
 	pages: readonly OpenPageName[],
 	triggerKinds: readonly PageTriggerKind[],
 	chatEditsTracked: boolean,
-	allWorkspacesRuns: boolean
+	allWorkspacesRuns: boolean,
+	roleUnverified = false
 ): z.ZodTypeAny {
 	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
 	// z.enum() rejects an empty list, and a user with no reachable pages (e.g. an operator
 	// with every operator_settings flag off) yields exactly that. Fall back to a plain
 	// string so schema-building can't throw; the handler still fails closed on every page.
+	// The model reads this before it can reach the handler's message, so an unresolved role
+	// must not be described as a denial here either.
 	const shape: Record<string, z.ZodTypeAny> = {
 		page: pages.length
 			? z.enum([...pages] as [OpenPageName, ...OpenPageName[]]).describe('Which page to open')
-			: z.string().describe('No pages are available to you in this workspace')
+			: z
+					.string()
+					.describe(
+						roleUnverified
+							? "Your permissions in this workspace couldn't be checked, so no page can be opened right now"
+							: 'No pages are available to you in this workspace'
+					)
 	}
 	for (const [field, fieldPages] of Object.entries(OPEN_PAGE_FIELD_PAGES)) {
 		if (!fieldPages.some((p) => pages.includes(p))) continue
@@ -2820,11 +3013,11 @@ function summarizeOpenPage(url: string, page: OpenPageName): string {
 }
 
 export const openPageTool: Tool<{}> = {
-	// The initial def assumes an untracked chat; setSchema below rebuilds it with the
-	// caller's real surface before each iteration.
+	// The initial def assumes an untracked chat and no resolved role; setSchema below
+	// rebuilds it with the caller's real surface before each iteration.
 	def: createToolDef(
 		buildOpenPageDefSchema(
-			allowedOpenPages(),
+			restrictedOpenPages(get(workspaceStore)),
 			allowedTriggerKinds(),
 			false,
 			allowsAllWorkspacesRuns()
@@ -2838,15 +3031,16 @@ export const openPageTool: Tool<{}> = {
 	showDetails: true,
 	autoCollapseDetails: false,
 	// Re-narrow the advertised `page` enum to this user's permissions each iteration, so
-	// the model never sees (or suggests) a page the user can't reach. Gates on the chat's
-	// operating workspace (the session's, when different from the navigation workspace).
+	// the model never sees (or suggests) a page the user can't reach.
 	setSchema: async function (helpers) {
+		const access = await allowedOpenPages(operatingWorkspaceFromHelpers(helpers))
 		this.def = createToolDef(
 			buildOpenPageDefSchema(
-				allowedOpenPages(operatingWorkspaceFromHelpers(helpers)),
+				access.pages,
 				allowedTriggerKinds(),
 				(helpers as GlobalToolHelpers | undefined)?.getModifiedItems?.() !== undefined,
-				allowsAllWorkspacesRuns(operatingWorkspaceFromHelpers(helpers))
+				allowsAllWorkspacesRuns(operatingWorkspaceFromHelpers(helpers)),
+				access.roleUnverified
 			),
 			'open_page',
 			OPEN_PAGE_DESCRIPTION
@@ -2858,9 +3052,15 @@ export const openPageTool: Tool<{}> = {
 		const page = parsed.page as OpenPageName
 		const workspaceId = operatingWorkspaceFromHelpers(ctx.helpers)
 		// Defense in depth: never act on a page the user can't reach, even if the model
-		// requests one outside the advertised enum.
-		if (!allowedOpenPages(workspaceId).includes(page)) {
-			return `You don't have access to the ${OPEN_PAGE_LABELS[page] ?? page} page in this workspace.`
+		// requests one outside the advertised enum. An unverified role means the lookup
+		// failed, not that access was denied — reporting it as denied states a falsehood
+		// about the user's permissions.
+		const access = await allowedOpenPages(workspaceId)
+		if (!access.pages.includes(page)) {
+			const label = OPEN_PAGE_LABELS[page] ?? page
+			return access.roleUnverified
+				? `Couldn't check your permissions in this workspace, so the ${label} page can't be opened right now. Try again in a moment.`
+				: `You don't have access to the ${label} page in this workspace.`
 		}
 		// Same fail-closed check for trigger_kind, which is narrowed to license-available
 		// kinds in the advertised schema: a model ignoring that narrowing must not get an
@@ -2935,7 +3135,7 @@ export const globalTools: Tool<{}>[] = [
 					? `${parsed.subject} (${parsed.language})`
 					: parsed.subject
 			toolCallbacks.setToolStatus(toolId, { content: `Loaded ${label} instructions` })
-			return getInstructions(parsed.subject, parsed.language)
+			return getInstructions(parsed.subject, parsed.language, ctx.workspace)
 		}
 	},
 	createSearchHubScriptsTool(false),
@@ -3201,10 +3401,12 @@ export const globalTools: Tool<{}>[] = [
 					workspace,
 					requestBody: { name: parsed.name, summary: parsed.summary }
 				})
-				// Reflect the new folder in the path-convention context for the rest of this
-				// session, matching FolderPicker's local update (avoids userStore.set()).
-				const user = get(userStore)
-				if (user) {
+				// Reflect the new folder for the rest of the session without a refetch, crediting
+				// the workspace it was created in: crediting the ambient one instead would hide
+				// it from the prompt that needs it.
+				const role = await roleForWorkspace(workspace)
+				if (role.kind === 'resolved') {
+					const user = role.user
 					if (!user.folders) user.folders = []
 					if (!user.folders.includes(parsed.name)) user.folders.push(parsed.name)
 				}
@@ -3235,17 +3437,23 @@ export const globalTools: Tool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeFlowSchema.parse(ctx.args)
-			const editable = validateEditableFlowJson({
-				modules: parseOptionalJsonArg(parsed.modules, 'modules'),
-				schema: parseOptionalJsonArg(parsed.schema, 'schema'),
-				preprocessor_module: parseOptionalJsonArg(
-					parsed.preprocessor_module,
-					'preprocessor_module'
-				),
-				failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
-				groups: parseOptionalJsonArg(parsed.groups, 'groups'),
-				notes: parseOptionalJsonArg(parsed.notes, 'notes')
-			})
+			const modules = parseOptionalJsonArg(parsed.modules, 'modules')
+			const aiProviders = await getAiAgentProviderCatalogFor(ctx.workspace, modules)
+			const aiProviderWarnings: string[] = []
+			const editable = validateEditableFlowJson(
+				{
+					modules,
+					schema: parseOptionalJsonArg(parsed.schema, 'schema'),
+					preprocessor_module: parseOptionalJsonArg(
+						parsed.preprocessor_module,
+						'preprocessor_module'
+					),
+					failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
+					groups: parseOptionalJsonArg(parsed.groups, 'groups'),
+					notes: parseOptionalJsonArg(parsed.notes, 'notes')
+				},
+				{ aiProviders, aiProviderWarnings }
+			)
 			const resolved = await resolveWriteFlowInlineScripts(parsed.path, editable, ctx.workspace)
 			const result = await writeFlowDraft(
 				{
@@ -3257,7 +3465,10 @@ export const globalTools: Tool<{}>[] = [
 				},
 				ctx
 			)
-			return appendEmptyInlineScriptWarning(result, resolved)
+			return (
+				appendEmptyInlineScriptWarning(result, resolved) +
+				formatAiAgentProviderWarnings(aiProviderWarnings)
+			)
 		}
 	},
 	{
@@ -3788,6 +3999,19 @@ export const globalTools: Tool<{}>[] = [
 			const parsed = deleteAppRunnableSchema.parse(ctx.args)
 			return deleteAppRunnable(parsed, ctx)
 		}
+	},
+	{
+		def: testRunAppRunnableToolDef,
+		fn: async (ctx) => {
+			const parsed = testRunAppRunnableSchema.parse(ctx.args)
+			return testRunAppRunnable(parsed, ctx)
+		},
+		requiresConfirmation: true,
+		confirmationMessage: (args) =>
+			`Run the backend runnable "${args?.key ?? ''}" of ${pathLeaf(args?.path, 'the app')}`,
+		queuedLabel: (args) => `Test runnable "${args?.key ?? ''}" of ${args?.path ?? 'the app'}`,
+		showDetails: true,
+		autoCollapseDetails: false
 	},
 	...artifactTools,
 	{
@@ -4549,15 +4773,15 @@ function maybeAttachPreviewCard(
 function finishAppDraftWrite(
 	result: DraftPersistResult,
 	ctx: WriteDraftCtx,
-	onSaved: () => { content: string; message: string }
+	onSaved: () => { content: string; message: string; warning?: string }
 ): string {
 	const failure = draftWriteFailure(result, ctx)
 	if (failure) return failure
 	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
 	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
-	const { content, message } = onSaved()
+	const { content, message, warning } = onSaved()
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
-	return JSON.stringify({ success: true, message }, null, 2)
+	return JSON.stringify({ success: true, message, warning }, null, 2)
 }
 
 function finishDraftWrite(
@@ -4951,7 +5175,12 @@ async function patchFlowJson(
 		throw new Error(`Invalid JSON after replacement: ${message}`)
 	}
 
-	const patchedEditable = validateEditableFlowJson(parsedValue)
+	const aiProviders = await getAiAgentProviderCatalogFor(
+		ctx.workspace,
+		(parsedValue as { modules?: unknown } | null)?.modules
+	)
+	const aiProviderWarnings: string[] = []
+	const patchedEditable = validateEditableFlowJson(parsedValue, { aiProviders, aiProviderWarnings })
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
 	finalizeUnresolvedInlineScripts(newFlowValue)
 
@@ -4971,12 +5200,14 @@ async function patchFlowJson(
 	// Warn from the restored value, not patchedEditable — the compact view holds
 	// placeholders for every rawscript, so only post-restore content shows which
 	// modules still need bodies filled via set_flow_module_code.
-	return appendEmptyInlineScriptWarning(result, {
-		...patchedEditable,
-		modules: newFlowValue.modules,
-		preprocessor_module: newFlowValue.preprocessor_module ?? null,
-		failure_module: newFlowValue.failure_module ?? null
-	})
+	return (
+		appendEmptyInlineScriptWarning(result, {
+			...patchedEditable,
+			modules: newFlowValue.modules,
+			preprocessor_module: newFlowValue.preprocessor_module ?? null,
+			failure_module: newFlowValue.failure_module ?? null
+		}) + formatAiAgentProviderWarnings(aiProviderWarnings)
+	)
 }
 
 async function readFlowModuleCode(
@@ -5662,11 +5893,100 @@ async function writeAppRunnable(
 	const persisted = buildPersistedRunnable(input, existing)
 	value.runnables = { ...value.runnables, [key]: persisted }
 	await recomputeAppPolicy(value)
+	const undeployed = await undeployedRunnableTargets(workspace, { [key]: persisted })
 	const result = await saveAppDraft(workspace, path, value)
 	return finishAppDraftWrite(result, ctx, () => ({
 		content: `Updated runnable "${key}" in app "${path}"`,
-		message: `Updated draft app "${path}" with runnable "${key}".`
+		message: `Updated draft app "${path}" with runnable "${key}".`,
+		warning: undeployed.length
+			? `This runnable points at an item that is NOT deployed (${undeployed[0]}), so it fails at runtime — ` +
+				`a path runnable runs the deployed item, never a draft. Offer to deploy just that item with ` +
+				`deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.`
+			: undefined
 	}))
+}
+
+/**
+ * Runs one backend runnable through `execute_component` in preview mode, the way the editor
+ * preview does: inline executes draft code, a path runnable the deployed item it names.
+ * Without it the chat can only wire an app up and hope.
+ */
+async function testRunAppRunnable(
+	args: z.infer<typeof testRunAppRunnableSchema>,
+	ctx: WriteDraftCtx
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	const { path, key } = args
+
+	const { value } = await loadAppDraftValue(path, workspace)
+	const runnable = value.runnables?.[key] as PersistedRunnable | undefined
+	if (!runnable) {
+		const known = Object.keys(value.runnables ?? {})
+		throw new Error(
+			`App "${path}" has no backend runnable "${key}".` +
+				(known.length ? ` Available runnables: ${known.join(', ')}.` : '')
+		)
+	}
+
+	// Copied, not aliased: the ctx pass below writes into it.
+	const testArgs = { ...normalizeTestRunArgs(args.args) }
+	// Setting force_viewer_static_fields is what puts execute_component in preview
+	// mode (apps.rs `is_preview`), which is what makes inline draft code run at all.
+	// It must be sent even when the runnable has no static fields.
+	const staticFields = Object.fromEntries(
+		Object.entries(runnable.fields ?? {})
+			.filter(([, field]) => field?.type === 'static')
+			.map(([name, field]) => [name, field?.value])
+	)
+	// A ctx-bound input is filled by the server from `$ctx:<prop>`, exactly as
+	// RawAppBackgroundRunner does before executing. Without this the argument arrives
+	// missing and the runnable fails for a reason that has nothing to do with its code.
+	for (const [name, field] of Object.entries(runnable.fields ?? {})) {
+		if (field?.type === 'ctx' && field?.ctx) testArgs[name] = `$ctx:${field.ctx}`
+	}
+	// The server encrypts a queued argument only when its name is in this list
+	// (apps.rs wraps it as `$encrypted:` with a job-scoped key). Omitting it writes a
+	// `sensitive` field's real value into job args as plaintext, readable by anyone
+	// with run access. Same filter the editor preview applies.
+	const sensitiveInputs = Object.entries(runnable.fields ?? {})
+		.filter(([, field]) => field?.type === 'user' && field?.sensitive)
+		.map(([name]) => name)
+
+	// Imported lazily: statically pulling the apps module graph into the chat's
+	// import chain drags the whole app-editor runtime in behind it.
+	const { executeRunnable } = await import(
+		'$lib/components/apps/components/helpers/executeRunnable'
+	)
+
+	return executeTestRun({
+		jobStarter: () =>
+			executeRunnable(
+				runnable as unknown as Runnable,
+				workspace,
+				undefined,
+				get(userStore)?.username,
+				path,
+				key,
+				{
+					component: key,
+					args: testArgs,
+					force_viewer_static_fields: staticFields,
+					force_viewer_sensitive_inputs: sensitiveInputs.length ? sensitiveInputs : undefined
+				},
+				undefined
+			),
+		workspace,
+		toolCallbacks,
+		toolId,
+		startMessage: `Running backend runnable "${key}" of app "${path}"...`,
+		// A path runnable pointing at a flow really does queue a flow job, so the
+		// failure path can offer get_flow_run_details; everything else is a script job.
+		contextName: runnable.runType === 'flow' ? 'flow' : 'script',
+		completionName: 'backend runnable',
+		background: args.background,
+		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
+		label: `${path} / ${key}`
+	})
 }
 
 async function deleteAppRunnable(
@@ -7034,6 +7354,16 @@ async function deployDraft(
 					throw new Error(`Draft app "${path}" has no policy to deploy.`)
 				}
 
+				// An app deployed on its own while a path runnable still points at a draft
+				// is deployed and broken — the deploy has to say so, not just report success.
+				const undeployedTargets = await undeployedRunnableTargets(workspace, appValue.runnables)
+				if (undeployedTargets.length > 0) {
+					deployNote =
+						`These backend runnables point at items that are NOT deployed, so they fail at runtime: ` +
+						`${undeployedTargets.join(', ')}. Deploy those items too, and tell the user the app is ` +
+						`not working until they are.`
+				}
+
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Bundling app "${path}"...`
 				})
@@ -7219,6 +7549,38 @@ async function validateDeleteWorkspaceItemTarget(args: {
 		: `No ${type} at "${path}": neither a deployed item nor a draft. Nothing to delete.`
 }
 
+/**
+ * A path runnable executes the DEPLOYED item at its path, so an app wired to a draft-only
+ * script or flow fails at runtime with no diagnostic. Writing one stays allowed — flow and
+ * app are normally built together — but the missing deployment has to be visible. Hub
+ * scripts have no deployed/draft distinction, so they are not probed.
+ */
+async function undeployedRunnableTargets(
+	workspace: string,
+	runnables: Record<string, { type?: string; runType?: string; path?: string } | undefined>
+): Promise<string[]> {
+	const targets: string[] = []
+	for (const [key, runnable] of Object.entries(runnables)) {
+		// A persisted path runnable carries its kind in `runType`; any other shape names the
+		// kind in `type` itself.
+		const type =
+			runnable?.type === 'path' || runnable?.type === 'runnableByPath'
+				? runnable?.runType
+				: runnable?.type
+		const path = runnable?.path
+		if ((type !== 'script' && type !== 'flow') || !path) continue
+		try {
+			if (await deployedItemExists(workspace, type, path, undefined)) continue
+		} catch {
+			// The probe is advisory: a lookup failure must never block the write or
+			// the deploy it annotates.
+			continue
+		}
+		targets.push(`"${key}" → ${type} "${path}"`)
+	}
+	return targets
+}
+
 async function deployedItemExists(
 	workspace: string,
 	type: WorkspaceItemType,
@@ -7332,10 +7694,11 @@ export function prepareGlobalSystemMessage(
 	instructions?: { workspace?: string; user?: string },
 	opts?: {
 		previewTools?: boolean
-		// Identity the path-convention guidance is built from. Production omits it
-		// (read from userStore); callers that must not touch the process-global
-		// store (the eval harness) pass it explicitly instead.
-		user?: { username: string; is_admin?: boolean; folders?: string[]; folders_read?: string[] }
+		// Identity the path-convention guidance is built from (`GlobalPromptIdentity`); the
+		// eval harness seeds its own. The `userStore` fallback below is the browsed
+		// workspace's, and answers whenever no identity has been resolved yet — including
+		// before the first `refreshGlobalIdentity` settles, which is why `beforeSend` awaits it.
+		user?: GlobalPromptIdentity
 		skills?: AiSkillListItem[]
 		mcpServers?: McpServer[]
 	}
@@ -7344,8 +7707,8 @@ export function prepareGlobalSystemMessage(
 	const username = user?.username ?? ''
 	const folderCtx: FolderPromptContext | undefined = user
 		? {
-				folders: user.folders ?? [],
-				foldersRead: user.folders_read ?? user.folders ?? [],
+				folders: user.folders,
+				foldersRead: user.folders_read ?? user.folders,
 				isAdmin: user.is_admin ?? false
 			}
 		: undefined

@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.792.2
+  version: 1.796.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -942,7 +942,7 @@ components:
           description: Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')
         summary:
           type: string
-          description: Short description of what this tool does (shown to the AI)
+          description: "The name the AI agent calls this tool by, not a human label. On a flowmodule tool it must match ^[a-zA-Z0-9_]+$ - letters, numbers and underscores only (e.g. 'search_documentation', not 'Search documentation') - and always be set; on an mcp or websearch tool it is a plain label. Put the human-readable explanation in 'description'."
         description:
           type: string
           description: Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script.

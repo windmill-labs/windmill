@@ -1956,6 +1956,20 @@ async fn edit_large_file_storage_config(
     .await?;
 
     if let Some(lfs_config) = new_config.large_file_storage {
+        // `_default_` names the primary storage everywhere else — `get_secondary_storage_names`
+        // hands it out, the s3-proxy URL carries it, the clients fall back to it — so a secondary
+        // storage of that name is unreachable by design and would shadow the primary for anything
+        // that resolves the name. Reject it at the only route that creates one.
+        if lfs_config
+            .secondary_storage
+            .contains_key(windmill_types::s3::DEFAULT_STORAGE)
+        {
+            return Err(Error::BadRequest(format!(
+                "`{}` is reserved for the primary storage and cannot name a secondary one",
+                windmill_types::s3::DEFAULT_STORAGE
+            )));
+        }
+
         let serialized_lfs_config =
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;
@@ -4759,6 +4773,18 @@ async fn get_encryption_key(
     Path(w_id): Path<String>,
 ) -> JsonResult<GetEncryptionKeyResponse> {
     require_admin(authed.is_admin, &authed.username)?;
+    windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.read_encryption_key",
+        ActionKind::Execute,
+        &w_id,
+        None,
+        None,
+    )
+    .await?;
 
     let encryption_key_opt = sqlx::query_scalar!(
         "SELECT key FROM workspace_key WHERE workspace_id = $1",
@@ -4784,6 +4810,7 @@ async fn set_encryption_key(
     Json(request): Json<SetEncryptionKeyRequest>,
 ) -> Result<()> {
     require_super_admin(&db, &authed).await?;
+    windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
 
     if !WORKSPACE_KEY_REGEXP.is_match(request.new_key.as_str()) {
         return Err(Error::BadRequest(
@@ -5444,6 +5471,8 @@ async fn clone_workspace_data(
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
+    clone_eval_datasets(tx, source_workspace_id, target_workspace_id).await?;
+
     // Clone the dbt graph sidecars. After `clone_scripts`, which keeps each
     // script's hash: these key on it, and a static descriptor never re-ingests,
     // so a fork without them shows dbt scripts with no models until someone
@@ -5695,14 +5724,14 @@ async fn clone_triggers_and_schedules(
 
     sqlx::query!(
         r#"INSERT INTO gcp_trigger (
-            gcp_resource_path, topic_id, subscription_id, delivery_type,
+            gcp_resource_path, project_id, topic_id, subscription_id, delivery_type,
             delivery_config, path, script_path, is_flow, workspace_id, edited_by,
             edited_at, extra_perms, server_id, last_server_ping, error,
             subscription_mode, error_handler_path, error_handler_args, retry,
             auto_acknowledge_msg, ack_deadline, mode, permissioned_as, labels
         )
         SELECT
-            gcp_resource_path, topic_id, subscription_id, delivery_type,
+            gcp_resource_path, project_id, topic_id, subscription_id, delivery_type,
             delivery_config, path, script_path, is_flow, $1, edited_by,
             edited_at, extra_perms, NULL, NULL, NULL,
             subscription_mode, error_handler_path, error_handler_args, retry,
@@ -5975,6 +6004,36 @@ async fn clone_resources(
     .execute(&mut **tx)
     .await?;
 
+    Ok(())
+}
+
+async fn clone_eval_datasets(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // The authored evaluation data — datasets and their cases — travels with a fork like resources
+    // and scripts do; the runs (experiments) do not, since they name jobs the fork has no copy of.
+    sqlx::query!(
+        "INSERT INTO eval_dataset (workspace_id, path, summary, scorers, extra_perms, created_at, created_by, edited_at, edited_by)
+         SELECT $2, path, summary, scorers, extra_perms, created_at, created_by, edited_at, edited_by
+         FROM eval_dataset WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    // A new id per cloned case: `eval_case`'s primary key is the id alone, unique across the whole
+    // table, so copying it would collide with the source's own rows.
+    sqlx::query!(
+        "INSERT INTO eval_case (workspace_id, dataset_path, input, expected, created_at, created_by)
+         SELECT $2, dataset_path, input, expected, created_at, created_by
+         FROM eval_case WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -7445,8 +7504,11 @@ async fn create_workspace_fork(
     tx.commit().await?;
 
     // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
-    // would bypass ducklake fork isolation for the TTL.
+    // would bypass ducklake fork isolation for the TTL. The same lookup could have cached the id
+    // as its own root workspace, which would make the fork's first jobs report themselves as their
+    // own environment instead of the parent.
     windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&forked_id);
+    windmill_queue::tags::invalidate_fork_parent_cache(&forked_id);
 
     if locked_prod {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);

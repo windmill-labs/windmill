@@ -162,7 +162,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "value",
                 "is_secret",
                 "description"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -244,7 +245,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "The path to the variable (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -392,7 +394,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "path",
                 "value",
                 "resource_type"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -464,7 +467,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "The path to the resource (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -674,9 +678,8 @@ pub fn all_tools() -> Vec<EndpointTool> {
     },
     EndpointTool {
         name: Cow::Borrowed("createScript"),
-        description: Cow::Borrowed("create script: Creates a new script when the path does not already exist.
-Creates a new version of an existing script when called with the same path and the current `parent_hash`"),
-        instructions: Cow::Borrowed("To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history."),
+        description: Cow::Borrowed("create script: Creates a script at a path that does not already hold one"),
+        instructions: Cow::Borrowed("Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on."),
         path: Cow::Borrowed("/w/{workspace}/scripts/create"),
         method: Cow::Borrowed("POST"),
         path_params_schema: None,
@@ -685,9 +688,6 @@ Creates a new version of an existing script when called with the same path and t
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string"
-                },
-                "parent_hash": {
                         "type": "string"
                 },
                 "summary": {
@@ -719,10 +719,74 @@ Creates a new version of an existing script when called with the same path and t
                 "summary",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
+    },
+    EndpointTool {
+        name: Cow::Borrowed("updateScript"),
+        description: Cow::Borrowed("update script: Deploys a new version of the script at `path`, which must already hold one.
+The body's `path` is the destination: the same path leaves the script where it
+is, a different one moves it there and archives the old path"),
+        instructions: Cow::Borrowed("Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on."),
+        path: Cow::Borrowed("/w/{workspace}/scripts/update/{path}"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+})),
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "content": {
+                        "type": "string"
+                },
+                "language": {
+                        "type": "string",
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
+                },
+                "kind": {
+                        "type": "string",
+                        "description": "Possible values: script, failure, trigger, command, approval, preprocessor"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
+                }
+        },
+        "required": [
+                "summary",
+                "content",
+                "language"
+        ],
+        "minProperties": 1
+})),
+        query_field_renames: None,
+        body_field_renames: Some(serde_json::json!({
+        "path__body": "path"
+})),
     },
     EndpointTool {
         name: Cow::Borrowed("deleteScriptByHash"),
@@ -980,7 +1044,8 @@ Creates a new version of an existing script when called with the same path and t
                 "value",
                 "path"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -1035,7 +1100,8 @@ Creates a new version of an existing script when called with the same path and t
                 "summary",
                 "value"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -1226,7 +1292,8 @@ Creates a new version of an existing script when called with the same path and t
                 "value",
                 "summary",
                 "policy"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -1341,7 +1408,8 @@ Creates a new version of an existing script when called with the same path and t
         },
         "required": [
                 "value"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: Some(serde_json::json!({
@@ -1463,7 +1531,8 @@ Creates a new version of an existing script when called with the same path and t
                 "args",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -2034,7 +2103,8 @@ You should get the schema of the script or flow before creating the schedule to 
                 "script_path",
                 "is_flow",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,
@@ -2239,7 +2309,8 @@ You should get the schema of the script or flow before updating the schedule to 
                 "schedule",
                 "timezone",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 })),
         query_field_renames: None,
         body_field_renames: None,

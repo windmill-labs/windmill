@@ -8,7 +8,13 @@
 </script>
 
 <!-- #0B996E disc with a white letterform per brevo.com's favicon.svg. Brevo publishes no per-theme variant of the app mark; the reversed "Mint" #F9FFF6 asset is the wordmark only. -->
-<svg {width} {height} viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+<svg
+	{width}
+	{height}
+	viewBox="-1.455 -1.455 34.909 34.909"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<path
 		d="M32 16C32 24.8366 24.8366 32 16 32C7.16344 32 0 24.8366 0 16C0 7.16344 7.16344 0 16 0C24.8366 0 32 7.16344 32 16Z"
 		fill="#0B996E"

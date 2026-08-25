@@ -14,7 +14,7 @@
 	y="0px"
 	{width}
 	{height}
-	viewBox="27 24.5 100.1 100.1"
+	viewBox="22.45 19.95 109.2 109.2"
 	fill="currentColor"
 	class="text-[#161616] dark:text-[#FFFFFF]"
 >

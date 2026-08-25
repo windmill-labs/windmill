@@ -171,7 +171,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "value",
                 "is_secret",
                 "description"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -253,7 +254,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "The path to the variable (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -401,7 +403,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "path",
                 "value",
                 "resource_type"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -473,7 +476,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                         "type": "string",
                         "description": "The path to the resource (body parameter). Defaults to `path` when omitted; set it only to change the path."
                 }
-        }
+        },
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -683,8 +687,8 @@ export const mcpEndpointTools: EndpointTool[] = [
     },
     {
         name: "createScript",
-        description: "create script: Creates a new script when the path does not already exist.\nCreates a new version of an existing script when called with the same path and the current `parent_hash`",
-        instructions: "To create a NEW script, specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language, and leave parent_hash unset. For TypeScript, use 'bun' unless deno-specific APIs are needed. To UPDATE an existing script, do NOT delete and recreate it: call this tool with the same path and set parent_hash to the script's current hash, which you can read from the `hash` field returned by getScriptByPath. This creates a new version while preserving the script's history.",
+        description: "create script: Creates a script at a path that does not already hold one",
+        instructions: "Specify the path (e.g., 'f/my_folder/my_script'), the content (source code), and the language. For TypeScript, use 'bun' unless deno-specific APIs are needed. A path that already holds a script is refused: use updateScript to deploy a new version of it, and do NOT delete and recreate a script to change it. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on.",
         path: "/w/{workspace}/scripts/create",
         method: "POST",
         pathParamsSchema: undefined,
@@ -693,9 +697,6 @@ export const mcpEndpointTools: EndpointTool[] = [
         "type": "object",
         "properties": {
                 "path": {
-                        "type": "string"
-                },
-                "parent_hash": {
                         "type": "string"
                 },
                 "summary": {
@@ -727,10 +728,72 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "summary",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
+    },
+    {
+        name: "updateScript",
+        description: "update script: Deploys a new version of the script at `path`, which must already hold one.\nThe body's `path` is the destination: the same path leaves the script where it\nis, a different one moves it there and archives the old path",
+        instructions: "Deploys a new version of an existing script, preserving its history, so do NOT delete and recreate a script to change it. Send the whole script, not a patch: read the current one with getScriptByPath first, unless you wrote its content yourself. Set path__body only to move the script to a different path; omit it to leave the script where it is. A path that holds no script is refused: use createScript to create one. A new version generates its lock async, and only a version with a lock is runnable: until it lands, a run by path still executes the previous version. Poll getScriptByPath before running the new one and stop on either outcome: lock non-null means it is ready, lock_error_logs set means the lockfile failed and that version will never run, so report the error instead of polling on.",
+        path: "/w/{workspace}/scripts/update/{path}",
+        method: "POST",
+        pathParamsSchema: {
+        "type": "object",
+        "properties": {
+                "path": {
+                        "type": "string"
+                }
+        },
+        "required": [
+                "path"
+        ]
+},
+        queryParamsSchema: undefined,
+        bodySchema: {
+        "type": "object",
+        "properties": {
+                "summary": {
+                        "type": "string"
+                },
+                "description": {
+                        "type": "string"
+                },
+                "content": {
+                        "type": "string"
+                },
+                "language": {
+                        "type": "string",
+                        "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
+                },
+                "kind": {
+                        "type": "string",
+                        "description": "Possible values: script, failure, trigger, command, approval, preprocessor"
+                },
+                "tag": {
+                        "type": "string"
+                },
+                "deployment_message": {
+                        "type": "string"
+                },
+                "path__body": {
+                        "type": "string",
+                        "description": "(body parameter). Defaults to `path` when omitted; set it only to change the path."
+                }
+        },
+        "required": [
+                "summary",
+                "content",
+                "language"
+        ],
+        "minProperties": 1
+},
+        queryFieldRenames: undefined,
+        bodyFieldRenames: {
+        "path__body": "path"
+}
     },
     {
         name: "deleteScriptByHash",
@@ -988,7 +1051,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "value",
                 "path"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -1043,7 +1107,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "summary",
                 "value"
         ],
-        "description": "Top-level flow definition containing metadata, configuration, and the flow structure"
+        "description": "Top-level flow definition containing metadata, configuration, and the flow structure",
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -1234,7 +1299,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "value",
                 "summary",
                 "policy"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -1349,7 +1415,8 @@ export const mcpEndpointTools: EndpointTool[] = [
         },
         "required": [
                 "value"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: {
@@ -1471,7 +1538,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "args",
                 "content",
                 "language"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -2039,7 +2107,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "script_path",
                 "is_flow",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined
@@ -2241,7 +2310,8 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "schedule",
                 "timezone",
                 "args"
-        ]
+        ],
+        "minProperties": 1
 },
         queryFieldRenames: undefined,
         bodyFieldRenames: undefined

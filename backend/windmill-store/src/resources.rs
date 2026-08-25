@@ -81,11 +81,8 @@ pub fn workspaced_service() -> Router {
             "/history/p/{*path}",
             get(get_resource_history).delete(clear_resource_history),
         )
-        .route("/history/v/{version}", get(get_resource_version))
-        .route(
-            "/history/restore/v/{version}",
-            post(restore_resource_version),
-        )
+        .route("/history/v/{id}", get(get_resource_version))
+        .route("/history/restore/v/{id}", post(restore_resource_version))
         .route("/delete/{*path}", delete(delete_resource))
         .route("/delete_bulk", delete(delete_resources_bulk))
         .route("/create", post(create_resource))
@@ -2200,7 +2197,9 @@ async fn set_resource_value(
 
 #[derive(Serialize)]
 struct ResourceVersion {
+    /// Addresses a version; `version` is the per-resource number it is presented by.
     id: i64,
+    version: i64,
     created_at: chrono::DateTime<chrono::Utc>,
     created_by: Option<String>,
 }
@@ -2208,6 +2207,7 @@ struct ResourceVersion {
 #[derive(Serialize)]
 struct ResourceVersionWithValue {
     id: i64,
+    version: i64,
     created_at: chrono::DateTime<chrono::Utc>,
     created_by: Option<String>,
     value: Option<serde_json::Value>,
@@ -2243,7 +2243,7 @@ async fn get_resource_history(
 
     let versions = sqlx::query_as!(
         ResourceVersion,
-        "SELECT id, created_at, created_by FROM resource_version
+        "SELECT id, version, created_at, created_by FROM resource_version
          WHERE workspace_id = $1 AND path = $2 ORDER BY id DESC LIMIT $3",
         w_id,
         path,
@@ -2357,19 +2357,19 @@ async fn missing_references(
 async fn get_resource_version(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, version)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> JsonResult<ResourceVersionWithValue> {
     let mut tx = user_db.begin(&authed).await?;
 
     let row = sqlx::query!(
-        "SELECT id, path, created_at, created_by, value FROM resource_version
+        "SELECT id, version, path, created_at, created_by, value FROM resource_version
          WHERE workspace_id = $1 AND id = $2",
         w_id,
-        version
+        id
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let row = not_found_if_none(row, "ResourceVersion", version.to_string())?;
+    let row = not_found_if_none(row, "ResourceVersion", id.to_string())?;
     check_scopes(&authed, || format!("resources:read:{}", row.path))?;
 
     let missing = missing_references(&mut tx, &w_id, row.value.as_ref()).await?;
@@ -2377,6 +2377,7 @@ async fn get_resource_version(
 
     Ok(Json(ResourceVersionWithValue {
         id: row.id,
+        version: row.version,
         created_at: row.created_at,
         created_by: row.created_by,
         value: row.value,
@@ -2455,17 +2456,17 @@ async fn restore_resource_version(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
-    Path((w_id, version)): Path<(String, i64)>,
+    Path((w_id, id)): Path<(String, i64)>,
 ) -> Result<String> {
     let mut tx = user_db.clone().begin(&authed).await?;
     let row = sqlx::query!(
-        "SELECT path, value FROM resource_version WHERE workspace_id = $1 AND id = $2",
+        "SELECT path, value, version FROM resource_version WHERE workspace_id = $1 AND id = $2",
         w_id,
-        version
+        id
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let row = not_found_if_none(row, "ResourceVersion", version.to_string())?;
+    let row = not_found_if_none(row, "ResourceVersion", id.to_string())?;
     tx.commit().await?;
 
     check_scopes(&authed, || format!("resources:write:{}", row.path))?;
@@ -2486,7 +2487,7 @@ async fn restore_resource_version(
 
     Ok(format!(
         "resource {} restored to version {}",
-        row.path, version
+        row.path, row.version
     ))
 }
 
@@ -3192,12 +3193,38 @@ async fn get_git_commit_hash(
     .await
     .map_err(|e| Error::NotFound(format!("Access to resource {} denied: ({e})", path)))?;
 
-    let mut git_resource: GitRepositoryResource = match git_repo_resource_value {
-        Some(value) => serde_json::from_value(value).map_err(|e| {
-            Error::BadRequest(format!("Invalid git repository resource format: {}", e))
-        })?,
-        None => return Err(Error::NotFound(format!("Resource {} not found", path)).into()),
+    let Some(git_repo_resource_value) = git_repo_resource_value else {
+        return Err(Error::NotFound(format!("Resource {} not found", path)).into());
     };
+
+    // App-backed repos store a tokenless URL, so the `ls-remote` below can't
+    // authenticate. Reuse the poller's REST head lookup, which mints an
+    // installation token server-side rather than embedding one in a URL here.
+    // It returns `None` for a repo that isn't app-backed, which is exactly the
+    // ls-remote case below.
+    //
+    // Admin-only for the same reason as the archive route: the repository is
+    // named by the resource's own `url`, which anyone with write on its path
+    // controls, so reading it would let a caller aim the installation
+    // credential at any repository it can reach.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if git_repo_resource_value
+        .get("is_github_app")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        require_admin(authed.is_admin, &authed.username)?;
+        if let Some((_, commit_hash)) =
+            windmill_common::git_sync_ee::get_app_repo_head_for_autopull(&db, &w_id, path).await?
+        {
+            return Ok(Json(GitCommitHashResponse { commit_hash }));
+        }
+    }
+
+    let mut git_resource: GitRepositoryResource = serde_json::from_value(git_repo_resource_value)
+        .map_err(|e| {
+        Error::BadRequest(format!("Invalid git repository resource format: {}", e))
+    })?;
     git_resource.url =
         resolve_azure_devops_url(&db_with_opt_authed, &w_id, &git_resource.url, false).await?;
 

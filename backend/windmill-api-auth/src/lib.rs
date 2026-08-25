@@ -454,6 +454,33 @@ pub fn is_effectively_unscoped(scopes: Option<&[String]>) -> bool {
     scope_restrictions(scopes).is_none()
 }
 
+/// Forbid reaching the workspace encryption key with a scope-restricted token.
+///
+/// The key is not the read or the write of any one domain: it decrypts every secret
+/// variable offline, outliving the token that reached it, and it mints the secrets
+/// that unlock public apps. Replacing it is the same capability — the server
+/// re-encrypts every secret under the new key, so a caller that chooses the key can
+/// decrypt them all. No scope grants either, so any scope-restricted token is
+/// refused. An admin check is not a substitute — it answers for the user behind the
+/// token, not for the token's own scopes.
+///
+/// This bounds the token making the request, not every route to the key. A job token
+/// is minted unscoped from its owner's privileges, so a `jobs:run` token still reaches
+/// the key indirectly by running a job as a workspace admin — the same property that
+/// lets git-sync export it. Confining that means not inheriting unscoped privilege
+/// into job tokens, which is a far wider change than this guard.
+pub fn forbid_scoped_token_workspace_key(authed: &ApiAuthed) -> error::Result<()> {
+    if is_effectively_unscoped(authed.scopes.as_deref()) {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(
+        "The workspace encryption key cannot be read or replaced with a scoped token: it \
+         decrypts every secret of the workspace offline, past the scopes and the lifetime of \
+         the token that reached it. Use a token created without scopes."
+            .to_string(),
+    ))
+}
+
 /// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
 /// a credential on behalf of `authed`: the resulting credential must never be
 /// more privileged than the caller's own token.
@@ -604,8 +631,11 @@ fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> bool
     match (&caller.resource, &requested.resource) {
         // Caller is unrestricted on resources: covers everything.
         (None, _) => true,
-        // Caller is resource-restricted but the request is not: broader.
-        (Some(_), None) => false,
+        // Caller is resource-restricted but the request is not: broader, unless the
+        // caller lists `*` and so already spans every path. Kept in step with
+        // `ScopeDefinition::includes`, which accepts that same grant for a
+        // whole-collection read: what a token may exercise, it may also delegate.
+        (Some(caller_resources), None) => caller_resources.iter().any(|r| r == "*"),
         (Some(caller_resources), Some(requested_resources)) => {
             resource_set_contains(caller_resources, requested_resources)
         }
@@ -1783,6 +1813,20 @@ mod tests {
             opt_scopes(Some(vec!["users:read", "if_jobs:filter_tags:default"])).as_deref()
         )
         .is_ok());
+        // A `*` path grant spans the domain, so it may mint the unqualified form a
+        // whole-collection read requires; a listed path may not.
+        let wildcard = authed_with_scopes(Some(vec!["resources:read:*"]));
+        assert!(ensure_scopes_within_caller(
+            &wildcard,
+            opt_scopes(Some(vec!["resources:read"])).as_deref()
+        )
+        .is_ok());
+        let path_scoped = authed_with_scopes(Some(vec!["resources:read:f/team/db"]));
+        assert!(ensure_scopes_within_caller(
+            &path_scoped,
+            opt_scopes(Some(vec!["resources:read"])).as_deref()
+        )
+        .is_err());
         // Apps `write` covers `run`, so an app-editor token can mint the run-only
         // credential for the same app — but only within its own resource subtree,
         // and the equivalence stays Apps-only.

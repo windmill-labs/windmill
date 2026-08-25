@@ -213,6 +213,24 @@ export type EvalValidationSpec =
   | AppValidationSpec
   | GlobalValidationSpec;
 
+/**
+ * Expectations on what the assistant SAID, for cases where the deliverable is
+ * partly a warning to the user. The `global` judge only ever sees the resulting
+ * drafts, so "tells the user X" is invisible to it and has to be checked here.
+ * Needs a mode whose runner reports `assistantText`.
+ */
+export interface AssistantValidationSpec {
+  /** Each entry: at least one of its phrases appears somewhere in the assistant's text. */
+  requiredMentionsAnyOf?: string[][];
+  /**
+   * Plain case-insensitive substring test, so it cannot see negation: a phrase the correct
+   * answer might use in the negative ("you don't need to deploy the app") is not a valid
+   * entry. Use it for tokens that never legitimately appear, and leave nuanced "did the
+   * assistant say the right thing" expectations to the judge checklist.
+   */
+  forbiddenMentions?: string[];
+}
+
 export interface EvalCase {
   id: string;
   prompt: string;
@@ -221,6 +239,7 @@ export interface EvalCase {
   validate?: EvalValidationSpec;
   toolExpect?: ToolValidationSpec;
   cliExpect?: CliValidationSpec;
+  assistantExpect?: AssistantValidationSpec;
   judgeChecklist?: string[];
   skipJudge?: boolean;
   runtime?: EvalCaseRuntimeSpec;
@@ -287,6 +306,8 @@ export interface ModeRunOutput<TActual> {
   toolsUsed: string[];
   toolCallDetails?: ToolCallDetail[];
   skillsInvoked: string[];
+  /** Concatenated assistant-visible text of the run, when the mode reports it. */
+  assistantText?: string;
   tokenUsage?: BenchmarkTokenUsage | null;
   /**
    * Total input tokens occupying the context window on the LAST model request

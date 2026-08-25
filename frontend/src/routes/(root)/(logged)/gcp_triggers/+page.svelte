@@ -397,7 +397,7 @@
 			/>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, topic_id, workspace_id, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, subscription_id, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
+				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, project_id, topic_id, workspace_id, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, subscription_id, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}
 					{@const hasDraft = getLocalDraftHint($workspaceStore, 'trigger_gcp', path) ?? is_draft}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
@@ -596,13 +596,17 @@
 												subscriptionToDelete = subscription_id
 												currentTopic = topic_id
 												deleteSubscriptionCallback = async () => {
-													const message = await GcpTriggerService.deleteGcpSubscription({
-														workspace: $workspaceStore ?? '',
-														path: gcp_resource_path,
-														requestBody: {
-															subscription_id
-														}
-													})
+													const requestBody = { subscription_id, project_id }
+													const message = gcp_resource_path
+														? await GcpTriggerService.deleteGcpSubscription({
+																workspace: $workspaceStore ?? '',
+																path: gcp_resource_path,
+																requestBody
+															})
+														: await GcpTriggerService.deleteGcpSubscriptionWithDefaultCredentials({
+																workspace: $workspaceStore ?? '',
+																requestBody
+															})
 													sendUserToast(message)
 												}
 												deleteGcpTriggerCallback = async () => {

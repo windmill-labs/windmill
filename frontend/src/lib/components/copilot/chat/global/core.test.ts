@@ -30,17 +30,21 @@ vi.mock('$lib/components/vscode', () => ({}))
 // drafts through DraftService (no in-tab cell in unit tests), so this Map is the
 // source of truth the write/read tools round-trip against. `vi.hoisted` makes it
 // available inside the hoisted `vi.mock` factory and the test body alike.
-const { backendDrafts, serverTimestamps, failingWrites, failingReads } = vi.hoisted(() => ({
-	backendDrafts: new Map<string, unknown>(),
-	// Per-row server timestamp, only set by tests that want to simulate a
-	// concurrent writer advancing the row; otherwise empty, so the conflict
-	// branch in `updateDraft` stays inert for every pre-existing test.
-	serverTimestamps: new Map<string, string>(),
-	// Keys whose `updateDraft` / draft reads throw a non-404 (network/5xx);
-	// only set by the error-handling tests, empty otherwise.
-	failingWrites: new Set<string>(),
-	failingReads: new Set<string>()
-}))
+const { backendDrafts, serverTimestamps, failingWrites, failingReads, whoamiByWorkspace } =
+	vi.hoisted(() => ({
+		backendDrafts: new Map<string, unknown>(),
+		// What `whoami` answers with, per workspace; a workspace absent from it throws, as
+		// the API does for a non-member. Empty outside the tests that seed it.
+		whoamiByWorkspace: new Map<string, Record<string, unknown>>(),
+		// Per-row server timestamp, only set by tests that want to simulate a
+		// concurrent writer advancing the row; otherwise empty, so the conflict
+		// branch in `updateDraft` stays inert for every pre-existing test.
+		serverTimestamps: new Map<string, string>(),
+		// Keys whose `updateDraft` / draft reads throw a non-404 (network/5xx);
+		// only set by the error-handling tests, empty otherwise.
+		failingWrites: new Set<string>(),
+		failingReads: new Set<string>()
+	}))
 
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
@@ -187,6 +191,7 @@ vi.mock('$lib/gen', async () => {
 			listAzureTriggers: vi.fn(async () => [])
 		}),
 		AppService: wrapService(actual.AppService, {
+			executeComponent: vi.fn(async () => 'job-app-component'),
 			existsApp: vi.fn(async () => false),
 			createAppRaw: vi.fn(async () => 'created'),
 			updateAppRaw: vi.fn(async () => 'updated'),
@@ -217,6 +222,13 @@ vi.mock('$lib/gen', async () => {
 		}),
 		FolderService: wrapService(actual.FolderService, {
 			createFolder: vi.fn(async () => 'created')
+		}),
+		UserService: wrapService(actual.UserService, {
+			whoami: vi.fn(async ({ workspace }: any) => {
+				const user = whoamiByWorkspace.get(workspace)
+				if (!user) throw new Error(`not a member of ${workspace}`)
+				return user
+			})
 		}),
 		DraftService: wrapService(actual.DraftService, {
 			updateDraft: vi.fn(async ({ kind, path, requestBody }: any) => {
@@ -301,6 +313,7 @@ import {
 	globalTools,
 	globalToolsFor,
 	prepareGlobalSystemMessage,
+	resolveGlobalPromptIdentity,
 	getSessionContextPromptSection,
 	prepareGlobalUserMessage,
 	setDeployedInSessionHandler,
@@ -331,9 +344,11 @@ import {
 	ResourceService,
 	ScheduleService,
 	ScriptService,
+	UserService,
 	VariableService
 } from '$lib/gen'
-import { userStore } from '$lib/stores'
+import { superadmin, userStore, usersWorkspaceStore } from '$lib/stores'
+import { clearWorkspaceRoleCache } from '$lib/user'
 import { get } from 'svelte/store'
 import type { Tool, ToolCallbacks } from '../shared'
 
@@ -1801,6 +1816,261 @@ describe('global AI tools', () => {
 			}
 		})
 		expect(getBackendDraft('raw_app', 'u/admin/live_app', { workspace: WORKSPACE })).toBeUndefined()
+	})
+
+	// A path runnable executes the DEPLOYED item, so pointing one at a draft-only flow
+	// produces an app that silently does nothing. The write still succeeds — flow and app
+	// are normally built together — but the model has to be told what is missing.
+	it('warns when a path runnable points at an item that is not deployed', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/wired_app',
+			{ summary: 'Wired app', files: {}, runnables: {}, data: { tables: [] } },
+			{ workspace: WORKSPACE }
+		)
+
+		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(false)
+		const undeployed = JSON.parse(
+			await callGlobalTool('write_app_runnable', {
+				path: 'u/admin/wired_app',
+				key: 'run_flow',
+				runnable: { name: 'Run the flow', type: 'flow', path: 'u/admin/hello_flow' }
+			})
+		)
+		expect(undeployed.success).toBe(true)
+		expect(undeployed.warning).toContain('u/admin/hello_flow')
+		expect(undeployed.warning).toContain('NOT deployed')
+		// The remedy is one item, not a release: the app runs its draft in the preview.
+		expect(undeployed.warning).toContain('deploy_workspace_item')
+
+		vi.mocked(FlowService.existsFlowByPath).mockResolvedValueOnce(true)
+		const deployed = JSON.parse(
+			await callGlobalTool('write_app_runnable', {
+				path: 'u/admin/wired_app',
+				key: 'run_flow',
+				runnable: { name: 'Run the flow', type: 'flow', path: 'u/admin/hello_flow' }
+			})
+		)
+		expect(deployed.success).toBe(true)
+		expect(deployed.warning).toBeUndefined()
+
+		// A script target resolves through existsScriptByPath, then the archived-inclusive
+		// getScriptByPath fallback — a 404 there is the only thing that means "not deployed".
+		vi.mocked(ScriptService.existsScriptByPath).mockResolvedValueOnce(false)
+		vi.mocked(ScriptService.getScriptByPath).mockRejectedValueOnce(
+			Object.assign(new Error('not found'), { status: 404 })
+		)
+		const scriptTarget = JSON.parse(
+			await callGlobalTool('write_app_runnable', {
+				path: 'u/admin/wired_app',
+				key: 'run_script',
+				runnable: { name: 'Run the script', type: 'script', path: 'u/admin/hello_script' }
+			})
+		)
+		expect(scriptTarget.warning).toContain('u/admin/hello_script')
+
+		// A hub script lives outside the workspace and has no deployed/draft distinction,
+		// so it must never be probed or warned about.
+		const hub = JSON.parse(
+			await callGlobalTool('write_app_runnable', {
+				path: 'u/admin/wired_app',
+				key: 'run_hub',
+				runnable: { name: 'Hub', type: 'hubscript', path: 'hub/123/slack/send' }
+			})
+		)
+		expect(hub.warning).toBeUndefined()
+	})
+
+	// The execute_component payload is what makes this tool faithful to how the app
+	// really runs: force_viewer_static_fields is what selects preview mode server-side
+	// (apps.rs `is_preview`), and it must be sent even when there are no static fields.
+	it('runs an inline app runnable as a preview job with its draft code', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/tested_app',
+			{
+				summary: 'Tested app',
+				files: {},
+				runnables: {
+					greet: {
+						name: 'Greet',
+						type: 'inline',
+						inlineScript: { language: 'bun', content: 'export async function main() { return 1 }' },
+						fields: {
+							who: { type: 'ctx', ctx: 'email' },
+							fixed: { type: 'static', value: 7 },
+							api_key: { type: 'user', sensitive: true },
+							plain: { type: 'user' }
+						}
+					}
+				},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('test_run_app_runnable', {
+			path: 'u/admin/tested_app',
+			key: 'greet',
+			args: { name: 'ada' }
+		})
+
+		const body = vi.mocked(AppService.executeComponent).mock.calls.at(-1)?.[0].requestBody as any
+		expect(body.force_viewer_static_fields).toEqual({ fixed: 7 })
+		// A ctx-bound input is resolved server-side; sending it absent would fail the run
+		// for a reason unrelated to the runnable's code.
+		expect(body.args).toEqual({ name: 'ada', who: '$ctx:email' })
+		expect(body.raw_code).toMatchObject({ language: 'bun' })
+		expect(body.path).toBeUndefined()
+		// Only names listed here get encrypted before the args are queued, so a sensitive
+		// field left out of it is stored in plaintext for anyone with run access to read.
+		expect(body.force_viewer_sensitive_inputs).toEqual(['api_key'])
+	})
+
+	// The undeployed-flow 404 is the whole reason this tool exists, and the generated client
+	// leaves the server's message in `body` while `message` is the bare status text.
+	it("surfaces the server's message when a path runnable's target is not deployed", async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/broken_app',
+			{
+				summary: 'Broken app',
+				files: {},
+				runnables: {
+					go: { name: 'Go', type: 'path', runType: 'flow', path: 'u/admin/never_deployed' }
+				},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+		vi.mocked(AppService.executeComponent).mockRejectedValueOnce({
+			status: 404,
+			message: 'Not Found',
+			body: 'Not found: flow not found at name u/admin/never_deployed'
+		})
+
+		await expect(
+			callGlobalTool('test_run_app_runnable', { path: 'u/admin/broken_app', key: 'go' })
+		).rejects.toThrow(/flow not found at name u\/admin\/never_deployed/)
+	})
+
+	it('runs a path app runnable against the deployed item it names', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/wired_app2',
+			{
+				summary: 'Wired app',
+				files: {},
+				runnables: {
+					run_flow: { name: 'Run', type: 'path', runType: 'flow', path: 'u/admin/hello_flow' }
+				},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('test_run_app_runnable', { path: 'u/admin/wired_app2', key: 'run_flow' })
+
+		const body = vi.mocked(AppService.executeComponent).mock.calls.at(-1)?.[0].requestBody as any
+		expect(body.path).toBe('flow/u/admin/hello_flow')
+		expect(body.raw_code).toBeUndefined()
+		// Absent rather than [], matching what the editor preview sends.
+		expect(body.force_viewer_sensitive_inputs).toBeUndefined()
+	})
+
+	// A hybrid runnable — inline code plus a leftover runType/path — contradicts its own
+	// kind, and convertPersistedToBackendRunnable is what reports it back to the model.
+	it("drops the other kind's fields when a runnable changes type", async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/converted_app',
+			{ summary: 'Converted', files: {}, runnables: {}, data: { tables: [] } },
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/converted_app',
+			key: 'go',
+			runnable: { name: 'Run the flow', type: 'flow', path: 'u/admin/hello_flow' }
+		})
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/converted_app',
+			key: 'go',
+			runnable: {
+				name: 'Now inline',
+				type: 'inline',
+				inlineScript: { language: 'bun', content: 'export async function main() { return 1 }' }
+			}
+		})
+
+		const asInline = getBackendDraft<any>('raw_app', 'u/admin/converted_app', {
+			workspace: WORKSPACE
+		}).runnables.go
+		expect(asInline.type).toBe('inline')
+		expect(asInline.runType).toBeUndefined()
+		expect(asInline.path).toBeUndefined()
+
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/converted_app',
+			key: 'go',
+			runnable: { name: 'Back to flow', type: 'flow', path: 'u/admin/hello_flow' }
+		})
+
+		const asPath = getBackendDraft<any>('raw_app', 'u/admin/converted_app', {
+			workspace: WORKSPACE
+		}).runnables.go
+		expect(asPath.type).toBe('path')
+		expect(asPath.runType).toBe('flow')
+		expect(asPath.inlineScript).toBeUndefined()
+	})
+
+	it("resets a path runnable's schema when it is retargeted, and keeps it when it is not", async () => {
+		// The editor populates `schema` from the item the runnable points at, and
+		// genWmillTs types `backend.<key>(args)` from it — so it must not outlive the target.
+		const flowSchema = {
+			type: 'object',
+			properties: { old_arg: { type: 'string' } }
+		}
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/retargeted_app',
+			{
+				summary: 'Retargeted',
+				files: {},
+				runnables: {
+					go: {
+						name: 'Run the flow',
+						type: 'path',
+						runType: 'flow',
+						path: 'u/admin/first_flow',
+						fields: {},
+						schema: flowSchema
+					}
+				},
+				data: { tables: [] }
+			},
+			{ workspace: WORKSPACE }
+		)
+
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/retargeted_app',
+			key: 'go',
+			runnable: { name: 'Run the flow', type: 'flow', path: 'u/admin/first_flow' }
+		})
+		expect(
+			getBackendDraft<any>('raw_app', 'u/admin/retargeted_app', { workspace: WORKSPACE }).runnables
+				.go.schema
+		).toEqual(flowSchema)
+
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/retargeted_app',
+			key: 'go',
+			runnable: { name: 'Run the other flow', type: 'flow', path: 'u/admin/second_flow' }
+		})
+		expect(
+			getBackendDraft<any>('raw_app', 'u/admin/retargeted_app', { workspace: WORKSPACE }).runnables
+				.go.schema
+		).toEqual({})
 	})
 
 	it('does not echo the app value back to the model on write', async () => {
@@ -4561,7 +4831,14 @@ describe('folder tools', () => {
 	})
 
 	it('create_folder creates the folder and reflects it in the path context', async () => {
-		userStore.set({ username: 'bob', is_admin: false, folders: ['existing'] } as any)
+		// `workspace_id` is what makes the ambient store the identity for WORKSPACE — the
+		// tool credits the workspace it created the folder in, not whoever is browsing.
+		userStore.set({
+			username: 'bob',
+			workspace_id: WORKSPACE,
+			is_admin: false,
+			folders: ['existing']
+		} as any)
 		const raw = await callGlobalTool('create_folder', { name: 'analytics', summary: 'team data' })
 
 		expect(vi.mocked(FolderService.createFolder)).toHaveBeenCalledWith({
@@ -4794,6 +5071,14 @@ describe('prepareGlobalSystemMessage', () => {
 			expect(content).toContain(
 				'- As a workspace admin you can write to any existing folder. If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.'
 			)
+			expect(content).not.toContain('Folders here include')
+		})
+
+		// Admin guidance asserts nothing about the folder list, so unknown ACLs must not
+		// silence it the way they silence the non-admin bullets.
+		it('keeps the admin guidance when the folder sets are unknown', () => {
+			const content = guidanceOf({ username: 'admin', is_admin: true })
+			expect(content).toContain('As a workspace admin you can write to any existing folder.')
 			expect(content).not.toContain('Folders here include')
 		})
 
@@ -5511,5 +5796,183 @@ describe('buildOpenPageUrl compare selection', () => {
 		expect(
 			itemsOf(buildOpenPageUrl('compare', { page: 'compare' }, { workspaceId: 'ws' }))
 		).toBeNull()
+	})
+})
+
+describe('open_page workspace gating', () => {
+	const NAV = 'nav_ws'
+	const SESSION = 'session_ws'
+	// A workspace the user belongs to but whose `whoami` never answers.
+	const FLAKY = 'flaky_ws'
+	const openPage = () => getGlobalTool('open_page')
+	const pageSchema = () => (openPage().def.function.parameters as any)?.properties?.page ?? {}
+	const advertisedPages = () => (pageSchema().enum ?? []) as string[]
+	const pristineDef = openPage().def
+
+	beforeEach(() => {
+		// Admin of the workspace being browsed, plain member of the one a session operates on.
+		userStore.set({ username: 'bob', workspace_id: NAV, is_admin: true } as any)
+		usersWorkspaceStore.set({ workspaces: [{ id: NAV }, { id: SESSION }, { id: FLAKY }] } as any)
+		// A non-membership is only pronounced once both of these have resolved.
+		superadmin.set(false)
+		whoamiByWorkspace.set(SESSION, {
+			username: 'bob',
+			email: 'bob@windmill.dev',
+			is_admin: false,
+			operator: false,
+			groups: []
+		})
+	})
+
+	afterEach(() => {
+		userStore.set(undefined)
+		usersWorkspaceStore.set(undefined)
+		superadmin.set(undefined)
+		whoamiByWorkspace.clear()
+		clearWorkspaceRoleCache()
+		openPage().def = pristineDef
+	})
+
+	// Reading the ambient `userStore` instead offers a session the pages of the workspace
+	// the user happens to be browsing.
+	it('gates on the operating workspace, not the one userStore describes', async () => {
+		await openPage().setSchema?.({ operatingWorkspace: NAV })
+		expect(advertisedPages()).toContain('workspace_settings')
+
+		await openPage().setSchema?.({ operatingWorkspace: SESSION })
+		expect(advertisedPages()).toContain('runs')
+		expect(advertisedPages()).not.toContain('workspace_settings')
+		await expect(
+			callGlobalTool('open_page', { page: 'workspace_settings' }, toolCallbacks, {
+				operatingWorkspace: SESSION
+			})
+		).resolves.toContain("don't have access")
+	})
+
+	// Falling back to a fixed page set instead offers pages the sidebar may well hide —
+	// an operator's, most of all, whose reachable set is a fraction of the default one.
+	// Neither layer may read as a denial: the role was never established, and the model
+	// sees the schema before it can ever reach the handler's message.
+	it('advertises nothing and blames no denial when the role lookup fails', async () => {
+		await openPage().setSchema?.({ operatingWorkspace: FLAKY })
+		expect(advertisedPages()).toEqual([])
+		expect(pageSchema().description).toContain("couldn't be checked")
+		const refusal = await callGlobalTool('open_page', { page: 'runs' }, toolCallbacks, {
+			operatingWorkspace: FLAKY
+		})
+		expect(refusal).toContain("Couldn't check your permissions")
+		expect(refusal).not.toContain("don't have access")
+	})
+
+	// A workspace absent from `userWorkspaces` is settled, not unknown: inviting a retry
+	// would be false, and asking `whoami` at all only earns a 401 on every iteration.
+	it('reports a plain denial for a workspace the user is not a member of', async () => {
+		await openPage().setSchema?.({ operatingWorkspace: 'unreachable_ws' })
+		expect(advertisedPages()).toEqual([])
+		expect(pageSchema().description).not.toContain("couldn't be checked")
+		const refusal = await callGlobalTool('open_page', { page: 'runs' }, toolCallbacks, {
+			operatingWorkspace: 'unreachable_ws'
+		})
+		expect(refusal).toContain("don't have access")
+		expect(UserService.whoami).not.toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: 'unreachable_ws' })
+		)
+	})
+
+	// An unloaded list is indistinguishable from an empty one, and the layout may never
+	// finish loading it, so reading it as settled would deny the workspace permanently.
+	it('asks whoami while the workspace list is still unresolved', async () => {
+		usersWorkspaceStore.set(undefined)
+
+		await openPage().setSchema?.({ operatingWorkspace: SESSION })
+
+		expect(UserService.whoami).toHaveBeenCalledWith(expect.objectContaining({ workspace: SESSION }))
+		expect(advertisedPages()).not.toEqual([])
+	})
+})
+
+describe('global prompt identity', () => {
+	const NAV = 'nav_ws'
+	const SESSION = 'session_ws'
+
+	beforeEach(() => {
+		// Browsing NAV as `alice` with a folder of her own; the session operates on
+		// SESSION, where she is a different user with different folders.
+		userStore.set({
+			username: 'alice',
+			workspace_id: NAV,
+			is_admin: false,
+			folders: ['alice_stuff'],
+			folders_read: ['alice_stuff']
+		} as any)
+		usersWorkspaceStore.set({
+			workspaces: [
+				{ id: NAV, username: 'alice' },
+				{ id: SESSION, username: 'a_smith' }
+			]
+		} as any)
+		superadmin.set(false)
+		whoamiByWorkspace.set(SESSION, {
+			username: 'a_smith',
+			email: 'alice@windmill.dev',
+			is_admin: false,
+			operator: false,
+			groups: [],
+			folders: ['team_etl'],
+			folders_read: ['team_etl', 'readonly_reports']
+		})
+	})
+
+	afterEach(() => {
+		userStore.set(undefined)
+		usersWorkspaceStore.set(undefined)
+		superadmin.set(undefined)
+		whoamiByWorkspace.clear()
+		clearWorkspaceRoleCache()
+	})
+
+	// Reading the ambient store instead tells the model to write to `u/alice/...` and
+	// offers `f/alice_stuff`, neither of which exists in the workspace it writes to.
+	it('describes the operating workspace, not the one being browsed', async () => {
+		const identity = await resolveGlobalPromptIdentity(SESSION)
+		const content = prepareGlobalSystemMessage(undefined, { user: identity }).content as string
+
+		expect(content).toContain('workspace username is "a_smith"')
+		expect(content).toContain('`f/team_etl`')
+		expect(content).toContain('You can see but NOT write to: `f/readonly_reports`')
+		expect(content).not.toContain('alice_stuff')
+		expect(content).not.toContain('u/alice/')
+	})
+
+	// The username cannot be dropped the way the folder sets can — it renders into
+	// `u/<username>/...`, and an empty one yields `u//`.
+	it('keeps the username but drops folder guidance when the role cannot be resolved', async () => {
+		whoamiByWorkspace.delete(SESSION)
+		const identity = await resolveGlobalPromptIdentity(SESSION)
+		const content = prepareGlobalSystemMessage(undefined, { user: identity }).content as string
+
+		expect(identity).toEqual({ username: 'a_smith' })
+		expect(content).toContain('workspace username is "a_smith"')
+		expect(content).not.toContain('u//')
+		expect(content).not.toContain('Folders you can write to')
+		// Unknown ACLs must not be rendered as known-empty ones: this bullet is the
+		// no-writable-folders claim, and it is false in a workspace we never resolved.
+		expect(content).not.toContain('You have no shared folders you can write to')
+		expect(content).not.toContain('alice_stuff')
+	})
+
+	it('credits a created folder to the workspace it was created in', async () => {
+		await getGlobalTool('create_folder').fn({
+			args: { name: 'analytics' },
+			workspace: SESSION,
+			helpers: {},
+			toolCallbacks,
+			toolId: 'test-create-folder-cross-workspace'
+		})
+
+		expect(await resolveGlobalPromptIdentity(SESSION)).toMatchObject({
+			folders: ['team_etl', 'analytics']
+		})
+		expect(get(userStore)?.folders).toEqual(['alice_stuff'])
 	})
 })

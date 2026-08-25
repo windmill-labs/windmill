@@ -291,14 +291,7 @@ impl McpBackend for WindmillBackend {
         );
 
         // Prepare request body
-        let body_json = build_request_body(
-            &endpoint_tool.method,
-            args_map,
-            &endpoint_tool.body_schema,
-            &endpoint_tool.body_field_renames,
-            &endpoint_tool.path_params_schema,
-            &endpoint_tool.query_params_schema,
-        );
+        let body_json = build_request_body(endpoint_tool, args_map)?;
 
         // Create and execute request
         let response = create_http_request(

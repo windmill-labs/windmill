@@ -53,7 +53,10 @@
 		{#if item.icon}
 			<item.icon size={14} color={item.iconColor} class="shrink-0" {...item.iconProps ?? {}} />
 		{/if}
-		<p title={item.displayName} class="truncate grow min-w-0 whitespace-nowrap text-left">
+		<p
+			title={item.disabled && item.tooltip ? undefined : item.displayName}
+			class="truncate grow min-w-0 whitespace-nowrap text-left"
+		>
 			{item.displayName}
 		</p>
 		{@render item.extra?.()}

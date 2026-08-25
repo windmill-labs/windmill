@@ -109,7 +109,7 @@
 		preprocessorModule?: boolean
 		parentModule?: FlowModule | undefined
 		previousModule: FlowModule | undefined
-		scriptKind?: 'script' | 'trigger' | 'approval'
+		scriptKind?: 'script' | 'trigger' | 'approval' | 'preprocessor'
 		scriptTemplate?: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell'
 		noEditor: boolean
 		enableAi: boolean
@@ -170,6 +170,11 @@
 		ruff: false,
 		shellcheck: false
 	})
+
+	// `scriptKind` only records how a step was created this session, so it is back to 'script' on
+	// any remount. Being a preprocessor is a property of the slot, and the editor bar's reset code
+	// and script library depend on it, so derive it rather than reading the stale state.
+	let editorScriptKind = $derived(preprocessorModule ? 'preprocessor' : scriptKind)
 
 	let selected = $state(untrack(() => preprocessorModule) ? 'test' : 'inputs')
 	let canShowChatTab = $derived(
@@ -864,7 +869,7 @@
 							{websocketAlive}
 							iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
 							compactHelpers={width < EDITOR_BAR_HELPERS_INLINE_THRESHOLD}
-							kind={scriptKind}
+							kind={editorScriptKind}
 							template={scriptTemplate}
 							args={Object.entries(flowModule.value.input_transforms).reduce((acc, [key, obj]) => {
 								acc[key] = obj.type === 'static' ? obj.value : undefined
@@ -1203,6 +1208,7 @@
 														: undefined}
 													helperScript={retrieveDynCodeAndLang(flowModule.value)}
 													chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
+													workspace={opWs}
 												/>
 												{#if agentLinked}
 													<!-- Linked agent: the resource's tools with their inputs rebindable to this

@@ -13,7 +13,7 @@
 	width={size}
 	height={size}
 	class={twMerge('text-[#1A1A1A] dark:text-[#2EAFFF]', className)}
-	viewBox="0 0 13 13"
+	viewBox="-0.591 -0.591 14.182 14.182"
 	style="fill:currentcolor;"
 	xmlns="http://www.w3.org/2000/svg"
 >

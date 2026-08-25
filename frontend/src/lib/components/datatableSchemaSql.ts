@@ -198,15 +198,12 @@ export function generateAddedTableSql(
 	const create = `${schemaDdl}${createKeyword} ${qualifiedName} (\n  ${colDefs}${pkLine}\n);`
 	const constraints: string[] = []
 	for (const fk of table.foreignKeys ?? []) {
-		const fkSql = renderForeignKey(
-			{ ...fk, targetTable: qualifyFkTarget(sourceSchema, fk.targetTable, change.schemaName) },
-			{
-				useSchema: true,
-				dbType: 'postgresql',
-				tableName: change.tableName,
-				quoteTarget: true
-			}
-		)
+		const fkSql = renderForeignKey(fk, {
+			useSchema: true,
+			dbType: 'postgresql',
+			tableName: change.tableName,
+			qualifiedTarget: qualifyFkTarget(sourceSchema, fk.targetTable, change.schemaName)
+		})
 		// With IF NOT EXISTS the table may pre-exist with this FK already in
 		// place; an unconditional ADD would then abort the whole transaction.
 		// The constraint name is emitted unquoted, so Postgres folds it to

@@ -15,7 +15,7 @@
 <svg
 	width={size}
 	height={size}
-	viewBox="0 0 168 168"
+	viewBox="-6.563 -6.891 181.125 181.125"
 	class={clazz}
 	xmlns="http://www.w3.org/2000/svg"
 	fill={color ?? 'currentColor'}

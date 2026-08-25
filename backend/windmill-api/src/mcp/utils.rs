@@ -15,7 +15,9 @@ use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
-use windmill_mcp::server::{BackendResult, ErrorData, PathFilter};
+use windmill_mcp::server::{
+    non_empty_body_fields, BackendResult, EndpointTool, ErrorData, PathFilter,
+};
 use windmill_mcp::{HubResponse, HubScriptInfo, ItemSchema, ResourceInfo, ResourceType};
 
 use crate::db::ApiAuthed;
@@ -448,15 +450,44 @@ pub fn build_query_string(
     }
 }
 
-/// Build request body from arguments
+/// Build request body from arguments, refusing a call that would reach an
+/// endpoint requiring a body without one.
 pub fn build_request_body(
-    method: &str,
+    tool: &EndpointTool,
     args_map: &serde_json::Map<String, Value>,
-    body_schema: &Option<Value>,
-    body_field_renames: &Option<Value>,
-    path_params_schema: &Option<Value>,
-    query_params_schema: &Option<Value>,
+) -> BackendResult<Option<Value>> {
+    let body = assemble_request_body(tool, args_map);
+
+    // The fields that would have satisfied it are not expressible in the tool's input
+    // schema, so name them here rather than dispatching a call that cannot succeed.
+    if body.is_none() {
+        if let Some(fields) = non_empty_body_fields(tool) {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "{} needs a request body: provide at least one of {}",
+                    tool.name,
+                    fields.join(", ")
+                ),
+                None,
+            ));
+        }
+    }
+
+    Ok(body)
+}
+
+fn assemble_request_body(
+    tool: &EndpointTool,
+    args_map: &serde_json::Map<String, Value>,
 ) -> Option<Value> {
+    let EndpointTool {
+        method,
+        body_schema,
+        body_field_renames,
+        path_params_schema,
+        query_params_schema,
+        ..
+    } = tool;
     if method == "GET" {
         return None;
     }
@@ -500,14 +531,20 @@ pub fn build_request_body(
 
     let props = schema.get("properties")?.as_object()?;
 
+    // A null argument is how a client that must fill in every declared argument says
+    // "no value". Forwarding it would reach a field the API declares as a bare
+    // `String`, which rejects null outright rather than falling back to its default.
     let body_map: serde_json::Map<String, Value> = props
         .keys()
         .filter_map(|param_name| {
-            args_map.get(param_name).map(|value| {
-                // Use the original name as the key in the request body
-                let original_name = get_original_name(param_name, body_field_renames);
-                (original_name, value.clone())
-            })
+            args_map
+                .get(param_name)
+                .filter(|value| !value.is_null())
+                .map(|value| {
+                    // Use the original name as the key in the request body
+                    let original_name = get_original_name(param_name, body_field_renames);
+                    (original_name, value.clone())
+                })
         })
         .collect();
 
@@ -805,27 +842,86 @@ mod tests {
         );
     }
 
+    fn endpoint_tool(
+        method: &'static str,
+        path_params_schema: Option<Value>,
+        body_schema: Option<Value>,
+        body_field_renames: Option<Value>,
+    ) -> EndpointTool {
+        EndpointTool {
+            name: std::borrow::Cow::Borrowed("testTool"),
+            description: std::borrow::Cow::Borrowed("desc"),
+            instructions: std::borrow::Cow::Borrowed(""),
+            path: std::borrow::Cow::Borrowed("/w/{workspace}/test/{path}"),
+            method: std::borrow::Cow::Borrowed(method),
+            path_params_schema,
+            query_params_schema: None,
+            body_schema,
+            query_field_renames: None,
+            body_field_renames,
+        }
+    }
+
+    fn args_of(value: Value) -> serde_json::Map<String, Value> {
+        value.as_object().unwrap().clone()
+    }
+
+    fn path_param_schema() -> Option<Value> {
+        Some(json!({
+            "type": "object",
+            "properties": { "path": { "type": "string" } },
+            "required": ["path"]
+        }))
+    }
+
+    fn generated_tool(name: &str) -> EndpointTool {
+        crate::mcp::auto_generated_endpoints::all_tools()
+            .into_iter()
+            .find(|t| t.name.as_ref() == name)
+            .unwrap_or_else(|| panic!("{name} must be a generated endpoint tool"))
+    }
+
+    /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does
+    /// not name, falls through to no policy — which is no path confinement at all, so
+    /// a token scoped to `mcp:scripts:f/team/*` reaches every script through it. The
+    /// catalogue lives here and the policy in windmill-mcp, so neither crate notices
+    /// a tool added on one side and forgotten on the other; this is where they meet.
+    #[test]
+    fn every_path_addressed_script_or_flow_tool_is_path_confined() {
+        let unpoliced: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()
+            .into_iter()
+            .filter(|t| {
+                (t.path.contains("/scripts/") || t.path.contains("/flows/"))
+                    && t.path.contains("{path}")
+                    && !windmill_mcp::server::has_endpoint_path_policy(&t.name)
+            })
+            .map(|t| t.name.to_string())
+            .collect();
+        assert!(
+            unpoliced.is_empty(),
+            "path-addressed script/flow tools with no path policy: {unpoliced:?}"
+        );
+    }
+
     #[test]
     fn build_request_body_passthrough_forwards_script_args_minus_path() {
         // runScriptByPath-shaped body: additionalProperties, no declared props.
         // `path` is a path param and must be excluded; the rest are the script's
         // arguments and must be forwarded verbatim.
-        let body_schema = Some(json!({ "type": "object", "additionalProperties": true }));
-        let path_schema = Some(json!({
-            "type": "object",
-            "properties": { "path": { "type": "string" } },
-            "required": ["path"]
-        }));
-        let args: serde_json::Map<String, Value> = json!({
+        let tool = endpoint_tool(
+            "POST",
+            path_param_schema(),
+            Some(json!({ "type": "object", "additionalProperties": true })),
+            None,
+        );
+        let args = args_of(json!({
             "path": "u/admin/my_script",
             "name": "alice",
             "count": 3
-        })
-        .as_object()
-        .unwrap()
-        .clone();
+        }));
 
-        let body = build_request_body("POST", &args, &body_schema, &None, &path_schema, &None)
+        let body = build_request_body(&tool, &args)
+            .unwrap()
             .expect("passthrough body should be built");
         let obj = body.as_object().unwrap();
         assert_eq!(obj.get("name"), Some(&json!("alice")));
@@ -839,16 +935,18 @@ mod tests {
     #[test]
     fn build_request_body_declared_props_only_forwards_declared() {
         // Endpoints with explicit properties keep the strict declared-only behavior.
-        let body_schema = Some(json!({
-            "type": "object",
-            "properties": { "value": { "type": "string" } },
-            "required": ["value"]
-        }));
-        let args: serde_json::Map<String, Value> = json!({ "value": "x", "sneaky": "y" })
-            .as_object()
-            .unwrap()
-            .clone();
-        let body = build_request_body("POST", &args, &body_schema, &None, &None, &None).unwrap();
+        let tool = endpoint_tool(
+            "POST",
+            None,
+            Some(json!({
+                "type": "object",
+                "properties": { "value": { "type": "string" } },
+                "required": ["value"]
+            })),
+            None,
+        );
+        let args = args_of(json!({ "value": "x", "sneaky": "y" }));
+        let body = build_request_body(&tool, &args).unwrap().unwrap();
         let obj = body.as_object().unwrap();
         assert_eq!(obj.get("value"), Some(&json!("x")));
         assert!(
@@ -859,13 +957,10 @@ mod tests {
 
     // updateFlow-shaped: `path` is both a path parameter and a body field. The path
     // parameter keeps the plain name; only the body side is mangled.
-    fn update_flow_schemas() -> (Option<Value>, Option<Value>, Option<Value>) {
-        (
-            Some(json!({
-                "type": "object",
-                "properties": { "path": { "type": "string" } },
-                "required": ["path"]
-            })),
+    fn update_flow_tool() -> EndpointTool {
+        endpoint_tool(
+            "POST",
+            path_param_schema(),
             Some(json!({
                 "type": "object",
                 "properties": {
@@ -873,7 +968,8 @@ mod tests {
                     "value": { "type": "object" },
                     "path__body": { "type": "string" }
                 },
-                "required": ["summary", "value"]
+                "required": ["summary", "value"],
+                "minProperties": 1
             })),
             Some(json!({ "path__body": "path" })),
         )
@@ -884,26 +980,16 @@ mod tests {
         // The mangled body field carries the *new* path when renaming; it must reach the
         // API under its original name `path`. (An omitted `path__body` is intentionally
         // absent from the body; the server defaults it from the URL path parameter.)
-        let (path_schema, body_schema, body_renames) = update_flow_schemas();
-        let args: serde_json::Map<String, Value> = json!({
+        let args = args_of(json!({
             "path": "f/team/my_flow",
             "path__body": "f/team/renamed_flow",
             "summary": "s",
             "value": {}
-        })
-        .as_object()
-        .unwrap()
-        .clone();
+        }));
 
-        let body = build_request_body(
-            "POST",
-            &args,
-            &body_schema,
-            &body_renames,
-            &path_schema,
-            &None,
-        )
-        .expect("body should be built");
+        let body = build_request_body(&update_flow_tool(), &args)
+            .unwrap()
+            .expect("body should be built");
         assert_eq!(
             body.as_object().unwrap().get("path"),
             Some(&json!("f/team/renamed_flow")),
@@ -913,9 +999,115 @@ mod tests {
 
     #[test]
     fn build_request_body_get_has_no_body() {
-        let body_schema = Some(json!({ "type": "object", "additionalProperties": true }));
-        let args: serde_json::Map<String, Value> = json!({ "a": 1 }).as_object().unwrap().clone();
-        assert!(build_request_body("GET", &args, &body_schema, &None, &None, &None).is_none());
+        let tool = endpoint_tool(
+            "GET",
+            None,
+            Some(json!({ "type": "object", "additionalProperties": true })),
+            None,
+        );
+        assert!(build_request_body(&tool, &args_of(json!({ "a": 1 })))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn build_request_body_refuses_bodyless_call_to_required_body_endpoint() {
+        // updateVariable's only required argument is the path parameter, so a
+        // path-only call satisfies the tool's input schema while leaving the body
+        // empty. Dispatching it would reach the API with no JSON body and come back
+        // as a 415, so it is refused here with the fields it could have set.
+        let tool = generated_tool("updateVariable");
+        let err = build_request_body(&tool, &args_of(json!({ "path": "u/admin/a_var" })))
+            .expect_err("a path-only updateVariable call must be refused");
+        assert!(
+            err.message.contains("value"),
+            "the error must name the body fields, got: {}",
+            err.message
+        );
+
+        let body = build_request_body(
+            &tool,
+            &args_of(json!({ "path": "u/admin/a_var", "value": "v" })),
+        )
+        .unwrap()
+        .expect("a call carrying an update must still build a body");
+        assert_eq!(body.as_object().unwrap().get("value"), Some(&json!("v")));
+    }
+
+    #[test]
+    fn build_request_body_allows_bodyless_run_of_a_no_arg_runnable() {
+        // The counterpart: a runnable that takes no arguments has nothing to put in
+        // the body, and the run endpoints accept an empty one.
+        let tool = generated_tool("runScriptByPath");
+        assert!(
+            build_request_body(&tool, &args_of(json!({ "path": "u/admin/no_args"})))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    /// Neither script tool asks for a hash: `createScript` never has a parent, and
+    /// `updateScript` names the version it supersedes in its URL. A caller that must
+    /// fill in every declared argument has none to invent a value for, and the one it
+    /// invents anyway is not a field either tool declares, so it never reaches the API.
+    #[test]
+    fn script_tools_take_no_parent_hash() {
+        for name in ["createScript", "updateScript"] {
+            let tool = generated_tool(name);
+            let props = tool.body_schema.as_ref().unwrap()["properties"]
+                .as_object()
+                .unwrap();
+            assert!(
+                !props.contains_key("parent_hash"),
+                "{name} must not ask for a parent_hash"
+            );
+        }
+
+        let body = build_request_body(
+            &generated_tool("createScript"),
+            &args_of(json!({
+                "path": "u/admin/s",
+                "summary": "s",
+                "content": "export async function main() {}",
+                "language": "bun",
+                "parent_hash": "0000000000000000",
+                // A client that must fill in every argument says "no value" with null;
+                // forwarded, it would reach a field the API declares as a bare String.
+                "description": null,
+            })),
+        )
+        .unwrap()
+        .expect("createScript body should be built");
+        let obj = body.as_object().unwrap();
+
+        assert!(!obj.contains_key("parent_hash"));
+        assert!(!obj.contains_key("description"));
+    }
+
+    /// The path an `updateScript` call omits is the one its URL already carries, so the
+    /// tool must not oblige an agent to restate it — a value that drifts from the URL's
+    /// moves the script instead of editing it.
+    #[test]
+    fn update_script_does_not_require_the_destination_path() {
+        let tool = generated_tool("updateScript");
+        let body_schema = tool.body_schema.as_ref().unwrap();
+        // Renamed off the URL's own `path` parameter, and mapped back on the way out.
+        assert!(
+            body_schema["properties"]
+                .as_object()
+                .unwrap()
+                .contains_key("path__body"),
+            "updateScript must still offer a destination path, which is what moves a script"
+        );
+        assert!(
+            !body_schema["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r == "path__body" || r == "path"),
+            "updateScript must not require the destination path, got: {}",
+            body_schema["required"]
+        );
     }
 
     #[test]

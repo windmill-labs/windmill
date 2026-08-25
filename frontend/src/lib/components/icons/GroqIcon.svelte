@@ -8,7 +8,7 @@
 </script>
 
 <!-- #F43E01 per https://groq.com/favicon.svg. Logo use in a UI requires a license from Groq. -->
-<svg {width} {height} viewBox="0 0 33 33" xmlns="http://www.w3.org/2000/svg">
+<svg {width} {height} viewBox="-0.941 -1.07 34.945 34.945" xmlns="http://www.w3.org/2000/svg">
 	<g clip-path="url(#a)"
 		><path fill="#F43E01" d="M.54.39h32v32h-32z" /><path
 			fill="#fff"

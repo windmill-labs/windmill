@@ -15,7 +15,7 @@
 <svg
 	width={derivedWidth}
 	height={derivedHeight}
-	viewBox="0 0 600 600"
+	viewBox="43.04 43.04 513.921 513.921"
 	xmlns="http://www.w3.org/2000/svg"
 	version="1.1"
 	class="text-[#087EA4] dark:text-[#58C4DC]"

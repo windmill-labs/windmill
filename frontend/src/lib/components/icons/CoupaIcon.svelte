@@ -15,7 +15,7 @@
 	class="text-[#1565C0] dark:text-[#FFFFFF]"
 	{width}
 	{height}
-	viewBox="0 0 1561 1406"
+	viewBox="-70.955 -148.455 1702.909 1702.909"
 	fill="currentColor"
 >
 	<path

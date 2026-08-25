@@ -94,6 +94,7 @@
 		allowedAiTransforms?: string[] | undefined
 		s3StorageConfigured?: boolean
 		chatInputEnabled?: boolean
+		workspace?: string | undefined
 	}
 
 	let {
@@ -131,7 +132,8 @@
 		isAgentTool = false,
 		allowedAiTransforms = isAgentTool ? undefined : [],
 		s3StorageConfigured = true,
-		chatInputEnabled = false
+		chatInputEnabled = false,
+		workspace
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -882,6 +884,7 @@
 							{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
 								<ArgInput
 									{resourceTypes}
+									{workspace}
 									noMargin
 									compact
 									on:focus={onFocus}
