@@ -256,7 +256,7 @@
 	// Row actions stay out of the way until you are on the row — or it is the one
 	// you are looking at, where the menu is part of the current context.
 	const rowActionsClass = (current: boolean) =>
-		'absolute right-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ' +
+		'absolute right-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 ' +
 		(current ? 'opacity-100' : 'opacity-0')
 
 	// The chevron is the resting state of that slot: it gives way to the menu
@@ -583,13 +583,17 @@
 					{@const dtOpen = isExpanded(root.datatable)}
 					{#if root.datatable !== undefined}
 						<button
-							class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pl-2 pr-1 hover:bg-gray-500/10 ' +
+							class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 ' +
 								rowText(root.datatable === currentDatatable)}
 							onclick={() => toggle(root.datatable)}
 						>
 							<DatabaseIcon class="shrink-0" size={14} />
 							<span class="truncate text-ellipsis grow text-left text-xs">{root.datatable}</span>
 							<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+								<ChevronDownIcon
+									class={rowChevronClass(root.datatable === currentDatatable, dtOpen)}
+									size={14}
+								/>
 								{#if onDatatableAction}
 									{@const dt = root.datatable}
 									<DropdownV2
@@ -623,10 +627,6 @@
 										btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
 									/>
 								{/if}
-								<ChevronDownIcon
-									class={rowChevronClass(root.datatable === currentDatatable, dtOpen)}
-									size={14}
-								/>
 							</div>
 						</button>
 					{/if}
@@ -636,7 +636,7 @@
 						{/if}
 						{#each root.schemas as sc (sc.schemaKey)}
 							{@const schemaOpen = isExpanded(root.datatable, sc.schemaKey)}
-							{@const indent = root.datatable !== undefined ? 'pl-6' : 'pl-2'}
+							{@const indent = root.datatable !== undefined ? 'pl-7' : 'pl-3'}
 							{#if dbSupportsSchemas}
 								<button
 									class={'group w-full text-sm flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 ' +
@@ -650,6 +650,14 @@
 									<FolderIcon class="shrink-0" size={14} />
 									<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
 									<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+										<ChevronDownIcon
+											class={rowChevronClass(
+												root.datatable === currentDatatable &&
+													sc.schemaKey === selected.schemaKey,
+												schemaOpen
+											)}
+											size={14}
+										/>
 										<DropdownV2
 											items={() => [
 												{
@@ -663,24 +671,18 @@
 											)}"
 											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
 										/>
-										<ChevronDownIcon
-											class={rowChevronClass(
-												root.datatable === currentDatatable && sc.schemaKey === selected.schemaKey,
-												schemaOpen
-											)}
-											size={14}
-										/>
+
 									</div>
 								</button>
 							{/if}
 							{#if schemaOpen || !dbSupportsSchemas}
 								{@const tableIndent = dbSupportsSchemas
 									? root.datatable !== undefined
-										? 'pl-12'
-										: 'pl-8'
+										? 'pl-[3.25rem]'
+										: 'pl-9'
 									: root.datatable !== undefined
-										? 'pl-8'
-										: 'pl-3'}
+										? 'pl-9'
+										: 'pl-4'}
 								{#each sc.tables as tableKey (tableKey)}
 									{@const isSelected =
 										root.datatable === currentDatatable &&
@@ -771,7 +773,7 @@
 						{#if dbSupportsSchemas && (root.datatable === currentDatatable || root.datatable === undefined) && search.trim() === ''}
 							<button
 								class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-tertiary ' +
-									(root.datatable !== undefined ? 'pl-6' : 'pl-2')}
+									(root.datatable !== undefined ? 'pl-7' : 'pl-3')}
 								onclick={() => (newSchemaDialogOpen = true)}
 							>
 								<Plus class="shrink-0" size={14} />
