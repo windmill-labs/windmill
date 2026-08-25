@@ -54,15 +54,22 @@
 			return
 		}
 		submitting = true
+		// Last gate before the job: what the card showed is what runs, conformed the same
+		// way the prefill was. Named for the same reason the prefill names what it drops —
+		// silently here, it is the user's own typing that disappears between Run and the job.
+		const conformed = conformArgsToSchema(args ?? {}, schema)
+		const removed = [...conformed.dropped.undeclared, ...conformed.dropped.unshowable]
+		if (removed.length > 0) {
+			sendUserToast(`Not sent, this script has no field for: ${removed.join(', ')}`, true)
+		}
+		if (conformed.resetKeys.length > 0) {
+			sendUserToast(
+				`Disabled field${conformed.resetKeys.length > 1 ? 's' : ''} ${conformed.resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${conformed.resetKeys.length > 1 ? 's' : ''}`
+			)
+		}
 		let processed: Record<string, any>
 		try {
-			processed = await processSecretArgs(
-				// Last gate before the job: what the card showed is what runs, conformed the
-				// same way the prefill was.
-				conformArgsToSchema(args ?? {}, schema).args,
-				schema as any,
-				workspace
-			)
+			processed = await processSecretArgs(conformed.args, schema as any, workspace)
 		} catch (e) {
 			submitting = false
 			sendUserToast('Failed to process sensitive args: ' + e, true)
@@ -114,6 +121,12 @@
 			<p class="mt-2 text-2xs text-secondary">
 				Not an input of this script, so it will not be sent:
 				<span class="font-mono">{runForm.droppedKeys.join(', ')}</span>
+			</p>
+		{/if}
+		{#if runForm.unshowableKeys?.length}
+			<p class="mt-2 text-2xs text-secondary">
+				Sent in a shape this form has no field for, so it opened empty:
+				<span class="font-mono">{runForm.unshowableKeys.join(', ')}</span>
 			</p>
 		{/if}
 		{#if runForm.resetKeys?.length}

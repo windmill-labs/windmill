@@ -27,6 +27,13 @@ export function enforceDisabledDefaults(
 }
 
 /**
+ * Paths removed from a caller's arguments, split by cause. Kept apart because the two
+ * read as opposites to whoever is told: an undeclared argument is one to stop sending,
+ * an unshowable one is an argument the script really has, sent in a shape no field fits.
+ */
+export type DroppedPaths = { undeclared: string[]; unshowable: string[] }
+
+/**
  * Conform caller-supplied arguments to what a run form can actually show: drop what the
  * schema does not declare at any level, then apply {@link enforceDisabledDefaults}. An
  * argument with no field — including every argument of a script whose schema declares
@@ -36,11 +43,11 @@ export function enforceDisabledDefaults(
 export function conformArgsToSchema(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined
-): { args: Record<string, any>; resetKeys: string[]; droppedKeys: string[] } {
-	const droppedKeys: string[] = []
-	const known = dropUndeclaredArgs(args ?? {}, schema?.properties ?? {}, droppedKeys)
+): { args: Record<string, any>; resetKeys: string[]; dropped: DroppedPaths } {
+	const dropped: DroppedPaths = { undeclared: [], unshowable: [] }
+	const known = dropUndeclaredArgs(args ?? {}, schema?.properties ?? {}, dropped)
 	const { args: result, resetKeys } = enforceDisabledDefaults(known, schema)
-	return { args: result, resetKeys, droppedKeys }
+	return { args: result, resetKeys, dropped }
 }
 
 /** The tag naming the selected `oneOf` branch. No branch has to declare it, but
@@ -55,7 +62,7 @@ const ONE_OF_TAG_KEYS = ['kind', 'label']
 function dropUndeclaredArgs(
 	holder: Record<string, any>,
 	properties: Record<string, any>,
-	droppedKeys: string[],
+	dropped: DroppedPaths,
 	path = '',
 	alsoAllowed?: string[]
 ): Record<string, any> {
@@ -68,11 +75,11 @@ function dropUndeclaredArgs(
 		const keyPath = path ? `${path}.${key}` : key
 		if (!Object.hasOwn(properties, key)) {
 			if (alsoAllowed?.includes(key)) kept[key] = value
-			else droppedKeys.push(keyPath)
+			else dropped.undeclared.push(keyPath)
 			continue
 		}
-		const nested = dropUndeclaredNested(value, properties[key], droppedKeys, keyPath)
-		if (nested === DROP) droppedKeys.push(keyPath)
+		const nested = dropUndeclaredNested(value, properties[key], dropped, keyPath)
+		if (nested === DROP) dropped.unshowable.push(keyPath)
 		else kept[key] = nested
 	}
 	// Spread rather than the accumulator itself: $state.snapshot returns a null-prototype
@@ -83,27 +90,30 @@ function dropUndeclaredArgs(
 /** Stands in for a value the caller must remove rather than keep. */
 const DROP = Symbol('drop')
 
-function dropUndeclaredNested(value: any, prop: any, droppedKeys: string[], path: string): any {
+/** Types `setInputCat` routes to a widget bound to a scalar. */
+const SCALAR_TYPES = new Set(['string', 'number', 'integer', 'boolean'])
+
+function dropUndeclaredNested(value: any, prop: any, dropped: DroppedPaths, path: string): any {
 	if (value == null || typeof value !== 'object') return value
-	// A value whose shape contradicts the declared one matches no level below, so every
-	// filter here falls straight through it — and `ArgInput` has no widget for it either
-	// (an object in a list slot renders as nothing at all), so the form would show an
-	// empty field over an argument the run still carries. Only a schema declaring no
-	// structure at all passes a value through unread.
+	// A value the form cannot show is one the user would approve unseen: it matches no
+	// level below, so every filter falls straight through it, and `ArgInput` binds it to
+	// a widget that renders nothing — an object in a list slot, or in a scalar input.
+	if (SCALAR_TYPES.has(prop?.type)) return DROP
 	const isArray = Array.isArray(value)
-	const declaresArray = prop?.type === 'array' || prop?.items != null
-	const declaresObject =
-		prop?.type === 'object' || prop?.properties != null || Array.isArray(prop?.oneOf)
+	// Declared nested structure, never the declared `type`: a dyn-multiselect argument is
+	// `type: 'object'` holding an array, so reading `type` would drop what the user picked.
+	const declaresArray = prop?.items != null
+	const declaresObject = prop?.properties != null || Array.isArray(prop?.oneOf)
 	if (isArray ? declaresObject && !declaresArray : declaresArray && !declaresObject) return DROP
 	if (prop?.properties && !isArray) {
-		return dropUndeclaredArgs(value, prop.properties, droppedKeys, path)
+		return dropUndeclaredArgs(value, prop.properties, dropped, path)
 	}
 	if (prop?.items?.properties && isArray) {
 		const kept: any[] = []
 		value.forEach((item: any, i: number) => {
 			const itemPath = `${path}[${i}]`
-			const nested = dropUndeclaredNested(item, prop.items, droppedKeys, itemPath)
-			if (nested === DROP) droppedKeys.push(itemPath)
+			const nested = dropUndeclaredNested(item, prop.items, dropped, itemPath)
+			if (nested === DROP) dropped.unshowable.push(itemPath)
 			else kept.push(nested)
 		})
 		return kept
@@ -113,7 +123,7 @@ function dropUndeclaredNested(value: any, prop: any, droppedKeys: string[], path
 		// runtime state, and pruning by a stale tag would delete what the user typed.
 		const union: Record<string, any> = {}
 		for (const branch of prop.oneOf) Object.assign(union, branch?.properties ?? {})
-		return dropUndeclaredArgs(value, union, droppedKeys, path, ONE_OF_TAG_KEYS)
+		return dropUndeclaredArgs(value, union, dropped, path, ONE_OF_TAG_KEYS)
 	}
 	return value
 }
