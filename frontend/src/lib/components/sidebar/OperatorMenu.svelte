@@ -179,9 +179,14 @@
 			usePointerDownOutside
 			on:close={() => (showExtraTriggers = false)}
 		>
-			{#snippet triggr({ trigger })}
+			{#snippet triggr({ trigger, pinned })}
 				<MenuButton
-					class="!text-xs bg-surface !pl-3.5 !pr-2 !w-auto"
+					class={twMerge(
+						'!text-xs bg-surface !pl-3.5 !pr-2 !w-auto',
+						// A hover-opened menu leaves the button plain once the pointer moves on;
+						// keeping the tint is what tells you the click pinned it.
+						pinned ? sidebarClasses.selectedBg : ''
+					)}
 					icon={MenuIcon}
 					isCollapsed={false}
 					lightMode

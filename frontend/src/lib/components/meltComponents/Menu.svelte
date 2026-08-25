@@ -108,6 +108,7 @@
 	}
 
 	// A hover-opened menu is unpinned; a click pins it until a click outside or on the trigger.
+	// Handed to the triggr snippet so the trigger can show the pinned state.
 	let pinned = $state(false)
 	let closeTimeout: ReturnType<typeof setTimeout> | undefined
 	let triggerEl: HTMLElement | undefined = $state()
@@ -210,7 +211,7 @@
 		}}
 		data-menu
 	>
-		{@render triggr?.({ trigger })}
+		{@render triggr?.({ trigger, pinned })}
 	</button>
 
 	<!--svelte-ignore a11y_no_static_element_interactions-->
