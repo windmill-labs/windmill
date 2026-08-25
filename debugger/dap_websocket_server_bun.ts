@@ -1652,8 +1652,12 @@ export class DebugSession {
 			await this.startBunProcess(cwd)
 		} catch (error) {
 			this.sendEvent('output', { category: 'stderr', output: `Failed to start Bun: ${error}\n` })
-			this.terminatedSent = true
-			this.sendEvent('terminated', { error: String(error) })
+			// A socket that drops mid-handshake reports the termination from onclose and fails the
+			// launch; that first event carries the result, so it must not be overwritten here.
+			if (!this.terminatedSent) {
+				this.terminatedSent = true
+				this.sendEvent('terminated', { error: String(error) })
+			}
 			// --inspect-wait blocks until a debugger attaches, so a bun we failed to attach to
 			// waits forever unless it is reaped here.
 			await this.cleanup()
