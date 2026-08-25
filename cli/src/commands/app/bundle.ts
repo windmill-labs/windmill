@@ -191,7 +191,14 @@ function createSveltePlugin(appDir: string): any {
 
         // Convert Svelte syntax to JavaScript
         try {
-          const { js, warnings } = svelte.compile(source, { filename });
+          // `css: "injected"` puts each component's <style> into its own js
+          // output. Svelte's default ("external") returns it on a separate
+          // `css` field that an esbuild onLoad has no way to emit, so the
+          // markup keeps its `svelte-<hash>` class and the rule is dropped.
+          const { js, warnings } = svelte.compile(source, {
+            filename,
+            css: "injected",
+          });
           const contents = js.code + `//# sourceMappingURL=` + js.map.toUrl();
           return { contents, warnings: warnings.map(convertMessage) };
         } catch (e: any) {
