@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO flow\n            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs)\n        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs\n            FROM flow WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dcbf4630616d214c510dd8bda9cb77215453c094cc1caab16ae4b4e5148b0c58"
+}

@@ -273,7 +273,7 @@ impl AssetsFinder {
             Some(Expr::Constant(ExprConstant { value: Constant::Str(value), .. })) => {
                 let path = parse_asset_syntax(&value, false)
                     .map(|(_, p)| p)
-                    .unwrap_or(&value);
+                    .unwrap_or(std::borrow::Cow::Borrowed(value));
                 self.assets.push(ParseAssetsResult {
                     kind,
                     path: path.to_string(),

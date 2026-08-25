@@ -66,6 +66,7 @@ pub enum ScriptLang {
     Java,
     Ruby,
     Rlang,
+    Dbt,
     // for related places search: ADD_NEW_LANG
 }
 
@@ -96,6 +97,7 @@ impl ScriptLang {
             ScriptLang::Java => "java",
             ScriptLang::Ruby => "ruby",
             ScriptLang::Rlang => "rlang",
+            ScriptLang::Dbt => "dbt",
             // for related places search: ADD_NEW_LANG
         }
     }
@@ -134,7 +136,7 @@ impl ScriptLang {
         use ScriptLang::*;
         match self {
             Nativets | Bun | Bunnative | Deno | Go | Php | CSharp | Java => "//",
-            Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby | Rlang => "#",
+            Python3 | Bash | Powershell | Graphql | Ansible | Nu | Ruby | Rlang | Dbt => "#",
             Postgresql | Mysql | Bigquery | Snowflake | Mssql | OracleDB | DuckDb => "--",
             Rust => "//!",
             // for related places search: ADD_NEW_LANG
@@ -170,6 +172,7 @@ impl FromStr for ScriptLang {
             "java" => ScriptLang::Java,
             "ruby" => ScriptLang::Ruby,
             "rlang" => ScriptLang::Rlang,
+            "dbt" => ScriptLang::Dbt,
             // for related places search: ADD_NEW_LANG
             language => return Err(anyhow::anyhow!("{} is currently not supported", language)),
         };
@@ -326,7 +329,8 @@ pub const SCRIPT_COLUMNS: &str = concat!(
     "lock, lock_error_logs, language, kind, tag, envs, ",
     "dedicated_worker, ws_error_handler_muted, priority, cache_ttl, cache_ignore_s3_path, ",
     "timeout, delete_after_use, delete_after_secs, restart_unless_cancelled, ",
-    "visible_to_runner_only, auto_kind, codebase, has_preprocessor, on_behalf_of_email, ",
+    "visible_to_runner_only, auto_kind, codebase, has_preprocessor, ",
+    "on_behalf_of, ",
     "assets, modules, labels, concurrency_key, concurrent_limit, ",
     "concurrency_time_window_s, debounce_key, debounce_delay_s, runnable_settings_handle",
 );
@@ -382,8 +386,13 @@ pub struct Script<SR> {
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
+    /// Derived from `on_behalf_of` on the read paths, not selected. Kept in the response so
+    /// clients written against the old shape keep working.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
     pub on_behalf_of_email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_behalf_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
@@ -554,6 +563,10 @@ pub struct NewScript {
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
+    /// Authorization identity to run as, paired with `on_behalf_of_email`. Both move
+    /// together under the same `preserve_on_behalf_of` gate and must name the same user
+    /// or group; `None` has it derived from that email rather than left unset.
+    pub on_behalf_of: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
@@ -606,6 +619,7 @@ impl Hash for NewScript {
         self.codebase.hash(state);
         self.has_preprocessor.hash(state);
         self.on_behalf_of_email.hash(state);
+        self.on_behalf_of.hash(state);
         self.preserve_on_behalf_of.hash(state);
         self.assets.hash(state);
         self.labels.hash(state);

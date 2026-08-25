@@ -305,11 +305,32 @@ export async function formatGraphqlSchema(schema: IntrospectionQuery): Promise<s
 	return printSchema(buildClientSchema(schema))
 }
 
+// Filter out hidden columns to avoid counting the wrong number of rows
+function visibleColumnDefs(columnDefs: ColumnDef[]): ColumnDef[] {
+	return columnDefs.filter((columnDef: ColumnDef) => columnDef && columnDef.ignored !== true)
+}
+
 export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
-	// Filter out hidden columns to avoid counting the wrong number of rows
-	return columnDefs
-		.filter((columnDef: ColumnDef) => columnDef && columnDef.ignored !== true)
-		.map((column) => renderDbQuotedIdentifier(column?.field, dbType))
+	return visibleColumnDefs(columnDefs).map((column) =>
+		renderDbQuotedIdentifier(column?.field, dbType)
+	)
+}
+
+/**
+ * DuckDB's `concat` doubles as list concatenation, so a LIST or ARRAY beside a
+ * VARCHAR is a binder error rather than an implicit cast, and quicksearch
+ * concatenates every visible column, so one of them makes the table
+ * unpreviewable. Everything else concatenates as text and stays uncast: this
+ * query is digested into the policy of every deployed Database Studio app, and
+ * a changed string invalidates it until the app is redeployed.
+ */
+export function duckdbQuicksearchColumns(columnDefs: ColumnDef[]): string {
+	return visibleColumnDefs(columnDefs)
+		.map((column) => {
+			const quoted = renderDbQuotedIdentifier(column?.field, 'duckdb')
+			return column?.datatype?.trimEnd().endsWith(']') ? `CAST(${quoted} AS VARCHAR)` : quoted
+		})
+		.join(', ')
 }
 
 export function renderDbQuotedIdentifier(identifier: string, dbType: DbType): string {

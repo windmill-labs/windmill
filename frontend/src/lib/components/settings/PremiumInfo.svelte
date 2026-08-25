@@ -68,8 +68,12 @@
 
 	async function loadPremiumInfo() {
 		const info = await WorkspaceService.getPremiumInfo({ workspace: $workspaceStore! })
-		const developerNb = users?.filter((x) => !x.operator)?.length ?? 0
-		const operatorNb = users?.filter((x) => x.operator)?.length ?? 0
+		// Same basis as the backend's `count_paid_seats`, which excludes disabled members
+		// and service accounts: counting them here would put this page at a different
+		// seat count from the rest of the product.
+		const billable = users?.filter((x) => !x.disabled && !x.is_service_account) ?? []
+		const developerNb = billable.filter((x) => !x.operator).length
+		const operatorNb = billable.length - developerNb
 		const usage = info.usage ?? 0
 
 		const seatsFromUsers = Math.ceil(developerNb + operatorNb / 2)
@@ -128,8 +132,9 @@
 	const formatNumber = (value: number) => value.toLocaleString('en-US')
 	run(() => {
 		if ($workspaceStore) {
-			loadPremiumInfo()
-			listUsers()
+			// The seat rows are computed from the member list and nothing recomputes them
+			// when it lands, so a fast `premium_info` would render zero seats and keep them.
+			listUsers().catch(console.warn).then(loadPremiumInfo)
 			getThresholdAlert()
 		}
 	});

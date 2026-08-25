@@ -964,3 +964,151 @@ async fn test_get_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// A dbt project names a warehouse and nothing else, so the workspace setting is
+/// the only place the connection is decided. Two things have to hold for that to
+/// work at all: the setting round-trips as the MAP the resolver reads (an
+/// envelope stored verbatim makes every warehouse name unresolvable), and the
+/// route that serves the name to a worker with no database stays job-scoped.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_dbt_warehouses(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{base}/workspaces/edit_dbt_warehouses")))
+        .json(&json!({
+            "dbt_warehouses": { "main": { "resource_path": "u/admin/wh", "target": "prod" } }
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let resp = authed(client().get(format!("{base}/workspaces/get_settings")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let settings = resp.json::<serde_json::Value>().await?;
+    assert_eq!(
+        settings["dbt_warehouses"],
+        json!({ "main": { "resource_path": "u/admin/wh", "target": "prod" } })
+    );
+
+    // A user token is not a job token: the warehouses a workspace configures are
+    // a running job's business, not a browsable list.
+    let resp = authed(client().get(format!("{base}/dbt/warehouse/main")))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 400);
+
+    Ok(())
+}
+
+/// A service account created over an orphaned `usr_to_group` row must start with
+/// exactly the memberships that were asked for.
+///
+/// `usr_to_group` has no FK to `usr`, so `leave_workspace` leaves group rows behind
+/// for a deleted username. Recreating that username used to fail outright on the
+/// duplicate `all` row; tolerating the duplicate alone would instead have handed the
+/// new account every stale membership, including privileged ones.
+///
+/// Gated on `private` because `create_service_account` is EE-only — the OSS shim
+/// (`windmill-api-workspaces/src/workspaces_oss.rs`) rejects the request outright.
+#[cfg(feature = "private")]
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_create_service_account_drops_orphaned_group_memberships(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    sqlx::query(
+        "INSERT INTO group_ (workspace_id, name, summary) VALUES
+         ('test-workspace', 'wm_deployers', 'deployers'),
+         ('test-workspace', 'secrets', 'privileged')",
+    )
+    .execute(&db)
+    .await?;
+
+    // Stale rows from a prior user of this username: no matching `usr` row exists.
+    sqlx::query(
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES
+         ('test-workspace', 'svc_acct', 'all'),
+         ('test-workspace', 'svc_acct', 'wm_deployers'),
+         ('test-workspace', 'svc_acct', 'secrets')",
+    )
+    .execute(&db)
+    .await?;
+
+    // Same username, different workspace, and very much alive — must not be touched.
+    sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other', 'svc_acct')")
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO group_ (workspace_id, name, summary) VALUES
+         ('other-workspace', 'all', 'All users'),
+         ('other-workspace', 'secrets', 'privileged')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO usr (workspace_id, email, username, is_admin, role)
+         VALUES ('other-workspace', 'other@windmill.dev', 'svc_acct', false, 'User')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO usr_to_group (workspace_id, usr, group_) VALUES
+         ('other-workspace', 'svc_acct', 'all'),
+         ('other-workspace', 'svc_acct', 'secrets')",
+    )
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace/workspaces");
+
+    let resp = authed(client().post(format!("{base}/create_service_account")))
+        .json(&json!({"username": "svc_acct", "is_admin": false, "operator": true, "add_to_deployers": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "creation over an orphaned row failed: {}",
+        resp.text().await?
+    );
+
+    let groups: Vec<String> = sqlx::query_scalar(
+        "SELECT group_ FROM usr_to_group WHERE workspace_id = $1 AND usr = $2 ORDER BY group_",
+    )
+    .bind("test-workspace")
+    .bind("svc_acct")
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        groups,
+        vec!["all".to_string()],
+        "service account inherited stale memberships"
+    );
+
+    let other: Vec<String> = sqlx::query_scalar(
+        "SELECT group_ FROM usr_to_group WHERE workspace_id = $1 AND usr = $2 ORDER BY group_",
+    )
+    .bind("other-workspace")
+    .bind("svc_acct")
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        other,
+        vec!["all".to_string(), "secrets".to_string()],
+        "cleanup escaped the workspace it was scoped to"
+    );
+
+    Ok(())
+}

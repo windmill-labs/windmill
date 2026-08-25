@@ -1,0 +1,44 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH t1 AS (UPDATE http_trigger SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4), t2 AS (UPDATE email_trigger SET script_path = $1 WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4) UPDATE native_trigger SET script_path = $1, updated_at = NOW(), error = $5 WHERE script_path = $2 AND workspace_id = $3 AND is_flow = $4 RETURNING service_name::text AS \"service_name!\", external_id, script_path, is_flow",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "service_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "external_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "script_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_flow",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Text",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4956c7bb3312520e0ba0ae330037056f9a6157c1c448e46f502a17615ec25d87"
+}

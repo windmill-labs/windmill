@@ -108,7 +108,7 @@
 			// Only non-draft_only rows carry a base pointer in production.
 			return staleDrafts && !items.find((it) => it.key === key)?.draftOnly
 		},
-		get deployPermission() {
+		deployPermissionForKind() {
 			return permOk
 				? { ok: true as const }
 				: { ok: false as const, reason: 'Deploy disabled by the playground toggle' }

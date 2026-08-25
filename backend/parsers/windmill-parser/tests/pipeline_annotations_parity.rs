@@ -110,6 +110,7 @@ fn kind_str(k: AssetKind) -> &'static str {
         AssetKind::Ducklake => "ducklake",
         AssetKind::DataTable => "datatable",
         AssetKind::Volume => "volume",
+        AssetKind::Dbt => "dbt",
     }
 }
 

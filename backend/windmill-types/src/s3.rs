@@ -3,6 +3,12 @@ use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 
+/// The name of a workspace's PRIMARY file storage. Reserved: a secondary storage may not carry
+/// it (`edit_large_file_storage_config` rejects that), because everything that resolves a
+/// storage name — the s3-proxy URL, the clients' fallback, `get_secondary_storage_names` — reads
+/// it as the primary one.
+pub const DEFAULT_STORAGE: &str = "_default_";
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct FilesystemSettings {
     pub root_path: String,

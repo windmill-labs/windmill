@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { mergeSchema } from '$lib/common'
 	import { type Job, JobService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { ExternalLink, X } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
@@ -14,6 +13,8 @@
 
 	interface Props {
 		isOwner: boolean
+		/** The workspace the job ran in — pass `job.workspace_id`, never the navigation
+		 *  workspace, which differs whenever the editor is embedded. */
 		workspaceId: string | undefined
 		job: Job
 		light?: boolean
@@ -39,12 +40,12 @@
 		if (jobId === lastJobId) {
 			return
 		}
-		if (!jobId) {
+		if (!jobId || !workspaceId) {
 			return {}
 		}
 		lastJobId = jobId
 		let job_result = (await JobService.getCompletedJobResult({
-			workspace: workspaceId ?? $workspaceStore ?? '',
+			workspace: workspaceId,
 			id: jobId
 		})) as any
 		const args = job_result?.default_args ?? {}
@@ -64,10 +65,14 @@
 	let loading = $state(false)
 	let actionTaken = $state(false)
 	async function continu(approve: boolean) {
+		if (!workspaceId) {
+			sendUserToast('Cannot resume: the job has no workspace', true)
+			return
+		}
 		loading = true
 		try {
 			await JobService.resumeSuspended({
-				workspace: workspaceId ?? $workspaceStore ?? '',
+				workspace: workspaceId,
 				jobId: job?.id ?? '',
 				requestBody: {
 					payload: approve ? (default_payload as any) : undefined,

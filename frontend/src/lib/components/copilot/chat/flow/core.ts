@@ -52,6 +52,8 @@ import {
 	type FlowValueSettings
 } from './editableFlowJson'
 import { FLOW_CHAT_SPECIAL_MODULES, getFlowPrompt } from '$system_prompts'
+import { getAiAgentProviderCatalogFor } from './aiAgentProviderCatalog'
+import { formatAiAgentProviderWarnings } from './aiAgentProviders'
 
 type FlowJsonUpdate = {
 	modules?: FlowModule[]
@@ -366,6 +368,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	...createWorkspaceMutationTools<FlowAIChatHelpers>(),
 	{
 		def: resourceTypeToolDef,
+		planModeSafe: true,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
 			const parsedArgs = resourceTypeToolSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, {
@@ -384,6 +387,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: getInstructionsForCodeGenerationToolDef,
+		planModeSafe: true,
 		fn: async ({ args, toolId, toolCallbacks }) => {
 			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
 			const langContext = getLangContext(parsedArgs.language, {
@@ -473,6 +477,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		def: inspectInlineScriptToolDef,
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = inspectInlineScriptSchema.parse(args)
 			const moduleId = parsedArgs.moduleId
@@ -530,7 +535,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		streamArguments: true,
 		showDetails: true,
 		showFade: true,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+		fn: async ({ args, helpers, toolId, toolCallbacks, workspace }) => {
 			const parsedArgs = patchFlowJsonSchema.parse(args)
 			const { old_string: oldString, new_string: newString, replace_all: replaceAll } = parsedArgs
 			const { flow, selectedId } = helpers.getFlowAndSelectedId()
@@ -551,13 +556,24 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				'current flow JSON'
 			)
 
-			let parsedFlow: EditableFlowJson
+			let patchedValue: unknown
 			try {
-				parsedFlow = validateEditableFlowJson(JSON.parse(updatedFlowJson))
+				patchedValue = JSON.parse(updatedFlowJson)
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error)
 				throw new Error(`Invalid JSON after replacement: ${message}`)
 			}
+			const aiProviders = await getAiAgentProviderCatalogFor(
+				workspace,
+				(patchedValue as { modules?: unknown } | null)?.modules
+			)
+			const aiProviderWarnings: string[] = []
+			// Validation errors carry their own diagnosis (a bad module, a provider the workspace
+			// does not have); only a parse failure is about the replacement's JSON.
+			const parsedFlow: EditableFlowJson = validateEditableFlowJson(patchedValue, {
+				aiProviders,
+				aiProviderWarnings
+			})
 
 			for (const [moduleId, content] of Object.entries(inlineScriptSession.getAll())) {
 				helpers.inlineScriptSession.set(moduleId, content)
@@ -588,7 +604,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				result: 'Success'
 			})
 
-			return `Flow JSON updated.${warning}`
+			return `Flow JSON updated.${warning}${formatAiAgentProviderWarnings(aiProviderWarnings)}`
 		}
 	},
 	{
@@ -672,7 +688,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		streamArguments: true,
 		showDetails: true,
 		showFade: true,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+		fn: async ({ args, helpers, toolId, toolCallbacks, workspace }) => {
 			const { modules, schema, preprocessor_module, failure_module, groups, notes } = args
 
 			let parsedModules: FlowModule[] | null | undefined
@@ -705,8 +721,10 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				parsedSchema = undefined
 			}
 
+			const aiProviderWarnings: string[] = []
 			if (parsedModules !== undefined) {
-				parsedModules = validateFlowModules(parsedModules)
+				const aiProviders = await getAiAgentProviderCatalogFor(workspace, parsedModules)
+				parsedModules = validateFlowModules(parsedModules, { aiProviders, aiProviderWarnings })
 				const reservedIds = collectAllFlowModuleIdsFromModules(parsedModules).filter(
 					(id) => id === SPECIAL_MODULE_IDS.PREPROCESSOR || id === SPECIAL_MODULE_IDS.FAILURE
 				)
@@ -791,11 +809,12 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 				content: `Flow updated`,
 				result: 'Success'
 			})
-			return `Flow updated.${warning}`
+			return `Flow updated.${warning}${formatAiAgentProviderWarnings(aiProviderWarnings)}`
 		}
 	},
 	{
 		def: getLintErrorsToolDef,
+		planModeSafe: true,
 		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
 			const parsedArgs = getLintErrorsSchema.parse(args)
 
@@ -1143,45 +1162,6 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
    - Always define \`input_transforms\` to connect parameters to flow inputs or previous step results
 
 3. **After making code changes, ALWAYS use \`get_lint_errors\` to check for issues.** Fix any errors before proceeding with testing.
-
-### AI Agent Modules
-
-AI agents can use tools to accomplish tasks. When creating an AI agent module:
-
-\`\`\`javascript
-{
-  id: "support_agent",
-  summary: "AI agent for customer support",
-  value: {
-    type: "aiagent",
-    input_transforms: {
-      provider: { type: "static", value: "$res:f/ai_providers/openai" },
-      output_type: { type: "static", value: "text" },
-      user_message: { type: "javascript", expr: "flow_input.query" },
-      system_prompt: { type: "static", value: "You are a helpful assistant." }
-    },
-    tools: [
-      {
-        id: "search_docs",
-        summary: "Search_documentation",
-        description: "Search the product documentation. Use it whenever the user asks how a feature works.",
-        value: {
-          tool_type: "flowmodule",
-          type: "rawscript",
-          language: "bun",
-          content: "export async function main(query: string) { return ['doc1', 'doc2']; }",
-          input_transforms: { query: { type: "static", value: "" } }
-        }
-      }
-    ]
-  }
-}
-\`\`\`
-
-- **Tool IDs**: Cannot contain spaces - use underscores
-- **Tool summaries**: Cannot contain spaces - use underscores. This is the tool *name* the agent sees
-- **Tool descriptions**: Optional free text telling the agent when and how to call the tool. Set it whenever the name alone does not make that obvious - it overrides the description derived from the underlying script
-- **Tool types**: \`flowmodule\` for scripts/flows, \`mcp\` for MCP server tools
 
 ### Contexts
 

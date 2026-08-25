@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH updated AS (\n            UPDATE eval_dataset SET path = REGEXP_REPLACE(path, 'u/' || $2 || '/(.*)', $1 || '/\\1')\n            WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3\n            RETURNING 1\n        ) SELECT COUNT(*) FROM updated",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "467ed4d282af003dd3b0d9542caec73feba3141f7345ffd1a6554fe44a6a9171"
+}

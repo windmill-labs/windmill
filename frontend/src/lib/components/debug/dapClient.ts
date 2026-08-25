@@ -82,6 +82,14 @@ const initialState: DebugState = {
 
 export const debugState = writable<DebugState>({ ...initialState })
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
+
+// `launch` waits on dependency installation in the debug server, which can take minutes on a
+// cold cache; anything shorter here reports a timeout while the install is still running.
+const REQUEST_TIMEOUT_MS_BY_COMMAND: Record<string, number> = {
+	launch: 180_000
+}
+
 export class DAPClient {
 	private ws: WebSocket | null = null
 	private seq = 1
@@ -120,7 +128,13 @@ export class DAPClient {
 						logs: s.logs,
 						output: s.output
 					}))
+					// Reject rather than drop: a dropped `launch` leaves its caller awaiting
+					// until the timeout below fires, which is minutes rather than seconds.
+					const aborted = Array.from(this.pendingRequests.values())
 					this.pendingRequests.clear()
+					for (const pending of aborted) {
+						pending.reject(new Error('DAP connection closed'))
+					}
 				}
 
 				this.ws.onerror = (error) => {
@@ -164,11 +178,13 @@ export class DAPClient {
 			arguments: args
 		}
 
+		const timeoutMs = REQUEST_TIMEOUT_MS_BY_COMMAND[command] ?? DEFAULT_REQUEST_TIMEOUT_MS
+
 		return new Promise((resolve, reject) => {
 			const timeout = setTimeout(() => {
 				this.pendingRequests.delete(seq)
-				reject(new Error(`Request timeout: ${command}`))
-			}, 10000)
+				reject(new Error(`Request timeout: ${command} (after ${timeoutMs}ms)`))
+			}, timeoutMs)
 
 			this.pendingRequests.set(seq, {
 				resolve: (value) => {

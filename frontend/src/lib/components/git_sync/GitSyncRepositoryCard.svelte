@@ -141,7 +141,7 @@
 	let targetBranch = $state<string | undefined>(undefined) // Default to main, will be updated when resource is available
 	// The branch this fork workspace syncs with, mirroring the CLI/hub-script
 	// naming: a dev workspace uses its environment-label branch verbatim
-	// (dev/staging); a wm-fork-<slug> throwaway fork keeps only the slug.
+	// (dev, staging, ...); a wm-fork-<slug> throwaway fork keeps only the slug.
 	const forkBranch = $derived(
 		currentWorkspaceData?.is_dev_workspace
 			? (currentWorkspaceData?.dev_workspace_label ?? 'dev')

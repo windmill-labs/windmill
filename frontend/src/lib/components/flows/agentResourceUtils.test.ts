@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+	agentConfigAsEdited,
 	agentConfigToInputTransforms,
 	flowLocalInputs,
 	inputTransformsToAgentConfig,
@@ -66,6 +67,24 @@ describe('inputTransformsToAgentConfig', () => {
 
 	it('defaults tools to []', () => {
 		expect(inputTransformsToAgentConfig({}, undefined)).toEqual({ tools: [] })
+	})
+})
+
+describe('agentConfigAsEdited', () => {
+	it('keeps an expression as itself, where the saved config would drop it', () => {
+		const transforms = {
+			system_prompt: { type: 'static', value: 'hi' },
+			temperature: { type: 'javascript', expr: 'flow_input.t' },
+			max_iterations: { type: 'static', value: undefined },
+			user_message: { type: 'static', value: 'hello' }
+		} as any
+		expect(agentConfigAsEdited(transforms, [])).toEqual({
+			tools: [],
+			system_prompt: 'hi',
+			temperature: { type: 'javascript', expr: 'flow_input.t' }
+		})
+		// The saved shape is blind to the expression: that is the difference this exists for.
+		expect(inputTransformsToAgentConfig(transforms, [])).toEqual({ tools: [], system_prompt: 'hi' })
 	})
 })
 

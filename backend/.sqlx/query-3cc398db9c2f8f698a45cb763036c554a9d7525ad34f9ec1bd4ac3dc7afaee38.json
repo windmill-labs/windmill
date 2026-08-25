@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO flow (\n            workspace_id, path, summary, description, value, edited_by, edited_at,\n            archived, schema, extra_perms, dependency_job, tag,\n            ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,\n            concurrency_key, versions, on_behalf_of, on_behalf_of_email, lock_error_logs\n        )\n        SELECT $2, path, summary, description, value, edited_by, edited_at,\n               archived, schema, extra_perms, NULL, tag,\n               ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only,\n               concurrency_key, ARRAY[]::bigint[],\n               -- Same predicate as clone_scripts.\n               CASE WHEN on_behalf_of LIKE 'u/%' THEN\n                       (SELECT on_behalf_of WHERE EXISTS (\n                           SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar\n                             AND u.username = substring(on_behalf_of from 3)\n                           UNION ALL\n                           SELECT 1 FROM password p WHERE p.super_admin\n                             AND (p.username = substring(on_behalf_of from 3)\n                                  OR p.email = substring(on_behalf_of from 3))))\n                    WHEN on_behalf_of LIKE 'g/%' THEN\n                       (SELECT on_behalf_of WHERE EXISTS (\n                           SELECT 1 FROM group_ g WHERE g.workspace_id = $2::varchar\n                             AND g.name = substring(on_behalf_of from 3)))\n                    ELSE\n                       (SELECT on_behalf_of WHERE EXISTS (\n                           SELECT 1 FROM usr u WHERE u.workspace_id = $2::varchar\n                             AND u.username = on_behalf_of\n                           UNION ALL\n                           SELECT 1 FROM password p WHERE p.email = on_behalf_of\n                             AND p.super_admin))\n               END, on_behalf_of_email, lock_error_logs\n        FROM flow\n        WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3cc398db9c2f8f698a45cb763036c554a9d7525ad34f9ec1bd4ac3dc7afaee38"
+}

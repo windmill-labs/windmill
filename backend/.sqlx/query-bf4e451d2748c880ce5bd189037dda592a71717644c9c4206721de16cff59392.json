@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n            (SELECT hash FROM script\n                WHERE path = $1 AND workspace_id = $2 AND deleted = false\n                    AND lock IS NOT NULL AND lock_error_logs IS NULL\n                ORDER BY created_at DESC LIMIT 1) AS hash,\n            (SELECT lock IS NULL AND lock_error_logs IS NULL\n                    AND created_at > now() - make_interval(secs => $3) FROM script\n                WHERE path = $1 AND workspace_id = $2 AND deleted = false\n                ORDER BY created_at DESC LIMIT 1) AS pending_lock",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "pending_lock",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "bf4e451d2748c880ce5bd189037dda592a71717644c9c4206721de16cff59392"
+}

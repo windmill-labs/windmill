@@ -37,10 +37,13 @@ async fn get_suspended_trigger(
     path: &str,
 ) -> Result<SuspendedTrigger> {
     // Only trigger kinds backed by a `<kind>_trigger` table support reassignment.
-    // `app` (and webhook/schedule) have no such table, so reject them with a clear
+    // `app`/`ui` (and webhook/schedule) have no such table, so reject them with a clear
     // error instead of failing on a missing-relation database error below.
     match trigger_kind {
-        JobTriggerKind::Webhook | JobTriggerKind::Schedule | JobTriggerKind::App => {
+        JobTriggerKind::Webhook
+        | JobTriggerKind::Schedule
+        | JobTriggerKind::App
+        | JobTriggerKind::Ui => {
             return Err(Error::BadRequest(format!(
                 "{} triggers do not support job reassignment",
                 trigger_kind

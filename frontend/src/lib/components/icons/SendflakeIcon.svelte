@@ -1,15 +1,18 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #29B5E8 per snowflake.com/brand-guidelines. Snowflake Blue is the only approved logo color;
+	the sole alternate is a white reverse reserved for full-bleed Snowflake Blue. -->
 <svg
+	class="text-[#29B5E8]"
 	xmlns="http://www.w3.org/2000/svg"
-	viewBox="0 0 1565 1559"
+	viewBox="-71.136 -74.136 1707.273 1707.273"
 	{height}
 	{width}
 	style="fill:currentcolor"
