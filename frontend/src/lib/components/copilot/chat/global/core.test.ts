@@ -4733,6 +4733,9 @@ describe('global AI tools', () => {
 		)
 
 		expect(shown).toEqual({ nested: {}, name: 'ada' })
+		// Named, or an emptied field reads as the user having deleted the value and the
+		// next call proposes the same secret again.
+		expect(result).toContain('token, nested.inner')
 		expect(result).not.toContain('hunter2')
 		expect(result).not.toContain('secret_arg')
 		expect(result).not.toContain('prod_api_key')

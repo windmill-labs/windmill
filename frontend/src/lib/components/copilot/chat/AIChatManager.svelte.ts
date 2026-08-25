@@ -4594,9 +4594,16 @@ export class AIChatManager {
 	): DisplayMessage[] =>
 		messages.map((message) => {
 			if (message.role === 'tool' && (message.isLoading || message.isQueued)) {
-				// Stopping the turn does not stop the job: once the job is queued the script
-				// is running for real, so the card must not claim it was canceled.
-				const ranAlready = message.runForm?.started === true
+				// Stopping the turn does not stop the job, and between Run and the job's id
+				// there is no way to know whether the server queued one: nothing threads the
+				// abort into that request, so it lands either way. That window says so
+				// rather than picking a side — "canceled" hides a script that ran, "started"
+				// invents one that did not.
+				const runState = message.runForm?.started
+					? 'started'
+					: message.runForm?.submitted
+						? 'starting'
+						: 'idle'
 				return {
 					...message,
 					isLoading: false,
@@ -4611,17 +4618,21 @@ export class AIChatManager {
 					content: message.userQuestion
 						? `Asked: ${message.userQuestion.question} — ${messageText}`
 						: message.runForm
-							? ranAlready
+							? runState === 'started'
 								? `Run ${message.runForm.path} — started, stopped tracking before it finished`
-								: `Run ${message.runForm.path} — ${messageText}`
+								: runState === 'starting'
+									? `Run ${message.runForm.path} — ${messageText} while starting, check the runs page for a job`
+									: `Run ${message.runForm.path} — ${messageText}`
 							: messageText,
-					// A started run keeps whatever the job reported: it is not this turn's
-					// error, and the jobs tray is still following it.
-					...(ranAlready ? {} : { error: messageText }),
+					// A run that reached the server keeps whatever the job reported: it is not
+					// this turn's error, and the jobs tray is still following it.
+					...(runState === 'idle' ? { error: messageText } : {}),
 					userQuestion: message.userQuestion
 						? { ...message.userQuestion, canceled: true }
 						: undefined,
-					runForm: message.runForm ? { ...message.runForm, canceled: !ranAlready } : undefined
+					runForm: message.runForm
+						? { ...message.runForm, canceled: runState === 'idle' }
+						: undefined
 				}
 			}
 			return message

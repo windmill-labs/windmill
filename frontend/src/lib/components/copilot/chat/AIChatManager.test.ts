@@ -302,9 +302,9 @@ describe('AIChatManager run form', () => {
 		expect(settled.isLoading).toBe(false)
 	})
 
-	// Run flips `submitted` a round trip before the job exists. Stop in that window
-	// cancelled nothing that ran, so the card must not claim the script was left running.
-	it('marks a submitted run cancelled while its job has not started', () => {
+	// Run flips `submitted` a round trip before the job id arrives, and nothing threads
+	// the stop into that request — so the card claims neither outcome for that window.
+	it('claims neither outcome for a run stopped while its job was starting', () => {
 		const manager = new AIChatManager()
 		manager.displayMessages = [
 			{
@@ -313,6 +313,29 @@ describe('AIChatManager run form', () => {
 				content: 'Running "f/a/b"...',
 				isLoading: true,
 				runForm: { path: 'f/a/b', schema: {}, args: {}, submitted: true }
+			}
+		]
+
+		manager.cancelLoadingTools()
+
+		const settled = manager.displayMessages[0]
+		expect(settled.runForm?.canceled).toBe(false)
+		expect(settled.error).toBe(undefined)
+		expect(settled.content).toBe(
+			'Run f/a/b — Canceled while starting, check the runs page for a job'
+		)
+	})
+
+	// Only a form the user never submitted was cancelled outright.
+	it('marks an unsubmitted run cancelled when the turn is stopped', () => {
+		const manager = new AIChatManager()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_u',
+				content: 'Waiting for you to confirm the arguments of "f/a/b"',
+				isLoading: true,
+				runForm: { path: 'f/a/b', schema: {}, args: {} }
 			}
 		]
 

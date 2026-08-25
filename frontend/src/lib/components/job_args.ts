@@ -6,6 +6,7 @@ const isLockedProp = (prop: any) => !!prop?.disabled && 'default' in prop
  * A field the schema disables is not the caller's to set: whatever it holds, the run
  * sends the schema's default. Only a field's own `disabled` counts — `SchemaForm`
  * propagates a parent's downward, so one locked by inheritance alone keeps its value.
+ * It still renders that value in its locked input, so it is unnamed here, not unseen.
  * Returns the paths it overwrote so the caller can say so; notifying is the caller's job.
  */
 export function enforceDisabledDefaults(
@@ -70,26 +71,44 @@ function dropUndeclaredArgs(
 			else droppedKeys.push(keyPath)
 			continue
 		}
-		kept[key] = dropUndeclaredNested(value, properties[key], droppedKeys, keyPath)
+		const nested = dropUndeclaredNested(value, properties[key], droppedKeys, keyPath)
+		if (nested === DROP) droppedKeys.push(keyPath)
+		else kept[key] = nested
 	}
 	// Spread rather than the accumulator itself: $state.snapshot returns a null-prototype
 	// object by identity, and a form editing it in place would write into the stored copy.
 	return { ...kept }
 }
 
+/** Stands in for a value the caller must remove rather than keep. */
+const DROP = Symbol('drop')
+
 function dropUndeclaredNested(value: any, prop: any, droppedKeys: string[], path: string): any {
 	if (value == null || typeof value !== 'object') return value
-	if (prop?.properties && !Array.isArray(value)) {
+	// A value whose shape contradicts the declared one matches no level below, so every
+	// filter here falls straight through it — and `ArgInput` has no widget for it either
+	// (an object in a list slot renders as nothing at all), so the form would show an
+	// empty field over an argument the run still carries. Only a schema declaring no
+	// structure at all passes a value through unread.
+	const isArray = Array.isArray(value)
+	const declaresArray = prop?.type === 'array' || prop?.items != null
+	const declaresObject =
+		prop?.type === 'object' || prop?.properties != null || Array.isArray(prop?.oneOf)
+	if (isArray ? declaresObject && !declaresArray : declaresArray && !declaresObject) return DROP
+	if (prop?.properties && !isArray) {
 		return dropUndeclaredArgs(value, prop.properties, droppedKeys, path)
 	}
-	if (prop?.items?.properties && Array.isArray(value)) {
-		return value.map((item: any, i: number) =>
-			item != null && typeof item === 'object' && !Array.isArray(item)
-				? dropUndeclaredArgs(item, prop.items.properties, droppedKeys, `${path}[${i}]`)
-				: item
-		)
+	if (prop?.items?.properties && isArray) {
+		const kept: any[] = []
+		value.forEach((item: any, i: number) => {
+			const itemPath = `${path}[${i}]`
+			const nested = dropUndeclaredNested(item, prop.items, droppedKeys, itemPath)
+			if (nested === DROP) droppedKeys.push(itemPath)
+			else kept.push(nested)
+		})
+		return kept
 	}
-	if (Array.isArray(prop?.oneOf) && !Array.isArray(value)) {
+	if (Array.isArray(prop?.oneOf) && !isArray) {
 		// The union of every branch, not the one the tag names: which branch is selected is
 		// runtime state, and pruning by a stale tag would delete what the user typed.
 		const union: Record<string, any> = {}
@@ -117,7 +136,10 @@ function mapMatchingArgs(
 	inOneOf = false
 ): any {
 	if (holder == null || typeof holder !== 'object' || Array.isArray(holder)) return holder
-	const result = { ...holder }
+	// Null prototype for the same reason as dropUndeclaredArgs: writing a declared
+	// `__proto__` into a plain `{}` reaches the inherited setter, so the default a
+	// disabled field must enforce would vanish instead of overwriting.
+	const result: Record<string, any> = Object.assign(Object.create(null), holder)
 	for (const [key, prop] of Object.entries<any>(properties)) {
 		const keyPath = path ? `${path}.${key}` : key
 		// A matching object is a leaf, not a level: a password object is stored whole as a
@@ -158,7 +180,8 @@ function mapMatchingArgs(
 			}
 		}
 	}
-	return result
+	// Spread rather than the accumulator itself, so callers get a plain object back.
+	return { ...result }
 }
 
 const isSecretProp = (prop: any) => !!prop?.password
@@ -175,29 +198,40 @@ function fileMarker(base64: string): string {
 
 /**
  * Drop every password-typed argument, so a caller cannot propose a secret on the user's
- * behalf: password fields open empty and the user fills them in.
+ * behalf: password fields open empty and the user fills them in. Appends the path of
+ * each one removed, so the caller can be told the field was emptied rather than left to
+ * read the absence as the user having deleted it.
  */
 export function stripSecretArgs(
 	args: Record<string, any>,
-	schema: { properties?: Record<string, any> } | undefined
+	schema: { properties?: Record<string, any> } | undefined,
+	strippedKeys?: string[]
 ): Record<string, any> {
 	const properties = schema?.properties
 	if (!properties) return args
-	return mapMatchingArgs(args, properties, isSecretProp, () => undefined)
+	return mapMatchingArgs(args, properties, isSecretProp, (value, _prop, path) => {
+		if (value !== undefined) strippedKeys?.push(path)
+		return undefined
+	})
 }
 
 /**
  * Drop every file argument, so a caller cannot propose file bytes on the user's behalf:
  * the field opens empty and the user attaches the file. Bytes a form is prefilled with
  * are bytes the stored transcript carries, unbounded, for a value no caller can produce.
+ * Reports what it removed for the same reason {@link stripSecretArgs} does.
  */
 export function stripFileArgs(
 	args: Record<string, any>,
-	schema: { properties?: Record<string, any> } | undefined
+	schema: { properties?: Record<string, any> } | undefined,
+	strippedKeys?: string[]
 ): Record<string, any> {
 	const properties = schema?.properties
 	if (!properties) return args
-	return mapMatchingArgs(args, properties, isFileProp, () => undefined)
+	return mapMatchingArgs(args, properties, isFileProp, (value, _prop, path) => {
+		if (value !== undefined) strippedKeys?.push(path)
+		return undefined
+	})
 }
 
 /**

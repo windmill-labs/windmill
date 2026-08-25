@@ -5469,14 +5469,20 @@ async function runDeployedScript(
 	// A secret the model picked is not consent, whatever it holds: a literal is a value
 	// the user never chose, a reference names something the card cannot show them. Files
 	// go the same way — prefilled bytes are bytes the stored transcript then carries.
-	const proposed = stripFileArgs(stripSecretArgs(conformed.args, schema as any), schema as any)
+	const strippedKeys: string[] = []
+	const proposed = stripFileArgs(
+		stripSecretArgs(conformed.args, schema as any, strippedKeys),
+		schema as any,
+		strippedKeys
+	)
 	const form: RunFormDisplay = {
 		path: args.path,
 		summary: script.summary || undefined,
 		schema,
 		args: proposed,
 		droppedKeys: conformed.droppedKeys.length ? conformed.droppedKeys : undefined,
-		resetKeys: conformed.resetKeys.length ? conformed.resetKeys : undefined
+		resetKeys: conformed.resetKeys.length ? conformed.resetKeys : undefined,
+		strippedKeys: strippedKeys.length ? strippedKeys : undefined
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
@@ -5548,6 +5554,11 @@ async function runDeployedScript(
 	const reset = conformed.resetKeys.length
 		? `\nThe deployed schema disables ${conformed.resetKeys.join(', ')}, so the form held ${conformed.resetKeys.length > 1 ? 'their defaults' : 'its default'} rather than the proposed ${conformed.resetKeys.length > 1 ? 'values' : 'value'}. Do not propose ${conformed.resetKeys.length > 1 ? 'them' : 'it'} again.`
 		: ''
+	// Otherwise an emptied field reads as the user having deleted it, and the next call
+	// proposes the same secret again.
+	const stripped = strippedKeys.length
+		? `\n${strippedKeys.join(', ')} ${strippedKeys.length > 1 ? 'are secret or file arguments' : 'is a secret or file argument'}, so the form opened ${strippedKeys.length > 1 ? 'them' : 'it'} empty for the user to fill in. ${strippedKeys.length > 1 ? 'They are' : 'It is'} theirs to provide, not yours: do not propose ${strippedKeys.length > 1 ? 'them' : 'it'} again.`
+		: ''
 	// Redacted: a variable path is enough to run a job on a value the model cannot read,
 	// and one shown a path proposes it back on the next call.
 	const submittedJson = JSON.stringify(
@@ -5557,7 +5568,7 @@ async function runDeployedScript(
 		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH
 			? submittedJson.slice(0, MAX_SUBMITTED_ARGS_LENGTH) + '... (truncated)'
 			: submittedJson
-	return `Ran with arguments: ${shown}${dropped}${reset}\n${outcome}`
+	return `Ran with arguments: ${shown}${dropped}${reset}${stripped}\n${outcome}`
 }
 
 async function testRunFlowByPath(
