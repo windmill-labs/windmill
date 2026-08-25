@@ -965,8 +965,10 @@ pub(crate) fn artifact_cache_name(
     modules: Option<&std::collections::HashMap<String, ScriptModule>>,
 ) -> String {
     let Some(modules) = modules.filter(|m| !m.is_empty()) else {
-        // Byte-identical to the name a module-free runnable had before modules entered
-        // this, so its cached artifacts stay reachable.
+        // Byte-identical to the name a module-free runnable had before modules entered this,
+        // so its cached artifacts stay reachable. A pre-fix multi-file runnable also stored
+        // here, so one of those stays reachable too — accepted over invalidating every cache,
+        // and once this ships nothing can be stored here with module content in it again.
         return windmill_common::utils::calculate_hash(&base);
     };
     let mut entries: Vec<(&String, &ScriptModule)> = modules.iter().collect();
@@ -5745,6 +5747,29 @@ mod write_module_files_tests {
         assert!(victim.starts_with("mod-"));
         assert_ne!(artifact_cache_name(victim.clone(), None), victim);
         assert!(!artifact_cache_name("anything".to_string(), None).starts_with("mod-"));
+    }
+
+    /// The `mod-` namespace separates module-free from module-bearing, and nothing separates
+    /// two module-bearing runnables — only the seal does. Unsealed, `base` is variable-width,
+    /// so the split between it and the module block is ambiguous and a preview (which brings
+    /// its own source *and* lockfile) can absorb part of another runnable's block.
+    #[test]
+    fn a_module_bearing_runnable_cannot_absorb_another_ones_block() {
+        let victim = artifact_cache_name(
+            "V".to_string(),
+            Some(&HashMap::from([(
+                "h.ts".to_string(),
+                module(":modules:1:1:a:1:b"),
+            )])),
+        );
+        // Byte-identical to the victim's without the seal: the forger's `base` spells out the
+        // victim's leading block, leaving its own single module to supply the tail.
+        let forged = artifact_cache_name(
+            "V:modules:1:4:h.ts:18:".to_string(),
+            Some(&HashMap::from([("a".to_string(), module("b"))])),
+        );
+
+        assert_ne!(victim, forged);
     }
 
     /// Deploy fills a module's lock in after the parent has prebuilt, so a name that moved
