@@ -767,29 +767,31 @@ pub struct BillableSeats {
     pub seats: i64,
 }
 
-/// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`.
+/// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`. Service
+/// accounts cannot log in and do not take a seat; a disabled member is not billed either.
 ///
-/// The membership rule and the weighting both live in the `billable_member` view and the
-/// `billable_seats()` function, not here: the workspace is invoiced by a job outside this codebase
-/// that reads the same two, and a seat count charged for that the product never credits is the
-/// failure this indirection exists to prevent.
+/// The workspace is invoiced by a job outside this codebase that counts the same rows with its own
+/// SQL. The two must be changed together: this rule disagreeing with that one is what bills a
+/// workspace for seats the product never credits it for.
 ///
 /// Unauthenticated metering helper: reads member counts for any `w_id`, so callers must already be
 /// authorized for that workspace (or run in trusted server-side code).
 pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats> {
-    let row = sqlx::query_as!(
-        BillableSeats,
+    let row = sqlx::query!(
         r#"SELECT
-            COUNT(*) FILTER (WHERE NOT operator) AS "developers!",
-            COUNT(*) FILTER (WHERE operator) AS "operators!",
-            billable_seats($1) AS "seats!"
-        FROM billable_member WHERE workspace_id = $1"#,
+            COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS "developers!",
+            COUNT(*) FILTER (WHERE operator AND NOT disabled AND NOT is_service_account) AS "operators!"
+        FROM usr WHERE workspace_id = $1"#,
         w_id
     )
     .fetch_one(db)
     .await
     .map_err(|e| Error::internal_err(format!("counting billable seats of {w_id}: {e:#}")))?;
-    Ok(row)
+    Ok(BillableSeats {
+        developers: row.developers,
+        operators: row.operators,
+        seats: ((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64,
+    })
 }
 
 /// Seats only, for the fork cap. See [`billable_seats`].
