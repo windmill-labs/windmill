@@ -226,7 +226,7 @@
 											{#each githubState.workspaceGithubInstallations as installation (`select-${installation.installation_id}-${installation.workspace_id}`)}
 												{@const details = [
 													duplicatedAccountIds.has(installation.account_id)
-														? `installation ${installation.installation_id}`
+														? `${installation.installation_id}`
 														: undefined,
 													installation.error ? 'token error' : undefined
 												].filter(Boolean)}
