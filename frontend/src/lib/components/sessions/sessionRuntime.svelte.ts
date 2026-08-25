@@ -90,8 +90,25 @@ import type {
 	RawAppDomResult
 } from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
+import { sendUserToast } from '$lib/toast'
 import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
+import {
+	broadcastMirror,
+	broadcastTurnEnd,
+	broadcastTurnStart,
+	isLocallyDriven,
+	isRemotelyDriven,
+	MIRROR_THROTTLE_MS,
+	registerSyncHandlers,
+	requestCancel,
+	requestResync,
+	sendQuestionAnswer,
+	sendToolConfirmation,
+	withSessionRunLock,
+	type MirrorMsg,
+	type MirrorSnapshot
+} from './sessionSync.svelte'
 
 // Per-kind load state for a session's editor target. Pure state container the
 // load methods write into; the editor-target gate reads it to decide between
@@ -914,6 +931,49 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// preselect the wrong chat's items.
 	manager.onChatRotated = (chatId) => setSessionChatId(session.id, chatId)
 
+	// One tab drives a session at a time. The lock brackets the turn so the other
+	// tabs can mirror it, and refuses a second driver rather than letting two
+	// turns interleave into one chat id.
+	manager.runGuard = async (body) => {
+		const outcome = await withSessionRunLock(session.id, async () => {
+			broadcastTurnStart(session.id, manager.historyManager.getCurrentChatId())
+			startMirroring(session.id)
+			try {
+				return await body()
+			} finally {
+				stopMirroring(session.id)
+				// The chat id is re-read here, not reused from above: the turn may
+				// have rotated it, and the listeners key their IndexedDB re-read on it.
+				broadcastTurnEnd(session.id, manager.historyManager.getCurrentChatId())
+			}
+		})
+		if (outcome === 'busy') {
+			sendUserToast('This session is running in another tab. Your message was kept.', true)
+		}
+		return outcome
+	}
+
+	// Stop is available wherever the run is visible, so from a watching tab it
+	// has to travel to the one holding the turn.
+	manager.remoteCancel = () => {
+		if (!isRemotelyDriven(session.id)) return false
+		requestCancel(session.id)
+		return true
+	}
+
+	// Same for a run parked on the user: the tab showing the prompt is not
+	// necessarily the tab whose loop is awaiting the answer.
+	manager.remoteToolConfirmation = (toolId, confirmed) => {
+		if (!isRemotelyDriven(session.id)) return false
+		sendToolConfirmation(session.id, toolId, confirmed)
+		return true
+	}
+	manager.remoteQuestionAnswer = (toolId, choices) => {
+		if (!isRemotelyDriven(session.id)) return false
+		sendQuestionAnswer(session.id, toolId, choices)
+		return true
+	}
+
 	if (session.chatId) {
 		manager.historyManager.setCurrentChatId(session.chatId)
 		await manager.historyManager.tagChatWithSession(session.chatId, session.id)
@@ -931,6 +991,154 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 		setSessionChatId(session.id, manager.historyManager.getCurrentChatId())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Cross-tab mirroring
+// ---------------------------------------------------------------------------
+
+// Driving tabs post a frame on this cadence for as long as their turn runs.
+// A plain interval rather than an $effect on the manager's fields: it also
+// serves as the liveness heartbeat (a run that stalls in a long tool call
+// still ticks), and it picks up in-place edits to already-rendered tool cards
+// that reactive tracking of the array root would miss.
+const mirrorTimers = new Map<string, ReturnType<typeof setInterval>>()
+
+function mirrorSnapshotOf(sessionId: string): MirrorSnapshot | undefined {
+	const runtime = runtimes.get(sessionId)
+	if (!runtime) return undefined
+	const m = runtime.manager
+	return {
+		sessionId,
+		chatId: m.historyManager.getCurrentChatId(),
+		displayMessages: $state.snapshot(m.displayMessages) as DisplayMessage[],
+		loading: m.loading,
+		currentReply: m.currentReply,
+		currentReasoning: m.currentReasoning,
+		currentReasoningActive: m.currentReasoningActive,
+		loadingLabel: m.loadingLabel,
+		compacting: m.compacting
+	}
+}
+
+function postMirror(sessionId: string, opts?: { full?: boolean }): void {
+	const snap = mirrorSnapshotOf(sessionId)
+	if (snap) broadcastMirror(snap, opts)
+}
+
+function startMirroring(sessionId: string): void {
+	stopMirroring(sessionId)
+	postMirror(sessionId)
+	mirrorTimers.set(
+		sessionId,
+		setInterval(() => postMirror(sessionId), MIRROR_THROTTLE_MS)
+	)
+}
+
+function stopMirroring(sessionId: string): void {
+	const timer = mirrorTimers.get(sessionId)
+	if (!timer) return
+	clearInterval(timer)
+	mirrorTimers.delete(sessionId)
+	// One last frame: the closing tokens of a turn usually land between ticks,
+	// and this is what the passive tabs render until their re-read completes.
+	postMirror(sessionId)
+}
+
+/** Adopt a frame from the tab driving this session. */
+function applyMirror(msg: MirrorMsg): void {
+	// A tab mid-turn is the authority on its own session; a frame can only be
+	// an echo of a run this tab is itself driving.
+	if (isLocallyDriven(msg.sessionId)) return
+	const runtime = runtimes.get(msg.sessionId)
+	if (!runtime) return
+	const m = runtime.manager
+	const onSameChat = m.historyManager.getCurrentChatId() === msg.chatId
+	if (msg.baseIndex > 0 && !(onSameChat && m.displayMessages.length >= msg.baseIndex)) {
+		// Nothing here can host this tail: this tab joined mid-run, or the driver
+		// rotated to a chat it isn't on. Ask for the whole transcript instead of
+		// splicing onto a prefix that isn't the same conversation.
+		requestResync(msg.sessionId)
+		return
+	}
+	if (!onSameChat) {
+		// A full snapshot names the conversation it came from, so follow the
+		// driver onto it rather than rendering it under the wrong chat id.
+		m.historyManager.setCurrentChatId(msg.chatId)
+		setSessionChatId(msg.sessionId, msg.chatId)
+	}
+	m.displayMessages =
+		msg.baseIndex === 0 ? msg.tail : [...m.displayMessages.slice(0, msg.baseIndex), ...msg.tail]
+	m.loading = msg.loading
+	m.currentReply = msg.currentReply
+	m.currentReasoning = msg.currentReasoning
+	m.currentReasoningActive = msg.currentReasoningActive
+	m.loadingLabel = msg.loadingLabel
+	m.compacting = msg.compacting
+}
+
+/** The driver answers a resync with its whole transcript. */
+function answerResync(sessionId: string): void {
+	if (!isLocallyDriven(sessionId)) return
+	postMirror(sessionId, { full: true })
+}
+
+/** A run finished in another tab. The mirror carried the rendered transcript
+ *  only, so re-read the record the driver just saved for everything else — the
+ *  API-format history, context usage, the edits mask, background jobs — leaving
+ *  this tab able to take the conversation over. */
+async function applyTurnEnd(sessionId: string, chatId: string): Promise<void> {
+	if (isLocallyDriven(sessionId)) return
+	const runtime = runtimes.get(sessionId)
+	if (!runtime) return
+	const m = runtime.manager
+	// Cleared before the re-read, not after: loadPastChat refuses to run while
+	// the manager looks busy, and `loading` here is the mirrored driver's.
+	m.loading = false
+	m.currentReply = ''
+	m.currentReasoning = ''
+	m.currentReasoningActive = false
+	m.loadingLabel = undefined
+	m.compacting = false
+	const id = chatId || m.historyManager.getCurrentChatId()
+	if (id && (await m.historyManager.reloadChat(id))) await m.loadPastChat(id)
+	// Anything typed here while the other tab held the session was queued rather
+	// than sent. The session is free now, so it goes out — the same auto-send it
+	// would have had if this tab had been the one running the turn.
+	await m.flushQueuedMessage()
+}
+
+/** A Stop pressed in a watching tab reaches the run here. */
+function applyCancelRequest(sessionId: string): void {
+	if (!isLocallyDriven(sessionId)) return
+	// No reason: this IS the user's Stop, just pressed elsewhere, and the
+	// queued-message and rollback paths key off that.
+	runtimes.get(sessionId)?.manager.cancel()
+}
+
+// An answer from a watching tab reaches the parked loop here. Both resolve at
+// most once — the driver drops the callback as it resolves it — so two tabs
+// answering the same prompt is a race the first click simply wins.
+function applyToolConfirmation(sessionId: string, toolId: string, confirmed: boolean): void {
+	if (!isLocallyDriven(sessionId)) return
+	runtimes.get(sessionId)?.manager.handleToolConfirmation(toolId, confirmed)
+}
+
+function applyQuestionAnswer(sessionId: string, toolId: string, choices: string[]): void {
+	if (!isLocallyDriven(sessionId)) return
+	runtimes.get(sessionId)?.manager.handleUserQuestionAnswer(toolId, choices)
+}
+
+registerSyncHandlers({
+	onMirror: applyMirror,
+	onResyncRequest: answerResync,
+	onCancelRequest: applyCancelRequest,
+	onToolConfirmation: applyToolConfirmation,
+	onQuestionAnswer: applyQuestionAnswer,
+	onTurnEnd: (sessionId, chatId) => void applyTurnEnd(sessionId, chatId),
+	// A session deleted in another tab takes its runtime with it, so an open
+	// chat for it stops streaming and releases its editors.
+	onSessionDelete: (id) => disposeRuntime(id)
+})
 
 export function getOrCreateRuntime(session: Session): SessionRuntime {
 	let runtime = runtimes.get(session.id)

@@ -102,11 +102,7 @@ import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
 import { sanitizeToolCallArguments } from './toolCallArguments'
-import {
-	billedTokens,
-	normalizeContextUsage,
-	type ChatTokenUsage
-} from './tokenUsage'
+import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
 import { logAiUsage } from '$lib/utils/aiUsageReporter'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import {
@@ -682,6 +678,30 @@ export class AIChatManager {
 	// (`from_session`) reads it, and a stale id would preselect the previous
 	// chat's items. Set here (not imported) to avoid a copilot→sessions cycle.
 	onChatRotated: ((chatId: string) => void) | undefined = undefined
+
+	// Wraps a whole turn so an external coordinator can bracket it or refuse it
+	// outright by returning 'busy' without running the body. Session runtimes
+	// wire this to the cross-tab run lock: two tabs sending on one session append
+	// to the same chat id, and the loser's turn is dropped by the next saveChat
+	// after its tool calls have already hit the workspace. Undefined everywhere
+	// else, where a turn has no rival. Set here (not imported) to avoid a
+	// copilot→sessions cycle.
+	runGuard: (<T>(body: () => Promise<T>) => Promise<T | 'busy'>) | undefined = undefined
+
+	// Routes a Stop to whatever is actually running the turn. A tab mirroring
+	// another tab's run has no abortController to abort, so its Stop button would
+	// otherwise do nothing at all. Returns true once the request is on its way,
+	// and the local cancel is skipped. Set here (not imported) to avoid a
+	// copilot→sessions cycle.
+	remoteCancel: (() => boolean) | undefined = undefined
+
+	// Route a blocked run's answer to the tab holding the resolver. A run parked
+	// on a tool confirmation or a question is exactly when the user is most likely
+	// to be looking at another tab, and the promise waiting on the answer lives
+	// only in the driver. Each returns true once the answer is on its way. Set
+	// here (not imported) to avoid a copilot→sessions cycle.
+	remoteToolConfirmation: ((toolId: string, confirmed: boolean) => boolean) | undefined = undefined
+	remoteQuestionAnswer: ((toolId: string, choices: string[]) => boolean) | undefined = undefined
 
 	// Workspace items the CURRENT chat modified via AI tool calls, as
 	// `${UserDraftItemKind}:${storagePath}` keys (see modifiedItemsMask.ts).
@@ -1595,7 +1615,12 @@ export class AIChatManager {
 		if (confirmationCallback) {
 			confirmationCallback.resolve(confirmed)
 			this.confirmationCallbacks.delete(toolId)
+			return
 		}
+		// No local resolver. Either another tab is running this turn and holds it,
+		// or this is a card restored from history whose resolver died with the old
+		// page — the hook answers only in the first case.
+		this.remoteToolConfirmation?.(toolId, confirmed)
 	}
 
 	private acceptPendingToolConfirmations = () => {
@@ -1691,7 +1716,11 @@ export class AIChatManager {
 	handleUserQuestionAnswer = (toolId: string, choices: string[]): boolean => {
 		const callback = this.userQuestionCallbacks.get(toolId)
 		if (!callback) {
-			return false
+			// Another tab is running this turn and holds the resolver: hand the
+			// answer over, and report it delivered so the composer clears as it
+			// would locally. A card restored from history reaches the same branch
+			// with nobody driving, and still reports undelivered.
+			return this.remoteQuestionAnswer?.(toolId, choices) ?? false
 		}
 
 		// Display-only readback for the collapsed tool-header: a compact comma list.
@@ -1850,6 +1879,27 @@ export class AIChatManager {
 			return
 		}
 		void this.sendRequest({ instructions: text })
+	}
+
+	/** Send the queued message, if there is one, as its own turn. Also the path a
+	 *  tab takes when the turn it was watching ends in another tab: the queue was
+	 *  filled here while that run held the session, and it is owed the same
+	 *  auto-send it would have got had this tab been the one running. */
+	async flushQueuedMessage(): Promise<void> {
+		if (!this.#hasQueuedMessage()) return
+		const next = this.#takeQueue()
+		const accepted = await this.sendRequest({
+			instructions: next.draft.text,
+			images: next.draft.images,
+			files: next.draft.files,
+			contextOverride: next.context,
+			queued: true
+		})
+		if (accepted === false) {
+			// The auto-send bailed before becoming a turn (e.g. beforeSend failed, or
+			// another tab took the session first); keep it queued rather than lose it.
+			this.#restoreQueue(next)
+		}
 	}
 
 	/** Remove the queued message and put it back into the input, images included. */
@@ -2778,7 +2828,18 @@ export class AIChatManager {
 		}
 		this.#sendsInFlight++
 		try {
-			return await this.sendRequestImpl(options)
+			// Depth 1 only. A turn recursively flushes queued messages through this
+			// same method, and the guard's lock is not reentrant — running it on the
+			// nested send would refuse the queued message as if a rival tab held it.
+			const guard = this.#sendsInFlight === 1 ? this.runGuard : undefined
+			if (!guard) return await this.sendRequestImpl(options)
+			const outcome = await guard(() => this.sendRequestImpl(options))
+			// Refused: the body never ran, so the composer still holds the message
+			// and the user can retry here or carry on in the driving tab. Reported
+			// as a plain failed send so an auto-sent queued message is put back on
+			// the queue rather than dropped.
+			if (outcome === 'busy') return false
+			return outcome
 		} finally {
 			this.#sendsInFlight--
 		}
@@ -3720,20 +3781,8 @@ export class AIChatManager {
 		// empty-response rollback, or a programmatic cancel (panel teardown,
 		// save-and-clear) leaves it in place as a card so it isn't fired into a
 		// failed or torn-down turn.
-		if ((turnCommittedCleanly || this.wasCancelledByUser()) && this.#hasQueuedMessage()) {
-			const next = this.#takeQueue()
-			const accepted = await this.sendRequest({
-				instructions: next.draft.text,
-				images: next.draft.images,
-				files: next.draft.files,
-				contextOverride: next.context,
-				queued: true
-			})
-			if (accepted === false) {
-				// The auto-send bailed before becoming a turn (e.g. beforeSend
-				// failed); keep it as the queued message instead of losing it.
-				this.#restoreQueue(next)
-			}
+		if (turnCommittedCleanly || this.wasCancelledByUser()) {
+			await this.flushQueuedMessage()
 		}
 		// A background job may have finished mid-turn: its note missed this turn's
 		// preamble (captured at the start) and the poller skipped auto-resume while
@@ -3752,6 +3801,11 @@ export class AIChatManager {
 	}
 
 	cancel = (reason?: string) => {
+		// Only the user's own Stop travels: it alone arrives without a reason.
+		// Every internal cancel names one (teardown, save-and-clear, a disposed
+		// runtime), and those must stay local — a passive tab closing a session
+		// would otherwise kill a turn still running in the tab that owns it.
+		if (reason === undefined && this.remoteCancel?.()) return
 		for (const { resolve } of this.confirmationCallbacks.values()) {
 			resolve(false)
 		}

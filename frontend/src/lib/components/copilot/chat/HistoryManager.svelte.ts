@@ -599,6 +599,23 @@ export default class HistoryManager {
 		}).catch((err) => console.error('Could not delete chat', err))
 	}
 
+	/** Re-read one chat from the store into the in-memory mirror, for a record
+	 *  another tab wrote after this manager last read it. `init()` is the wrong
+	 *  tool: it re-reads the user's entire history to pick up a single chat. */
+	async reloadChat(id: string): Promise<boolean> {
+		const db = await this.dbh.whenReady()
+		if (!db) return false
+		try {
+			const chat = await db.get('chats', id)
+			if (!chat) return false
+			this.savedChats = { ...this.savedChats, [id]: chat }
+			return true
+		} catch (err) {
+			console.error('Could not reload chat', err)
+			return false
+		}
+	}
+
 	async loadPastChat(id: string) {
 		const chat = this.savedChats[id]
 		if (!chat) return

@@ -224,6 +224,85 @@ describe('AIChatManager unmounted-chat guard', () => {
 	})
 })
 
+describe('AIChatManager cross-tab run guard', () => {
+	// Session runtimes wire `runGuard` to a lock held by the one tab driving the
+	// session. Refusal has to read as a failed send: a queued message auto-sends
+	// through this same path and is put back on the queue only on `false`.
+	it('reports a refused turn as a failed send and leaves the queue intact', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.runGuard = async () => 'busy'
+		manager.queueMessage('follow up')
+
+		await manager.flushQueuedMessage()
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.queuedMessage).toBe('follow up')
+	})
+
+	// A turn flushes its queued message by re-entering sendRequest, and the lock
+	// behind the guard is not reentrant: applying it to the nested send would
+	// refuse the queued message as though a rival tab held the session.
+	it('applies the guard to the outermost send only', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		const runGuard = vi.fn(async (body: () => Promise<unknown>) => body())
+		manager.runGuard = runGuard as typeof manager.runGuard
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+		manager.queueMessage('follow up')
+
+		await manager.sendRequest({ instructions: 'first' })
+
+		expect(mocks.runChatLoop).toHaveBeenCalledTimes(2)
+		expect(runGuard).toHaveBeenCalledTimes(1)
+	})
+
+	// A run parked on the user is answered from whichever tab the user is in, but
+	// the resolver exists only in the tab running the loop. Routing has to be the
+	// fallback, never the first move: the driving tab holds its own resolvers and
+	// must answer them directly.
+	it('routes a confirmation onward only when no local resolver holds it', async () => {
+		const manager = new AIChatManager()
+		const remoteToolConfirmation = vi.fn(() => true)
+		manager.remoteToolConfirmation = remoteToolConfirmation
+
+		const local = manager.requestConfirmation('tool-local', 'delete_workspace_item')
+		manager.handleToolConfirmation('tool-local', true)
+		await expect(local).resolves.toBe(true)
+		expect(remoteToolConfirmation).not.toHaveBeenCalled()
+
+		manager.handleToolConfirmation('tool-elsewhere', false)
+		expect(remoteToolConfirmation).toHaveBeenCalledWith('tool-elsewhere', false)
+	})
+
+	// Only the user's own Stop travels to the driving tab. Every internal cancel
+	// names a reason, and routing one would let a passive tab's teardown kill a
+	// turn still running in the tab that owns it.
+	it('routes only an unattributed cancel to the driving tab', () => {
+		const manager = new AIChatManager()
+		const remoteCancel = vi.fn(() => true)
+		manager.remoteCancel = remoteCancel
+		const abort = vi.fn()
+		;(manager as any).abortController = { abort, signal: { aborted: false } }
+
+		manager.cancel()
+		expect(remoteCancel).toHaveBeenCalledTimes(1)
+		expect(abort).not.toHaveBeenCalled()
+
+		manager.cancel('runtime disposed')
+		expect(remoteCancel).toHaveBeenCalledTimes(1)
+		expect(abort).toHaveBeenCalledWith('runtime disposed')
+	})
+})
+
 describe('AIChatManager.sendOrQueue', () => {
 	// The programmatic senders (an editor's "AI Fix", an arriving hand-off) have no
 	// composer to enforce the composer's rule for them: a second loop on one manager

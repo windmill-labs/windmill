@@ -25,6 +25,11 @@ import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
+import {
+	broadcastSessionDelete,
+	broadcastSessionPut,
+	registerSyncHandlers
+} from './sessionSync.svelte'
 
 // Switch the global workspace iff the target differs from the active one
 // and is non-empty. Centralises the "session needs its workspace in focus"
@@ -471,7 +476,11 @@ export async function putSession(s: Session): Promise<void> {
 	const db = await sessionsDb.whenReady()
 	if (!db) return
 	try {
-		await putSessionRow(db, $state.snapshot(s))
+		const row = $state.snapshot(s)
+		await putSessionRow(db, row)
+		// Only after the row lands: the other tabs are being told what IndexedDB
+		// now holds, so a failed write must not announce itself.
+		broadcastSessionPut(row)
 	} catch (e) {
 		console.error('Failed to persist session', e)
 	}
@@ -483,10 +492,45 @@ export async function deleteSessionRecord(id: string): Promise<void> {
 	if (!db) return
 	try {
 		await deleteSessionRow(db, id)
+		broadcastSessionDelete(id)
 	} catch (e) {
 		console.error('Failed to delete session record', e)
 	}
 }
+
+// Apply a record another tab just wrote. In-memory only: the row is already in
+// the shared IndexedDB, so re-persisting it here would echo back out through
+// putSession. The incoming copy wins wholesale rather than field-wise — it is
+// what the store now holds, and a merge would invent a third version that
+// matches neither tab.
+function applyRemoteSessionPut(session: Session): void {
+	if (deletedSessionIds.has(session.id)) return
+	const i = sessionState.sessions.findIndex((s) => s.id === session.id)
+	if (i >= 0) {
+		sessionState.sessions[i] = session
+		return
+	}
+	// New elsewhere: slot it in by createdAt, after any local transient drafts,
+	// reproducing the newest-first order hydrateSessions maintains.
+	const at = sessionState.sessions.findIndex((s) => !s.transient && s.createdAt < session.createdAt)
+	if (at < 0) sessionState.sessions.push(session)
+	else sessionState.sessions.splice(at, 0, session)
+}
+
+// Mirror of the local delete path: tombstone so this tab's own pending writes
+// (unread watermark, preview-tab flush) can't resurrect a record another tab
+// removed, then drop it from the list.
+function applyRemoteSessionDelete(id: string): void {
+	deletedSessionIds.add(id)
+	const i = sessionState.sessions.findIndex((s) => s.id === id)
+	if (i >= 0) sessionState.sessions.splice(i, 1)
+	if (sessionState.currentSessionId === id) sessionState.currentSessionId = undefined
+}
+
+registerSyncHandlers({
+	onSessionPut: applyRemoteSessionPut,
+	onSessionDelete: applyRemoteSessionDelete
+})
 
 // Load the in-memory list from the user's DB. getAll() returns records in key
 // (id) order; sort by createdAt descending to reproduce the newest-first order
