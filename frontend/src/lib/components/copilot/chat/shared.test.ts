@@ -1405,6 +1405,37 @@ describe('createSearchHubScriptsTool', () => {
 		expect(results[1].content).toBe('ok')
 	})
 
+	// The appended hits sit at the tail, so the content-fetch cap must not head-slice
+	// them away — that would drop exactly the rows ranking had missed.
+	it('keeps the named integration when content is fetched for a capped set', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async ({ app }: { app?: string }) =>
+				app === 'salesforce'
+					? [hit(9, 'salesforce', 'SOSL Search')]
+					: [
+							hit(1, 'pinterest', 'Get Salesforce account details'),
+							hit(2, 'salesflare', 'List accounts'),
+							hit(3, 'salesflare', 'Get account details')
+						]
+			),
+			getHubScriptByPath: vi.fn(async () => ({ content: '// x', language: 'bun' }))
+		})
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'salesforce' }, { name: 'pinterest' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool(true).fn({
+			args: { query: 'look up an account in salesforce' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).results.map((r: any) => r.integration)).toContain('salesforce')
+	})
+
 	// Ranking buries an integration the query names when other integrations' scripts
 	// mention it: none of Salesforce's own scripts come back for "an account in
 	// salesforce", because Pinterest's summaries say Salesforce too.

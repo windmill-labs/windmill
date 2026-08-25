@@ -1246,6 +1246,7 @@ export function isHubPath(path: string): boolean {
 
 const MAX_BROWSED_HUB_SCRIPTS = 20
 const MAX_MENTIONED_INTEGRATION_HITS = 3
+const MAX_FETCHED_HUB_SCRIPTS = 3
 const MAX_SUGGESTED_INTEGRATIONS = 5
 
 /** Common shape of the two hub listings. Both carry a description, but the hub has
@@ -1352,16 +1353,21 @@ const getHubIntegrationToolDef = createToolDef(
  * a specific one. */
 const MAX_INTEGRATION_EXAMPLES = 5
 
-/** `validation` records how the authored notes were checked — the smoke-test method,
- * per-surface confidence, the instance used. That is provenance for a human reviewing
- * the hub, and up to a third of the document; the model can only act on its verdict. */
+/** How the authored notes were checked — method, per-surface confidence, the instance
+ * used — is provenance for a human reviewing the hub, and up to a third of the
+ * document. The verdict and any fields it flags as shaky are the parts a caller can
+ * act on, so those stay. */
 function withoutProvenance(meta: unknown): unknown {
 	if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
 		return meta
 	}
 	const { validation, ...rest } = meta as Record<string, unknown>
-	const status = (validation as { status?: unknown } | undefined)?.status
-	return status === undefined ? rest : { ...rest, validation: { status } }
+	const kept = Object.fromEntries(
+		Object.entries((validation as Record<string, unknown> | undefined) ?? {}).filter(
+			([key]) => key === 'status' || key === 'low_confidence_fields'
+		)
+	)
+	return Object.keys(kept).length ? { ...rest, validation: kept } : rest
 }
 
 /** The hub keeps a resource type's schema in a text column and hands it back as a
@@ -1471,6 +1477,7 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		// floor, so the near-misses worth reading as examples of how the integration
 		// is used survive instead of being cut.
 		let scripts: HubScriptHit[]
+		let mentionedHits = 0
 		if (query) {
 			scripts = await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
 			// Ranking can bury an integration the query names: "look up an account in
@@ -1485,7 +1492,9 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 						kind: 'script',
 						app: mentioned
 					})
-					scripts = [...scripts, ...own.slice(0, MAX_MENTIONED_INTEGRATION_HITS)]
+					const added = own.slice(0, MAX_MENTIONED_INTEGRATION_HITS)
+					mentionedHits = Math.min(added.length, MAX_FETCHED_HUB_SCRIPTS - 1)
+					scripts = [...scripts, ...added]
 				}
 			}
 		} else {
@@ -1510,7 +1519,14 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		}
 
 		// Each result costs a content fetch, so cap the fan-out when content is wanted.
-		const matches = withContent ? scripts.slice(0, 3) : scripts
+		// Keep the tail: hits appended for a named integration sit there, and dropping
+		// them would undo the reason they were fetched.
+		const matches = withContent
+			? [
+					...scripts.slice(0, MAX_FETCHED_HUB_SCRIPTS - mentionedHits),
+					...scripts.slice(scripts.length - mentionedHits)
+				]
+			: scripts
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Found ${matches.length} hub script${matches.length === 1 ? '' : 's'} for ${subject}`
 		})

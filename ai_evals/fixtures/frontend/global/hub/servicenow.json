@@ -95,8 +95,8 @@
 			"properties": {
 				"instance_url": {
 					"default": "",
-					"description": "Instance base URL, e.g. https://a developer a ServiceNow instance (no trailing slash). Every REST call is made against this host.",
-					"placeholder": "https://a developer a ServiceNow instance",
+					"description": "Instance base URL, e.g. https://dev12345.service-now.com (no trailing slash). Every REST call is made against this host.",
+					"placeholder": "https://dev12345.service-now.com",
 					"type": "string"
 				},
 				"password": {
