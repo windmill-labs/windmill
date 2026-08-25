@@ -8,7 +8,7 @@
 	import { melt, createSync } from '@melt-ui/svelte'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import type { Placement } from '@floating-ui/core'
-	import { pointerDownOutside } from '$lib/utils'
+	import { debounce, pointerDownOutside } from '$lib/utils'
 
 	import { twMerge } from 'tailwind-merge'
 	import ResolveOpen from '$lib/components/common/menu/ResolveOpen.svelte'
@@ -110,7 +110,6 @@
 	// A hover-opened menu is unpinned; a click pins it until a click outside or on the trigger.
 	// Handed to the triggr snippet so the trigger can show the pinned state.
 	let pinned = $state(false)
-	let closeTimeout: ReturnType<typeof setTimeout> | undefined
 	let triggerEl: HTMLElement | undefined = $state()
 	let clickingTrigger = false
 
@@ -139,12 +138,12 @@
 		}
 	}
 
-	function cancelPendingClose() {
-		if (closeTimeout != undefined) {
-			clearTimeout(closeTimeout)
-			closeTimeout = undefined
-		}
-	}
+	const { debounced: debounceClose, clearDebounce: cancelPendingClose } = debounce(
+		() => {
+			if (open && !pinned) toggleViaTrigger()
+		},
+		untrack(() => debounceDelay)
+	)
 
 	function handleHoverEnter() {
 		if (!openOnHover) return
@@ -158,10 +157,7 @@
 		if (pinned) return
 		// The content is portaled away from the trigger, so moving between the two fires a
 		// leave on the one being left; the delay lets the matching enter cancel it.
-		closeTimeout = setTimeout(() => {
-			closeTimeout = undefined
-			if (open && !pinned) toggleViaTrigger()
-		}, debounceDelay)
+		debounceClose()
 	}
 
 	function handleTriggerClick(e: MouseEvent) {

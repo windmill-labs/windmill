@@ -344,11 +344,13 @@
 								{#if extraTriggerLinks.length}<div>
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
 										<div
+											role="none"
 											onclickcapture={(e) => {
 												// This row expands the list below it instead of acting on the selection, and
 												// melt keeps the menu open only for a click it sees as defaultPrevented.
 												// Svelte delegates onclick to the root, which runs after melt's own listener,
-												// so the capture phase on this wrapper is what gets there first.
+												// and a capture listener on the item itself would be ordered only by
+												// registration, so an ancestor's capture phase is what reliably wins.
 												e.preventDefault()
 												showExtraTriggers = !showExtraTriggers
 											}}
