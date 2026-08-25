@@ -502,11 +502,16 @@
 						<!-- The SQL, before anything runs it. Step 3 reviews the migrations it can
 						     run there; the ones deferred to here were never shown, and "Set up"
 						     executes them against whatever database the wizard is pointed at —
-						     which can be one that already holds unrelated objects. -->
+						     which can be one that already holds unrelated objects.
+
+						     On an `unknown` row nothing here will run — its only action re-reads —
+						     so the summary says what the SQL is rather than promising to run it. -->
 						{#if sql && row.status !== 'done'}
 							<details class="mt-1.5">
 								<summary class="cursor-pointer text-2xs text-secondary hover:text-primary">
-									Show the SQL this will run
+									{row.status === 'unknown'
+										? 'Show the SQL this project ships'
+										: 'Show the SQL this will run'}
 								</summary>
 								<pre
 									class="mt-1.5 max-h-52 overflow-auto whitespace-pre-wrap rounded border border-border-light bg-surface-secondary p-2 font-mono text-2xs text-secondary"
