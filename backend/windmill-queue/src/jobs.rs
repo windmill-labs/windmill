@@ -4754,7 +4754,9 @@ pub fn unresolved_tag_error(tag: &str, args: &PushArgs) -> Option<Error> {
         None
     } else {
         Some(Error::BadRequest(format!(
-            "Tag `{tag}` cannot be resolved: {} has no value in the job arguments",
+            "Tag `{tag}` cannot be resolved: {} has no value in the job arguments. \
+             Every $args[...] in a tag has to resolve, since what is left over names a queue \
+             no worker serves.",
             unresolved.join(", ")
         )))
     }
@@ -5506,7 +5508,7 @@ async fn push_inner<'c, 'd>(
     root_job: Option<Uuid>,
     flow_innermost_root_job: Option<Uuid>,
     job_id: Option<Uuid>,
-    _is_flow_step: bool,
+    is_flow_step: bool,
     mut same_worker: bool, // whether the job will be executed on the same worker: if true, the job will be set to running but started_at will not be set.
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
@@ -6599,8 +6601,13 @@ async fn push_inner<'c, 'd>(
             tag = None;
         }
 
-        if let Some(e) = tag.as_deref().and_then(|t| unresolved_tag_error(t, &args)) {
-            return Err(e);
+        // Only a direct push is rejected here. A flow step reaches `push` already judged by
+        // `push_next_flow_job`, which knows whether the tag schedules the step at all and turns
+        // a real miss into a step failure rather than a flow-chaining error.
+        if !is_flow_step {
+            if let Some(e) = tag.as_deref().and_then(|t| unresolved_tag_error(t, &args)) {
+                return Err(e);
+            }
         }
 
         // `$workspace` must resolve the same way the default tags below do, or an explicit tag and

@@ -1583,10 +1583,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                     // is already running on instead (`None` leaves it untouched below).
                     tag = match unresolved_tag_error(&t, &args) {
                         Some(e) => {
-                            tracing::warn!(
-                                "keeping flow tag {} after preprocessing: {e:#}",
-                                flow_job.tag
-                            );
+                            // The run page is the only place the author would notice that the
+                            // dynamic tag they configured did not take effect.
+                            append_logs(
+                                &flow_job.id,
+                                &flow_job.workspace_id,
+                                format!("{e:#} Keeping the tag {}.\n", flow_job.tag),
+                                &db.into(),
+                            )
+                            .await;
                             None
                         }
                         None => Some(interpolate_args(t, &args, &flow_job.workspace_id)),
@@ -4419,9 +4424,12 @@ async fn push_next_flow_job(
         // into a step failure rather than letting `push` reject it: an `Err` out of here is a
         // flow-chaining error, which skips the failure module and leaves the step
         // `WaitingForPriorSteps`.
+        // A step handed straight to this worker is fetched by id (`get_same_worker_job` has no
+        // tag predicate), so its tag schedules nothing and an unresolvable one is inert.
+        let tag_schedules_the_step = !continue_on_same_worker && !continue_with_runners;
         let unresolved_tag = tag
             .as_deref()
-            .filter(|_| err.is_none())
+            .filter(|_| err.is_none() && tag_schedules_the_step)
             .and_then(|t| unresolved_tag_error(t, &push_args));
         let err = err.or(unresolved_tag.as_ref());
 
