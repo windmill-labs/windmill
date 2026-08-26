@@ -1333,6 +1333,13 @@ function walkTemplateBody(
 				i += hit.consumed
 				continue
 			}
+			if (c === '\\') {
+				// The text is spliced straight into a template literal, so a backslash escapes
+				// the character after it: `\${` is literal text, not an interpolation.
+				out.push(text.slice(i, i + 2))
+				i += 2
+				continue
+			}
 			if (c === '$' && text[i + 1] === '{') {
 				out.push('${')
 				stack.push('expr')

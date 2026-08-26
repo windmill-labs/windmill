@@ -624,13 +624,23 @@ describe('escapeTemplateBackticks', () => {
 		expect(escapeTemplateBackticks('a ` ${x} ` b')).toBe('a \\` ${x} \\` b')
 	})
 
+	it('leaves an escaped interpolation as literal text', () => {
+		// `\\${...}` is escaped in the template source, so the backticks inside it are literal
+		// text and still need escaping.
+		expect(escapeTemplateBackticks('\\${foo `bar`}')).toBe('\\${foo \\`bar\\`}')
+		expect(unescapeTemplateBackticks('\\${foo \\`bar\\`}')).toBe('\\${foo `bar`}')
+		expect(
+			() => new Function('return `' + escapeTemplateBackticks('\\${foo `bar`}') + '`')
+		).not.toThrow()
+	})
+
 	it('does not mistake a brace or a backtick inside a string for the end of an interpolation', () => {
 		expect(escapeTemplateBackticks('${ x["}"] } `')).toBe('${ x["}"] } \\`')
 		expect(escapeTemplateBackticks("${ f({ a: '`' }) } `")).toBe("${ f({ a: '`' }) } \\`")
 	})
 
 	it('round-trips through unescapeTemplateBackticks', () => {
-		for (const v of [nested, 'a ` b', '${ x["}"] } `', 'plain', '${a}${b}']) {
+		for (const v of [nested, 'a ` b', '${ x["}"] } `', 'plain', '${a}${b}', '\\${a}']) {
 			expect(unescapeTemplateBackticks(escapeTemplateBackticks(v))).toBe(v)
 		}
 	})
