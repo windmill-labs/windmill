@@ -91,7 +91,16 @@
 	})
 </script>
 
-<Label label="Restrict origins" for="allowed-origins-toggle" class="w-full">
+<!-- The label carries the inherited state, matching how the workspace-prefix
+	 toggle reads "(enforced by instance setting)": an off toggle that is
+	 nonetheless restricted has to say so on the control itself. -->
+<Label
+	label={inheritsInstanceDefault
+		? 'Restrict origins (inherited from instance default)'
+		: 'Restrict origins'}
+	for="allowed-origins-toggle"
+	class="w-full"
+>
 	{#snippet header()}
 		<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing">
 			Lists the origins allowed to call this route from a browser. Windmill answers the preflight
@@ -119,18 +128,21 @@
 			inputProps={{ autocomplete: 'off', disabled, placeholder: 'https://app.example.com' }}
 			error={malformed !== undefined}
 		/>
-		<div class="text-2xs text-secondary">
-			Separate origins with commas. Use * to allow any origin.
-		</div>
+		<!-- One line, per the form guideline's single Input -> Validation/Hint
+			 slot: the instructions give way to the message that replaces them. -->
 		{#if malformed}
 			<div class="text-2xs text-red-600 dark:text-red-400">{malformed}</div>
 		{:else if error}
 			<div class="text-2xs text-hint">{error}</div>
+		{:else}
+			<div class="text-2xs text-secondary">
+				Separate origins with commas. Use * to allow any origin.
+			</div>
 		{/if}
 	{:else if inheritsInstanceDefault}
 		<div class="text-2xs text-secondary">
-			Inherits the instance default: {instanceDefaultOrigins.join(', ')}. Turn this on to set
-			origins for this route, or enter * to allow any.
+			Allows {instanceDefaultOrigins.join(', ')}. Turn this on to override the default for this
+			route.
 		</div>
 	{/if}
 </Label>
