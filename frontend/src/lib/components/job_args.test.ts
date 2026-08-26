@@ -138,6 +138,32 @@ describe('conformArgsToSchema', () => {
 		})
 	})
 
+	// What the parsers emit for a bare `dict`/`object` annotation, and `ArgInput` gives it a
+	// JSON editor: reading the empty declaration set as structure reported every key the
+	// user typed as one the script has no field for, then ran it with an empty object.
+	it('leaves a free-form object declared with empty properties alone', () => {
+		const freeForm = { type: 'object', properties: {} }
+		expect(
+			conformArgsToSchema({ cfg: { env: 'prod', retries: 2 } }, { properties: { cfg: freeForm } })
+		).toEqual({
+			args: { cfg: { env: 'prod', retries: 2 } },
+			resetKeys: [],
+			dropped: { undeclared: [], unshowable: [] }
+		})
+		// Nested and per element, since the same declaration reaches both.
+		expect(
+			conformArgsToSchema(
+				{ outer: { cfg: { env: 'prod' } }, rows: [{ a: 1 }] },
+				{
+					properties: {
+						outer: { type: 'object', properties: { cfg: freeForm } },
+						rows: { type: 'array', items: freeForm }
+					}
+				}
+			).args
+		).toEqual({ outer: { cfg: { env: 'prod' } }, rows: [{ a: 1 }] })
+	})
+
 	// The guard reads declared structure, never the declared `type`: a dyn-multiselect is
 	// `type: 'object'` holding an array, and reading `type` dropped what the user picked.
 	it('keeps a dyn-multiselect array and drops an object in a scalar slot', () => {
@@ -332,6 +358,14 @@ describe('secret args at every level the form nests', () => {
 
 	it('leaves no key behind for a level the args never carried', () => {
 		expect(Object.keys(stripSecretArgs({ top: 'x' }, schema))).toEqual([])
+	})
+
+	// The caller binds the result to a form that edits in place, so a schema declaring
+	// nothing must not hand back the object it was given.
+	it('copies even when the schema declares nothing to strip', () => {
+		const args = { top: 'x' }
+		expect(stripSecretArgs(args, undefined)).not.toBe(args)
+		expect(stripSecretArgs(args, undefined)).toEqual(args)
 	})
 })
 

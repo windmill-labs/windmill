@@ -5565,8 +5565,8 @@ describe('session-only preview tools gating', () => {
 		expect(names).not.toContain('list_app_runs')
 		expect(names).not.toContain('search_dom')
 		expect(names).not.toContain('read_dom')
-		// Withheld for its own reason: the side-panel chat cannot render the argument
-		// form the tool blocks on.
+		// Withheld for its own reason: scope, not capability — the side-panel chat authors
+		// what is open in the editor rather than running deployed scripts.
 		expect(names).not.toContain('run_script')
 		// other tools are still present
 		expect(names).toContain('write_script')
