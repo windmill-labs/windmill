@@ -1480,10 +1480,10 @@ pub async fn create_custom_instance_database(
 
 /// Connection options parsed from a database URL.
 ///
-/// The single parse site for `DATABASE_URL`. Providers that mint the password themselves
-/// override it on these and keep the rest: options assembled field by field instead would
-/// drop every query parameter, `sslmode` and `sslrootcert` above all, leaving the connection
-/// on sqlx's default TLS policy rather than the operator's.
+/// The only place a database URL becomes `PgConnectOptions`. Providers that mint the password
+/// themselves override it on these and keep the rest: options assembled field by field instead
+/// would drop every query parameter, `sslmode` and `sslrootcert` above all, leaving the
+/// connection on sqlx's default TLS policy rather than the operator's.
 pub fn base_connect_options(database_url: &str) -> Result<sqlx::postgres::PgConnectOptions, Error> {
     sqlx::postgres::PgConnectOptions::from_str(database_url)
         .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e)))
