@@ -84,8 +84,7 @@
 	// an intent this wrapper will not claim — stale, or armed on a session the
 	// page is only keeping warm in the background — still gets a composer, whose
 	// mount-time empty draft would otherwise erase the prompt from the record.
-	const armedAtInit =
-		sessionState.currentSessionId === sessionId && peekSessionAutoSend(sessionId)
+	const armedAtInit = sessionState.currentSessionId === sessionId && peekSessionAutoSend(sessionId)
 
 	// A hand-off whose click already stated the intent asks for its prompt to be
 	// sent, not parked. Reactive rather than mount-time: `createSession` reuses an
@@ -197,7 +196,7 @@
 			? $userWorkspaces.find((w) => w.id === forkToDelete)?.parent_workspace_id
 			: undefined
 		deleteAlsoFork = false
-		removeSession(session.id)
+		removeSession(sessionId)
 		if (forkToDelete) {
 			try {
 				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
