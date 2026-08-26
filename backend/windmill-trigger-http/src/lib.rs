@@ -223,12 +223,10 @@ pub fn validate_authentication_method(
     }
 }
 
-/// `force` skips the version comparison and always rebuilds from the database.
-/// `http_trigger_version_seq` is bumped with `nextval` inside the writing transaction, and
-/// sequences are non-transactional, so the bumped version is visible to other sessions before
-/// the trigger row is. A refresh landing in that window caches the new version with the old
-/// rows, after which every version-gated refresh is a no-op and the route stays missing. Any
-/// caller that only observes the change after the transaction commits must force.
+/// `force` rebuilds unconditionally. `nextval` on `http_trigger_version_seq` runs inside the
+/// writing transaction and sequences are non-transactional, so a version-gated refresh can cache
+/// the bumped version against pre-commit rows and then skip forever after. A caller reacting to
+/// another session's committed change must force; one that bumped the sequence itself need not.
 pub async fn refresh_routers(
     db: &DB,
     force: bool,

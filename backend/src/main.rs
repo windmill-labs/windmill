@@ -1434,21 +1434,29 @@ Windmill Community Edition {GIT_VERSION}
                                     // Poll for new events from notify_event table
                                     match windmill_common::notify_events::poll_notify_events(&db, last_event_id).await {
                                         Ok(events) => {
+                                            let mut http_trigger_change_handled = false;
                                             for event in events {
                                                 if !*windmill_common::QUIET_LOGS {
                                                     tracing::info!("Processing notify event: channel={}, payload={}", event.channel, event.payload);
                                                 }
-                                                process_notify_event(
-                                                    &event.channel,
-                                                    &event.payload,
-                                                    &db,
-                                                    &conn,
-                                                    &tx,
-                                                    server_mode,
-                                                    worker_mode,
-                                                    #[cfg(feature = "parquet")]
-                                                    disable_s3_store,
-                                                ).await;
+                                                // Every changed http_trigger row emits its own event, and each one
+                                                // forces a full router rebuild. The first rebuild of the batch reads
+                                                // every row the batch committed, so the rest would be pure repeats.
+                                                let redundant = event.channel == "notify_http_trigger_change"
+                                                    && std::mem::replace(&mut http_trigger_change_handled, true);
+                                                if !redundant {
+                                                    process_notify_event(
+                                                        &event.channel,
+                                                        &event.payload,
+                                                        &db,
+                                                        &conn,
+                                                        &tx,
+                                                        server_mode,
+                                                        worker_mode,
+                                                        #[cfg(feature = "parquet")]
+                                                        disable_s3_store,
+                                                    ).await;
+                                                }
                                                 last_event_id = last_event_id.max(event.id);
                                             }
                                         }
@@ -1825,9 +1833,6 @@ async fn process_notify_event(
         #[cfg(feature = "http_trigger")]
         "notify_http_trigger_change" => {
             tracing::info!("HTTP trigger change detected: {}", payload);
-            // The notify event is only readable once the writing transaction has committed, so
-            // the trigger rows are guaranteed visible here: force past the version check, which
-            // a concurrent refresh may already have satisfied with pre-commit rows.
             match windmill_api::triggers::http::refresh_routers(db, true).await {
                 Ok(_) => {
                     tracing::info!("Refreshed HTTP routers (trigger change)");
