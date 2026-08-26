@@ -281,7 +281,8 @@ pub async fn refresh_routers(
             .await?;
 
             let mut router = matchit::Router::new();
-            let http_route_workspaced = HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
+            let http_route_workspaced =
+                HTTP_ROUTE_WORKSPACED_ROUTE.load(std::sync::atomic::Ordering::Relaxed);
 
             for trigger in triggers {
                 let full_path =
@@ -320,6 +321,13 @@ pub async fn refresh_routers(
         tracing::debug!("No HTTP routers refresh needed");
         Ok((false, routers_cache))
     }
+}
+
+/// Withdraw the cache's claim that it covers the current version, so the next version-gated
+/// refresh rebuilds. The routes already loaded keep being served in the meantime. Use after a
+/// forced refresh fails: its change is inside the cached version, so nothing else would retry.
+pub async fn invalidate_routers_version() {
+    HTTP_ROUTERS_CACHE.write().await.version = 0;
 }
 
 pub async fn refresh_routers_loop(
