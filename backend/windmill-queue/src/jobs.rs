@@ -4671,7 +4671,9 @@ pub async fn check_debouncing_within_limits(
     }
 }
 
-fn resolve_arg_placeholder(arg_name: &str, args: &PushArgs) -> String {
+/// The placeholder's value as JSON text, so a JSON `null` stays distinguishable from the string
+/// `"null"`. Missing args and unreachable nested fields come back empty rather than as `null`.
+fn resolve_arg_placeholder_json(arg_name: &str, args: &PushArgs) -> String {
     if arg_name.contains('.') {
         let parts: Vec<&str> = arg_name.split('.').collect();
         let root = parts[0];
@@ -4696,16 +4698,21 @@ fn resolve_arg_placeholder(arg_name: &str, args: &PushArgs) -> String {
                 break;
             }
         }
-        value.trim_matches('"').to_string()
+        value
     } else {
         args.args
             .get(arg_name)
             .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
             .map(|x| x.get())
             .unwrap_or_default()
-            .trim_matches('"')
             .to_string()
     }
+}
+
+fn resolve_arg_placeholder(arg_name: &str, args: &PushArgs) -> String {
+    resolve_arg_placeholder_json(arg_name, args)
+        .trim_matches('"')
+        .to_string()
 }
 
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
@@ -4728,16 +4735,18 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
 /// The error for a tag whose `$args[...]` placeholders do not all resolve to a value, or `None`
 /// when they do.
 ///
-/// A missing arg interpolates to the empty string and a JSON `null` to the literal `"null"`, so
-/// the tag becomes `""` / `worker-` / `worker-null`: a queue no worker serves. Nothing rejects
-/// such a job, so without this it is queued and never pulled.
+/// A missing or empty arg interpolates to the empty string and a JSON `null` to the literal
+/// `null`, so the tag becomes `""` / `worker-` / `worker-null`: a queue no worker serves. Nothing
+/// rejects such a job, so without this it is queued and never pulled. The string `"null"` is a
+/// real value and is left alone, which is why the check reads the JSON rather than the
+/// interpolated text.
 pub fn unresolved_tag_error(tag: &str, args: &PushArgs) -> Option<Error> {
     let unresolved = RE_ARG_TAG
         .captures_iter(tag)
         .map(|cap| cap.get(1).unwrap().as_str())
         .filter(|arg_name| {
-            let value = resolve_arg_placeholder(arg_name, args);
-            value.is_empty() || value == "null"
+            let json = resolve_arg_placeholder_json(arg_name, args);
+            json == "null" || json.trim_matches('"').is_empty()
         })
         .map(|arg_name| format!("$args[{arg_name}]"))
         .collect::<Vec<_>>();
@@ -7936,7 +7945,7 @@ mod git_sync_concurrency_key_tests {
 
 #[cfg(test)]
 mod unresolved_tag_tests {
-    use super::{unresolved_tag_error, PushArgs};
+    use super::{interpolate_args, unresolved_tag_error, PushArgs};
     use serde_json::value::RawValue;
     use std::collections::HashMap;
 
@@ -7959,6 +7968,25 @@ mod unresolved_tag_tests {
 
         let hm = args(&[("host", r#"{"other":"x"}"#)]);
         assert!(unresolved_tag_error("worker-$args[host.name]", &PushArgs::from(&hm)).is_some());
+
+        let hm = args(&[("hostname", r#""""#)]);
+        assert!(unresolved_tag_error("worker-$args[hostname]", &PushArgs::from(&hm)).is_some());
+    }
+
+    /// The JSON `null` that makes a tag unservable is not a string that happens to read `null`,
+    /// which interpolates to a tag a worker can be configured for.
+    #[test]
+    fn accepts_the_string_null() {
+        let hm = args(&[("hostname", r#""null""#)]);
+        assert!(unresolved_tag_error("worker-$args[hostname]", &PushArgs::from(&hm)).is_none());
+        assert_eq!(
+            interpolate_args(
+                "worker-$args[hostname]".to_string(),
+                &PushArgs::from(&hm),
+                "w"
+            ),
+            "worker-null"
+        );
     }
 
     #[test]
