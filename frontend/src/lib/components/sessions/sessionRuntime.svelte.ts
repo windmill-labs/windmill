@@ -1220,7 +1220,12 @@ registerSyncHandlers({
 	onTurnEnd: (sessionId, chatId, committed) => void applyTurnEnd(sessionId, chatId, committed),
 	// A session deleted in another tab takes its runtime with it, so an open
 	// chat for it stops streaming and releases its editors.
-	onSessionDelete: (id) => disposeRuntime(id)
+	onSessionDelete: (id) => disposeRuntime(id),
+	// Artifacts persist to a store both tabs share, but each keeps its own
+	// reactive copy, so the tab that did not write one never hears of it. That is
+	// what leaves a mirrored plan awaiting approval with no document behind it.
+	onSessionArtifact: (sessionId, artifactId) =>
+		void runtimes.get(sessionId)?.manager.artifacts.applyRemoteArtifact(artifactId)
 })
 
 export function getOrCreateRuntime(session: Session): SessionRuntime {

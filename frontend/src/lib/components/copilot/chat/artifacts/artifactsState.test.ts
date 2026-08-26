@@ -17,6 +17,16 @@ vi.mock('$lib/stores', async () => {
 })
 vi.mock('$lib/utils', () => ({ getLocalSetting: () => undefined, storeLocalSetting: () => {} }))
 
+// Stands in for the cross-tab channel, so what a write announces is assertable and no real
+// BroadcastChannel is opened per resetModules.
+const { broadcasts } = vi.hoisted(() => ({
+	broadcasts: [] as Array<{ sessionId: string; artifactId: string }>
+}))
+vi.mock('$lib/components/sessions/sessionSync.svelte', () => ({
+	broadcastSessionArtifact: (sessionId: string, artifactId: string) =>
+		void broadcasts.push({ sessionId, artifactId })
+}))
+
 // The DB module memoises its handle at module scope. A fresh IDBFactory per test only
 // isolates data once the handle is reset, so reset modules and re-import both together.
 // The DB is namespaced by email, so seed a user.
@@ -521,6 +531,43 @@ describe('SessionArtifactsStore', () => {
 		await store.remove(created.id)
 		expect(store.artifacts).toEqual([])
 		expect(await dbMod.getArtifact(created.id)).toBeUndefined()
+	})
+})
+
+// Two stores on one database, standing in for two tabs on the same session. The database is
+// already shared; what a tab misses is that anything changed in it.
+describe('cross-tab artifact sync', () => {
+	let watcher: SessionArtifactsStore
+	beforeEach(async () => {
+		broadcasts.length = 0
+		watcher = new stateMod.SessionArtifactsStore()
+		await watcher.setSession('s1')
+		await store.setSession('s1')
+	})
+
+	it('picks up a plan written in the other tab, and does not announce it back', async () => {
+		const plan = await store.savePlan('s1', { name: 'Add retries', content: '# Plan', note: 'n' })
+		expect(broadcasts).toEqual([{ sessionId: 's1', artifactId: plan.id }])
+		expect(watcher.artifacts).toEqual([])
+
+		broadcasts.length = 0
+		await watcher.applyRemoteArtifact(plan.id)
+
+		// The card offering the plan for approval resolves its document out of this list, so
+		// until it lands the watching tab is being asked to approve a plan it cannot open.
+		expect(watcher.artifacts.map((a) => a.id)).toEqual([plan.id])
+		// Announcing here would bounce the write between the two tabs forever.
+		expect(broadcasts).toEqual([])
+	})
+
+	it('drops an artifact the other tab removed', async () => {
+		const created = await store.create('s1', { name: 'Notes', content: 'x' })
+		await watcher.applyRemoteArtifact(created.id)
+		expect(watcher.artifacts).toHaveLength(1)
+
+		await store.remove(created.id)
+		await watcher.applyRemoteArtifact(created.id)
+		expect(watcher.artifacts).toEqual([])
 	})
 })
 

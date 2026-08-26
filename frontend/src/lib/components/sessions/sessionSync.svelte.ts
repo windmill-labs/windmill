@@ -39,6 +39,11 @@ const MIRROR_SILENCE_MS = 10_000
  *  store actually holds. */
 type SessionPutMsg = { kind: 'session-put'; id: string }
 type SessionDeleteMsg = { kind: 'session-delete'; id: string }
+/** An artifact another tab wrote or removed. Same id-only shape, and for the
+ *  same reason: the receiver re-reads, and a read that finds nothing is how a
+ *  removal arrives. `sessionId` is here so a receiver can route to the right
+ *  store without a database round-trip for artifacts it does not hold. */
+type SessionArtifactMsg = { kind: 'session-artifact'; sessionId: string; artifactId: string }
 /** `committed` distinguishes a turn that landed from one that errored, was
  *  rolled back, or belonged to a tab that vanished. Watchers auto-send what the
  *  user queued only on the first, matching the rule a turn follows locally. */
@@ -86,6 +91,7 @@ type QuestionAnswerMsg = {
 type SyncMsg =
 	| SessionPutMsg
 	| SessionDeleteMsg
+	| SessionArtifactMsg
 	| TurnEndMsg
 	| MirrorMsg
 	| ResyncRequestMsg
@@ -96,6 +102,7 @@ type SyncMsg =
 type Handlers = {
 	onSessionPut: (id: string) => void
 	onSessionDelete: (id: string) => void
+	onSessionArtifact: (sessionId: string, artifactId: string) => void
 	onTurnEnd: (sessionId: string, chatId: string, committed: boolean) => void
 	onMirror: (msg: MirrorMsg) => void
 	onResyncRequest: (sessionId: string) => void
@@ -165,6 +172,9 @@ function receive(msg: SyncMsg): void {
 		case 'session-delete':
 			emit('onSessionDelete', msg.id)
 			break
+		case 'session-artifact':
+			emit('onSessionArtifact', msg.sessionId, msg.artifactId)
+			break
 		case 'turn-end':
 			remoteDriven.delete(msg.sessionId)
 			emit('onTurnEnd', msg.sessionId, msg.chatId, msg.committed)
@@ -208,6 +218,10 @@ export function broadcastSessionPut(id: string): void {
 
 export function broadcastSessionDelete(id: string): void {
 	post({ kind: 'session-delete', id })
+}
+
+export function broadcastSessionArtifact(sessionId: string, artifactId: string): void {
+	post({ kind: 'session-artifact', sessionId, artifactId })
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import { randomUUID } from '$lib/utils/uuid'
+import { broadcastSessionArtifact } from '$lib/components/sessions/sessionSync.svelte'
 import {
 	currentVersion,
 	deleteArtifact,
@@ -115,10 +116,44 @@ export class SessionArtifactsStore {
 
 	// Insert-or-replace: `update` resolves from the database too, so a write can be the first
 	// this session hears of a plan another tab created.
-	#reflect(artifact: PersistedArtifact): void {
+	#place(artifact: PersistedArtifact): void {
 		if (artifact.sessionId !== this.#sessionId) return
 		const rest = this.artifacts.filter((a) => a.id !== artifact.id)
 		this.#applyWrite(sortByUpdatedDesc([artifact, ...rest]))
+	}
+
+	// Every local write funnels through here, so the announcement sits here rather than at
+	// each of them. Announced even when this store holds a different session: the tab that
+	// does hold it is the one that needs to hear. The remote path calls #place directly —
+	// re-announcing what another tab just told us would bounce between the two forever.
+	#reflect(artifact: PersistedArtifact): void {
+		this.#place(artifact)
+		broadcastSessionArtifact(artifact.sessionId, artifact.id)
+	}
+
+	/**
+	 * Catch up on an artifact another tab wrote or removed. Carries only an id, like a session
+	 * record does and for the same reason: delivery order and IndexedDB commit order are
+	 * independent, so a shipped copy could be older than what the store already holds.
+	 *
+	 * A read that comes back empty is how a removal arrives. It can only drop an id this list
+	 * already has, so an artifact held here after a failed persist — which is exactly what the
+	 * same-id resync guard in setSession protects — is never one of them: the other tab has
+	 * nothing to say about a row it has never seen.
+	 */
+	async applyRemoteArtifact(artifactId: string): Promise<void> {
+		const loaded = this.#sessionId
+		if (!loaded) return
+		const stored = await getArtifact(artifactId)
+		// Read once the await settles: a session switched underneath it must not have the
+		// previous one's row placed into its list, nor one of its own rows dropped.
+		if (this.#sessionId !== loaded) return
+		if (stored) {
+			this.#place(stored)
+			return
+		}
+		const next = this.artifacts.filter((a) => a.id !== artifactId)
+		if (next.length !== this.artifacts.length) this.#applyWrite(next)
 	}
 
 	async get(id: string): Promise<PersistedArtifact | undefined> {
@@ -321,10 +356,13 @@ export class SessionArtifactsStore {
 	}
 
 	async remove(id: string): Promise<void> {
+		const held = this.artifacts.find((a) => a.id === id)
 		await deleteArtifact(id)
 		// Guard on presence: a no-op remove must not invalidate an in-flight load.
 		const next = this.artifacts.filter((a) => a.id !== id)
 		if (next.length !== this.artifacts.length) this.#applyWrite(next)
+		const sessionId = held?.sessionId ?? this.#sessionId
+		if (sessionId) broadcastSessionArtifact(sessionId, id)
 	}
 }
 
