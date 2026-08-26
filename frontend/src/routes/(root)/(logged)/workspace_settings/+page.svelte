@@ -2153,6 +2153,7 @@ export async function main(
 }
 `
 												})}
+											target="_blank"
 										>
 											Create a handler
 										</Button>
