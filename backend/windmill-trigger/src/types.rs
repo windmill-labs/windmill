@@ -85,10 +85,9 @@ pub struct TriggerErrorHandling {
 }
 
 impl TriggerErrorHandling {
-    /// A trigger error handler is a bare script path, like every other runnable
-    /// path on a trigger. Schedule and workspace error handlers instead encode
-    /// script-vs-flow as a `script/`/`flow/` prefix; a trigger has no such field,
-    /// so a prefixed path would be looked up verbatim as a script name and fail
+    /// Schedule and workspace error handlers encode script-vs-flow as a
+    /// `script/`/`flow/` prefix; a trigger's handler is always a script, so a
+    /// prefixed path here would be looked up verbatim as a script name and fail
     /// only once the trigger errors, which is when the handler is needed.
     pub fn validate(&self) -> windmill_common::error::Result<()> {
         let Some(path) = self.error_handler_path.as_deref() else {
