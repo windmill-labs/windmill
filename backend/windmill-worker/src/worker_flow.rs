@@ -4424,9 +4424,12 @@ async fn push_next_flow_job(
         // into a step failure rather than letting `push` reject it: an `Err` out of here is a
         // flow-chaining error, which skips the failure module and leaves the step
         // `WaitingForPriorSteps`.
-        // A step handed straight to this worker is fetched by id (`get_same_worker_job` has no
-        // tag predicate), so its tag schedules nothing and an unresolvable one is inert.
-        let tag_schedules_the_step = !continue_on_same_worker && !continue_with_runners;
+        // Two kinds of step never reach a worker through their tag, so an unresolvable one is
+        // inert and must not fail them: one handed straight to this worker (fetched by id, with
+        // no tag predicate), and one on a dedicated runnable (whose tag `push` replaces).
+        let tag_schedules_the_step = !continue_on_same_worker
+            && !continue_with_runners
+            && !payload_tag.payload.is_dedicated_worker();
         let unresolved_tag = tag
             .as_deref()
             .filter(|_| err.is_none() && tag_schedules_the_step)
