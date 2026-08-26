@@ -84,10 +84,11 @@
 		preference: () => panelController.preference,
 		setPreference: (preference) => {
 			if (preference === panelController.preference) return
-			// Moving the panel must not lose what it was showing: docked, it is always on screen,
-			// so the dialog it becomes has to open on arrival. The reverse is handled by the
-			// effect below, which closes a dialog that is no longer rendered.
-			const wasVisible = panelMode === 'docked' || stepModalOpen
+			// Moving the panel must not lose what it was showing, so a panel that was on screen
+			// reopens as a dialog. Docked is not enough on its own: under hideDefaultInputs with
+			// nothing selected the pane renders nothing, and detaching would open an empty dialog.
+			// The reverse is handled by the effect below, which closes a dialog no longer rendered.
+			const wasVisible = (panelMode === 'docked' && hasSideContent) || stepModalOpen
 			panelController.preference = preference
 			stepModalOpen = panelController.mode === 'modal' && wasVisible
 		}
@@ -95,6 +96,7 @@
 	// Whether the panel has anything to show. Kept apart from panelMode so the double-click
 	// gesture stays live under hideDefaultInputs, where nothing shows until a step is picked.
 	let hasSideContent = $derived(!noSide && !(hideDefaultInputs && stepDetail == undefined))
+	let panelDocked = $derived(hasSideContent && panelMode === 'docked')
 
 	// A move back to 'docked' — the viewer got wider — would otherwise leave a dialog open
 	// over a panel that is already visible beside the graph.
@@ -190,19 +192,25 @@
 	bind:clientWidth={availableWidth}
 	class="w-full h-full min-h-0 relative"
 >
-	{#if !noGraph && hasSideContent && panelMode === 'docked'}
+	{#if noGraph}
+		{#if hasSideContent}
+			{@render side()}
+		{/if}
+	{:else}
+		<!-- The graph keeps one pane across every transition, and only the step pane comes and
+		     goes. Rendering it in two branches instead would re-create FlowGraphV2 whenever the
+		     panel moves — losing pan, zoom and the selected node — and every embed under 1280
+		     would mount it twice, since width starts at 0 and 0 resolves to docked. -->
 		<Splitpanes class="w-full h-full">
-			<Pane size={66} minSize={25}>
+			<Pane size={panelDocked ? 66 : 100} minSize={25}>
 				{@render graph()}
 			</Pane>
-			<Pane size={34} minSize={15}>
-				{@render side()}
-			</Pane>
+			{#if panelDocked}
+				<Pane size={34} minSize={15}>
+					{@render side()}
+				</Pane>
+			{/if}
 		</Splitpanes>
-	{:else if !noGraph}
-		{@render graph()}
-	{:else if hasSideContent}
-		{@render side()}
 	{/if}
 
 	{#if panelMode === 'modal' && !stepModalOpen}
@@ -215,7 +223,13 @@
 	{/if}
 </div>
 
-<Modal bind:open={stepModalOpen} title={stepModalTitle} kind="X" titleBadgeFirst class="max-w-4xl">
+<Modal
+	bind:open={stepModalOpen}
+	title={stepModalTitle}
+	kind="X"
+	titleBadgeFirst
+	class="sm:max-w-4xl"
+>
 	{#snippet titleBadge()}
 		{#if stepModalBadge}
 			<Badge color="indigo" small class="shrink-0 !py-0 leading-4">{stepModalBadge}</Badge>

@@ -36,8 +36,6 @@ export const subFixtureFlow: OpenFlow = {
  */
 export const fixtureFlow = (subflowPath: string): OpenFlow => ({
 	summary: 'Order fulfilment (dev fixture)',
-	description:
-		'Fake flow rendered by /dev/flow_path_viewer. Edit fixtureFlow.ts and hit Re-seed to change the graph.',
 	schema: {
 		$schema: 'https://json-schema.org/draft/2020-12/schema',
 		type: 'object',

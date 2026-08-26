@@ -30,13 +30,24 @@
 		short: 'height: 260px; width: 100%'
 	}
 
+	/** Stamped on every flow this harness deploys, and checked before it overwrites one. */
+	const FIXTURE_MARK = 'Deployed by /dev/flow_path_viewer. Safe to delete.'
+
 	async function upsert(workspace: string, p: string, flow: OpenFlow) {
-		const body = { path: p, ...flow, deployment_message: 'dev fixture' }
-		if (await FlowService.existsFlowByPath({ workspace, path: p })) {
-			await FlowService.updateFlow({ workspace, path: p, requestBody: body })
-		} else {
+		const body = { path: p, ...flow, description: FIXTURE_MARK, deployment_message: 'dev fixture' }
+		if (!(await FlowService.existsFlowByPath({ workspace, path: p }))) {
 			await FlowService.createFlow({ workspace, requestBody: body })
+			return
 		}
+		// A path this harness happens to want can already hold someone's real flow. Redeploying
+		// over it would be a silent, versioned overwrite, so only ever replace our own.
+		const existing = await FlowService.getFlowByPath({ workspace, path: p })
+		if (existing.description !== FIXTURE_MARK) {
+			throw new Error(
+				`${p} already exists and was not created by this page — delete it or point the harness elsewhere`
+			)
+		}
+		await FlowService.updateFlow({ workspace, path: p, requestBody: body })
 	}
 
 	async function seed(workspace: string, p: string) {
@@ -58,10 +69,13 @@
 		}
 	}
 
+	// The page deploys flows into whatever workspace you are in, so it exists only in a dev build.
+	const enabled = import.meta.env.DEV
+
 	$effect(() => {
 		const workspace = $workspaceStore
 		const p = path
-		if (!workspace || !$userStore) return
+		if (!enabled || !workspace || !$userStore) return
 		// seed() writes seeded/seeding, so the guard has to read them outside the dependency set
 		untrack(() => {
 			if (seeded !== p && !seeding) seed(workspace, p)
@@ -69,47 +83,53 @@
 	})
 </script>
 
-<div class="h-screen w-full flex flex-col min-h-0">
-	<div class="flex flex-wrap items-center gap-4 border-b px-4 py-2 text-xs bg-surface-secondary">
-		<span class="font-semibold">FlowPathViewer</span>
-		<span class="text-tertiary font-mono">{path}</span>
-
-		<Toggle bind:checked={noSide} size="xs" options={{ right: 'noSide' }} />
-		<Toggle
-			bind:checked={fillAvailableHeight}
-			size="xs"
-			options={{ right: 'fillAvailableHeight' }}
-		/>
-
-		<ToggleButtonGroup bind:selected={frame} noWFull>
-			{#snippet children({ item })}
-				<ToggleButton value="full" label="Full page" {item} />
-				<ToggleButton value="panel" label="Raw-app pane (55%)" {item} />
-				<ToggleButton value="short" label="Short (260px)" {item} />
-			{/snippet}
-		</ToggleButtonGroup>
-
-		<Button
-			unifiedSize="xs"
-			variant="default"
-			loading={seeding}
-			onclick={() => $workspaceStore && seed($workspaceStore, path)}
-		>
-			Re-seed
-		</Button>
+{#if !enabled}
+	<div class="p-8 text-sm text-secondary">
+		This page deploys fixture flows into the current workspace, so it runs only in a dev build.
 	</div>
+{:else}
+	<div class="h-screen w-full flex flex-col min-h-0">
+		<div class="flex flex-wrap items-center gap-4 border-b px-4 py-2 text-xs bg-surface-secondary">
+			<span class="font-semibold">FlowPathViewer</span>
+			<span class="text-tertiary font-mono">{path}</span>
 
-	<div class="grow min-h-0 p-4">
-		<div class="border rounded min-h-0 flex flex-col overflow-hidden" style={frameStyle[frame]}>
-			{#if error}
-				<div class="p-4 text-xs text-red-600 font-mono whitespace-pre-wrap">{error}</div>
-			{:else if seeded}
-				{#key seeded}
-					<FlowPathViewer path={seeded} {noSide} {fillAvailableHeight} />
-				{/key}
-			{:else}
-				<div class="p-4 text-xs text-tertiary">Seeding the fixture flow…</div>
-			{/if}
+			<Toggle bind:checked={noSide} size="xs" options={{ right: 'noSide' }} />
+			<Toggle
+				bind:checked={fillAvailableHeight}
+				size="xs"
+				options={{ right: 'fillAvailableHeight' }}
+			/>
+
+			<ToggleButtonGroup bind:selected={frame} noWFull>
+				{#snippet children({ item })}
+					<ToggleButton value="full" label="Full page" {item} />
+					<ToggleButton value="panel" label="Raw-app pane (55%)" {item} />
+					<ToggleButton value="short" label="Short (260px)" {item} />
+				{/snippet}
+			</ToggleButtonGroup>
+
+			<Button
+				unifiedSize="xs"
+				variant="default"
+				loading={seeding}
+				onclick={() => $workspaceStore && seed($workspaceStore, path)}
+			>
+				Re-seed
+			</Button>
+		</div>
+
+		<div class="grow min-h-0 p-4">
+			<div class="border rounded min-h-0 flex flex-col overflow-hidden" style={frameStyle[frame]}>
+				{#if error}
+					<div class="p-4 text-xs text-red-600 font-mono whitespace-pre-wrap">{error}</div>
+				{:else if seeded}
+					{#key seeded}
+						<FlowPathViewer path={seeded} {noSide} {fillAvailableHeight} />
+					{/key}
+				{:else}
+					<div class="p-4 text-xs text-tertiary">Seeding the fixture flow…</div>
+				{/if}
+			</div>
 		</div>
 	</div>
-</div>
+{/if}
