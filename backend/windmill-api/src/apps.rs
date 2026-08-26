@@ -4113,9 +4113,17 @@ struct S3DeleteTokenClaims {
 }
 
 #[cfg(feature = "parquet")]
+const SIGN_S3_DEFAULT_EXPIRY_SECS: i64 = 12 * 60 * 60;
+#[cfg(feature = "parquet")]
+const SIGN_S3_MIN_EXPIRY_SECS: i64 = 60;
+#[cfg(feature = "parquet")]
+const SIGN_S3_MAX_EXPIRY_SECS: i64 = 7 * 24 * 60 * 60;
+
+#[cfg(feature = "parquet")]
 #[derive(Deserialize)]
 struct S3TokenRequestBody {
     s3_objects: Vec<S3Object>,
+    expiry_secs: Option<i64>,
 }
 #[cfg(feature = "parquet")]
 async fn sign_s3_objects(
@@ -4125,6 +4133,12 @@ async fn sign_s3_objects(
     Json(body): Json<S3TokenRequestBody>,
 ) -> Result<Json<Vec<S3Object>>> {
     let workspace_key = get_workspace_key(&w_id, &db).await?;
+
+    let expiry_secs = body
+        .expiry_secs
+        .unwrap_or(SIGN_S3_DEFAULT_EXPIRY_SECS)
+        .clamp(SIGN_S3_MIN_EXPIRY_SECS, SIGN_S3_MAX_EXPIRY_SECS);
+    let exp = (chrono::Utc::now() + chrono::Duration::seconds(expiry_secs)).timestamp();
 
     let futures = body.s3_objects.into_iter().map(|s3_object| async {
         // The signature this mints is a transferable bearer capability: `validate_s3_signature`
@@ -4156,7 +4170,6 @@ async fn sign_s3_objects(
         )
         .await?;
 
-        let exp = (chrono::Utc::now() + chrono::Duration::hours(12)).timestamp();
         let message = format!(
             "file_key={}&exp={}{}",
             s3_object.s3.clone(),

@@ -644,6 +644,16 @@ pub(crate) async fn tarball_workspace(
         windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
     }
 
+    // settings.json carries the admin-managed integration config that `get_settings`
+    // is admin-only for (ai_config, the webhook URL, git_sync, handler extra_args),
+    // so it takes the same check. Not a per-field redaction: fields silently dropped
+    // from settings.json come back as null on the next `wmill sync push`.
+    if include_settings.unwrap_or(false) && !authed.is_admin {
+        return Err(Error::PermissionDenied(
+            "include_settings requires workspace admin".to_string(),
+        ));
+    }
+
     // The route is gated by workspaces:read, but the tarball also carries the item
     // values that the per-item routes gate on their own domain (get_resource_value,
     // get_variable). A whole-workspace export cannot be confined to a path, so it
@@ -1627,13 +1637,7 @@ pub(crate) async fn tarball_workspace(
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
                 slack_oauth_client_id: row.slack_oauth_client_id.clone(),
-                // Mirror the non-admin redaction in `get_settings`: the OAuth
-                // client secret is admin-only and must not leak via tarball.
-                slack_oauth_client_secret: if authed.is_admin {
-                    row.slack_oauth_client_secret.clone()
-                } else {
-                    None
-                },
+                slack_oauth_client_secret: row.slack_oauth_client_secret.clone(),
             };
             serde_json::to_value(settings)
                 .map(|v| serde_json::to_string_pretty(&v).ok())

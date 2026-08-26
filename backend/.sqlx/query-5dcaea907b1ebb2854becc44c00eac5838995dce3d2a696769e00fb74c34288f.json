@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT experiment_id FROM eval_score\n         WHERE experiment_id = ANY($1) AND score IS NULL AND error IS NULL\n               AND NOT not_applicable",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "experiment_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5dcaea907b1ebb2854becc44c00eac5838995dce3d2a696769e00fb74c34288f"
+}
