@@ -9,7 +9,7 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_result, start_child_process, OccupancyMetrics,
-        StreamNotifier,
+        StreamNotifier, JS_ERROR_SERIALIZER,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -342,6 +342,7 @@ function argsObjToArr({{ {spread} }}) {{
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
+{JS_ERROR_SERIALIZER}
 
 function isAsyncIterable(obj) {{
     return obj != null && typeof obj[Symbol.asyncIterator] === 'function';
@@ -368,12 +369,12 @@ async function run() {{
 try {{
     await run();
 }} catch(e) {{
-    let err = {{ message: e.message, name: e.name, stack: e.stack }};
-    let step_id = Deno.env.get("WM_FLOW_STEP_ID");
+    const err = wmToErrorObject(e, false);
+    const step_id = Deno.env.get("WM_FLOW_STEP_ID");
     if (step_id) {{
         err["step_id"] = step_id;
     }}
-    await Deno.writeTextFile("result.json", JSON.stringify(err));
+    await Deno.writeTextFile("result.json", wmSerializeError(err));
     Deno.exit(1);
 }}
     "#,
@@ -662,7 +663,7 @@ pub fn generate_dedicated_worker_wrapper(inner_content: &str) -> Result<String> 
                 let res: any = await main(...[ {spread} ]);
                 console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
             }} catch (e) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}) + '\n');
+                console.log("wm_res[error]:" + wmSerializeError(Object.assign(wmToErrorObject(e, false), {{ line: line }})) + '\n');
             }}
             continue;
         }}"#
@@ -679,6 +680,7 @@ import {{ main }} from "./main.ts";
 BigInt.prototype.toJSON = function () {{
     return this.toString();
 }};
+{JS_ERROR_SERIALIZER}
 
 console.log('start\n');
 
@@ -705,7 +707,7 @@ for await (const chunk of Deno.stdin.readable) {{
                 let res: any = await main(...[ {spread} ]);
                 console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value) + '\n');
             }} catch (e) {{
-                console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: argsJson }}) + '\n');
+                console.log("wm_res[error]:" + wmSerializeError(Object.assign(wmToErrorObject(e, false), {{ line: argsJson }})) + '\n');
             }}
             continue;
         }}

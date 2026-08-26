@@ -67,6 +67,86 @@ mount {
 #[cfg(not(debug_assertions))]
 pub const DEV_CONF_NSJAIL: &str = "";
 
+/// Helpers the Bun/Deno wrappers use to turn a thrown value into the error object
+/// they report, injected into the generated wrapper source.
+///
+/// A script can throw anything, so neither reading `e.message` nor calling
+/// `JSON.stringify` on the result is safe: `throw null`, and errors that link two
+/// objects both ways (an axios error hangs `response` off `request` and back), both
+/// abort the wrapper itself, and the job then reports a stack trace from the wrapper
+/// instead of what the script threw.
+///
+/// `collectExtra` is true only where the wrapper already reported the thrown value's own
+/// properties, which is the Bun main and Bun WAC v2 wrappers alone. Turning it on for the
+/// other three would newly persist whatever an HTTP client hangs off its errors,
+/// credential-bearing headers included, into the run history of every existing script on
+/// those paths; that parity is its own decision, not part of stopping a crash.
+///
+/// Kept comment-free, since it is written out per job.
+pub const JS_ERROR_SERIALIZER: &str = r#"
+const wmErrOwnKeys = ['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'];
+
+function wmErrString(v) {
+    if (typeof v === 'string') return v;
+    try {
+        return String(v);
+    } catch (_) {
+        return '[unstringifiable ' + typeof v + ']';
+    }
+}
+
+function wmErrProp(e, key) {
+    try {
+        return e[key];
+    } catch (_) {
+        return undefined;
+    }
+}
+
+function wmToErrorObject(e, collectExtra) {
+    if (e === null || typeof e !== 'object') {
+        return { message: wmErrString(e), name: 'ThrownValue' };
+    }
+    const err = {};
+    for (const field of ['message', 'name', 'stack']) {
+        const v = wmErrProp(e, field);
+        if (v != null) err[field] = wmErrString(v);
+    }
+    if (collectExtra) {
+        let keys = [];
+        try {
+            keys = Object.getOwnPropertyNames(e);
+        } catch (_) {}
+        const extra = {};
+        for (const key of keys) {
+            if (wmErrOwnKeys.includes(key)) continue;
+            extra[key] = wmErrProp(e, key);
+        }
+        if (Object.keys(extra).length > 0) err.extra = extra;
+    }
+    if (Object.keys(err).length === 0) {
+        err.message = wmErrString(e);
+        err.name = 'ThrownValue';
+    }
+    return err;
+}
+
+function wmSerializeError(err) {
+    const ancestors = [];
+    try {
+        return JSON.stringify(err, function (key, v) {
+            if (v === null || typeof v !== 'object') return v;
+            while (ancestors.length > 0 && ancestors[ancestors.length - 1] !== this) ancestors.pop();
+            if (ancestors.indexOf(v) !== -1) return '[Circular]';
+            ancestors.push(v);
+            return v;
+        });
+    } catch (_) {
+        return JSON.stringify({ message: err.message, name: err.name, stack: err.stack, step_id: err.step_id, line: err.line });
+    }
+}
+"#;
+
 /// Turn a JSON value into the string a shell/CLI arg should receive: a JSON string
 /// becomes its inner value, anything else is re-serialized compactly.
 pub(crate) fn raw_to_string(x: &str) -> String {

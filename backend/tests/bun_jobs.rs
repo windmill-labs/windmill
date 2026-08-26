@@ -364,6 +364,81 @@ export function main() {
     Ok(())
 }
 
+/// A script can throw a non-object, or an object with a reference cycle. The error the
+/// job reports must still identify what was thrown, never the wrapper's own failure to
+/// read or serialize it.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_job_non_error_throws(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    fn bun_job(content: &str) -> JobPayload {
+        JobPayload::Code(RawCode {
+            hash: None,
+            content: content.to_owned(),
+            path: None,
+            language: ScriptLang::Bun,
+            lock: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            modules: None,
+            tag: None,
+        })
+    }
+
+    // `throw null`: the wrapper must not dereference the thrown value.
+    {
+        let job = bun_job("export function main() { throw null; }");
+        let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+        assert!(!completed.success);
+        let result = completed.json_result().unwrap();
+        assert_eq!(result["error"]["message"], serde_json::json!("null"));
+    }
+
+    // Circular object: several HTTP clients throw errors that link two objects
+    // both ways, which a plain JSON.stringify cannot serialize.
+    {
+        let job = bun_job(
+            r#"
+export function main() {
+    const a: any = { name: "circular", message: "boom" };
+    a.self = a;
+    throw a;
+}
+"#,
+        );
+        let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+        assert!(!completed.success);
+        let result = completed.json_result().unwrap();
+        let error = &result["error"];
+        assert_eq!(error["message"], serde_json::json!("boom"));
+        assert_eq!(
+            error["extra"]["self"]["self"],
+            serde_json::json!("[Circular]")
+        );
+    }
+
+    // A thrown string is a string, not an index map of its characters.
+    {
+        let job = bun_job(r#"export function main() { throw "nur ein string"; }"#);
+        let completed = run_job_in_new_worker_until_complete(&db, false, job, port).await;
+        assert!(!completed.success);
+        let result = completed.json_result().unwrap();
+        assert_eq!(
+            result["error"]["message"],
+            serde_json::json!("nur ein string")
+        );
+    }
+
+    Ok(())
+}
+
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_job_missing_main_function(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
