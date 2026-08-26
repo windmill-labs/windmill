@@ -6,6 +6,7 @@
 	import { createEventDispatcher, hasContext, setContext } from 'svelte'
 	import { writable } from 'svelte/store'
 	import { twMerge } from 'tailwind-merge'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 
 	import FlowGraphViewerStep from './FlowGraphViewerStep.svelte'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
@@ -54,6 +55,13 @@
 	}: Props = $props()
 
 	let availableHeight = $state(0)
+	// The step panel stays hidden below Tailwind's sm breakpoint, as it did when this was a
+	// `hidden sm:flex` grid cell: a Pane keeps its width even when its content is display:none,
+	// so the breakpoint has to decide whether the Pane exists at all.
+	let innerWidth = $state(0)
+	let showSide = $derived(
+		!noSide && !(hideDefaultInputs && stepDetail == undefined) && innerWidth >= 640
+	)
 
 	if (provideTriggerContext && !hasContext('TriggerContext')) {
 		const triggersCount = writable<TriggersCount | undefined>(undefined)
@@ -87,55 +95,71 @@
 	})
 </script>
 
-<div bind:clientHeight={availableHeight} class="grid grid-cols-3 w-full h-full min-h-0">
-	{#if !noGraph}
-		<div
-			class="{noSide || (hideDefaultInputs && stepDetail == undefined)
-				? 'col-span-3'
-				: 'sm:col-span-2 col-span-3'} w-full h-full min-h-0 max-h-full"
-			class:overflow-auto={overflowAuto}
-			class:border={!noBorder}
-		>
-			<FlowGraphV2
-				{triggerNode}
-				earlyStop={flow?.value?.skip_expr !== undefined}
-				cache={flow?.value?.cache_ttl !== undefined}
-				path={flow?.path}
-				{download}
-				minHeight={fillAvailableHeight ? Math.max(minHeight, availableHeight) : minHeight}
-				{workspace}
-				modules={flow?.value?.modules}
-				failureModule={flow?.value?.failure_module}
-				preprocessorModule={flow?.value?.preprocessor_module}
-				notes={flow?.value?.notes}
-				groups={flow?.value?.groups}
-				onSelect={(nodeId) => {
-					if (nodeId === 'Trigger') {
-						dispatch('triggerDetail')
-						return
-					} else if (nodeId === 'failure') {
-						stepDetail = flow?.value?.failure_module
-					} else if (nodeId === 'preprocessor') {
-						stepDetail = flow?.value?.preprocessor_module
-					} else {
-						stepDetail = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === nodeId)
-					}
-					stepDetail = stepDetail ?? nodeId
-					dispatch('select', stepDetail)
-				}}
-			/>
-		</div>
-	{/if}
-	{#if !noSide && !(hideDefaultInputs && stepDetail == undefined)}
-		<div
-			class={twMerge(
-				fillAvailableHeight
-					? 'relative w-full h-full min-h-0 border-r border-b border-t p-2 pt-0 overflow-auto hidden sm:flex flex-col gap-4'
-					: 'relative w-full h-full min-h-[150px] max-h-[90vh] border-r border-b border-t p-2 pt-0 overflow-auto hidden sm:flex flex-col gap-4',
-				noGraph ? 'border-0 w-max' : ''
-			)}
-		>
-			<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} {workspace} />
-		</div>
+<svelte:window bind:innerWidth />
+
+<div bind:clientHeight={availableHeight} class="w-full h-full min-h-0">
+	{#if !noGraph && showSide}
+		<Splitpanes class="w-full h-full">
+			<Pane size={66} minSize={25}>
+				{@render graph()}
+			</Pane>
+			<Pane size={34} minSize={15}>
+				{@render side()}
+			</Pane>
+		</Splitpanes>
+	{:else if !noGraph}
+		{@render graph()}
+	{:else if showSide}
+		{@render side()}
 	{/if}
 </div>
+
+{#snippet graph()}
+	<div
+		class="w-full h-full min-h-0 max-h-full"
+		class:overflow-auto={overflowAuto}
+		class:border={!noBorder}
+	>
+		<FlowGraphV2
+			{triggerNode}
+			earlyStop={flow?.value?.skip_expr !== undefined}
+			cache={flow?.value?.cache_ttl !== undefined}
+			path={flow?.path}
+			{download}
+			minHeight={fillAvailableHeight ? Math.max(minHeight, availableHeight) : minHeight}
+			{workspace}
+			modules={flow?.value?.modules}
+			failureModule={flow?.value?.failure_module}
+			preprocessorModule={flow?.value?.preprocessor_module}
+			notes={flow?.value?.notes}
+			groups={flow?.value?.groups}
+			onSelect={(nodeId) => {
+				if (nodeId === 'Trigger') {
+					dispatch('triggerDetail')
+					return
+				} else if (nodeId === 'failure') {
+					stepDetail = flow?.value?.failure_module
+				} else if (nodeId === 'preprocessor') {
+					stepDetail = flow?.value?.preprocessor_module
+				} else {
+					stepDetail = dfs(flow?.value?.modules ?? [], (m) => m).find((m) => m?.id === nodeId)
+				}
+				stepDetail = stepDetail ?? nodeId
+				dispatch('select', stepDetail)
+			}}
+		/>
+	</div>
+{/snippet}
+
+{#snippet side()}
+	<div
+		class={twMerge(
+			fillAvailableHeight
+				? 'relative w-full h-full min-h-0 border-r border-b border-t p-2 pt-0 overflow-auto flex flex-col gap-4'
+				: 'relative w-full h-full min-h-[150px] max-h-[90vh] border-r border-b border-t p-2 pt-0 overflow-auto flex flex-col gap-4',
+			noGraph ? 'border-0 w-max' : ''
+		)}
+	>
+		<FlowGraphViewerStep schema={flow?.schema} {stepDetail} {hideDefaultInputs} {workspace} />
+	</div>
+{/snippet}
