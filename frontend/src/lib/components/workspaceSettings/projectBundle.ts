@@ -250,14 +250,7 @@ export function extractTriggerConfigResourceRefs(config: any): string[] {
 // Prefixed forms are remapped ONLY in these known positions: deciding meaning
 // from string shape alone rewrote literal payloads that merely looked like
 // refs. Bare-path exact matches and $res: tokens stay position-independent.
-// `error_handler_path` is bare in the map (see `stripScriptPrefix`), but the
-// stored value may carry the prefix, and its spelling is preserved.
-const HANDLER_REF_FIELDS = new Set([
-	'on_failure',
-	'on_recovery',
-	'on_success',
-	'error_handler_path'
-])
+const HANDLER_REF_FIELDS = new Set(['on_failure', 'on_recovery', 'on_success'])
 
 export function rewriteTriggerConfig(config: any, map: Map<string, string>, depth = 0): any {
 	if (typeof config === 'string') {

@@ -39,7 +39,6 @@
 		errorHandlerArgs,
 		slackErrorHandlerHubPathEnding
 	} from '../ErrorOrRecoveryHandler.svelte'
-	import { stripScriptPrefix } from './workspaceTriggersList'
 
 	type Props = {
 		triggerPath: string
@@ -322,7 +321,7 @@
 
 			return (
 				!deepEqual(retry, triggerRetry) ||
-				!deepEqual(errorHandlerPath, stripScriptPrefix(runnableConfig.errorHandlerPath)) ||
+				!deepEqual(errorHandlerPath, runnableConfig.errorHandlerPath) ||
 				!deepEqual(errorHandlerExtraArgs ?? {}, triggerErrorHandlerArgs ?? {})
 			)
 		} else {

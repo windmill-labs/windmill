@@ -81,12 +81,6 @@ describe('triggerHandlerRefs', () => {
 		])
 	})
 
-	it('strips the script/ prefix off a non-schedule error_handler_path', () => {
-		expect(
-			triggerHandlerRefs(trigger('mqtt', { error_handler_path: 'script/u/admin/handler' }))
-		).toEqual([{ kind: 'script', path: 'u/admin/handler' }])
-	})
-
 	it('collects websocket runnable url and initial-message runnables', () => {
 		expect(
 			triggerHandlerRefs(
@@ -107,9 +101,7 @@ describe('triggerHandlerRefs', () => {
 
 describe('triggerHandlerRefs edge cases', () => {
 	it('returns empty when no handlers are configured', () => {
-		expect(
-			triggerHandlerRefs(trigger('schedule', { schedule: '0 0 * * * *', timezone: 'UTC' }))
-		).toEqual([])
+		expect(triggerHandlerRefs(trigger('schedule', { schedule: '0 0 * * * *', timezone: 'UTC' }))).toEqual([])
 		expect(triggerHandlerRefs(trigger('mqtt', { mqtt_resource_path: 'f/p/broker' }))).toEqual([])
 	})
 

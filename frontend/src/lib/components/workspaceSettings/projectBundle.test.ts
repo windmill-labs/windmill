@@ -174,14 +174,6 @@ describe('rewriteTriggerConfig', () => {
 			code: 'x = "$res:f/target/kafka"'
 		})
 	})
-	it('remaps error_handler_path in both spellings, preserving the prefix', () => {
-		expect(rewriteTriggerConfig({ error_handler_path: 'f/proj/script' }, map)).toEqual({
-			error_handler_path: 'f/target/script'
-		})
-		expect(rewriteTriggerConfig({ error_handler_path: 'script/f/proj/script' }, map)).toEqual({
-			error_handler_path: 'script/f/target/script'
-		})
-	})
 	it('leaves non-matching strings and non-string values untouched', () => {
 		const config = { url: 'wss://example.com', port: 9092, enabled: true, extra: null }
 		expect(rewriteTriggerConfig(config, map)).toEqual(config)

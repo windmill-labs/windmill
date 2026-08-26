@@ -268,6 +268,15 @@ pub async fn create_many_http_triggers(
             format!("http_triggers:write:{}", &new_http_trigger.base.path)
         })?;
 
+        // This route inserts directly, bypassing the shared create handler.
+        // `error_wrapper` would turn the rejection into a 500.
+        new_http_trigger.error_handling.validate().map_err(|err| {
+            Error::BadRequest(format!(
+                "Error occurred for HTTP route at route path: {}, error: {}",
+                new_http_trigger.config.route_path, err
+            ))
+        })?;
+
         handler
             .validate_new(&db, &w_id, &new_http_trigger.config)
             .await

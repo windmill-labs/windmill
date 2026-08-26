@@ -428,23 +428,12 @@ export function triggerResourcePath(t: WorkspaceTrigger): string | undefined {
 }
 
 /**
- * A non-schedule `error_handler_path` may carry the `script/` prefix that
- * schedule and workspace error handlers use. The backend strips it before
- * resolving the handler, so every reader has to compare against the bare path.
- */
-export function stripScriptPrefix(path: string): string
-export function stripScriptPrefix(path: string | undefined): string | undefined
-export function stripScriptPrefix(path: string | undefined): string | undefined {
-	return path?.startsWith('script/') ? path.slice('script/'.length) : path
-}
-
-/**
  * Runnables a trigger's config references beyond its primary target, so they
- * can be bundled alongside it: `error_handler_path` for non-schedule kinds, and
- * schedules' `on_failure`/`on_recovery`/`on_success` (`script/<path>` or
- * `flow/<path>`) plus `dynamic_skip` (bare script path — schedule creation
- * refuses a dynamic_skip whose script doesn't exist, so an unbundled one would
- * make the import fail).
+ * can be bundled alongside it: `error_handler_path` (bare script path) for
+ * non-schedule kinds, and schedules' `on_failure`/`on_recovery`/`on_success`
+ * (`script/<path>` or `flow/<path>`) plus `dynamic_skip` (bare script path —
+ * schedule creation refuses a dynamic_skip whose script doesn't exist, so an
+ * unbundled one would make the import fail).
  */
 export function triggerHandlerRefs(
 	t: WorkspaceTrigger
@@ -462,7 +451,7 @@ export function triggerHandlerRefs(
 		}
 	} else {
 		if (typeof c?.error_handler_path === 'string' && c.error_handler_path !== '') {
-			out.push({ kind: 'script', path: stripScriptPrefix(c.error_handler_path) })
+			out.push({ kind: 'script', path: c.error_handler_path })
 		}
 		if (t.kind === 'websocket') {
 			// The URL itself can be a runnable ($script:<path> / $flow:<path>), and

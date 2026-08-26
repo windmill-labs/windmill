@@ -6179,14 +6179,6 @@ async fn push_inner<'c, 'd>(
 
             // Build failure module if error handler is provided
             let failure_module = if let Some(error_handler_path) = error_handler_path {
-                // Error handlers are configured with the `script/f/foo` spelling
-                // that schedule and workspace error handlers use, but a failure
-                // module resolves its path as a bare runnable path.
-                let error_handler_path = error_handler_path
-                    .strip_prefix("script/")
-                    .map(str::to_string)
-                    .unwrap_or(error_handler_path);
-
                 let mut input_transforms = HashMap::<String, InputTransform>::new();
                 input_transforms.insert(
                     "error".to_string(),

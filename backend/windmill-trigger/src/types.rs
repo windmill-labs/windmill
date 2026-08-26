@@ -84,6 +84,32 @@ pub struct TriggerErrorHandling {
     pub retry: Option<sqlx::types::Json<windmill_common::flows::Retry>>,
 }
 
+impl TriggerErrorHandling {
+    /// A trigger error handler is a bare script path, like every other runnable
+    /// path on a trigger. Schedule and workspace error handlers instead encode
+    /// script-vs-flow as a `script/`/`flow/` prefix; a trigger has no such field,
+    /// so a prefixed path would be looked up verbatim as a script name and fail
+    /// only once the trigger errors, which is when the handler is needed.
+    pub fn validate(&self) -> windmill_common::error::Result<()> {
+        let Some(path) = self.error_handler_path.as_deref() else {
+            return Ok(());
+        };
+        if let Some(bare) = path.strip_prefix("script/") {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "error_handler_path is a plain script path, not the prefixed form a schedule \
+                 error handler takes: got '{path}', use '{bare}'"
+            )));
+        }
+        if path.starts_with("flow/") {
+            return Err(windmill_common::error::Error::BadRequest(format!(
+                "error_handler_path must be a script: a trigger error handler cannot be a flow \
+                 (got '{path}')"
+            )));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Trigger<T>
 where
@@ -252,6 +278,43 @@ pub enum TriggerMode {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // --- TriggerErrorHandling::validate ---
+
+    fn error_handling(path: Option<&str>) -> TriggerErrorHandling {
+        TriggerErrorHandling {
+            error_handler_path: path.map(str::to_string),
+            error_handler_args: None,
+            retry: None,
+        }
+    }
+
+    #[test]
+    fn test_error_handler_path_accepts_bare_and_hub_paths() {
+        for path in [None, Some("f/team/handler"), Some("u/admin/handler")] {
+            assert!(error_handling(path).validate().is_ok(), "{path:?}");
+        }
+        assert!(error_handling(Some("hub/13953/windmill/handler"))
+            .validate()
+            .is_ok());
+    }
+
+    #[test]
+    fn test_error_handler_path_rejects_prefixed_paths() {
+        // The rejection names the bare path to use, so the caller can fix it
+        // without knowing which of the two conventions a trigger follows.
+        let err = error_handling(Some("script/f/team/handler"))
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("f/team/handler"), "{err}");
+
+        let err = error_handling(Some("flow/f/team/handler"))
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cannot be a flow"), "{err}");
+    }
 
     // --- TriggerMode serde ---
 
