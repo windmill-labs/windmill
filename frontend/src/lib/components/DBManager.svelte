@@ -34,6 +34,7 @@
 	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import Star from './Star.svelte'
+	import { favoriteManager } from './sidebar/FavoriteMenu.svelte'
 	import DatatableRoleBadge from './DatatableRoleBadge.svelte'
 	import type { Asset, DataTableTables } from '$lib/gen'
 	import { ADMIN_DATATABLE_ROLE, type DatatableRowAction } from './dbTypes'
@@ -289,13 +290,14 @@
 		expandOverrides = next
 	}
 
-	// The row menu appears while you are on the row, just left of the chevron or
-	// star. Out of flow, so rows without one are not padded to make room.
-	const rowActionsClass =
-		'absolute right-full mr-0.5 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100'
-
 	const rowChevronClass = (open: boolean) =>
 		'shrink-0 text-secondary transition-transform ' + (open ? '' : '-rotate-90')
+
+	/** A favourite says something about the table, so it stays visible; an empty
+	 * star is just an affordance and waits for the pointer. */
+	const rowStarClass = (path: string) =>
+		'flex shrink-0 transition-opacity ' +
+		(favoriteManager.isStarred(path, 'asset') ? '' : 'opacity-0 group-hover:opacity-100')
 
 	/** Reveal a node, dropping a stale "closed" that would hide a new selection. */
 	function reveal(dt: string | undefined, schemaKey?: string) {
@@ -524,6 +526,7 @@
 								class="shrink-0"
 							/>
 						{/if}
+						<ChevronDownIcon class={rowChevronClass(dtOpen)} size={14} />
 						<DatabaseIcon class="shrink-0" size={14} />
 						<span class="truncate text-ellipsis text-left text-xs">{root.datatable}</span>
 						{#if roleInfo}
@@ -566,11 +569,9 @@
 											action: () => onDatatableAction?.(dt, 'import')
 										}
 									]}
-									class={rowActionsClass}
 									btnId={'db-manager-datatable-actions-' + onlyAlphaNumAndUnderscore(dt)}
 								/>
 							{/if}
-							<ChevronDownIcon class={rowChevronClass(dtOpen)} size={14} />
 						</div>
 					</button>
 				{/if}
@@ -598,6 +599,7 @@
 										class="shrink-0"
 									/>
 								{/if}
+								<ChevronDownIcon class={rowChevronClass(schemaOpen)} size={14} />
 								<FolderIcon class="shrink-0" size={14} />
 								<span class="truncate text-ellipsis grow text-left text-xs">{sc.schemaKey}</span>
 								<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
@@ -611,11 +613,9 @@
 													action: () => (schemaPermissionsOpen = true)
 												}
 											]}
-											class={rowActionsClass}
 											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
 										/>
 									{/if}
-									<ChevronDownIcon class={rowChevronClass(schemaOpen)} size={14} />
 								</div>
 							</button>
 						{/if}
@@ -655,11 +655,19 @@
 											class="shrink-0"
 										/>
 									{/if}
+									<span class="shrink-0 w-3.5"></span>
 									<Table2 class="shrink-0" size={14} />
-									<p class="db-manager-table-key truncate text-ellipsis grow text-left text-xs">
+									<p class="db-manager-table-key truncate text-ellipsis text-left text-xs">
 										{tableKey}
 									</p>
-									<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-1">
+									{#if asset}
+										{@const starPath = tableAssetPath(root.datatable, sc.schemaKey, tableKey)}
+										<span class={rowStarClass(starPath)}>
+											<Star kind="asset" path={starPath} />
+										</span>
+									{/if}
+									<div class="grow"></div>
+									<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
 										{#if hasMenu}
 											<DropdownV2
 												enableFlyTransition
@@ -675,14 +683,7 @@
 														action: () => startAlterTable(root.datatable, sc.schemaKey, tableKey)
 													}
 												]}
-												class={rowActionsClass}
 												btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
-											/>
-										{/if}
-										{#if asset}
-											<Star
-												kind="asset"
-												path={tableAssetPath(root.datatable, sc.schemaKey, tableKey)}
 											/>
 										{/if}
 									</div>
