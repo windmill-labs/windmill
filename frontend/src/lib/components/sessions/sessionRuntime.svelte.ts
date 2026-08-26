@@ -93,15 +93,13 @@ import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import { sendUserToast } from '$lib/toast'
 import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-import { withoutHeavyPayloads } from './sessionMirrorPayload'
+import { canSpliceFrame, mirrorFrameStart, withoutHeavyPayloads } from './sessionMirrorPayload'
 import {
 	broadcastMirror,
 	broadcastTurnEnd,
 	isLocallyDriven,
 	isRemotelyDriven,
-	RUN_OWNERSHIP_AVAILABLE,
 	MIRROR_THROTTLE_MS,
-	mirrorBaseIndex,
 	registerSyncHandlers,
 	requestCancel,
 	requestResync,
@@ -938,10 +936,6 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// turns interleave into one chat id.
 	manager.runGuard = async (body) => {
 		const outcome = await withSessionRunLock(session.id, async () => {
-			// The whole turn protocol rides on ownership, not just the frames: a
-			// turn-end announced without it would reach tabs that were never
-			// mirroring and end a run of their own that is still going.
-			if (!RUN_OWNERSHIP_AVAILABLE) return body()
 			// The first frame doubles as the "a run started here" signal: it is
 			// posted immediately and carries the chat id the watchers need.
 			startMirroring(session.id)
@@ -1042,10 +1036,11 @@ function mirrorSnapshotOf(sessionId: string, full: boolean): MirrorSnapshot | un
 	// Slice before cloning: `$state.snapshot` walks whatever it is handed, so
 	// snapshotting the whole transcript to send ten messages would traverse the
 	// entire conversation on every tick.
-	const baseIndex = Math.max(
-		turnStarts.get(sessionId) ?? 0,
-		mirrorBaseIndex(total, full || rewritten)
-	)
+	const baseIndex = mirrorFrameStart({
+		total,
+		turnStart: turnStarts.get(sessionId) ?? 0,
+		full: full || rewritten
+	})
 	return {
 		sessionId,
 		chatId: m.historyManager.getCurrentChatId(),
@@ -1069,7 +1064,6 @@ function postMirror(sessionId: string, { full = false } = {}): void {
 }
 
 function startMirroring(sessionId: string): void {
-	if (!RUN_OWNERSHIP_AVAILABLE) return
 	stopMirroring(sessionId)
 	// Captured before the turn pushes its first message, so it is the index of
 	// the oldest message this turn owns.
@@ -1102,9 +1096,14 @@ function applyMirror(msg: MirrorMsg): void {
 	if (!runtime) return
 	const m = runtime.manager
 	const onSameChat = m.historyManager.getCurrentChatId() === msg.chatId
-	const prefixFits =
-		m.displayMessages.length >= msg.baseIndex && m.displayMessages.length <= msg.total
-	if (msg.baseIndex > 0 && !(onSameChat && prefixFits)) {
+	if (
+		!canSpliceFrame({
+			baseIndex: msg.baseIndex,
+			total: msg.total,
+			localLength: m.displayMessages.length,
+			onSameChat
+		})
+	) {
 		// Nothing here can host this tail: this tab joined mid-run, or the driver
 		// rotated to a chat it isn't on. Ask for the whole transcript instead of
 		// splicing onto a prefix that isn't the same conversation.

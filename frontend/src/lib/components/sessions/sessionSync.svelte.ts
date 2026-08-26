@@ -18,19 +18,11 @@ import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 
 const CHANNEL_BASE = 'windmill-sessions-sync'
 
-/** Web Locks is secure-context only; BroadcastChannel is not. Without it there
- *  is no way to retire a driver that closed mid-turn, and a watcher would sit on
- *  "generating" forever with a Stop that reaches nobody — worse than not
- *  mirroring at all. So run mirroring rides on this and record sync, which needs
- *  no ownership, does not. */
-export const RUN_OWNERSHIP_AVAILABLE = BROWSER && !!globalThis.navigator?.locks?.query
-
-/** Tail length of the transcript sent on each mirror tick. In-place edits to
- *  already-rendered messages (tool cards settling) land within a few messages
- *  of the end, so a short tail carries them while keeping the payload bounded
- *  on long conversations. Anything older is corrected by the IndexedDB re-read
- *  at turn end. */
-const MIRROR_TAIL = 10
+/** Whether this context can hold a real lock on a run. Web Locks is
+ *  secure-context only, so a self-hosted instance served over plain HTTP has
+ *  none — mirroring still runs there, on the weaker footing described at
+ *  {@link withSessionRunLock} and {@link runLockHeld}. */
+const EXCLUSIVE_OWNERSHIP = BROWSER && !!globalThis.navigator?.locks?.query
 
 /** Mirror ticks are throttled to this while a turn streams. Also the heartbeat
  *  interval: an unchanged run still ticks, so silence means the driver is gone. */
@@ -274,10 +266,20 @@ export async function withSessionRunLock<T>(
 	sessionId: string,
 	body: () => Promise<T>
 ): Promise<T | 'busy'> {
-	// No ownership to take: the run proceeds unguarded, and the caller mirrors
-	// nothing (see RUN_OWNERSHIP_AVAILABLE), leaving tabs as independent as they
-	// were before any of this.
-	if (!RUN_OWNERSHIP_AVAILABLE) return body()
+	if (!EXCLUSIVE_OWNERSHIP) {
+		// No lock to take, so exclusion is best-effort: refuse only when another
+		// tab is visibly mid-run. That covers the case that actually happens (one
+		// tab already going) and leaves a genuine simultaneous start racing, which
+		// is what a session already did before any of this. Marking the run ours
+		// is what keeps the two tabs from adopting each other's frames.
+		if (isRemotelyDriven(sessionId)) return 'busy'
+		locallyDriven.add(sessionId)
+		try {
+			return await body()
+		} finally {
+			locallyDriven.delete(sessionId)
+		}
+	}
 	return (await navigator.locks.request(
 		lockName(sessionId),
 		{ mode: 'exclusive', ifAvailable: true },
@@ -300,6 +302,12 @@ export async function withSessionRunLock<T>(
  *  settle a driver that stopped mirroring: a released lock proves the tab is
  *  gone, where silence alone only suggests it. */
 async function runLockHeld(sessionId: string): Promise<boolean> {
+	// Nothing to consult without the lock API, so silence is the only evidence —
+	// and the caller only asks after a driver has gone quiet for the whole
+	// silence window. Reaping a driver that was merely starved is self-correcting:
+	// the watcher stops showing a run that is not visibly progressing and re-reads
+	// the record, which the next frame or the turn-end would have done anyway.
+	if (!EXCLUSIVE_OWNERSHIP) return false
 	try {
 		const state = await navigator.locks.query()
 		const name = lockName(sessionId)
@@ -350,15 +358,6 @@ export function sendQuestionAnswer(sessionId: string, toolId: string, choices: s
 }
 
 export type MirrorSnapshot = Omit<MirrorMsg, 'kind'>
-
-/** Where the tail a frame carries should start. Callers slice — and only then
- *  clone — so a heartbeat on a long conversation never copies the messages it
- *  is not going to send; a transcript holding pasted files or image data URLs
- *  makes that difference megabytes per tick. `full` sends everything, which is
- *  what answers a resync request. */
-export function mirrorBaseIndex(total: number, full = false): number {
-	return full ? 0 : Math.max(0, total - MIRROR_TAIL)
-}
 
 /** Send the driver's current view of a run. */
 export function broadcastMirror(snap: MirrorSnapshot): void {

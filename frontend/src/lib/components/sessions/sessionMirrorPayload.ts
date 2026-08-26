@@ -49,3 +49,62 @@ export function withoutHeavyPayloads(messages: DisplayMessage[]): DisplayMessage
 		return stripped as DisplayMessage
 	})
 }
+
+/** How many of the newest messages a frame carries when it is not sending the
+ *  whole transcript. In-place edits to already-rendered cards (a tool card
+ *  settling) land within a few messages of the end, so a short tail carries them
+ *  while keeping the frame bounded on a long conversation. */
+const MIRROR_TAIL = 10
+
+/**
+ * Where the tail a frame carries starts.
+ *
+ * `full` sends the whole transcript and overrides everything else — it is what
+ * answers a resync, and a resync that came back partial would fail the receiver's
+ * prefix check again and ask for another one, forever.
+ *
+ * Otherwise the frame reaches no further back than `turnStart`, the index of the
+ * running turn's first message: everything from there on is either new this turn
+ * or a stripped copy the receiver already got from an earlier frame of the same
+ * turn, so overwriting it can never destroy a message held complete from the
+ * store.
+ */
+export function mirrorFrameStart({
+	total,
+	turnStart,
+	full
+}: {
+	total: number
+	turnStart: number
+	full: boolean
+}): number {
+	if (full) return 0
+	return Math.max(turnStart, Math.max(0, total - MIRROR_TAIL))
+}
+
+/**
+ * Whether a receiver can splice this frame onto what it already holds, or has to
+ * ask for the whole transcript instead.
+ *
+ * A frame is positional, so it is only meaningful against the same conversation
+ * and a prefix of the same shape. A receiver holding fewer messages than the
+ * frame starts at has a gap; one holding more than the sender has messages the
+ * sender no longer does (it compacted, or switched chats), and splicing would
+ * render a conversation that never existed.
+ */
+export function canSpliceFrame({
+	baseIndex,
+	total,
+	localLength,
+	onSameChat
+}: {
+	baseIndex: number
+	total: number
+	localLength: number
+	onSameChat: boolean
+}): boolean {
+	// A frame that starts at 0 replaces everything, so it needs no prefix to
+	// agree with and can be adopted even when it names a different conversation.
+	if (baseIndex === 0) return true
+	return onSameChat && localLength >= baseIndex && localLength <= total
+}
