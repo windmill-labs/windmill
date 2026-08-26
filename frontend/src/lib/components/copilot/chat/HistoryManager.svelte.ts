@@ -588,11 +588,16 @@ export default class HistoryManager {
 		this.pruneImageIds(this.currentChatId)
 	}
 
-	deletePastChat(id: string) {
+	/** Returns once the row is actually gone, for the one caller that has to know:
+	 *  a rolled-back turn announces its end to the other tabs, and they re-read
+	 *  this chat from the store. Dropped in flight, that read still finds the
+	 *  transcript the rollback exists to remove. Everywhere else the removal is
+	 *  visible from `savedChats` at once and the promise can be ignored. */
+	deletePastChat(id: string): Promise<void> {
 		this.savedChats = Object.fromEntries(
 			Object.entries(this.savedChats).filter(([key]) => key !== id)
 		)
-		void this.enqueueDbWrite(async (db) => {
+		return this.enqueueDbWrite(async (db) => {
 			await db.delete('chats', id)
 			const keys = await imageKeysForChat(db, id)
 			await Promise.all(keys.map((key) => db.delete('images', key)))

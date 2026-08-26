@@ -387,6 +387,31 @@ describe('HistoryManager legacy chat-history migration', () => {
 		})
 	})
 
+	it('resolves deletePastChat behind a checkpoint still in flight', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+
+		// The shape a rolled-back turn actually ends in: a mid-turn checkpoint is
+		// still queued when the rollback removes the chat.
+		const checkpoint = hm.saveChat(
+			[{ role: 'user', content: 'rolled back' }] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+		const removed = hm.deletePastChat(chatId)
+		await removed
+
+		// Read with no waitFor on purpose: the rollback announces its turn-end to the
+		// other tabs as soon as this resolves, and they go straight to the store for
+		// this chat. Resolving ahead of the queue hands them the very transcript the
+		// rollback exists to remove.
+		const db = await openDB('copilot-chat-history::admin@test')
+		const stored = await db.get('chats' as never, chatId)
+		db.close()
+		expect(stored).toBeUndefined()
+		await checkpoint
+	})
+
 	it('loads pre-blob-store records with inline data URLs untouched', async () => {
 		const png = 'data:image/png;base64,LEGACYINLINE'
 		const hm = new HistoryManager()

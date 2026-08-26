@@ -66,6 +66,11 @@ type MirrorMsg = {
 	currentReasoningActive: boolean
 	loadingLabel: string | undefined
 	compacting: boolean
+	/** The driver's plan-mode posture. The only autonomy state worth carrying:
+	 *  every other one is a stored preference each tab keeps its own copy of,
+	 *  while plan mode is never persisted and so exists nowhere but the driving
+	 *  tab's memory. */
+	planModeActive: boolean
 }
 /** Sent by a tab whose local prefix can't host the tail it just received (it
  *  joined mid-run, or is on a different chat). The driver answers with a full

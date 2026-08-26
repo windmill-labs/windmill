@@ -701,6 +701,19 @@ export class AIChatManager {
 	 *  session runtime. */
 	mirroringRemoteRun = $state(false)
 
+	/** Whether the tab driving this session was last seen in plan mode.
+	 *
+	 *  Plan mode is the one autonomy state that is deliberately never persisted
+	 *  (see `persistAutonomyMode`): a model entered it for this session, so it
+	 *  lives only in the memory of the tab running the turn. Every other mode is
+	 *  a stored preference each tab is entitled to its own copy of.
+	 *
+	 *  Kept after the turn ends rather than cleared with `mirroringRemoteRun`,
+	 *  because the driver stays in plan mode between turns and stops sending
+	 *  frames that could say so. The next turn's first frame corrects it; this
+	 *  tab driving one of its own clears it outright. */
+	mirroredPlanMode = $state(false)
+
 	/** Whether the turn that just finished is one a follow-up should be sent
 	 *  after: it committed, or the user deliberately stopped it. False through a
 	 *  provider error, an empty-response rollback, or a programmatic cancel — the
@@ -3724,7 +3737,10 @@ export class AIChatManager {
 					// saveChat no-ops on an empty transcript; the chat persisted earlier
 					// this turn would linger in history and resurface the rolled-back
 					// user message on reload. Remove it instead.
-					this.historyManager.deletePastChat(this.historyManager.getCurrentChatId())
+					// Awaited: the turn-end this rollback is about to announce sends the
+					// other tabs back to the store for this chat, and a delete still in
+					// flight leaves them the transcript being rolled back.
+					await this.historyManager.deletePastChat(this.historyManager.getCurrentChatId())
 				} else {
 					await this.historyManager.saveChat(
 						this.displayMessages,

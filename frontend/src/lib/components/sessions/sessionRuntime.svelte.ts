@@ -936,6 +936,9 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// turns interleave into one chat id.
 	manager.runGuard = async (body) => {
 		const outcome = await withSessionRunLock(session.id, async () => {
+			// Driving under this tab's own posture from here on, so whatever the
+			// last driver was in stops describing the session.
+			manager.mirroredPlanMode = false
 			// The first frame doubles as the "a run started here" signal: it is
 			// posted immediately and carries the chat id the watchers need.
 			startMirroring(session.id)
@@ -1054,7 +1057,8 @@ function mirrorSnapshotOf(sessionId: string, full: boolean): MirrorSnapshot | un
 		currentReasoning: m.currentReasoning,
 		currentReasoningActive: m.currentReasoningActive,
 		loadingLabel: m.loadingLabel,
-		compacting: m.compacting
+		compacting: m.compacting,
+		planModeActive: m.planModeActive
 	}
 }
 
@@ -1080,11 +1084,15 @@ function stopMirroring(sessionId: string): void {
 	if (!timer) return
 	clearInterval(timer)
 	mirrorTimers.delete(sessionId)
-	lastSentTotals.delete(sessionId)
-	turnStarts.delete(sessionId)
 	// One last frame: the closing tokens of a turn usually land between ticks,
 	// and this is what the passive tabs render until their re-read completes.
+	// Posted while the turn's bookkeeping still stands — it is a frame like any
+	// other, and one sent without `turnStart` reaches below the turn and replaces
+	// complete messages with payload-stripped copies, while one sent without
+	// `lastSentTotals` cannot notice a compaction landing on this very tick.
 	postMirror(sessionId)
+	lastSentTotals.delete(sessionId)
+	turnStarts.delete(sessionId)
 }
 
 /** Adopt a frame from the tab driving this session. */
@@ -1133,6 +1141,7 @@ function applyMirror(msg: MirrorMsg): void {
 	m.currentReasoningActive = msg.currentReasoningActive
 	m.loadingLabel = msg.loadingLabel
 	m.compacting = msg.compacting
+	m.mirroredPlanMode = msg.planModeActive
 }
 
 /** The driver answers a resync with its whole transcript. */
@@ -1187,7 +1196,16 @@ async function applyTurnEnd(sessionId: string, chatId: string, committed: boolea
 	// than sent. Send it only after a turn that landed, which is the rule a turn
 	// follows locally: firing it into a failed turn, or into the gap left by a tab
 	// that vanished, is how a follow-up ends up answering nothing.
-	if (committed) await m.flushQueuedMessage()
+	if (!committed) return
+	if (m.mirroredPlanMode) {
+		// Plan mode belongs to the tab that entered it, and a turn sent from here
+		// would run under this tab's own autonomy instead — unblocking the very
+		// workspace tools the posture exists to hold back. Leave the message where
+		// the user put it and say why, rather than quietly sending it out of mode.
+		sendUserToast('This session is planning in another tab. Your message stays queued.')
+		return
+	}
+	await m.flushQueuedMessage()
 }
 
 /** A Stop pressed in a watching tab reaches the run here. */

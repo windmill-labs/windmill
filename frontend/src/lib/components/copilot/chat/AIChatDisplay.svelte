@@ -501,10 +501,15 @@
 	)
 	// Fall back to ask-permission when the persisted mode isn't applicable in the
 	// current AI mode (e.g. auto-accept edits while in a mode without edits).
+	// A session planning in another tab overrides both: that posture governs the
+	// run this tab is showing, and this tab's own mode governs nothing until it
+	// drives a turn itself.
 	const effectiveAutonomyMode = $derived(
-		availableAutonomyModeOptions.some((option) => option.mode === aiChatManager.autonomyMode)
-			? aiChatManager.autonomyMode
-			: AIAutonomyMode.DEFAULT
+		aiChatManager.mirroredPlanMode
+			? AIAutonomyMode.PLAN
+			: availableAutonomyModeOptions.some((option) => option.mode === aiChatManager.autonomyMode)
+				? aiChatManager.autonomyMode
+				: AIAutonomyMode.DEFAULT
 	)
 	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
 	const effectiveAutonomyModeOption = $derived(autonomyModeOption(effectiveAutonomyMode))
@@ -955,7 +960,25 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								onchange={onFolderInputChange}
 							/>
 						{/if}
-						{#if showAutonomyModeSelector}
+						{#if aiChatManager.mirroredPlanMode}
+							<!-- The posture belongs to the tab running the turn, so it reads here
+							     rather than offering a choice that would only move this tab's own
+							     preference while the label stayed put. -->
+							<Button
+								nonCaptureEvent
+								unifiedSize="2xs"
+								variant="default"
+								disabled
+								title="This session is planning in another tab"
+								btnClasses={effectiveAutonomyModeOption.triggerClass ?? ''}
+								startIcon={{
+									icon: effectiveAutonomyModeOption.icon,
+									classes: effectiveAutonomyModeOption.iconColor
+								}}
+							>
+								{autonomyModeLabel(effectiveAutonomyMode)}
+							</Button>
+						{:else if showAutonomyModeSelector}
 							<DropdownV2
 								items={() =>
 									availableAutonomyModeOptions.map((option) => ({
