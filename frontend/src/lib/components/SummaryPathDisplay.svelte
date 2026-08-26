@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { emptyString, isOwner } from '$lib/utils'
+	import LabelBadge from '$lib/components/labels/LabelBadge.svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -10,7 +11,6 @@
 	import Label from './Label.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 	import InheritedLabels from './InheritedLabels.svelte'
-	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
 		summary?: string
@@ -112,11 +112,11 @@
 					{#if labels?.length}
 						<div class="flex items-center gap-0.5">
 							{#each labels as label}
-								<Badge color="blue" verySmall class="px-1" title="Label: {label}">{label}</Badge>
+								<LabelBadge {label} workspace={$workspaceStore} size="verySmall" />
 							{/each}
 						</div>
 					{/if}
-					<InheritedLabels labels={inheritedLabels} />
+					<InheritedLabels labels={inheritedLabels} workspace={$workspaceStore} />
 				</div>
 			</div>
 		{/snippet}
@@ -146,7 +146,7 @@
 							}}
 						/>
 						{#if inheritedLabels?.length}
-							<InheritedLabels labels={inheritedLabels} />
+							<InheritedLabels labels={inheritedLabels} workspace={$workspaceStore} />
 						{/if}
 					</div>
 					{#if inheritedLabels?.length}

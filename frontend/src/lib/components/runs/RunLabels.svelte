@@ -5,6 +5,9 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import type { Job } from '$lib/gen'
 	import type { Item } from '$lib/utils'
+	import { badgeColors, badgeSelectedColors } from '$lib/components/common/badge/model'
+	import { labelBadgeColor } from '$lib/components/labels/labelColors'
+	import { labelColorCache, labelColorOf } from '$lib/components/labels/labelStore'
 
 	interface Props {
 		job: Job
@@ -60,6 +63,13 @@
 	const visibleLabels = $derived(labelSplit.visibleLabels || [])
 	const hiddenLabels = $derived(labelSplit.hiddenLabels || [])
 
+	// The chips keep their own geometry — the overflow split above is computed from
+	// LABEL_MAX_WIDTH — so they take only the color half of the badge styling.
+	function chipClass(label: string): string {
+		const color = labelBadgeColor(labelColorOf($labelColorCache, job?.workspace_id, label))
+		return activeLabel == label ? badgeSelectedColors[color] : badgeColors[color]
+	}
+
 	const dropdownItems = $derived(
 		hiddenLabels.map(
 			(label): Item => ({
@@ -77,8 +87,8 @@
 			<Tooltip openDelay={500} placement="bottom">
 				<button
 					class={twMerge(
-						activeLabel == label ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-						'flex flex-row items-center px-2 group py-1 rounded-md bg-surface-secondary hover:bg-surface'
+						'flex flex-row items-center px-2 group py-1 rounded-md',
+						chipClass(label)
 					)}
 					style="gap: {GAP}px; width: {LABEL_MAX_WIDTH}px"
 					onclick={() => {

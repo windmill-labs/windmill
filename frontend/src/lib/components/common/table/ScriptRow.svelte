@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
+	import LabelBadge from '$lib/components/labels/LabelBadge.svelte'
 	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
@@ -206,7 +207,7 @@
 		{#if script.labels?.length}
 			<div class="flex items-center gap-0.5">
 				{#each script.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+					<LabelBadge {label} workspace={$workspaceStore} />
 				{/each}
 				{#if script.labels.length > 3}
 					<Badge
@@ -221,7 +222,7 @@
 				{/if}
 			</div>
 		{/if}
-		<InheritedLabels labels={script.inherited_labels} />
+		<InheritedLabels labels={script.inherited_labels} workspace={$workspaceStore} />
 		<div class="w-8 center-center">
 			<LanguageIcon lang={script.language} width={16} height={16} />
 		</div>

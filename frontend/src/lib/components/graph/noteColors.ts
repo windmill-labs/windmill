@@ -105,6 +105,9 @@ export const NOTE_COLORS: Record<NoteColor, NoteColorConfig> = {
 	}
 }
 
+/** The note colors in picker order. */
+export const NOTE_COLOR_LIST: NoteColor[] = Object.values(NoteColor)
+
 // Color swatch colors for the picker (solid colors for the palette dots)
 export const NOTE_COLOR_SWATCHES: Record<NoteColor, string> = {
 	[NoteColor.YELLOW]: 'bg-yellow-400',

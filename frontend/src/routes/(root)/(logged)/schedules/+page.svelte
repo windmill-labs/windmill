@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import LabelBadge from '$lib/components/labels/LabelBadge.svelte'
 	import {
 		ScheduleService,
 		type ScheduleWJobs,
@@ -434,11 +435,9 @@
 								</a>
 								{#if labels?.length}
 									{#each labels as label}
-										<Badge
-											color="blue"
-											small
-											class="px-1"
-											title="Label: {label}"
+										<LabelBadge
+											{label}
+											workspace={$workspaceStore}
 											clickable
 											onclick={() => {
 												const arr = (filters.val.label ?? '').split(',').filter(Boolean)
@@ -449,11 +448,11 @@
 												if (arr.length) newFilters.label = arr.join(',')
 												else delete newFilters.label
 												filters.val = newFilters
-											}}>{label}</Badge
-										>
+											}}
+										/>
 									{/each}
 								{/if}
-								<InheritedLabels labels={inherited_labels} />
+								<InheritedLabels labels={inherited_labels} workspace={$workspaceStore} />
 
 								{#if paused_until && new Date(paused_until) > new Date()}
 									<div class="pb-1">

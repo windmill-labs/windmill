@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { preventDefault, stopPropagation } from 'svelte/legacy'
 	import { EllipsisVertical, StickyNote, Ungroup } from 'lucide-svelte'
-	import { NoteColor, NOTE_COLOR_SWATCHES } from './noteColors'
+	import { NoteColor, NOTE_COLOR_LIST, NOTE_COLOR_SWATCHES } from './noteColors'
 	import Toggle from '../Toggle.svelte'
+	import ColorSwatchGrid from '../common/colorPicker/ColorSwatchGrid.svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import MoveHandleButton from './MoveHandleButton.svelte'
@@ -98,17 +99,12 @@
 			>
 				<!-- Color picker -->
 				<div class="px-4 py-2">
-					<div class="grid grid-cols-5 gap-1">
-						{#each Object.values(NoteColor) as c (c)}
-							<button
-								class="w-6 h-6 rounded-full hover:scale-110 transition-transform duration-100
-									{NOTE_COLOR_SWATCHES[c]}
-									{(color ?? NoteColor.BLUE) === c ? 'ring-2 ring-accent' : 'dark:border-gray-600'}"
-								onclick={() => onUpdateColor(c)}
-								title={c.charAt(0).toUpperCase() + c.slice(1)}
-							></button>
-						{/each}
-					</div>
+					<ColorSwatchGrid
+						colors={NOTE_COLOR_LIST}
+						swatches={NOTE_COLOR_SWATCHES}
+						selected={color ?? NoteColor.BLUE}
+						onSelect={onUpdateColor}
+					/>
 				</div>
 
 				<!-- Autocollapse toggle -->
