@@ -1300,12 +1300,13 @@ export function cleanExpr(expr: string | undefined): string {
  * and copying everything else verbatim. `stack` tracks interpolations, braces, quoted strings and
  * nested template literals, so a `}` or a backtick inside one of those does not end the region.
  * `onOuterText` returns the replacement it emitted and how many characters it consumed, or null to
- * let the character through.
+ * let the character through. `balanced` reports whether the walk ended in the outermost region;
+ * it is false when the input desynchronized the stack, and the callers fall back on it.
  */
 function walkTemplateBody(
 	text: string,
 	onOuterText: (text: string, i: number) => { emit: string; consumed: number } | null
-): string {
+): { out: string; balanced: boolean } {
 	const out: string[] = []
 	const stack: ('expr' | 'brace' | "'" | '"' | '`')[] = []
 	let i = 0
@@ -1354,7 +1355,7 @@ function walkTemplateBody(
 		out.push(c)
 		i++
 	}
-	return out.join('')
+	return { out: out.join(''), balanced: stack.length === 0 }
 }
 
 /**
@@ -1363,14 +1364,21 @@ function walkTemplateBody(
  * legitimate (`${cond ? `--flag ${x}` : ''}`).
  */
 export function escapeTemplateBackticks(text: string): string {
-	return walkTemplateBody(text, (t, i) => (t[i] === '`' ? { emit: '\\`', consumed: 1 } : null))
+	const { out, balanced } = walkTemplateBody(text, (t, i) =>
+		t[i] === '`' ? { emit: '\\`', consumed: 1 } : null
+	)
+	// The walk knows nothing of regex literals or comments, so an odd quote inside an
+	// interpolation desynchronizes it. Escaping everything is what this did before nested
+	// template literals were supported, so it is the safe answer when the walk got lost.
+	return balanced ? out : text.replaceAll('`', '\\`')
 }
 
 /** Inverse of {@link escapeTemplateBackticks}, for turning an expression back into a template. */
 export function unescapeTemplateBackticks(text: string): string {
-	return walkTemplateBody(text, (t, i) =>
+	const { out, balanced } = walkTemplateBody(text, (t, i) =>
 		t[i] === '\\' && t[i + 1] === '`' ? { emit: '`', consumed: 2 } : null
 	)
+	return balanced ? out : text.replaceAll('\\`', '`')
 }
 
 const dynamicTemplateRegex = new RegExp(/\$\{(.*)\}/)

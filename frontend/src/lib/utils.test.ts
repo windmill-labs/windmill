@@ -639,6 +639,15 @@ describe('escapeTemplateBackticks', () => {
 		expect(escapeTemplateBackticks("${ f({ a: '`' }) } `")).toBe("${ f({ a: '`' }) } \\`")
 	})
 
+	it('falls back to escaping everything when the walk desynchronizes', () => {
+		// A regex literal or a comment can hide an odd quote from the walk; escaping every
+		// backtick is worse output but still parses, which a half-walked one would not.
+		for (const v of ["${ x.replace(/'/g, '') } `", '${ /* ` */ x } `']) {
+			expect(() => new Function('return `' + escapeTemplateBackticks(v) + '`')).not.toThrow()
+			expect(unescapeTemplateBackticks(escapeTemplateBackticks(v))).toBe(v)
+		}
+	})
+
 	it('round-trips through unescapeTemplateBackticks', () => {
 		for (const v of [nested, 'a ` b', '${ x["}"] } `', 'plain', '${a}${b}', '\\${a}']) {
 			expect(unescapeTemplateBackticks(escapeTemplateBackticks(v))).toBe(v)
