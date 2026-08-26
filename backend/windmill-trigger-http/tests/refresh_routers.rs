@@ -1,5 +1,5 @@
 use sqlx::{Pool, Postgres};
-use windmill_trigger_http::{refresh_routers, HttpMethod, RoutersCache};
+use windmill_trigger_http::{invalidate_routers, refresh_routers, HttpMethod, RoutersCache};
 
 async fn insert_trigger(db: &Pool<Postgres>, path: &str, route_path: &str) {
     sqlx::query(
@@ -22,10 +22,10 @@ fn routes(cache: &RoutersCache, path: &str) -> bool {
 }
 
 // A trigger row can commit without advancing http_trigger_version_seq past what the cache
-// already holds, because `nextval` runs ahead of the commit it belongs to. Only a forced
-// refresh recovers the route from there.
+// already holds, because `nextval` runs ahead of the commit it belongs to. The version gate
+// cannot see such a row; only forcing, or an invalidation, recovers the route.
 #[sqlx::test(migrations = "../migrations")]
-async fn refresh_routers_force_rebuilds_on_an_unchanged_version(db: Pool<Postgres>) {
+async fn rebuilds_a_change_the_cached_version_does_not_cover(db: Pool<Postgres>) {
     insert_trigger(&db, "f/test/first", "first").await;
     let (rebuilt, cache) = refresh_routers(&db, false).await.unwrap();
     assert!(rebuilt);
@@ -42,4 +42,21 @@ async fn refresh_routers_force_rebuilds_on_an_unchanged_version(db: Pool<Postgre
     let (rebuilt, cache) = refresh_routers(&db, true).await.unwrap();
     assert!(rebuilt, "force must rebuild whatever the version says");
     assert!(routes(&cache, "/second"));
+    drop(cache);
+
+    // A forced refresh that failed leaves its change inside the cached version, so the periodic
+    // version-gated refresh has to rebuild on the invalidation alone.
+    insert_trigger(&db, "f/test/third", "third").await;
+    invalidate_routers();
+
+    let (rebuilt, cache) = refresh_routers(&db, false).await.unwrap();
+    assert!(
+        rebuilt,
+        "an invalidation must rebuild through the version gate"
+    );
+    assert!(routes(&cache, "/third"));
+    drop(cache);
+
+    let (rebuilt, _) = refresh_routers(&db, false).await.unwrap();
+    assert!(!rebuilt, "a served invalidation must not rebuild forever");
 }
