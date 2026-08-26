@@ -136,7 +136,9 @@
 		{#if malformed}
 			<div class="text-2xs text-red-600 dark:text-red-400">{malformed}</div>
 		{:else}
-			<div class="text-2xs text-secondary">Comma-separated. Use * to allow any origin.</div>
+			<div class="text-2xs text-secondary">
+				At least one origin, comma-separated. Use * to allow any.
+			</div>
 		{/if}
 	{:else if inheritsInstanceDefault}
 		<div class="text-2xs text-secondary">
