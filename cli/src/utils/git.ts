@@ -76,7 +76,7 @@ export function getWorkspaceIdForWorkspaceForkFromBranchName(branchName: string)
   return `${WM_FORK_PREFIX}-${branchName.slice(start)}`
 }
 /**
- * Whether this checkout can vouch for what it once held under `migrations/datatable/**`.
+ * Whether this checkout can vouch for what it once held at a set of paths.
  *
  * `known` lists every such path recorded on the current branch (paths stay listed after
  * the commit that removed them, so a real deletion is still recognisable). `unknown`
@@ -86,25 +86,18 @@ export function getWorkspaceIdForWorkspaceForkFromBranchName(branchName: string)
  * mirror it, as in a sparse checkout. Both shapes carry the same obligation on the
  * caller: trust nothing, rather than read absence as evidence.
  */
-export type RecordedMigrationPaths =
+export type RecordedPaths =
   | { kind: "known"; paths: Set<string> }
   | { kind: "unknown"; reason: string; remedy: string };
 
+type UnknownPaths = Extract<RecordedPaths, { kind: "unknown" }>;
+
 /**
- * Resolve [`RecordedMigrationPaths`] for the checkout at the current directory.
- *
- * This is the durable answer to "did this checkout ever track that migration?", which
- * the working tree cannot give: an absent `migrations/datatable/` is equally a clone
- * that never pulled migrations and one where the last was deleted, and creating a
- * migration locally (`wmill datatable migrate new`) makes the directory appear without
- * anything having been tracked.
- *
- * Scoped to `HEAD`, not `--all`: a migration that only ever existed on some other
- * branch is not evidence that *this* branch ever tracked it, and using it as such would
- * authorize deleting it. Output paths are repo-root-relative, so the `--show-prefix` of
- * the working directory is stripped to match the cwd-relative paths a sync diff uses.
+ * The repo-root prefix of the working directory, or the reason this checkout's history
+ * cannot answer for anything. Every rejection here is a property of the checkout, not
+ * of the paths asked about, so it is shared by all [`gitRecordedPaths`] callers.
  */
-export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
+function gitHistoryPrefix(): { prefix: string } | UnknownPaths {
   if (!isGitRepository()) {
     return {
       kind: "unknown",
@@ -124,10 +117,10 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
         "Fetch the full history (for actions/checkout, fetch-depth: 0)",
     };
   }
-  // A sparse checkout can record migrations in history while never materialising
-  // them in the working tree, so their absence there says nothing about whether the
-  // user deleted them. Over-protective for a sparse cone that does include
-  // migrations/, which the interactive prompt can still override.
+  // A sparse checkout can record a file in history while never materialising it in
+  // the working tree, so its absence there says nothing about whether the user
+  // deleted it. Over-protective for a sparse cone that does include the paths in
+  // question, which the interactive prompt can still override.
   // `--type=bool` normalises git's booleans (1, yes, on, …) to true/false; a raw
   // `--get` would let `core.sparseCheckout = 1` walk straight past this.
   const sparse = spawnSync(
@@ -154,15 +147,37 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
       remedy: "Check that git runs correctly in this directory",
     };
   }
-  const prefix = (prefixOut.stdout ?? "").trim();
+  return { prefix: (prefixOut.stdout ?? "").trim() };
+}
+
+/**
+ * Resolve [`RecordedPaths`] for the given git pathspecs in the checkout at the current
+ * directory.
+ *
+ * This is the durable answer to "did this checkout ever track that file?", which the
+ * working tree cannot give: an absent file is equally one this clone never pulled and
+ * one whose deletion is being deployed, and a file created locally makes its directory
+ * appear without anything having been tracked.
+ *
+ * Scoped to `HEAD`, not `--all`: a file that only ever existed on some other branch is
+ * not evidence that *this* branch ever tracked it, and using it as such would authorize
+ * deleting it. Output paths are repo-root-relative, so the `--show-prefix` of the
+ * working directory is stripped to match the cwd-relative paths a sync diff uses.
+ */
+export function gitRecordedPaths(pathspecs: string[]): RecordedPaths {
+  const pre = gitHistoryPrefix();
+  if ("kind" in pre) return pre;
+  const { prefix } = pre;
 
   const r = spawnSync(
     "git",
-    ["log", "HEAD", "--format=", "--name-only", "--", "migrations/datatable"],
+    ["log", "HEAD", "--format=", "--name-only", "--", ...pathspecs],
     { encoding: "utf8", stdio: "pipe", maxBuffer: 64 * 1024 * 1024 },
   );
   if ((r.status ?? 1) !== 0) {
-    log.debug(`Could not read git history for migrations: ${r.stderr ?? ""}`);
+    log.debug(
+      `Could not read git history for ${pathspecs.join(", ")}: ${r.stderr ?? ""}`,
+    );
     return {
       kind: "unknown",
       reason: "its history could not be read",
@@ -181,6 +196,11 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
     }
   }
   return { kind: "known", paths };
+}
+
+/** [`gitRecordedPaths`] for everything under `migrations/datatable/**`. */
+export function gitRecordedDatatableMigrationPaths(): RecordedPaths {
+  return gitRecordedPaths(["migrations/datatable"]);
 }
 
 export function isGitRepository(): boolean {

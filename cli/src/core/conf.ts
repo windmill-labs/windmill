@@ -90,6 +90,7 @@ export interface SyncOptions {
   includeSettings?: boolean;
   includeKey?: boolean;
   skipReencryptOnKeyChange?: boolean;
+  deleteUntrackedSecrets?: boolean;
   skipBranchValidation?: boolean;
   message?: string;
   includes?: string[];

@@ -106,8 +106,9 @@ import {
   deriveGitSyncDeployIncludes,
   isForkWorkspace,
   gitRecordedDatatableMigrationPaths,
+  gitRecordedPaths,
   type GitSyncDeployItem,
-  type RecordedMigrationPaths,
+  type RecordedPaths,
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
@@ -3165,13 +3166,93 @@ export function countDatatableMigrationRecords(
  */
 export function untrackedDatatableMigrationDeletions<
   T extends { name: string; path: string },
->(changes: T[], recorded: RecordedMigrationPaths): T[] {
+>(changes: T[], recorded: RecordedPaths): T[] {
   return changes.filter(
     (c) =>
       c.name === "deleted" &&
       isDatatableMigrationPath(c.path) &&
       !(recorded.kind === "known" && recorded.paths.has(c.path)),
   );
+}
+
+/**
+ * The git pathspecs covering every variable and resource metadata file, whatever
+ * the repo's `--json`/YAML setting or workspace-specific suffix
+ * (`f/x/y.<workspace>.resource.yaml`).
+ */
+const SECRET_BEARING_PATHSPECS = [
+  "*.variable.yaml",
+  "*.variable.json",
+  "*.resource.yaml",
+  "*.resource.json",
+];
+
+/**
+ * The kind of secret-bearing object a metadata file describes, if it is one.
+ *
+ * Variables and resources are the two kinds `sync push` *hard*-deletes: a script is
+ * archived and can be restored, but `DELETE /variables/delete` and
+ * `DELETE /resources/delete` drop the credentials they hold for good. `.resource-type.`
+ * and `.resource.file.` files are deliberately not matched — neither carries a secret,
+ * and a fileset child is pushed by re-pushing its parent rather than deleted.
+ */
+export function secretBearingObjectKind(
+  p: string,
+): "variable" | "resource" | undefined {
+  const normalized = p.replaceAll(SEP, "/");
+  if (/\.variable\.(yaml|json)$/.test(normalized)) return "variable";
+  if (/\.resource\.(yaml|json)$/.test(normalized)) return "resource";
+  return undefined;
+}
+
+/** Extension-insensitive identity of a metadata file, so a repo that switched between
+ * YAML and `--json` still recognises its own history. */
+function secretBearingKey(p: string): string {
+  return p.replaceAll(SEP, "/").replace(/\.(yaml|json)$/, "");
+}
+
+/**
+ * The `deleted` changes for variables and resources that a push cannot safely trust.
+ *
+ * A remote variable or resource with no local file is equally a deletion being deployed
+ * and one that was never in the repo to begin with — provisioned on the instance, or
+ * created at runtime by a script (a cursor, a counter, a last-processed marker). Only
+ * the first is a deletion, and reading the second as one destroys credentials
+ * irrecoverably. What this branch has ever committed is the durable evidence that tells
+ * them apart (see `gitRecordedPaths`): a recorded path was genuinely tracked, so its
+ * absence now is a real deletion; a path missing from a `known` set is one this branch
+ * has never had, and deleting it is a guess. `unknown` history is not evidence of
+ * anything, so every candidate comes back. The caller never deletes what comes back
+ * without either the user's word for it or a warning naming what it could not check.
+ */
+export function untrackedSecretBearingDeletions<
+  T extends { name: string; path: string },
+>(changes: T[], recorded: RecordedPaths): T[] {
+  const recordedKeys =
+    recorded.kind === "known"
+      ? new Set(Array.from(recorded.paths, secretBearingKey))
+      : undefined;
+  return changes.filter(
+    (c) =>
+      c.name === "deleted" &&
+      secretBearingObjectKind(c.path) !== undefined &&
+      !recordedKeys?.has(secretBearingKey(c.path)),
+  );
+}
+
+/** e.g. "2 variables and 1 resource", for the messages about what is being kept. */
+export function describeSecretBearingChanges(
+  changes: { path: string }[],
+): string {
+  const counts = { variable: 0, resource: 0 };
+  for (const c of changes) {
+    const kind = secretBearingObjectKind(c.path);
+    if (kind) counts[kind]++;
+  }
+  const parts = (["variable", "resource"] as const)
+    .filter((k) => counts[k] > 0)
+    .map((k) => `${counts[k]} ${k}${counts[k] > 1 ? "s" : ""}`);
+  return parts.join(" and ");
 }
 
 interface ChangeTracker {
@@ -5057,7 +5138,7 @@ export async function push(
 
   await fetchRemoteVersion(workspace);
 
-  const recordedMigrationPaths: RecordedMigrationPaths = changes.some(
+  const recordedMigrationPaths: RecordedPaths = changes.some(
     (c) => c.name === "deleted" && isDatatableMigrationPath(c.path),
   )
     ? gitRecordedDatatableMigrationPaths()
@@ -5093,6 +5174,63 @@ export async function push(
   ) {
     keepAmbiguousMigrationsOnRemote();
     ambiguousMigrationsResolved = true;
+  }
+
+  // The same safety net for the two object kinds a push hard-deletes. Opt a
+  // mirror-semantics pipeline back into deleting them unattended with
+  // --delete-untracked-secrets / deleteUntrackedSecrets.
+  const recordedSecretPaths: RecordedPaths =
+    !opts.deleteUntrackedSecrets &&
+    changes.some(
+      (c) =>
+        c.name === "deleted" && secretBearingObjectKind(c.path) !== undefined,
+    )
+      ? gitRecordedPaths(SECRET_BEARING_PATHSPECS)
+      : { kind: "known", paths: new Set() };
+  const untrackedSecretDeletions = opts.deleteUntrackedSecrets
+    ? []
+    : untrackedSecretBearingDeletions(changes, recordedSecretPaths);
+  // Why the deletions are in doubt, as a standalone sentence the keep,
+  // proceed-anyway and confirm messages each build on.
+  const untrackedSecretsReason =
+    recordedSecretPaths.kind === "known"
+      ? `This branch has never tracked what is now missing locally, so it was provisioned outside the repository rather than deleted from it.`
+      : `${recordedSecretPaths.reason.replace(/^./, (c) => c.toUpperCase())}. ` +
+        `Whether this branch ever tracked what is now missing locally cannot be established.`;
+  const keepUntrackedSecretsOnRemote = () => {
+    log.warn(
+      colors.yellow(
+        `Keeping ${describeSecretBearingChanges(untrackedSecretDeletions)} on the remote. ${untrackedSecretsReason} ` +
+          `Run 'wmill sync pull' to track it in git, delete it from the workspace, or pass --delete-untracked-secrets to remove it.`,
+      ),
+    );
+    const kept = changes.filter((c) => !untrackedSecretDeletions.includes(c));
+    changes.length = 0;
+    changes.push(...kept);
+  };
+  // Unlike a script (archived, restorable), a deleted variable or resource is gone
+  // for good, so where the history settles it an unattended run keeps them and a
+  // dry-run preview shows what a push would really do. Where it cannot be read
+  // there is no evidence either way, and holding the deletion back would silently
+  // stop a shallow clone — the git-sync "Pull from repo" job included — from
+  // deploying deletions it has always deployed; that run warns and proceeds. A TTY
+  // push asks either way, after the user has seen the list.
+  let untrackedSecretsResolved = false;
+  if (
+    untrackedSecretDeletions.length > 0 &&
+    (opts.dryRun || opts.yes || !process.stdin.isTTY)
+  ) {
+    if (recordedSecretPaths.kind === "known") {
+      keepUntrackedSecretsOnRemote();
+    } else {
+      log.warn(
+        colors.yellow(
+          `${untrackedSecretsReason} ${describeSecretBearingChanges(untrackedSecretDeletions)} will be deleted on the remote anyway. ` +
+            `${recordedSecretPaths.remedy} so a variable or resource this repository never tracked is kept instead of deleted irrecoverably.`,
+        ),
+      );
+    }
+    untrackedSecretsResolved = true;
   }
 
   // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
@@ -5413,6 +5551,18 @@ export async function push(
       });
       if (!deleteThem) {
         keepAmbiguousMigrationsOnRemote();
+      }
+    }
+
+    if (untrackedSecretDeletions.length > 0 && !untrackedSecretsResolved) {
+      const deleteThem = await Confirm.prompt({
+        message:
+          `${untrackedSecretsReason} ` +
+          `Deleting ${describeSecretBearingChanges(untrackedSecretDeletions)} is not reversible. Delete from the workspace anyway?`,
+        default: false,
+      });
+      if (!deleteThem) {
+        keepUntrackedSecretsOnRemote();
       }
     }
 
@@ -6542,6 +6692,10 @@ const command = new Command()
   .option(
     "--skip-reencrypt-on-key-change",
     "When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.",
+  )
+  .option(
+    "--delete-untracked-secrets",
+    "Delete remote variables and resources this repository's history has never tracked. They are kept by default: unlike a script (which push archives) they are deleted irrecoverably, and one that was never in the repo was provisioned outside it rather than deleted from it.",
   )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
