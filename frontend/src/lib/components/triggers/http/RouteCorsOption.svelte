@@ -58,12 +58,15 @@
 	let inheritsInstanceDefault = $derived(!restricted && hasInstanceDefault)
 
 	let origins = $derived(parse(raw))
-	// Split from `error` so an entry that is merely still empty reads as a hint
-	// rather than a rejection: both block the save, only one is a mistake.
+	// Only a typed entry that cannot work is shown as an error. A list that is
+	// merely still empty is where the reader has just arrived, not a mistake to
+	// report back at them.
 	let malformed = $derived(
 		restricted ? origins.map(originError).find((message) => message !== undefined) : undefined
 	)
 
+	// Gates the save; only `malformed` is rendered. An empty list still blocks
+	// saving, because storing it as NULL would mean "any origin".
 	$effect(() => {
 		error = restricted
 			? (malformed ?? (origins.length === 0 ? 'Enter at least one origin' : undefined))
@@ -98,7 +101,7 @@
 	 toggle relabels itself when an instance setting is in play: with a default
 	 configured, turning this on overrides it rather than adding a restriction. -->
 <Label
-	label={hasInstanceDefault ? 'Override origins' : 'Restrict origins'}
+	label={hasInstanceDefault ? 'Override allowed origins' : 'Allowed origins'}
 	for="allowed-origins-toggle"
 	class="w-full"
 >
@@ -128,11 +131,10 @@
 			error={malformed !== undefined}
 		/>
 		<!-- One line, per the form guideline's single Input -> Validation/Hint
-			 slot: the instructions give way to the message that replaces them. -->
+			 slot. The format stays on screen until something is actually wrong,
+			 so it is there when the field first appears empty. -->
 		{#if malformed}
 			<div class="text-2xs text-red-600 dark:text-red-400">{malformed}</div>
-		{:else if error}
-			<div class="text-2xs text-hint">{error}</div>
 		{:else}
 			<div class="text-2xs text-secondary">Comma-separated. Use * to allow any origin.</div>
 		{/if}
