@@ -70,9 +70,9 @@ use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
     insert_concurrency_key_capped, interpolate_args,
-    report_error_to_workspace_handler_or_critical_side_channel, try_schedule_next_job, CanceledBy,
-    FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload,
-    WrappedError,
+    report_error_to_workspace_handler_or_critical_side_channel, try_schedule_next_job,
+    unresolved_tag_error, CanceledBy, FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs,
+    PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
 use windmill_audit::audit_oss::audit_log;
@@ -1578,7 +1578,19 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
                 if let Some(t) = tag {
                     // `$workspace` is already resolved above; this fills in `$args`.
-                    tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
+                    // Writing back a tag that does not resolve would strand the flow and every
+                    // step inheriting it on a queue no worker serves, so keep the tag the flow
+                    // is already running on instead (`None` leaves it untouched below).
+                    tag = match unresolved_tag_error(&t, &args) {
+                        Some(e) => {
+                            tracing::warn!(
+                                "keeping flow tag {} after preprocessing: {e:#}",
+                                flow_job.tag
+                            );
+                            None
+                        }
+                        None => Some(interpolate_args(t, &args, &flow_job.workspace_id)),
+                    };
                 }
             } else if concurrent_limit.is_some() {
                 insert_concurrency_key_capped(
@@ -4403,6 +4415,26 @@ async fn push_next_flow_job(
             payload_tag.tag.as_deref(),
         );
 
+        // A tag whose `$args[...]` resolves to nothing names a queue no worker serves. Turn it
+        // into a step failure rather than letting `push` reject it: an `Err` out of here is a
+        // flow-chaining error, which skips the failure module and leaves the step
+        // `WaitingForPriorSteps`.
+        let unresolved_tag = tag
+            .as_deref()
+            .filter(|_| err.is_none())
+            .and_then(|t| unresolved_tag_error(t, &push_args));
+        let err = err.or(unresolved_tag.as_ref());
+
+        // A job carrying a pre-run error never runs user code; it only has to reach a worker to
+        // be marked failed. Its own tag may be the very thing that could not be resolved, and an
+        // unserved tag would leave it queued forever instead of failing the step. The flow's own
+        // tag is provably served: a worker is running the flow on it right now.
+        let tag = if err.is_some() {
+            Some(flow_job.tag.clone())
+        } else {
+            tag
+        };
+
         let (email, permissioned_as) = if let Some(on_behalf_of) = payload_tag.on_behalf_of.as_ref()
         {
             (&on_behalf_of.email, on_behalf_of.permissioned_as.clone())
@@ -4421,8 +4453,7 @@ async fn push_next_flow_job(
             .as_deref()
             .filter(|t| !t.is_empty() && *t != flow_job.tag.as_str())
         {
-            let is_super_admin =
-                windmill_common::auth::is_super_admin_email(db, email).await?;
+            let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
             check_tag_available_for_workspace_internal(
                 db,
                 &flow_job.workspace_id,
@@ -6155,9 +6186,7 @@ pub async fn script_to_payload(
                 .await?
                 .prefetch_cached(&db)
                 .await?;
-            let on_behalf_of = script_info
-                .on_behalf_of(&flow_job.workspace_id, db)
-                .await?;
+            let on_behalf_of = script_info.on_behalf_of(&flow_job.workspace_id, db).await?;
             let ScriptHashInfo {
                 tag,
                 cache_ttl,

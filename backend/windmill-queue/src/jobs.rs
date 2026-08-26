@@ -4671,6 +4671,43 @@ pub async fn check_debouncing_within_limits(
     }
 }
 
+fn resolve_arg_placeholder(arg_name: &str, args: &PushArgs) -> String {
+    if arg_name.contains('.') {
+        let parts: Vec<&str> = arg_name.split('.').collect();
+        let root = parts[0];
+        let mut value = args
+            .args
+            .get(root)
+            .or(args.extra.as_ref().and_then(|x| x.get(root)))
+            .map(|x| x.get())
+            .unwrap_or_default()
+            .to_string();
+
+        for part in parts.iter().skip(1) {
+            if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&value) {
+                value = obj
+                    .get(part)
+                    .and_then(|v| Some(v.to_string()))
+                    .unwrap_or_default()
+                    .as_str()
+                    .to_string();
+            } else {
+                value = "".to_string(); // Invalid JSON or missing field
+                break;
+            }
+        }
+        value.trim_matches('"').to_string()
+    } else {
+        args.args
+            .get(arg_name)
+            .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
+            .map(|x| x.get())
+            .unwrap_or_default()
+            .trim_matches('"')
+            .to_string()
+    }
+}
+
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();
@@ -4678,46 +4715,39 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
         let mut interpolated = workspaced.clone();
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
-            let arg_value = if arg_name.contains('.') {
-                let parts: Vec<&str> = arg_name.split('.').collect();
-                let root = parts[0];
-                let mut value = args
-                    .args
-                    .get(root)
-                    .or(args.extra.as_ref().and_then(|x| x.get(root)))
-                    .map(|x| x.get())
-                    .unwrap_or_default()
-                    .to_string();
-
-                for part in parts.iter().skip(1) {
-                    if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&value) {
-                        value = obj
-                            .get(part)
-                            .and_then(|v| Some(v.to_string()))
-                            .unwrap_or_default()
-                            .as_str()
-                            .to_string();
-                    } else {
-                        value = "".to_string(); // Invalid JSON or missing field
-                        break;
-                    }
-                }
-                value.trim_matches('"').to_string()
-            } else {
-                args.args
-                    .get(arg_name)
-                    .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
-                    .map(|x| x.get())
-                    .unwrap_or_default()
-                    .trim_matches('"')
-                    .to_string()
-            };
+            let arg_value = resolve_arg_placeholder(arg_name, args);
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
         interpolated
     } else {
         workspaced
+    }
+}
+
+/// The error for a tag whose `$args[...]` placeholders do not all resolve to a value, or `None`
+/// when they do.
+///
+/// A missing arg interpolates to the empty string and a JSON `null` to the literal `"null"`, so
+/// the tag becomes `""` / `worker-` / `worker-null`: a queue no worker serves. Nothing rejects
+/// such a job, so without this it is queued and never pulled.
+pub fn unresolved_tag_error(tag: &str, args: &PushArgs) -> Option<Error> {
+    let unresolved = RE_ARG_TAG
+        .captures_iter(tag)
+        .map(|cap| cap.get(1).unwrap().as_str())
+        .filter(|arg_name| {
+            let value = resolve_arg_placeholder(arg_name, args);
+            value.is_empty() || value == "null"
+        })
+        .map(|arg_name| format!("$args[{arg_name}]"))
+        .collect::<Vec<_>>();
+    if unresolved.is_empty() {
+        None
+    } else {
+        Some(Error::BadRequest(format!(
+            "Tag `{tag}` cannot be resolved: {} has no value in the job arguments",
+            unresolved.join(", ")
+        )))
     }
 }
 
@@ -6560,6 +6590,10 @@ async fn push_inner<'c, 'd>(
             tag = None;
         }
 
+        if let Some(e) = tag.as_deref().and_then(|t| unresolved_tag_error(t, &args)) {
+            return Err(e);
+        }
+
         // `$workspace` must resolve the same way the default tags below do, or an explicit tag and
         // a default tag from the same workspace address two different worker pools. Resolving costs
         // a lookup, so pay it only for tags that actually interpolate `$workspace`.
@@ -7897,5 +7931,45 @@ mod git_sync_concurrency_key_tests {
         let b = git_sync_concurrency_key(ws, Some(format!("u/user/b{long}")), 0);
         assert_ne!(a, b);
         assert!(a.len() <= 255 && b.len() <= 255);
+    }
+}
+
+#[cfg(test)]
+mod unresolved_tag_tests {
+    use super::{unresolved_tag_error, PushArgs};
+    use serde_json::value::RawValue;
+    use std::collections::HashMap;
+
+    fn args(pairs: &[(&str, &str)]) -> HashMap<String, Box<RawValue>> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), RawValue::from_string(v.to_string()).unwrap()))
+            .collect()
+    }
+
+    /// A tag is the queue name: an arg that interpolates to nothing leaves a queue no worker
+    /// serves, so it must be an error rather than a job nobody ever pulls.
+    #[test]
+    fn rejects_a_placeholder_with_no_value() {
+        let hm = args(&[]);
+        assert!(unresolved_tag_error("worker-$args[hostname]", &PushArgs::from(&hm)).is_some());
+
+        let hm = args(&[("hostname", "null")]);
+        assert!(unresolved_tag_error("worker-$args[hostname]", &PushArgs::from(&hm)).is_some());
+
+        let hm = args(&[("host", r#"{"other":"x"}"#)]);
+        assert!(unresolved_tag_error("worker-$args[host.name]", &PushArgs::from(&hm)).is_some());
+    }
+
+    #[test]
+    fn accepts_a_resolvable_tag() {
+        let hm = args(&[("hostname", r#""host1""#)]);
+        assert!(unresolved_tag_error("worker-$args[hostname]", &PushArgs::from(&hm)).is_none());
+
+        let hm = args(&[("host", r#"{"name":"host1"}"#)]);
+        assert!(unresolved_tag_error("worker-$args[host.name]", &PushArgs::from(&hm)).is_none());
+
+        let hm = args(&[]);
+        assert!(unresolved_tag_error("worker-$workspace", &PushArgs::from(&hm)).is_none());
     }
 }
