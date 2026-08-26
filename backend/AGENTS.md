@@ -131,9 +131,11 @@ minimal explicit set for dev.
 ## Workspace object storage in dev — use the local filesystem
 
 For a dev workspace you don't need MinIO/S3: use the built-in **`FilesystemStorage`** large-file
-storage (a root path on local disk). It is intentionally hidden from the settings-UI storage
-dropdown (dev-only), so set it via the API. Requires the backend built with `parquet` (+ `private`
-for the real S3 helpers, + `enterprise` if you want advanced permission rules enforced):
+storage (a root path on local disk). It is a **debug-build affordance only** — every site that
+builds a filesystem object store calls `ensure_filesystem_storage_allowed`, so release builds
+refuse it, and the settings UI never offers it — so set it via the API on a `cargo run`/`cargo
+test` binary. Requires the backend built with `parquet` (+ `private` for the real S3 helpers,
++ `enterprise` if you want advanced permission rules enforced):
 
 ```bash
 curl -X POST "$BASE/api/w/<ws>/workspaces/edit_large_file_storage_config" \
