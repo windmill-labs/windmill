@@ -102,6 +102,9 @@ lazy_static::lazy_static! {
                     (20260727151319, include_str!(
                         "../../migrations/20260727151319_draft_only_listing_indexes.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    (20260826202939, include_str!(
+                        "../../migrations/20260826202939_queue_suspended_resume_at_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 
@@ -228,6 +231,8 @@ impl Migrate for CustomMigrator {
                     // CONCURRENTLY operations cannot run inside a transaction block
                     // or a multi-statement query (PostgreSQL requires top-level execution).
                     // Split into individual statements and execute each separately.
+                    // The split is naive, so a `;` anywhere in an overridden migration —
+                    // inside a comment or a string literal included — splits mid-statement.
                     for stmt in migration_sql.split(';') {
                         let stmt = stmt.trim();
                         if !stmt.is_empty()
