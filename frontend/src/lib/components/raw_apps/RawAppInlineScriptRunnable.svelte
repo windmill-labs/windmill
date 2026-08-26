@@ -353,7 +353,7 @@
 						{@render inputsPanel()}
 					{:else if selectedTab == 'test'}
 						{@render testPanel()}
-					{:else}
+					{:else if isRunnableByPath(runnable)}
 						<InlineScriptRunnableByPath
 							rawApps
 							bind:runnable
