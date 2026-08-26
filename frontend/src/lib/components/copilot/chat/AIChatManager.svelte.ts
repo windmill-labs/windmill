@@ -1793,6 +1793,13 @@ export class AIChatManager {
 		toolId: string,
 		_form: RunFormDisplay
 	): Promise<Record<string, any> | undefined> => {
+		// The tool reads the deployed schema before it asks, so a stop during that read
+		// drains the callbacks and settles the card before this runs. Installing one then
+		// would park the turn on a form the settled card no longer renders, leaving nothing
+		// able to resolve it. The controller is per-turn, so a later turn still opens.
+		if (this.abortController?.signal.aborted) {
+			return Promise.resolve(undefined)
+		}
 		return new Promise((resolve) => {
 			this.runFormCallbacks.set(toolId, resolve)
 		})

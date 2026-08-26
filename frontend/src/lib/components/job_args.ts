@@ -119,6 +119,15 @@ const declaresProperties = (prop: any) =>
 	prop?.properties != null && Object.keys(prop.properties).length > 0
 
 /**
+ * Whether a primitive fits a declared scalar type. Each scalar widget binds one JS type and
+ * shows nothing else: a string in a number input renders blank, and `ArgInput.validateInput`
+ * range-checks only an actual number, so the field passes as filled. The user would approve
+ * an empty box over a value only the job ever sees.
+ */
+const fitsScalarType = (value: any, type: string): boolean =>
+	type === 'integer' ? typeof value === 'number' : typeof value === type
+
+/**
  * Whether `prop` declares a slot the form can show `value` in. A value that fits nowhere
  * is one the user would approve unseen: it matches no level below, so every filter falls
  * straight through it, and `ArgInput` binds it to a widget that renders nothing — an
@@ -127,7 +136,8 @@ const declaresProperties = (prop: any) =>
 function fitsDeclaredShape(value: any, prop: any): boolean {
 	if (value == null) return true
 	if (declaresDynMultiselect(prop)) return Array.isArray(value)
-	if (typeof value !== 'object') return true
+	if (typeof value !== 'object')
+		return !SCALAR_TYPES.has(prop?.type) || fitsScalarType(value, prop.type)
 	if (SCALAR_TYPES.has(prop?.type)) return false
 	const isArray = Array.isArray(value)
 	// Declared nested structure, never the declared `type`: a dyn-multiselect argument is
