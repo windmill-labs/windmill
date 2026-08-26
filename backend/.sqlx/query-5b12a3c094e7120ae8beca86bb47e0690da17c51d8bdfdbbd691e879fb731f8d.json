@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.name AS \"name!\", ls.color AS \"color?\" FROM (\n            SELECT DISTINCT unnest(labels) as name FROM (\n                SELECT labels FROM script WHERE workspace_id = $1 AND labels IS NOT NULL\n                UNION ALL SELECT labels FROM flow WHERE workspace_id = $1 AND labels IS NOT NULL\n                UNION ALL SELECT labels FROM resource WHERE workspace_id = $1 AND labels IS NOT NULL\n                UNION ALL SELECT labels FROM variable WHERE workspace_id = $1 AND labels IS NOT NULL\n                UNION ALL SELECT labels FROM schedule WHERE workspace_id = $1 AND labels IS NOT NULL\n                UNION ALL SELECT labels FROM app WHERE workspace_id = $1 AND labels IS NOT NULL\n                UNION ALL SELECT labels FROM folder WHERE workspace_id = $1 AND labels IS NOT NULL\n            ) u\n            UNION\n            SELECT name FROM label_settings WHERE workspace_id = $1\n        ) t\n        LEFT JOIN label_settings ls ON ls.workspace_id = $1 AND ls.name = t.name\n        ORDER BY 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "color?",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      true
+    ]
+  },
+  "hash": "5b12a3c094e7120ae8beca86bb47e0690da17c51d8bdfdbbd691e879fb731f8d"
+}

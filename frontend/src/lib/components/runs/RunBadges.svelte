@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
+	import LabelBadge from '$lib/components/labels/LabelBadge.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
 	import { getJobKindDisplayLabel, truncateHash } from '$lib/utils'
 	import { base } from '$lib/base'
@@ -7,7 +8,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { ListFilter, Tag } from 'lucide-svelte'
+	import { ListFilter } from 'lucide-svelte'
 	import type { Job } from '$lib/gen'
 
 	interface Props {
@@ -84,9 +85,12 @@
 {#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
 	{#each job?.['labels'] as label}
 		<div>
-			<Badge color="blue" {large} title="Label: {label}"
-				><Tag size={10} class="inline -mt-px" />{label}</Badge
-			>
+			<LabelBadge
+				{label}
+				workspace={job?.workspace_id}
+				tagIcon
+				size={large ? 'large' : 'small'}
+			/>
 		</div>
 	{/each}
 {/if}

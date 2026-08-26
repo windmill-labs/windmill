@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO label_settings (workspace_id, name, color)\n         SELECT $2, name, color\n         FROM label_settings\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0d09c68d21552ca98d31e5c1dc468a76a3cc6d19974be318944953c54ca86f3d"
+}

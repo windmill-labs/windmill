@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import LabelBadge from '$lib/components/labels/LabelBadge.svelte'
 	import { page } from '$app/state'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -1114,11 +1115,9 @@
 													{#if labels?.length}
 														<div class="flex items-center gap-0.5">
 															{#each labels as label}
-																<Badge
-																	color="blue"
-																	small
-																	class="px-1"
-																	title="Label: {label}"
+																<LabelBadge
+																	{label}
+																	workspace={$workspaceStore}
 																	clickable
 																	onclick={() => {
 																		const arr = (filters.val.label ?? '').split(',').filter(Boolean)
@@ -1129,12 +1128,12 @@
 																		if (arr.length) newFilters.label = arr.join(',')
 																		else delete newFilters.label
 																		filters.val = newFilters
-																	}}>{label}</Badge
-																>
+																	}}
+																/>
 															{/each}
 														</div>
 													{/if}
-													<InheritedLabels labels={inherited_labels} />
+													<InheritedLabels labels={inherited_labels} workspace={$workspaceStore} />
 												</div>
 											</Cell>
 											<Cell>

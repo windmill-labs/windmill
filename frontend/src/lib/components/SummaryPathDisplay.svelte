@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { emptyString, isOwner } from '$lib/utils'
+	import LabelBadge from '$lib/components/labels/LabelBadge.svelte'
 	import { Alert, Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -10,13 +11,18 @@
 	import Label from './Label.svelte'
 	import LabelsInput from './LabelsInput.svelte'
 	import InheritedLabels from './InheritedLabels.svelte'
-	import Badge from './common/badge/Badge.svelte'
 
 	interface Props {
 		summary?: string
 		path?: string
 		labels?: string[] | undefined
 		inheritedLabels?: string[] | undefined
+		/**
+		 * The workspace holding the item. Defaults to the navigated one, which is
+		 * also where the rest of this component saves; pass it explicitly from a
+		 * caller that operates on a different workspace.
+		 */
+		workspace?: string | undefined
 		editable?: boolean
 		onSaved?: (newPath: string) => void
 		kind?: 'flow' | 'script'
@@ -27,10 +33,13 @@
 		path = $bindable(''),
 		labels = $bindable(),
 		inheritedLabels = undefined,
+		workspace = undefined,
 		editable = false,
 		onSaved,
 		kind = 'flow'
 	}: Props = $props()
+
+	let labelWorkspace = $derived(workspace ?? $workspaceStore)
 
 	let editSummary = $state('')
 	let editPath = $state('')
@@ -112,11 +121,11 @@
 					{#if labels?.length}
 						<div class="flex items-center gap-0.5">
 							{#each labels as label}
-								<Badge color="blue" verySmall class="px-1" title="Label: {label}">{label}</Badge>
+								<LabelBadge {label} workspace={labelWorkspace} size="verySmall" />
 							{/each}
 						</div>
 					{/if}
-					<InheritedLabels labels={inheritedLabels} />
+					<InheritedLabels labels={inheritedLabels} workspace={labelWorkspace} />
 				</div>
 			</div>
 		{/snippet}
@@ -141,12 +150,13 @@
 					<div class="-mt-4 flex items-center gap-2">
 						<LabelsInput
 							bind:labels
+							workspace={labelWorkspace}
 							onchange={() => {
 								labelsDirty = true
 							}}
 						/>
 						{#if inheritedLabels?.length}
-							<InheritedLabels labels={inheritedLabels} />
+							<InheritedLabels labels={inheritedLabels} workspace={labelWorkspace} />
 						{/if}
 					</div>
 					{#if inheritedLabels?.length}

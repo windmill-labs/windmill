@@ -5456,6 +5456,10 @@ async fn clone_workspace_data(
     // Clone folders
     clone_folders(tx, source_workspace_id, target_workspace_id).await?;
 
+    // Clone label colours. Folders and items carry their `labels` arrays above;
+    // without this the fork keeps every label and loses every colour.
+    clone_label_settings(tx, source_workspace_id, target_workspace_id).await?;
+
     // Clone groups
     clone_groups(tx, source_workspace_id, target_workspace_id).await?;
 
@@ -5907,6 +5911,25 @@ async fn clone_folders(
         "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels)
          SELECT $2, name, display_name, owners, extra_perms, summary, edited_at, created_by, default_permissioned_as, labels
          FROM folder
+         WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+async fn clone_label_settings(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO label_settings (workspace_id, name, color)
+         SELECT $2, name, color
+         FROM label_settings
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,

@@ -1,44 +1,69 @@
 <script lang="ts">
-	import Badge from './common/badge/Badge.svelte'
 	import Button from './common/button/Button.svelte'
 	import { Plus, Tag, X } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
+	import type { Label, LabelColor } from '$lib/gen'
+	import LabelBadge from './labels/LabelBadge.svelte'
+	import LabelColorPicker from './labels/LabelColorPicker.svelte'
+	import { labelCache, labelColorOf, loadLabels, setLabelColor } from './labels/labelStore'
+	import { LABEL_COLOR_SWATCHES } from './labels/labelColors'
 
 	interface Props {
 		labels: string[] | undefined
+		/**
+		 * The workspace the edited item lives in. Not always the navigated one — a
+		 * session editor operates on a fork while the sidebar still browses the
+		 * origin — so a color picked here must be written where the item is.
+		 */
+		workspace: string | undefined
 		onchange?: () => void
 		class?: string
 	}
 
-	let { labels = $bindable(), onchange, class: clazz = '' }: Props = $props()
+	let { labels = $bindable(), workspace, onchange, class: clazz = '' }: Props = $props()
 
 	let adding = $state(false)
 	let inputValue = $state('')
 	let inputEl: HTMLInputElement | undefined = $state()
-	let existingLabels: string[] = $state([])
+	let existingLabels: Label[] = $state([])
 	let selectedIdx = $state(-1)
 
 	let suggestions = $derived(
 		existingLabels
 			.filter(
 				(l) =>
-					(!inputValue || l.toLowerCase().includes(inputValue.toLowerCase())) &&
-					!(labels ?? []).includes(l)
+					(!inputValue || l.name.toLowerCase().includes(inputValue.toLowerCase())) &&
+					!(labels ?? []).includes(l.name)
 			)
 			.slice(0, 8)
 	)
 	let trimmedInput = $derived(inputValue.trim())
 	let showCreateNew = $derived(
 		trimmedInput.length > 0 &&
-			!suggestions.some((s) => s.toLowerCase() === trimmedInput.toLowerCase()) &&
+			!suggestions.some((s) => s.name.toLowerCase() === trimmedInput.toLowerCase()) &&
 			!(labels ?? []).includes(trimmedInput)
 	)
 
+	// The chips need colors before the suggestion list is ever opened, and
+	// `loadLabels` is cached per workspace, so this costs one request per workspace.
+	$effect(() => {
+		if (workspace) {
+			loadLabels(workspace).catch(() => {})
+		}
+	})
+
+	// Always refetches: labels appear the moment anyone types a new one onto an
+	// item, so a cached vocabulary would stop suggesting labels created since the
+	// page loaded.
 	async function loadExistingLabels() {
+		if (!workspace) return
 		try {
-			const resp = await fetch(`/api/w/${$workspaceStore}/labels/list`)
-			if (resp.ok) existingLabels = await resp.json()
+			existingLabels = await loadLabels(workspace, true)
 		} catch {}
+	}
+
+	async function pickColor(name: string, color: LabelColor | undefined) {
+		if (!workspace) return
+		existingLabels = await setLabelColor(workspace, name, color)
 	}
 
 	function startAdding() {
@@ -77,7 +102,7 @@
 		if (e.key === 'Enter') {
 			e.preventDefault()
 			if (selectedIdx >= 0 && selectedIdx < suggestions.length) {
-				addLabel(suggestions[selectedIdx])
+				addLabel(suggestions[selectedIdx].name)
 			} else {
 				addLabel() // either "Create new" selected or free text
 			}
@@ -104,12 +129,28 @@
 
 <div class="inline-flex items-center gap-1 ml-0.5 h-5 {clazz}">
 	{#each labels ?? [] as label (label)}
-		<Badge color="blue" small>
-			{label}
-			<button class="ml-0.5 hover:text-red-500" onclick={() => removeLabel(label)}>
+		<div class="inline-flex items-center">
+			<LabelColorPicker
+				color={labelColorOf($labelCache, workspace, label)}
+				onSelect={(c) => pickColor(label, c)}
+			>
+				{#snippet anchor()}
+					<LabelBadge
+						{label}
+						{workspace}
+						title="Pick a color for {label}"
+						class="rounded-r-none pr-0.5"
+					/>
+				{/snippet}
+			</LabelColorPicker>
+			<button
+				class="text-2xs rounded-r-md pl-0.5 pr-1 py-0.5 bg-surface-sunken hover:text-red-500"
+				aria-label="Remove label {label}"
+				onclick={() => removeLabel(label)}
+			>
 				<X size={10} />
 			</button>
-		</Badge>
+		</div>
 	{/each}
 	{#if adding}
 		<div class="relative">
@@ -127,15 +168,21 @@
 				>
 					{#each suggestions as suggestion, i}
 						<button
-							class="w-full text-left text-2xs px-2 py-1 hover:bg-surface-hover {i === selectedIdx
+							class="w-full flex items-center gap-1.5 text-left text-2xs px-2 py-1 hover:bg-surface-hover {i ===
+							selectedIdx
 								? 'bg-surface-hover'
 								: ''}"
 							onmousedown={(e) => {
 								e.preventDefault()
-								addLabel(suggestion)
+								addLabel(suggestion.name)
 							}}
 						>
-							{suggestion}
+							<span
+								class="block w-2 h-2 rounded-full shrink-0 {LABEL_COLOR_SWATCHES[
+									suggestion.color ?? 'blue'
+								]}"
+							></span>
+							{suggestion.name}
 						</button>
 					{/each}
 					{#if showCreateNew}

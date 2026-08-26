@@ -214,7 +214,7 @@
 	/>
 </div>
 <div class="pt-3"></div>
-<LabelsInput bind:labels class="-mt-4" />
+<LabelsInput bind:labels workspace={opWs} class="-mt-4" />
 <div class="py-6"></div>
 <label for="deploymentMsg" class="text-emphasis text-xs font-semibold">Deployment message</label>
 <div class="w-full pt-1">

@@ -1,7 +1,9 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
+	import LabelManagerDrawer from '$lib/components/labels/LabelManagerDrawer.svelte'
+	import LabelBadge from '$lib/components/labels/LabelBadge.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
-	import { Badge, Button, Skeleton } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AssetService,
@@ -26,8 +28,8 @@
 		Code2,
 		LayoutDashboard,
 		ListFilterPlus,
-		SearchCode,
-		Tag
+		Palette,
+		SearchCode
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import type { Item as MenuItem } from '$lib/utils'
@@ -1053,6 +1055,8 @@
 	function itemLabels(x: { labels?: string[]; inherited_labels?: string[] }): string[] {
 		return [...(x.labels ?? []), ...(x.inherited_labels ?? [])]
 	}
+	let labelManagerDrawer: LabelManagerDrawer | undefined = $state()
+
 	let allLabels = $derived(
 		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
 	)
@@ -1587,20 +1591,27 @@
 		{#if allLabels.length > 0}
 			<div class="gap-1.5 w-full flex flex-wrap mt-2">
 				{#each allLabels as label (label)}
-					<Badge
-						color="blue"
-						small
+					<LabelBadge
+						{label}
+						workspace={$workspaceStore}
+						tagIcon
 						clickable
 						selected={label === labelFilter}
-						title="Label: {label}"
 						onclick={() => {
 							labelFilter = labelFilter === label ? undefined : label
 						}}
 					>
-						<Tag size={10} class="inline -mt-px" />{label}
 						{#if label === labelFilter}&cross;{/if}
-					</Badge>
+					</LabelBadge>
 				{/each}
+				<Button
+					variant="subtle"
+					unifiedSize="2xs"
+					startIcon={{ icon: Palette }}
+					onclick={() => labelManagerDrawer?.open()}
+				>
+					Manage labels
+				</Button>
 			</div>
 		{/if}
 		{#if filteredItems?.length == 0}
@@ -1835,3 +1846,5 @@
 		onDone={reloadItemsAndCounts}
 	/>
 {/if}
+
+<LabelManagerDrawer bind:this={labelManagerDrawer} workspace={$workspaceStore} />

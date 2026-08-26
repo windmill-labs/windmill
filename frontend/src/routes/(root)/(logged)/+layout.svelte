@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
+	import { loadLabels } from '$lib/components/labels/labelStore'
 
 	import {
 		AppService,
@@ -462,6 +463,9 @@
 
 	function onLoad() {
 		loadFavorites()
+		if ($workspaceStore) {
+			loadLabels($workspaceStore).catch(() => {})
+		}
 		syncTutorialsTodos()
 		loadHubBaseUrl()
 		loadWsBaseUrl()

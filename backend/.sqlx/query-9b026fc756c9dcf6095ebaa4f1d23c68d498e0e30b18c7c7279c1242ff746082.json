@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO label_settings (workspace_id, name, color) VALUES ($1, $2, $3)\n                 ON CONFLICT (workspace_id, name) DO UPDATE SET color = EXCLUDED.color",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9b026fc756c9dcf6095ebaa4f1d23c68d498e0e30b18c7c7279c1242ff746082"
+}

@@ -21099,6 +21099,56 @@ paths:
                 items:
                   $ref: "#/components/schemas/TriggerHistoryEntry"
 
+  /w/{workspace}/labels/list:
+    get:
+      summary: list all labels used in the workspace, with their color if one was picked
+      operationId: listLabels
+      tags:
+        - label
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: label list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Label"
+
+  /w/{workspace}/labels/update:
+    post:
+      summary: set or clear the color of a label
+      operationId: updateLabel
+      tags:
+        - label
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: label color
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                color:
+                  description: omit or send null to clear the color
+                  nullable: true
+                  $ref: "#/components/schemas/LabelColor"
+              required:
+                - name
+      responses:
+        "200":
+          description: label updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/folders/list:
     get:
       summary: list folders
@@ -32490,6 +32540,30 @@ components:
           type: string
         role:
           type: string
+      required:
+        - name
+
+    LabelColor:
+      type: string
+      enum:
+        - yellow
+        - blue
+        - green
+        - purple
+        - pink
+        - orange
+        - red
+        - cyan
+        - lime
+        - gray
+
+    Label:
+      type: object
+      properties:
+        name:
+          type: string
+        color:
+          $ref: '#/components/schemas/LabelColor'
       required:
         - name
 

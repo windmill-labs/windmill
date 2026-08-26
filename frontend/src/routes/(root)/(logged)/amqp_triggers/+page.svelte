@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
+	import LabelBadge from '$lib/components/labels/LabelBadge.svelte'
 	import { run } from 'svelte/legacy'
 
 	import {
@@ -22,7 +23,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
+	import { Alert, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -384,7 +385,7 @@
 								<SharedBadge {canWrite} extraPerms={extra_perms} />
 								{#if labels?.length}
 									{#each labels as label}
-										<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
+										<LabelBadge {label} workspace={$workspaceStore} />
 									{/each}
 								{/if}
 							</div>

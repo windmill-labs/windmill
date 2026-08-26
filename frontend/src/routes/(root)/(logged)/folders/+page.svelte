@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Folder } from '$lib/gen'
+	import LabelBadge from '$lib/components/labels/LabelBadge.svelte'
 	import { FolderService } from '$lib/gen'
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -229,9 +230,7 @@
 										{#if labels?.length}
 											<div class="flex items-center gap-0.5">
 												{#each labels.slice(0, 3) as label}
-													<Badge color="blue" small class="px-1" title="Label: {label}"
-														>{label}</Badge
-													>
+													<LabelBadge {label} workspace={$workspaceStore} />
 												{/each}
 												{#if labels.length > 3}
 													<Badge
