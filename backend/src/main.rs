@@ -1434,21 +1434,30 @@ Windmill Community Edition {GIT_VERSION}
                                     // Poll for new events from notify_event table
                                     match windmill_common::notify_events::poll_notify_events(&db, last_event_id).await {
                                         Ok(events) => {
+                                            let mut http_trigger_change_handled = false;
                                             for event in events {
                                                 if !*windmill_common::QUIET_LOGS {
                                                     tracing::info!("Processing notify event: channel={}, payload={}", event.channel, event.payload);
                                                 }
-                                                process_notify_event(
-                                                    &event.channel,
-                                                    &event.payload,
-                                                    &db,
-                                                    &conn,
-                                                    &tx,
-                                                    server_mode,
-                                                    worker_mode,
-                                                    #[cfg(feature = "parquet")]
-                                                    disable_s3_store,
-                                                ).await;
+                                                let is_http_trigger_change = event.channel == "notify_http_trigger_change";
+                                                // Every changed http_trigger row emits its own event and each one forces
+                                                // a full router rebuild, but the batch's first successful rebuild already
+                                                // read every row the batch committed. A failed rebuild leaves the flag
+                                                // clear so the next event in the batch retries it.
+                                                if !(is_http_trigger_change && http_trigger_change_handled) {
+                                                    let handled = process_notify_event(
+                                                        &event.channel,
+                                                        &event.payload,
+                                                        &db,
+                                                        &conn,
+                                                        &tx,
+                                                        server_mode,
+                                                        worker_mode,
+                                                        #[cfg(feature = "parquet")]
+                                                        disable_s3_store,
+                                                    ).await;
+                                                    http_trigger_change_handled |= is_http_trigger_change && handled;
+                                                }
                                                 last_event_id = last_event_id.max(event.id);
                                             }
                                         }
@@ -1670,6 +1679,9 @@ Windmill Community Edition {GIT_VERSION}
 
 /// Process a single notify event from the polling-based event system.
 /// This replaces the old PgListener notification handling.
+///
+/// Returns `false` when the event still needs handling. Only the HTTP router rebuild reports
+/// that, because the poll loop coalesces those events and must not swallow the retry.
 #[allow(unused_variables)]
 async fn process_notify_event(
     channel: &str,
@@ -1680,7 +1692,7 @@ async fn process_notify_event(
     server_mode: bool,
     worker_mode: bool,
     #[cfg(feature = "parquet")] disable_s3_store: bool,
-) {
+) -> bool {
     match channel {
         "notify_config_change" => {
             if payload == "server" && server_mode {
@@ -1825,17 +1837,14 @@ async fn process_notify_event(
         #[cfg(feature = "http_trigger")]
         "notify_http_trigger_change" => {
             tracing::info!("HTTP trigger change detected: {}", payload);
-            match windmill_api::triggers::http::refresh_routers(db).await {
-                Ok((true, _)) => {
+            match windmill_api::triggers::http::refresh_routers(db, true).await {
+                Ok(_) => {
                     tracing::info!("Refreshed HTTP routers (trigger change)");
-                }
-                Ok((false, _)) => {
-                    tracing::warn!(
-                        "Should have refreshed HTTP routers (trigger change) but did not"
-                    );
                 }
                 Err(err) => {
                     tracing::error!("Error refreshing HTTP routers (trigger change): {err:#}");
+                    windmill_api::triggers::http::invalidate_routers();
+                    return false;
                 }
             };
         }
@@ -2059,7 +2068,7 @@ async fn process_notify_event(
                         tracing::error!(error = %e, "Could not reload http route workspaced route setting");
                     }
                     #[cfg(feature = "http_trigger")]
-                    match windmill_api::triggers::http::refresh_routers(db).await {
+                    match windmill_api::triggers::http::refresh_routers(db, false).await {
                         Ok((true, _)) => {
                             tracing::info!(
                                 "Refreshed HTTP routers (http workspaced route setting change)"
@@ -2179,6 +2188,7 @@ async fn process_notify_event(
             tracing::warn!("Unknown notification channel: {}", channel);
         }
     }
+    true
 }
 
 fn display_config(envs: &[&str]) {
