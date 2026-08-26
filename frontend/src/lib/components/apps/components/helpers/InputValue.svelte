@@ -18,7 +18,12 @@
 	import { accessPropertyByPath } from '../../utils'
 	import { computeGlobalContext, eval_like } from './eval'
 	import { deepEqual } from 'fast-equals'
-	import { deepMergeWithPriority, isCodeInjection, readFieldsRecursively } from '$lib/utils'
+	import {
+		deepMergeWithPriority,
+		escapeTemplateBackticks,
+		isCodeInjection,
+		readFieldsRecursively
+	} from '$lib/utils'
 	import sum from 'hash-sum'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 
@@ -271,7 +276,7 @@
 		if ((input.type === 'template' || input.type == 'templatev2') && isCodeInjection(input.eval)) {
 			try {
 				const r = await eval_like(
-					'`' + input.eval.replaceAll('`', '\\`') + '`',
+					'`' + escapeTemplateBackticks(input.eval) + '`',
 					computeGlobalContext($worldStore, id, fullContext),
 					$stateStore,
 					$mode == 'dnd',

@@ -10,7 +10,9 @@ import {
 	getQueryStmtCountHeuristic,
 	isJobResolvable,
 	parseDbInputFromAssetSyntax,
-	apiErrorMessage
+	apiErrorMessage,
+	escapeTemplateBackticks,
+	unescapeTemplateBackticks
 } from './utils'
 
 // Mirrors the backend invariant that only `status = 'failure'` rows can carry a
@@ -596,5 +598,40 @@ describe('apiErrorMessage', () => {
 
 	it('handles a plain Error', () => {
 		expect(apiErrorMessage(new Error('boom'))).toBe('boom')
+	})
+})
+
+// Template mode stores its value as a JS template literal, so backticks in the text have to be
+// escaped. Escaping them inside `${...}` too is what broke nested template literals: a backslash
+// is a syntax error in expression position.
+describe('escapeTemplateBackticks', () => {
+	const nested =
+		'-p ${flow_input.iter.value}${results.pw ? ` --vault-password-file ${results.pw}` : ""} -H ${flow_input.hostname}'
+
+	it('leaves a nested template literal inside an interpolation intact', () => {
+		const expr = '`' + escapeTemplateBackticks(nested) + '`'
+		expect(expr).not.toContain('\\`')
+		expect(
+			new Function('flow_input', 'results', 'return ' + expr)(
+				{ iter: { value: 'playbook.yml' }, hostname: 'host1' },
+				{ pw: '/tmp/pw.txt' }
+			)
+		).toBe('-p playbook.yml --vault-password-file /tmp/pw.txt -H host1')
+	})
+
+	it('still escapes a backtick in the literal text', () => {
+		expect(escapeTemplateBackticks('a ` b')).toBe('a \\` b')
+		expect(escapeTemplateBackticks('a ` ${x} ` b')).toBe('a \\` ${x} \\` b')
+	})
+
+	it('does not mistake a brace or a backtick inside a string for the end of an interpolation', () => {
+		expect(escapeTemplateBackticks('${ x["}"] } `')).toBe('${ x["}"] } \\`')
+		expect(escapeTemplateBackticks("${ f({ a: '`' }) } `")).toBe("${ f({ a: '`' }) } \\`")
+	})
+
+	it('round-trips through unescapeTemplateBackticks', () => {
+		for (const v of [nested, 'a ` b', '${ x["}"] } `', 'plain', '${a}${b}']) {
+			expect(unescapeTemplateBackticks(escapeTemplateBackticks(v))).toBe(v)
+		}
 	})
 })

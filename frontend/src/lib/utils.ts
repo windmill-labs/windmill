@@ -1295,6 +1295,77 @@ export function cleanExpr(expr: string | undefined): string {
 		.join('\n')
 }
 
+/**
+ * Walk the body of a template literal, handing the outermost literal-text regions to `onOuterText`
+ * and copying everything else verbatim. `stack` tracks interpolations, braces, quoted strings and
+ * nested template literals, so a `}` or a backtick inside one of those does not end the region.
+ * `onOuterText` returns the replacement it emitted and how many characters it consumed, or null to
+ * let the character through.
+ */
+function walkTemplateBody(
+	text: string,
+	onOuterText: (text: string, i: number) => { emit: string; consumed: number } | null
+): string {
+	const out: string[] = []
+	const stack: ('expr' | 'brace' | "'" | '"' | '`')[] = []
+	let i = 0
+	while (i < text.length) {
+		const top = stack[stack.length - 1]
+		const c = text[i]
+		if (top === "'" || top === '"' || top === '`') {
+			if (c === '\\') {
+				out.push(text.slice(i, i + 2))
+				i += 2
+				continue
+			}
+			if (c === top) {
+				stack.pop()
+			} else if (top === '`' && c === '$' && text[i + 1] === '{') {
+				out.push('${')
+				stack.push('expr')
+				i += 2
+				continue
+			}
+		} else if (top === undefined) {
+			const hit = onOuterText(text, i)
+			if (hit) {
+				out.push(hit.emit)
+				i += hit.consumed
+				continue
+			}
+			if (c === '$' && text[i + 1] === '{') {
+				out.push('${')
+				stack.push('expr')
+				i += 2
+				continue
+			}
+		} else {
+			if (c === '}') stack.pop()
+			else if (c === '{') stack.push('brace')
+			else if (c === "'" || c === '"' || c === '`') stack.push(c)
+		}
+		out.push(c)
+		i++
+	}
+	return out.join('')
+}
+
+/**
+ * Escape the backticks of `text` so it can be wrapped in a template literal, leaving `${...}`
+ * interpolations alone: there a backslash is a syntax error, and a nested template literal is
+ * legitimate (`${cond ? `--flag ${x}` : ''}`).
+ */
+export function escapeTemplateBackticks(text: string): string {
+	return walkTemplateBody(text, (t, i) => (t[i] === '`' ? { emit: '\\`', consumed: 1 } : null))
+}
+
+/** Inverse of {@link escapeTemplateBackticks}, for turning an expression back into a template. */
+export function unescapeTemplateBackticks(text: string): string {
+	return walkTemplateBody(text, (t, i) =>
+		t[i] === '\\' && t[i + 1] === '`' ? { emit: '`', consumed: 2 } : null
+	)
+}
+
 const dynamicTemplateRegex = new RegExp(/\$\{(.*)\}/)
 
 export function isCodeInjection(expr: string | undefined): boolean {

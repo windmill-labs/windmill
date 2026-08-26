@@ -11,7 +11,7 @@ import {
 	type Retry
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
-import { cleanExpr, emptySchema } from '$lib/utils'
+import { cleanExpr, emptySchema, unescapeTemplateBackticks } from '$lib/utils'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
@@ -219,7 +219,7 @@ export function codeToStaticTemplate(code?: string): string | undefined {
 	if (lines.length == 1) {
 		const line = lines[0].trim()
 		if (line[0] == '`' && line.charAt(line.length - 1) == '`') {
-			return line.slice(1, line.length - 1).replaceAll('\\`', '`')
+			return unescapeTemplateBackticks(line.slice(1, line.length - 1))
 		} else {
 			return `\$\{${line}\}`
 		}
