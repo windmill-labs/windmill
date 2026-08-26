@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { setContext, untrack } from 'svelte'
+	import { onDestroy, setContext, untrack } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import SessionsBetaBanner from './SessionsBetaBanner.svelte'
@@ -21,14 +21,17 @@
 		ArrowUpRight,
 		EllipsisVertical,
 		ExternalLink,
+		MessageSquareDashed,
 		Pencil,
 		Settings,
-		Trash2
+		Trash2,
+		X
 	} from 'lucide-svelte'
 	import { type Item } from '$lib/utils'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
+	import { clearSessionRecovered, isSessionRecovered } from './sessionRecoveryNotice.svelte'
 	import {
 		composerFocusRequest,
 		createSession,
@@ -45,7 +48,8 @@
 		selectSession,
 		sessionState,
 		setSessionArchived,
-		syncWorkspaceTo
+		syncWorkspaceTo,
+		withOpenSessionTeardown
 	} from './sessionState.svelte'
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
@@ -161,8 +165,8 @@
 		const fresh = createSession()
 		selectSession(fresh.id)
 		// The page derives the visible session from the `session_name` query, not
-		// currentSessionId — navigate so the URL leaves the deleted/archived session
-		// (else it renders the not-found state or stays on the archived one).
+		// currentSessionId: navigate so the URL leaves the deleted/archived session,
+		// which would otherwise fall through to recovery or stay on the archived one.
 		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
 	}
 
@@ -196,24 +200,26 @@
 			? $userWorkspaces.find((w) => w.id === forkToDelete)?.parent_workspace_id
 			: undefined
 		deleteAlsoFork = false
-		removeSession(session.id)
-		if (forkToDelete) {
-			try {
-				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
-				await deleteSessionsForWorkspace(forkToDelete)
-				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
-				await reconcileAfterWorkspaceChange()
-			} catch (e: any) {
-				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
+		await withOpenSessionTeardown(async () => {
+			removeSession(sessionId)
+			if (forkToDelete) {
+				try {
+					await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
+					await deleteSessionsForWorkspace(forkToDelete)
+					sendUserToast(`Deleted forked workspace ${forkToDelete}`)
+					await reconcileAfterWorkspaceChange()
+				} catch (e: any) {
+					sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
+				}
 			}
-		}
-		// If the deleted fork was the active workspace, fall back to its parent
-		// so the new session (created below) opens against a live workspace
-		// instead of the one we just removed.
-		if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
-			syncWorkspaceTo(forkParentId)
-		}
-		await resetToNewSession()
+			// If the deleted fork was the active workspace, fall back to its parent
+			// so the new session (created below) opens against a live workspace
+			// instead of the one we just removed.
+			if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
+				syncWorkspaceTo(forkParentId)
+			}
+			await resetToNewSession()
+		})
 	}
 
 	async function handleConfirmedArchive() {
@@ -260,6 +266,22 @@
 		runtime?.manager.displayMessages.some((m) => m.role === 'user') ?? false
 	)
 
+	// Gated on the first message, not on typing: the notice sits directly above a
+	// vertically centred composer, so dropping it mid-sentence would jump the
+	// field out from under the user's cursor.
+	const showRecoveryNotice = $derived(isSessionRecovered(sessionId) && !hasFirstUserMessage)
+
+	// The notice explains one arrival, and the arrival is exactly "this page is
+	// open, on this session, nothing sent yet". Spend the marker the moment any of
+	// those three breaks, so a later return can never replay it — masking it behind
+	// the gate above instead leaves it to resurface. Dismiss is the user's own exit.
+	$effect(() => {
+		if (hasFirstUserMessage || sessionState.currentSessionId !== sessionId) {
+			clearSessionRecovered(sessionId)
+		}
+	})
+	onDestroy(() => clearSessionRecovered(sessionId))
+
 	// Focus the chat input whenever this session is the active one.
 	// The textarea is disabled until copilotInfo loads (otherwise focus is
 	// a silent no-op), so we wait for that too. Triggers on initial mount,
@@ -304,6 +326,12 @@
 		if (!session) return
 		await moveSessionToNewFork(session.id, fork)
 	}
+
+	// Chrome shared by the banners stacked above the composer, so restyling one
+	// can't leave the others behind. Each supplies its own background: two bg-*
+	// utilities on one element resolve by stylesheet order, not attribute order.
+	const bannerClass =
+		'flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md'
 </script>
 
 {#snippet externalLinkHint()}
@@ -314,6 +342,32 @@
 	<div class="p-8 text-secondary text-sm">Session not found</div>
 {:else}
 	{#snippet inputPreface()}
+		{#if showRecoveryNotice}
+			<!-- mb-6, not the banner column's mb-1: at that gap it reads as one more
+			     row of composer chrome rather than as a message about the session. -->
+			<!-- Tinted, where the other banners are white: this one has to be spotted
+			     without being looked for, above a composer the user is already typing in. -->
+			<!-- Announced: the composer takes focus the moment this appears, so without
+			     it a screen reader lands in an empty field with no account of the swap. -->
+			<div role="status" class="{bannerClass} bg-surface-accent-selected mb-6">
+				<div class="flex flex-row items-center gap-2 min-w-0">
+					<MessageSquareDashed class="w-4 h-4 shrink-0 text-accent" />
+					<!-- Names no cause: deleted, another browser, cleared site data and a
+					     damaged link are indistinguishable from here. The empty session it
+					     landed on is on screen, so the notice doesn't describe it. -->
+					<span class="text-emphasis font-semibold">We couldn't find that session</span>
+				</div>
+				<Button
+					variant="subtle"
+					unifiedSize="2xs"
+					iconOnly
+					startIcon={{ icon: X }}
+					title="Dismiss"
+					aria-label="Dismiss"
+					onclick={() => clearSessionRecovered(sessionId)}
+				/>
+			</div>
+		{/if}
 		{#if !hasFirstUserMessage}
 			<SessionWorkspaceBar {session} />
 		{/if}
@@ -328,9 +382,7 @@
 				     and reconcile would re-archive a workspace-archived one anyway. When
 				     the workspace is unavailable the SessionChangesBar below shows the
 				     move/discard banner instead (its actions are the real recovery path). -->
-				<div
-					class="flex flex-row items-center justify-between gap-2 py-2 px-3 text-xs border rounded-md bg-surface-tertiary"
-				>
+				<div class="{bannerClass} bg-surface-tertiary">
 					<div class="flex flex-row items-center gap-2 min-w-0">
 						<Archive class="w-4 h-4 shrink-0 text-tertiary" />
 						<span class="text-primary font-medium">This session is archived</span>

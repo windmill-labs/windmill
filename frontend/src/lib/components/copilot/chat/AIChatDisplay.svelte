@@ -27,7 +27,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { pendingUserAction, type DisplayMessage } from './shared'
+	import { pendingUserAction, pendingUserActionDetail, type DisplayMessage } from './shared'
 	import { PLAN_MODE_TEXT_COLOR, PLAN_MODE_TRIGGER_CLASS } from './planMode'
 	import { PLAN_MODE_MESSAGES } from './planModeMessages'
 	import type { ContextElement } from './context'
@@ -528,10 +528,16 @@
 	// act on the tool above.
 	const waitingForUserAction = $derived(aiChatManager.loading && !!pendingUserAction(messages))
 
-	// While the AI is waiting on an answer to an askUserQuestion, the only valid
-	// input is one of the choices (or the custom answer) in the question card —
-	// so disable the main chat input until the question is answered or canceled.
-	const hasActiveUserQuestion = $derived(pendingUserAction(messages) === 'question')
+	// Gated on `loading` because a card restored from history still looks parked:
+	// its resolver left with the old page, so the composer must not advertise an
+	// answer it cannot deliver.
+	const pendingQuestionToolCallId = $derived.by(() => {
+		if (!aiChatManager.loading) {
+			return undefined
+		}
+		const pending = pendingUserActionDetail(messages)
+		return pending?.action === 'question' ? pending.toolCallId : undefined
+	})
 
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
@@ -663,7 +669,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								<div class="flex flex-col">
 									{#each pastChats as chat (chat.id)}
 										<button
-											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1"
+											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
+											disabled={aiChatManager.loading || aiChatManager.sendInFlight}
+											title={aiChatManager.loading || aiChatManager.sendInFlight
+												? 'Stop the current answer to switch conversation'
+												: undefined}
 											onclick={() => {
 												loadPastChat(chat.id)
 												close()
@@ -858,7 +868,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{initialInstructions}
 				{onDraftChange}
 				showContext={aiChatManager.mode !== AIMode.GLOBAL}
-				disabled={disabled || hasActiveUserQuestion}
+				{disabled}
+				{pendingQuestionToolCallId}
 				isFirstMessage={messages.length === 0}
 			/>
 			<div
