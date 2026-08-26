@@ -36,6 +36,10 @@
 	// shows before saving rather than as a 400 from the API.
 	function originError(origin: string): string | undefined {
 		if (origin === '*') return undefined
+		// An Origin header is always visible ASCII, so this covers both embedded
+		// whitespace and a non-punycoded IDN, which the backend rejects too.
+		if (!/^[\x21-\x7e]+$/.test(origin))
+			return `'${origin}' must contain only visible ASCII, with no whitespace`
 		const [scheme, ...rest] = origin.split('://')
 		if (rest.length !== 1) return `'${origin}' is missing a scheme, such as https://`
 		const host = rest[0]

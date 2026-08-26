@@ -57,8 +57,19 @@ fn cors_lookup_method(req: &axum::extract::Request) -> Option<HttpMethod> {
             .and_then(|method| method.to_str().ok())
             .and_then(|method| http::Method::try_from(method).ok())
             .as_ref()
-            .and_then(|method| HttpMethod::try_from(method).ok())
-    } else if method == http::Method::HEAD {
+            .and_then(routable_method)
+    } else {
+        routable_method(method)
+    }
+}
+
+/// The router key a request method maps to. `HEAD` resolves the `GET` route it
+/// mirrors, and does so for a preflight naming it too: browsers send
+/// `Access-Control-Request-Method: HEAD` when the HEAD carries a non-safelisted
+/// header, and answering that preflight from a different route than the request
+/// itself resolves is how the two come to disagree.
+fn routable_method(method: &http::Method) -> Option<HttpMethod> {
+    if method == http::Method::HEAD {
         Some(HttpMethod::Get)
     } else {
         HttpMethod::try_from(method).ok()

@@ -224,12 +224,18 @@ pub struct RouteExists {
 pub fn effective_allowed_origins(
     route_allowed_origins: Option<&Vec<String>>,
 ) -> Option<Vec<String>> {
-    let effective = match route_allowed_origins {
-        Some(route_allowed_origins) => route_allowed_origins.clone(),
-        None => HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load().as_ref().clone(),
-    };
-
-    (!effective.is_empty() && !allows_any_origin(&effective)).then_some(effective)
+    match route_allowed_origins {
+        // `*` is the opt-out, including out of a stricter instance default.
+        Some(list) if allows_any_origin(list) => None,
+        // Any other stored list restricts, an empty one included: it allows no
+        // origin at all. Falling back to the default here would make `[]` more
+        // permissive than `NULL`, which is the wrong direction to fail in.
+        Some(list) => Some(list.clone()),
+        None => {
+            let default = HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load().as_ref().clone();
+            (!default.is_empty() && !allows_any_origin(&default)).then_some(default)
+        }
+    }
 }
 
 /// Resolve the `Access-Control-Allow-Origin` value for a request, or `None` to
@@ -665,8 +671,10 @@ mod tests {
         // historical permissive behaviour is kept.
         assert_eq!(effective_allowed_origins(None), None);
         // An empty route list is a restriction that matches nothing, distinct
-        // from `NULL` which inherits the instance default.
-        assert_eq!(effective_allowed_origins(Some(&vec![])), None);
+        // from `NULL` which inherits the instance default. It must never come
+        // back as `None`, which the middleware reads as "any origin".
+        assert_eq!(effective_allowed_origins(Some(&vec![])), Some(vec![]));
+        assert_eq!(match_origin(&[], Some(&origin("https://a.com"))), None);
     }
 
     #[test]
