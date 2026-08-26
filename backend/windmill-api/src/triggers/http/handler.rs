@@ -123,6 +123,8 @@ async fn get_http_route_trigger(
 
     let routers_cache = if routers_cache.routers.is_empty() {
         tracing::warn!("HTTP routers are not loaded, loading from db");
+        // refresh_routers takes the write lock, so holding this read guard across it deadlocks.
+        drop(routers_cache);
         let (_, routers_cache) = refresh_routers(db, false).await?;
         routers_cache
     } else {

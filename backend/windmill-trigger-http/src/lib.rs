@@ -224,9 +224,9 @@ pub fn validate_authentication_method(
 }
 
 /// `force` rebuilds unconditionally. `nextval` on `http_trigger_version_seq` runs inside the
-/// writing transaction and sequences are non-transactional, so a version-gated refresh can cache
-/// the bumped version against pre-commit rows and then skip forever after. A caller reacting to
-/// another session's committed change must force; one that bumped the sequence itself need not.
+/// writing transaction and sequences are non-transactional, so another session can cache the
+/// bumped version against still-uncommitted rows, after which every version-gated refresh is a
+/// no-op. Force when reacting to a bump that could have been observed before its own rows were.
 pub async fn refresh_routers(
     db: &DB,
     force: bool,
