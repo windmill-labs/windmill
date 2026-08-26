@@ -155,7 +155,12 @@
 		retryTarget = name
 		// `open()`, not `opened = true`: only the method runs the wizard's own reset, which
 		// is what applies `initialName` and clears whatever a previous run left behind.
-		wizardOpen = true
+		// `wizardOpen` is deliberately not set here. `open()` sets it once it has resolved the
+		// destination's membership, and it is bound to the dialog's `opened` — so setting it
+		// now shows a live, clickable dialog while that lookup is still in flight, with the
+		// username unresolved. Setup reached in that window writes the credential path this
+		// whole chain exists to get right. `wizardFor` alone mounts the component, which is
+		// all `wizard?.open()` needs to exist.
 		void tick().then(() => wizard?.open())
 	}
 
