@@ -25,15 +25,20 @@ describe("secretBearingObjectKind", () => {
     expect(secretBearingObjectKind("f/test/db.prod.resource.yaml")).toBe(
       "resource",
     );
+    // A file resource's content file: deleting it deletes the resource outright,
+    // so it must be guarded like the metadata file.
+    expect(secretBearingObjectKind("f/test/conf.resource.file.ini")).toBe(
+      "resource",
+    );
   });
 
   test("ignores files that only look like one", () => {
     for (const p of [
       // Carries no secret, and is not what the issue is about.
       "f/test/my_type.resource-type.json",
-      // A fileset/file-resource child: pushed by re-pushing its parent, never
-      // deleted on its own.
-      "f/test/conf.resource.file.ini",
+      // A fileset child can be any file: its deletion re-pushes the parent
+      // resource rather than deleting anything.
+      "f/test/data.fileset/edge/inner.resource.yaml",
       "f/test/bar.script.yaml",
       "f/test/foo.flow/flow.yaml",
     ]) {
@@ -75,6 +80,24 @@ describe("untrackedSecretBearingDeletions", () => {
     ).toEqual([]);
   });
 
+  test("history recorded under a workspace-specific name still vouches", () => {
+    // `specificItems` commits `y.staging.variable.yaml` while the changeset
+    // carries the base path, so both names have to be searched.
+    expect(
+      untrackedSecretBearingDeletions(
+        changes,
+        {
+          kind: "known",
+          paths: new Set([
+            "f/test/protocol.staging.variable.yaml",
+            "f/test/erp_access.staging.resource.yaml",
+          ]),
+        },
+        (p) => p.replace(/\.(variable|resource)\./, ".staging.$1."),
+      ),
+    ).toEqual([]);
+  });
+
   test("flags objects this repository has never recorded", () => {
     expect(
       untrackedSecretBearingDeletions(changes, {
@@ -108,6 +131,15 @@ describe("describeSecretBearingChanges", () => {
     ).toBe("2 variables and 1 resource");
     expect(
       describeSecretBearingChanges([{ path: "f/c.resource.yaml" }]),
+    ).toBe("1 resource");
+  });
+
+  test("counts a file resource's two files as the one resource they delete", () => {
+    expect(
+      describeSecretBearingChanges([
+        { path: "f/c.resource.yaml" },
+        { path: "f/c.resource.file.ini" },
+      ]),
     ).toBe("1 resource");
   });
 });

@@ -3176,39 +3176,58 @@ export function untrackedDatatableMigrationDeletions<
 }
 
 /**
- * The git pathspecs covering every variable and resource metadata file, whatever
- * the repo's `--json`/YAML setting or workspace-specific suffix
- * (`f/x/y.<workspace>.resource.yaml`).
+ * The git pathspecs covering every file whose deletion deletes a variable or a
+ * resource, whatever the repo's `--json`/YAML setting or workspace-specific suffix
+ * (`f/x/y.<workspace>.resource.yaml`). A file resource's content file is one of
+ * them: deleting `f/x.resource.file.ini` deletes the resource `f/x` outright, so
+ * leaving it out would let every file resource walk past the check below.
  */
 const SECRET_BEARING_PATHSPECS = [
   "*.variable.yaml",
   "*.variable.json",
   "*.resource.yaml",
   "*.resource.json",
+  "*.resource.file.*",
 ];
 
 /**
- * The kind of secret-bearing object a metadata file describes, if it is one.
+ * The kind of secret-bearing object whose deletion this path is, if it is one.
  *
  * Variables and resources are the two kinds `sync push` *hard*-deletes: a script is
  * archived and can be restored, but `DELETE /variables/delete` and
- * `DELETE /resources/delete` drop the credentials they hold for good. `.resource-type.`
- * and `.resource.file.` files are deliberately not matched — neither carries a secret,
- * and a fileset child is pushed by re-pushing its parent rather than deleted.
+ * `DELETE /resources/delete` drop the credentials they hold for good. Classified with
+ * the push's own `getTypeStrFromPath` so this agrees with the switch that does the
+ * deleting; a fileset child is excluded ahead of it because it can be any file, an
+ * `inner.resource.yaml` included, and its deletion re-pushes the parent resource
+ * rather than deleting anything.
  */
 export function secretBearingObjectKind(
   p: string,
 ): "variable" | "resource" | undefined {
-  const normalized = p.replaceAll(SEP, "/");
-  if (/\.variable\.(yaml|json)$/.test(normalized)) return "variable";
-  if (/\.resource\.(yaml|json)$/.test(normalized)) return "resource";
-  return undefined;
+  if (isFilesetResource(p)) return undefined;
+  let typ: string;
+  try {
+    typ = getTypeStrFromPath(p);
+  } catch {
+    // Not a path the push classifies, so not one it deletes.
+    return undefined;
+  }
+  return typ === "variable" || typ === "resource" ? typ : undefined;
 }
 
 /** Extension-insensitive identity of a metadata file, so a repo that switched between
  * YAML and `--json` still recognises its own history. */
 function secretBearingKey(p: string): string {
   return p.replaceAll(SEP, "/").replace(/\.(yaml|json)$/, "");
+}
+
+/** The server-side object a secret-bearing file belongs to, so a file resource's two
+ * files are counted (and reported) as the one resource they delete. */
+function secretBearingObjectPath(p: string): string {
+  const normalized = p.replaceAll(SEP, "/");
+  return secretBearingObjectKind(p) === "resource"
+    ? removeResourceSuffix(normalized)
+    : normalized.replace(/\.variable\.(yaml|json)$/, "");
 }
 
 /**
@@ -3227,32 +3246,45 @@ function secretBearingKey(p: string): string {
  */
 export function untrackedSecretBearingDeletions<
   T extends { name: string; path: string },
->(changes: T[], recorded: RecordedPaths): T[] {
+>(
+  changes: T[],
+  recorded: RecordedPaths,
+  // A `specificItems` item is committed under its workspace-specific name
+  // (`y.staging.variable.yaml`) while `elementsToMap` collapses it to the base
+  // path the changeset carries, so the history is searched under both names. Miss
+  // this and a deletion the user did commit reads as never tracked.
+  workspaceSpecificPath?: (p: string) => string | undefined,
+): T[] {
   const recordedKeys =
     recorded.kind === "known"
       ? new Set(Array.from(recorded.paths, secretBearingKey))
       : undefined;
-  return changes.filter(
-    (c) =>
-      c.name === "deleted" &&
-      secretBearingObjectKind(c.path) !== undefined &&
-      !recordedKeys?.has(secretBearingKey(c.path)),
-  );
+  return changes.filter((c) => {
+    if (c.name !== "deleted" || secretBearingObjectKind(c.path) === undefined) {
+      return false;
+    }
+    if (!recordedKeys) return true;
+    const wsPath = workspaceSpecificPath?.(c.path);
+    return (
+      !recordedKeys.has(secretBearingKey(c.path)) &&
+      !(wsPath !== undefined && recordedKeys.has(secretBearingKey(wsPath)))
+    );
+  });
 }
 
 /** e.g. "2 variables and 1 resource", for the messages about what is being kept. */
 export function describeSecretBearingChanges(
   changes: { path: string }[],
 ): string {
-  const counts = { variable: 0, resource: 0 };
+  const objects = { variable: new Set<string>(), resource: new Set<string>() };
   for (const c of changes) {
     const kind = secretBearingObjectKind(c.path);
-    if (kind) counts[kind]++;
+    if (kind) objects[kind].add(secretBearingObjectPath(c.path));
   }
-  const parts = (["variable", "resource"] as const)
-    .filter((k) => counts[k] > 0)
-    .map((k) => `${counts[k]} ${k}${counts[k] > 1 ? "s" : ""}`);
-  return parts.join(" and ");
+  return (["variable", "resource"] as const)
+    .filter((k) => objects[k].size > 0)
+    .map((k) => `${objects[k].size} ${k}${objects[k].size > 1 ? "s" : ""}`)
+    .join(" and ");
 }
 
 interface ChangeTracker {
@@ -5189,7 +5221,9 @@ export async function push(
       : { kind: "known", paths: new Set() };
   const untrackedSecretDeletions = opts.deleteUntrackedSecrets
     ? []
-    : untrackedSecretBearingDeletions(changes, recordedSecretPaths);
+    : untrackedSecretBearingDeletions(changes, recordedSecretPaths, (p) =>
+        getWorkspaceSpecificPath(p, specificItems, wsNameForFiles),
+      );
   // Why the deletions are in doubt, as a standalone sentence the keep,
   // proceed-anyway and confirm messages each build on.
   const untrackedSecretsReason =

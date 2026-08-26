@@ -169,9 +169,21 @@ export function gitRecordedPaths(pathspecs: string[]): RecordedPaths {
   if ("kind" in pre) return pre;
   const { prefix } = pre;
 
+  // `core.quotePath` (on by default) C-quotes any path with a non-ASCII byte
+  // — `f/café.variable.yaml` comes back as `"f/caf\303\251.variable.yaml"` —
+  // which matches nothing the caller holds.
   const r = spawnSync(
     "git",
-    ["log", "HEAD", "--format=", "--name-only", "--", ...pathspecs],
+    [
+      "-c",
+      "core.quotePath=false",
+      "log",
+      "HEAD",
+      "--format=",
+      "--name-only",
+      "--",
+      ...pathspecs,
+    ],
     { encoding: "utf8", stdio: "pipe", maxBuffer: 64 * 1024 * 1024 },
   );
   if ((r.status ?? 1) !== 0) {
