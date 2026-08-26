@@ -56,7 +56,13 @@
 	}
 
 	export function loadArgsAndRunTest() {
-		stepsInputArgs?.updateStepArgs(mod.id, flowStateStore.val, flowStore?.val, previewArgs?.val)
+		stepsInputArgs?.updateStepArgs(
+			mod.id,
+			flowStateStore.val,
+			flowStore?.val,
+			previewArgs?.val,
+			true
+		)
 		runTestWithStepArgs()
 	}
 
