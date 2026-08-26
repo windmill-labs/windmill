@@ -224,13 +224,13 @@
 			const focusOnChat =
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
 			if (!focusOnChat) return
-			// The run form parks the loop on the user, so an Escape aimed at it must not
-			// discard what they typed — its widgets are buttons as often as fields (a oneOf
-			// branch toggle, add-item, the pickers). Only the action row still stops the
-			// turn, which is the way out while a submit is in flight.
+			// The run form parks the loop on the user, so an Escape while one is open must not
+			// discard what they typed. Which element holds focus is no guide: clicking the
+			// card's heading or its notes moves focus to an ancestor of the card, which the
+			// card's own selector cannot match. Only the action row still stops the turn.
 			if (
-				active?.closest('[data-chat-keyboard-scope="run-args-form"]') &&
-				!active.closest('[data-run-form-actions]')
+				panelEl?.querySelector('[data-chat-keyboard-scope="run-args-form"]') &&
+				!active?.closest('[data-run-form-actions]')
 			) {
 				return
 			}

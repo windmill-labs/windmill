@@ -158,25 +158,54 @@ function dropUndeclaredNested(value: any, prop: any, dropped: DroppedPaths, path
 		return kept
 	}
 	if (Array.isArray(prop?.oneOf) && !isArray) {
-		// The union of every branch, not the one the tag names: which branch is selected is
-		// runtime state, and pruning by a stale tag would delete what the user typed.
-		const union: Record<string, any> = {}
-		for (const branch of prop.oneOf) {
-			for (const [key, declared] of Object.entries(branch?.properties ?? {})) {
-				// Two branches can declare one key with shapes that exclude each other, so the
-				// declaration the value fits wins the union: a last-writer-wins merge validates
-				// what the user filled in against a branch they never opened, and drops it.
-				const held = union[key]
-				if (
-					held === undefined ||
-					(!fitsDeclaredShape(value[key], held) && fitsDeclaredShape(value[key], declared))
-				)
-					union[key] = declared
-			}
-		}
-		return dropUndeclaredArgs(value, union, dropped, path, ONE_OF_TAG_KEYS)
+		return dropUndeclaredArgs(
+			value,
+			unionDeclaredProperties(declaredPropertyBags(prop), value),
+			dropped,
+			path,
+			ONE_OF_TAG_KEYS
+		)
 	}
 	return value
+}
+
+/** The `properties` a declaration can show, one bag per shape the form might open on: a
+ * `oneOf` opens on whichever branch is selected, and that is runtime state. */
+function declaredPropertyBags(prop: any): Record<string, any>[] {
+	if (Array.isArray(prop?.oneOf)) return prop.oneOf.map((branch: any) => branch?.properties ?? {})
+	return declaresProperties(prop) ? [prop.properties] : []
+}
+
+/**
+ * One key as every branch declaring it would have it, merged rather than resolved to a
+ * single branch: filtering by the branch the user did not open deletes what they typed
+ * into the one they did, and blames the script for it.
+ */
+function mergeDeclarations(held: any, declared: any, value: any): any {
+	if (held === undefined) return declared
+	const sides = [held, declared]
+	const bags = sides.map(declaredPropertyBags)
+	// One side nests nothing, so the shapes exclude rather than extend each other: the
+	// declaration the value fits wins, since the other cannot show it at all.
+	if (bags.some((bag) => bag.length === 0))
+		return !fitsDeclaredShape(value, held) && fitsDeclaredShape(value, declared) ? declared : held
+	const properties = unionDeclaredProperties(bags.flat(), value)
+	// Still a `oneOf` if either side was, so its tag keys stay declared one level down.
+	return sides.some((side) => Array.isArray(side?.oneOf))
+		? { type: 'object', oneOf: [{ type: 'object', properties }] }
+		: { type: 'object', properties }
+}
+
+function unionDeclaredProperties(bags: Record<string, any>[], value: any): Record<string, any> {
+	// Null prototype for the reason dropUndeclaredArgs uses one: a branch key named
+	// `toString` would otherwise read as already declared by an earlier branch, and one
+	// named `__proto__` would assign through the inherited setter — either way the
+	// argument is dropped and reported as one the script never declared.
+	const union: Record<string, any> = Object.create(null)
+	for (const bag of bags)
+		for (const [key, declared] of Object.entries(bag))
+			union[key] = mergeDeclarations(union[key], declared, value?.[key])
+	return union
 }
 
 /** The `oneOf` branch the form shows: `ArgInput` opens the one the value's tag names,
