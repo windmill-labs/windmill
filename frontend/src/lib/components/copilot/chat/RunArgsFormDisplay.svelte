@@ -41,6 +41,12 @@
 	let submitting = $state(false)
 	let cardNode = $state<HTMLDivElement | undefined>()
 
+	// The picker moves while a form sits open, so this is live state, not mount-time. Both
+	// writes the form makes on its own are held off it — the variable a password field
+	// mints on its first keystroke, the entrypoint a `dynselect-` argument runs — because
+	// neither waits for Run, and plan mode promised neither would happen.
+	const planMode = $derived(aiChatManager.planModeActive)
+
 	onMount(() => {
 		void tick().then(() => cardNode?.scrollIntoView({ block: 'nearest' }))
 	})
@@ -119,7 +125,10 @@
 			does not undo it. Everything else waits for the user; keep it that way. -->
 			<SchemaForm
 				bind:schema
-				helperScript={{ source: 'deployed', path: runForm.path, runnable_kind: 'script' }}
+				helperScript={planMode
+					? undefined
+					: { source: 'deployed', path: runForm.path, runnable_kind: 'script' }}
+				disabled={planMode}
 				{workspace}
 				prettifyHeader
 				lightHeader
@@ -153,6 +162,9 @@
 				<span class="font-mono">{runForm.strippedKeys.join(', ')}</span>
 			</p>
 		{/if}
+		{#if planMode}
+			<p class="mt-2 text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
+		{/if}
 	</div>
 
 	<!-- Both buttons rest while a submit is in flight: the ephemeral variables exist by
@@ -163,7 +175,7 @@
 			variant="accent"
 			unifiedSize="sm"
 			startIcon={{ icon: Play }}
-			disabled={!isValid || submitting}
+			disabled={!isValid || submitting || planMode}
 			onClick={run}
 		>
 			Run
