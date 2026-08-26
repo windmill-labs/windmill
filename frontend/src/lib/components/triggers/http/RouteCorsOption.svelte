@@ -48,11 +48,14 @@
 		return undefined
 	}
 
+	// Independent of the toggle: it decides what the toggle is called, which must
+	// not change as it is flipped.
+	let hasInstanceDefault = $derived(
+		instanceDefaultOrigins.length > 0 && !instanceDefaultOrigins.includes('*')
+	)
 	// Without this the toggle reading "off" would look like "callable from
 	// anywhere" on an instance that has narrowed the default.
-	let inheritsInstanceDefault = $derived(
-		!restricted && instanceDefaultOrigins.length > 0 && !instanceDefaultOrigins.includes('*')
-	)
+	let inheritsInstanceDefault = $derived(!restricted && hasInstanceDefault)
 
 	let origins = $derived(parse(raw))
 	// Split from `error` so an entry that is merely still empty reads as a hint
@@ -91,22 +94,18 @@
 	})
 </script>
 
-<!-- The label carries the inherited state, matching how the workspace-prefix
-	 toggle reads "(enforced by instance setting)": an off toggle that is
-	 nonetheless restricted has to say so on the control itself. -->
+<!-- The label names what the toggle does here, the way the workspace-prefix
+	 toggle relabels itself when an instance setting is in play: with a default
+	 configured, turning this on overrides it rather than adding a restriction. -->
 <Label
-	label={inheritsInstanceDefault
-		? 'Restrict origins (inherited from instance default)'
-		: 'Restrict origins'}
+	label={hasInstanceDefault ? 'Override origins' : 'Restrict origins'}
 	for="allowed-origins-toggle"
 	class="w-full"
 >
 	{#snippet header()}
 		<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/http_routing">
-			Lists the origins allowed to call this route from a browser. Windmill answers the preflight
-			and the response with the origin that matches, so a page on any other origin cannot read the
-			result. Requests from outside a browser are unaffected. Leave off to keep the route readable
-			from any origin.
+			Which origins may call this route from a browser. Other origins can still send the request,
+			they just cannot read the response.
 		</Tooltip>
 		{#if testingBadge}
 			{@render testingBadge()}
@@ -135,14 +134,11 @@
 		{:else if error}
 			<div class="text-2xs text-hint">{error}</div>
 		{:else}
-			<div class="text-2xs text-secondary">
-				Separate origins with commas. Use * to allow any origin.
-			</div>
+			<div class="text-2xs text-secondary">Comma-separated. Use * to allow any origin.</div>
 		{/if}
 	{:else if inheritsInstanceDefault}
 		<div class="text-2xs text-secondary">
-			Allows {instanceDefaultOrigins.join(', ')}. Turn this on to override the default for this
-			route.
+			Currently allows {instanceDefaultOrigins.join(', ')}, from the instance default.
 		</div>
 	{/if}
 </Label>
