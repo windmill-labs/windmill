@@ -137,8 +137,15 @@
 		workspace: workspaceProp
 	}: Props = $props()
 
-	/** The caller needs this exact table, and has follow-up work bound to its name. */
-	const nameLocked = $derived(!!initialName && !!onFinishAlso)
+	/**
+	 * The caller needs this exact table, and has follow-up work bound to its name.
+	 *
+	 * Captured when the dialog opens rather than read live: `initialName` is the caller's
+	 * `wizardFor`, which it clears from `onDone` — and that fires after a *failed* run too,
+	 * while the dialog stays up offering Back. Reading it live releases the lock exactly when
+	 * the user is most likely to edit, which is the divergence the lock exists to stop.
+	 */
+	let nameLocked = $state(false)
 
 	/** Every write and every check goes through this, never `$workspaceStore` directly. */
 	const targetWorkspace = $derived(workspaceProp ?? $workspaceStore ?? '')
@@ -156,27 +163,27 @@
 	const aimedElsewhere = $derived(!!workspaceProp && workspaceProp !== $workspaceStore)
 	const ambientUsername = $derived($userStore?.username ?? '')
 	const targetUsername = $derived(aimedElsewhere ? (targetUser?.username ?? '') : ambientUsername)
-	$effect(() => {
+	/** The destination's membership could not be read, so nothing here knows who the user is. */
+	let membershipFailed = $state(false)
+
+	async function loadTargetUser(): Promise<void> {
 		const ws = workspaceProp
 		if (!ws || ws === $workspaceStore) {
 			targetUser = undefined
+			membershipFailed = false
 			return
 		}
-		let live = true
-		UserService.whoami({ workspace: ws })
-			.then((u) => {
-				if (live) targetUser = u
-			})
-			.catch(() => {
-				// Not a member, or the call failed. Left unset: an empty username makes the
-				// default path obviously wrong rather than confidently wrong, and the create
-				// it feeds would be refused anyway.
-				if (live) targetUser = undefined
-			})
-		return () => {
-			live = false
+		try {
+			targetUser = await UserService.whoami({ workspace: ws })
+			membershipFailed = false
+		} catch {
+			// Recorded rather than swallowed: an unknown username silently becomes `admin` in
+			// the default path, which is the wrong namespace to write credentials into. Setup
+			// is blocked instead.
+			targetUser = undefined
+			membershipFailed = true
 		}
-	})
+	}
 
 	const STEPS = ['Choose a database', 'Set it up', 'Review']
 
@@ -457,6 +464,7 @@
 	let resumedPath = $state<string | undefined>(undefined)
 
 	function reset(from: WizardResume | undefined) {
+		nameLocked = !!initialName && !!onFinishAlso
 		resumedPath = from?.resourcePath
 		// A pending confirmation that never settled leaves `dismissing` true, and `finally`
 		// cannot clear what never resolves — so a fresh open always starts dismissable.
@@ -511,7 +519,11 @@
 	 * what keeps the restore independent of when the prop it was assigned to reaches this
 	 * component.
 	 */
-	export function open(parked?: WizardResume) {
+	export async function open(parked?: WizardResume) {
+		// Awaited before `reset`, which seeds the resource path from `defaultFolder()` and so
+		// needs the destination's username. Seeding first and correcting later loses whenever
+		// the folder list resolves first, and never corrects at all if `whoami` fails.
+		await loadTargetUser()
 		reset(parked ?? resume)
 		opened = true
 	}
@@ -903,6 +915,10 @@
 	// The single primary action. Its label says what it is about to do, and doing it is what
 	// moves the wizard on.
 	let primary = $derived.by(() => {
+		// Ahead of everything: without the destination's membership the resource path would be
+		// guessed, and a guess here writes database credentials into somebody else's namespace.
+		if (aimedElsewhere && membershipFailed)
+			return { label: 'Cannot read your access to this workspace', disabled: true }
 		if (submitting && !run.running)
 			return { label: 'Setting things up', disabled: true, busy: true }
 		if (run.steps.length) {
