@@ -403,6 +403,8 @@ pub struct HttpTrigger;
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Not used by the lib itself, only exercised here.
+    use windmill_common::global_settings::validate_allowed_origins;
 
     #[test]
     fn test_request_type_backward_compatibility() {
