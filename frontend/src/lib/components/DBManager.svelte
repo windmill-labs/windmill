@@ -34,6 +34,7 @@
 	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import Star from './Star.svelte'
+	import PgAclEditor from './datatableAcl/PgAclEditor.svelte'
 	import { favoriteManager } from './sidebar/FavoriteMenu.svelte'
 	import DatatableRoleBadge from './DatatableRoleBadge.svelte'
 	import type { Asset, DataTableTables } from '$lib/gen'
@@ -85,6 +86,8 @@
 		pendingAction?: PendingRowAction | undefined
 		/** Row-menu actions on a data table, run against that row's data table. */
 		onDatatableAction?: (datatable: string, action: DatatableRowAction) => void
+		/** Workspace the permissions drawer's own calls run against. */
+		workspace?: string
 		canManageDatatable?: boolean
 		/** Enable multi-select mode with checkboxes in sidebar */
 		multiSelectMode?: boolean
@@ -116,6 +119,7 @@
 		onSelectRole,
 		pendingAction = $bindable(undefined),
 		onDatatableAction,
+		workspace,
 		canManageDatatable = false,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
@@ -263,9 +267,10 @@
 	// overrides is what lets the current data table and selected schema — which
 	// default to open — actually be folded; a plain "expanded" set could never
 	// close them, since the default would keep winning.
-	// Schema-level permissions are not built yet; the drawer is the shell the row
-	// menu already opens onto.
-	let schemaPermissionsOpen = $state(false)
+	// The schema the permissions drawer is open on, if any.
+	let schemaPermissions = $state<{ datatable: string | undefined; schema: string } | undefined>(
+		undefined
+	)
 
 	let expandOverrides = $state<Map<string, boolean>>(new Map())
 	const nodeKey = (dt: string | undefined, schemaKey?: string) =>
@@ -610,7 +615,11 @@
 												{
 													displayName: 'Permissions',
 													icon: KeyRoundIcon,
-													action: () => (schemaPermissionsOpen = true)
+													action: () =>
+														(schemaPermissions = {
+															datatable: root.datatable,
+															schema: sc.schemaKey
+														})
 												}
 											]}
 											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
@@ -750,8 +759,23 @@
 </Splitpanes>
 
 <Portal>
-	<Drawer bind:open={schemaPermissionsOpen} size="900px">
-		<DrawerContent title="Schema permissions" on:close={() => (schemaPermissionsOpen = false)} />
+	<Drawer open={!!schemaPermissions} size="900px" on:close={() => (schemaPermissions = undefined)}>
+		<DrawerContent
+			title="Permissions — {schemaPermissions?.schema ?? ''}"
+			on:close={() => (schemaPermissions = undefined)}
+			tooltip="Who owns this schema, and what each role may do in it. Runs against the data table as its admin connection."
+		>
+			{#if schemaPermissions && workspace}
+				{@const dt = schemaPermissions.datatable ?? currentDatatable}
+				{#if dt}
+					<PgAclEditor
+						{workspace}
+						datatable={dt}
+						target={{ kind: 'schema', schema: schemaPermissions.schema }}
+					/>
+				{/if}
+			{/if}
+		</DrawerContent>
 	</Drawer>
 
 	<ConfirmationModal

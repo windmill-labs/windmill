@@ -328,6 +328,7 @@
 				{datatableTreeLoading}
 				{onSelectDatatable}
 				{onSelectRole}
+				workspace={ws}
 				currentRole={input.type === 'database' ? input.role : undefined}
 				bind:pendingAction
 				{onDatatableAction}

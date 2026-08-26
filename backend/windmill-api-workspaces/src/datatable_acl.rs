@@ -1,0 +1,973 @@
+/*
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
+ * This file and its contents are licensed under the AGPLv3 License.
+ * Please see the included NOTICE for copyright information and
+ * LICENSE-AGPL for a copy of the license.
+ */
+
+//! Ownership and grants on the objects of a permissioned data table.
+//!
+//! [`datatable_permissions`](crate::datatable_permissions) decides which
+//! Postgres roles exist; this decides what they may touch. Both speak in
+//! Windmill role names — `admin`, `analyst` — and translate to the generated
+//! Postgres roles here, so a caller never has to know one.
+//!
+//! Everything is expressed against an [`AclTarget`]. Only schemas are reachable
+//! from the UI today; tables carry the same shape so the same plan/apply path
+//! serves them.
+
+use axum::{
+    extract::{Extension, Path, Query},
+    routing::{get, post},
+    Json, Router,
+};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+use windmill_api_auth::ApiAuthed;
+use windmill_audit::audit_oss::audit_log;
+use windmill_audit::ActionKind;
+use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
+use windmill_common::utils::require_admin;
+use windmill_common::workspaces::ADMIN_DATATABLE_ROLE;
+use windmill_common::DB;
+
+use crate::datatable_permissions::{connect_as_admin, quote_ident, read_datatable};
+
+pub(crate) fn routes() -> Router {
+    Router::new()
+        .route("/datatable_acl/{datatable_name}", get(get_datatable_acl))
+        .route(
+            "/datatable_acl/{datatable_name}/plan",
+            post(plan_datatable_acl),
+        )
+        .route(
+            "/datatable_acl/{datatable_name}/apply",
+            post(apply_datatable_acl),
+        )
+}
+
+/// What a read or a change is about. `Table` is unused by the UI so far and is
+/// here because the SQL only differs in the object it names.
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AclTarget {
+    Schema { schema: String },
+    Table { schema: String, table: String },
+}
+
+impl AclTarget {
+    fn schema(&self) -> &str {
+        match self {
+            AclTarget::Schema { schema } => schema,
+            AclTarget::Table { schema, .. } => schema,
+        }
+    }
+
+    /// The object an `ALTER ... OWNER TO` names.
+    fn owner_object(&self) -> String {
+        match self {
+            AclTarget::Schema { schema } => format!("SCHEMA {}", quote_ident(schema)),
+            AclTarget::Table { schema, table } => {
+                format!("TABLE {}.{}", quote_ident(schema), quote_ident(table))
+            }
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AclTargetQuery {
+    kind: String,
+    schema: String,
+    table: Option<String>,
+}
+
+impl TryFrom<AclTargetQuery> for AclTarget {
+    type Error = Error;
+    fn try_from(q: AclTargetQuery) -> Result<Self> {
+        match (q.kind.as_str(), q.table) {
+            ("schema", _) => Ok(AclTarget::Schema { schema: q.schema }),
+            ("table", Some(table)) => Ok(AclTarget::Table { schema: q.schema, table }),
+            ("table", None) => Err(Error::BadRequest(
+                "A table target needs a table".to_string(),
+            )),
+            (kind, _) => Err(Error::BadRequest(format!("Unknown ACL target '{kind}'"))),
+        }
+    }
+}
+
+/// Where a set of privileges applies, relative to the target.
+///
+/// `Future` covers what does not exist yet: those become `ALTER DEFAULT
+/// PRIVILEGES`, which only binds objects created by the roles it names.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum GrantScope {
+    /// The target itself — the schema, or the table.
+    Target,
+    AllTables,
+    AllSequences,
+    AllFunctions,
+    FutureTables,
+    FutureSequences,
+    FutureFunctions,
+}
+
+impl GrantScope {
+    /// The privileges Postgres accepts for what this scope names.
+    fn allowed_privileges(&self, target: &AclTarget) -> &'static [&'static str] {
+        match self {
+            GrantScope::Target => match target {
+                AclTarget::Schema { .. } => SCHEMA_PRIVILEGES,
+                AclTarget::Table { .. } => TABLE_PRIVILEGES,
+            },
+            GrantScope::AllTables | GrantScope::FutureTables => TABLE_PRIVILEGES,
+            GrantScope::AllSequences | GrantScope::FutureSequences => SEQUENCE_PRIVILEGES,
+            GrantScope::AllFunctions | GrantScope::FutureFunctions => FUNCTION_PRIVILEGES,
+        }
+    }
+
+    fn is_future(&self) -> bool {
+        matches!(
+            self,
+            GrantScope::FutureTables | GrantScope::FutureSequences | GrantScope::FutureFunctions
+        )
+    }
+
+    /// The plural Postgres uses in `ON ALL <x> IN SCHEMA` and in
+    /// `ALTER DEFAULT PRIVILEGES ... ON <x>`.
+    fn object_plural(&self) -> Option<&'static str> {
+        match self {
+            GrantScope::Target => None,
+            GrantScope::AllTables | GrantScope::FutureTables => Some("TABLES"),
+            GrantScope::AllSequences | GrantScope::FutureSequences => Some("SEQUENCES"),
+            GrantScope::AllFunctions | GrantScope::FutureFunctions => Some("FUNCTIONS"),
+        }
+    }
+}
+
+const SCHEMA_PRIVILEGES: &[&str] = &["USAGE", "CREATE"];
+const TABLE_PRIVILEGES: &[&str] = &[
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
+    "REFERENCES",
+    "TRIGGER",
+];
+const SEQUENCE_PRIVILEGES: &[&str] = &["USAGE", "SELECT", "UPDATE"];
+const FUNCTION_PRIVILEGES: &[&str] = &["EXECUTE"];
+
+/// A change to plan. One at a time: each is confirmed against its own SQL.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AclChange {
+    /// Hand the target — and everything already in it — to another role.
+    SetOwner {
+        role: String,
+    },
+    Grant {
+        role: String,
+        privileges: Vec<String>,
+        scope: GrantScope,
+    },
+    Revoke {
+        role: String,
+        privileges: Vec<String>,
+        scope: GrantScope,
+        /// One object inside the target. `ON ALL TABLES` grants read back per
+        /// object, so they are revoked per object too.
+        #[serde(default)]
+        object: Option<AclObject>,
+    },
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AclChangeRequest {
+    pub target: AclTarget,
+    pub change: AclChange,
+}
+
+/// An object inside a schema, named the way `REVOKE ... ON <keyword>` needs it.
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+pub struct AclObject {
+    pub name: String,
+    /// `TABLE`, `SEQUENCE`, ... — what the object is, since the keyword differs.
+    pub kind: String,
+}
+
+/// A grant as the database has it, in Windmill's vocabulary where it can be.
+#[derive(Serialize, Debug, PartialEq)]
+pub struct AclGrant {
+    /// Windmill role name when the grantee is one of the data table's roles,
+    /// else the raw Postgres role (`PUBLIC` included).
+    pub grantee: String,
+    pub privileges: Vec<String>,
+    /// `None` for the target itself, else the object inside it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object: Option<AclObject>,
+    /// `TABLES` / `SEQUENCES` / `FUNCTIONS` when this is a default privilege,
+    /// which applies to objects that do not exist yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub future: Option<String>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct DatatableAclInfo {
+    /// Windmill role name when the owner is one of the data table's roles, else
+    /// the raw Postgres role.
+    pub owner: String,
+    /// The data table's roles, in the order the config has them.
+    pub roles: Vec<String>,
+    pub grants: Vec<AclGrant>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct AclPlan {
+    pub statements: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+/// Windmill role name -> Postgres role name, for the roles of one data table.
+///
+/// `admin` maps to whatever the data table's own connection is, which is not
+/// stored in the config: it is read off the connection.
+async fn role_map(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    admin_pg_role: &str,
+) -> Result<BTreeMap<String, String>> {
+    let datatable = read_datatable(db, w_id, datatable_name).await?;
+    let mut map = BTreeMap::new();
+    map.insert(ADMIN_DATATABLE_ROLE.to_string(), admin_pg_role.to_string());
+    if let Some(permissions) = datatable.permissions.filter(|p| p.enabled) {
+        for (name, role) in permissions.roles {
+            if let Some(pg_rolename) = role.pg_rolename {
+                map.insert(name, pg_rolename);
+            }
+        }
+    }
+    Ok(map)
+}
+
+fn pg_role_of(roles: &BTreeMap<String, String>, role: &str) -> Result<String> {
+    roles
+        .get(role)
+        .cloned()
+        .ok_or_else(|| Error::BadRequest(format!("Unknown role '{role}'")))
+}
+
+/// Read back a Postgres role as the Windmill role it belongs to, so the UI never
+/// has to show a generated name.
+fn windmill_role_of(roles: &BTreeMap<String, String>, pg_role: &str) -> String {
+    roles
+        .iter()
+        .find(|(_, pg)| pg.as_str() == pg_role)
+        .map(|(name, _)| name.clone())
+        .unwrap_or_else(|| pg_role.to_string())
+}
+
+fn validate_privileges(privileges: &[String], allowed: &[&str]) -> Result<Vec<String>> {
+    if privileges.is_empty() {
+        return Err(Error::BadRequest("No privilege selected".to_string()));
+    }
+    privileges
+        .iter()
+        .map(|p| {
+            let upper = p.to_uppercase();
+            allowed
+                .iter()
+                .find(|a| **a == upper)
+                .map(|a| a.to_string())
+                .ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "Privilege '{p}' does not apply here; expected one of {}",
+                        allowed.join(", ")
+                    ))
+                })
+        })
+        .collect()
+}
+
+/// The statements one change plans out, against Postgres role names.
+///
+/// Pure so the preview the user confirms is the same string that runs.
+fn plan_statements(
+    target: &AclTarget,
+    change: &AclChange,
+    pg_role: &str,
+    other_pg_roles: &[String],
+    existing_objects: &[OwnedObject],
+) -> Result<AclPlan> {
+    let role = quote_ident(pg_role);
+    let schema = quote_ident(target.schema());
+    let mut statements = Vec::new();
+    let mut warnings = Vec::new();
+
+    match change {
+        AclChange::SetOwner { .. } => {
+            statements.push(format!("ALTER {} OWNER TO {}", target.owner_object(), role));
+            for object in existing_objects {
+                statements.push(format!(
+                    "ALTER {} {}.{} OWNER TO {}",
+                    object.keyword,
+                    schema,
+                    quote_ident(&object.name),
+                    role
+                ));
+            }
+            // Ownership cannot be set ahead of time: an object belongs to
+            // whoever creates it. Default privileges are what keeps the owner
+            // in reach of what the other roles create from here on.
+            for other in other_pg_roles {
+                for plural in ["TABLES", "SEQUENCES", "FUNCTIONS"] {
+                    statements.push(format!(
+                        "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} GRANT ALL PRIVILEGES ON {} TO {}",
+                        quote_ident(other),
+                        schema,
+                        plural,
+                        role
+                    ));
+                }
+            }
+            if existing_objects.is_empty() {
+                warnings.push(format!(
+                    "{} holds no objects yet; only the schema itself changes hands.",
+                    target.schema()
+                ));
+            }
+        }
+        AclChange::Grant { privileges, scope, .. }
+        | AclChange::Revoke { privileges, scope, .. } => {
+            let revoking = matches!(change, AclChange::Revoke { .. });
+            let object = match change {
+                AclChange::Revoke { object, .. } => object.as_ref(),
+                _ => None,
+            };
+            // A named object decides which privileges are legal, not the scope:
+            // `ON ALL TABLES` grants read back per object and revoke per object.
+            let allowed = match object {
+                Some(o) => match object_keyword(&o.kind)? {
+                    "SEQUENCE" => SEQUENCE_PRIVILEGES,
+                    "FUNCTION" => FUNCTION_PRIVILEGES,
+                    _ => TABLE_PRIVILEGES,
+                },
+                None => scope.allowed_privileges(target),
+            };
+            let privileges = validate_privileges(privileges, allowed)?;
+            let privileges = privileges.join(", ");
+            let statement = match (scope.is_future(), scope.object_plural()) {
+                (true, Some(plural)) => {
+                    // Default privileges are recorded per creating role, so a
+                    // rule has to be written for each of them.
+                    let mut creators = other_pg_roles.to_vec();
+                    creators.push(pg_role.to_string());
+                    creators.sort();
+                    creators.dedup();
+                    for creator in creators {
+                        statements.push(if revoking {
+                            format!(
+                                "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} REVOKE {} ON {} FROM {}",
+                                quote_ident(&creator), schema, privileges, plural, role
+                            )
+                        } else {
+                            format!(
+                                "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} GRANT {} ON {} TO {}",
+                                quote_ident(&creator), schema, privileges, plural, role
+                            )
+                        });
+                    }
+                    None
+                }
+                (false, Some(plural)) => Some(if revoking {
+                    format!(
+                        "REVOKE {} ON ALL {} IN SCHEMA {} FROM {}",
+                        privileges, plural, schema, role
+                    )
+                } else {
+                    format!(
+                        "GRANT {} ON ALL {} IN SCHEMA {} TO {}",
+                        privileges, plural, schema, role
+                    )
+                }),
+                (_, None) if object.is_some() => {
+                    let object = object.expect("checked");
+                    Some(format!(
+                        "REVOKE {} ON {} {}.{} FROM {}",
+                        privileges,
+                        object_keyword(&object.kind)?,
+                        schema,
+                        quote_ident(&object.name),
+                        role
+                    ))
+                }
+                (_, None) => Some(if revoking {
+                    format!(
+                        "REVOKE {} ON {} FROM {}",
+                        privileges,
+                        target.owner_object(),
+                        role
+                    )
+                } else {
+                    format!(
+                        "GRANT {} ON {} TO {}",
+                        privileges,
+                        target.owner_object(),
+                        role
+                    )
+                }),
+            };
+            if let Some(statement) = statement {
+                statements.push(statement);
+            }
+            if !revoking && matches!(scope, GrantScope::AllTables | GrantScope::FutureTables) {
+                warnings.push(
+                    "Reaching a table also needs USAGE on the schema it lives in.".to_string(),
+                );
+            }
+        }
+    }
+
+    Ok(AclPlan { statements, warnings })
+}
+
+/// The keyword a `REVOKE ... ON` takes for one object, checked rather than
+/// interpolated: it lands in SQL unquoted.
+fn object_keyword(kind: &str) -> Result<&'static str> {
+    match kind.to_uppercase().as_str() {
+        "TABLE" | "VIEW" | "MATERIALIZED VIEW" | "FOREIGN TABLE" => Ok("TABLE"),
+        "SEQUENCE" => Ok("SEQUENCE"),
+        "FUNCTION" => Ok("FUNCTION"),
+        other => Err(Error::BadRequest(format!("Unknown object kind '{other}'"))),
+    }
+}
+
+/// An object whose ownership follows the schema's.
+#[derive(Debug, PartialEq)]
+struct OwnedObject {
+    name: String,
+    /// The keyword `ALTER ... OWNER TO` takes for this kind of object.
+    keyword: &'static str,
+}
+
+fn keyword_of_relkind(relkind: i8) -> Option<&'static str> {
+    match relkind as u8 as char {
+        'r' | 'p' => Some("TABLE"),
+        'v' => Some("VIEW"),
+        'm' => Some("MATERIALIZED VIEW"),
+        'S' => Some("SEQUENCE"),
+        'f' => Some("FOREIGN TABLE"),
+        // Indexes and TOAST tables follow their table; composite types are not
+        // reachable through ALTER TABLE ... OWNER TO.
+        _ => None,
+    }
+}
+
+async fn read_owned_objects(
+    client: &tokio_postgres::Client,
+    schema: &str,
+) -> Result<Vec<OwnedObject>> {
+    let rows = client
+        .query(
+            "SELECT c.relname, c.relkind
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = $1 AND c.relkind = ANY(ARRAY['r','p','v','m','S','f']::\"char\"[])
+             ORDER BY c.relname",
+            &[&schema],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to list the objects of schema '{schema}': {}",
+                pg_error_message(&e)
+            ))
+        })?;
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            keyword_of_relkind(row.get::<_, i8>(1))
+                .map(|keyword| OwnedObject { name: row.get(0), keyword })
+        })
+        .collect())
+}
+
+async fn get_datatable_acl(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+    Query(query): Query<AclTargetQuery>,
+) -> JsonResult<DatatableAclInfo> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let target: AclTarget = query.try_into()?;
+    let (client, conn) = connect_as_admin(&db, &w_id, &datatable_name).await?;
+    let roles = role_map(&db, &w_id, &datatable_name, &conn.admin_pg_role).await?;
+
+    let owner_row = match &target {
+        AclTarget::Schema { schema } => client
+            .query_opt(
+                "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = $1",
+                &[schema],
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to read the owner: {}",
+                    pg_error_message(&e)
+                ))
+            })?,
+        AclTarget::Table { schema, table } => client
+            .query_opt(
+                "SELECT pg_get_userbyid(c.relowner)
+                 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = $1 AND c.relname = $2",
+                &[schema, table],
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to read the owner: {}",
+                    pg_error_message(&e)
+                ))
+            })?,
+    };
+    let owner: String = owner_row
+        .ok_or_else(|| Error::NotFound(format!("{} not found", target.schema())))?
+        .get(0);
+
+    let mut grants = read_grants(&client, &target, &roles).await?;
+    grants.sort_by(|a, b| {
+        let key = |g: &AclGrant| {
+            (
+                g.grantee.clone(),
+                g.object.as_ref().map(|o| o.name.clone()),
+                g.future.clone(),
+            )
+        };
+        key(a).cmp(&key(b))
+    });
+
+    Ok(Json(DatatableAclInfo {
+        owner: windmill_role_of(&roles, &owner),
+        roles: roles.keys().cloned().collect(),
+        grants,
+    }))
+}
+
+async fn read_grants(
+    client: &tokio_postgres::Client,
+    target: &AclTarget,
+    roles: &BTreeMap<String, String>,
+) -> Result<Vec<AclGrant>> {
+    // `aclexplode` turns an acl array into one row per (grantee, privilege);
+    // grantee 0 is PUBLIC, which has no name to resolve.
+    let mut rows = match target {
+        AclTarget::Schema { schema } => {
+            let mut out = client
+                .query(
+                    "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                            a.privilege_type, NULL::text, NULL::text, NULL::text
+                     FROM pg_namespace n, aclexplode(n.nspacl) a
+                     WHERE n.nspname = $1",
+                    &[schema],
+                )
+                .await
+                .map_err(grant_read_error)?;
+            out.extend(
+                client
+                    .query(
+                        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                                a.privilege_type, c.relname, NULL::text,
+                                CASE c.relkind WHEN 'S' THEN 'SEQUENCE' ELSE 'TABLE' END
+                         FROM pg_class c
+                         JOIN pg_namespace n ON n.oid = c.relnamespace,
+                              aclexplode(c.relacl) a
+                         WHERE n.nspname = $1",
+                        &[schema],
+                    )
+                    .await
+                    .map_err(grant_read_error)?,
+            );
+            out.extend(
+                client
+                    .query(
+                        "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                                a.privilege_type, NULL::text,
+                                CASE d.defaclobjtype
+                                    WHEN 'r' THEN 'TABLES' WHEN 'S' THEN 'SEQUENCES'
+                                    WHEN 'f' THEN 'FUNCTIONS' ELSE 'TYPES' END, NULL::text
+                         FROM pg_default_acl d
+                         JOIN pg_namespace n ON n.oid = d.defaclnamespace,
+                              aclexplode(d.defaclacl) a
+                         WHERE n.nspname = $1",
+                        &[schema],
+                    )
+                    .await
+                    .map_err(grant_read_error)?,
+            );
+            out
+        }
+        AclTarget::Table { schema, table } => client
+            .query(
+                "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                        a.privilege_type, NULL::text, NULL::text, NULL::text
+                 FROM pg_class c
+                 JOIN pg_namespace n ON n.oid = c.relnamespace,
+                      aclexplode(c.relacl) a
+                 WHERE n.nspname = $1 AND c.relname = $2",
+                &[schema, table],
+            )
+            .await
+            .map_err(grant_read_error)?,
+    };
+
+    // One row per privilege — and, for default privileges, one per creating
+    // role. Fold them back into one entry per grantee and object.
+    let mut folded: BTreeMap<(String, Option<(String, String)>, Option<String>), Vec<String>> =
+        BTreeMap::new();
+    for row in rows.drain(..) {
+        let grantee: String = row.get(0);
+        let privilege: String = row.get(1);
+        let object: Option<String> = row.get(2);
+        let future: Option<String> = row.get(3);
+        let object_kind: Option<String> = row.get(4);
+        folded
+            .entry((
+                windmill_role_of(roles, &grantee),
+                object.map(|name| (name, object_kind.unwrap_or_else(|| "TABLE".to_string()))),
+                future,
+            ))
+            .or_default()
+            .push(privilege);
+    }
+    Ok(folded
+        .into_iter()
+        .map(|((grantee, object, future), mut privileges)| {
+            privileges.sort();
+            privileges.dedup();
+            AclGrant {
+                grantee,
+                privileges,
+                object: object.map(|(name, kind)| AclObject { name, kind }),
+                future,
+            }
+        })
+        .collect())
+}
+
+fn grant_read_error(e: tokio_postgres::Error) -> Error {
+    Error::internal_err(format!("Failed to read grants: {}", pg_error_message(&e)))
+}
+
+async fn build_acl_plan(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    req: &AclChangeRequest,
+) -> Result<(tokio_postgres::Client, AclPlan)> {
+    let (client, conn) = connect_as_admin(db, w_id, datatable_name).await?;
+    let roles = role_map(db, w_id, datatable_name, &conn.admin_pg_role).await?;
+    let role_name = match &req.change {
+        AclChange::SetOwner { role } => role,
+        AclChange::Grant { role, .. } | AclChange::Revoke { role, .. } => role,
+    };
+    let pg_role = pg_role_of(&roles, role_name)?;
+    let other_pg_roles: Vec<String> = roles
+        .values()
+        .filter(|pg| pg.as_str() != pg_role.as_str())
+        .cloned()
+        .collect();
+    let existing_objects = match &req.change {
+        AclChange::SetOwner { .. } => match &req.target {
+            AclTarget::Schema { schema } => read_owned_objects(&client, schema).await?,
+            AclTarget::Table { .. } => vec![],
+        },
+        _ => vec![],
+    };
+    let plan = plan_statements(
+        &req.target,
+        &req.change,
+        &pg_role,
+        &other_pg_roles,
+        &existing_objects,
+    )?;
+    Ok((client, plan))
+}
+
+async fn plan_datatable_acl(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+    Json(req): Json<AclChangeRequest>,
+) -> JsonResult<AclPlan> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let (_client, plan) = build_acl_plan(&db, &w_id, &datatable_name, &req).await?;
+    Ok(Json(plan))
+}
+
+async fn apply_datatable_acl(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, datatable_name)): Path<(String, String)>,
+    Json(req): Json<AclChangeRequest>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let (mut client, plan) = build_acl_plan(&db, &w_id, &datatable_name, &req).await?;
+
+    // One transaction: a half-applied ownership transfer leaves objects of one
+    // schema owned by two different roles.
+    let pg_tx = client.transaction().await.map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to open a transaction on the data table: {}",
+            pg_error_message(&e)
+        ))
+    })?;
+    for statement in plan.statements.iter() {
+        pg_tx.batch_execute(statement).await.map_err(|e| {
+            Error::ExecutionErr(format!(
+                "Failed to run `{statement}`: {}",
+                pg_error_message(&e)
+            ))
+        })?;
+    }
+    pg_tx.commit().await.map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to commit the changes: {}",
+            pg_error_message(&e)
+        ))
+    })?;
+
+    audit_log(
+        &db,
+        &authed,
+        "datatables.acl",
+        ActionKind::Update,
+        &w_id,
+        Some(&datatable_name),
+        Some([("target", format!("{:?}", req.target).as_str())].into()),
+    )
+    .await?;
+
+    Ok(format!("Updated access on {}", req.target.schema()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn schema() -> AclTarget {
+        AclTarget::Schema { schema: "analytics".to_string() }
+    }
+
+    #[test]
+    fn set_owner_covers_the_schema_and_what_is_in_it() {
+        let objects = vec![
+            OwnedObject { name: "orders".to_string(), keyword: "TABLE" },
+            OwnedObject { name: "orders_id_seq".to_string(), keyword: "SEQUENCE" },
+        ];
+        let plan = plan_statements(
+            &schema(),
+            &AclChange::SetOwner { role: "analyst".to_string() },
+            "wm_analyst_1",
+            &["wm_admin".to_string()],
+            &objects,
+        )
+        .unwrap();
+        assert_eq!(
+            plan.statements[..3],
+            [
+                r#"ALTER SCHEMA "analytics" OWNER TO "wm_analyst_1""#.to_string(),
+                r#"ALTER TABLE "analytics"."orders" OWNER TO "wm_analyst_1""#.to_string(),
+                r#"ALTER SEQUENCE "analytics"."orders_id_seq" OWNER TO "wm_analyst_1""#.to_string(),
+            ]
+        );
+        // What the other roles create later stays within the owner's reach.
+        assert!(plan.statements.iter().any(|s| s
+            == r#"ALTER DEFAULT PRIVILEGES FOR ROLE "wm_admin" IN SCHEMA "analytics" GRANT ALL PRIVILEGES ON TABLES TO "wm_analyst_1""#));
+        assert!(plan.warnings.is_empty());
+    }
+
+    #[test]
+    fn an_empty_schema_says_so() {
+        let plan = plan_statements(
+            &schema(),
+            &AclChange::SetOwner { role: "analyst".to_string() },
+            "wm_analyst_1",
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(plan.statements.len(), 1);
+        assert_eq!(plan.warnings.len(), 1);
+    }
+
+    #[test]
+    fn grants_render_the_scope_they_name() {
+        let cases = [
+            (
+                GrantScope::Target,
+                vec!["USAGE".to_string()],
+                r#"GRANT USAGE ON SCHEMA "analytics" TO "wm_analyst_1""#,
+            ),
+            (
+                GrantScope::AllTables,
+                vec!["SELECT".to_string(), "INSERT".to_string()],
+                r#"GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA "analytics" TO "wm_analyst_1""#,
+            ),
+            (
+                GrantScope::AllSequences,
+                vec!["USAGE".to_string()],
+                r#"GRANT USAGE ON ALL SEQUENCES IN SCHEMA "analytics" TO "wm_analyst_1""#,
+            ),
+        ];
+        for (scope, privileges, expected) in cases {
+            let plan = plan_statements(
+                &schema(),
+                &AclChange::Grant { role: "analyst".to_string(), privileges, scope },
+                "wm_analyst_1",
+                &[],
+                &[],
+            )
+            .unwrap();
+            assert_eq!(plan.statements[0], expected);
+        }
+    }
+
+    #[test]
+    fn future_grants_are_written_for_every_creating_role() {
+        let plan = plan_statements(
+            &schema(),
+            &AclChange::Grant {
+                role: "analyst".to_string(),
+                privileges: vec!["SELECT".to_string()],
+                scope: GrantScope::FutureTables,
+            },
+            "wm_analyst_1",
+            &["wm_admin".to_string()],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            plan.statements,
+            [
+                r#"ALTER DEFAULT PRIVILEGES FOR ROLE "wm_admin" IN SCHEMA "analytics" GRANT SELECT ON TABLES TO "wm_analyst_1""#,
+                r#"ALTER DEFAULT PRIVILEGES FOR ROLE "wm_analyst_1" IN SCHEMA "analytics" GRANT SELECT ON TABLES TO "wm_analyst_1""#,
+            ]
+        );
+    }
+
+    #[test]
+    fn revoke_mirrors_grant() {
+        let plan = plan_statements(
+            &schema(),
+            &AclChange::Revoke {
+                role: "analyst".to_string(),
+                privileges: vec!["select".to_string()],
+                scope: GrantScope::AllTables,
+                object: None,
+            },
+            "wm_analyst_1",
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            plan.statements,
+            [r#"REVOKE SELECT ON ALL TABLES IN SCHEMA "analytics" FROM "wm_analyst_1""#]
+        );
+    }
+
+    #[test]
+    fn revoking_one_object_names_it() {
+        let plan = plan_statements(
+            &schema(),
+            &AclChange::Revoke {
+                role: "analyst".to_string(),
+                privileges: vec!["SELECT".to_string()],
+                scope: GrantScope::Target,
+                object: Some(AclObject {
+                    name: "orders".to_string(),
+                    kind: "TABLE".to_string(),
+                }),
+            },
+            "wm_analyst_1",
+            &[],
+            &[],
+        );
+        // SELECT is no schema privilege, but the object named is a table: what
+        // it is decides which privileges are legal.
+        assert_eq!(
+            plan.unwrap().statements,
+            [r#"REVOKE SELECT ON TABLE "analytics"."orders" FROM "wm_analyst_1""#]
+        );
+    }
+
+    #[test]
+    fn a_privilege_the_object_does_not_have_is_refused() {
+        for (scope, privilege) in [
+            (GrantScope::Target, "SELECT"),
+            (GrantScope::AllTables, "CREATE"),
+            (GrantScope::AllFunctions, "SELECT"),
+            (GrantScope::AllTables, "SELECT; DROP TABLE x"),
+        ] {
+            let err = plan_statements(
+                &schema(),
+                &AclChange::Grant {
+                    role: "analyst".to_string(),
+                    privileges: vec![privilege.to_string()],
+                    scope,
+                },
+                "wm_analyst_1",
+                &[],
+                &[],
+            )
+            .unwrap_err();
+            assert!(
+                matches!(err, Error::BadRequest(_)),
+                "{privilege} on {scope:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn identifiers_are_quoted() {
+        let plan = plan_statements(
+            &AclTarget::Schema { schema: "we\"ird".to_string() },
+            &AclChange::Grant {
+                role: "analyst".to_string(),
+                privileges: vec!["USAGE".to_string()],
+                scope: GrantScope::Target,
+            },
+            "ro\"le",
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            plan.statements,
+            [r#"GRANT USAGE ON SCHEMA "we""ird" TO "ro""le""#]
+        );
+    }
+
+    #[test]
+    fn a_table_target_names_the_table() {
+        let plan = plan_statements(
+            &AclTarget::Table { schema: "analytics".to_string(), table: "orders".to_string() },
+            &AclChange::Grant {
+                role: "analyst".to_string(),
+                privileges: vec!["SELECT".to_string()],
+                scope: GrantScope::Target,
+            },
+            "wm_analyst_1",
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            plan.statements,
+            [r#"GRANT SELECT ON TABLE "analytics"."orders" TO "wm_analyst_1""#]
+        );
+    }
+}

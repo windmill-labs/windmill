@@ -142,6 +142,7 @@ pub fn workspaced_service() -> Router {
         )
         .merge(crate::datatable_migrations::routes())
         .merge(crate::datatable_permissions::routes())
+        .merge(crate::datatable_acl::routes())
         .route("/git_sync_enabled", get(get_git_sync_enabled))
         .route("/git_sync_deploy_mode", get(get_git_sync_deploy_mode))
         .route("/edit_git_sync_config", post(edit_git_sync_config))

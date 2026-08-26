@@ -131,7 +131,7 @@ struct RolePlan {
     warnings: Vec<String>,
 }
 
-fn quote_ident(ident: &str) -> String {
+pub(crate) fn quote_ident(ident: &str) -> String {
     render_db_quoted_identifier(ident, DbType::Postgresql)
 }
 
@@ -608,16 +608,16 @@ pub(crate) async fn read_datatable(
 /// existing objects, and the roles that actually exist in the cluster.
 /// What the plan has to be built against, probed from the data table's own
 /// database rather than assumed from its config.
-struct AdminConnection {
-    dbname: String,
-    admin_pg_role: String,
-    existing_pg_roles: HashSet<String>,
+pub(crate) struct AdminConnection {
+    pub(crate) dbname: String,
+    pub(crate) admin_pg_role: String,
+    pub(crate) existing_pg_roles: HashSet<String>,
     /// Whether `PUBLIC` holds CREATE on schema `public`, i.e. every role in this
     /// database — including the ones created here — can make objects in it.
-    public_schema_is_open: bool,
+    pub(crate) public_schema_is_open: bool,
 }
 
-async fn connect_as_admin(
+pub(crate) async fn connect_as_admin(
     db: &DB,
     w_id: &str,
     datatable_name: &str,
