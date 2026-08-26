@@ -1825,14 +1825,12 @@ async fn process_notify_event(
         #[cfg(feature = "http_trigger")]
         "notify_http_trigger_change" => {
             tracing::info!("HTTP trigger change detected: {}", payload);
-            match windmill_api::triggers::http::refresh_routers(db).await {
-                Ok((true, _)) => {
+            // The notify event is only readable once the writing transaction has committed, so
+            // the trigger rows are guaranteed visible here: force past the version check, which
+            // a concurrent refresh may already have satisfied with pre-commit rows.
+            match windmill_api::triggers::http::refresh_routers(db, true).await {
+                Ok(_) => {
                     tracing::info!("Refreshed HTTP routers (trigger change)");
-                }
-                Ok((false, _)) => {
-                    tracing::warn!(
-                        "Should have refreshed HTTP routers (trigger change) but did not"
-                    );
                 }
                 Err(err) => {
                     tracing::error!("Error refreshing HTTP routers (trigger change): {err:#}");
@@ -2059,7 +2057,7 @@ async fn process_notify_event(
                         tracing::error!(error = %e, "Could not reload http route workspaced route setting");
                     }
                     #[cfg(feature = "http_trigger")]
-                    match windmill_api::triggers::http::refresh_routers(db).await {
+                    match windmill_api::triggers::http::refresh_routers(db, false).await {
                         Ok((true, _)) => {
                             tracing::info!(
                                 "Refreshed HTTP routers (http workspaced route setting change)"

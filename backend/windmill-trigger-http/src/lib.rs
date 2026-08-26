@@ -223,12 +223,21 @@ pub fn validate_authentication_method(
     }
 }
 
-pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, RoutersCache>)> {
+/// `force` skips the version comparison and always rebuilds from the database.
+/// `http_trigger_version_seq` is bumped with `nextval` inside the writing transaction, and
+/// sequences are non-transactional, so the bumped version is visible to other sessions before
+/// the trigger row is. A refresh landing in that window caches the new version with the old
+/// rows, after which every version-gated refresh is a no-op and the route stays missing. Any
+/// caller that only observes the change after the transaction commits must force.
+pub async fn refresh_routers(
+    db: &DB,
+    force: bool,
+) -> Result<(bool, RwLockReadGuard<'_, RoutersCache>)> {
     let version = sqlx::query_scalar!("SELECT last_value FROM http_trigger_version_seq",)
         .fetch_one(db)
         .await?;
     let routers_cache = HTTP_ROUTERS_CACHE.read().await;
-    if routers_cache.version == 0 || version > routers_cache.version {
+    if force || routers_cache.version == 0 || version > routers_cache.version {
         drop(routers_cache);
         let mut routers = HashMap::new();
 
@@ -319,7 +328,7 @@ pub async fn refresh_routers_loop(
     db: &DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
-    match refresh_routers(db).await {
+    match refresh_routers(db, false).await {
         Ok(_) => {
             tracing::info!("Loaded HTTP routers");
         }
@@ -335,7 +344,7 @@ pub async fn refresh_routers_loop(
                     break;
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                    match refresh_routers(&db).await {
+                    match refresh_routers(&db, false).await {
                         Ok((true, _)) => {
                             tracing::info!("Refreshed HTTP routers");
                         }

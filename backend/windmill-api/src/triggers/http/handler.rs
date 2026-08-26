@@ -123,7 +123,7 @@ async fn get_http_route_trigger(
 
     let routers_cache = if routers_cache.routers.is_empty() {
         tracing::warn!("HTTP routers are not loaded, loading from db");
-        let (_, routers_cache) = refresh_routers(db).await?;
+        let (_, routers_cache) = refresh_routers(db, false).await?;
         routers_cache
     } else {
         routers_cache
