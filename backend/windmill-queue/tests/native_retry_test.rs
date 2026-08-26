@@ -44,6 +44,7 @@ mod native_retry {
             cache_ttl: None,
             cache_ignore_s3_path: None,
             runnable_settings_handle: handle,
+            build_binary_only: false,
         }
     }
 

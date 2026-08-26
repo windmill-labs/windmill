@@ -87,6 +87,15 @@ export class TypewriterReveal {
 		this.ensureRunning()
 	}
 
+	/** Text that has arrived but has not been revealed yet. Lets a caller that must
+	 *  account for everything the model has sent — not just what has been painted —
+	 *  read it without disturbing the pacing. `flush()` is the wrong tool there: it
+	 *  ends the animation. The gap it covers is unbounded, because a hidden tab
+	 *  pauses the paint loop while text keeps arriving. */
+	get pending(): string {
+		return this.buffer.slice(this.revealed)
+	}
+
 	/** Reveal everything still buffered now and stop. Call before reading the
 	 *  owner's reactive state into committed state, so the read sees the full text. */
 	flush(): void {

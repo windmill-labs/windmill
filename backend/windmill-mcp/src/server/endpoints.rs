@@ -31,6 +31,22 @@ pub fn is_endpoint_read_only(tool: &EndpointTool) -> bool {
     tool.method.as_ref() == "GET"
 }
 
+/// The body fields of an endpoint that cannot be called with an empty body, or
+/// `None` when a bodyless call is legitimate.
+///
+/// `minProperties` on the body schema marks an operation whose OpenAPI declares
+/// `requestBody: required: true` (see `generate_mcp_tools.py`). The API answers a
+/// request carrying no JSON body with 415 before the handler runs, so a call
+/// filling none of these fields can only fail.
+pub fn non_empty_body_fields(tool: &EndpointTool) -> Option<Vec<&str>> {
+    let schema = tool.body_schema.as_ref()?;
+    if schema.get("minProperties").and_then(|m| m.as_u64())? == 0 {
+        return None;
+    }
+    let props = schema.get("properties")?.as_object()?;
+    Some(props.keys().map(|k| k.as_str()).collect())
+}
+
 /// Convert a single endpoint tool to MCP tool
 pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
     let mut combined_properties = serde_json::Map::new();
@@ -54,7 +70,23 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
     });
     make_schema_compatible(&mut combined_schema);
 
-    let description = format!("{}. {}", tool.description, tool.instructions);
+    let mut description = format!("{}. {}", tool.description, tool.instructions);
+
+    // A body that must not be empty, none of whose fields is individually required,
+    // is a requirement no `required` array can express. Spell it out, or the schema
+    // reads as if the path alone were a complete call.
+    if let Some(fields) = non_empty_body_fields(tool) {
+        if !fields
+            .iter()
+            .any(|f| combined_required.iter().any(|r| r == f))
+        {
+            description = format!(
+                "{} At least one of these arguments must be provided: {}.",
+                description.trim_end(),
+                fields.join(", ")
+            );
+        }
+    }
 
     // Create annotations based on HTTP method and endpoint characteristics
     let annotations = create_endpoint_annotations(tool);
@@ -286,6 +318,53 @@ mod tests {
         assert_eq!(
             count, 1,
             "workspace_id must appear exactly once in required"
+        );
+    }
+
+    /// updateVariable-shaped: the body must not be empty, but no single field of it
+    /// is required, so `required` cannot carry the constraint and the prose must.
+    fn update_tool(body_required: &[&str]) -> EndpointTool {
+        let mut t = tool("updateVariable", "/w/{workspace}/variables/update/{path}");
+        t.method = Cow::Borrowed("POST");
+        t.path_params_schema = Some(serde_json::json!({
+            "type": "object",
+            "properties": { "path": { "type": "string" } },
+            "required": ["path"]
+        }));
+        t.body_schema = Some(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" },
+                "is_secret": { "type": "boolean" }
+            },
+            "required": body_required,
+            "minProperties": 1
+        }));
+        t
+    }
+
+    #[test]
+    fn required_body_with_no_required_field_is_stated_in_the_description() {
+        let desc = endpoint_tool_to_mcp_tool(&update_tool(&[]))
+            .description
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            desc.contains("value, is_secret"),
+            "the description must name the body fields, got: {desc}"
+        );
+    }
+
+    #[test]
+    fn required_body_with_a_required_field_keeps_its_description() {
+        // `required` already forbids the empty body here, so the sentence would be noise.
+        let desc = endpoint_tool_to_mcp_tool(&update_tool(&["value"]))
+            .description
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            !desc.contains("At least one"),
+            "no extra sentence is needed when a body field is required, got: {desc}"
         );
     }
 

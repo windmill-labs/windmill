@@ -278,6 +278,7 @@
 
 					<EditableSchemaDrawer
 						bind:this={formEditor}
+						workspace={opWs}
 						bind:schema={
 							() => flowModule.suspend?.resume_form?.schema ?? draftFormSchema,
 							(v) => {

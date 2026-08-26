@@ -36,6 +36,7 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
+	import { EXECUTIONS_HINT } from './executionsHint'
 	import {
 		userWorkspaces,
 		workspaceStore,
@@ -232,11 +233,12 @@
 					icon: Settings,
 					action: () => goto(USER_SETTINGS_HASH)
 				},
-				...(cloudHosted && !$isPremiumStore
+				...(cloudHosted && $isPremiumStore === false
 					? [
 							{
-								displayName: `${$usageStore}/1000 user execs`,
+								displayName: `${$usageStore ?? '—'}/1000 user execs`,
 								icon: Gauge,
+								tooltip: EXECUTIONS_HINT,
 								disabled: true
 							}
 						]

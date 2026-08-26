@@ -1009,7 +1009,65 @@ pub fn check_az_account_name_workspace_restriction(
     Ok(())
 }
 
-pub const DEFAULT_STORAGE: &str = "_default_";
+/// The `&storage=` fragment of a presigned s3 signature's HMAC message. `_default_` and an unset
+/// storage name the same storage and must fold to the same fragment: a signature minted for one
+/// is redeemed through a URL carrying the other, and a disagreement between signer and validator
+/// surfaces only as `Invalid signature`. Both must build the message through this.
+pub fn s3_signature_storage_fragment(storage: Option<&str>) -> String {
+    match storage.filter(|s| *s != DEFAULT_STORAGE) {
+        Some(name) => format!("&storage={name}"),
+        None => String::new(),
+    }
+}
+
+/// Error for a workspace file-storage lookup that resolved to nothing. Naming the requested
+/// storage separates the two causes — a name this workspace has no storage for, versus a
+/// workspace with no storage configured at all — which the reader cannot otherwise tell apart.
+/// The wording stays neutral about where the name came from: callers pass an s3 object's
+/// `storage`, a request field, or a trigger's stored config.
+///
+/// The asset previewer renders "this object has not been written yet" for a 404, and for any
+/// other non-400 whose body contains "not found" (`S3FilePreview.svelte`, `isNotFoundError`).
+/// So the named variant must stay a **400** — its message echoes a caller-supplied name, which
+/// may itself contain "not found" — and the unnamed one must keep a message that does not.
+pub fn workspace_storage_not_found(storage: Option<&str>) -> error::Error {
+    match workspace_storage_not_found_message(storage) {
+        Some(msg) => error::Error::BadRequest(msg),
+        None => error::Error::InternalErr(
+            "No files storage resource defined at the workspace level".to_string(),
+        ),
+    }
+}
+
+/// [`workspace_storage_not_found`] for a caller whose storage name comes from stored
+/// configuration rather than from the request — a trigger's static-asset config, say. Same
+/// message, but a server-side class: the requester cannot correct a name they never supplied.
+///
+/// Not for any route the asset previewer reads: this is the 500-with-an-interpolated-name shape
+/// that `isNotFoundError` falls through to its "not found" substring test for, so a storage
+/// named `archive not found` would render there as "asset not yet materialized".
+#[track_caller]
+pub fn workspace_storage_misconfigured(storage: Option<&str>) -> error::Error {
+    // `internal_err` on both arms: it is `#[track_caller]`, so the `@file:line` stamp lands on
+    // the handler that misconfigured the storage rather than on this helper.
+    error::Error::internal_err(
+        workspace_storage_not_found_message(storage).unwrap_or_else(|| {
+            "No files storage resource defined at the workspace level".to_string()
+        }),
+    )
+}
+
+/// `None` when the request named no storage (or named the primary one), so the caller reports
+/// the workspace as having no storage configured at all.
+fn workspace_storage_not_found_message(storage: Option<&str>) -> Option<String> {
+    storage.filter(|s| *s != DEFAULT_STORAGE).map(|name| {
+        format!(
+            "No files storage named '{name}' is defined at the workspace level. A storage name \
+             must be one of this workspace's secondary storages, or `{DEFAULT_STORAGE}` \
+             (equivalently, nothing at all) for the primary one."
+        )
+    })
+}
 
 pub fn bundle(w_id: &str, hash: &str) -> String {
     format!("script_bundle/{}/{}", w_id, hash)
@@ -1214,6 +1272,45 @@ impl RecordBatchWriter for RecordBatchWriterEnum {
     }
 }
 
+/// Infer the Arrow schema of a newline-delimited JSON file.
+///
+/// Inference only looks at the first `DEFAULT_SCHEMA_INFER_MAX_RECORD` rows, and a column
+/// that holds nothing but JSON `null` across that sample is typed `DataType::Null`, which
+/// makes the reader reject the first real value further down the file. When a longer file
+/// leaves such a column behind, re-infer over all of it so the column's type comes from
+/// wherever its first non-null value is.
+#[cfg(feature = "parquet")]
+fn infer_ndjson_schema(
+    path: &std::path::Path,
+    row_count: u64,
+) -> anyhow::Result<datafusion::arrow::datatypes::Schema> {
+    use datafusion::arrow::datatypes::{DataType, Schema};
+    use datafusion::arrow::json::reader::infer_json_schema;
+    use datafusion::datasource::file_format::DEFAULT_SCHEMA_INFER_MAX_RECORD;
+
+    fn is_untyped(data_type: &DataType) -> bool {
+        match data_type {
+            DataType::Null => true,
+            DataType::Struct(fields) => fields.iter().any(|f| is_untyped(f.data_type())),
+            DataType::List(field) | DataType::LargeList(field) => is_untyped(field.data_type()),
+            _ => false,
+        }
+    }
+
+    let infer = |max_records: Option<usize>| -> anyhow::Result<Schema> {
+        let reader = std::io::BufReader::new(std::fs::File::open(path)?);
+        Ok(infer_json_schema(reader, max_records).map_err(to_anyhow)?.0)
+    };
+
+    let schema = infer(Some(DEFAULT_SCHEMA_INFER_MAX_RECORD))?;
+    if row_count > DEFAULT_SCHEMA_INFER_MAX_RECORD as u64
+        && schema.fields().iter().any(|f| is_untyped(f.data_type()))
+    {
+        return infer(None);
+    }
+    Ok(schema)
+}
+
 #[cfg(feature = "parquet")]
 struct ChannelWriter {
     sender: tokio::sync::mpsc::Sender<anyhow::Result<Bytes>>,
@@ -1380,10 +1477,21 @@ where
         ingest_start.elapsed(),
     );
 
+    let inferred_schema = {
+        let path = path.clone();
+        task::spawn_blocking(move || infer_ndjson_schema(&path, row_count))
+            .await
+            .map_err(to_anyhow)??
+    };
+
     let ctx = SessionContext::new();
-    ctx.register_json("my_table", path_str, NdJsonReadOptions::default())
-        .await
-        .map_err(to_anyhow)?;
+    ctx.register_json(
+        "my_table",
+        path_str,
+        NdJsonReadOptions::default().schema(&inferred_schema),
+    )
+    .await
+    .map_err(to_anyhow)?;
 
     let df = ctx.sql("SELECT * FROM my_table").await.map_err(to_anyhow)?;
     let schema = df.schema().clone().into();
@@ -2328,5 +2436,35 @@ mod tests {
         // file_index is None → returns None
         let result = get_logs_from_store(1, "logs", &None).await;
         assert!(result.is_none());
+    }
+
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_convert_json_line_stream_value_after_null_only_sample() {
+        use datafusion::datasource::file_format::DEFAULT_SCHEMA_INFER_MAX_RECORD as SAMPLE;
+        use futures::StreamExt;
+
+        // One more all-null row than the inference sample can see, so the column's type has
+        // to come from the row that follows it.
+        let total = SAMPLE + 1;
+        let rows = (0..total).map(|i| {
+            Ok::<_, anyhow::Error>(serde_json::json!({
+                "col": if i < SAMPLE { serde_json::Value::Null } else { serde_json::json!("2023-11-30") }
+            }))
+        });
+
+        let (mut out, stats) =
+            convert_json_line_stream(futures::stream::iter(rows), S3ModeFormat::Json, None)
+                .await
+                .unwrap();
+        assert_eq!(stats.rows, total as u64);
+
+        let mut bytes = Vec::new();
+        while let Some(chunk) = out.next().await {
+            bytes.extend_from_slice(&chunk.expect("row after the null-only sample must decode"));
+        }
+        let parsed: Vec<serde_json::Value> = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(parsed.len(), total);
+        assert_eq!(parsed[total - 1]["col"], serde_json::json!("2023-11-30"));
     }
 }

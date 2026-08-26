@@ -1,6 +1,7 @@
-// The path an AI agent step is being edited-in-place against (set by "Edit" on a linked agent).
-// Lives outside AgentResourceBar so the "Editing <path>" mode survives that component unmounting
-// when another node is selected.
+// The agent an AI agent step is being edited-in-place against (set by "Edit" on a linked agent),
+// with what the editor needs to judge the edits. Lives outside AgentResourceBar so the "Editing
+// <path>" mode survives that component unmounting — another node selected, or the step's own tab
+// switched — while the session goes on.
 //
 // Entries are looked up by the forked step's `tools` array identity, not by any location key:
 // Edit assigns a fresh array (unique per fork, including nested editors reusing a module id),
@@ -8,21 +9,42 @@
 // objects that simply never match — a stale entry can't resurface as a phantom Editing banner.
 import type { FlowModule } from '$lib/gen'
 
-type Entry = { path: string; marker: object }
+export type AgentEdit = {
+	/** The agent the fork is an edit of, which "Save changes" writes back to. */
+	path: string
+	/** The agent as deployed, in the form the editor compares edits in. Kept here rather than in
+	 *  the editor, which can unmount mid-session and would otherwise lose the baseline that tells
+	 *  an edit from the deployed value. */
+	deployedConfig?: string
+}
+
+type Entry = AgentEdit & { marker: object }
 
 // Capped: abandoned forks (editor closed without Save/Cancel) leave dead entries behind.
 const MAX_ENTRIES = 20
 
 let entries = $state<Entry[]>([])
 
-export function getAgentEditingPath(marker: object | undefined): string | undefined {
-	return marker ? entries.find((e) => e.marker === marker)?.path : undefined
+export function getAgentEdit(marker: object | undefined): AgentEdit | undefined {
+	const entry = marker ? entries.find((e) => e.marker === marker) : undefined
+	if (!entry) return undefined
+	// Without the marker: a caller that hands the edit back to `setAgentEditingPath` for another
+	// marker must not smuggle the old one along.
+	return { path: entry.path, deployedConfig: entry.deployedConfig }
 }
 
-export function setAgentEditingPath(marker: object | undefined, path: string | undefined) {
+export function getAgentEditingPath(marker: object | undefined): string | undefined {
+	return getAgentEdit(marker)?.path
+}
+
+export function setAgentEditingPath(
+	marker: object | undefined,
+	path: string | undefined,
+	details: Omit<AgentEdit, 'path'> = {}
+) {
 	if (!marker) return
 	const rest = entries.filter((e) => e.marker !== marker)
-	entries = path ? [...rest.slice(-(MAX_ENTRIES - 1)), { marker, path }] : rest
+	entries = path ? [...rest.slice(-(MAX_ENTRIES - 1)), { marker, path, ...details }] : rest
 }
 
 // Carry edit state across a wholesale clone of the flow: the clone replaces every `tools` array
@@ -33,10 +55,10 @@ export function reanchorAgentEditsAcross(
 	getModules: () => FlowModule[] | undefined,
 	refresh: () => void
 ) {
-	const anchors: { key: string; path: string; marker: object }[] = []
+	const anchors: { key: string; edit: AgentEdit; marker: object }[] = []
 	forEachAgentFork(getModules(), (key, tools) => {
-		const path = getAgentEditingPath(tools)
-		if (path) anchors.push({ key, path, marker: tools })
+		const edit = getAgentEdit(tools)
+		if (edit) anchors.push({ key, edit, marker: tools })
 	})
 	refresh()
 	if (anchors.length === 0) return
@@ -45,7 +67,10 @@ export function reanchorAgentEditsAcross(
 	for (const a of anchors) {
 		setAgentEditingPath(a.marker, undefined)
 		const tools = byKey.get(a.key)
-		if (tools) setAgentEditingPath(tools, a.path)
+		if (tools) {
+			const { path, ...details } = a.edit
+			setAgentEditingPath(tools, path, details)
+		}
 	}
 }
 

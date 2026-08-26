@@ -124,6 +124,7 @@
 		<Button
 			color={genLoading ? 'red' : 'light'}
 			size="xs"
+			unifiedSize="md"
 			nonCaptureEvent={!genLoading}
 			startIcon={{ icon: Wand2 }}
 			iconOnly

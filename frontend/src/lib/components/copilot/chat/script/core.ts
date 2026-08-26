@@ -1,6 +1,6 @@
 import { ResourceService, JobService } from '$lib/gen/services.gen'
 import type { AIProvider, AIProviderModel, ResourceType, ScriptLang } from '$lib/gen/types.gen'
-import { capitalize, isObject, toCamel } from '$lib/utils'
+import { capitalize, toCamel } from '$lib/utils'
 import { compile, phpCompile, pythonCompile } from '../../utils'
 import type {
 	ChatCompletionSystemMessageParam,
@@ -41,16 +41,13 @@ export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
 	lang: 'python3' | 'php' | 'bun' | 'deno' | 'nativets' | 'bunnative'
 ) {
-	const resourceTypes = allResourceTypes.filter(
-		(rt) => isObject(rt.schema) && 'properties' in rt.schema && isObject(rt.schema.properties)
-	)
 	if (lang === 'python3') {
-		const result = resourceTypes.map((resourceType) => {
+		const result = allResourceTypes.map((resourceType) => {
 			return `class ${resourceType.name}(TypedDict):\n${pythonCompile(resourceType.schema as any)}`
 		})
 		return '\n**Make sure to rename conflicting imported modules**\n' + result.join('\n\n')
 	} else if (lang === 'php') {
-		const result = resourceTypes.map((resourceType) => {
+		const result = allResourceTypes.map((resourceType) => {
 			return `class ${toCamel(capitalize(resourceType.name))} {\n${phpCompile(
 				resourceType.schema as any
 			)}\n}`
@@ -58,7 +55,7 @@ export function formatResourceTypes(
 		return '\n' + result.join('\n\n')
 	} else {
 		let resultStr = 'namespace RT {\n'
-		const result = resourceTypes.map((resourceType) => {
+		const result = allResourceTypes.map((resourceType) => {
 			return `  type ${toCamel(capitalize(resourceType.name))} = ${compile(
 				resourceType.schema as any
 			).replaceAll('\n', '\n  ')}`
@@ -446,6 +443,7 @@ export interface ScriptChatHelpers {
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
 	def: RESOURCE_TYPE_FUNCTION_DEF,
+	planModeSafe: true,
 	fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 		toolCallbacks.setToolStatus(toolId, {
 			content: 'Searching resource types for "' + args.query + '"...'
@@ -471,6 +469,10 @@ export function createDbSchemaTool<T>(
 					function: { ...DB_SCHEMA_FUNCTION_DEF.function, description }
 				}
 			: DB_SCHEMA_FUNCTION_DEF,
+		// The one safe tool that starts a job: the job runs a fixed introspection query this
+		// codebase authors, never the user's code, and writes nothing. Planning a change to a
+		// database is not possible without its schema.
+		planModeSafe: true,
 		fn: async ({ args, workspace, toolCallbacks, toolId }) => {
 			if (!args.resourcePath) {
 				throw new Error('Database path not provided')
@@ -604,6 +606,7 @@ const SEARCH_NPM_PACKAGES_TOOL: ChatCompletionFunctionTool = {
 // Helpers-agnostic so both script mode and global mode can offer it.
 export const searchNpmPackagesTool: Tool<{}> = {
 	def: SEARCH_NPM_PACKAGES_TOOL,
+	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
 		toolCallbacks.setToolStatus(toolId, { content: 'Searching for relevant packages...' })
 		const result = await searchExternalIntegrationResources(args)
@@ -927,6 +930,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 
 export const getLintErrorsTool: Tool<ScriptChatHelpers> = {
 	def: GET_LINT_ERRORS_TOOL,
+	planModeSafe: true,
 	fn: async function ({ helpers, toolCallbacks, toolId }) {
 		toolCallbacks.setToolStatus(toolId, { content: 'Getting lint errors...' })
 

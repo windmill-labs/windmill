@@ -57,13 +57,15 @@
 		/** Render only the editing drawer: the caller shows its own view of the schema and
 		 *  opens the drawer through `openDrawer()`. */
 		drawerOnly?: boolean
+		workspace?: string | undefined
 	}
 
 	let {
 		schema = $bindable(),
 		jsonView = $bindable(false),
 		hiddenArgs = undefined,
-		drawerOnly = false
+		drawerOnly = false,
+		workspace
 	}: Props = $props()
 
 	export function openDrawer() {
@@ -99,6 +101,7 @@
 					schemaFormClassName="min-h-full"
 					bind:this={editableSchemaForm}
 					bind:schema
+					{workspace}
 					isAppInput
 					on:delete={(e) => {
 						;(addPropertyComponent ?? drawerAddProperty)?.handleDeleteArgument([e.detail])
@@ -211,7 +214,10 @@
 								{#if schema.properties[item.value]?.type === 'object' && !(schema.properties[item.value].oneOf && schema.properties[item.value].oneOf.length >= 2)}
 									<div class="flex flex-col w-full mt-2">
 										<Label label="Nested properties">
-											<EditableSchemaDrawer bind:schema={schema.properties[item.value]} />
+											<EditableSchemaDrawer
+												bind:schema={schema.properties[item.value]}
+												{workspace}
+											/>
 										</Label>
 									</div>
 								{/if}

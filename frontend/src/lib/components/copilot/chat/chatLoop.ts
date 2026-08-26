@@ -77,11 +77,16 @@ export interface ChatLoopConfig {
 		helpers: any,
 		modelProvider: ReasoningProviderModel
 	) => Promise<void>
+	/** Fired for each completed provider response, before the loop continues. The
+	 * loop can fail or be aborted at any iteration, so spend has to be handed over
+	 * as it happens — a callback only at the end would discard everything the
+	 * earlier iterations were already billed for. */
+	onUsage?: (usage: ChatTokenUsage, modelProvider: ReasoningProviderModel) => void
 }
 
 export interface ChatLoopResult {
 	addedMessages: ChatCompletionMessageParam[]
-	/** Sum of usage across all loop iterations (suitable for cost accounting). */
+	/** Sum of usage across all loop iterations. */
 	tokenUsage: ChatTokenUsage
 	lastIterationUsage: ChatTokenUsage | null
 	hitMaxIterations: boolean
@@ -122,6 +127,38 @@ export function truncateToToolPairedPrefix(
 		}
 	}
 	return messages.slice(0, lastValidLen)
+}
+
+/**
+ * Like `truncateToToolPairedPrefix`, but closes the batch it would have dropped:
+ * every call in the trailing `tool_calls` message still missing a result gets one
+ * saying it was interrupted. A batch's calls execute one at a time, so truncating
+ * it discards steps that already finished — and whose side effects are already
+ * real. For a snapshot that must outlive its turn, keeping them beats a clean cut.
+ */
+export function closeInterruptedToolBatch(
+	messages: ChatCompletionMessageParam[],
+	interruptedContent: string
+): ChatCompletionMessageParam[] {
+	const paired = truncateToToolPairedPrefix(messages)
+	const rest = messages.slice(paired.length)
+	const batch = rest[0]
+	if (batch?.role !== 'assistant' || !batch.tool_calls?.length) return paired
+	// Results for THIS batch only, stopping at the first non-tool message:
+	// anything past a still-pending batch was never valid context.
+	const batchIds = new Set(batch.tool_calls.map((c) => c.id))
+	const answers: ChatCompletionMessageParam[] = []
+	const answered = new Set<string>()
+	for (const m of rest.slice(1)) {
+		if (m.role !== 'tool') break
+		if (!batchIds.has(m.tool_call_id)) continue
+		answers.push(m)
+		answered.add(m.tool_call_id)
+	}
+	const interrupted = [...batchIds]
+		.filter((id) => !answered.has(id))
+		.map((id) => ({ role: 'tool' as const, tool_call_id: id, content: interruptedContent }))
+	return [...paired, batch, ...answers, ...interrupted]
 }
 
 const unsupportedWebSearchCache = new Set<string>()
@@ -328,6 +365,20 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 	let lastIterationUsage: ChatTokenUsage | null = null
 	let iterations = 0
 	let hitMaxIterations = false
+	// The model of the iteration currently in flight; re-read per iteration like
+	// `config.modelProvider` itself, so usage is attributed to the model that
+	// actually served it rather than to whatever is selected when the loop ends.
+	let iterationModel: ReasoningProviderModel | undefined
+
+	// Reported as the provider's usage arrives, not when the parser returns: a parser
+	// waits on tool execution, which can wait on a person, and a tab closed in that
+	// gap would drop a response that was already billed. Accounting for the turn's
+	// own totals stays on the return path, where every parser reports uniformly.
+	const reportUsage = (usage: ChatTokenUsage | null | undefined) => {
+		if (usage && iterationModel) {
+			config.onUsage?.(usage, iterationModel)
+		}
+	}
 
 	const trackUsage = (usage: ChatTokenUsage | null | undefined) => {
 		tokenUsage = addChatTokenUsage(tokenUsage, usage)
@@ -351,6 +402,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const helpers = config.helpers
 		const systemMessage = config.systemMessage
 		const modelProvider = config.modelProvider
+		iterationModel = modelProvider
 		const webSearchCacheKey = getWebSearchCacheKey(workspace, modelProvider)
 		const webSearch =
 			(config.webSearch ?? true) &&
@@ -386,7 +438,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 			...(pendingUserMessage ? [pendingUserMessage] : [])
 		]
 		const toolDefs = tools.map((t) => t.def)
-		const parseOptions = { workspace, provider: modelProvider.provider }
+		const parseOptions = {
+			workspace,
+			provider: modelProvider.provider,
+			onTokenUsage: reportUsage
+		}
 
 		if (isOpenAI) {
 			const reasoningSummaryCacheKey = getReasoningSummaryCacheKey(workspace, modelProvider)

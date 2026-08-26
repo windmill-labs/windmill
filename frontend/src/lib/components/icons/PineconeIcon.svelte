@@ -1,19 +1,21 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #201D1E / #FFFFFF per pinecone.io/newsroom/media-kit. The mark is stroke-only, so fill must stay none. -->
 <svg
+	class="text-[#201D1E] dark:text-[#FFFFFF]"
 	x="0px"
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 168 168"
-	style="fill:currentcolor;"
+	viewBox="-4.071 -4.399 176.472 176.472"
+	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<path
@@ -57,6 +59,7 @@
 	/>
 	<path
 		d="M73.2416 164.636C78.3505 164.636 82.4922 160.494 82.4922 155.385C82.4922 150.276 78.3505 146.135 73.2416 146.135C68.1326 146.135 63.991 150.276 63.991 155.385C63.991 160.494 68.1326 164.636 73.2416 164.636Z"
+		fill="currentcolor"
 	/>
 	<path
 		d="M47.0221 125.023L30.0532 136.827"

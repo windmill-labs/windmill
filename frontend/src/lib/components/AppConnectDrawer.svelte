@@ -7,6 +7,8 @@
 
 	import AppConnectInner from './AppConnectInner.svelte'
 	import DarkModeObserver from './DarkModeObserver.svelte'
+	import IconedResourceType from './IconedResourceType.svelte'
+	import { addResourceTitle } from './resourceTypeDisplay'
 
 	interface Props {
 		expressOAuthSetup?: boolean
@@ -14,7 +16,11 @@
 		disableChatOffset?: boolean
 	}
 
-	let { expressOAuthSetup = false, workspace = undefined, disableChatOffset = false }: Props = $props()
+	let {
+		expressOAuthSetup = false,
+		workspace = undefined,
+		disableChatOffset = false
+	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
 	let resourceType = $state('')
@@ -51,16 +57,21 @@
 		step = 1
 		dispatch('close')
 	}}
-	size="800px"
+	size="700px"
 	{disableChatOffset}
 >
 	<DrawerContent
-		title="Add a resource"
+		title={addResourceTitle(step > 1 ? resourceType : undefined)}
 		id="add-resource-drawer"
 		on:close={drawer?.closeDrawer}
 		tooltip="Resources represent connections to third party systems. Learn more on how to integrate external APIs."
 		documentationLink="https://www.windmill.dev/docs/integrations/integrations_on_windmill"
 	>
+		{#snippet titleExtra()}
+			{#if step > 1 && resourceType}
+				<IconedResourceType name={resourceType} silent width="20px" height="20px" />
+			{/if}
+		{/snippet}
 		<AppConnectInner
 			bind:this={appConnectInner}
 			bind:step

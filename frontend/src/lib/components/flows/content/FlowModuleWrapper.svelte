@@ -32,7 +32,7 @@
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
-	let scriptKind: 'script' | 'trigger' | 'approval' = $state('script')
+	let scriptKind: 'script' | 'trigger' | 'approval' | 'preprocessor' = $state('script')
 	let scriptTemplate: 'pgsql' | 'mysql' | 'script' | 'docker' | 'powershell' = $state('script')
 
 	// These pointers are used to easily access previewArgs of parent module, and previous module

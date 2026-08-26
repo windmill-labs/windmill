@@ -94,6 +94,13 @@
 		return open
 	}
 
+	/** Whether this is the overlay on top, i.e. the one a key press is for. Overlays that keep
+	 *  Escape for themselves (`preventEscape`) have to ask, or they answer keys aimed at whatever
+	 *  is stacked above them. Same condition the handler below arbitrates on. */
+	export function isTopmost() {
+		return stack.val.length === 0 || stack.val[stack.val.length - 1] === id
+	}
+
 	function handleClickAway(e) {
 		const last = stack.val[stack.val.length - 1]
 		if (last === id) {

@@ -3,6 +3,7 @@ import { Confirm } from "@cliffy/prompt/confirm";
 import { colors } from "@cliffy/ansi/colors";
 import { sep as SEP } from "node:path";
 import { GlobalOptions, isDatatableMigrationPath } from "../../types.ts";
+import { isFileResource, isFilesetResource } from "../../utils/utils.ts";
 import { SyncOptions, mergeConfigWithConfigFile } from "../../core/conf.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
@@ -18,6 +19,7 @@ import {
 import { generateFlowLockInternal, FlowLocksResult } from "../flow/flow_metadata.ts";
 import { generateAppLocksInternal, AppLocksResult } from "../app/app_metadata.ts";
 import {
+  dedupeLockfilesOnDisk,
   elementsToMap,
   FSFSElement,
   ignoreF,
@@ -56,6 +58,9 @@ async function walkLocalScripts(
       isFolderResourcePathAnyFormat(p) ||
       // Datatable migration `.sql` files aren't Windmill scripts.
       isDatatableMigrationPath(p) ||
+      // Neither are file/fileset resource content files (.sql, .ts, …).
+      isFileResource(p) ||
+      isFilesetResource(p) ||
       (isScriptModulePath(p) && !isModuleEntryPoint(p)),
     false,
     {},
@@ -225,6 +230,9 @@ function categorizeLocalFiles(
       !isFolderResourcePathAnyFormat(p) &&
       // Datatable migration `.sql` files aren't Windmill scripts.
       !isDatatableMigrationPath(p) &&
+      // Neither are file/fileset resource content files (.sql, .ts, …).
+      !isFileResource(p) &&
+      !isFilesetResource(p) &&
       !(isScriptModulePath(p) && !isModuleEntryPoint(p))
     ) {
       scripts.push(p);
@@ -402,6 +410,51 @@ export async function rehashOnly(
     );
   }
   return counts;
+}
+
+/**
+ * Normalize the tree's shared lockfiles, unless the run asked to stay inside one
+ * folder: shared lockfiles are workspace-wide, so the pass reads and rewrites
+ * metadata outside it, which `--strict-folder-boundaries` promises not to do.
+ */
+async function maybeDedupeLockfiles(
+  opts: GlobalOptions & SyncOptions & { strictFolderBoundaries?: boolean },
+  workspace: Workspace,
+  codebases: SyncCodebase[],
+  ignore: (p: string, isD: boolean) => boolean,
+  rawWorkspaceDependencies: Record<string, string>,
+  tree: DoubleLinkedDependencyTree,
+  folder: string | undefined,
+  failed: string[] = [],
+): Promise<void> {
+  if (!opts.dedupeLockfiles) return;
+  if (folder && opts.strictFolderBoundaries) {
+    log.info(
+      colors.yellow(
+        `Skipping lockfile deduplication: it spans the whole workspace, and --strict-folder-boundaries keeps this run inside "${folder}".`,
+      ),
+    );
+    return;
+  }
+  const args = {
+    opts,
+    workspace,
+    codebases,
+    ignore,
+    rawWorkspaceDependencies,
+    tree,
+    failed,
+  };
+  if (opts.dryRun) {
+    await dedupeLockfilesOnDisk({ ...args, dryRun: true });
+    return;
+  }
+  await beginLockfileBatch();
+  try {
+    await dedupeLockfilesOnDisk(args);
+  } finally {
+    await flushLockfileBatch();
+  }
 }
 
 export async function generateMetadata(
@@ -603,6 +656,10 @@ export async function generateMetadata(
   // === Show stale items and confirm ===
   if (filteredItems.length === 0) {
     log.info(colors.green("All metadata up-to-date"));
+    // Turning `dedupeLockfiles` on in a repo whose metadata is already current
+    // is exactly the case where nothing is stale, and the conversion still has
+    // to happen — the sync compares against a deduplicated remote either way.
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
     return;
   }
 
@@ -630,6 +687,9 @@ export async function generateMetadata(
   printItems("Apps", apps);
 
   if (opts.dryRun) {
+    // The preview belongs on this path too: the conversion is what a stale tree
+    // is about to get, and only the up-to-date path reported it.
+    await maybeDedupeLockfiles(opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder);
     return;
   }
 
@@ -768,9 +828,17 @@ export async function generateMetadata(
     // Persist all stale workspace dep hashes (not just filtered — deps are global, not folder-scoped)
     const allStaleDeps = staleItems.filter((i) => i.type === "dependencies");
     await tree.persistDepsHashes(allStaleDeps.map((d) => d.path));
+
   } finally {
     await flushLockfileBatch();
   }
+
+  // The scripts whose generation failed keep whatever lock they had, and must
+  // not be re-hashed as though this run had refreshed them.
+  await maybeDedupeLockfiles(
+    opts, workspace, codebases, ignore, rawWorkspaceDependencies, tree, folder,
+    errors.map((e) => e.path),
+  );
 
   const succeeded = total - errors.length;
   log.info("");

@@ -12,6 +12,7 @@
 	import Portal from '$lib/components/Portal.svelte'
 	import { isFlowLevelPanelTarget } from '$lib/components/graph/selectionUtils.svelte'
 	import { useFlowPanelMode } from './flowPanelMode.svelte'
+	import { useFlowPanelPlacementTelemetry } from './flowEditorTelemetry'
 
 	import { writable } from 'svelte/store'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
@@ -34,6 +35,9 @@
 	import { Button } from '../common'
 	import { MousePointerClick, X } from 'lucide-svelte'
 	import FlowPanelPlacementPicker from './common/FlowPanelPlacementPicker.svelte'
+	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
+	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
+	import { userStore } from '$lib/stores'
 	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 	const sessionScopedManager = getContext<AIChatManager>('aiChatManager')
 	const aiChatManager = sessionScopedManager ?? singletonAiChatManager
@@ -128,6 +132,13 @@
 	const panelController = useFlowPanelMode({ enabled: () => modalPanel })
 	const panelMode = $derived(panelController.mode)
 	let panelModalOpen = $state(false)
+
+	// Owned by FlowBuilder: this component is inside a `{#key}` that rebuilds it on a reload,
+	// and the crossing count belongs to the editing session rather than to one mount.
+	const placementTelemetry = useFlowPanelPlacementTelemetry()
+	$effect(() => {
+		placementTelemetry.observe(panelController.preference, panelMode, panelController.measured)
+	})
 
 	// Auto can move the panel back into the pane under a modal that is open — leaving it
 	// open would keep an overlay registered for a modal nothing renders, swallowing Escape.
@@ -241,10 +252,14 @@
 		enabled: () => modalPanel,
 		preference: () => panelController.preference,
 		setPreference: (preference) => {
+			// Picking the row that is already active is not a move, and counting it would
+			// report a placement being forced that the panel was already in.
+			if (preference === panelController.preference) return
 			// Moving the panel must not lose what it was showing: docked, it is always on
 			// screen, so the modal it becomes has to open on arrival. The reverse is handled
 			// by the effect above, which closes a modal that is no longer rendered.
 			const wasVisible = panelMode === 'docked' || panelModalOpen
+			placementTelemetry.forced(preference, panelMode)
 			panelController.preference = preference
 			panelModalOpen = panelController.mode === 'modal' && wasVisible
 		}
@@ -260,6 +275,12 @@
 		}
 		aiChatManager.flowOptions = options
 	})
+
+	// The step exists but is empty, so name it: a GLOBAL-mode request carries no
+	// implicit "current step" the way the old SCRIPT-mode generateStep did.
+	function stepInstructionsPrompt(moduleId: string, instructions: string): string {
+		return `Write the code for step \`${moduleId}\` of the flow open in the editor:\n\n${instructions}`
+	}
 
 	onMount(() => {
 		if (modalPanel) {
@@ -356,6 +377,32 @@
 						{showJobStatus}
 						on:reload
 						on:generateStep={({ detail }) => {
+							// The step is already inserted; the prompt describes what it should
+							// contain. Hand it to a session opened on that step rather than the
+							// docked chat, which sessions leave unmounted. Sent on arrival: the
+							// user already said what they wanted in the description field.
+							if (
+								!sessionScopedManager &&
+								sessionOpen &&
+								prefersSessionHandoff($userStore?.operator)
+							) {
+								void openSourceInSession(sessionOpen, {
+									previewParams: { selected: detail.moduleId },
+									seedPrompt: stepInstructionsPrompt(detail.moduleId, detail.instructions),
+									autoSend: true
+								})
+								return
+							}
+							// Already in a session: its chat is on screen, so ask it directly.
+							// Not `generateStep` — that forces the request into SCRIPT mode, and
+							// changeMode is persistent, so it would strand the session outside
+							// GLOBAL. Global mode writes step code through set_flow_module_code.
+							if (sessionScopedManager) {
+								sessionScopedManager.sendOrQueue(
+									stepInstructionsPrompt(detail.moduleId, detail.instructions)
+								)
+								return
+							}
 							if (!aiChatManager.open) {
 								aiChatManager.openChat()
 							}

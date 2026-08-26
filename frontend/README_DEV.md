@@ -90,6 +90,24 @@ You can configure another proxy to use like so:
 REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
 ```
 
+### Run dev servers on demand
+
+A dev server costs 1.1-1.7 GB resident once a page has been browsed, which adds up when
+several worktrees are open at once. `scripts/dev-supervisor.mjs` owns the port instead and
+runs `vite dev` only while it is being used, spawning it on the first connection (~1s to a
+served response) and stopping it once traffic stops:
+
+```bash
+node scripts/dev-supervisor.mjs                                 # this worktree, $FRONTEND_PORT
+node scripts/dev-supervisor.mjs -t 3340:/path/wt-a -t 3350:/path/wt-b --idle 15m
+```
+
+`--bind 0.0.0.0` to reach it off-host, `--stats <file>` to record RSS samples. In dev the
+app also suspends its background polling after 5 minutes of an inactive tab
+(`VITE_DEV_DORMANT_MS`), so a tab left open does not keep a server resident. That last
+part holds over plaintext only: with `HTTPS=true` the HMR socket is indistinguishable from
+real traffic, so an open tab keeps its server alive.
+
 ### Use a Local backend
 
 #### 1. Backend is run by docker

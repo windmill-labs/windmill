@@ -192,6 +192,8 @@
 			inlineScript?: InlineScript
 			script?: { path: string; summary: string; hash: string | undefined }
 			flow?: { path: string; summary: string }
+			/** Saved `ai_agent` resource the inserted agent step links to, for `kind: 'aiagent'`. */
+			agentPath?: string
 			kind: InsertKind
 			expandGroup?: { groupId: string; position: 'top' | 'bottom' }
 		}) => Promise<void>
@@ -549,7 +551,25 @@
 			triggerContext?.simplifiedPoll.set(detail)
 		},
 		expandSubflow: async (id: string, path: string) => {
-			const flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+			// Reads the subflow's *current* definition, which a share link deliberately does
+			// not cover: it authorizes the run's job subtree, not the workspace's flow
+			// library. So a share-link viewer (and any anonymous one) is refused here — name
+			// that case, but only when the error actually says so.
+			let flow: OpenFlow
+			try {
+				flow = await FlowService.getFlowByPath({ workspace: workspace, path })
+			} catch (err) {
+				const denied = err?.status === 401 || err?.status === 403
+				sendUserToast(
+					`Could not expand subflow ${path}: ${
+						denied
+							? "viewing a subflow's definition requires being logged in with access to it"
+							: (err?.body ?? err)
+					}`,
+					true
+				)
+				return
+			}
 			expandedSubflows[id] = { modules: flow.value.modules, groups: flow.value.groups }
 			expandedSubflows = expandedSubflows
 		},

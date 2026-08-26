@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_token_usage (workspace_id, email, provider, model, session_id, input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, reported_cost_nano_usd, requests)\n         SELECT $1, $2, * FROM UNNEST($3::text[], $4::text[], $5::text[], $6::bigint[], $7::bigint[], $8::bigint[], $9::bigint[], $10::bigint[], $11::bigint[])\n         ON CONFLICT (workspace_id, day, email, provider, model, session_id)\n         DO UPDATE SET\n            input_tokens = ai_token_usage.input_tokens + EXCLUDED.input_tokens,\n            cache_read_tokens = ai_token_usage.cache_read_tokens + EXCLUDED.cache_read_tokens,\n            cache_write_tokens = ai_token_usage.cache_write_tokens + EXCLUDED.cache_write_tokens,\n            output_tokens = ai_token_usage.output_tokens + EXCLUDED.output_tokens,\n            reported_cost_nano_usd = CASE\n                WHEN EXCLUDED.reported_cost_nano_usd IS NULL\n                    THEN ai_token_usage.reported_cost_nano_usd\n                ELSE COALESCE(ai_token_usage.reported_cost_nano_usd, 0)\n                    + EXCLUDED.reported_cost_nano_usd\n            END,\n            requests = ai_token_usage.requests + EXCLUDED.requests,\n            updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "24fcc2b69f30953915f0cbf246e1c19b2310075a644d81c21784c991e52b4001"
+}

@@ -28,8 +28,7 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { getContext, untrack } from 'svelte'
-	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import McpOAuthConnect from './McpOAuthConnect.svelte'
+	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
 	import type { FlowEditorContext } from '../types'
 
 	interface Props {
@@ -42,7 +41,6 @@
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
 	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
 
-	let showOAuthForm = $state(false)
 	let refreshCount = $state(0)
 	let resourcePicker: ResourcePicker | undefined = $state()
 
@@ -90,31 +88,17 @@
 		await resourcePicker?.refreshResources()
 		tool.value.resource_path = resourcePath
 		tool.summary = `MCP: ${resourceName}`
-		showOAuthForm = false
 	}
 </script>
 
 <FlowCard {noEditor} title="MCP tool">
 	<div class="flex flex-col gap-4 overflow-auto p-4" style="scrollbar-gutter: stable">
-		<Alert type="info" title="MCP Client Configuration">
-			{#snippet children()}
-				<p class="mb-2 text-sm">
-					MCP clients allow AI agents to access and execute a list of tools made available by an MCP
-					server.
-					<br />
-					Choose an MCP resource to make its tools available to the agent.
-					<br />
-					<br />
-					<strong>Note:</strong> Only HTTP streamable MCP servers are supported.
-				</p>
-			{/snippet}
-		</Alert>
-
 		<div class="w-full">
-			<Label label="MCP Resource">
+			<Label label="MCP resource">
 				<ResourcePicker
 					bind:this={resourcePicker}
 					resourceType="mcp"
+					placeholder="Select an MCP resource"
 					bind:value={tool.value.resource_path}
 					workspace={opWs}
 				/>
@@ -122,16 +106,10 @@
 		</div>
 
 		{#if !resourcePath}
-			{#if !showOAuthForm}
-				<Button size="xs" color="light" onClick={() => (showOAuthForm = true)}>
-					Connect with OAuth
-				</Button>
-			{:else}
-				<McpOAuthConnect
-					onConnected={handleOAuthConnected}
-					onCancel={() => (showOAuthForm = false)}
-				/>
-			{/if}
+			<McpConnect
+				workspace={opWs!}
+				onConnected={(_ws, path) => handleOAuthConnected(path, path.split('/').pop() ?? path)}
+			/>
 		{/if}
 
 		{#if resourcePath?.length > 0}

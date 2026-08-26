@@ -30,6 +30,7 @@ export function endpointPathPolicy(name: string): EndpointPathPolicy | undefined
 		case 'getScriptByPath':
 		case 'deleteScriptByPath':
 		case 'createScript':
+		case 'updateScript':
 			return { kind: 'pathArgs', resource: 'script' }
 		case 'getFlowByPath':
 		case 'deleteFlowByPath':

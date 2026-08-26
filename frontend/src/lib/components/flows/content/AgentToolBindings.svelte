@@ -151,6 +151,7 @@
 						schema={schemas[tool.id]}
 						{pickableProperties}
 						{extraLib}
+						{workspace}
 						isAgentTool
 						bind:args={
 							() => localArgs[tool.id],

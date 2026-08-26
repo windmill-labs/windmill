@@ -43,12 +43,12 @@ pub struct LogFile {
     pub json_fmt: bool,
 }
 async fn list_files(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(pagination): Query<Pagination>,
     Query(lq): Query<LogFileQuery>,
 ) -> JsonResult<Vec<LogFile>> {
-    require_devops_role(&db, &email).await?;
+    require_devops_role(&db, &authed).await?;
     let (per_page, offset) = windmill_common::utils::paginate(pagination);
 
     let mut sqlb = sql_builder::SqlBuilder::select_from("log_file")
@@ -89,13 +89,13 @@ async fn list_files(
 }
 
 async fn get_log_file(
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(path): Path<windmill_common::utils::StripPath>,
 ) -> windmill_common::error::Result<Response> {
     use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
 
-    require_devops_role(&db, &email).await?;
+    require_devops_role(&db, &authed).await?;
     let path = path.to_path();
     if path.contains("..") {
         return Err(Error::BadRequest("Invalid path".to_string()));

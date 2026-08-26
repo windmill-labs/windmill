@@ -17,6 +17,7 @@
 	import type { CompletedJob } from '$lib/gen'
 	import { getDbClockNow } from '$lib/forLater'
 	import { Scatter } from '$lib/components/chartjs-wrappers/chartJs'
+	import { timeTicksWithDate } from '$lib/components/chartjs-wrappers/timeTicks'
 	import DarkModeObserver from './DarkModeObserver.svelte'
 
 	interface Props {
@@ -269,7 +270,7 @@
 				},
 				min: minMaxTime.minTime.getTime(),
 				max: minMaxTime.maxTime.getTime(),
-				ticks: { maxRotation: 0, minRotation: 0 }
+				ticks: timeTicksWithDate(minMaxTime.minTime, minMaxTime.maxTime)
 			},
 			y: {
 				grid: {

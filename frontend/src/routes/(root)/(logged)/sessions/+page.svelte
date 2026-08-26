@@ -421,11 +421,42 @@
 	// land on the visible session's tabs.
 	function onTabLoad(tabs: SessionPreviewTabs, tab: SessionPreviewTab, frame: HTMLIFrameElement) {
 		try {
-			const loc = frame.contentWindow?.location
-			if (!loc) return
+			const win = frame.contentWindow
+			if (!win) return
 			// observeLocation canonicalizes away the injected nomenubar/workspace
 			// params so the tab's `loc` stays symmetric with `url` for dedupe/display.
-			tabs.observeLocation(tab.id, loc.pathname + loc.search)
+			// The hash is kept: on a list page it names the row whose drawer is open
+			// (`/schedules#u/me/daily`), which is what tells the chat what the user
+			// is looking at.
+			const observe = () => {
+				try {
+					const loc = win.location
+					tabs.observeLocation(tab.id, loc.pathname + loc.search + loc.hash)
+				} catch {
+					// Same best-effort as below.
+				}
+			}
+			observe()
+			// A drawer only changes the hash and a filter only rewrites the query; neither
+			// reloads the frame, so `load` alone would leave `loc` frozen on the seeded page.
+			// These listeners die with the framed document, so each load attaches one set.
+			win.addEventListener('hashchange', observe)
+			win.addEventListener('popstate', observe)
+			// Filters write params with `replaceState` (shallow routing), which fires no
+			// event at all — the history methods are the only way to see them. Guarded so a
+			// re-load reusing the window can't wrap the wrapper.
+			const w = win as Window & { __wmObservedHistory?: boolean }
+			if (!w.__wmObservedHistory) {
+				w.__wmObservedHistory = true
+				for (const method of ['pushState', 'replaceState'] as const) {
+					const original = win.history[method]
+					win.history[method] = function (this: History, ...args: any[]) {
+						const result = original.apply(this, args as any)
+						observe()
+						return result
+					} as History[typeof method]
+				}
+			}
 		} catch {
 			// Best-effort: the preview is same-origin, but reading location could
 			// still throw mid-navigation — keep the seeded path in that case.

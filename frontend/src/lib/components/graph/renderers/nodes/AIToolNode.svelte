@@ -1,31 +1,5 @@
 <script module lang="ts">
-	import { forbiddenIds } from '$lib/components/flows/idUtils'
-	import type { AgentTool } from '$lib/components/flows/agentToolUtils'
-
-	export function getToolNameError(
-		name: string,
-		type?: string,
-		siblingNames?: string[]
-	): string | undefined {
-		if (type === 'websearch') return undefined
-		if (type === 'mcp') {
-			return name.length > 0 ? undefined : 'Tool name must not be empty'
-		}
-		if (!/^[a-zA-Z0-9_]+$/.test(name)) {
-			return 'Tool name must only contain letters, numbers and underscores'
-		}
-		if (forbiddenIds.includes(name)) {
-			return `'${name}' is a reserved name`
-		}
-		if (siblingNames && siblingNames.filter((n) => n === name).length > 1) {
-			return 'Duplicate tool name'
-		}
-		return undefined
-	}
-
-	export function validateToolName(name: string, type?: string) {
-		return getToolNameError(name, type) === undefined
-	}
+	import { getToolNameError, type AgentTool } from '$lib/components/flows/agentToolUtils'
 
 	export const AI_TOOL_BASE_OFFSET = 5
 	export const AI_TOOL_ROW_OFFSET = 30

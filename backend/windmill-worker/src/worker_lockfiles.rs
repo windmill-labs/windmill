@@ -79,6 +79,184 @@ use crate::{
     go_executor::install_go_dependencies,
 };
 
+/// Queue a build of the just-deployed script's binary when the instance opts into it.
+///
+/// It gets its own job rather than running inline: a release build takes minutes and the
+/// deploy must not block on it, and the configured tag lets the build land on a pool that
+/// has the toolchain and, since the cache key is per OS/arch, the platform the runtime
+/// workers use. Deploys that supply their own lock never reach a dependency job at all and
+/// queue theirs from `create_script_internal` instead.
+async fn maybe_queue_binary_prebuild(db: &DB, job: &MiniPulledJob, lock: &str) -> Result<()> {
+    let (Some(hash), Some(path), Some(lang)) =
+        (job.runnable_id, job.runnable_path.clone(), job.script_lang)
+    else {
+        return Ok(());
+    };
+    let Some(prebuild) =
+        windmill_queue::binary_prebuild::binary_prebuild_job(db, &path, hash, lang, Some(lock))
+            .await?
+    else {
+        return Ok(());
+    };
+
+    let (uuid, tx) = windmill_queue::push(
+        db,
+        windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
+        &job.workspace_id,
+        prebuild.payload,
+        windmill_queue::PushArgs { args: &prebuild.args, extra: None },
+        &job.created_by,
+        &job.permissioned_as_email,
+        job.permissioned_as.clone(),
+        Some("auto.build.binary.on.deploy"),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        prebuild.tag,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    tracing::info!("pushed auto-build binary job {uuid} for {path}");
+    Ok(())
+}
+
+/// Compile the already-deployed version of a script and push the artifact to the shared
+/// binary cache, so the first run of it does not pay the compile.
+async fn handle_build_binary_job(
+    job: &MiniPulledJob,
+    script_data: &cache::ScriptData,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    job_dir: &str,
+    db: &DB,
+    worker_name: &str,
+    base_internal_url: &str,
+    occupancy_metrics: &mut OccupancyMetrics,
+) -> Result<Box<RawValue>> {
+    let lang = job
+        .script_lang
+        .ok_or_else(|| Error::internal_err("Job language required for build jobs".to_owned()))?;
+    // A deploy of these languages always writes a lock, and the run path derives both the
+    // cache key and the build profile from it, so there is nothing sound to build without
+    // one — the artifact would land under a key no run looks up.
+    let Some(lock) = script_data.lock.as_deref().filter(|l| !l.is_empty()) else {
+        return Ok(to_raw_value_owned(
+            json!({ "status": "skipped", "reason": "script has no lockfile" }),
+        ));
+    };
+    // The instance is configured for one (the push checks the setting), but this worker's
+    // build may lack the object-store features, in which case the artifact would never
+    // leave its disk. Say so rather than producing a green job that shared nothing.
+    if !crate::global_cache::object_store_available().await {
+        return Ok(to_raw_value_owned(json!({
+            "status": "skipped",
+            "reason": "this worker cannot reach the instance object store, so the binary \
+                       would not be shared with other workers",
+        })));
+    }
+    // A multi-file script compiles against its companion modules, so the build dir has to
+    // hold what a run's would. Same call, same `base_dir` (only Python takes one), so the
+    // compiler sees the layout it sees at run time.
+    if let Some(modules) = script_data.modules.as_ref() {
+        crate::worker::write_module_files(job_dir, modules, None).await?;
+    }
+
+    let conn = Connection::from(db.clone());
+    let code = &script_data.code;
+
+    let logs = match lang {
+        ScriptLang::Rust => {
+            #[cfg(not(feature = "rust"))]
+            return Err(Error::internal_err(
+                "Rust requires the rust feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "rust")]
+            crate::rust_executor::prebuild_rust_binary(
+                job,
+                code,
+                lock,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                &conn,
+                worker_name,
+                base_internal_url,
+                occupancy_metrics,
+            )
+            .await?
+        }
+        ScriptLang::Go => {
+            crate::go_executor::prebuild_go_binary(
+                job,
+                code,
+                lock,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                &conn,
+                worker_name,
+                base_internal_url,
+                occupancy_metrics,
+            )
+            .await?
+        }
+        ScriptLang::CSharp => {
+            #[cfg(not(feature = "csharp"))]
+            return Err(Error::internal_err(
+                "C# requires the csharp feature to be enabled".to_string(),
+            ));
+
+            #[cfg(feature = "csharp")]
+            crate::csharp_executor::prebuild_csharp_binary(
+                job,
+                code,
+                lock,
+                mem_peak,
+                canceled_by,
+                job_dir,
+                &conn,
+                worker_name,
+                base_internal_url,
+                occupancy_metrics,
+            )
+            .await?
+        }
+        _ => {
+            return Ok(to_raw_value_owned(json!({
+                "status": "skipped",
+                "reason": format!("{} binaries are not cached in object storage", lang.as_str()),
+            })))
+        }
+    };
+
+    Ok(match logs {
+        Some(logs) => {
+            append_logs(&job.id, &job.workspace_id, &logs, &conn).await;
+            to_raw_value_owned(json!({ "status": "Binary built and cached" }))
+        }
+        None => {
+            to_raw_value_owned(json!({ "status": "skipped", "reason": "binary already in cache" }))
+        }
+    })
+}
+
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_dependency_job(
     job: &MiniPulledJob,
@@ -103,6 +281,18 @@ pub async fn handle_dependency_job(
     );
     let script_path = job.runnable_path();
 
+    // A build pass reads the same script data but writes none of the deploy state below,
+    // including the `lock_error_logs` stamp on a fetch failure: the version it builds is
+    // already deployed and healthy, and a transient read error is not a broken lock.
+    let is_build_job =
+        windmill_queue::binary_prebuild::is_build_binary_job(job.args.as_ref().map(|x| &x.0));
+    if is_build_job {
+        // Claimed before anything that can fail: the deploy that queued this job already
+        // tallied its version, so the caller's failure fallback must not tally it again on
+        // any path out of here, including the fetch below.
+        *deployment_tallied = true;
+    }
+
     // `JobKind::Dependencies` job store either:
     // - A saved script `hash` in the `script_hash` column.
     // - Preview raw lock and code in the `queue` or `job` table.
@@ -110,23 +300,25 @@ pub async fn handle_dependency_job(
         Some(hash) => match cache::script::fetch(&Connection::from(db.clone()), hash).await {
             Ok(d) => Cow::Owned(d.0),
             Err(e) => {
-                let logs2 = sqlx::query_scalar!(
-                    "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
-                    &job.id,
-                    &job.workspace_id
-                )
-                .fetch_optional(db)
-                .await?
-                .flatten()
-                .unwrap_or_else(|| "no logs".to_string());
-                sqlx::query!(
-                    "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
-                    &format!("{logs2}\n{e}"),
-                    &job.runnable_id.unwrap_or(ScriptHash(0)).0,
-                    &job.workspace_id
-                )
-                .execute(db)
-                .await?;
+                if !is_build_job {
+                    let logs2 = sqlx::query_scalar!(
+                        "SELECT logs FROM job_logs WHERE job_id = $1 AND workspace_id = $2",
+                        &job.id,
+                        &job.workspace_id
+                    )
+                    .fetch_optional(db)
+                    .await?
+                    .flatten()
+                    .unwrap_or_else(|| "no logs".to_string());
+                    sqlx::query!(
+                        "UPDATE script SET lock_error_logs = $1 WHERE hash = $2 AND workspace_id = $3",
+                        &format!("{logs2}\n{e}"),
+                        &job.runnable_id.unwrap_or(ScriptHash(0)).0,
+                        &job.workspace_id
+                    )
+                    .execute(db)
+                    .await?;
+                }
                 return Err(Error::ExecutionErr(format!(
                     "Error creating schema validator: {e}"
                 )));
@@ -137,6 +329,21 @@ pub async fn handle_dependency_job(
             _ => return Err(Error::internal_err("expected script hash")),
         },
     };
+
+    if is_build_job {
+        return handle_build_binary_job(
+            job,
+            script_data,
+            mem_peak,
+            canceled_by,
+            job_dir,
+            db,
+            worker_name,
+            base_internal_url,
+            occupancy_metrics,
+        )
+        .await;
+    }
 
     let triggered_by_relative_import = job
         .args
@@ -282,6 +489,11 @@ pub async fn handle_dependency_job(
             // Since only worker that ran this Dependency Job has the cache
             // we do not need to think about invalidating cache for other workers.
             cache::script::invalidate(current_hash);
+            // The version only became runnable now, so this process still resolves the path to
+            // the one before it. Only the runnable-hash cache: the import-side caches ignore the
+            // lock, so evicting this process' half of that pair here would key a bundle by a
+            // hash whose content cache has not caught up.
+            windmill_common::invalidate_deployed_script_hash_cache(w_id, script_path);
 
             if let Err(e) = handle_deployment_metadata(
                 &job.permissioned_as_email,
@@ -348,6 +560,10 @@ pub async fn handle_dependency_job(
                         tracing::error!(%e, "error triggering CI tests after script lock generation");
                     }
                 });
+            }
+
+            if let Err(e) = maybe_queue_binary_prebuild(db, job, &content).await {
+                tracing::error!(%e, "error queueing the auto-build binary job for {script_path}");
             }
 
             Ok(to_raw_value_owned(

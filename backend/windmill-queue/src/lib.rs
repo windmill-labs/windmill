@@ -7,6 +7,7 @@
  */
 
 pub mod asset_dispatch;
+pub mod binary_prebuild;
 #[cfg(feature = "private")]
 pub mod cascade_ee;
 pub mod cascade_oss;

@@ -50,7 +50,10 @@ RUN apt-get update && apt-get install -y clang=1:19.0* libclang-dev=1:19.0* cmak
 
 COPY ./backend/windmill-duckdb-ffi-internal .
 
+# The `duckdb` crate comes from a git dependency (a fork carrying an engine patch),
+# which cargo checks out under $CARGO_HOME/git rather than the registry cache.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo build --release -p windmill_duckdb_ffi_internal
 
@@ -284,7 +287,7 @@ COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/t
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 
-COPY --from=oven/bun:1.3.10 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI
 RUN bun install -g windmill-cli \

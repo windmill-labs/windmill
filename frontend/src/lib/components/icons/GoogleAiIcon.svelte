@@ -7,19 +7,27 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg {width} {height} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- #217BFE → #BD99FE per Google's standard Gemini product icon (gstatic.com/images/branding/productlogos/gemini/v1/192px.svg). Google ships no reversed variant; the same gradient is used on light and dark. -->
+<svg
+	{width}
+	{height}
+	viewBox="-0.963 -0.94 25.926 25.926"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<defs>
 		<linearGradient
 			id="googleai-gemini-gradient"
-			x1="0"
-			y1="24"
-			x2="24"
-			y2="0"
+			x1="7.6"
+			y1="15.71"
+			x2="18.5"
+			y2="6.52"
 			gradientUnits="userSpaceOnUse"
 		>
-			<stop offset="0" stop-color="#4285F4" />
-			<stop offset="0.52" stop-color="#9B72CB" />
-			<stop offset="1" stop-color="#D96570" />
+			<stop offset="0" stop-color="#217BFE" />
+			<stop offset="0.27" stop-color="#078EFB" />
+			<stop offset="0.78" stop-color="#A190FF" />
+			<stop offset="1" stop-color="#BD99FE" />
 		</linearGradient>
 	</defs>
 	<path

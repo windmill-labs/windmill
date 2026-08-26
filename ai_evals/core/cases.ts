@@ -21,6 +21,7 @@ interface RawEvalCase {
   validate?: EvalValidationSpec;
   toolExpect?: EvalCase["toolExpect"];
   cliExpect?: CliValidationSpec;
+  assistantExpect?: EvalCase["assistantExpect"];
   judgeChecklist?: string[];
   skipJudge?: boolean;
   runtime?: EvalCaseRuntimeSpec;
@@ -50,6 +51,7 @@ export async function loadCases(mode: EvalMode): Promise<EvalCase[]> {
     validate: entry.validate,
     toolExpect: entry.toolExpect,
     cliExpect: entry.cliExpect,
+    assistantExpect: entry.assistantExpect,
     judgeChecklist: entry.judgeChecklist,
     skipJudge: entry.skipJudge,
     runtime: entry.runtime,

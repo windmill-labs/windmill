@@ -25,13 +25,15 @@
 			  }
 			| undefined
 		nonEmpty?: boolean | undefined
+		workspace?: string | undefined
 	}
 
 	let {
 		canEditResourceType = false,
 		originalType = undefined,
 		itemsType = $bindable(),
-		nonEmpty = $bindable()
+		nonEmpty = $bindable(),
+		workspace
 	}: Props = $props()
 
 	let selected:
@@ -199,6 +201,7 @@
 	/>
 	{#if itemsType?.properties != undefined}
 		<EditableSchemaDrawer
+			{workspace}
 			bind:schema={
 				() => {
 					return {

@@ -197,6 +197,20 @@ describe('Anthropic Messages API routing', () => {
 		expect(headers['X-Resource-Path']).toBe('u/admin/foundry')
 	})
 
+	it('raises the Claude output budget only from Opus 4.5 on', async () => {
+		const { getModelMaxTokens } = await import('./lib')
+		// 4.5+ matches Sonnet's budget...
+		for (const model of ['claude-opus-4-5', 'claude-opus-4-8', 'claude-opus-5']) {
+			expect(getModelMaxTokens('anthropic', model)).toBe(64000)
+		}
+		expect(getModelMaxTokens('openrouter', 'anthropic/claude-opus-4.5')).toBe(64000)
+		expect(getModelMaxTokens('aws_bedrock', 'anthropic.claude-opus-4-5-20251101-v1:0')).toBe(64000)
+		// ...while Opus 4.1 and older cap at 32K and must not be raised.
+		expect(getModelMaxTokens('anthropic', 'claude-opus-4-1')).toBe(32000)
+		expect(getModelMaxTokens('aws_bedrock', 'anthropic.claude-opus-4-1-20250805-v1:0')).toBe(32000)
+		expect(getModelMaxTokens('aws_bedrock', 'anthropic.claude-opus-4-20250514-v1:0')).toBe(32000)
+	})
+
 	it('caps max_tokens for metadata completions so the Anthropic SDK stays non-streaming', async () => {
 		const { getNonStreamingCompletion, getNonStreamingMetadataCompletion, METADATA_MAX_TOKENS } =
 			await import('./lib')

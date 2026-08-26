@@ -58,6 +58,7 @@
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
+	import { setFlowPanelPlacementTelemetry } from './flows/flowEditorTelemetry'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { NoteEditor } from './graph/noteEditor.svelte'
 	import { setNoteEditorContext } from './graph/noteEditor.svelte'
@@ -247,6 +248,8 @@
 	// in the shared /sessions URL under the session's own workspace identity, so
 	// presence keyed on that URL leaks a phantom self-badge. Hide it here.
 	const inSessionPane = !!getContext('aiChatManager')
+
+	setFlowPanelPlacementTelemetry(!inSessionPane)
 
 	function hasAIChanges(): boolean {
 		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false

@@ -15,7 +15,12 @@ cd "$(dirname "$0")"
 
 src_dirty="$(git status --porcelain -- src Cargo.toml Cargo.lock build.rs 2>/dev/null || true)"
 
-if [ -n "$src_dirty" ]; then
+if [ -n "${CARGO_TARGET_DIR:-}" ]; then
+  # A caller that pinned the output dir wins over both: CI pins it so its cache
+  # step finds the artifacts and a following `cargo test` reuses this compile
+  # instead of building the bundled DuckDB a second time.
+  echo "duckdb-ffi: caller-pinned target $CARGO_TARGET_DIR"
+elif [ -n "$src_dirty" ]; then
   export CARGO_TARGET_DIR="$PWD/target"
   echo "duckdb-ffi: local crate changes detected -> isolated target $CARGO_TARGET_DIR"
 else
@@ -37,4 +42,11 @@ fi
 
 CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release -p windmill_duckdb_ffi_internal
 mkdir -p ../target/debug/
-cp "$CARGO_TARGET_DIR/release/"libwindmill_duckdb_ffi_internal.* ../target/debug/
+# Install through a rename rather than writing over the destination: a running worker
+# has the cdylib mapped, and rewriting those pages under it kills the process with
+# SIGBUS. A rename swaps the directory entry and leaves the old inode alone.
+for artifact in "$CARGO_TARGET_DIR/release/"libwindmill_duckdb_ffi_internal.*; do
+  dest="../target/debug/$(basename "$artifact")"
+  cp "$artifact" "$dest.tmp"
+  mv -f "$dest.tmp" "$dest"
+done

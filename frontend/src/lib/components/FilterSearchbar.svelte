@@ -55,6 +55,17 @@
 		: T['options'][number]['value']
 
 	/**
+	 * Whether any filter currently narrows the result set — for pages that fetch
+	 * server-side and so can't tell an empty workspace from an over-narrow filter.
+	 *
+	 * `false` does not count: a boolean filter that is off narrows nothing, and
+	 * treating it as active makes an empty workspace look filtered.
+	 */
+	export function hasActiveFilters(val: Record<string, unknown>): boolean {
+		return Object.values(val).some((v) => v !== undefined && v !== null && v !== '' && v !== false)
+	}
+
+	/**
 	 * Converts a FilterSchemaRec to a Zod schema for validation
 	 */
 	export function filterSchemaRecToZodSchema<T extends FilterSchemaRec>(

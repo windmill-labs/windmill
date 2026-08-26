@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+	endpointPathPolicy,
 	isEndpointExposed,
 	parseMcpScopeState,
 	pruneEndpointSelection
 } from './endpointScopePolicy'
+import { mcpEndpointTools } from '$lib/mcpEndpointTools'
 
 const state = (...scopes: string[]) => parseMcpScopeState(scopes)
 
@@ -21,6 +23,17 @@ describe('isEndpointExposed', () => {
 		// Favorites reach their runnables through per-item tools only.
 		expect(isEndpointExposed(state('mcp:favorites'), 'runScriptByPath')).toBe(false)
 		expect(isEndpointExposed(state('mcp:all'), 'runScriptByPath')).toBe(true)
+	})
+
+	// A script/flow tool the URL addresses by path but the policy does not name falls
+	// through to "no policy", which is "not path-confined at all" — a scoped token then
+	// reaches every path of that kind. Catch the omission here rather than in a review.
+	it('gives every path-addressed script/flow tool a policy', () => {
+		const unpoliced = mcpEndpointTools
+			.filter((e) => /\/(scripts|flows)\//.test(e.path) && e.path.includes('{path}'))
+			.map((e) => e.name)
+			.filter((name) => endpointPathPolicy(name) === undefined)
+		expect(unpoliced).toEqual([])
 	})
 
 	it('withholds unconfinable tools from path-confined tokens', () => {

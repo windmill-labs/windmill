@@ -12,7 +12,8 @@
 		togglePanel,
 		btnClasses,
 		btnProps,
-		label = 'Open in AI session'
+		label = 'Open in AI session',
+		tooltip
 	}: {
 		togglePanel: () => void
 		btnClasses?: string
@@ -21,13 +22,19 @@
 		btnProps?: ComponentProps<typeof Button>
 		/** Tooltip + accessible text of the icon-only button. */
 		label?: string
+		/** Hover text, when the label alone doesn't say where the button leads.
+		 * A host that renamed the button ("AI Fix") uses this to keep "in a new
+		 * AI session" discoverable. Defaults to `label`. */
+		tooltip?: string
 	} = $props()
+
+	const hoverText = $derived(tooltip ?? label)
 </script>
 
 {#if $copilotInfo.enabled}
 	<DarkPopover>
 		{#snippet text()}
-			{label}
+			{hoverText}
 		{/snippet}
 		{@render button({ onPress: () => togglePanel() })}
 	</DarkPopover>

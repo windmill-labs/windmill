@@ -58,6 +58,8 @@ export type GraphEventHandlers = {
 		inlineScript?: InlineScript
 		script?: PathScript
 		flow?: { path: string; summary: string }
+		/** Saved `ai_agent` resource the inserted agent step links to, for `kind: 'aiagent'`. */
+		agentPath?: string
 		isPreprocessor?: boolean
 	}) => void
 	deleteBranch: (detail: { id: string; index: number }, label: string) => void

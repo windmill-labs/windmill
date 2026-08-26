@@ -26,6 +26,7 @@ import {
   inferContentTypeFromFilePath,
   languageNeedsLock,
   ScriptLanguage,
+  isSharedLockPath,
 } from "../../utils/script_common.ts";
 import {
   isFlowInlineScriptPath,
@@ -133,6 +134,7 @@ function formatYamlDiagnostics(parsed: { diagnostics?: Array<{ message?: string 
 async function isLockResolved(
   lockValue: string | string[] | undefined,
   baseDir: string,
+  sharedLockBase?: string,
 ): Promise<boolean> {
   if (lockValue === undefined) return false;
 
@@ -141,7 +143,11 @@ async function isLockResolved(
     const joined = lockValue.join("\n");
     if (joined === "") return false;
     if (joined.startsWith("!inline ")) {
-      return await checkInlineFile(joined.substring("!inline ".length), baseDir);
+      return await checkInlineFile(
+        joined.substring("!inline ".length),
+        baseDir,
+        sharedLockBase,
+      );
     }
     return true;
   }
@@ -150,7 +156,11 @@ async function isLockResolved(
 
   // Inline file reference
   if (lockValue.startsWith("!inline ")) {
-    return await checkInlineFile(lockValue.substring("!inline ".length), baseDir);
+    return await checkInlineFile(
+      lockValue.substring("!inline ".length),
+      baseDir,
+      sharedLockBase,
+    );
   }
 
   // Embedded lock content
@@ -160,13 +170,37 @@ async function isLockResolved(
 async function checkInlineFile(
   relativePath: string,
   baseDir: string,
+  sharedLockBase?: string,
 ): Promise<boolean> {
-  const fullPath = path.join(baseDir, relativePath.trim());
+  const trimmed = relativePath.trim();
+  // A shared lockfile (`dedupeLockfiles`) is referenced from the sync root, not
+  // from the directory being linted. Only a standalone script's metadata passes
+  // a base for it: a flow or app inline lock is folder-relative even when its
+  // name happens to look like one.
+  const fullPath =
+    sharedLockBase !== undefined && isSharedLockPath(trimmed)
+      ? path.resolve(sharedLockBase, trimmed)
+      : path.join(baseDir, trimmed);
   try {
     const s = await stat(fullPath);
     return s.size > 0;
   } catch {
     return false;
+  }
+}
+
+/** Where a repo-root-relative reference resolves from: the directory holding
+ *  wmill.yaml at or above the linted one, and that directory itself when there
+ *  is none. */
+async function findSyncRoot(dir: string): Promise<string> {
+  let current = path.resolve(dir);
+  while (true) {
+    if (await stat(path.join(current, "wmill.yaml")).then(() => true).catch(() => false)) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return path.resolve(dir);
+    current = parent;
   }
 }
 
@@ -481,6 +515,7 @@ export async function checkMissingLocks(
   }
 
   // Check standalone scripts
+  const syncRoot = await findSyncRoot(targetDirectory);
   for (const yamlPath of scriptYamls) {
     const basePath = yamlPath.replace(/\.script\.yaml$/, "");
 
@@ -506,6 +541,7 @@ export async function checkMissingLocks(
         const lockResolved = await isLockResolved(
           metadata?.lock,
           targetDirectory,
+          syncRoot,
         );
         if (!lockResolved) {
           issues.push({

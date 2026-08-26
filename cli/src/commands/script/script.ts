@@ -1,6 +1,11 @@
 import { GlobalOptions } from "../../types.ts";
 import { requireLogin } from "../../core/auth.ts";
-import { resolveWorkspace, validatePath } from "../../core/context.ts";
+import {
+  assertRemotePath,
+  resolveWorkspace,
+  toSyncRootRelativePath,
+  validatePath,
+} from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
@@ -13,7 +18,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import { deepEqual, getHeaders, readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { deepEqual, getHeaders, isFileResource, isFilesetResource, readTextFile, readTextFileSync } from "../../utils/utils.ts";
 import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
@@ -188,6 +193,12 @@ async function push(opts: PushOptions, filePath: string) {
     );
   }
 
+  if (isFileResource(filePath) || isFilesetResource(filePath)) {
+    throw Error(
+      "Cannot push a file/fileset resource content file as a script, push its .resource.yaml with 'wmill resource push' instead"
+    );
+  }
+
   await requireLogin(opts);
 
   // Warn about metadata state before pushing
@@ -344,6 +355,12 @@ export async function handleFile(
   codebases: SyncCodebase[],
   permissionedAsContext?: PermissionedAsContext
 ): Promise<boolean> {
+  // A file/fileset resource's content file can carry a script extension
+  // (.sql, .ts, …) but belongs to its parent resource, never to a
+  // standalone script.
+  if (isFileResource(path) || isFilesetResource(path)) {
+    return false;
+  }
   // Detect module entry point: e.g., my_script__mod/script.ts
   const moduleEntryPoint = isModuleEntryPoint(path);
   if (
@@ -575,6 +592,7 @@ export async function handleFile(
       ws_error_handler_muted: typed?.ws_error_handler_muted,
       dedicated_worker: typed?.dedicated_worker,
       cache_ttl: typed?.cache_ttl,
+      cache_ignore_s3_path: typed?.cache_ignore_s3_path,
       concurrency_time_window_s: normConcurrencyTimeWindowS,
       concurrent_limit: normConcurrentLimit,
       deployment_message: message,
@@ -585,8 +603,14 @@ export async function handleFile(
       concurrency_key: typed?.concurrency_key,
       debounce_key: typed?.debounce_key,
       debounce_delay_s: typed?.debounce_delay_s,
+      debounce_args_to_accumulate: typed?.debounce_args_to_accumulate,
+      max_total_debouncing_time: typed?.max_total_debouncing_time,
+      max_total_debounces_amount: typed?.max_total_debounces_amount,
       codebase: await codebase?.getDigest(forceTar),
       timeout: nonePositiveInt(typed?.timeout),
+      // 0 means "delete immediately after completion", so it must survive as 0
+      // rather than being folded into "unset" the way the positive-only settings are.
+      delete_after_secs: typed?.delete_after_secs,
       on_behalf_of_email: typed?.on_behalf_of_email,
       envs: typed?.envs,
       modules: modules,
@@ -618,6 +642,12 @@ export async function handleFile(
           (typed.description === remote.description &&
             typed.summary === remote.summary &&
             typed.kind == remote.kind &&
+            // A `.ts` file changes language when defaultTs flips, content untouched.
+            // bun and bunnative share that extension, so the inferred language is always
+            // bun; the server derives bunnative back from the `//native` annotation in
+            // the content, which is compared above.
+            language ==
+              (remote.language === "bunnative" ? "bun" : remote.language) &&
             !remote.archived &&
             (Array.isArray(remote?.lock)
               ? remote?.lock?.join("\n")
@@ -629,6 +659,8 @@ export async function handleFile(
               remote.ws_error_handler_muted &&
             typed.dedicated_worker == remote.dedicated_worker &&
             typed.cache_ttl == remote.cache_ttl &&
+            Boolean(typed.cache_ignore_s3_path) ==
+              Boolean(remote.cache_ignore_s3_path) &&
             normConcurrencyTimeWindowS ==
               normalizeConcurrency(
                 remote.concurrent_limit,
@@ -642,15 +674,23 @@ export async function handleFile(
               Boolean(remote.visible_to_runner_only) &&
             Boolean(typed.has_preprocessor) ==
               Boolean(remote.has_preprocessor) &&
-            typed.priority == Boolean(remote.priority) &&
+            typed.priority == remote.priority &&
             nonePositiveInt(typed.timeout) == nonePositiveInt(remote.timeout) &&
+            typed.delete_after_secs == remote.delete_after_secs &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
+            deepEqual(
+              typed.debounce_args_to_accumulate ?? null,
+              remote.debounce_args_to_accumulate ?? null
+            ) &&
+            typed.max_total_debouncing_time == remote.max_total_debouncing_time &&
+            typed.max_total_debounces_amount == remote.max_total_debounces_amount &&
             typed.codebase == remote.codebase &&
             (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
+            deepEqual(typed.labels ?? null, remote.labels ?? null) &&
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
@@ -1808,13 +1848,16 @@ async function preview(
   if (opts.silent) {
     log.setSilent(true);
   }
+  // Captured before the config read, which chdirs to the wmill.yaml root.
+  const cwdBeforeConfig = process.cwd();
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
 
-  if (!validatePath(filePath)) {
-    return;
-  }
+  const argPath = filePath;
+  filePath = toSyncRootRelativePath(filePath, cwdBeforeConfig);
+  const remotePath = scriptPathToRemotePath(filePath);
+  assertRemotePath(remotePath, argPath);
 
   // Same as push: a descriptor-less dbt project's content path is deliberately
   // absent, and the project beside it is what says the script is real.
@@ -1869,11 +1912,7 @@ async function preview(
   const { extractRelativeImports } = await import(
     "../../utils/relative_imports.ts"
   );
-  const relImports = await extractRelativeImports(
-    content,
-    scriptPathToRemotePath(filePath),
-    language
-  );
+  const relImports = await extractRelativeImports(content, remotePath, language);
   if (relImports.length > 0) {
     const { buildPreviewTempScriptRefs } = await import(
       "../generate-metadata/generate-metadata.ts"
@@ -1976,7 +2015,7 @@ async function preview(
     const form = new FormData();
     const previewPayload = {
       content: content, // Pass the original content (frontend does this too)
-      path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
+      path: remotePath,
       args: input,
       language: language,
       tag: opts.tag,
@@ -2046,7 +2085,7 @@ async function preview(
       workspace: workspace.workspaceId,
       requestBody: {
         content,
-        path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
+        path: remotePath,
         args: input,
         language: language as any,
         tag: opts.tag,

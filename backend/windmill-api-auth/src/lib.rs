@@ -67,11 +67,17 @@ pub struct ApiAuthed {
     /// `label-*` string. Only `username_override_from_label` sets it.
     pub username_override_is_token_label: bool,
     /// Whether the request authenticated with the session token minted at browser login.
-    /// Only `trigger_or_fallback` reads it — see `is_session_label` for why it attributes
-    /// rather than proves, and must not gate authority.
+    /// Read by `trigger_or_fallback` and by `TriggerSource::of_request` (which attributes a
+    /// trigger mutation to the UI) — see `is_session_label` for why it attributes rather than
+    /// proves, and must not gate authority.
     pub is_session_token: bool,
     pub token_prefix: Option<String>,
     pub read_only: bool,
+    /// Set when this authed was resolved from a job's `WM_TOKEN`. Such a token's
+    /// identity is derived from an app/flow `on_behalf_of` that a `wm_deployers`
+    /// member can point at a superadmin, so it must never be trusted as a global
+    /// superadmin (`require_super_admin`), GHSA-hfh4-cx4h-3fcr.
+    pub job_id: Option<uuid::Uuid>,
 }
 
 impl ApiAuthed {
@@ -158,6 +164,7 @@ impl From<Authed> for ApiAuthed {
             is_session_token: false,
             token_prefix: value.token_prefix,
             read_only: false,
+            job_id: None,
         }
     }
 }
@@ -246,7 +253,10 @@ impl windmill_mcp::server::McpAuth for ApiAuthed {
 
 // ------------ Utility functions ------------
 
-pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
+/// Assert the *email* belongs to a superadmin. Prefer [`require_super_admin`],
+/// which also rejects job tokens (`WM_TOKEN`); use this only where no `ApiAuthed`
+/// is available and the caller has separately guaranteed it is not a job token.
+pub async fn require_super_admin_email(db: &DB, email: &str) -> error::Result<()> {
     let is_admin = is_super_admin_email(db, email).await?;
 
     if !is_admin {
@@ -256,6 +266,66 @@ pub async fn require_super_admin(db: &DB, email: &str) -> error::Result<()> {
     } else {
         Ok(())
     }
+}
+
+/// Assert the caller is a superadmin acting under their own credentials.
+///
+/// A job's `WM_TOKEN` runs as the runnable's `on_behalf_of` identity, which a
+/// non-superadmin `wm_deployers` member can point at a superadmin — so a job
+/// token must never satisfy a global superadmin gate regardless of whose email
+/// it carries (GHSA-hfh4-cx4h-3fcr). A real superadmin needing this from a script
+/// uses a dedicated superadmin token instead of `$WM_TOKEN`.
+pub async fn require_super_admin(db: &DB, authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN). If a script \
+             genuinely needs to do this, create a dedicated superadmin token from the User \
+             settings drawer (the 'Tokens' section), store it as a secret, and use that token \
+             explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    require_super_admin_email(db, &authed.email).await
+}
+
+/// Job-token-aware superadmin predicate for the many boolean `is_super_admin_email`
+/// authorization branches (workspace deletion, fork drops, SSRF exemptions, ...).
+/// A job's `WM_TOKEN` is never a superadmin regardless of whose email it carries
+/// (GHSA-hfh4-cx4h-3fcr), so callers naturally fall through to the restricted path.
+pub async fn is_super_admin_authed(db: &DB, authed: &ApiAuthed) -> error::Result<bool> {
+    if authed.job_id.is_some() {
+        return Ok(false);
+    }
+    is_super_admin_email(db, &authed.email).await
+}
+
+/// Instance-global admin predicate, job-token-aware. `ApiAuthed::is_admin` is a
+/// *workspace*-admin claim (also true for superadmins), and a `WM_TOKEN` is capped
+/// at workspace admin (GHSA-hfh4-cx4h-3fcr). Routes with no workspace binding that
+/// treat `is_admin` as instance authorization (worker-group config, arbitrary
+/// workspace unarchive, global concurrency pruning) must use this instead of the
+/// raw `authed.is_admin`, so a job token can't wield a workspace-admin claim as an
+/// instance action. Interactive admins are unaffected.
+pub fn is_instance_admin(authed: &ApiAuthed) -> bool {
+    authed.is_admin && authed.job_id.is_none()
+}
+
+/// Hard-gate variant of [`is_instance_admin`] for instance-global routes: rejects
+/// a job token (`WM_TOKEN`) explicitly, then requires admin.
+pub fn require_instance_admin(authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN): it is an \
+             instance-global admin action and a job token is capped at workspace admin. \
+             If a script genuinely needs this, create a dedicated token from the User \
+             settings drawer and use it explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    if !authed.is_admin {
+        return Err(Error::RequireAdmin(authed.username.clone()));
+    }
+    Ok(())
 }
 
 /// Forbid sensitive global user/token management when authenticated as a
@@ -279,6 +349,53 @@ pub async fn forbid_superadmin_job_token(
              superadmin. If a script genuinely needs to do this, create a dedicated superadmin \
              token from the User settings drawer (the 'Tokens' section), store it as a secret, \
              and use that token explicitly instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Forbid *minting a durable credential* from a job token that carries an elevated
+/// instance identity (superadmin or `devops`; [`is_devops_email`] covers both).
+///
+/// The gates that cap `$WM_TOKEN` key off `ApiAuthed::job_id`, which only a job
+/// token carries. A token minted from one is an ordinary database-backed token with
+/// no such provenance, so it passes every one of those gates by email alone — the
+/// cap would last only until the script exchanged its token for a fresh one
+/// (GHSA-hfh4-cx4h-3fcr). Narrower than rejecting all job tokens: a script running
+/// as an unprivileged identity has nothing to launder and still mints freely.
+pub async fn forbid_elevated_job_token(
+    db: &DB,
+    email: &str,
+    job_id: Option<uuid::Uuid>,
+) -> error::Result<()> {
+    if job_id.is_some() && is_devops_email(db, email).await? {
+        return Err(Error::NotAuthorized(
+            "A job token ($WM_TOKEN) running as a superadmin or devops user cannot mint a new \
+             token, which would carry that identity without the job provenance that caps it. \
+             If a script genuinely needs this, create a dedicated token from the User settings \
+             drawer (the 'Tokens' section), store it as a secret, and use that token explicitly \
+             instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Forbid an irreversible action against the *account* a job token runs as.
+///
+/// A job token borrows an `on_behalf_of` identity to do the runnable's work, and a
+/// `wm_deployers` member may point that at any real user. Destroying the account or
+/// its credentials is never that work, and unlike the privilege gates the damage
+/// does not depend on the identity being elevated — so this rejects every job
+/// token, not just superadmin/devops ones (GHSA-hfh4-cx4h-3fcr).
+pub fn forbid_job_token_account_destruction(authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN): it would destroy the \
+             account or credentials of the identity the job runs as. If this is genuinely \
+             intended, do it from the User settings drawer, or with a dedicated token created \
+             there and used explicitly instead of $WM_TOKEN."
                 .to_owned(),
         ));
     }
@@ -335,6 +452,33 @@ fn scope_restrictions(scopes: Option<&[String]>) -> Option<Vec<&String>> {
 /// genuinely scope-restricted.
 pub fn is_effectively_unscoped(scopes: Option<&[String]>) -> bool {
     scope_restrictions(scopes).is_none()
+}
+
+/// Forbid reaching the workspace encryption key with a scope-restricted token.
+///
+/// The key is not the read or the write of any one domain: it decrypts every secret
+/// variable offline, outliving the token that reached it, and it mints the secrets
+/// that unlock public apps. Replacing it is the same capability — the server
+/// re-encrypts every secret under the new key, so a caller that chooses the key can
+/// decrypt them all. No scope grants either, so any scope-restricted token is
+/// refused. An admin check is not a substitute — it answers for the user behind the
+/// token, not for the token's own scopes.
+///
+/// This bounds the token making the request, not every route to the key. A job token
+/// is minted unscoped from its owner's privileges, so a `jobs:run` token still reaches
+/// the key indirectly by running a job as a workspace admin — the same property that
+/// lets git-sync export it. Confining that means not inheriting unscoped privilege
+/// into job tokens, which is a far wider change than this guard.
+pub fn forbid_scoped_token_workspace_key(authed: &ApiAuthed) -> error::Result<()> {
+    if is_effectively_unscoped(authed.scopes.as_deref()) {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(
+        "The workspace encryption key cannot be read or replaced with a scoped token: it \
+         decrypts every secret of the workspace offline, past the scopes and the lifetime of \
+         the token that reached it. Use a token created without scopes."
+            .to_string(),
+    ))
 }
 
 /// Enforce monotonic privilege when a token lifecycle endpoint mints or rescopes
@@ -487,8 +631,11 @@ fn scope_contains(caller: &ScopeDefinition, requested: &ScopeDefinition) -> bool
     match (&caller.resource, &requested.resource) {
         // Caller is unrestricted on resources: covers everything.
         (None, _) => true,
-        // Caller is resource-restricted but the request is not: broader.
-        (Some(_), None) => false,
+        // Caller is resource-restricted but the request is not: broader, unless the
+        // caller lists `*` and so already spans every path. Kept in step with
+        // `ScopeDefinition::includes`, which accepts that same grant for a
+        // whole-collection read: what a token may exercise, it may also delegate.
+        (Some(caller_resources), None) => caller_resources.iter().any(|r| r == "*"),
         (Some(caller_resources), Some(requested_resources)) => {
             resource_set_contains(caller_resources, requested_resources)
         }
@@ -650,10 +797,24 @@ pub fn build_scope_path_filter(authed: &ApiAuthed, domain: &str, action: &str) -
     ScopePathFilter::Restricted { exact, prefix }
 }
 
-pub async fn require_devops_role(db: &DB, email: &str) -> error::Result<()> {
-    let is_devops = is_devops_email(db, email).await?;
-
-    if is_devops {
+/// Assert the caller holds the instance-level `devops` role under their own
+/// credentials.
+///
+/// `devops` is instance-level and [`is_devops_email`] is also true for
+/// superadmins, so this gate is reachable by the same job token that
+/// [`require_super_admin`] rejects, and is capped the same way
+/// (GHSA-hfh4-cx4h-3fcr).
+pub async fn require_devops_role(db: &DB, authed: &ApiAuthed) -> error::Result<()> {
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN). If a script \
+             genuinely needs this, create a dedicated token from the User settings drawer \
+             (the 'Tokens' section), store it as a secret, and use that token explicitly \
+             instead of $WM_TOKEN."
+                .to_owned(),
+        ));
+    }
+    if is_devops_email(db, &authed.email).await? {
         Ok(())
     } else {
         Err(Error::NotAuthorized(
@@ -912,6 +1073,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 is_session_token: false,
                 token_prefix: authed.token_prefix,
                 read_only: false,
+                job_id: None,
             };
 
             API_AUTHED_CACHE.insert(
@@ -1651,6 +1813,20 @@ mod tests {
             opt_scopes(Some(vec!["users:read", "if_jobs:filter_tags:default"])).as_deref()
         )
         .is_ok());
+        // A `*` path grant spans the domain, so it may mint the unqualified form a
+        // whole-collection read requires; a listed path may not.
+        let wildcard = authed_with_scopes(Some(vec!["resources:read:*"]));
+        assert!(ensure_scopes_within_caller(
+            &wildcard,
+            opt_scopes(Some(vec!["resources:read"])).as_deref()
+        )
+        .is_ok());
+        let path_scoped = authed_with_scopes(Some(vec!["resources:read:f/team/db"]));
+        assert!(ensure_scopes_within_caller(
+            &path_scoped,
+            opt_scopes(Some(vec!["resources:read"])).as_deref()
+        )
+        .is_err());
         // Apps `write` covers `run`, so an app-editor token can mint the run-only
         // credential for the same app — but only within its own resource subtree,
         // and the equivalence stays Apps-only.

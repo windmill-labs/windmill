@@ -55,6 +55,19 @@
 			)
 	)
 
+	// Org names that appear on more than one installation, so the dropdown can
+	// tell those entries apart.
+	let duplicatedAccountIds = $derived(
+		new Set(
+			githubState.workspaceGithubInstallations
+				.filter(
+					(installation, _, array) =>
+						array.filter((other) => other.account_id === installation.account_id).length > 1
+				)
+				.map((installation) => installation.account_id)
+		)
+	)
+
 	let showGitHubApp = $derived(
 		resourceType === 'git_repository' &&
 			$workspaceStore &&
@@ -205,29 +218,47 @@
 								<div class="flex flex-row gap-2 w-full">
 									<div class="flex flex-col gap-1 flex-1">
 										<p class="text-sm font-semibold text-secondary">GitHub Account ID</p>
-										<select bind:value={githubState.selectedGHAppAccountId}>
-											<option value="" disabled>Select GitHub Account ID</option>
+										<select
+											bind:value={githubState.selectedGHAppInstallationId}
+											onchange={() => (githubState.selectedGHAppRepository = undefined)}
+										>
+											<option value={undefined} disabled>Select GitHub Account ID</option>
 											{#each githubState.workspaceGithubInstallations as installation (`select-${installation.installation_id}-${installation.workspace_id}`)}
-												<option value={installation.account_id} disabled={!!installation.error}>
-													{installation.account_id}{installation.error ? ' (token error)' : ''}
+												{@const details = [
+													duplicatedAccountIds.has(installation.account_id)
+														? `${installation.installation_id}`
+														: undefined,
+													installation.error ? 'token error' : undefined
+												].filter(Boolean)}
+												<option
+													value={installation.installation_id}
+													disabled={!!installation.error}
+												>
+													{installation.account_id}{details.length
+														? ` (${details.join(', ')})`
+														: ''}
 												</option>
 											{/each}
 										</select>
 									</div>
-									{#if githubState.selectedGHAppAccountId}
+									{#if githubState.selectedGHAppInstallationId !== undefined}
 										{@const selectedInstallation = githubState.workspaceGithubInstallations.find(
-											(inst) => inst.account_id === githubState.selectedGHAppAccountId
+											(inst) => inst.installation_id === githubState.selectedGHAppInstallationId
 										)}
 										{#if selectedInstallation}
 											<div class="flex flex-col gap-1 flex-1">
 												<p class="text-sm font-semibold text-secondary">Repository</p>
-												<RepositorySelector
-													bind:selectedRepository={githubState.selectedGHAppRepository}
-													accountId={githubState.selectedGHAppAccountId}
-													initialRepositories={selectedInstallation.repositories}
-													totalCount={selectedInstallation.total_count}
-													perPage={selectedInstallation.per_page}
-												/>
+												<!-- RepositorySelector snapshots its repositories and page cursor at
+												     mount, so switching installation has to remount it. -->
+												{#key selectedInstallation.installation_id}
+													<RepositorySelector
+														bind:selectedRepository={githubState.selectedGHAppRepository}
+														installationId={selectedInstallation.installation_id}
+														initialRepositories={selectedInstallation.repositories}
+														totalCount={selectedInstallation.total_count}
+														perPage={selectedInstallation.per_page}
+													/>
+												{/key}
 											</div>
 										{/if}
 									{/if}

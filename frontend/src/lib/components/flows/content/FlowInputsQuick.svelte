@@ -72,6 +72,8 @@
 	type HubCompletion = {
 		path: string
 		summary: string
+		/** The hub's own wording, before `summary` is rewritten as the display label. */
+		hubSummary: string
 		id: number
 		version_id: number
 		ask_id: number

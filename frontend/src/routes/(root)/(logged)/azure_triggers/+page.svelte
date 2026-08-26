@@ -22,7 +22,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -56,7 +56,7 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import AzureTriggerEditor from '$lib/components/triggers/azure/AzureTriggerEditor.svelte'
-	import { AzureIcon } from '$lib/components/icons'
+	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
@@ -404,7 +404,18 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-primary mt-2"> No Azure Event Grid triggers </div>
+			<EmptyState
+				icon={AzureIcon}
+				title="No Azure Event Grid triggers yet"
+				description="Windmill can subscribe to an Azure Event Grid topic and trigger scripts or flows on each event."
+				action={{
+					label: 'Add an Azure Event Grid trigger',
+					icon: Plus,
+					onClick: () => azureTriggerEditor?.openNew(false),
+					aiId: 'azure-triggers-empty-add',
+					aiDescription: 'Add Azure Event Grid trigger'
+				}}
+			/>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { azure_resource_path, azure_mode, scope_resource_id, topic_name, subscription_name, workspace_id, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, retry, error_handler_path, error_handler_args, draft_only, is_draft } (path)}

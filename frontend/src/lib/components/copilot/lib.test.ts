@@ -267,6 +267,31 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('deepseek-reasoner')).toBe(1000000)
 	})
 
+	it('gives the gpt-5.6 family its own window instead of the 400K gpt-5 one', () => {
+		expect(getKnownModelContextWindow('gpt-5.6-sol')).toBe(1050000)
+		expect(getKnownModelContextWindow('gpt-5.6-terra')).toBe(1050000)
+		expect(getKnownModelContextWindow('openai/gpt-5.6-luna')).toBe(1050000)
+		// the older families keep theirs
+		expect(getKnownModelContextWindow('gpt-5.5')).toBe(1000000)
+		expect(getKnownModelContextWindow('gpt-5-mini')).toBe(400000)
+	})
+
+	it('maps both Mistral Medium 3.5 spellings to 256K, not the 128K fallback', () => {
+		expect(getKnownModelContextWindow('mistral-medium-3.5')).toBe(256000)
+		expect(getKnownModelContextWindow('mistral-medium-latest')).toBe(256000)
+		// a pinned older snapshot must not inherit the 256K window
+		expect(getKnownModelContextWindow('mistral-medium-2505')).toBeUndefined()
+	})
+
+	it('maps Qwen3-Max to 256K and leaves other Qwen ids to the assumed window', () => {
+		expect(getKnownModelContextWindow('qwen3-max')).toBe(256000)
+		expect(getKnownModelContextWindow('qwen3-max-2025-09-23')).toBe(256000)
+		// a version between "qwen3" and "-max" must not claim the 256K entry, and
+		// there is deliberately no qwen family entry (variant windows range 8K–1M)
+		expect(getKnownModelContextWindow('qwen3.8-max')).toBeUndefined()
+		expect(getModelContextWindow('qwen3.8-max')).toBe(128000)
+	})
+
 	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {
 		expect(getKnownModelContextWindow('some-custom-model')).toBeUndefined()
 		expect(getModelContextWindow('some-custom-model')).toBe(128000)

@@ -356,6 +356,29 @@ def extract_options(text: str, option_pattern: re.Pattern) -> list[dict]:
 # =============================================================================
 
 
+def _resolve_refs(schema, all_schemas: dict, openflow_schemas: dict, seen: tuple[str, ...] = ()):
+    """Inline named schemas so a documented shape never dangles on a `$ref` the reader
+    cannot resolve. A recursive schema stops at a bare object on its second visit."""
+    if isinstance(schema, list):
+        return [_resolve_refs(item, all_schemas, openflow_schemas, seen) for item in schema]
+
+    if not isinstance(schema, dict):
+        return schema
+
+    ref = schema.get('$ref')
+    if ref:
+        ref_name = ref.split('/')[-1]
+        target = all_schemas.get(ref_name) or openflow_schemas.get(ref_name)
+        if ref_name in seen or not target:
+            return {'type': 'object'}
+        return _resolve_refs(target, all_schemas, openflow_schemas, (*seen, ref_name))
+
+    return {
+        key: _resolve_refs(value, all_schemas, openflow_schemas, seen)
+        for key, value in schema.items()
+    }
+
+
 def extract_cli_schema(schema: dict, all_schemas: dict, openflow_schemas: dict | None = None) -> dict:
     """
     Transform an OpenAPI schema to CLI format by removing server-managed fields.
@@ -406,6 +429,13 @@ def extract_cli_schema(schema: dict, all_schemas: dict, openflow_schemas: dict |
                     else:
                         # Other external reference
                         result['properties'][key] = {'type': 'object', 'description': value.get('description', f'See {ref_path}')}
+                elif value.get('type') == 'array' and '$ref' in (value.get('items') or {}):
+                    # An array of a named schema: inline the item shape, otherwise the
+                    # documented type degrades to a bare object
+                    result['properties'][key] = {
+                        **value,
+                        'items': _resolve_refs(value['items'], all_schemas, openflow_schemas),
+                    }
                 else:
                     result['properties'][key] = value
 
@@ -423,6 +453,30 @@ def extract_cli_schema(schema: dict, all_schemas: dict, openflow_schemas: dict |
     result['required'] = [r for r in result['required'] if r in result['properties']]
 
     return result
+
+
+def _describe_array_items(items: dict) -> dict:
+    """Describe array items one level deep. Named schemas the caller could not inline, and
+    the ones a recursive schema refers back to, collapse to a bare object."""
+    variants = items.get('oneOf') or items.get('anyOf')
+    if variants:
+        return {'oneOf': [_describe_array_items(variant) for variant in variants]}
+    if '$ref' in items:
+        return {'type': 'object'}
+    if items.get('type', 'object') == 'object' and items.get('properties'):
+        properties = {
+            key: (
+                {'type': 'array', 'items': _describe_array_items(value.get('items') or {})}
+                if value.get('type') == 'array'
+                else value
+            )
+            for key, value in items['properties'].items()
+        }
+        described = {'type': 'object', 'properties': properties}
+        if items.get('required'):
+            described['required'] = items['required']
+        return described
+    return {'type': items.get('type', 'object')}
 
 
 def format_schema_as_json(schema: dict) -> dict:
@@ -444,13 +498,8 @@ def format_schema_as_json(schema: dict) -> dict:
         # Get type
         prop_type = value.get('type', 'string')
         if prop_type == 'array':
-            items = value.get('items', {})
             prop_def['type'] = 'array'
-            item_type = items.get('type', 'object')
-            if item_type == 'object' and items.get('properties'):
-                prop_def['items'] = {'type': 'object', 'properties': items.get('properties', {})}
-            else:
-                prop_def['items'] = {'type': item_type}
+            prop_def['items'] = _describe_array_items(value.get('items') or {})
         elif '$ref' in value:
             # For refs, just indicate the type
             ref_name = value['$ref'].split('/')[-1]

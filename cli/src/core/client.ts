@@ -14,6 +14,17 @@ export function markRequestsAsSyncOrigin() {
   OpenAPI.HEADERS = { ...existing, "X-Windmill-Deploy-Origin": "sync" };
 }
 
+/**
+ * Name this process as the CLI on every subsequent request, so a trigger the
+ * CLI created or disabled is attributed to `cli` rather than to a bare API
+ * call in `trigger_history`. Attribution only — nothing on the server grants
+ * anything on the strength of it.
+ */
+export function markRequestsAsCliClient() {
+  const existing = typeof OpenAPI.HEADERS === "object" ? OpenAPI.HEADERS : {};
+  OpenAPI.HEADERS = { ...existing, "X-Windmill-Client": "cli" };
+}
+
 export function setClient(token?: string, baseUrl?: string) {
   if (baseUrl === undefined) {
     baseUrl = process.env["BASE_INTERNAL_URL"] ??

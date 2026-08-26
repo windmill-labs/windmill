@@ -25,6 +25,16 @@ export function isGlobalAiEnabled(): boolean {
 	}
 }
 
+/**
+ * Whether an AI entry point hands off to a session instead of driving the docked
+ * chat. Deliberately the same condition as the root layout's `disableAi`, so a
+ * caller falling back on `false` always has a mounted pane to fall back to.
+ * Operators keep that pane (`/sessions` refuses them) until the operator chat ships.
+ */
+export function prefersSessionHandoff(isOperator: boolean | undefined): boolean {
+	return isGlobalAiEnabled() && !isOperator
+}
+
 /** Persist the opt-out choice, then hard-reload so every gated site re-reads it. */
 export function setSessionsBetaOptOut(optOut: boolean, target: string) {
 	// Navigate even when persistence throws (quota, private browsing) — the

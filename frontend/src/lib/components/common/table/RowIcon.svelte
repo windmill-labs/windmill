@@ -116,15 +116,15 @@
 	{:else if effectiveKind === 'postgres'}
 		<Database {size} class="text-gray-400" />
 	{:else if effectiveKind === 'kafka'}
-		<KafkaIcon {size} class="text-gray-400" />
+		<KafkaIcon {size} />
 	{:else if effectiveKind === 'nats'}
-		<NatsIcon {size} class="text-gray-400" />
+		<NatsIcon {size} />
 	{:else if effectiveKind === 'mqtt'}
-		<MqttIcon {size} class="text-gray-400" />
+		<MqttIcon {size} />
 	{:else if effectiveKind === 'amqp'}
-		<AmqpIcon {size} class="text-gray-400" />
+		<AmqpIcon {size} />
 	{:else if effectiveKind === 'sqs'}
-		<AwsIcon {size} class="text-gray-400" />
+		<AwsIcon {size} />
 	{:else if effectiveKind === 'gcp'}
 		<GoogleCloudIcon {size} />
 	{:else if effectiveKind === 'azure'}

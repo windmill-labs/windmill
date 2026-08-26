@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ordinal, case_id, input, expected, job_id, subject_version,\n                subject_draft_hash, output, answered, status\n         FROM eval_experiment_case\n         WHERE experiment_id = $1 ORDER BY ordinal",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ordinal",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "case_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "input",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 3,
+        "name": "expected",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "job_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "subject_version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "subject_draft_hash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "output",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "answered",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "status",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "5d5186bb17092425664d8c4f92ca6bfb8b08420cc2b2a52e90064d6a12f86113"
+}

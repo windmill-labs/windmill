@@ -1,6 +1,7 @@
 import { get } from 'svelte/store'
 import { OpenAPI } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
+import { PRIVATE_HUB_MIN_VERSION } from '$lib/hub'
 
 // Anonymous product-usage counters (e.g. AI session activity), batched into the
 // backend `feature_usage` accumulator. Only aggregated counts ever leave the
@@ -134,4 +135,55 @@ if (typeof document !== 'undefined') {
  */
 export function logFeatureUsage(feature: string, kind: string, opts: FeatureUsageOpts = {}): void {
 	buffer.log(feature, kind, opts)
+}
+
+/**
+ * Record a hub script the user or the AI settled on.
+ *
+ * Takes the structured fields the hub API returned rather than a
+ * `hub/<version>/<app>/<slug>` path. A path stored in a flow is workspace-authored
+ * text that nothing validates against the hub, so its segments could hold any name
+ * a user wrote; these fields came from the hub itself and are safe to report.
+ *
+ * `considered` rather than `picked` for the AI: the AI pulls a handful of
+ * candidates' content before choosing between them, and nothing downstream records
+ * which one it went on to use.
+ *
+ * A script from a private hub is still the customer's own content, so at or above
+ * `PRIVATE_HUB_MIN_VERSION` only the fact that one was used is recorded.
+ */
+export function logHubScriptPick(
+	script: { version_id: number; app: string; summary: string },
+	origin: 'picker' | 'ai'
+): void {
+	logFeatureUsage('hub_script', origin === 'ai' ? 'considered_ai' : 'picked', {
+		key: hubScriptUsageKey(script)
+	})
+}
+
+const PRIVATE_HUB_KEY = 'private'
+
+/** Lowercase, with every run of other characters collapsed to a single `_`. */
+function slugify(value: string): string {
+	return value
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '_')
+		.replace(/^_+|_+$/g, '')
+}
+
+export function hubScriptUsageKey(script: {
+	version_id: number
+	app: string
+	summary: string
+}): string {
+	if (!Number.isInteger(script.version_id) || script.version_id >= PRIVATE_HUB_MIN_VERSION) {
+		return PRIVATE_HUB_KEY
+	}
+	// Slugified rather than shape-checked: hub summaries carry commas, apostrophes
+	// and parentheses, and rejecting those would file real public scripts under
+	// `private` and undercount exactly the integrations this is meant to surface.
+	const app = slugify(script.app)
+	const summary = slugify(script.summary)
+	if (!app) return PRIVATE_HUB_KEY
+	return (summary ? `${app}/${summary}` : app).slice(0, 100)
 }

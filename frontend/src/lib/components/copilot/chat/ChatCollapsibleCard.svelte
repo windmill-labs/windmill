@@ -41,8 +41,14 @@
 </script>
 
 <div class={twMerge('font-mono text-xs', className)}>
-	{#snippet labelText()}
-		<span class={twMerge('text-secondary font-medium text-2xs', labelClass)}>
+	{#snippet labelText(highlight: boolean)}
+		<span
+			class={twMerge(
+				'text-secondary font-medium text-2xs',
+				labelClass,
+				highlight && 'text-emphasis'
+			)}
+		>
 			{label}
 		</span>
 	{/snippet}
@@ -58,13 +64,13 @@
 		>
 			{#if shimmer}
 				<span class="shimmer inline-flex items-center min-w-0">
-					{@render labelText()}
+					{@render labelText(false)}
 					<span class="shimmer-band inline-flex items-center min-w-0" aria-hidden="true">
-						{@render labelText()}
+						{@render labelText(true)}
 					</span>
 				</span>
 			{:else}
-				{@render labelText()}
+				{@render labelText(false)}
 			{/if}
 			{#if toggleable}
 				<ChevronRight
@@ -99,9 +105,9 @@
 </div>
 
 <style>
-	/* A white copy of the label sits on top of the coloured one and is revealed
-	   through a travelling band, so the highlight is a colour change rather than
-	   an opacity change and the row keeps its own colour underneath. */
+	/* An emphasis-coloured copy of the label sits on top of the muted one and is
+	   revealed through a travelling band, so the highlight is a colour change
+	   rather than an opacity change and the row keeps its own colour underneath. */
 	.shimmer {
 		position: relative;
 	}
@@ -109,9 +115,6 @@
 		position: absolute;
 		inset: 0;
 		pointer-events: none;
-		/* Forces the copy white whatever colour the caller gives the label, without
-		   having to out-specify its utility classes. */
-		filter: brightness(0) invert(1);
 		--wm-shimmer-band: linear-gradient(
 			100deg,
 			rgba(0, 0, 0, 0.2) 40%,

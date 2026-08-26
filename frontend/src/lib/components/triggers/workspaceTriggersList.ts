@@ -241,7 +241,13 @@ export const TRIGGER_KINDS: Record<
 			AmqpTriggerService.createAmqpTrigger({ workspace, requestBody })
 	},
 	gcp: {
-		configFields: ['gcp_resource_path', 'topic_id', 'delivery_type', 'subscription_mode'],
+		configFields: [
+			'gcp_resource_path',
+			'project_id',
+			'topic_id',
+			'delivery_type',
+			'subscription_mode'
+		],
 		provisionsOnCreate: true,
 		badge: 'GCP Pub/Sub',
 		route: 'gcp_triggers',
@@ -541,7 +547,8 @@ export function triggerDetails(t: WorkspaceTrigger): Array<{ label: string; valu
 			push('Queue', c.queue_name)
 			break
 		case 'gcp':
-			push('Resource', c.gcp_resource_path)
+			push('Resource', c.gcp_resource_path ?? 'Application default credentials')
+			push('Project', c.project_id)
 			push('Topic', c.topic_id)
 			push('Subscription', c.subscription_id)
 			break

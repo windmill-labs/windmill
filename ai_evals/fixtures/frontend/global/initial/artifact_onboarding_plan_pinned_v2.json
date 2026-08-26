@@ -1,0 +1,38 @@
+{
+  "user": {
+    "username": "admin",
+    "is_admin": true
+  },
+  "artifacts": [
+    {
+      "name": "Onboarding plan",
+      "versions": [
+        {
+          "content": "# Onboarding plan\n\nA staged rollout of the customer onboarding flow.\n\n- Collect the signup form\n- Create the customer record\n- Send the welcome email\n"
+        },
+        {
+          "content": "# Onboarding plan\n\nA staged rollout of the customer onboarding flow.\n\n- Collect the signup form\n- Verify the company domain\n- Create the customer record\n- Send the welcome email\n",
+          "note": "Added domain verification"
+        },
+        {
+          "content": "# Onboarding plan\n\nA staged rollout of the customer onboarding flow.\n\n- Collect the signup form\n- Verify the company domain\n- Create the customer record\n- Send the welcome email\n- Schedule the 7-day check-in\n",
+          "note": "Added the 7-day check-in"
+        },
+        {
+          "content": "# Onboarding plan\n\nA staged rollout of the customer onboarding flow.\n\n- Collect the signup form\n- Verify the company domain\n- Create the customer record in the CRM\n- Send the welcome email\n- Schedule the 7-day check-in\n",
+          "note": "Named the CRM as the record store"
+        },
+        {
+          "content": "# Onboarding plan\n\nA staged rollout of the customer onboarding flow.\n\n- Collect the signup form\n- Verify the company domain\n- Create the customer record in the CRM\n- Send the welcome email\n- Schedule the 7-day check-in\n- Hand over to the account manager\n",
+          "note": "Added the account-manager handover"
+        }
+      ]
+    }
+  ],
+  "previewTabs": [
+    {
+      "artifact": { "name": "Onboarding plan", "version": 2 },
+      "active": true
+    }
+  ]
+}

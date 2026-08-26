@@ -44,6 +44,32 @@ impl AuthedClient {
             })
     }
 
+    /// Like [`AuthedClient::get`], but for a response whose size decides how
+    /// long it takes. `HTTP_CLIENT`'s total timeout would cut off a large one
+    /// partway through, so this uses the streaming client, which bounds only
+    /// the connect.
+    pub async fn get_streaming(
+        &self,
+        url: &str,
+        query: Vec<(&str, String)>,
+    ) -> anyhow::Result<Response> {
+        self.force_client
+            .as_ref()
+            .unwrap_or(&HTTP_CLIENT_STREAMING)
+            .get(url)
+            .query(&query)
+            .header(
+                reqwest::header::AUTHORIZATION,
+                reqwest::header::HeaderValue::from_str(&format!("Bearer {}", self.token))?,
+            )
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::error!("Error streaming get request from authed http client to {url} with query {query:?}: {e:#?}");
+                anyhow::anyhow!("Error streaming get request from authed http client to {url} with query {query:?}: {e:#?}")
+            })
+    }
+
     pub async fn get_id_token(&self, audience: &str) -> anyhow::Result<String> {
         let url = format!(
             "{}/api/w/{}/oidc/token/{}",

@@ -164,10 +164,20 @@ wm_find_ee_repo() {
   return 1
 }
 
+# The EE commit this CE checkout builds against. CI reads the same file, so basing a new EE
+# worktree on it keeps a local `cargo check --features private` on the tree CI compiles. Local
+# `main` in the EE repo is not a substitute: nothing fast-forwards it, so it drifts behind the pin.
+wm_ee_pinned_ref() {
+  local repo_root=$1 ref
+  ref="$(tr -d '[:space:]' < "${repo_root}/backend/ee-repo-ref.txt" 2>/dev/null)" || return 1
+  [[ -n "$ref" ]] || return 1
+  printf '%s' "$ref"
+}
+
 wm_setup_ee_worktree() {
   local repo_root=$1
   local main_repo_root=$2
-  local ee_repo branch wt_basename ee_worktree_dir ee_rel rust_plugin
+  local ee_repo branch wt_basename ee_worktree_dir ee_rel rust_plugin ee_ref
 
   if ! ee_repo="$(wm_find_ee_repo "$repo_root" "$main_repo_root")"; then
     return
@@ -189,8 +199,11 @@ wm_setup_ee_worktree() {
     elif git -C "$ee_repo" show-ref --verify --quiet "refs/remotes/origin/$branch" \
          && git -C "$ee_repo" worktree add --track -b "$branch" "$ee_worktree_dir" "origin/$branch" 2>/dev/null; then
       echo "Created EE worktree at $ee_worktree_dir (tracking origin/$branch)"
+    elif ee_ref="$(wm_ee_pinned_ref "$repo_root")" \
+         && git -C "$ee_repo" worktree add -b "$branch" "$ee_worktree_dir" "$ee_ref" 2>/dev/null; then
+      echo "Created EE worktree at $ee_worktree_dir (new branch: $branch from pinned ${ee_ref:0:12})"
     elif git -C "$ee_repo" worktree add -b "$branch" "$ee_worktree_dir" main 2>/dev/null; then
-      echo "Created EE worktree at $ee_worktree_dir (new branch: $branch from main)"
+      echo "Created EE worktree at $ee_worktree_dir (new branch: $branch from main — pin unavailable)"
     else
       echo "Warning: Could not create EE worktree for branch $branch"
     fi

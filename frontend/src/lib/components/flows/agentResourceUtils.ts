@@ -95,6 +95,28 @@ export function inputTransformsToAgentConfig(
 }
 
 /**
+ * The configuration as the step holds it, in the shape of the saved config: a static transform as
+ * its value, any other transform as itself. The saved config keeps static values only, so a
+ * comparison in that shape is blind to an expression — which the step runs, and linking strips.
+ */
+export function agentConfigAsEdited(
+	inputTransforms: Record<string, InputTransform> | undefined,
+	tools: AgentTool[] | undefined
+): Record<string, unknown> {
+	const config: Record<string, unknown> = { tools: tools ?? [] }
+	for (const key of AGENT_BRAIN_KEYS) {
+		const t = inputTransforms?.[key] as any
+		if (!t) continue
+		if (t.type === 'static') {
+			if (t.value !== undefined) config[key] = t.value
+		} else {
+			config[key] = t
+		}
+	}
+	return config
+}
+
+/**
  * Reduce the AI agent schema to only the flow-local inputs. Used when a step is linked to a saved
  * agent: the brain fields come from the resource, so only user_message/user_attachments stay editable.
  */

@@ -50,6 +50,7 @@ import {
 	DATA_ASSET_KINDS
 } from '$lib/components/assets/AssetGraph/cascadeRun'
 import { capturePipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
+import { buildFlowRecording, buildScriptRecording } from '$lib/components/recording/runRecording'
 import type { PipelineRecording, RawAppRecording } from '$lib/components/recording/types'
 import {
 	TRIGGER_KINDS,
@@ -172,6 +173,9 @@ export class DeployToHubSession {
 	runResult = $state<unknown>(undefined)
 	runError = $state<string | undefined>(undefined)
 	recordings = $state<Record<string, string>>({})
+	// Recent successful runs of the record target: a recording is built from any
+	// completed run, so an existing one can be picked instead of running again.
+	pastRuns = $state<{ id: string; started_at?: string; duration_ms?: number }[]>([])
 
 	// Project-level data-pipeline recording. Unlike script/flow recordings (one
 	// job per item) a pipeline is the whole folder cascade, so it gets a single
@@ -1327,6 +1331,8 @@ export class DeployToHubSession {
 		this.runJobId = undefined
 		this.runResult = undefined
 		this.runError = undefined
+		this.pastRuns = []
+		this.#loadPastRuns(it, tok)
 		try {
 			if (it.kind === 'script') {
 				const s = await ScriptService.getScriptByPath({
@@ -1351,6 +1357,45 @@ export class DeployToHubSession {
 	/** Invalidate any in-flight record run/poll (record drawer closed). */
 	cancelRecordRun = () => {
 		this.#recordRunTok++
+	}
+
+	/** Recent successful runs of the target, so one can be recorded as-is.
+	 * Best-effort — an empty list just means the drawer only offers a fresh run. */
+	async #loadPastRuns(it: DeployItem, tok: number) {
+		if (it.kind !== 'script' && it.kind !== 'flow') return
+		try {
+			const runs = await JobService.listCompletedJobs({
+				workspace: this.workspace,
+				jobKinds: it.kind === 'script' ? 'script' : 'flow',
+				scriptPathExact: it.path,
+				status: 'success',
+				// Standalone runs only — a script that also runs as a flow step would
+				// otherwise list its child jobs.
+				hasNullParent: true,
+				orderDesc: true,
+				perPage: 5
+			})
+			if (tok !== this.#recordRunTok) return
+			this.pastRuns = runs.map((j) => ({
+				id: j.id,
+				started_at: j.started_at,
+				duration_ms: j.duration_ms
+			}))
+		} catch {
+			// best-effort
+		}
+	}
+
+	/** Adopt an existing successful run as the one to save: recordings are built
+	 * from completed jobs, so it goes through the exact same save path as a
+	 * fresh run. No token bump — there is no poll to cancel (the picker is
+	 * hidden while a run is in flight) and bumping would strand `openRecord`'s
+	 * still-loading schema fetch on "Loading schema…" forever. */
+	useExistingRun = (jobId: string) => {
+		this.runJobId = jobId
+		this.runState = 'success'
+		this.runResult = undefined
+		this.runError = undefined
 	}
 
 	runJob = async () => {
@@ -1427,69 +1472,71 @@ export class DeployToHubSession {
 
 	async #buildScriptRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
-		const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
-		const job = await JobService.getCompletedJob({ workspace, id: jobId })
-		const initial_job = { ...(job as any), type: 'CompletedJob' }
-		const events = [{ t: 0, data: { completed: true, job: initial_job } }]
-		const duration = (initial_job.duration_ms as number) ?? 0
-		return {
-			version: 1,
-			type: 'script' as const,
-			recorded_at: new Date().toISOString(),
-			script_path: it.path,
-			total_duration_ms: duration,
+		// Pin the code to the version the run executed — the picker can select a
+		// run older than the currently deployed script, and publishing current
+		// code with an old run's logs/result would misrepresent both.
+		const job = (await JobService.getJob({ workspace, id: jobId })) as any
+		let s = job.script_hash
+			? await ScriptService.getScriptByHash({ workspace, hash: job.script_hash }).catch(
+					() => undefined
+				)
+			: undefined
+		if (!s) {
+			s = await ScriptService.getScriptByPath({ workspace, path: it.path })
+			sendUserToast(
+				"The run's script version could not be resolved — the recording pairs it with the current code, which may not match what ran.",
+				true
+			)
+		}
+		return await buildScriptRecording(workspace, jobId, {
+			scriptPath: it.path,
 			code: s.content,
 			language: s.language,
-			args: (job.args ?? {}) as Record<string, any>,
-			schema: s.schema,
-			job: { initial_job, events }
-		}
+			schema: s.schema as Record<string, any> | undefined
+		})
 	}
 
 	async #buildFlowRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
-		const f = await FlowService.getFlowByPath({ workspace, path: it.path })
-		const root = (await JobService.getCompletedJob({ workspace, id: jobId })) as any
-		const jobs: Record<string, { initial_job: any; events: any[] }> = {}
-		const collect = async (j: any) => {
-			const stamped = { ...j, type: 'CompletedJob' }
-			jobs[j.id] = {
-				initial_job: stamped,
-				events: [{ t: 0, data: { completed: true, job: stamped } }]
-			}
-			const modules = (j.flow_status?.modules ?? []).filter(
-				(m: any) => m.job && typeof m.job === 'string'
-			)
-			// Sub-jobs at the same level are independent reads.
-			await Promise.all(
-				modules.map(async (m: any) => {
-					try {
-						const sub = (await JobService.getCompletedJob({ workspace, id: m.job })) as any
-						await collect(sub)
-					} catch {
-						/* sub-job missing — skip */
-					}
-				})
+		// Pin the definition (value, schema) to the version the run executed —
+		// the recorded statuses reference its module ids and the recorded args
+		// its input schema, so the current flow may not match. The job's
+		// script_hash is the flow version id.
+		const root = (await JobService.getJob({ workspace, id: jobId })) as any
+		let flow: { value: unknown; schema?: unknown; summary?: string } | undefined
+		if (root.script_hash) {
+			flow = await FlowService.getFlowVersion({
+				workspace,
+				version: parseInt(root.script_hash, 16)
+			}).catch(() => undefined)
+		}
+		if (!flow && root.raw_flow) {
+			// The API materialized the executed value on the job; the input schema
+			// has to come from the current flow, which may have drifted.
+			const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+			flow = { value: root.raw_flow, schema: f.schema, summary: f.summary }
+			sendUserToast(
+				"The run's flow version could not be resolved — the recording uses the executed graph but the current input schema, which may not match the recorded arguments.",
+				true
 			)
 		}
-		await collect(root)
-		return {
-			version: 1,
-			recorded_at: new Date().toISOString(),
-			flow_path: it.path,
-			total_duration_ms: (root.duration_ms as number) ?? 0,
-			flow: {
-				path: it.path,
-				value: f.value,
-				schema: f.schema ?? { type: 'object', properties: {}, required: [] },
-				summary: f.summary ?? '',
-				archived: false,
-				edited_at: '',
-				edited_by: '',
-				extra_perms: {}
+		if (!flow) {
+			const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+			flow = f
+			sendUserToast(
+				"The run's flow version could not be resolved — the recording pairs it with the current definition, which may not match what ran.",
+				true
+			)
+		}
+		return await buildFlowRecording(workspace, jobId, it.path, {
+			value: flow.value as any,
+			schema: (flow.schema as Record<string, unknown> | undefined) ?? {
+				type: 'object',
+				properties: {},
+				required: []
 			},
-			jobs
-		}
+			summary: flow.summary ?? ''
+		})
 	}
 
 	/** Save a recorded raw-app session as that app's Hub recording. */

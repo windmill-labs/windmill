@@ -392,7 +392,7 @@ export async function parseOpenAIResponsesCompletion(
 	addedMessages: ChatCompletionMessageParam[],
 	tools: Tool<any>[],
 	helpers: any,
-	options?: { workspace?: string }
+	options?: { workspace?: string; onTokenUsage?: (usage: ChatTokenUsage) => void }
 ): Promise<ParsedCompletionResult> {
 	let toolCallsToProcess: ChatCompletionMessageFunctionToolCall[] = []
 	let error: OpenAIError | ResponseErrorEvent | null = null
@@ -566,6 +566,7 @@ export async function parseOpenAIResponsesCompletion(
 
 	const finalResponse = await runner.finalResponse()
 	const tokenUsage = openAIResponsesUsageToChatTokenUsage(finalResponse.usage)
+	options?.onTokenUsage?.(tokenUsage)
 
 	for (const item of finalResponse.output ?? []) {
 		if (item.type === 'web_search_call' && !surfacedWebSearchCalls.has(item.id)) {

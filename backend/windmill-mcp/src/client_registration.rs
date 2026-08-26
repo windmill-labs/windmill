@@ -23,7 +23,22 @@ use crate::oauth::{no_redirect_http_client_pinned, AuthorizationManager};
 pub struct McpClientCredentials {
     pub client_id: String,
     pub client_secret: Option<String>,
-    pub token_endpoint: String,
+    /// The token endpoint and the addresses it resolved to during SSRF validation.
+    /// Both are private so that [`Self::token_request`] is the only way to obtain
+    /// the URL: it returns it together with a client pinned to those addresses, so
+    /// no caller can post the `client_secret` to this URL on a client that
+    /// re-resolves the host and lands somewhere else.
+    token_endpoint: String,
+    token_endpoint_target: windmill_common::ssrf::ValidatedTarget,
+}
+
+impl McpClientCredentials {
+    /// The URL to post a token request to, together with a client pinned to the
+    /// address that URL was validated against.
+    pub fn token_request(&self) -> Result<(reqwest::Client, &str), reqwest::Error> {
+        let client = no_redirect_http_client_pinned(&self.token_endpoint_target)?;
+        Ok((client, self.token_endpoint.as_str()))
+    }
 }
 
 #[derive(FromRow)]
@@ -146,11 +161,12 @@ pub async fn get_or_refresh_mcp_client(
     if let Some(client) = cached_client {
         if !client.is_expired() {
             tracing::debug!("Using cached MCP client for {}", mcp_server_url);
-            windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
-                &client.token_endpoint,
-                "MCP server token endpoint URL",
-            )
-            .await?;
+            let token_endpoint_target =
+                windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+                    &client.token_endpoint,
+                    "MCP server token endpoint URL",
+                )
+                .await?;
             let decrypted_secret = if let Some(ref encrypted_secret) = client.client_secret {
                 Some(decrypt_client_secret(db, encrypted_secret).await?)
             } else {
@@ -160,6 +176,7 @@ pub async fn get_or_refresh_mcp_client(
                 client_id: client.client_id,
                 client_secret: decrypted_secret,
                 token_endpoint: client.token_endpoint,
+                token_endpoint_target,
             });
         }
         tracing::debug!("Cached MCP client expired, re-registering");
@@ -185,7 +202,7 @@ pub async fn get_or_refresh_mcp_client(
         .await
         .map_err(|e| error::Error::BadRequest(format!("OAuth discovery failed: {e}")))?;
 
-    windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
+    let token_endpoint_target = windmill_common::ssrf::validate_mcp_server_url_for_bad_request(
         &metadata.token_endpoint,
         "MCP server token endpoint URL",
     )
@@ -241,5 +258,77 @@ pub async fn get_or_refresh_mcp_client(
     .await
     .map_err(|e| error::Error::InternalErr(format!("Database error: {e}")))?;
 
-    Ok(McpClientCredentials { client_id, client_secret, token_endpoint: metadata.token_endpoint })
+    Ok(McpClientCredentials {
+        client_id,
+        client_secret,
+        token_endpoint: metadata.token_endpoint,
+        token_endpoint_target,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        io::{ErrorKind, Read},
+        net::TcpListener,
+        thread,
+        time::{Duration, Instant},
+    };
+
+    /// The whole SSRF fix rests on the pin actually diverting the connect: the
+    /// token URL's host must never be resolved at connect time. `.invalid` is
+    /// guaranteed not to resolve (RFC 6761), so the request can only arrive at
+    /// the listener if it went to the pinned address.
+    ///
+    /// The accept loop is bounded so that a pin which stops working fails this
+    /// test in seconds rather than blocking on `accept` forever.
+    #[tokio::test]
+    async fn token_request_connects_to_the_pinned_address_not_the_host() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let handle = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut buffer = [0u8; 256];
+                        stream.set_read_timeout(Some(Duration::from_secs(1))).ok();
+                        let read = stream.read(&mut buffer).unwrap_or(0);
+                        return Some(String::from_utf8_lossy(&buffer[..read]).to_string());
+                    }
+                    Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10))
+                    }
+                    Err(_) => return None,
+                }
+            }
+            None
+        });
+
+        let credentials = McpClientCredentials {
+            client_id: "id".to_string(),
+            client_secret: None,
+            token_endpoint: "http://unresolvable.invalid/token".to_string(),
+            token_endpoint_target: windmill_common::ssrf::ValidatedTarget {
+                host: "unresolvable.invalid".to_string(),
+                addrs: vec![addr],
+            },
+        };
+
+        let (client, token_url) = credentials.token_request().unwrap();
+        assert_eq!(token_url, "http://unresolvable.invalid/token");
+        let _ = client.post(token_url).send().await;
+
+        let request = handle
+            .join()
+            .unwrap()
+            .expect("pinned address should have received the token POST");
+        assert!(
+            request.contains("/token") && request.contains("unresolvable.invalid"),
+            "pinned socket should receive the token POST, got: {request}"
+        );
+    }
 }

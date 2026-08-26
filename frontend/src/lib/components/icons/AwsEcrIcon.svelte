@@ -1,23 +1,27 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
+
+<!-- #ED7100 tile with a #FFFFFF glyph per the AWS Architecture Icons package
+(Icon-package_07312026, Arch_Containers/Arch_Amazon-Elastic-Container-Registry). AWS ships one flat
+fill for both themes; the gradient tile was retired in the 2023 accessibility refresh. -->
 
 <svg
 	x="0px"
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 168 168"
+	viewBox="-7.636 -7.636 183.273 183.273"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 >
 	<g clip-path="url(#clip0_305_193)">
-		<path d="M168 0H0V168H168V0Z" fill="url(#paint0_linear_305_193)" />
+		<path d="M168 0H0V168H168V0Z" fill="#ED7100" />
 		<path
 			fill-rule="evenodd"
 			clip-rule="evenodd"
@@ -26,17 +30,6 @@
 		/>
 	</g>
 	<defs>
-		<linearGradient
-			id="paint0_linear_305_193"
-			x1="0"
-			y1="16800"
-			x2="16800"
-			y2="0"
-			gradientUnits="userSpaceOnUse"
-		>
-			<stop stop-color="#C8511B" />
-			<stop offset="1" stop-color="#FF9900" />
-		</linearGradient>
 		<clipPath id="clip0_305_193">
 			<rect width="168" height="168" fill="white" />
 		</clipPath>

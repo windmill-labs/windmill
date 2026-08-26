@@ -19,7 +19,7 @@
 FROM ghcr.io/windmill-labs/windmill-ee:main AS windmill-source
 
 # Stage 2: Build the debug service
-FROM oven/bun:1 AS runtime
+FROM oven/bun:1.4.0 AS runtime
 
 # Install Python and required system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \

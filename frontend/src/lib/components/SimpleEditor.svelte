@@ -11,6 +11,7 @@
 </script>
 
 <script lang="ts">
+	import { registerPendingEditor } from './pendingEditorFlush'
 	import { BROWSER } from 'esm-env'
 
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
@@ -148,6 +149,18 @@
 	const dispatch = createEventDispatcher()
 
 	const uri = `file:///${untrack(() => hash)}.${langToExt(untrack(() => lang))}`
+
+	/** Materialise the debounced buffer into `code` now. A consumer that must act on
+	 * what is on screen — persisting a draft before navigating away — cannot wait out
+	 * CHANGE_TIMEOUT. Mirrors `Editor.flushPendingChanges`. */
+	export function flushPendingChanges(): void {
+		// Same guards as onDestroy: only a pending keystroke debounce is ours to flush.
+		// `getCode()` is '' until Monaco finishes initialising, and a caller draining every
+		// mounted editor reaches ones that have not — flushing those writes the blank out.
+		if (!editor || changeTimeoutId === undefined) return
+		cancelPendingChanges()
+		updateCode()
+	}
 
 	export function getCode(): string {
 		if (valueAfterDispose != undefined) {
@@ -649,6 +662,8 @@
 			untrack(() => loadExtraLib())
 		}
 	})
+
+	onMount(() => registerPendingEditor({ flushPendingChanges: () => flushPendingChanges() }))
 
 	onDestroy(() => {
 		try {

@@ -2,7 +2,6 @@ import AirtableIcon from './AirtableIcon.svelte'
 import DbIcon from './DbIcon.svelte'
 import DiscordIcon from './DiscordIcon.svelte'
 import GcalIcon from './GcalIcon.svelte'
-import GCloudIcon from './GCloudIcon.svelte'
 import GdriveIcon from './GdriveIcon.svelte'
 import GithubIcon from './GithubIcon.svelte'
 import GitlabIcon from './GitlabIcon.svelte'
@@ -228,7 +227,124 @@ import SpeechifyIcon from './SpeechifyIcon.svelte'
 import ConvertKitIcon from './ConvertKitIcon.svelte'
 import BrowserlessIcon from './BrowserlessIcon.svelte'
 import WizIcon from './WizIcon.svelte'
+import MailerLiteIcon from './MailerLiteIcon.svelte'
+import JotformIcon from './JotformIcon.svelte'
+import NewsApiIcon from './NewsApiIcon.svelte'
+import GreipIcon from './GreipIcon.svelte'
+import OdkIcon from './OdkIcon.svelte'
+import SalesflareIcon from './SalesflareIcon.svelte'
+import PaylocityIcon from './PaylocityIcon.svelte'
+import KustomerIcon from './KustomerIcon.svelte'
+import NetBoxIcon from './NetBoxIcon.svelte'
+import AbstractApiIcon from './AbstractApiIcon.svelte'
+import AcumbamailIcon from './AcumbamailIcon.svelte'
+import ChromaIcon from './ChromaIcon.svelte'
+import KoboToolboxIcon from './KoboToolboxIcon.svelte'
+import AblyIcon from './AblyIcon.svelte'
+import GorgiasIcon from './GorgiasIcon.svelte'
+import CertopusIcon from './CertopusIcon.svelte'
+import ZixflowIcon from './ZixflowIcon.svelte'
+import BotifyIcon from './BotifyIcon.svelte'
+import SensorTowerIcon from './SensorTowerIcon.svelte'
+import ZuploIcon from './ZuploIcon.svelte'
+import TomorrowIoIcon from './TomorrowIoIcon.svelte'
+import AcceloIcon from './AcceloIcon.svelte'
+import EnodeIcon from './EnodeIcon.svelte'
+import RecraftIcon from './RecraftIcon.svelte'
+import MeteosourceIcon from './MeteosourceIcon.svelte'
+import PhraseIcon from './PhraseIcon.svelte'
+import TheirStackIcon from './TheirStackIcon.svelte'
+import AssemblyAiIcon from './AssemblyAiIcon.svelte'
+import IfsIcon from './IfsIcon.svelte'
+import Ai21Icon from './Ai21Icon.svelte'
+import QoveryIcon from './QoveryIcon.svelte'
+import InkeepIcon from './InkeepIcon.svelte'
+import ContiguityIcon from './ContiguityIcon.svelte'
+import GristIcon from './GristIcon.svelte'
+import ButtondownIcon from './ButtondownIcon.svelte'
+import HoldedIcon from './HoldedIcon.svelte'
+import ExaIcon from './ExaIcon.svelte'
+import StraleIcon from './StraleIcon.svelte'
+import DustIcon from './DustIcon.svelte'
+import LangfuseIcon from './LangfuseIcon.svelte'
+import BasisTheoryIcon from './BasisTheoryIcon.svelte'
+import AdhookIcon from './AdhookIcon.svelte'
+import DocSpringIcon from './DocSpringIcon.svelte'
+import PersonaIcon from './PersonaIcon.svelte'
+import FoxentryIcon from './FoxentryIcon.svelte'
+import DeepInfraIcon from './DeepInfraIcon.svelte'
+import AttioIcon from './AttioIcon.svelte'
+import BasicHttpAuthIcon from './BasicHttpAuthIcon.svelte'
+import ApiKeyAuthIcon from './ApiKeyAuthIcon.svelte'
+import SignatureAuthIcon from './SignatureAuthIcon.svelte'
+import GpgKeyIcon from './GpgKeyIcon.svelte'
+import LdapIcon from './LdapIcon.svelte'
+import FormInputIcon from './FormInputIcon.svelte'
+import QuestionInputIcon from './QuestionInputIcon.svelte'
+import RecordIcon from './RecordIcon.svelte'
+import AiAgentIcon from './AiAgentIcon.svelte'
+import AgentInstructionsIcon from './AgentInstructionsIcon.svelte'
+import CustomAiIcon from './CustomAiIcon.svelte'
+import JsonSchemaIcon from './JsonSchemaIcon.svelte'
+import TripadvisorIcon from './TripadvisorIcon.svelte'
+import BaserowIcon from './BaserowIcon.svelte'
+import ArcGisIcon from './ArcGisIcon.svelte'
+import MezmoIcon from './MezmoIcon.svelte'
+import ReadmeIcon from './ReadmeIcon.svelte'
+import FormstackIcon from './FormstackIcon.svelte'
+import MapboxIcon from './MapboxIcon.svelte'
+import DbtIcon from './DbtIcon.svelte'
+import ShutterstockIcon from './ShutterstockIcon.svelte'
+import TaskadeIcon from './TaskadeIcon.svelte'
+import OauthIcon from './OauthIcon.svelte'
+import BeamerIcon from './BeamerIcon.svelte'
+import CampaynIcon from './CampaynIcon.svelte'
+import CodatIcon from './CodatIcon.svelte'
+import ComapeoIcon from './ComapeoIcon.svelte'
+import KlaviyoIcon from './KlaviyoIcon.svelte'
+import MatteroomIcon from './MatteroomIcon.svelte'
+import MollieIcon from './MollieIcon.svelte'
+import MotimateIcon from './MotimateIcon.svelte'
+import PaychexIcon from './PaychexIcon.svelte'
+import TerraIcon from './TerraIcon.svelte'
+import VectaraIcon from './VectaraIcon.svelte'
+import ActimoIcon from './ActimoIcon.svelte'
+import AdRapidIcon from './AdRapidIcon.svelte'
+import AeroWorkflowIcon from './AeroWorkflowIcon.svelte'
+import GlobalForestWatchIcon from './GlobalForestWatchIcon.svelte'
+import LeonardoAiIcon from './LeonardoAiIcon.svelte'
+import LocalContextsIcon from './LocalContextsIcon.svelte'
+import WeatherApiIcon from './WeatherApiIcon.svelte'
+import WebScrapingAiIcon from './WebScrapingAiIcon.svelte'
 import type { Component } from 'svelte'
+/**
+ * ./triggers/ holds desaturated variants of some marks in this folder, used by the four
+ * surfaces that list trigger kinds as menu rows: the sidebar trigger list
+ * (SidebarContent), the capture dropdown (CaptureButton), the add-trigger dropdown
+ * (AddTriggersButton) and the menu the flow-graph trigger badge opens (TriggersBadge).
+ * The last two reach them through triggerIconMapMono in triggers/utils.ts.
+ *
+ * All four are dense lists where brand marks sit next to lucide glyphs (Webhook, Route,
+ * Database), and a coloured mark there reads as a different kind of thing rather than a
+ * peer. Everywhere else — trigger pages, the flow-graph badge itself, tables, global
+ * search, the resource picker — uses the full-colour mark from this folder.
+ *
+ * The variants are separate files rather than a CSS override, because coercion cannot
+ * work in general: forcing fills to currentColor breaks lucide's outline icons, which
+ * are fill="none" with a stroke, and marks that set their own text-[#hex] class ignore
+ * a fill rule entirely.
+ *
+ * Most variants are the pre-audit artwork painted with currentColor. GoogleCloudIcon is
+ * greyscale instead — four grey tones rather than one flat colour — because Google's
+ * cloud loses its internal shape when flattened. If the artwork changes, change both.
+ *
+ * Brand marks carry a viewBox that centres the artwork in a box 24/22 of its bounding
+ * size, so the mark occupies the same safe area a lucide glyph does on its 24 grid.
+ * Vendor SVGs come with whatever padding the vendor chose — none for Google, 10% for
+ * GitHub — so a raw viewBox makes them render at visibly different sizes from each other
+ * and from the lucide icons beside them. Re-derive the viewBox when replacing artwork.
+ */
+
 export const APP_TO_ICON_COMPONENT = {
 	postgresql: PostgresIcon,
 	mysql: Mysql,
@@ -238,7 +354,9 @@ export const APP_TO_ICON_COMPONENT = {
 	gmail: GmailIcon,
 	gsheets: GSheetsIcon,
 	gitlab: GitlabIcon,
-	gcloud: GCloudIcon,
+	// `gcloud` and `gcp_service_account` are both Google Cloud, so both resolve to the
+	// official four-colour mark.
+	gcloud: GoogleCloudIcon,
 	gcal: GcalIcon,
 	gdrive: GdriveIcon,
 	airtable: AirtableIcon,
@@ -466,7 +584,97 @@ export const APP_TO_ICON_COMPONENT = {
 	speechify: SpeechifyIcon,
 	convertkit: ConvertKitIcon,
 	browserless: BrowserlessIcon,
-	wiz: WizIcon
+	wiz: WizIcon,
+	mailerlite: MailerLiteIcon,
+	jotform: JotformIcon,
+	newsapi: NewsApiIcon,
+	greip: GreipIcon,
+	odk: OdkIcon,
+	salesflare: SalesflareIcon,
+	paylocity: PaylocityIcon,
+	kustomer: KustomerIcon,
+	netbox: NetBoxIcon,
+	abstractapi: AbstractApiIcon,
+	acumbamail: AcumbamailIcon,
+	chromadb: ChromaIcon,
+	kobotoolbox: KoboToolboxIcon,
+	ably: AblyIcon,
+	gorgias: GorgiasIcon,
+	certopus: CertopusIcon,
+	zixflow: ZixflowIcon,
+	botify: BotifyIcon,
+	sensortower: SensorTowerIcon,
+	zuplo: ZuploIcon,
+	tomorrow: TomorrowIoIcon,
+	accelo: AcceloIcon,
+	enode: EnodeIcon,
+	recraft: RecraftIcon,
+	meteosource: MeteosourceIcon,
+	phrase: PhraseIcon,
+	their_stack: TheirStackIcon,
+	assemblyai: AssemblyAiIcon,
+	ifs_cloud_oidc: IfsIcon,
+	ai21: Ai21Icon,
+	qovery: QoveryIcon,
+	inkeep: InkeepIcon,
+	contiguity: ContiguityIcon,
+	grist: GristIcon,
+	buttondown: ButtondownIcon,
+	holded: HoldedIcon,
+	exa: ExaIcon,
+	strale: StraleIcon,
+	dust: DustIcon,
+	langfuse: LangfuseIcon,
+	basis_theory: BasisTheoryIcon,
+	adhook: AdhookIcon,
+	docspring: DocSpringIcon,
+	persona: PersonaIcon,
+	foxentry: FoxentryIcon,
+	deep_infra: DeepInfraIcon,
+	attio: AttioIcon,
+	basic_http_auth: BasicHttpAuthIcon,
+	api_key_auth: ApiKeyAuthIcon,
+	signature_auth: SignatureAuthIcon,
+	gpg_key: GpgKeyIcon,
+	ldap: LdapIcon,
+	form_input: FormInputIcon,
+	question_input: QuestionInputIcon,
+	record: RecordIcon,
+	ai_agent: AiAgentIcon,
+	agent_instructions: AgentInstructionsIcon,
+	customai: CustomAiIcon,
+	json_schema: JsonSchemaIcon,
+	tripadvisor: TripadvisorIcon,
+	baserow: BaserowIcon,
+	baserow_table: BaserowIcon,
+	arcgis_account: ArcGisIcon,
+	mezmo: MezmoIcon,
+	readme: ReadmeIcon,
+	formstack: FormstackIcon,
+	mapbox: MapboxIcon,
+	dbt_profile: DbtIcon,
+	shutterstock: ShutterstockIcon,
+	taskade: TaskadeIcon,
+	beamer: BeamerIcon,
+	campayn: CampaynIcon,
+	codat: CodatIcon,
+	comapeo_server: ComapeoIcon,
+	klaviyo: KlaviyoIcon,
+	matteroom: MatteroomIcon,
+	mollie: MollieIcon,
+	motimate: MotimateIcon,
+	paychex: PaychexIcon,
+	terra: TerraIcon,
+	vectara: VectaraIcon,
+	actimo: ActimoIcon,
+	adrapid: AdRapidIcon,
+	aero_workflow: AeroWorkflowIcon,
+	gfw: GlobalForestWatchIcon,
+	leonardoai: LeonardoAiIcon,
+	localcontexts: LocalContextsIcon,
+	weatherapi: WeatherApiIcon,
+	webscrapingai: WebScrapingAiIcon,
+	oauth_client_credentials: OauthIcon
 } as unknown as Record<string, Component> // to generate correct svelte package types
 
 // Resource types are named `<app>` or `<app>_<variant>` (e.g. `airtable_table`), so an
@@ -481,7 +689,6 @@ export {
 	DbIcon,
 	DiscordIcon,
 	GcalIcon,
-	GCloudIcon,
 	GdriveIcon,
 	GithubIcon,
 	GitlabIcon,
@@ -693,5 +900,94 @@ export {
 	SpeechifyIcon,
 	ConvertKitIcon,
 	BrowserlessIcon,
-	WizIcon
+	WizIcon,
+	MailerLiteIcon,
+	JotformIcon,
+	NewsApiIcon,
+	GreipIcon,
+	OdkIcon,
+	SalesflareIcon,
+	PaylocityIcon,
+	KustomerIcon,
+	NetBoxIcon,
+	AbstractApiIcon,
+	AcumbamailIcon,
+	ChromaIcon,
+	KoboToolboxIcon,
+	AblyIcon,
+	GorgiasIcon,
+	CertopusIcon,
+	ZixflowIcon,
+	BotifyIcon,
+	SensorTowerIcon,
+	ZuploIcon,
+	ActimoIcon,
+	AdRapidIcon,
+	AeroWorkflowIcon,
+	GlobalForestWatchIcon,
+	LeonardoAiIcon,
+	LocalContextsIcon,
+	WeatherApiIcon,
+	WebScrapingAiIcon,
+	BeamerIcon,
+	CampaynIcon,
+	CodatIcon,
+	ComapeoIcon,
+	KlaviyoIcon,
+	MatteroomIcon,
+	MollieIcon,
+	MotimateIcon,
+	PaychexIcon,
+	TerraIcon,
+	VectaraIcon,
+	TomorrowIoIcon,
+	AcceloIcon,
+	EnodeIcon,
+	RecraftIcon,
+	MeteosourceIcon,
+	PhraseIcon,
+	TheirStackIcon,
+	AssemblyAiIcon,
+	IfsIcon,
+	Ai21Icon,
+	QoveryIcon,
+	InkeepIcon,
+	ContiguityIcon,
+	GristIcon,
+	ButtondownIcon,
+	HoldedIcon,
+	ExaIcon,
+	StraleIcon,
+	DustIcon,
+	LangfuseIcon,
+	BasisTheoryIcon,
+	AdhookIcon,
+	DocSpringIcon,
+	PersonaIcon,
+	FoxentryIcon,
+	DeepInfraIcon,
+	AttioIcon,
+	BasicHttpAuthIcon,
+	ApiKeyAuthIcon,
+	SignatureAuthIcon,
+	GpgKeyIcon,
+	LdapIcon,
+	FormInputIcon,
+	QuestionInputIcon,
+	RecordIcon,
+	AiAgentIcon,
+	AgentInstructionsIcon,
+	CustomAiIcon,
+	JsonSchemaIcon,
+	TripadvisorIcon,
+	BaserowIcon,
+	ArcGisIcon,
+	MezmoIcon,
+	ReadmeIcon,
+	FormstackIcon,
+	MapboxIcon,
+	DbtIcon,
+	ShutterstockIcon,
+	TaskadeIcon,
+	OauthIcon
 }

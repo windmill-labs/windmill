@@ -551,11 +551,16 @@ const config = {
 			animation: {
 				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite',
 				'zoom-in': 'zoom-in 0.25s ease-in-out',
-				'fade-out': 'fade-out 1s ease-in-out'
+				'fade-out': 'fade-out 1s ease-in-out',
+				shake: 'shake 0.2s linear both'
 			},
 			keyframes: {
 				'spin-counter-clockwise': {
 					to: { transform: 'rotate(-360deg)' }
+				},
+				shake: {
+					'25%, 75%': { transform: 'translateX(-2px)' },
+					'50%': { transform: 'translateX(2px)' }
 				},
 				'zoom-in': {
 					'0%': { transform: 'scale(0.95)' },

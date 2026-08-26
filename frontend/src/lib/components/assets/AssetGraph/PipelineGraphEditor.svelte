@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack, type Snippet } from 'svelte'
+	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import { Loader2 } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { DraftService } from '$lib/gen'
@@ -264,8 +265,7 @@
 	// the global drafts list. localStorage is a synchronous crash mirror, READ only
 	// for the one-time migration below; the DB is the source of truth on load.
 	// FlowBuilder's autosave analogue — gated by `persistDrafts`.
-	const PIPELINE_DRAFT_KIND = 'data_pipeline' as const
-	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
+	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
 	let storageKey = $derived(`pipeline-${folder}`)
 	type PipelineDraftBundle = { drafts: Array<[string, PipelineDraft]>; activeDraftPath?: string }
 	// Hydration is tracked on the editor instance (`editor.hydratedFromDb`), not a

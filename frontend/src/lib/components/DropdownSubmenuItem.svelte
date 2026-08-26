@@ -3,7 +3,8 @@
 	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import { melt } from '@melt-ui/svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { ChevronRight } from 'lucide-svelte'
+	import { Check, ChevronRight } from 'lucide-svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import type { Item } from '$lib/utils'
 	import type { MenubarMenuElements, createDropdownMenu } from '@melt-ui/svelte'
 	import { Tooltip } from './meltComponents'
@@ -51,34 +52,71 @@
 			{#if subItem.separatorTop}
 				<div class="my-1 border-t border-border-light"></div>
 			{/if}
-			<MenuItem
-				onClick={(e) => subItem?.action?.(e)}
-				href={subItem?.href}
-				target={subItem?.hrefTarget}
-				disabled={subItem?.disabled}
-				class={twMerge(
-					'px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs transition-colors w-full',
-					'data-[highlighted]:bg-surface-hover',
-					'flex flex-row gap-2 items-center rounded-sm',
-					subItem?.disabled && 'text-disabled cursor-not-allowed'
-				)}
-				item={meltItem}
-			>
-				{#if subItem.icon}
-					<subItem.icon size={14} color={subItem.iconColor} class="shrink-0" />
-				{/if}
-				<p title={subItem.displayName} class="truncate grow min-w-0 whitespace-nowrap text-left">
-					{subItem.displayName}
-				</p>
-				{@render subItem.extra?.()}
-				{#if subItem.tooltip}
-					<Tooltip>
-						{#snippet text()}
-							{subItem.tooltip}
-						{/snippet}
-					</Tooltip>
-				{/if}
-			</MenuItem>
+			{@render subMenuItem(subItem)}
 		{/each}
 	</div>
 {/if}
+
+{#snippet subMenuItem(subItem: Item)}
+	{#if subItem.disabled && subItem.tooltip}
+		<!-- Wrapper carries the native `title`: the disabled button swallows the pointer events
+		     the ⓘ tooltip would need, and its `pointer-events-none` lets the hover reach here. -->
+		<div title={subItem.tooltip} class="w-full">
+			{@render row(subItem)}
+		</div>
+	{:else}
+		{@render row(subItem)}
+	{/if}
+{/snippet}
+
+{#snippet row(subItem: Item)}
+	<MenuItem
+		onClick={(e) => subItem?.action?.(e)}
+		href={subItem?.href}
+		target={subItem?.hrefTarget}
+		disabled={subItem?.disabled}
+		class={twMerge(
+			'px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs transition-colors w-full',
+			'data-[highlighted]:bg-surface-hover',
+			'flex flex-row gap-2 items-center rounded-sm',
+			subItem?.disabled && 'text-disabled cursor-not-allowed',
+			subItem?.disabled && subItem?.tooltip && 'pointer-events-none'
+		)}
+		item={meltItem}
+	>
+		{#if subItem.icon}
+			<subItem.icon size={14} color={subItem.iconColor} class="shrink-0" {...subItem.iconProps ?? {}} />
+		{/if}
+		<p
+			title={subItem.disabled && subItem.tooltip ? undefined : subItem.displayName}
+			class="truncate grow min-w-0 whitespace-nowrap text-left"
+		>
+			{subItem.displayName}
+		</p>
+		{@render subItem.extra?.()}
+		{#if subItem.shortcut || subItem.selected || subItem.toggle !== undefined}
+			<div class="ml-auto flex shrink-0 items-center gap-2">
+				{#if subItem.shortcut}
+					<span class="pl-4 text-2xs text-secondary">{subItem.shortcut}</span>
+				{/if}
+				{#if subItem.selected}
+					<Check size={14} class="text-primary" />
+				{/if}
+				{#if subItem.toggle !== undefined}
+					<!-- Indicator only: the click belongs to the row, so the switch must not
+					     take it (nor answer for the row to a screen reader). -->
+					<span class="pointer-events-none" aria-hidden="true">
+						<Toggle size="2xs" checked={subItem.toggle} />
+					</span>
+				{/if}
+			</div>
+		{/if}
+		{#if subItem.tooltip && !subItem.disabled}
+			<Tooltip>
+				{#snippet text()}
+					{subItem.tooltip}
+				{/snippet}
+			</Tooltip>
+		{/if}
+	</MenuItem>
+{/snippet}

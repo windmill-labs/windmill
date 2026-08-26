@@ -524,6 +524,26 @@ fn cols_to_simple(cols: &[ColumnDef]) -> Vec<SimpleColumn> {
         .collect()
 }
 
+/// DuckDB's `concat` doubles as list concatenation, so a LIST or ARRAY beside a
+/// VARCHAR is a binder error rather than an implicit cast, and quicksearch
+/// concatenates every visible column, so one of them makes the table
+/// unpreviewable. Everything else concatenates as text and stays uncast: the
+/// frontend twin of this predicate feeds app policy digests that a changed
+/// string invalidates.
+fn duckdb_quicksearch_columns(column_defs: &[ColumnDef]) -> String {
+    visible_column_defs(column_defs)
+        .map(|c| {
+            let quoted = render_db_quoted_identifier(&c.field, DbType::Duckdb);
+            if c.datatype.trim_end().ends_with(']') {
+                format!("CAST({} AS VARCHAR)", quoted)
+            } else {
+                quoted
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// MSSQL `text`, `ntext`, and `image` types cannot be used with the `=` operator.
 /// This function wraps the column/param in CAST(...) when needed.
 fn mssql_needs_cast_for_eq(datatype: &str) -> bool {
@@ -578,10 +598,14 @@ fn qi(identifier: &str, db_type: DbType) -> String {
     render_db_quoted_identifier(identifier, db_type)
 }
 
+/// The columns a table preview shows, in the order [`build_visible_field_list`]
+/// renders them.
+fn visible_column_defs(column_defs: &[ColumnDef]) -> impl Iterator<Item = &ColumnDef> {
+    column_defs.iter().filter(|c| c.ignored != Some(true))
+}
+
 pub fn build_visible_field_list(column_defs: &[ColumnDef], db_type: DbType) -> Vec<String> {
-    column_defs
-        .iter()
-        .filter(|c| c.ignored != Some(true))
+    visible_column_defs(column_defs)
         .map(|c| render_db_quoted_identifier(&c.field, db_type))
         .collect()
 }
@@ -1019,7 +1043,7 @@ pub fn make_select_query(
 
             let quicksearch = format!(
                 "($quicksearch = '' OR CONCAT({}) ILIKE '%' || $quicksearch || '%')",
-                filtered_columns.join(", ")
+                duckdb_quicksearch_columns(column_defs)
             );
 
             query.push_str(&format!(
@@ -1188,7 +1212,7 @@ pub fn make_count_query(
             if !filtered_columns.is_empty() {
                 quicksearch_condition.push_str(&format!(
                     " ($quicksearch = '' OR CONCAT(' ', {}) LIKE CONCAT('%', $quicksearch, '%'))",
-                    filtered_columns.join(", ")
+                    duckdb_quicksearch_columns(column_defs)
                 ));
             } else {
                 quicksearch_condition.push_str(" ($quicksearch = '' OR 1 = 1)");
@@ -3128,6 +3152,40 @@ mod tests {
         assert!(result.contains("SELECT \"id\", \"name\" FROM \"my_table\"\n"));
         assert!(result.contains("CONCAT(\"id\", \"name\") ILIKE '%' || $quicksearch || '%'"));
         assert!(result.contains("LIMIT $limit::INT OFFSET $offset::INT"));
+    }
+
+    /// Both the SELECT and the COUNT build the quicksearch predicate; fixing only
+    /// one leaves the grid rendering while the row count errors out.
+    #[test]
+    fn test_duckdb_quicksearch_casts_only_list_columns() {
+        let cols = vec![
+            col("id", "VARCHAR"),
+            col("tags", "VARCHAR[]"),
+            col("pos", "INTEGER[3]"),
+            col("meta", "STRUCT(a INTEGER)"),
+        ];
+
+        let select =
+            make_select_query("my_table", &cols, None, DbType::Duckdb, None, None).unwrap();
+        assert!(
+            select.contains(
+                "CONCAT(\"id\", CAST(\"tags\" AS VARCHAR), CAST(\"pos\" AS VARCHAR), \"meta\") ILIKE"
+            ),
+            "got:\n{}",
+            select
+        );
+        // The projection stays untouched: casting there would change the types
+        // the caller reads back.
+        assert!(select.contains("SELECT \"id\", \"tags\", \"pos\", \"meta\" FROM \"my_table\""));
+
+        let count = make_count_query(DbType::Duckdb, "my_table", None, &cols, None).unwrap();
+        assert!(
+            count.contains(
+                "CONCAT(' ', \"id\", CAST(\"tags\" AS VARCHAR), CAST(\"pos\" AS VARCHAR), \"meta\") LIKE"
+            ),
+            "got:\n{}",
+            count
+        );
     }
 
     // -----------------------------------------------------------------------

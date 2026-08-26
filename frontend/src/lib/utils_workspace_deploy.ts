@@ -21,6 +21,7 @@ import {
 	WorkspaceService,
 	type User
 } from '$lib/gen'
+import type { UserDraftItemKind } from '$lib/gen'
 import {
 	fetchProtectionRulesForWorkspace,
 	canUserBypassRuleKindInRulesets
@@ -703,16 +704,94 @@ export async function createFolderIfAbsent(
 	}
 }
 
-export type DeployPermission = { ok: boolean; reason?: string }
+/** Which term refused, so a caller can scope a refusal the server applies to only some kinds. */
+export type DeployRefusal = 'operator' | 'DisableDirectDeployment' | 'RestrictDeployToDeployers'
+
+export type DeployPermission = { ok: boolean; reason?: string; refusedBy?: DeployRefusal }
+
+// The server reaches `check_deploy_rules` from the item handlers, and only these kinds call it
+// (windmill-api-{scripts,flows,groups}, windmill-api/src/apps.rs, windmill-store/src/{resources,
+// variables}.rs). Schedules and triggers hit no gate at all, so a protection rule must not
+// disable them here. Exhaustive by construction: a new `Kind` fails to compile without a verdict.
+const KIND_GATED_BY_DEPLOY_RULES: Record<Kind, boolean> = {
+	script: true,
+	flow: true,
+	app: true,
+	raw_app: true,
+	resource: true,
+	resource_type: true,
+	variable: true,
+	folder: true,
+	schedule: false,
+	http_trigger: false,
+	websocket_trigger: false,
+	kafka_trigger: false,
+	nats_trigger: false,
+	postgres_trigger: false,
+	mqtt_trigger: false,
+	amqp_trigger: false,
+	sqs_trigger: false,
+	gcp_trigger: false,
+	azure_trigger: false,
+	email_trigger: false,
+	datatable_migration: false,
+	trigger: false,
+	data_pipeline: false
+}
+
+// Every gated kind is spelled identically in `Kind` and `UserDraftItemKind`, so one lookup serves
+// both taxonomies and the drafts surface needs no bridge. The kinds whose spellings diverge
+// (`trigger_http` vs `http_trigger`) are exactly the ungated ones — so if a trigger kind ever
+// becomes gated server-side, it needs its draft spelling added here too.
+const GATED_KIND_NAMES = new Set(
+	Object.entries(KIND_GATED_BY_DEPLOY_RULES)
+		.filter(([, gated]) => gated)
+		.map(([kind]) => kind)
+)
+
+export function kindGatedByDeployRules(kind: Kind | UserDraftItemKind): boolean {
+	return GATED_KIND_NAMES.has(kind)
+}
 
 /**
- * Whether the current user may deploy into `workspace`. Mirrors the server-side
- * deploy authorization (`check_user_against_rule` in windmill-common) so the UI
- * can disable the action with a reason instead of letting the click 403:
- *  - operators can never deploy;
- *  - when the `RestrictDeployToDeployers` protection rule is active, only
- *    admins, `wm_deployers` members (implicitly), and per-ruleset bypass
- *    users/groups may deploy.
+ * Narrow a workspace-level refusal to one item kind. Only the direct-deployment term is scoped:
+ * the deployers-only term over-reaches the same way, but it does so on `main` too, and loosening
+ * it here would change behaviour beyond mirroring the server.
+ */
+export function deployPermissionForKind(
+	perm: DeployPermission,
+	kind: Kind | UserDraftItemKind
+): DeployPermission {
+	if (perm.ok) return perm
+	if (perm.refusedBy === 'DisableDirectDeployment' && !kindGatedByDeployRules(kind)) {
+		return { ok: true }
+	}
+	return perm
+}
+
+/** The refusal a bulk action carries: it applies as soon as one selected kind is still refused. */
+export function deployPermissionForKinds(
+	perm: DeployPermission,
+	kinds: (Kind | UserDraftItemKind)[]
+): DeployPermission {
+	if (perm.ok) return perm
+	// An empty selection keeps the workspace-level refusal, which is then the only thing left
+	// to say why the action is unavailable.
+	if (kinds.length === 0) return perm
+	return kinds.some((k) => !deployPermissionForKind(perm, k).ok) ? perm : { ok: true }
+}
+
+/**
+ * Whether the current user may deploy into `workspace`. Mirrors `check_deploy_rules` in
+ * windmill-common so the UI can disable the action with a reason instead of letting the
+ * click 403: `DisableDirectDeployment` is evaluated before `RestrictDeployToDeployers`, so
+ * the same message wins here as on the server when both block; admins and superadmins bypass
+ * both rules, while `wm_deployers` members bypass only the latter.
+ *
+ * The operator refusal is not part of that mirror. The server refuses operators in the item
+ * handlers instead, and for fewer kinds, so refusing them for everything here is deliberately
+ * stricter than the server rather than a faithful copy of it.
+ *
  * Fails open on any error — the server still enforces on the actual deploy.
  * Shared by the session dock and the compare page so both gate identically.
  */
@@ -724,19 +803,50 @@ export async function checkDeployPermission(
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
 		if (me.operator) {
-			return { ok: false, reason: "You're an operator in this workspace — operators can't deploy" }
+			return {
+				ok: false,
+				reason: "You're an operator in this workspace — operators can't deploy",
+				refusedBy: 'operator'
+			}
 		}
-		// Admins and wm_deployers members always satisfy RestrictDeployToDeployers
-		// (the backend allows wm_deployers implicitly, so check it before the
-		// per-ruleset bypass_users/bypass_groups fallback).
-		const isDeployer = me.is_admin || (me.groups ?? []).includes('wm_deployers')
-		if (!isDeployer) {
+		const userInfo = {
+			is_admin: !!me.is_admin,
+			is_super_admin: !!me.is_super_admin,
+			username: me.username,
+			groups: me.groups ?? []
+		}
+		// A superadmin who is only a plain member of the workspace still bypasses every rule,
+		// so dropping either term here refuses a deploy the server accepts.
+		if (!userInfo.is_admin && !userInfo.is_super_admin) {
 			const rulesets = await fetchProtectionRulesForWorkspace(workspace)
-			const userInfo = { is_admin: !!me.is_admin, username: me.username, groups: me.groups ?? [] }
-			if (!canUserBypassRuleKindInRulesets(rulesets, 'RestrictDeployToDeployers', userInfo)) {
+			if (!canUserBypassRuleKindInRulesets(rulesets, 'DisableDirectDeployment', userInfo)) {
+				// The reserved dev-workspace lock carries DisableWorkspaceForking alongside this rule,
+				// so suggesting a fork unconditionally would point at a second blocked action.
+				const canFork = canUserBypassRuleKindInRulesets(
+					rulesets,
+					'DisableWorkspaceForking',
+					userInfo
+				)
+				const advice = canFork
+					? 'fork the workspace or open a pull request'
+					: 'make your changes locally and open a pull request'
 				return {
 					ok: false,
-					reason: 'Only workspace admins and members of wm_deployers can deploy here'
+					reason: `Direct deployment to ${workspace} is disabled — ${advice}`,
+					refusedBy: 'DisableDirectDeployment'
+				}
+			}
+			// `wm_deployers` membership is an implicit pass on this rule only, so it cannot
+			// short-circuit the fetch above the way admin does.
+			const isDeployer = userInfo.groups.includes('wm_deployers')
+			if (
+				!isDeployer &&
+				!canUserBypassRuleKindInRulesets(rulesets, 'RestrictDeployToDeployers', userInfo)
+			) {
+				return {
+					ok: false,
+					reason: `Only workspace admins and members of wm_deployers can deploy to ${workspace}`,
+					refusedBy: 'RestrictDeployToDeployers'
 				}
 			}
 		}
@@ -758,11 +868,13 @@ export async function checkDeployPermission(
 export async function checkPathWritePermission(
 	workspace: string,
 	path: string,
-	me: Pick<User, 'is_admin' | 'username' | 'folders'>,
+	me: Pick<User, 'is_admin' | 'is_super_admin' | 'username' | 'folders'>,
 	folderExists: (folderPath: string) => Promise<boolean> = (folderPath) =>
 		checkItemExists('folder', folderPath, workspace)
 ): Promise<DeployPermission> {
-	if (me.is_admin) return { ok: true }
+	// The server's `is_owner` reads `ApiAuthed.is_admin`, the merged `is_admin || super_admin`,
+	// so a superadmin owns every path here whether or not they own the folder.
+	if (me.is_admin || me.is_super_admin) return { ok: true }
 	const owner = path.match(/^u\/([^/]+)\//)?.[1]
 	if (owner) {
 		return owner === me.username
@@ -813,7 +925,8 @@ export async function checkItemDeployAccess(
 		permission: workspaceLevel.ok
 			? await checkPathWritePermission(workspace, path, me)
 			: workspaceLevel,
-		canPreserveOnBehalfOf: me.is_admin || (me.groups ?? []).includes('wm_deployers'),
+		canPreserveOnBehalfOf:
+			me.is_admin || me.is_super_admin || (me.groups ?? []).includes('wm_deployers'),
 		me: { email: me.email, permissionedAs: `u/${me.username}` }
 	}
 }

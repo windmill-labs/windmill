@@ -44,7 +44,7 @@
 		'While loop': { icon: Repeat },
 		'Branch to one': { icon: GitBranch },
 		'Branch to all': { icon: GitBranch },
-		'AI Agent': { icon: BotIcon, iconClass: 'text-ai' },
+		'AI Agent': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
 		'AI Sandbox': { icon: BotIcon, showChevron: true, iconClass: 'text-ai' },
 		'Claude Code': { icon: BotIcon, iconClass: 'text-ai' },
 		MCP: { icon: Plug },

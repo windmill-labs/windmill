@@ -212,7 +212,6 @@
 
 <CenteredModal
 	title="Approval for resuming of {isWac ? 'workflow' : 'flow'}"
-	disableLogo
 	centerVertically={false}
 >
 	{#if error}

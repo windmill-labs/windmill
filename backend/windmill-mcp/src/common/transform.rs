@@ -4,6 +4,7 @@
 //! to make them compatible with MCP tool naming requirements.
 
 use super::types::SchemaType;
+use std::collections::HashSet;
 use windmill_common::utils::calculate_hash;
 
 /// Max tool name length. The MCP spec allows 64 chars, but some clients
@@ -199,6 +200,41 @@ pub fn apply_key_transformation(key: &str) -> String {
         .chars()
         .filter(|c| c.is_alphanumeric() || *c == '_')
         .collect::<String>()
+}
+
+/// Rename every property key that MCP argument names cannot carry, in both
+/// `properties` and `required`.
+///
+/// `required` names properties, so it has to follow the rename: an entry left
+/// pointing at the original key names a property that no longer exists, which reads
+/// to a client as "this parameter is optional".
+pub fn transform_property_keys(schema_obj: &mut SchemaType) {
+    let renames: Vec<(String, String)> = schema_obj
+        .properties
+        .keys()
+        .filter(|key| key.chars().any(|c| !c.is_alphanumeric() && c != '_'))
+        .map(|key| (key.clone(), apply_key_transformation(key)))
+        .collect();
+
+    if renames.is_empty() {
+        return;
+    }
+
+    for (old_key, new_key) in renames {
+        if let Some(value) = schema_obj.properties.remove(&old_key) {
+            schema_obj.properties.insert(new_key.clone(), value);
+        }
+        for name in schema_obj.required.iter_mut() {
+            if *name == old_key {
+                *name = new_key.clone();
+            }
+        }
+    }
+
+    // Two keys can collapse onto the same name (`a.b` and `ab`). `required` is
+    // `uniqueItems`, and a strict validator rejects the whole tool over a repeat.
+    let mut seen = HashSet::new();
+    schema_obj.required.retain(|name| seen.insert(name.clone()));
 }
 
 /// Reverse the transformation of a key
@@ -422,5 +458,34 @@ mod tests {
         assert_eq!(apply_key_transformation("my key"), "my_key");
         assert_eq!(apply_key_transformation("key!@#"), "key");
         assert_eq!(apply_key_transformation("key_123"), "key_123");
+    }
+
+    #[test]
+    fn transform_property_keys_renames_required_alongside_properties() {
+        let mut schema: SchemaType = serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": { "my param": { "type": "string" }, "kept": { "type": "string" } },
+            "required": ["my param"],
+        }))
+        .unwrap();
+
+        transform_property_keys(&mut schema);
+
+        assert!(schema.properties.contains_key("my_param"));
+        assert_eq!(schema.required, vec!["my_param".to_string()]);
+    }
+
+    #[test]
+    fn transform_property_keys_does_not_repeat_a_collided_required_name() {
+        let mut schema: SchemaType = serde_json::from_value(serde_json::json!({
+            "type": "object",
+            "properties": { "a.b": { "type": "string" }, "ab": { "type": "string" } },
+            "required": ["a.b", "ab"],
+        }))
+        .unwrap();
+
+        transform_property_keys(&mut schema);
+
+        assert_eq!(schema.required, vec!["ab".to_string()]);
     }
 }

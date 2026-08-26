@@ -1,12 +1,25 @@
+<!-- #494BCB / #797ADE per shortcut.com/branding (mark-default.svg; the reversed lockup uses #797ADE on dark). The mark "is used across various colors but never changes its visual structure." -->
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg {width} {height} viewBox="0 0 24 24" fill="#58B1E4" xmlns="http://www.w3.org/2000/svg">
-<path d="M24 6a6 6 0 0 0-6-6H6a5.975 5.975 0 0 0-4.242 1.758 5.998 5.998 0 0 0 0 8.484l2.137 2.137A6.007 6.007 0 0 0 0 18a6 6 0 0 0 6 6h12a5.975 5.975 0 0 0 4.242-1.758 5.998 5.998 0 0 0 0-8.484l-2.137-2.137A6.002 6.002 0 0 0 24 6zM3.404 20.598c-.694-.694-1.075-1.615-1.075-2.596s.38-1.903 1.075-2.595a3.65 3.65 0 0 1 2.443-1.074l7.34 7.34H6a3.664 3.664 0 0 1-2.596-1.075zm17.192-5.194C21.29 16.1 21.67 17.02 21.67 18s-.38 1.904-1.075 2.596A3.644 3.644 0 0 1 18 21.67a3.64 3.64 0 0 1-2.596-1.075l-12-11.998C2.71 7.904 2.33 6.983 2.33 6.002s.38-1.903 1.075-2.595C4.1 2.712 5.02 2.33 6 2.33s1.904.381 2.596 1.076l12 11.997zm0-6.806a3.65 3.65 0 0 1-2.443 1.073l-7.34-7.342H18a3.64 3.64 0 0 1 2.596 1.075C21.29 4.1 21.67 5.02 21.67 6s-.38 1.904-1.075 2.598z"/>
+<svg
+	{width}
+	{height}
+	viewBox="-2.44 -3.651 58.564 58.564"
+	fill="none"
+	class="text-[#494BCB] dark:text-[#797ADE]"
+	xmlns="http://www.w3.org/2000/svg"
+>
+	<path
+		fill-rule="evenodd"
+		clip-rule="evenodd"
+		d="M17.1304 0L53.64 0L37.1107 17.6479L53.3229 33.3734L36.6202 51.2054L0 51.1965L16.5986 33.4747L0.45036 17.8124L17.1304 0ZM19.5793 36.3657L9.5749 47.0471L30.5973 47.0522L19.5793 36.3657ZM35.6495 46.1685L22.4178 33.335L34.2721 20.6786L47.5036 33.5129L35.6495 46.1685ZM31.2915 17.7875L19.4371 30.444L6.26934 17.6724L18.1229 5.01423L31.2915 17.7875ZM34.1301 14.7568L44.0629 4.15178L23.1968 4.15178L34.1301 14.7568Z"
+		fill="currentColor"
+	/>
 </svg>

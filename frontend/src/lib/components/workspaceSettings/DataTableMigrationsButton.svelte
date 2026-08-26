@@ -67,10 +67,71 @@
 	let deleteOpen = $state(false)
 	let deleteTarget = $state<DatatableMigrationWithStatus | undefined>(undefined)
 
+	let addingDown = $state(false)
+	let downDraft = $state('')
+	let savingDown = $state(false)
+
 	function openView(m: DatatableMigrationWithStatus) {
 		viewMigration = m
 		viewTab = 'up'
+		addingDown = false
 		viewOpen = true
+	}
+
+	const DOWN_TEMPLATE = 'BEGIN;\n\n-- Add your down migration here\n\nEND;'
+
+	function startAddDownMigration() {
+		// Same transaction frame the new-migration modal starts from, so the down
+		// applies atomically.
+		downDraft = DOWN_TEMPLATE
+		addingDown = true
+	}
+
+	// Saving the bare template would attach a down that reverts nothing, and a
+	// down can only be attached once — the upsert refuses to correct it later on a
+	// migration that has already run. So require an actual statement inside the
+	// transaction frame, not just comments.
+	function hasStatement(sql: string): boolean {
+		return (
+			sql
+				.replace(/--[^\n]*/g, '')
+				.replace(/\/\*[\s\S]*?\*\//g, '')
+				.replace(/\b(BEGIN|START\s+TRANSACTION|COMMIT|END)\b/gi, '')
+				.replace(/;/g, '')
+				.trim() !== ''
+		)
+	}
+
+	// Attach a down migration to one that has none. Only the down is sent back;
+	// the name and up SQL are echoed unchanged so the upsert doesn't count as a
+	// rewrite of a migration that may already be applied.
+	async function saveDownMigration() {
+		const m = viewMigration
+		if (!m) return
+		savingDown = true
+		try {
+			await WorkspaceService.upsertDatatableMigration({
+				workspace,
+				datatableName: datatable,
+				requestBody: {
+					timestamp: m.timestamp,
+					name: m.name,
+					code_up: m.code_up,
+					code_down: downDraft
+				}
+			})
+			sendUserToast('Down migration saved')
+			addingDown = false
+			// Show the saved down straight away: `loadMigrations` swallows its own
+			// errors, so re-reading the migration from the refreshed list could hand
+			// back the pre-save entry and bounce the tab to its empty state.
+			viewMigration = { ...m, code_down: downDraft }
+			await loadMigrations()
+		} catch (e: any) {
+			sendUserToast(`Failed to save down migration: ${e?.body ?? e?.message ?? e}`, true)
+		} finally {
+			savingDown = false
+		}
 	}
 
 	const confirmationModal = createAsyncConfirmationModal()
@@ -540,11 +601,47 @@
 					<TabContent value="up" class="h-80 border rounded-md overflow-hidden">
 						<SimpleEditor class="h-full" lang="sql" code={viewMigration?.code_up ?? ''} readOnly />
 					</TabContent>
-					<TabContent value="down" class="h-80 border rounded-md overflow-hidden">
+					<TabContent value="down" class="flex flex-col gap-2 h-80">
 						{#if viewMigration?.code_down}
-							<SimpleEditor class="h-full" lang="sql" code={viewMigration.code_down} readOnly />
+							<div class="grow min-h-0 border rounded-md overflow-hidden">
+								<SimpleEditor class="h-full" lang="sql" code={viewMigration.code_down} readOnly />
+							</div>
+						{:else if addingDown}
+							<div class="grow min-h-0 border rounded-md overflow-hidden">
+								<SimpleEditor class="h-full" lang="sql" bind:code={downDraft} leadingChangeSync />
+							</div>
+							<div class="flex justify-end gap-2">
+								<Button
+									variant="default"
+									unifiedSize="sm"
+									disabled={savingDown}
+									on:click={() => (addingDown = false)}
+								>
+									Cancel
+								</Button>
+								<Button
+									variant="accent"
+									unifiedSize="sm"
+									disabled={savingDown || !hasStatement(downDraft)}
+									on:click={saveDownMigration}
+								>
+									Save
+								</Button>
+							</div>
 						{:else}
-							<div class="p-6 text-center text-sm text-tertiary">No down migration</div>
+							<div
+								class="flex flex-col items-center justify-center gap-3 grow border rounded-md text-sm text-tertiary"
+							>
+								<span>No down migration</span>
+								<Button
+									variant="subtle"
+									unifiedSize="xs"
+									startIcon={{ icon: Plus }}
+									on:click={startAddDownMigration}
+								>
+									Add a down migration
+								</Button>
+							</div>
 						{/if}
 					</TabContent>
 				{/snippet}

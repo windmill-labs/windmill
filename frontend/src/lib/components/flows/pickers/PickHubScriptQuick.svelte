@@ -49,6 +49,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Alert } from '$lib/components/common'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
+	import { logHubScriptPick } from '$lib/utils/featureUsage'
 
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
 
@@ -65,6 +66,8 @@
 		items?: {
 			path: string
 			summary: string
+			/** The hub's own wording, before `summary` is rewritten as the display label. */
+			hubSummary: string
 			id: number
 			version_id: number
 			ask_id: number
@@ -140,6 +143,9 @@
 				}) => ({
 					...x,
 					path: `hub/${x.version_id}/${x.app}/${x.summary.toLowerCase().replaceAll(/\s+/g, '_')}`,
+					// `summary` below becomes the display label; keep the hub's own wording,
+					// which is what telemetry keys off.
+					hubSummary: x.summary,
 					summary: `${x.summary} (${x.app})`
 				})
 			)
@@ -150,6 +156,10 @@
 
 	async function handlePickScript(item: (typeof items)[number]) {
 		if (item.path.startsWith('hub/')) {
+			logHubScriptPick(
+				{ version_id: item.version_id, app: item.app, summary: item.hubSummary },
+				'picker'
+			)
 			try {
 				await ScriptService.pickHubScriptByPath({ path: item.path })
 			} catch (error) {

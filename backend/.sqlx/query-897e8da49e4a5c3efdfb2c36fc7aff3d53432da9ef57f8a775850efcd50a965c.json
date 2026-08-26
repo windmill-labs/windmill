@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT r.value AS \"value: sqlx::types::Json<serde_json::Value>\",\n                (SELECT version FROM resource_version v\n                 WHERE v.workspace_id = r.workspace_id AND v.path = r.path\n                 ORDER BY v.version DESC LIMIT 1) AS version\n         FROM resource r\n         WHERE r.workspace_id = $1 AND r.path = $2 AND r.resource_type = 'ai_agent'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value: sqlx::types::Json<serde_json::Value>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "version",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "897e8da49e4a5c3efdfb2c36fc7aff3d53432da9ef57f8a775850efcd50a965c"
+}

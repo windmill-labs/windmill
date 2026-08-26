@@ -7,6 +7,7 @@
 	import RawAppYamlEditor, { type RawAppYamlUpdate } from './RawAppYamlEditor.svelte'
 	import type Drawer from '../common/drawer/Drawer.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import { Button } from '../common'
 	import { AppService, type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -28,6 +29,7 @@
 	} from './utils'
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
 	import InlineElementPrompt from './InlineElementPrompt.svelte'
+	import RawAppCoepWarning from './RawAppCoepWarning.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -60,6 +62,7 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
+	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -244,6 +247,17 @@
 	// so the preview just opens the app.
 	setOpenInSessionHandoff({ source: () => sessionOpen })
 
+	/** Hand this app off to a fresh AI session, seeding `seedPrompt` and sending
+	 * it on arrival. Exposed for the template picker's "Start in AI session": the
+	 * route owns the prompt, but the draft persistence the preview depends on
+	 * lives here. False when there is no path to open yet, so the caller can fall
+	 * back rather than swallow the click. */
+	export async function openInSession(seedPrompt: string): Promise<boolean> {
+		if (!sessionOpen) return false
+		await openSourceInSession(sessionOpen, { seedPrompt, autoSend: true })
+		return true
+	}
+
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
 	let dataTableWhitelist = $derived(buildDataTableWhitelist(dataTableRefsObjects))
@@ -338,6 +352,7 @@
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 	const PREVIEW_SHELL_URL = '/ui_builder/app-preview.html'
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
+	let coepWarning: RawAppCoepWarning | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
 	let lastBuild: { css: string; js: string } | undefined = undefined
 	// Detached preview tab/window rendering the same app-preview bundle as the
@@ -1151,6 +1166,9 @@
 		) {
 			externalPreviewReady = true
 			feedExternalPreview()
+			// The detached window is cross-origin isolated like the inline preview,
+			// so blocked external resources warrant the same COEP warning.
+			coepWarning?.attachTo(externalPreviewWindow)
 			return
 		}
 
@@ -1491,6 +1509,9 @@
 		win.addEventListener('load', () => {
 			externalPreviewReady = true
 			feedExternalPreview()
+			// Attach here too: against an artifact that predates the handshake, this
+			// is the only place the freshly opened window is ever seen loaded.
+			coepWarning?.attachTo(win)
 		})
 	}
 
@@ -1855,9 +1876,14 @@
 	// mount: a reactive src would reload the iframe on every theme toggle. Live
 	// theme changes travel through postMessage instead (see the $effect below).
 	function uiBuilderIframeSrc(): string {
-		const dark = document.documentElement.classList.contains('dark')
-		const variant = getAppliedDarkModeVariant()
-		return `/ui_builder/index.html?dark=${dark}&variant=${variant}`
+		const params = new URLSearchParams({
+			dark: String(document.documentElement.classList.contains('dark')),
+			variant: getAppliedDarkModeVariant()
+		})
+		// `workspace` lets the in-browser npm installer reach /api/w/<ws>/npm_proxy so
+		// package installs honour the instance's .npmrc instead of the public registry.
+		if (opWorkspace) params.set('workspace', opWorkspace)
+		return `/ui_builder/index.html?${params}`
 	}
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
 	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
@@ -2352,19 +2378,19 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<button
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Columns2 }}
+												selected={splitWithPreview}
 												title={splitWithPreview
 													? 'Move preview back into a tab'
 													: 'Pin preview to the right'}
 												aria-label="Toggle split with preview"
 												aria-pressed={splitWithPreview}
-												class={splitWithPreview
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-												onclick={toggleSplit}
-											>
-												<Columns2 size={14} />
-											</button>
+												onClick={toggleSplit}
+											/>
 										</div>
 									{/snippet}
 								</DraggableTabs>
@@ -2437,27 +2463,33 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
 												title="Switch bundler"
-												onclick={() => {
+												onClick={() => {
 													const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
 													bundlerType = next
 													iframe?.contentWindow?.postMessage(
 														{ type: 'setBundlerType', bundlerType: next },
 														'*'
 													)
-												}}>{bundlerType}</button
+												}}
 											>
-											<button
+												{bundlerType}
+											</Button>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: MousePointerSquareDashed }}
+												selected={inspectorEnabled}
 												title={inspectorEnabled
 													? 'Click to disable element inspector'
 													: 'Click to enable element inspector'}
-												class={inspectorEnabled
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
 												aria-label="Toggle element inspector"
-												onclick={() => {
+												aria-pressed={inspectorEnabled}
+												onClick={() => {
 													if (inspectorEnabled) {
 														// Turning off is a full exit: stop picking and clear the
 														// selection + inline prompt (mirrors Escape).
@@ -2470,42 +2502,42 @@
 														)
 													}
 												}}
-											>
-												<MousePointerSquareDashed size={14} />
-											</button>
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: RefreshCw }}
 												title="Replay the last build into the preview"
 												aria-label="Rebuild"
-												onclick={() => {
+												onClick={() => {
 													if (lastBuild) {
 														feedPreviewIframe(lastBuild)
 													}
 												}}
-											>
-												<RefreshCw size={14} />
-											</button>
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: SquareArrowOutUpRight }}
 												title="Open preview in a separate window"
 												aria-label="Open preview in a separate window"
-												onclick={openExternalPreview}
-											>
-												<SquareArrowOutUpRight size={14} />
-											</button>
-											<button
+												onClick={openExternalPreview}
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Columns2 }}
+												selected={splitWithPreview}
 												title={splitWithPreview
 													? 'Move preview back into a tab'
 													: 'Pin preview to the right'}
 												aria-label="Toggle split with preview"
 												aria-pressed={splitWithPreview}
-												class={splitWithPreview
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-												onclick={toggleSplit}
-											>
-												<Columns2 size={14} />
-											</button>
+												onClick={toggleSplit}
+											/>
 										</div>
 									{/snippet}
 								</DraggableTabs>
@@ -2515,6 +2547,7 @@
 									src={PREVIEW_SHELL_URL}
 									class="w-full flex-1 block"
 								></iframe>
+								<RawAppCoepWarning bind:this={coepWarning} iframe={previewIframe} />
 								{#if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->
