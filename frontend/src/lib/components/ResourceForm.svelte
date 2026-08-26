@@ -168,7 +168,7 @@
 		</Label>
 	</div>
 {/if}
-<LabelsInput bind:labels class="-mt-4" />
+<LabelsInput bind:labels workspace={$workspaceStore} class="-mt-4" />
 
 {#if deployTo}
 	<Label

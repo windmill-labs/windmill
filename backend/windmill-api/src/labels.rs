@@ -19,12 +19,19 @@ use windmill_common::{
     error::{Error, JsonResult, Result},
 };
 
-/// Mirrors `NoteColor` in `frontend/src/lib/components/graph/labelColors.ts`.
-/// Kept as a list rather than an enum so an unknown value coming back from an
-/// older row is a rejected write, not a failed deserialization of the whole row.
+/// Mirrors the `LabelColor` enum in `openapi.yaml`, from which
+/// `frontend/src/lib/components/labels/labelColors.ts` is generated. Kept as a
+/// list rather than an enum so an unknown value coming back from an older row is
+/// a rejected write, not a failed deserialization of the whole row.
 const PALETTE: [&str; 10] = [
     "yellow", "blue", "green", "purple", "pink", "orange", "red", "cyan", "lime", "gray",
 ];
+
+/// The column is TEXT so the registry never caps what a label may be called, but
+/// a write still has to be bounded: the handler runs on the privileged pool, and
+/// every row it accepts is returned to every member by `labels/list`. Well above
+/// the 50 characters the label input allows.
+const MAX_NAME_LEN: usize = 255;
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -97,9 +104,19 @@ async fn update_label(
     }
     check_scopes(&authed, || "labels:write".to_string())?;
 
-    let name = nl.name.trim();
-    if name.is_empty() {
+    // The name keys a label that already exists verbatim in some `labels text[]`,
+    // which stores whatever was typed. Trimming here would colour a *different*
+    // label — `" release "` would write a row for `"release"` — so the raw name is
+    // the key and the trim only answers whether it is blank.
+    let name = nl.name.as_str();
+    if name.trim().is_empty() {
         return Err(Error::BadRequest("Label name cannot be empty".to_string()));
+    }
+    if name.chars().count() > MAX_NAME_LEN {
+        return Err(Error::BadRequest(format!(
+            "Label name cannot exceed {} characters",
+            MAX_NAME_LEN
+        )));
     }
 
     match nl.color.as_deref() {

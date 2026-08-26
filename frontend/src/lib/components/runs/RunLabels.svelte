@@ -7,7 +7,7 @@
 	import type { Item } from '$lib/utils'
 	import { badgeColors, badgeSelectedColors } from '$lib/components/common/badge/model'
 	import { labelBadgeColor } from '$lib/components/labels/labelColors'
-	import { labelColorCache, labelColorOf } from '$lib/components/labels/labelStore'
+	import { labelCache, labelColorOf } from '$lib/components/labels/labelStore'
 
 	interface Props {
 		job: Job
@@ -66,7 +66,7 @@
 	// The chips keep their own geometry — the overflow split above is computed from
 	// LABEL_MAX_WIDTH — so they take only the color half of the badge styling.
 	function chipClass(label: string): string {
-		const color = labelBadgeColor(labelColorOf($labelColorCache, job?.workspace_id, label))
+		const color = labelBadgeColor(labelColorOf($labelCache, job?.workspace_id, label))
 		return activeLabel == label ? badgeSelectedColors[color] : badgeColors[color]
 	}
 

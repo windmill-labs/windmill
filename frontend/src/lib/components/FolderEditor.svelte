@@ -306,7 +306,7 @@
 				are labeled with them.
 			</div>
 			{#if can_write}
-				<LabelsInput bind:labels onchange={saveLabels} />
+				<LabelsInput bind:labels workspace={$workspaceStore} onchange={saveLabels} />
 			{:else}
 				<div class="inline-flex items-center gap-1 h-5">
 					{#each labels ?? [] as label (label)}

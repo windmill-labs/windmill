@@ -1255,7 +1255,7 @@
 					kind="resource"
 				/>
 			</Label>
-			<LabelsInput bind:labels class="-mt-5" />
+			<LabelsInput bind:labels workspace={$workspaceStore} class="-mt-5" />
 			{#if deployTo}
 				<Label
 					label="Workspace specific"
@@ -1379,7 +1379,7 @@
 					/>
 				{/if}
 
-				<LabelsInput bind:labels class="-mt-5" />
+				<LabelsInput bind:labels workspace={$workspaceStore} class="-mt-5" />
 
 				{#if supportsClientCredentials}
 					<div class="flex flex-col gap-1">
@@ -1507,7 +1507,7 @@
 				kind="resource"
 			/>
 		</Label>
-		<LabelsInput bind:labels class="-mt-5" />
+		<LabelsInput bind:labels workspace={$workspaceStore} class="-mt-5" />
 		{#if deployTo}
 			<Label
 				label="Workspace specific"

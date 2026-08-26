@@ -79,7 +79,7 @@
 		kind="variable"
 		workspaceOverride={workspace}
 	/>
-	<LabelsInput bind:labels />
+	<LabelsInput bind:labels workspace={$workspaceStore} />
 </div>
 <label class="flex flex-col gap-1">
 	<span class="text-xs font-semibold text-emphasis">Secret</span>

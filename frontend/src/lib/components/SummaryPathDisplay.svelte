@@ -17,6 +17,12 @@
 		path?: string
 		labels?: string[] | undefined
 		inheritedLabels?: string[] | undefined
+		/**
+		 * The workspace holding the item. Defaults to the navigated one, which is
+		 * also where the rest of this component saves; pass it explicitly from a
+		 * caller that operates on a different workspace.
+		 */
+		workspace?: string | undefined
 		editable?: boolean
 		onSaved?: (newPath: string) => void
 		kind?: 'flow' | 'script'
@@ -27,10 +33,13 @@
 		path = $bindable(''),
 		labels = $bindable(),
 		inheritedLabels = undefined,
+		workspace = undefined,
 		editable = false,
 		onSaved,
 		kind = 'flow'
 	}: Props = $props()
+
+	let labelWorkspace = $derived(workspace ?? $workspaceStore)
 
 	let editSummary = $state('')
 	let editPath = $state('')
@@ -112,11 +121,11 @@
 					{#if labels?.length}
 						<div class="flex items-center gap-0.5">
 							{#each labels as label}
-								<LabelBadge {label} workspace={$workspaceStore} size="verySmall" />
+								<LabelBadge {label} workspace={labelWorkspace} size="verySmall" />
 							{/each}
 						</div>
 					{/if}
-					<InheritedLabels labels={inheritedLabels} workspace={$workspaceStore} />
+					<InheritedLabels labels={inheritedLabels} workspace={labelWorkspace} />
 				</div>
 			</div>
 		{/snippet}
@@ -141,12 +150,13 @@
 					<div class="-mt-4 flex items-center gap-2">
 						<LabelsInput
 							bind:labels
+							workspace={labelWorkspace}
 							onchange={() => {
 								labelsDirty = true
 							}}
 						/>
 						{#if inheritedLabels?.length}
-							<InheritedLabels labels={inheritedLabels} workspace={$workspaceStore} />
+							<InheritedLabels labels={inheritedLabels} workspace={labelWorkspace} />
 						{/if}
 					</div>
 					{#if inheritedLabels?.length}

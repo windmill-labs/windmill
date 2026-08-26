@@ -31,8 +31,7 @@
 	async function pick(name: string, color: LabelColor | undefined) {
 		if (!workspace) return
 		try {
-			await setLabelColor(workspace, name, color)
-			await refresh()
+			labels = await setLabelColor(workspace, name, color)
 		} catch (err) {
 			sendUserToast(`Could not update label ${name}: ${err}`, true)
 		}

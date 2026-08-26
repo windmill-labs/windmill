@@ -11,10 +11,11 @@
 		/** `undefined` clears the color and drops the label's row. */
 		onSelect: (color: LabelColor | undefined) => void
 		anchor: Snippet
-		isOpen?: boolean
 	}
 
-	let { color, onSelect, anchor, isOpen = $bindable(false) }: Props = $props()
+	let { color, onSelect, anchor }: Props = $props()
+
+	let isOpen = $state(false)
 
 	function pick(next: LabelColor | undefined) {
 		isOpen = false

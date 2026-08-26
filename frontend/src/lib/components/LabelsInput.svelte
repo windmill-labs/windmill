@@ -1,20 +1,25 @@
 <script lang="ts">
 	import Button from './common/button/Button.svelte'
 	import { Plus, Tag, X } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
 	import type { Label, LabelColor } from '$lib/gen'
 	import LabelBadge from './labels/LabelBadge.svelte'
 	import LabelColorPicker from './labels/LabelColorPicker.svelte'
-	import { labelColorCache, labelColorOf, loadLabels, setLabelColor } from './labels/labelStore'
+	import { labelCache, labelColorOf, loadLabels, setLabelColor } from './labels/labelStore'
 	import { LABEL_COLOR_SWATCHES } from './labels/labelColors'
 
 	interface Props {
 		labels: string[] | undefined
+		/**
+		 * The workspace the edited item lives in. Not always the navigated one — a
+		 * session editor operates on a fork while the sidebar still browses the
+		 * origin — so a color picked here must be written where the item is.
+		 */
+		workspace: string | undefined
 		onchange?: () => void
 		class?: string
 	}
 
-	let { labels = $bindable(), onchange, class: clazz = '' }: Props = $props()
+	let { labels = $bindable(), workspace, onchange, class: clazz = '' }: Props = $props()
 
 	let adding = $state(false)
 	let inputValue = $state('')
@@ -41,23 +46,24 @@
 	// The chips need colors before the suggestion list is ever opened, and
 	// `loadLabels` is cached per workspace, so this costs one request per workspace.
 	$effect(() => {
-		const workspace = $workspaceStore
 		if (workspace) {
 			loadLabels(workspace).catch(() => {})
 		}
 	})
 
-	async function loadExistingLabels(force = false) {
-		if (!$workspaceStore) return
+	// Always refetches: labels appear the moment anyone types a new one onto an
+	// item, so a cached vocabulary would stop suggesting labels created since the
+	// page loaded.
+	async function loadExistingLabels() {
+		if (!workspace) return
 		try {
-			existingLabels = await loadLabels($workspaceStore, force)
+			existingLabels = await loadLabels(workspace, true)
 		} catch {}
 	}
 
 	async function pickColor(name: string, color: LabelColor | undefined) {
-		if (!$workspaceStore) return
-		await setLabelColor($workspaceStore, name, color)
-		await loadExistingLabels(true)
+		if (!workspace) return
+		existingLabels = await setLabelColor(workspace, name, color)
 	}
 
 	function startAdding() {
@@ -125,13 +131,13 @@
 	{#each labels ?? [] as label (label)}
 		<div class="inline-flex items-center">
 			<LabelColorPicker
-				color={labelColorOf($labelColorCache, $workspaceStore, label)}
+				color={labelColorOf($labelCache, workspace, label)}
 				onSelect={(c) => pickColor(label, c)}
 			>
 				{#snippet anchor()}
 					<LabelBadge
 						{label}
-						workspace={$workspaceStore}
+						{workspace}
 						title="Pick a color for {label}"
 						class="rounded-r-none pr-0.5"
 					/>

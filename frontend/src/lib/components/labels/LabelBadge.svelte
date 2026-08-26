@@ -4,7 +4,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { labelBadgeColor } from './labelColors'
-	import { labelColorCache, labelColorOf } from './labelStore'
+	import { labelCache, labelColorOf } from './labelStore'
 
 	interface Props {
 		label: string
@@ -37,7 +37,7 @@
 		children
 	}: Props = $props()
 
-	let color = $derived(labelBadgeColor(labelColorOf($labelColorCache, workspace, label)))
+	let color = $derived(labelBadgeColor(labelColorOf($labelCache, workspace, label)))
 </script>
 
 <Badge

@@ -143,7 +143,11 @@
 					/>
 				</Label>
 				<!-- prettier-ignore -->
-				<LabelsInput bind:labels={(flowStore.val as any).labels} class="-mt-4" />
+				<LabelsInput
+					bind:labels={(flowStore.val as any).labels}
+					workspace={opWorkspace?.() ?? $workspaceStore}
+					class="-mt-4"
+				/>
 
 				{#if !noEditor && customUi?.topBar?.editablePath != false}
 					<Label label="Path">
