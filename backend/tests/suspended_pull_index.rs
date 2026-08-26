@@ -58,18 +58,20 @@ async fn suspended_pull_tests_resume_time_inside_the_index(
         .unwrap_or_else(|| {
             panic!("suspended pull did not scan queue_suspended_v2 on {version}:\n{pretty}")
         });
-    // Only `Index Cond` is checked against the index tuple — a `Filter` is what costs the
-    // heap fetch per row.
+    // Only `Index Cond` is checked against the index tuple, so that is where the resume test
+    // has to land — as a `Filter` it would cost a heap fetch per suspended row. The residual
+    // `suspend_until IS NOT NULL` filter is not that: it is always true for rows the partial
+    // index holds, and only ever runs on the row LIMIT 1 already fetched.
     let cond = scan["Index Cond"].as_str().unwrap_or_else(|| {
         panic!("no Index Cond on the suspended pull scan on {version}:\n{pretty}")
     });
     assert!(
-        cond.contains("CASE WHEN") && cond.contains("suspend_until IS NOT NULL"),
+        cond.contains("CASE WHEN"),
         "resume test is not an index condition on {version}:\n{pretty}"
     );
     assert!(
-        scan["Filter"].is_null(),
-        "suspended pull fell back to a heap filter on {version}:\n{pretty}"
+        !scan["Filter"].as_str().unwrap_or("").contains("CASE WHEN"),
+        "resume test fell back to a heap filter on {version}:\n{pretty}"
     );
     Ok(())
 }
