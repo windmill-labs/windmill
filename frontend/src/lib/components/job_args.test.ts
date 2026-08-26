@@ -228,6 +228,37 @@ describe('conformArgsToSchema', () => {
 		})
 	})
 
+	// A number input bound to a string renders blank and `validateInput` range-checks only
+	// an actual number, so the field passed as filled: the user approved an empty box and
+	// the job received the string.
+	it('drops a primitive that contradicts its declared scalar type', () => {
+		const schema = {
+			properties: {
+				count: { type: 'number' },
+				retries: { type: 'integer' },
+				name: { type: 'string' },
+				dry_run: { type: 'boolean' }
+			}
+		}
+		expect(
+			conformArgsToSchema(
+				{ count: 'not-a-number', retries: '3', name: 'ada', dry_run: 'false' },
+				schema
+			)
+		).toMatchObject({
+			args: { name: 'ada' },
+			dropped: { undeclared: [], unshowable: ['count', 'retries', 'dry_run'] }
+		})
+		// A dyn-select slot is `type: 'object'` holding whatever the helper returns, so
+		// only a declared scalar type constrains a primitive.
+		expect(
+			conformArgsToSchema(
+				{ tenant: 'alpha' },
+				{ properties: { tenant: { type: 'object', format: 'dynselect-list_tenants' } } }
+			)
+		).toMatchObject({ args: { tenant: 'alpha' }, dropped: { unshowable: [] } })
+	})
+
 	// A list element is bound to a widget the same way a top-level argument is, so an
 	// object in a scalar slot renders as [object Object] and the run carries it verbatim.
 	it('filters array elements whose schema declares no properties', () => {

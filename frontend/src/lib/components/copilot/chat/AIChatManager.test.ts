@@ -261,6 +261,30 @@ describe('AIChatManager run form', () => {
 		expect(manager.displayMessages[0].isLoading).toBe(true)
 	})
 
+	// The tool reads the deployed schema before it asks for arguments. A stop during that
+	// read drains the callbacks and settles the card, so a waiter installed afterwards was
+	// one no rendered form could resolve: the turn stayed loading until a second stop.
+	it('installs no run-form waiter once the turn is stopped', async () => {
+		const manager = new AIChatManager()
+		// The turn the tool is running under; cancel aborts it.
+		manager.abortController = new AbortController()
+		manager.displayMessages = [
+			{
+				role: 'tool',
+				tool_call_id: 'call_late',
+				content: 'Executing...',
+				isLoading: true
+			}
+		]
+
+		manager.cancel()
+
+		await expect(
+			manager.requestRunArgs('call_late', { path: 'f/a/b', schema: {}, args: {} })
+		).resolves.toBeUndefined()
+		expect(manager.isRunFormPending('call_late')).toBe(false)
+	})
+
 	// Stop ends the turn, not the job: the deployed script is already running with all
 	// its side effects, so the transcript must not record it as cancelled.
 	it('does not mark a started run cancelled when the turn is stopped', () => {
