@@ -196,6 +196,11 @@
 		{#if hasSideContent}
 			{@render side()}
 		{/if}
+	{:else if noSide}
+		<!-- No step pane can ever appear here, so there is no transition to protect against and
+		     the graph keeps its plain container — svelte-splitpanes measures, and several of these
+		     embeds sit in an ancestor with no definite height. -->
+		{@render graph()}
 	{:else}
 		<!-- The graph keeps one pane across every transition, and only the step pane comes and
 		     goes. Rendering it in two branches instead would re-create FlowGraphV2 whenever the
