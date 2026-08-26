@@ -40,15 +40,25 @@
 		// whitespace and a non-punycoded IDN, which the backend rejects too.
 		if (!/^[\x21-\x7e]+$/.test(origin))
 			return `'${origin}' must contain only visible ASCII, with no whitespace`
-		const [scheme, ...rest] = origin.split('://')
-		if (rest.length !== 1) return `'${origin}' is missing a scheme, such as https://`
-		const host = rest[0]
-		if (host === '') return `'${origin}' is missing a host`
-		if (host.includes('/')) return `'${origin}' must not contain a path or trailing slash`
-		if (host.includes('?') || host.includes('#'))
+		const separator = origin.indexOf('://')
+		if (separator < 0) return `'${origin}' is missing a scheme, such as https://`
+		const scheme = origin.slice(0, separator)
+		const rest = origin.slice(separator + 3)
+		if (!/^[A-Za-z][A-Za-z0-9.+-]*$/.test(scheme)) return `'${origin}' has an invalid scheme`
+		if (rest === '') return `'${origin}' is missing a host`
+		if (rest.includes('/')) return `'${origin}' must not contain a path or trailing slash`
+		if (rest.includes('?') || rest.includes('#'))
 			return `'${origin}' must not contain a query or fragment`
-		if (host.includes('@')) return `'${origin}' must not contain userinfo`
-		if (!/^[A-Za-z0-9.+-]+$/.test(scheme)) return `'${origin}' has an invalid scheme`
+		if (rest.includes('@')) return `'${origin}' must not contain userinfo`
+		// An IPv6 literal is bracketed, so its own colons are not the port
+		// separator, and `http://[::1]` must not be read as host '[:'.
+		const authority = rest.startsWith('[')
+			? /^\[([^\]]*)\](?::(.*))?$/.exec(rest)
+			: /^([^:]*)(?::(.*))?$/.exec(rest)
+		if (!authority) return `'${origin}' is missing a host`
+		const [, host, port] = authority
+		if (host === '') return `'${origin}' is missing a host`
+		if (port !== undefined && !/^[0-9]+$/.test(port)) return `'${origin}' has an invalid port`
 		return undefined
 	}
 
@@ -84,6 +94,16 @@
 	// and the backend rejects the same values if one ever gets past it.
 	$effect(() => {
 		allowed_origins = restricted ? origins : undefined
+	})
+
+	// This option renders on one tab only, so an unusable list must not outlive
+	// it: `error` alone would keep Save disabled from a screen that cannot show
+	// why, and clearing it alone would let a half-typed list save as a real
+	// restriction. Leaving restores what was there on arrival, never widening.
+	const mountedWith = allowed_origins
+	$effect(() => () => {
+		if (error !== undefined) allowed_origins = mountedWith
+		error = undefined
 	})
 
 	// Re-seed the text field when the value is replaced from outside — applying

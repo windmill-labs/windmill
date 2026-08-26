@@ -688,6 +688,8 @@ mod tests {
         let allowed = vec![
             "https://app.example.com".to_string(),
             "http://localhost:3000".to_string(),
+            "http://[::1]".to_string(),
+            "http://[::1]:8080".to_string(),
             "*".to_string(),
         ];
         assert!(validate_allowed_origins(&allowed).is_ok());
@@ -709,6 +711,10 @@ mod tests {
             // Every sandboxed iframe sends `Origin: null`, so allowing it would
             // grant access to any page that can open one.
             "null",
+            "1://app.example.com",
+            "https://app.example.com:not-a-port",
+            "https://app.example.com:",
+            "https://:3000",
         ] {
             assert!(
                 validate_allowed_origins(&[invalid.to_string()]).is_err(),

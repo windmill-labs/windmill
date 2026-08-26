@@ -20,17 +20,33 @@ export function parseAllowedOrigins(raw: string): string[] {
 }
 
 /**
+ * Read the instance-default setting, mirroring `parse_allowed_origins_setting`
+ * in windmill-common: the settings UI writes a comma-separated string, but the
+ * API accepts an array too.
+ */
+export function parseAllowedOriginsSetting(setting: unknown): string[] {
+	if (typeof setting === 'string') return parseAllowedOrigins(setting)
+	if (Array.isArray(setting))
+		return setting
+			.filter((origin): origin is string => typeof origin === 'string')
+			.map((origin) => origin.trim())
+			.filter((origin) => origin !== '')
+	return []
+}
+
+/**
  * Whether a route is restricted to specific origins, mirroring
- * `effective_allowed_origins` in windmill-trigger-http: the route's own list
- * when it has one, otherwise the instance default, and `*` in either means no
- * restriction at all.
+ * `effective_allowed_origins` in windmill-trigger-http: a route with its own
+ * list restricts, an empty one included since it then matches no origin at all;
+ * only a route without one falls back to the instance default, and `*` in
+ * either is the opt-out.
  */
 export function isOriginRestricted(
 	allowed_origins: string[] | undefined,
 	instanceDefaultOrigins: string[]
 ): boolean {
-	const effective = allowed_origins ?? instanceDefaultOrigins
-	return effective.length > 0 && !effective.includes('*')
+	if (allowed_origins !== undefined) return !allowed_origins.includes('*')
+	return instanceDefaultOrigins.length > 0 && !instanceDefaultOrigins.includes('*')
 }
 
 export const SECRET_KEY_PATH = 'secret_key_path'

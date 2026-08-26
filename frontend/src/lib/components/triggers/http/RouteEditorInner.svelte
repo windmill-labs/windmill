@@ -51,7 +51,7 @@
 		HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
 		HUB_SCRIPT_ID,
 		isOriginRestricted,
-		parseAllowedOrigins,
+		parseAllowedOriginsSetting,
 		saveHttpRouteFromCfg,
 		SECRET_KEY_PATH
 	} from './utils'
@@ -129,7 +129,7 @@
 			const setting = await SettingService.getGlobal({
 				key: HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
 			})
-			instanceDefaultOrigins = typeof setting === 'string' ? parseAllowedOrigins(setting) : []
+			instanceDefaultOrigins = parseAllowedOriginsSetting(setting)
 		} catch {
 			instanceDefaultOrigins = []
 		}

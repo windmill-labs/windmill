@@ -294,7 +294,10 @@ pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Res
         let Some((scheme, rest)) = origin.split_once("://") else {
             return Err(invalid("missing scheme"));
         };
-        if scheme.is_empty()
+        if !scheme
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic())
             || !scheme
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '+' || c == '-')
@@ -312,6 +315,30 @@ pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Res
         }
         if rest.contains('@') {
             return Err(invalid("must not contain userinfo"));
+        }
+
+        // An IPv6 literal is bracketed, so its own colons are not the port
+        // separator: splitting on the last colon would read `http://[::1]` as
+        // host `[:` and reject an origin a browser really does send.
+        let (host, port) = match rest.strip_prefix('[') {
+            Some(after_bracket) => match after_bracket.split_once(']') {
+                Some((host, "")) => (host, None),
+                Some((host, tail)) => match tail.strip_prefix(':') {
+                    Some(port) => (host, Some(port)),
+                    None => return Err(invalid("invalid port")),
+                },
+                None => return Err(invalid("missing host")),
+            },
+            None => match rest.split_once(':') {
+                Some((host, port)) => (host, Some(port)),
+                None => (rest, None),
+            },
+        };
+        if host.is_empty() {
+            return Err(invalid("missing host"));
+        }
+        if port.is_some_and(|port| port.is_empty() || !port.chars().all(|c| c.is_ascii_digit())) {
+            return Err(invalid("invalid port"));
         }
     }
 
