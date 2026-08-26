@@ -15,6 +15,10 @@ services:
   ## its RLS policies to cluster-level roles, and a single-database dump loses both
   ## silently. Full procedure, and why 16 is still a valid choice until Nov 2028:
   ## https://www.windmill.dev/docs/advanced/self_host#upgrade-postgresql-to-18
+  ## Pinning back to postgres:16 means reverting the mount below as well. 16 against
+  ## the 18-style mount initdbs a fresh cluster into a subdirectory of db_data and
+  ## comes up blank, the one path here that fails quietly instead of loudly. The
+  ## original cluster is still at the volume root, unread, so it is recoverable.
   db:
     deploy:
       # To use an external database, set replicas to 0 and set DATABASE_URL to the external database url in the .env file
