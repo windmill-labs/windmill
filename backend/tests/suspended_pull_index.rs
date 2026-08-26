@@ -3,8 +3,17 @@
 //! job, just by falling back to a heap filter and fetching one tuple per suspended row on
 //! every worker poll. No functional test can see that, so assert on the plan instead.
 
+use serde_json::Value;
 use sqlx::{Pool, Postgres};
 use windmill_common::worker::make_suspended_pull_query;
+
+/// Depth-first walk of an `EXPLAIN (FORMAT JSON)` plan tree.
+fn nodes(plan: &Value, out: &mut Vec<Value>) {
+    out.push(plan.clone());
+    for child in plan["Plans"].as_array().unwrap_or(&vec![]) {
+        nodes(child, out);
+    }
+}
 
 #[sqlx::test(fixtures("base"))]
 async fn suspended_pull_tests_resume_time_inside_the_index(
@@ -27,37 +36,40 @@ async fn suspended_pull_tests_resume_time_inside_the_index(
     sqlx::query("SET enable_seqscan = off")
         .execute(&mut *conn)
         .await?;
-    let plan: Vec<String> = sqlx::query_scalar(&format!(
-        "EXPLAIN {}",
+    let version: String = sqlx::query_scalar("SELECT version()")
+        .fetch_one(&mut *conn)
+        .await?;
+    // FORMAT JSON rather than the default: `Index Cond` and `Filter` are separate keys on the
+    // node, so this does not ride on EXPLAIN's line layout staying put across a major bump.
+    let explained: Value = sqlx::query_scalar(&format!(
+        "EXPLAIN (FORMAT JSON) {}",
         make_suspended_pull_query(&["flow".to_string()])
     ))
     .bind("test-worker")
-    .fetch_all(&mut *conn)
+    .fetch_one(&mut *conn)
     .await?;
-    let plan = plan.join("\n");
 
-    let scan = plan
-        .lines()
-        .position(|l| l.contains("Index Scan using queue_suspended_v2 on v2_job_queue"))
-        .unwrap_or_else(|| panic!("suspended pull did not scan queue_suspended_v2:\n{plan}"));
-    // The node's own qual lines run until the next node, and only `Index Cond` is checked
-    // against the index tuple — a `Filter` is what costs the heap fetch per row.
-    let quals: Vec<&str> = plan
-        .lines()
-        .skip(scan + 1)
-        .take_while(|l| !l.contains("->"))
-        .collect();
-    let cond = quals
+    let mut all = vec![];
+    nodes(&explained[0]["Plan"], &mut all);
+    let pretty = serde_json::to_string_pretty(&explained)?;
+    let scan = all
         .iter()
-        .find(|l| l.trim_start().starts_with("Index Cond:"))
-        .unwrap_or_else(|| panic!("no Index Cond on the suspended pull scan:\n{plan}"));
+        .find(|n| n["Index Name"] == "queue_suspended_v2")
+        .unwrap_or_else(|| {
+            panic!("suspended pull did not scan queue_suspended_v2 on {version}:\n{pretty}")
+        });
+    // Only `Index Cond` is checked against the index tuple — a `Filter` is what costs the
+    // heap fetch per row.
+    let cond = scan["Index Cond"].as_str().unwrap_or_else(|| {
+        panic!("no Index Cond on the suspended pull scan on {version}:\n{pretty}")
+    });
     assert!(
         cond.contains("CASE WHEN") && cond.contains("suspend_until IS NOT NULL"),
-        "resume test is not an index condition:\n{plan}"
+        "resume test is not an index condition on {version}:\n{pretty}"
     );
     assert!(
-        !quals.iter().any(|l| l.trim_start().starts_with("Filter:")),
-        "suspended pull fell back to a heap filter:\n{plan}"
+        scan["Filter"].is_null(),
+        "suspended pull fell back to a heap filter on {version}:\n{pretty}"
     );
     Ok(())
 }

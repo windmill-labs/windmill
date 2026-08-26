@@ -105,6 +105,9 @@ lazy_static::lazy_static! {
                     (20260826202939, include_str!(
                         "../../migrations/20260826202939_queue_suspended_resume_at_index.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20260826214706, include_str!(
+                        "../../migrations/20260826214706_queue_suspended_drop_legacy_index.up.sql"
+                    ).replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
                     ].into_iter().collect();
 }
 

@@ -5,10 +5,11 @@
 --   * suspend_until is a column and not only the partial predicate, otherwise the query's
 --     IS NOT NULL guard becomes a heap filter costing one fetch per suspended row.
 --   * the index is dropped before it is built rather than relying on IF NOT EXISTS. The
---     OVERRIDDEN_MIGRATIONS rewrite in windmill-api/src/db.rs runs these CONCURRENTLY, an
---     interrupted concurrent build leaves the index present but invalid, IF NOT EXISTS would
---     skip rebuilding it on the retry, and the DROP below would then retire the only usable
---     index the pull has.
+--     OVERRIDDEN_MIGRATIONS rewrite in windmill-api/src/db.rs runs these CONCURRENTLY, and an
+--     interrupted concurrent build leaves the index present but invalid, which IF NOT EXISTS
+--     would then skip rebuilding. Retiring the index this replaces is left to the migration
+--     that follows, so this one can only ever be replayed while that index is still there to
+--     cover the rebuild.
 DROP INDEX IF EXISTS queue_suspended_v2;
 
 CREATE INDEX IF NOT EXISTS queue_suspended_v2
@@ -20,5 +21,3 @@ CREATE INDEX IF NOT EXISTS queue_suspended_v2
         tag
     )
     WHERE suspend_until IS NOT NULL;
-
-DROP INDEX IF EXISTS queue_suspended;
