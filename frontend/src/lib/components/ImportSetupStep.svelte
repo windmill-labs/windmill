@@ -150,6 +150,14 @@
 	 */
 	let retryTarget = $state<string | undefined>(undefined)
 
+	/**
+	 * A dialog is being opened. `open()` resolves the destination membership before it shows
+	 * anything, so the button stays clickable during that wait — and a second click starts a
+	 * second lookup whose `reset()` lands on the dialog the first one opened, wiping fields
+	 * the user has already filled.
+	 */
+	let opening = $state(false)
+
 	function openWizard(name: string) {
 		wizardFor = name
 		retryTarget = name
@@ -161,7 +169,10 @@
 		// username unresolved. Setup reached in that window writes the credential path this
 		// whole chain exists to get right. `wizardFor` alone mounts the component, which is
 		// all `wizard?.open()` needs to exist.
-		void tick().then(() => wizard?.open())
+		opening = true
+		void tick()
+			.then(() => wizard?.open())
+			.finally(() => (opening = false))
 	}
 
 	function defaultInstanceDbName(): string {
@@ -630,7 +641,7 @@
 							<Button
 								variant={row.status === 'done' ? 'subtle' : 'accent'}
 								unifiedSize="sm"
-								disabled={working}
+								disabled={working || opening}
 								onClick={() => openWizard(row.name)}
 							>
 								{#if row.status === 'done'}

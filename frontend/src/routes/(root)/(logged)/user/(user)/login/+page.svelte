@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 
@@ -110,7 +111,7 @@
 					goto(rd ?? '/')
 				}
 				// See (root)/+layout.svelte for why /projects/import skips the picker.
-			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith('/projects/import')) {
+			} else if (rd?.startsWith('/user/workspaces') || rd?.startsWith(`${base}/projects/import`)) {
 				goto(rd)
 			} else if (rd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)

@@ -332,7 +332,7 @@
 				// See (root)/+layout.svelte for why /projects/import skips the picker.
 			} else if (
 				resolvedRd?.startsWith('/user/workspaces') ||
-				resolvedRd?.startsWith('/projects/import')
+				resolvedRd?.startsWith(`${base}/projects/import`)
 			) {
 				goto(resolvedRd)
 			} else if (resolvedRd == '/#user-settings') {

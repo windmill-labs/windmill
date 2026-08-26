@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { UserService, WorkspaceService } from '$lib/gen'
@@ -150,7 +151,7 @@
 					// The hub import wizard asks for the destination itself, and may end in a
 					// workspace that does not exist yet — bouncing it to the picker would
 					// force the very choice it exists to make.
-					!page.url.pathname.startsWith('/projects/import')
+					!page.url.pathname.startsWith(`${base}/projects/import`)
 				) {
 					goto(
 						`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`
