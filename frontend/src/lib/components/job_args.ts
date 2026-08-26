@@ -110,6 +110,15 @@ const declaresDynMultiselect = (prop: any) =>
 	typeof prop?.format === 'string' && prop.format.startsWith('dynmultiselect-')
 
 /**
+ * Declares a structure to filter against, rather than a free-form object. An empty
+ * `properties` is what the parsers emit for a bare `dict`/`object` annotation, and
+ * `ArgInput` gives it a JSON editor holding whatever the user types — so reading it as
+ * structure would report every key the editor accepts as an argument nobody declared.
+ */
+const declaresProperties = (prop: any) =>
+	prop?.properties != null && Object.keys(prop.properties).length > 0
+
+/**
  * Whether `prop` declares a slot the form can show `value` in. A value that fits nowhere
  * is one the user would approve unseen: it matches no level below, so every filter falls
  * straight through it, and `ArgInput` binds it to a widget that renders nothing — an
@@ -124,7 +133,7 @@ function fitsDeclaredShape(value: any, prop: any): boolean {
 	// Declared nested structure, never the declared `type`: a dyn-multiselect argument is
 	// `type: 'object'` holding an array, so reading `type` would drop what the user picked.
 	const declaresArray = prop?.items != null
-	const declaresObject = prop?.properties != null || Array.isArray(prop?.oneOf)
+	const declaresObject = declaresProperties(prop) || Array.isArray(prop?.oneOf)
 	return !(isArray ? declaresObject && !declaresArray : declaresArray && !declaresObject)
 }
 
@@ -133,7 +142,7 @@ function dropUndeclaredNested(value: any, prop: any, dropped: DroppedPaths, path
 	if (!fitsDeclaredShape(value, prop)) return DROP
 	if (typeof value !== 'object') return value
 	const isArray = Array.isArray(value)
-	if (prop?.properties && !isArray) {
+	if (declaresProperties(prop) && !isArray) {
 		return dropUndeclaredArgs(value, prop.properties, dropped, path)
 	}
 	// Every declared element shape, not just an object one: the guards above are what drop
@@ -280,6 +289,23 @@ function fileMarker(base64: string): string {
 }
 
 /**
+ * {@link mapMatchingArgs} against a schema that may declare nothing to match. Copied even
+ * then, for the reason {@link enforceDisabledDefaults} copies: callers hand the result to
+ * a form that edits it in place, and one branch returning the input would write every
+ * keystroke through to their own copy.
+ */
+function mapMatchingOrCopy(
+	args: Record<string, any>,
+	schema: { properties?: Record<string, any> } | undefined,
+	isLeaf: (prop: any) => boolean,
+	visit: (value: unknown, prop: any, path: string) => unknown
+): Record<string, any> {
+	const properties = schema?.properties
+	if (!properties) return { ...args }
+	return mapMatchingArgs(args, properties, isLeaf, visit)
+}
+
+/**
  * Drop every password-typed argument, so a caller cannot propose a secret on the user's
  * behalf: password fields open empty and the user fills them in. Appends the path of
  * each one removed, so the caller can be told the field was emptied rather than left to
@@ -290,9 +316,7 @@ export function stripSecretArgs(
 	schema: { properties?: Record<string, any> } | undefined,
 	strippedKeys?: string[]
 ): Record<string, any> {
-	const properties = schema?.properties
-	if (!properties) return args
-	return mapMatchingArgs(args, properties, isSecretProp, (value, _prop, path) => {
+	return mapMatchingOrCopy(args, schema, isSecretProp, (value, _prop, path) => {
 		if (value !== undefined) strippedKeys?.push(path)
 		return undefined
 	})
@@ -309,9 +333,7 @@ export function stripFileArgs(
 	schema: { properties?: Record<string, any> } | undefined,
 	strippedKeys?: string[]
 ): Record<string, any> {
-	const properties = schema?.properties
-	if (!properties) return args
-	return mapMatchingArgs(args, properties, isFileProp, (value, _prop, path) => {
+	return mapMatchingOrCopy(args, schema, isFileProp, (value, _prop, path) => {
 		if (value !== undefined) strippedKeys?.push(path)
 		return undefined
 	})
@@ -325,9 +347,7 @@ export function redactSecretArgs(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined
 ): Record<string, any> {
-	const properties = schema?.properties
-	if (!properties) return args
-	return mapMatchingArgs(args, properties, isSecretProp, (value) =>
+	return mapMatchingOrCopy(args, schema, isSecretProp, (value) =>
 		value == null ? undefined : '<hidden>'
 	)
 }
@@ -341,10 +361,8 @@ export function redactFileArgs(
 	args: Record<string, any>,
 	schema: { properties?: Record<string, any> } | undefined
 ): Record<string, any> {
-	const properties = schema?.properties
-	if (!properties) return args
 	const mark = (value: unknown) => (typeof value === 'string' ? fileMarker(value) : value)
-	return mapMatchingArgs(args, properties, isFileProp, (value) =>
+	return mapMatchingOrCopy(args, schema, isFileProp, (value) =>
 		Array.isArray(value) ? value.map(mark) : mark(value)
 	)
 }

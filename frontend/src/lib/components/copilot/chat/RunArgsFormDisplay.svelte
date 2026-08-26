@@ -7,6 +7,7 @@
 	import { conformArgsToSchema } from '$lib/components/job_args'
 	import { sendUserToast } from '$lib/utils'
 	import { getAiChatManager } from './aiChatManagerContext'
+	import { PLAN_MODE_MESSAGES } from './planModeMessages'
 	import type { RunFormDisplay } from './shared'
 
 	// Never the imported singleton: submitting has to resolve the pending callback of
@@ -51,6 +52,13 @@
 		// per click and still run nothing.
 		if (!aiChatManager.isRunFormPending(toolCallId)) {
 			sendUserToast('This run form is no longer active — ask again to run the script.', true)
+			return
+		}
+		// Ahead of processSecretArgs, which writes ephemeral variables to the workspace: the
+		// autonomy picker moves while a form sits pending, and the re-gate on the other side
+		// of the callback runs too late to unmake a write plan mode promised not to do.
+		if (aiChatManager.planModeActive) {
+			sendUserToast(PLAN_MODE_MESSAGES.runFormRefused, true)
 			return
 		}
 		submitting = true
