@@ -359,6 +359,24 @@ describe('enforceDisabledDefaults', () => {
 		const { args } = enforceDisabledDefaults({ either: { kind: 'a', level: 99 } }, schema)
 		expect(args.either).toEqual({ kind: 'a', level: 1 })
 	})
+
+	// `ArgInput` settles on the first tag that titles a branch, so a tag titling none
+	// leaves it on the branch the other tag names. Stopping at the first tag holding a
+	// string resolved to branch 0 instead, and enforced its default over that branch.
+	it('reads past a oneOf tag that names no branch', () => {
+		const tagged = {
+			properties: {
+				either: {
+					oneOf: [
+						{ title: 'a', properties: { level: { type: 'number', disabled: true, default: 1 } } },
+						{ title: 'b', properties: { level: { type: 'number' } } }
+					]
+				}
+			}
+		}
+		const value = { either: { kind: 'nosuchbranch', label: 'b', level: 99 } }
+		expect(enforceDisabledDefaults(value, tagged).args.either).toEqual(value.either)
+	})
 })
 
 describe('secret args at every level the form nests', () => {
@@ -402,6 +420,27 @@ describe('secret args at every level the form nests', () => {
 
 	it('leaves no key behind for a level the args never carried', () => {
 		expect(Object.keys(stripSecretArgs({ top: 'x' }, schema))).toEqual([])
+	})
+
+	// Array elements were descended only through `items.properties`, so a branch under
+	// `items.oneOf` was kept by conformArgsToSchema and then never visited: the secret
+	// reached the persisted card and the model-visible result verbatim.
+	it('strips a secret under a oneOf branch of an array element', () => {
+		const oneOfItems = {
+			properties: {
+				steps: {
+					type: 'array',
+					items: {
+						oneOf: [{ title: 'push', properties: { token: { type: 'string', password: true } } }]
+					}
+				}
+			}
+		}
+		const stripped: string[] = []
+		expect(
+			stripSecretArgs({ steps: [{ token: 'hunter2', name: 'a' }] }, oneOfItems, stripped)
+		).toEqual({ steps: [{ name: 'a' }] })
+		expect(stripped).toEqual(['steps[0].token'])
 	})
 
 	// The caller binds the result to a form that edits in place, so a schema declaring

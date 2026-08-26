@@ -209,10 +209,15 @@ function unionDeclaredProperties(bags: Record<string, any>[], value: any): Recor
 }
 
 /** The `oneOf` branch the form shows: `ArgInput` opens the one the value's tag names,
- * and the first branch when no tag names any. */
+ * and the first branch when no tag names any. The first tag that names a branch, not the
+ * first that holds a string — a tag naming nothing leaves `ArgInput` on the branch the
+ * other tag names, so stopping at it would enforce a branch the form never opened. */
 function selectedOneOfBranch(value: any, oneOf: any[]): any {
-	const tag = ONE_OF_TAG_KEYS.map((key) => value?.[key]).find((v) => typeof v === 'string')
-	return oneOf.find((branch) => tag != null && branch?.title === tag) ?? oneOf[0]
+	for (const key of ONE_OF_TAG_KEYS) {
+		const named = oneOf.find((branch) => branch?.title === value?.[key])
+		if (named) return named
+	}
+	return oneOf[0]
 }
 
 /**
@@ -257,21 +262,11 @@ function mapMatchingArgs(
 		// Absent means the form never carried this level; recursing would rebuild it and
 		// leave the key behind holding undefined.
 		if (!Object.hasOwn(result, key)) continue
-		if (prop?.properties) {
-			result[key] = mapMatchingArgs(
-				result[key],
-				prop.properties,
-				isLeaf,
-				visit,
-				selectedBranchOnly,
-				keyPath,
-				inOneOf
-			)
-		} else if (prop?.items?.properties && Array.isArray(result[key])) {
+		if (prop?.items && !prop?.properties && Array.isArray(result[key])) {
 			result[key] = result[key].map((item: any, i: number) =>
-				mapMatchingArgs(
+				mapMatchingNested(
 					item,
-					prop.items.properties,
+					prop.items,
 					isLeaf,
 					visit,
 					selectedBranchOnly,
@@ -279,30 +274,67 @@ function mapMatchingArgs(
 					inOneOf
 				)
 			)
-		} else if (Array.isArray(prop?.oneOf)) {
-			// One branch or all of them, and the difference is the visitor: a value can carry
-			// a key from a variant nobody selected, so stripping has to reach every branch,
-			// while a default read off an unselected branch is one the form never showed.
-			const branches = selectedBranchOnly
-				? [selectedOneOfBranch(result[key], prop.oneOf)]
-				: prop.oneOf
-			for (const branch of branches) {
-				if (branch?.properties) {
-					result[key] = mapMatchingArgs(
-						result[key],
-						branch.properties,
-						isLeaf,
-						visit,
-						selectedBranchOnly,
-						keyPath,
-						!selectedBranchOnly
-					)
-				}
-			}
+		} else {
+			result[key] = mapMatchingNested(
+				result[key],
+				prop,
+				isLeaf,
+				visit,
+				selectedBranchOnly,
+				keyPath,
+				inOneOf
+			)
 		}
 	}
 	// Spread rather than the accumulator itself, so callers get a plain object back.
 	return { ...result }
+}
+
+/**
+ * Descend one level, whether the declaration nests its fields in `properties` or spreads
+ * them across `oneOf` branches. Shared with the array case: an element is declared either
+ * way, and a password reached down one shape has to be reached down the other.
+ */
+function mapMatchingNested(
+	holder: any,
+	prop: any,
+	isLeaf: (prop: any) => boolean,
+	visit: (value: unknown, prop: any, path: string) => unknown,
+	selectedBranchOnly: boolean,
+	path: string,
+	inOneOf: boolean
+): any {
+	if (prop?.properties) {
+		return mapMatchingArgs(
+			holder,
+			prop.properties,
+			isLeaf,
+			visit,
+			selectedBranchOnly,
+			path,
+			inOneOf
+		)
+	}
+	if (!Array.isArray(prop?.oneOf)) return holder
+	// One branch or all of them, and the difference is the visitor: a value can carry a key
+	// from a variant nobody selected, so stripping has to reach every branch, while a
+	// default read off an unselected branch is one the form never showed.
+	const branches = selectedBranchOnly ? [selectedOneOfBranch(holder, prop.oneOf)] : prop.oneOf
+	let mapped = holder
+	for (const branch of branches) {
+		if (branch?.properties) {
+			mapped = mapMatchingArgs(
+				mapped,
+				branch.properties,
+				isLeaf,
+				visit,
+				selectedBranchOnly,
+				path,
+				!selectedBranchOnly
+			)
+		}
+	}
+	return mapped
 }
 
 const isSecretProp = (prop: any) => !!prop?.password
