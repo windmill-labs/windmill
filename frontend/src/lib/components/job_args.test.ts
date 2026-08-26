@@ -115,6 +115,50 @@ describe('conformArgsToSchema', () => {
 		).toMatchObject({ args: { either: { kind: 'a' } }, dropped: { unshowable: ['either.src'] } })
 	})
 
+	// Both declarations fit an object, so resolving the key to one of them filtered the
+	// value against the branch the user did not open and emptied it. Both orders, because
+	// only the branch that lost the tie was affected.
+	it('merges what each oneOf branch declares under a key they share', () => {
+		const left = { title: 'left', properties: { cfg: { properties: { l: { type: 'string' } } } } }
+		const right = { title: 'right', properties: { cfg: { properties: { r: { type: 'string' } } } } }
+		for (const branches of [
+			[left, right],
+			[right, left]
+		]) {
+			const schema = { properties: { either: { oneOf: branches } } }
+			for (const [kind, cfg] of [
+				['left', { l: 'L' }],
+				['right', { r: 'R' }]
+			] as const) {
+				expect(conformArgsToSchema({ either: { kind, cfg } }, schema)).toEqual({
+					args: { either: { kind, cfg } },
+					resetKeys: [],
+					dropped: { undeclared: [], unshowable: [] }
+				})
+			}
+			// Widened to the union of both, not to anything: a key neither declares still goes.
+			expect(
+				conformArgsToSchema({ either: { kind: 'left', cfg: { evil: 1 } } }, schema).dropped
+					.undeclared
+			).toEqual(['either.cfg.evil'])
+		}
+	})
+
+	// The union was accumulated on a plain object, so a branch key named `toString` read as
+	// one an earlier branch had already declared and never made it in.
+	it('keeps a oneOf branch key named like an Object.prototype member', () => {
+		const { args, dropped } = conformArgsToSchema(
+			{ either: { kind: 'a', toString: 'ts' } },
+			{
+				properties: {
+					either: { oneOf: [{ title: 'a', properties: { toString: { type: 'string' } } }] }
+				}
+			}
+		)
+		expect(args).toEqual({ either: { kind: 'a', toString: 'ts' } })
+		expect(dropped.undeclared).toEqual([])
+	})
+
 	// A value shaped unlike its schema matches no level below, so every filter walked
 	// past it and the form rendered nothing over an argument the run still carried.
 	it('drops a value whose shape contradicts the declared one', () => {
