@@ -4,11 +4,11 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
-	import { FlowService } from '$lib/gen'
+	import { FlowService, type OpenFlow } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { untrack } from 'svelte'
-	import { fixtureFlow } from './fixtureFlow'
+	import { fixtureFlow, subFixtureFlow } from './fixtureFlow'
 
 	// FlowPathViewer takes a path and fetches, so the fixture has to exist in the workspace.
 	// Seeding on load keeps fixtureFlow.ts the single source of truth for the graph.
@@ -30,23 +30,23 @@
 		short: 'height: 260px; width: 100%'
 	}
 
+	async function upsert(workspace: string, p: string, flow: OpenFlow) {
+		const body = { path: p, ...flow, deployment_message: 'dev fixture' }
+		if (await FlowService.existsFlowByPath({ workspace, path: p })) {
+			await FlowService.updateFlow({ workspace, path: p, requestBody: body })
+		} else {
+			await FlowService.createFlow({ workspace, requestBody: body })
+		}
+	}
+
 	async function seed(workspace: string, p: string) {
 		seeding = true
 		error = undefined
 		try {
-			const exists = await FlowService.existsFlowByPath({ workspace, path: p })
-			if (exists) {
-				await FlowService.updateFlow({
-					workspace,
-					path: p,
-					requestBody: { path: p, ...fixtureFlow, deployment_message: 'dev fixture' }
-				})
-			} else {
-				await FlowService.createFlow({
-					workspace,
-					requestBody: { path: p, ...fixtureFlow, deployment_message: 'dev fixture' }
-				})
-			}
+			// Subflow first: the main fixture's step 'm' points at it, and a step whose target
+			// does not exist renders as not-found instead of a nested graph.
+			await upsert(workspace, `${p}_sub`, subFixtureFlow)
+			await upsert(workspace, p, fixtureFlow(`${p}_sub`))
 			seeded = undefined
 			await new Promise((r) => setTimeout(r, 0))
 			seeded = p

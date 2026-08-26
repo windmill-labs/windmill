@@ -17,13 +17,24 @@ function step(
 
 const js = (expr: string) => ({ type: 'javascript' as const, expr })
 
+/** Target of the fixture's subflow step, so the step panel has a nested graph to draw. */
+export const subFixtureFlow: OpenFlow = {
+	summary: 'Refund a line item (dev fixture subflow)',
+	value: {
+		modules: [
+			step('a', 'Void the charge', 'bun', 'export async function main() {}\n'),
+			step('b', 'Restock the item', 'python3', 'def main():\n    return "restocked"\n')
+		]
+	}
+}
+
 /**
  * Shape of the graph this fixture draws, so a change here can be judged against intent:
  * a straight step, a for-loop with two nested steps, a three-way branchone, a branchall
- * with a skip_failure branch, a step carrying retry/cache/early-stop badges, plus a
- * failure module, a preprocessor, a note and a group.
+ * with a skip_failure branch, a subflow, a step carrying retry/cache/early-stop badges,
+ * plus a failure module, a preprocessor, a note and a group.
  */
-export const fixtureFlow: OpenFlow = {
+export const fixtureFlow = (subflowPath: string): OpenFlow => ({
 	summary: 'Order fulfilment (dev fixture)',
 	description:
 		'Fake flow rendered by /dev/flow_path_viewer. Edit fixtureFlow.ts and hit Re-seed to change the graph.',
@@ -101,6 +112,11 @@ export const fixtureFlow: OpenFlow = {
 					]
 				}
 			},
+			{
+				id: 'm',
+				summary: 'Refund rejected items',
+				value: { type: 'flow', input_transforms: {}, path: subflowPath }
+			},
 			step('l', 'Close the order', 'python3', 'def main():\n    return "done"\n', {
 				retry: { constant: { attempts: 3, seconds: 5 } },
 				cache_ttl: 3600,
@@ -138,4 +154,4 @@ export const fixtureFlow: OpenFlow = {
 			}
 		]
 	}
-}
+})
