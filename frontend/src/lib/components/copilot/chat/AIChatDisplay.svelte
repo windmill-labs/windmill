@@ -499,13 +499,19 @@
 	const availableAutonomyModeOptions = $derived(
 		autonomyModeOptions.filter((option) => option.isAvailable(autonomyAvailability))
 	)
+	// Only when this tab could hold the posture itself: the label is a promise that
+	// the workspace stays read-only, and the takeover in `runGuard` keeps it by
+	// entering plan mode here — which an unavailable mode would silently refuse.
+	const showsMirroredPlan = $derived(
+		aiChatManager.mirroredPlanMode && aiChatManager.planModeAvailable
+	)
 	// Fall back to ask-permission when the persisted mode isn't applicable in the
 	// current AI mode (e.g. auto-accept edits while in a mode without edits).
 	// A session planning in another tab overrides both: that posture governs the
 	// run this tab is showing, and this tab's own mode governs nothing until it
 	// drives a turn itself.
 	const effectiveAutonomyMode = $derived(
-		aiChatManager.mirroredPlanMode
+		showsMirroredPlan
 			? AIAutonomyMode.PLAN
 			: availableAutonomyModeOptions.some((option) => option.mode === aiChatManager.autonomyMode)
 				? aiChatManager.autonomyMode
@@ -960,7 +966,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								onchange={onFolderInputChange}
 							/>
 						{/if}
-						{#if aiChatManager.mirroredPlanMode}
+						{#if showsMirroredPlan}
 							<!-- The posture belongs to the tab running the turn, so it reads here
 							     rather than offering a choice that would only move this tab's own
 							     preference while the label stayed put. -->

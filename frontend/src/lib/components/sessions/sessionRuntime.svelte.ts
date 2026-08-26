@@ -1,7 +1,11 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { get } from 'svelte/store'
 import { base } from '$lib/base'
-import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
+import {
+	AIAutonomyMode,
+	AIChatManager,
+	AIMode
+} from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
@@ -936,9 +940,16 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// turns interleave into one chat id.
 	manager.runGuard = async (body) => {
 		const outcome = await withSessionRunLock(session.id, async () => {
-			// Driving under this tab's own posture from here on, so whatever the
-			// last driver was in stops describing the session.
-			manager.mirroredPlanMode = false
+			// The picker has read Plan since the last driver left the session in it,
+			// and this send is the user acting on what it says. Take the posture on
+			// rather than drop it: running under this tab's own autonomy instead
+			// would unblock the very workspace tools the label promised were held
+			// back. Once it is genuinely this manager's mode, the mirrored copy has
+			// nothing left to say.
+			if (manager.mirroredPlanMode) {
+				if (manager.planModeAvailable) manager.setAutonomyMode(AIAutonomyMode.PLAN)
+				manager.mirroredPlanMode = false
+			}
 			// The first frame doubles as the "a run started here" signal: it is
 			// posted immediately and carries the chat id the watchers need.
 			startMirroring(session.id)
@@ -1048,9 +1059,13 @@ function mirrorSnapshotOf(sessionId: string, full: boolean): MirrorSnapshot | un
 		sessionId,
 		chatId: m.historyManager.getCurrentChatId(),
 		baseIndex,
-		tail: withoutHeavyPayloads(
-			$state.snapshot(m.displayMessages.slice(baseIndex)) as DisplayMessage[]
-		),
+		// Stripped before the clone, not after: `$state.snapshot` deep-copies
+		// whatever it is handed, so stripping second still copies every image data
+		// URL and pasted file body first — megabytes per tick, several times a
+		// second, for bytes about to be thrown away.
+		tail: $state.snapshot(
+			withoutHeavyPayloads(m.displayMessages.slice(baseIndex))
+		) as DisplayMessage[],
 		total,
 		loading: m.loading,
 		currentReply: m.currentReply,
