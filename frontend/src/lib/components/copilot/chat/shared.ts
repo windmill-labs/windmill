@@ -558,8 +558,11 @@ export function answeredChoices(q: UserQuestionDisplay): string[] | undefined {
 export type RunFormDisplay = {
 	path: string
 	summary?: string
-	/** Of the DEPLOYED script, not a draft. */
-	schema: Record<string, any>
+	/** Of the DEPLOYED script, not a draft. Only the rendered form reads it, so it is
+	 * dropped once one of the flags below unmounts that form: kept, every settled card
+	 * would carry a copy of the schema — password and file defaults included — in
+	 * history forever. */
+	schema?: Record<string, any>
 	/** Prefill only: the card's `parameters` records what the job started with. */
 	args: Record<string, any>
 	/** Proposed arguments the schema does not declare, so they have no field. Named on
