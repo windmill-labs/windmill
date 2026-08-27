@@ -5,6 +5,7 @@ import {
 	deleteArtifact,
 	getArtifact,
 	getArtifactVersion,
+	readArtifact,
 	isPlanArtifact,
 	listArtifactVersions,
 	listArtifactsForSession,
@@ -136,20 +137,25 @@ export class SessionArtifactsStore {
 	 * record does and for the same reason: delivery order and IndexedDB commit order are
 	 * independent, so a shipped copy could be older than what the store already holds.
 	 *
-	 * A read that comes back empty is how a removal arrives. It can only drop an id this list
+	 * A row that is genuinely absent is how a removal arrives. It can only drop an id this list
 	 * already has, so an artifact held here after a failed persist — which is exactly what the
 	 * same-id resync guard in setSession protects — is never one of them: the other tab has
 	 * nothing to say about a row it has never seen.
+	 *
+	 * Storage that cannot be read says nothing about the row and is left alone. Treating it as
+	 * an absence would take a plan off screen mid-approval because a read blipped; the next
+	 * write to that artifact broadcasts again and converges.
 	 */
 	async applyRemoteArtifact(artifactId: string): Promise<void> {
 		const loaded = this.#sessionId
 		if (!loaded) return
-		const stored = await getArtifact(artifactId)
+		const read = await readArtifact(artifactId)
 		// Read once the await settles: a session switched underneath it must not have the
 		// previous one's row placed into its list, nor one of its own rows dropped.
 		if (this.#sessionId !== loaded) return
-		if (stored) {
-			this.#place(stored)
+		if (read.state === 'unavailable') return
+		if (read.state === 'loaded') {
+			this.#place(read.artifact)
 			return
 		}
 		const next = this.artifacts.filter((a) => a.id !== artifactId)

@@ -124,13 +124,27 @@ export async function putArtifact(artifact: PersistedArtifact): Promise<void> {
 }
 
 export async function getArtifact(id: string): Promise<PersistedArtifact | undefined> {
+	const read = await readArtifact(id)
+	return read.state === 'loaded' ? read.artifact : undefined
+}
+
+/** A read whose failure is distinguishable from an absence, for the one caller
+ *  that acts on "the row is gone". Collapsing the two into `undefined` — which
+ *  is all {@link getArtifact} can say — turns a moment of unreadable storage
+ *  into a deletion. */
+export async function readArtifact(
+	id: string
+): Promise<
+	{ state: 'loaded'; artifact: PersistedArtifact } | { state: 'missing' } | { state: 'unavailable' }
+> {
 	const db = await getDB()
-	if (!db) return undefined
+	if (!db) return { state: 'unavailable' }
 	try {
-		return await db.get('items', id)
+		const artifact = await db.get('items', id)
+		return artifact ? { state: 'loaded', artifact } : { state: 'missing' }
 	} catch (err) {
 		console.error('Could not read artifact', err)
-		return undefined
+		return { state: 'unavailable' }
 	}
 }
 

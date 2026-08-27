@@ -924,13 +924,13 @@ function createRuntime(session: Session): SessionRuntime {
 
 async function initRuntime(runtime: SessionRuntime, session: Session) {
 	const { manager } = runtime
-	await manager.historyManager.init()
-	manager.historyManager.setSessionId(session.id)
-	// Restore linked files persisted for this session (live handles re-grant on send;
-	// snapshots restore directly). Non-transient sessions persist immediately.
-	await manager.attachedFiles.restore(session.id, !session.transient)
-	await ensureChatIdsSeeded(manager.historyManager)
 
+	// Wired before the first await, not after. `getOrCreateRuntime` does not wait
+	// for this function, so the manager is mounted and its composer live while the
+	// restores below are still in flight — and a send in that window would find no
+	// guard and start a turn without ever asking who owns the run. None of these
+	// depend on what the awaits produce.
+	//
 	// Keep the session record's chatId following the manager's active chat: a
 	// "/clear" rotation or a history switch would otherwise leave it pointing at
 	// the previous chat, and the compare-page handoff (`from_session`) would
@@ -980,6 +980,13 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 		sendQuestionAnswer(session.id, toolId, choices)
 		return true
 	}
+
+	await manager.historyManager.init()
+	manager.historyManager.setSessionId(session.id)
+	// Restore linked files persisted for this session (live handles re-grant on send;
+	// snapshots restore directly). Non-transient sessions persist immediately.
+	await manager.attachedFiles.restore(session.id, !session.transient)
+	await ensureChatIdsSeeded(manager.historyManager)
 
 	if (session.chatId) {
 		manager.historyManager.setCurrentChatId(session.chatId)
@@ -1181,6 +1188,10 @@ async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Pro
 			scheduleCatchUpRetry(sessionId, chatId, attempt)
 			return
 		}
+		// There is no store to catch up from, and no retry that would change that.
+		// Nothing was saved for this tab to be out of step with either, so holding
+		// the composer shut would cost the session for no gain.
+		if (found === 'no-store') caughtUp = true
 		if (found === 'loaded') {
 			// `refresh`: the same conversation caught up from the store, so whatever
 			// this manager still holds for it — a queued message, the background-job

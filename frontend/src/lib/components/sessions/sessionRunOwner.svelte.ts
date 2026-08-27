@@ -79,6 +79,7 @@ export function noteDriverAlive(sessionId: string, planMode: boolean): void {
 	// A tab mid-turn is the authority on its own session; a frame reaching it can
 	// only be an echo of the run it is itself driving.
 	if (isDriving(sessionId)) return
+	seenDriver.add(sessionId)
 	positions.set(sessionId, { state: 'watching', lastHeardAt: Date.now(), planMode })
 	ensureReaper()
 }
@@ -102,6 +103,7 @@ export function noteCaughtUp(sessionId: string): void {
 export function clearRunPosition(sessionId: string): void {
 	positions.delete(sessionId)
 	probeAnswers.delete(sessionId)
+	seenDriver.delete(sessionId)
 }
 
 /** True from the driver's turn-end until this tab has re-read what it left
@@ -169,6 +171,11 @@ export function setDriverProbe(fn: (sessionId: string) => void): void {
 
 const probeAnswers = new Set<string>()
 
+/** Sessions this tab has ever seen driven elsewhere. Only these are worth
+ *  probing before taking a lockless run; it is never cleared, because "there was
+ *  another tab once" stays the reason to ask. */
+const seenDriver = new Set<string>()
+
 /** A driver answered a probe. Recorded rather than folded into the position:
  *  the answer proves a run is alive, but carries none of the frame state a
  *  `watching` position is made of. */
@@ -181,16 +188,29 @@ export function noteDriverAnswered(sessionId: string): void {
  *  while its turn runs on perfectly well, and the reaper will have retired it
  *  long before that. So ask, and treat only an unanswered probe as absence.
  *  Getting this wrong runs a second turn against the same chat id, which is the
- *  duplicate tool calls and lost transcript this whole module exists to stop. */
+ *  duplicate tool calls and lost transcript this whole module exists to stop.
+ *
+ *  This narrows the window rather than closing it, and it cannot close it: a tab
+ *  the browser has frozen runs no script at all, so it answers a probe exactly
+ *  the way a closed one does and nothing over this channel can tell them apart.
+ *  Mutual exclusion needs Web Locks; where there is none, the honest guarantee
+ *  is best-effort — still strictly more than the nothing a session had before
+ *  any of this, and the reason the lock is what secure origins rely on. */
 async function bestEffort<T>(sessionId: string, body: () => Promise<T>): Promise<T | 'busy'> {
-	if (isWatching(sessionId)) return 'busy'
-	if (sendDriverProbe) {
+	if (isMirroring(sessionId)) return 'busy'
+	// Only worth asking where a driver has actually been seen. A session this tab
+	// has had to itself has nobody to answer, and paying the grace on every send
+	// would tax the single-tab case — the common one — for a race it cannot be in.
+	if (sendDriverProbe && seenDriver.has(sessionId)) {
 		probeAnswers.delete(sessionId)
 		sendDriverProbe(sessionId)
 		await new Promise((resolve) => setTimeout(resolve, PROBE_GRACE_MS))
 		if (probeAnswers.delete(sessionId)) return 'busy'
-		// A frame may also have arrived while the probe was outstanding.
-		if (isWatching(sessionId)) return 'busy'
+		// A frame or a turn-end may also have landed while the probe was out.
+		// `isMirroring`, not `isWatching`: a tab that has moved on to `catchingUp`
+		// is owed a re-read, and driving from here would drop it and send the
+		// pre-run history the re-read exists to replace.
+		if (isMirroring(sessionId)) return 'busy'
 	}
 	return await drive(sessionId, body)
 }
