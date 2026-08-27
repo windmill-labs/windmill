@@ -2773,16 +2773,13 @@ pub(crate) async fn resolve_pg_source_checked(
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
 }
 
-/// Whether `source` names a data table backed by the Windmill instance's own
-/// PostgreSQL rather than a user resource.
-async fn is_instance_datatable(db: &DB, w_id: &str, source: &str) -> Result<bool> {
-    let Some(dt_name) = source.strip_prefix("datatable://") else {
-        return Ok(false);
-    };
+/// Whether the data table `name` is backed by the Windmill instance's own PostgreSQL
+/// rather than a user resource.
+pub(crate) async fn is_instance_datatable(db: &DB, w_id: &str, name: &str) -> Result<bool> {
     let config = sqlx::query_scalar!(
         "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
         w_id,
-        dt_name
+        name
     )
     .fetch_optional(db)
     .await?
@@ -2795,6 +2792,14 @@ async fn is_instance_datatable(db: &DB, w_id: &str, source: &str) -> Result<bool
                 .map(|s| s == "instance")
         })
         .unwrap_or(false))
+}
+
+/// Same, for the `datatable://<name>` / `$res:<path>` form the import endpoints take.
+async fn is_instance_datatable_source(db: &DB, w_id: &str, source: &str) -> Result<bool> {
+    match source.strip_prefix("datatable://") {
+        Some(name) => is_instance_datatable(db, w_id, name).await,
+        None => Ok(false),
+    }
 }
 
 /// A temporary file for pg_dump output that is automatically deleted when dropped.
@@ -3127,7 +3132,7 @@ async fn create_pg_database(
         }
     }
 
-    if is_instance_datatable(&db, &w_id, &req.source).await? {
+    if is_instance_datatable_source(&db, &w_id, &req.source).await? {
         windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
             .await?;
     } else {
@@ -3229,8 +3234,8 @@ async fn import_pg_database(
     // what it creates it owns. Grants do, except around an instance data table — Windmill
     // plants `custom_instance_user` grants in one, which nothing else can replay. Elsewhere
     // the ACLs are user intent (`REVOKE ... FROM PUBLIC`) and dropping them widens access.
-    let no_acl = is_instance_datatable(&db, &w_id, &req.target).await?
-        || is_instance_datatable(&db, &w_id, &req.source).await?;
+    let no_acl = is_instance_datatable_source(&db, &w_id, &req.target).await?
+        || is_instance_datatable_source(&db, &w_id, &req.source).await?;
 
     let dump_file = pg_dump_database(
         &source_pg,

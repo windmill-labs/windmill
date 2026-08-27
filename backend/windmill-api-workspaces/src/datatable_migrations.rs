@@ -11,7 +11,8 @@
 //! to keep that file focused on core workspace configuration.
 
 use crate::workspaces::{
-    pg_dump_database, strip_unreplayable_dump_lines, ItemComparison, PgDumpOptions,
+    is_instance_datatable, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
+    PgDumpOptions,
 };
 
 use axum::{
@@ -1410,17 +1411,18 @@ async fn generate_initial_datatable_migration(
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
 
-    // Snapshot the schema without `_wm_migrations`, Windmill's own bookkeeping table. The
-    // snapshot is replayed on other databases through whatever user those connect as,
-    // which owns none of this one's objects: ownership and grant statements can only fail
-    // there — `ALTER DEFAULT PRIVILEGES FOR ROLE ...` even on a same-server replay.
+    // Snapshot the schema without `_wm_migrations`, Windmill's own bookkeeping table, and
+    // without what a replay elsewhere cannot run: the replaying user owns none of this
+    // database's objects, and the grants Windmill plants in an instance database (`ALTER
+    // DEFAULT PRIVILEGES FOR ROLE ...`) fail even replaying onto the same server.
+    let no_acl = is_instance_datatable(&db, &w_id, &datatable_name).await?;
     let dump_file = pg_dump_database(
         &pg_db,
         PgDumpOptions {
             schema_only: true,
             exclude_tables: &["_wm_migrations"],
             no_owner: true,
-            no_acl: true,
+            no_acl,
         },
     )
     .await?;
