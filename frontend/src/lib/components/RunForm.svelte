@@ -54,6 +54,8 @@
 		args = scriptArgs
 		psCommonParams = commonParams
 		reloadArgs++
+		// `reloadArgs` only keys the form; the JSON editor reads its payload once, at mount.
+		syncJsonEditor()
 	}
 
 	export async function run(overrideScheduledForStr?: string | undefined | null) {

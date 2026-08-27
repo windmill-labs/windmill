@@ -340,6 +340,9 @@
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
 		}
 		if (modules && modules[modulePath]) {
+			// Re-clicking the tab you are already on must not remount the arg views: it would
+			// throw away whatever is half-typed in the JSON editor.
+			const switched = activeModuleTab !== modulePath
 			activeModuleTab = modulePath
 			editorCode = modules[modulePath].content
 			editor?.setCode(editorCode)
@@ -358,11 +361,14 @@
 					}
 				})
 			}
-			argsRender++
+			if (switched) {
+				argsRender++
+			}
 		}
 	}
 
 	function switchToMain() {
+		const switched = activeModuleTab !== null
 		if (activeModuleTab !== null && modules) {
 			// Save current module content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
@@ -372,7 +378,9 @@
 		editorCode = code
 		lastSyncedCode = code
 		editor?.setCode(editorCode)
-		argsRender++
+		if (switched) {
+			argsRender++
+		}
 	}
 
 	// Whether the open file is tested as a runnable of its own. A `__mod` helper
@@ -1668,8 +1676,8 @@
 	$effect(() => {
 		!hasPreprocessor && (selectedTab = 'main')
 	})
-	// `main` and `preprocessor` describe the same args under different schemas. `diagram`
-	// leaves the schema alone, so it must not read as a switch.
+	// `main` and `preprocessor` describe the same args under different schemas; every other tab
+	// (`diagram`) runs against main's schema, so it collapses into `main` here.
 	let lastSchemaTab = untrack(() => (selectedTab === 'preprocessor' ? 'preprocessor' : 'main'))
 	$effect(() => {
 		// Only depend on selectedTab (preprocessor ↔ main toggle).
@@ -1682,9 +1690,10 @@
 				const switched = schemaTab !== lastSchemaTab
 				lastSchemaTab = schemaTab
 				if (!code) return
-				// The other tab's schema only lands once inference resolves, so reseed then.
+				// The other tab's schema only lands once inference resolves, so reseed then —
+				// unless the tab moved again while we waited, in which case a later run owns it.
 				inferSchema(code).then(() => {
-					if (switched) {
+					if (switched && lastSchemaTab === schemaTab) {
 						argsRender++
 					}
 				})

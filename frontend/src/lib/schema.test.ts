@@ -24,6 +24,27 @@ describe('argsToJsonPayload', () => {
 		)
 	})
 
+	it('falls back to the schema default for an absent arg, but not over an explicit null', () => {
+		// `args` only carries defaults once a `SchemaForm` has mounted for that schema, and the
+		// JSON view alone never mounts one — seeding `null` there would commit `null` over the
+		// argument's default on the first keystroke.
+		const schema = schemaOf('a', 'b')
+		schema.properties.a.default = 'hi'
+		schema.properties.b.default = 42
+		expect(argsToJsonPayload(schema, {})).toBe(JSON.stringify({ a: 'hi', b: 42 }, null, '\t'))
+		expect(argsToJsonPayload(schema, { a: null })).toBe(
+			JSON.stringify({ a: null, b: 42 }, null, '\t')
+		)
+	})
+
+	it('keeps declared args named after Object.prototype members', () => {
+		// A plain `nargs[key]` read returns the inherited function for an unset `constructor`,
+		// and `JSON.stringify` drops function-valued properties — the argument would vanish.
+		expect(argsToJsonPayload(schemaOf('constructor', 'toString', 'ok'), {})).toBe(
+			JSON.stringify({ constructor: null, toString: null, ok: null }, null, '\t')
+		)
+	})
+
 	it('keeps undeclared args named after Object.prototype members', () => {
 		// On a plain `{}` accumulator, `'constructor' in payload` is true before anything is
 		// assigned to it.

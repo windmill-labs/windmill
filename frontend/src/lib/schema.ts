@@ -65,9 +65,15 @@ export function argsToJsonPayload(
 	// `toString`) has to be an own key here, or the `in` check below reads it as already
 	// present and its value never reaches the payload.
 	const payload: Record<string, any> = Object.create(null)
+	const props = schema?.properties ?? {}
 	// Schema order first, so the payload reads like the form it replaces.
-	for (const key of Object.keys(schema?.properties ?? {})) {
-		payload[key] = nargs[key] ?? null
+	for (const key of Object.keys(props)) {
+		// Own-property read: an arg named after an `Object.prototype` member (`constructor`,
+		// `toString`) would otherwise come back as the inherited function, which `JSON.stringify`
+		// drops. An arg that is merely absent falls back to the schema default — `args` only
+		// carries defaults once a `SchemaForm` has mounted, which the JSON view alone never does.
+		payload[key] =
+			(Object.prototype.hasOwnProperty.call(nargs, key) ? nargs[key] : props[key]?.default) ?? null
 	}
 	for (const [key, value] of Object.entries(nargs)) {
 		if (!(key in payload)) {
