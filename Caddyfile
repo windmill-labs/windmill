@@ -23,9 +23,6 @@
         @extra path /ws/* /ws_mp/* /ws_debug/*
         reverse_proxy @extra http://windmill_extra:3000
 
-        # Search indexer, Enterprise Edition (windmill_indexer:8002)
-        # reverse_proxy /api/srch/* http://windmill_indexer:8002
-
         # Default: Windmill server
         reverse_proxy /* http://windmill_server:8000
 

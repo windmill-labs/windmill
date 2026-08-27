@@ -577,7 +577,7 @@ fn print_help() {
         "  PORT = {}                              HTTP port (server/indexer/MCP modes)",
         DEFAULT_PORT
     );
-    println!("  INDEXER_ADVERTISED_URL = <hostname>    Base URL other instances forward search requests to (indexer mode); defaults to http://$HOSTNAME:$PORT");
+    println!("  INDEXER_ADVERTISED_URL = http://host:port  Base URL other instances forward search requests to (indexer mode); defaults to http://$HOSTNAME:$PORT");
     println!(
         "  SERVER_BIND_ADDR = <mode dependent>    IP to bind to (server: {}, worker: {})",
         DEFAULT_SERVER_BIND_ADDR, DEFAULT_WORKER_BIND_ADDR

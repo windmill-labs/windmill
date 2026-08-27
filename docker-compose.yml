@@ -166,6 +166,8 @@ services:
       - 8002
     environment:
       - PORT=8002
+      # Other instances forward search requests here, so it must be reachable from them by name.
+      - INDEXER_ADVERTISED_URL=http://windmill_indexer:8002
       - DATABASE_URL=${DATABASE_URL}
       - MODE=indexer
     depends_on:
