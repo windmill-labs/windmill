@@ -46,7 +46,7 @@ use tracing::Instrument;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::auth::{safe_token_prefix, TOKEN_PREFIX_LEN};
+use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::per_minute_counter::PerMinuteCounter;
@@ -140,6 +140,7 @@ pub fn global_service() -> Router {
         )
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
+        .route("/login_links", post(create_login_link))
         .route("/usage", get(get_usage))
         .route("/all_runnables", get(get_all_runnables))
         .route("/refresh_token", get(refresh_token))
@@ -158,6 +159,7 @@ pub fn make_unauthed_service() -> Router {
         .route("/logout", post(logout).get(logout))
         .route("/is_first_time_setup", get(is_first_time_setup))
         .route("/request_password_reset", post(request_password_reset))
+        .route("/login_link/{token}", get(consume_login_link))
         .route("/is_smtp_configured", get(is_smtp_configured))
         .route(
             "/is_password_login_disabled",
@@ -255,11 +257,14 @@ pub struct WorkspaceInvite {
 #[derive(Deserialize)]
 pub struct NewUser {
     pub email: String,
-    pub password: String,
+    /// Required when `login_type` is `password` (the default), ignored otherwise.
+    pub password: Option<String>,
     pub super_admin: bool,
     pub name: Option<String>,
     pub company: Option<String>,
     pub skip_email: Option<bool>,
+    /// `password`, `pending_oauth`, or a configured OAuth login client key.
+    pub login_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -3021,6 +3026,201 @@ async fn impersonate(
     Ok((StatusCode::CREATED, token))
 }
 
+const LOGIN_LINK_DEFAULT_TTL_S: u32 = 600;
+const LOGIN_LINK_MAX_TTL_S: u32 = 900;
+const LOGIN_LINK_DEFAULT_RD: &str = "/user/workspaces";
+const LOGIN_LINK_EXPIRED_PAGE: &str = "/user/login_link_expired";
+
+#[derive(Deserialize)]
+pub struct NewLoginLink {
+    pub email: String,
+    pub expires_in_s: Option<u32>,
+    pub rd: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct LoginLink {
+    pub url: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// A post-login destination is only ever a same-origin path: anything else would hand the
+/// fresh session's first navigation to another host.
+fn same_origin_rd(rd: Option<String>) -> Option<String> {
+    rd.filter(|r| r.starts_with('/') && !r.starts_with("//") && !r.contains('\\'))
+}
+
+fn login_link_redirect(location: String) -> Response {
+    (
+        StatusCode::FOUND,
+        [
+            ("location", location),
+            ("referrer-policy", "no-referrer".to_string()),
+        ],
+    )
+        .into_response()
+}
+
+/// Mint a single-use link that signs `email` in when opened. The row is not a `token`:
+/// it can only ever become a session, and burning it needs no cache invalidation.
+async fn create_login_link(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Json(nl): Json<NewLoginLink>,
+) -> Result<(StatusCode, Json<LoginLink>)> {
+    require_super_admin(&db, &authed).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+
+    let email = nl.email.to_lowercase();
+    let rd = match nl.rd {
+        Some(rd) => Some(same_origin_rd(Some(rd)).ok_or_else(|| {
+            Error::BadRequest("rd must be a same-origin path starting with /".to_string())
+        })?),
+        None => None,
+    };
+    let ttl = nl
+        .expires_in_s
+        .unwrap_or(LOGIN_LINK_DEFAULT_TTL_S)
+        .clamp(1, LOGIN_LINK_MAX_TTL_S);
+
+    let mut tx = db.begin().await?;
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1 AND disabled = false)",
+        &email
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+    if !exists {
+        return Err(Error::NotFound(format!("no active account for {email}")));
+    }
+
+    let token = rd_string(32);
+    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(ttl as i64);
+    sqlx::query!(
+        "INSERT INTO login_link (token_hash, email, rd, expiration, created_by)
+         VALUES ($1, $2, $3, $4, $5)",
+        hash_token(&token),
+        &email,
+        rd,
+        expires_at,
+        &authed.email,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.login_link.create",
+        ActionKind::Create,
+        "global",
+        Some(&email),
+        Some([("expires_in_s", &ttl.to_string()[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    let url = format!(
+        "{}/api/auth/login_link/{}",
+        (**BASE_URL.load()).clone(),
+        token
+    );
+    Ok((StatusCode::CREATED, Json(LoginLink { url, expires_at })))
+}
+
+#[derive(Deserialize)]
+struct LoginLinkQuery {
+    rd: Option<String>,
+}
+
+async fn consume_login_link(
+    headers: axum::http::HeaderMap,
+    cookies: Cookies,
+    Extension(db): Extension<DB>,
+    Path(token): Path<String>,
+    Query(query): Query<LoginLinkQuery>,
+) -> Result<Response> {
+    let bounce = |reason: &str| {
+        Ok(login_link_redirect(format!(
+            "{LOGIN_LINK_EXPIRED_PAGE}?reason={reason}"
+        )))
+    };
+    if token.len() != 32 {
+        return bounce("invalid");
+    }
+    let t_hash = hash_token(&token);
+    windmill_common::login_rate_limit::check_and_increment_login_attempt(
+        &headers,
+        &t_hash[..TOKEN_PREFIX_LEN],
+    )?;
+
+    let mut tx = db.begin().await?;
+    let link = sqlx::query!(
+        "UPDATE login_link SET consumed_at = now()
+         WHERE token_hash = $1 AND consumed_at IS NULL AND expiration > now()
+         RETURNING email, rd, created_by",
+        &t_hash
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(link) = link else {
+        let used = sqlx::query_scalar!(
+            "SELECT consumed_at IS NOT NULL AS \"used!\" FROM login_link WHERE token_hash = $1",
+            &t_hash
+        )
+        .fetch_optional(&db)
+        .await?;
+        return bounce(match used {
+            Some(true) => "used",
+            Some(false) => "expired",
+            None => "invalid",
+        });
+    };
+
+    let super_admin = sqlx::query_scalar!(
+        "SELECT super_admin FROM password WHERE email = $1 AND disabled = false",
+        &link.email
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(super_admin) = super_admin else {
+        return bounce("invalid");
+    };
+
+    let session =
+        create_session_token(&link.email, super_admin, None, false, &mut tx, cookies).await?;
+    audit_log(
+        &mut *tx,
+        &AuditAuthor {
+            email: link.email.clone(),
+            username: link.email.clone(),
+            username_override: None,
+            token_prefix: Some(safe_token_prefix(&session)),
+        },
+        "users.login",
+        ActionKind::Create,
+        "global",
+        Some(&truncate_token(&session)),
+        Some(
+            [
+                ("method", "login_link"),
+                ("minted_by", link.created_by.as_str()),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
+    tx.commit().await?;
+
+    let rd = link
+        .rd
+        .or_else(|| same_origin_rd(query.rd))
+        .unwrap_or_else(|| LOGIN_LINK_DEFAULT_RD.to_string());
+    Ok(login_link_redirect(rd))
+}
+
 #[derive(Deserialize)]
 pub struct ImpersonateServiceAccountRequest {
     pub username: String,
@@ -3406,6 +3606,8 @@ async fn get_all_runnables(
 #[derive(Deserialize, Debug, Clone)]
 pub struct LoginUserInfo {
     pub email: Option<String>,
+    /// OIDC `email_verified` claim where the provider sends one.
+    pub email_verified: Option<bool>,
     pub name: Option<String>,
     pub company: Option<String>,
     pub preferred_username: Option<String>,
