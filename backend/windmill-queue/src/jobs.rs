@@ -5462,7 +5462,7 @@ pub async fn push<'c, 'd>(
     root_job: Option<Uuid>,
     flow_innermost_root_job: Option<Uuid>,
     job_id: Option<Uuid>,
-    is_flow_step: bool,
+    _is_flow_step: bool,
     same_worker: bool,
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
@@ -5493,7 +5493,7 @@ pub async fn push<'c, 'd>(
         root_job,
         flow_innermost_root_job,
         job_id,
-        is_flow_step,
+        _is_flow_step,
         same_worker,
         pre_run_error,
         visible_to_owner,
@@ -5528,7 +5528,7 @@ async fn push_inner<'c, 'd>(
     root_job: Option<Uuid>,
     flow_innermost_root_job: Option<Uuid>,
     job_id: Option<Uuid>,
-    is_flow_step: bool,
+    _is_flow_step: bool,
     mut same_worker: bool, // whether the job will be executed on the same worker: if true, the job will be set to running but started_at will not be set.
     pre_run_error: Option<&windmill_common::error::Error>,
     visible_to_owner: bool,
@@ -6619,15 +6619,6 @@ async fn push_inner<'c, 'd>(
     } else {
         if tag == Some("".to_string()) {
             tag = None;
-        }
-
-        // Only a direct push is rejected here. A flow step reaches `push` already judged by
-        // `push_next_flow_job`, which knows whether the tag schedules the step at all and turns
-        // a real miss into a step failure rather than a flow-chaining error.
-        if !is_flow_step {
-            if let Some(e) = tag.as_deref().and_then(|t| unresolved_tag_error(t, &args)) {
-                return Err(e);
-            }
         }
 
         // `$workspace` must resolve the same way the default tags below do, or an explicit tag and

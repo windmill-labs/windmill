@@ -4420,34 +4420,23 @@ async fn push_next_flow_job(
             payload_tag.tag.as_deref(),
         );
 
-        // A tag whose `$args[...]` resolves to nothing names a queue no worker serves. Turn it
-        // into a step failure rather than letting `push` reject it: an `Err` out of here is a
-        // flow-chaining error, which skips the failure module and leaves the step
-        // `WaitingForPriorSteps`.
-        // Two kinds of step never reach a worker through their tag, so an unresolvable one is
-        // inert and must not fail them: one handed straight to this worker (fetched by id, with
-        // no tag predicate), and one on a dedicated runnable (whose tag `push` replaces).
+        // A step whose input transforms failed is already going to fail, but it still has to
+        // reach a worker to be marked failed, and the tag it would go out on is built from
+        // arguments that do not exist: `push_args` is empty on that path, so every `$args[...]`
+        // in it interpolates to nothing whatever the arguments were meant to be. Left alone it
+        // sits in the queue and the real error is never reported. The flow's own tag is provably
+        // served: a worker is running the flow on it right now.
+        //
+        // Two kinds of step never reach a worker through their tag anyway, so rewriting theirs
+        // would be noise: one handed straight to this worker (fetched by id, with no tag
+        // predicate), and one on a dedicated runnable (whose tag `push` replaces).
         let step_is_pulled_by_tag = !continue_on_same_worker
             && !continue_with_runners
             && !payload_tag.payload.is_dedicated_worker();
-        let unresolved_tag = tag
-            .as_deref()
-            .filter(|_| err.is_none() && step_is_pulled_by_tag)
-            .and_then(|t| unresolved_tag_error(t, &push_args));
-
-        // The step is failed before it runs, so it only has to reach a worker to be marked
-        // failed — but there are two ways the tag it would go out on names a queue nobody
-        // serves. It resolved to nothing, or it is built from arguments that failed to
-        // evaluate: `push_args` is empty in that case, so every `$args[...]` in it interpolates
-        // to nothing whatever the arguments were meant to be. The flow's own tag is provably
-        // served: a worker is running the flow on it right now.
-        let reroute_to_flow_tag = unresolved_tag.is_some()
-            || (err.is_some()
-                && step_is_pulled_by_tag
-                && tag.as_deref().is_some_and(tag_reads_args));
-        let err = err.or(unresolved_tag.as_ref());
-
-        let tag = if reroute_to_flow_tag {
+        let tag = if err.is_some()
+            && step_is_pulled_by_tag
+            && tag.as_deref().is_some_and(tag_reads_args)
+        {
             Some(flow_job.tag.clone())
         } else {
             tag
