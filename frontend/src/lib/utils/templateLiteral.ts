@@ -11,14 +11,18 @@ import { parseExpressionAt } from 'acorn'
  * simpler. So rather than escaping selectively, ask the parser whether the text already reads as
  * one template literal. If it does, it needs no escaping at all; if it does not, escape every
  * backtick, which is what this did before nested templates were supported.
+ *
+ * Known limitation: a value mixing a bare literal backtick with a nested template cannot be
+ * expressed either way, and gets the all-or-nothing fallback. Escaping the literal one by hand
+ * makes the whole value parse and it is then kept verbatim.
  */
 function isCompleteTemplateBody(text: string): boolean {
 	const source = '`' + text + '`'
 	try {
 		const node = parseExpressionAt(source, 0, { ecmaVersion: 'latest' })
-		// Spanning the whole source is what rules out a body that closes its own literal early:
-		// `` ` + evil() + ` `` parses, but as a concatenation, and would evaluate the author's
-		// literal text.
+		// The type is what rejects a body that closes its own literal early: `` ` + evil() + ` ``
+		// parses, but as a concatenation, and would evaluate the author's literal text. The span
+		// rejects a body that stops short, like `` `a` x ``.
 		return node.type === 'TemplateLiteral' && node.start === 0 && node.end === source.length
 	} catch {
 		return false
@@ -39,8 +43,17 @@ export function unescapeTemplateBackticks(text: string): string {
 	if (!text.includes('`')) {
 		return text
 	}
-	// Only the escaping this module applied may be undone. Unescaping unconditionally would
-	// corrupt a backtick that is escaped inside a nested template, where it belongs.
 	const unescaped = text.replaceAll('\\`', '`')
-	return escapeTemplateBackticks(unescaped) === text ? unescaped : text
+	if (escapeTemplateBackticks(unescaped) === text) {
+		return unescaped
+	}
+	// An expression stored before nested templates were handled has `\`` in expression position,
+	// so it does not parse while its unescaped form does. Show that instead, or the editor
+	// displays the backslashes and the next save escapes them again, one deeper each time.
+	// Unescaping unconditionally is what this must not do: it would corrupt a backtick that is
+	// escaped inside a nested template, where it belongs.
+	if (!isCompleteTemplateBody(text) && isCompleteTemplateBody(unescaped)) {
+		return unescaped
+	}
+	return text
 }

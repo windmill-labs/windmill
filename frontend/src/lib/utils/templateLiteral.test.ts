@@ -35,8 +35,8 @@ describe('escapeTemplateBackticks', () => {
 	})
 
 	// Braces, quotes, regex literals and comments all hide backticks and braces from anything
-	// short of a real lexer, which is why the parser decides rather than a hand-rolled scan.
-	it('handles text a hand-rolled scan would misread', () => {
+	// short of a real lexer, which is why the parser decides.
+	it('handles text only a lexer can read correctly', () => {
 		const inputs = [
 			'${ x["}"] } `',
 			"${ f({ a: '`' }) } `",
@@ -62,6 +62,21 @@ describe('escapeTemplateBackticks', () => {
 		expect(evaluated).toContain('` + flow_input.y + `')
 	})
 
+	// A value stored before nested templates were handled carries `\\`` in expression position.
+	// It has to come back clean, or the editor shows the backslashes and each save adds one more.
+	it('heals an expression corrupted before nested templates were handled', () => {
+		const corrupted = '-p ${a}${b ? \\` --x ${c}\\` : ""}'
+		const clean = '-p ${a}${b ? ` --x ${c}` : ""}'
+		expect(unescapeTemplateBackticks(corrupted)).toBe(clean)
+		expect(escapeTemplateBackticks(clean)).toBe(clean)
+	})
+
+	// ...but a backtick escaped inside a nested template belongs there and must survive.
+	it('leaves an escaped backtick that is inside a nested template alone', () => {
+		const stored = '${cond ? `a\\`b` : ""}'
+		expect(unescapeTemplateBackticks(stored)).toBe(stored)
+	})
+
 	it('round-trips through unescapeTemplateBackticks', () => {
 		for (const v of [
 			nested,
@@ -76,9 +91,8 @@ describe('escapeTemplateBackticks', () => {
 		}
 	})
 	// The guarantee that matters: opening a flow in the editor and saving it back must not change
-	// the stored expression, even for input the walk cannot read (neither strategy displays those
-	// perfectly — blanket unescaping corrupts an escaped backtick inside a nested template, and
-	// the walk shows the escapes literally — but neither may rewrite what is stored).
+	// the stored expression, including for a value that only the all-or-nothing fallback can
+	// handle.
 	it('never rewrites the stored expression on a view/save cycle', () => {
 		const inputs = [
 			'{"match": ${/{/.test(flow_input.x)}, "literal": "`x`"}',
