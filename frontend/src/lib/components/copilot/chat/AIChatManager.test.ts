@@ -3872,6 +3872,22 @@ describe('AIChatManager background job completion', () => {
 		expect(manager.pendingJobNotes[0]).toContain('"rowCount": 2')
 	})
 
+	// Detaching persists while the card is still loading. Storing it as interrupted would
+	// stick, because the patch a completed job merges in carries no error to clear.
+	it("stores a detached job's card unsettled, so a later success is not left an error", async () => {
+		const manager = new AIChatManager()
+		manager.registerJob(datatableJob)
+		manager.applyToolStatus('tc-1', { content: 'running in background', isLoading: true })
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		manager.markJobDetached('job-1')
+		await vi.waitFor(() => expect(saveChat).toHaveBeenCalled())
+
+		const stored = (saveChat.mock.calls.at(-1)?.[0] as any[]).find((m) => m.tool_call_id === 'tc-1')
+		expect(stored.error).toBeUndefined()
+		expect(stored.content).toBe('running in background')
+	})
+
 	it('skips reconstruction and emits no note for a canceled detached job', async () => {
 		const manager = new AIChatManager()
 		manager.registerJob(datatableJob)
