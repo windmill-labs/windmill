@@ -219,6 +219,23 @@ describe('secret args at every level the form nests', () => {
 		expect(stripSecretArgs({ creds: [{ token: 'hunter2' }] }, both)).toEqual({ creds: [{}] })
 	})
 
+	// A container shaped unlike its declaration is kept, so the walk has to reach in
+	// through the half the declaration does carry — descending on the value's shape alone
+	// left the secret sitting there for the persisted card and the model to read.
+	it('strips through a container shaped unlike its declaration', () => {
+		const declaresArray = {
+			properties: {
+				rows: { type: 'array', items: { properties: { token: { password: true } } } }
+			}
+		}
+		expect(stripSecretArgs({ rows: { token: 'hunter2' } }, declaresArray)).toEqual({ rows: {} })
+
+		const declaresObject = {
+			properties: { cfg: { type: 'object', properties: { token: { password: true } } } }
+		}
+		expect(stripSecretArgs({ cfg: [{ token: 'hunter2' }] }, declaresObject)).toEqual({ cfg: [{}] })
+	})
+
 	// The caller binds the result to a form that edits in place, so a schema declaring
 	// nothing must not hand back the object it was given.
 	it('copies even when the schema declares nothing to strip', () => {
