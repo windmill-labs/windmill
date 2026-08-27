@@ -193,10 +193,9 @@ async function drive<T>(sessionId: string, body: () => Promise<T>): Promise<T> {
  *  is gone, where silence alone only suggests it. */
 async function runLockHeld(sessionId: string): Promise<boolean> {
 	// Nothing to consult without the lock API, so a silent driver is reaped on
-	// silence alone. That only ever frees the UI: reaching `idle` does not by
-	// itself entitle this tab to drive, because {@link bestEffort} probes for a
-	// live driver at the moment it matters rather than trusting a conclusion
-	// drawn from silence up to ten seconds earlier.
+	// silence alone — and on that path reaching `idle` does entitle this tab to
+	// drive, with everything that implies when the driver was merely throttled.
+	// See {@link bestEffort} for why that is accepted rather than defended.
 	if (!EXCLUSIVE_OWNERSHIP) return false
 	try {
 		const state = await navigator.locks.query()

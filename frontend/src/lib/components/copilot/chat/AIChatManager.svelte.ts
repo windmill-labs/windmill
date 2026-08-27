@@ -1781,13 +1781,25 @@ export class AIChatManager {
 	/** Queue the message typed while a turn is streaming. There is only ever
 	 * one queued message; pressing Enter again appends the new text as another
 	 * line so it all goes out as a single message, and its images accumulate
-	 * alongside it. */
+	 * alongside it.
+	 *
+	 * Refused outright while another tab's run is on screen. `loading` is that
+	 * tab's, and the turn that would drain this queue belongs to it, so anything
+	 * parked here waits for an unrelated later turn of our own and then fires an
+	 * instruction written against a workspace that has moved on. The composer is
+	 * locked for the same reason; this is the same rule for the senders that
+	 * never touch a composer — an editor's AI Fix, a raw-app inline prompt, an
+	 * arriving hand-off. */
 	queueMessage(
 		text: string,
 		images: AttachedImage[] = [],
 		context?: ContextElement[],
 		files: AttachedTextFile[] = []
 	) {
+		if (this.mirroringRemoteRun) {
+			sendUserToast('This session is running in another tab. Try again when it finishes.', true)
+			return
+		}
 		const trimmed = text.trim()
 		// An attachment-only or context-only draft is still a message; only a fully
 		// empty send is ignored (mirrors the idle empty-send guard).

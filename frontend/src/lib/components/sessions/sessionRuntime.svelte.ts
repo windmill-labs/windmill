@@ -1214,7 +1214,15 @@ async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Pro
 }
 
 /** Backoff for a catch-up that could not read the store, capped so a long
- *  outage settles into polling rather than growing without bound. */
+ *  outage settles into polling rather than growing without bound.
+ *
+ *  It retries for as long as the runtime lives, including against a store that
+ *  will never open. Deliberate: the alternative is giving up and releasing the
+ *  gate, and this tab would then send a mirrored transcript paired with pre-run
+ *  history — the driver's completed turn missing from what reaches the model,
+ *  and its record overwritten. A read every few seconds is the cheaper half of
+ *  that trade, and a browser whose IndexedDB never opens has no session history,
+ *  artifacts or records either, so a locked composer is not what is broken. */
 const CATCH_UP_BACKOFF_MS = [300, 700, 1500, 3000, 5000]
 const catchUpRetries = new Map<string, ReturnType<typeof setTimeout>>()
 

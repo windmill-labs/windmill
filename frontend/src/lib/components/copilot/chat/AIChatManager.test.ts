@@ -416,6 +416,24 @@ describe('AIChatManager.sendOrQueue', () => {
 		expect(manager.queuedMessage).toBe('')
 	})
 
+	// `loading` while another tab drives is that tab's, and the turn that drains
+	// this queue is its turn, not ours. Anything parked here would sit until some
+	// unrelated later turn of our own picked it up and ran an instruction written
+	// against a workspace that had moved on. The composer is locked for the same
+	// reason; these senders never touch a composer.
+	it('refuses to queue a programmatic prompt while another tab drives', () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.sessionId = 'session-programmatic-queue'
+		noteDriverAlive('session-programmatic-queue', false)
+		manager.loading = true
+
+		manager.sendOrQueue('deploy the fix')
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.queuedMessage).toBe('')
+	})
+
 	// `loading` only rises after a send's attachment upkeep, so gating on it alone
 	// leaves a window where a second programmatic send slips through.
 	it('queues during a send that has not reached loading yet', async () => {
