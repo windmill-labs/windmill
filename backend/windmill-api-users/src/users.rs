@@ -3607,11 +3607,60 @@ async fn get_all_runnables(
 pub struct LoginUserInfo {
     pub email: Option<String>,
     /// OIDC `email_verified` claim where the provider sends one.
+    #[serde(default, deserialize_with = "deserialize_lenient_bool")]
     pub email_verified: Option<bool>,
     pub name: Option<String>,
     pub company: Option<String>,
     pub preferred_username: Option<String>,
     pub displayName: Option<String>,
+}
+
+/// Some providers (Cognito among them) send `email_verified` as the strings "true"/"false";
+/// a strict bool would reject their whole userinfo document and break login.
+fn deserialize_lenient_bool<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<bool>, D::Error> {
+    Ok(match Option::<serde_json::Value>::deserialize(d)? {
+        Some(serde_json::Value::Bool(b)) => Some(b),
+        Some(serde_json::Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+#[cfg(test)]
+mod login_user_info_tests {
+    use super::LoginUserInfo;
+
+    fn email_verified(json: &str) -> Option<bool> {
+        serde_json::from_str::<LoginUserInfo>(json)
+            .unwrap()
+            .email_verified
+    }
+
+    #[test]
+    fn email_verified_accepts_bool_and_stringified_bool() {
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":true}"#),
+            Some(true)
+        );
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":"true"}"#),
+            Some(true)
+        );
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":"false"}"#),
+            Some(false)
+        );
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":"maybe"}"#),
+            None
+        );
+        assert_eq!(email_verified(r#"{"email":"a@b"}"#), None);
+    }
 }
 
 #[derive(Serialize)]
