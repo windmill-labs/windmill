@@ -996,11 +996,12 @@ fn scope_grants_access(
 /// the caller's own row; `email` and `allowed_domain_auto_invite` are derived from the
 /// token itself and touch no table.
 ///
-/// `settings/global/automate_username_creation` is the one instance setting on the list:
-/// `get_global_setting` exempts that key from its own super-admin gate, so the boolean is
-/// already readable by every authenticated user, and the CLI reads it before creating a
-/// user during a git-sync push, which runs as a job. No other `settings/global` key
-/// qualifies — the rest of that route stays confined.
+/// `settings/global/automate_username_creation` is the one instance setting on the list.
+/// `get_global_setting` exempts a handful of keys from its own super-admin gate, that one
+/// among them, so the boolean is already readable by every authenticated user; it is here
+/// because the CLI reads it before creating a user during a git-sync push, which runs as a
+/// job. The other ungated keys have no such caller, so they stay confined — being ungated
+/// earns a key nothing on its own.
 ///
 /// Deliberately absent, as each crosses that line: `users/list_invites` (returns the
 /// workspace ids the identity was invited to), `users/tokens/list` (credential metadata

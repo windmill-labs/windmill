@@ -318,8 +318,9 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
             resp.text().await?
         );
     }
-    // ...and the single `settings/global` key the handler itself leaves ungated, which the
-    // CLI reads before creating a user on a git-sync push. Every other key stays out.
+    // ...and the one `settings/global` key on the allowlist, which the CLI reads before
+    // creating a user on a git-sync push. `ws_base_url` is the control: the handler leaves
+    // it as ungated as `automate_username_creation`, so only the allowlist stops it.
     let resp = authed(
         client().get(format!("{api}/settings/global/automate_username_creation")),
         &user_wm,
@@ -333,7 +334,7 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
         resp.text().await?
     );
     let resp = authed(
-        client().get(format!("{api}/settings/global/base_url")),
+        client().get(format!("{api}/settings/global/ws_base_url")),
         &user_wm,
     )
     .send()
