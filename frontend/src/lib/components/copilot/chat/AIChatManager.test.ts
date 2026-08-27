@@ -13,7 +13,8 @@ import { runChatLoop } from './chatLoop'
 import { clearWorkspaceRoleCache } from '$lib/user'
 import {
 	noteDriverAlive,
-	noteRemoteTurnEnded
+	noteRemoteTurnEnded,
+	onDriverLost
 } from '$lib/components/sessions/sessionRunOwner.svelte'
 
 // This suite forces esm-env BROWSER=true (below). That makes @sveltejs/kit's
@@ -332,6 +333,9 @@ describe('AIChatManager cross-tab run guard', () => {
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
 		manager.sessionId = 'session-catching-up'
+		// A tab showing a session has sessionRuntime loaded, which is what makes
+		// `catchingUp` a position it can actually leave.
+		onDriverLost(() => {})
 		noteDriverAlive('session-catching-up', false)
 		noteRemoteTurnEnded('session-catching-up')
 		const restoreInstructions = vi.fn(() => true)
