@@ -298,13 +298,8 @@
 				{/if}
 			</button>
 		</div>
-		<!-- Animate the group's height on expand/collapse so rows below don't jump. A
-		     ResizeObserver-based wrapper (not a slide transition) is used deliberately: a
-		     freshly-opened owner fetches its rows, so it passes through a transient empty
-		     state, then grows again once they land. The observer animates every height change,
-		     including that second jump; a slide only animates the initial mount. Nested
-		     TreeViews inherit this wrapper's context and skip their own, so one observer per
-		     top-level owner animates the whole subtree (nested expansions included). -->
+		<!-- ResizeObserver, not a slide: a freshly-opened owner fetches its rows, so its height
+		     changes twice (open-empty, then rows land) and a slide would only animate the first. -->
 		<ResizeTransitionWrapper vertical innerClass="w-full">
 			{#if opened || isSearching}
 				<div>

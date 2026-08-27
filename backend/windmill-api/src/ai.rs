@@ -1091,14 +1091,9 @@ async fn proxy(
                                         // one-time grant and the instance's daily cap have room.
                                         // Errors once the grant is spent, the day is capped, or the
                                         // user already has a request in flight; None otherwise.
-                                        //
-                                        // Service accounts (synthetic `*.sa.wm.dev` identities) are
-                                        // excluded: a workspace admin can create/impersonate them in
-                                        // bulk, and each distinct email would otherwise mint its own
-                                        // grant and let one tenant drain the instance-wide daily cap.
-                                        let free = if authed.email.ends_with(".sa.wm.dev") {
-                                            None
-                                        } else {
+                                        // Ineligible identities (e.g. service accounts) are refused
+                                        // inside the helper, so every path treats them alike.
+                                        let free =
                                             crate::ai_free_tier_oss::resolve_free_tier_credentials(
                                                 &provider,
                                                 &db,
@@ -1106,8 +1101,7 @@ async fn proxy(
                                                 &authed.email,
                                                 &body,
                                             )
-                                            .await?
-                                        };
+                                            .await?;
                                         if let Some((free_credentials, lease)) = free {
                                             free_lease = Some(lease);
                                             break 'cred free_credentials;
