@@ -4597,10 +4597,15 @@ export class AIChatManager {
 	// through here first.
 	private settledToolDisplay = (
 		messages: DisplayMessage[],
-		messageText: string
+		messageText: string,
+		shouldSettle: (message: ToolDisplayMessage) => boolean = () => true
 	): DisplayMessage[] =>
 		messages.map((message) => {
-			if (message.role === 'tool' && (message.isLoading || message.isQueued)) {
+			if (
+				message.role === 'tool' &&
+				(message.isLoading || message.isQueued) &&
+				shouldSettle(message)
+			) {
 				// Stopping the turn does not stop the job, and between Run and the job's id
 				// there is no way to know whether the server queued one: nothing threads the
 				// abort into that request, so it lands either way. That window says so
@@ -4652,9 +4657,19 @@ export class AIChatManager {
 	/** What the transcript would be if the turn stopped here — for the writes that fire
 	 * mid-turn without ending it. Loading is a property of this page: reloading resolves
 	 * no card, so one stored still pending comes back asking for input nothing can
-	 * deliver. Settles the stored copy only; the live turn keeps its cards. */
-	#interruptedSnapshot = (): DisplayMessage[] =>
-		this.settledToolDisplay(this.displayMessages, 'Interrupted')
+	 * deliver. Settles the stored copy only; the live turn keeps its cards.
+	 *
+	 * Except a detached job's card, which the poller does resolve after a reload: settling
+	 * that one stores an "Interrupted" error, and the patch a completed job merges in
+	 * carries no error to clear it with. */
+	#interruptedSnapshot = (): DisplayMessage[] => {
+		const detached = new Set(this.backgroundJobs.filter((j) => j.detached).map((j) => j.toolCallId))
+		return this.settledToolDisplay(
+			this.displayMessages,
+			'Interrupted',
+			(message) => !detached.has(message.tool_call_id)
+		)
+	}
 }
 
 export const aiChatManager = new AIChatManager()
