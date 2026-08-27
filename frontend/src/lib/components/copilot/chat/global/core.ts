@@ -20,6 +20,7 @@ import {
 	WebsocketTriggerService
 } from '$lib/gen'
 import { createTwoFilesPatch } from 'diff'
+import { deepEqual } from 'fast-equals'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
@@ -3677,7 +3678,8 @@ export const globalTools: Tool<{}>[] = [
 			return runDeployedScript(parsed, ctx)
 		},
 		// No requiresConfirmation: the argument form is the confirmation, and unlike a
-		// yes/no card it must not be auto-accepted away by YOLO.
+		// yes/no card it must not be auto-accepted away by YOLO. One thing does run
+		// before Run — see the note on the form's SchemaForm.
 		streamingLabel: 'Preparing the run form...',
 		queuedLabel: (args) => `Run ${args?.path ?? 'a script'}`,
 		showDetails: true,
@@ -5567,14 +5569,19 @@ async function runDeployedScript(
 		: ''
 	// Redacted: a variable path is enough to run a job on a value the model cannot read,
 	// and one shown a path proposes it back on the next call.
-	const submittedJson = JSON.stringify(
-		redactFileArgs(redactSecretArgs(submitted, schema as any), schema as any)
-	)
+	const redacted = redactFileArgs(redactSecretArgs(submitted, schema as any), schema as any)
+	const submittedJson = JSON.stringify(redacted)
 	const shown =
 		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH
 			? submittedJson.slice(0, MAX_SUBMITTED_ARGS_LENGTH) + '... (truncated)'
 			: submittedJson
-	return `Ran with arguments: ${shown}${dropped}${unshowable}${reset}${stripped}\n${outcome}`
+	// Naming them costs a copy of arguments already in the call above, and the clauses
+	// below cover every way the form's own were not the proposed ones — so only what the
+	// user changed is news, and an untouched form is worth saying in a line.
+	const ran = deepEqual(redacted, proposed)
+		? 'Ran with the arguments the form opened with, unedited.'
+		: `Ran with arguments: ${shown}`
+	return `${ran}${dropped}${unshowable}${reset}${stripped}\n${outcome}`
 }
 
 async function testRunFlowByPath(
