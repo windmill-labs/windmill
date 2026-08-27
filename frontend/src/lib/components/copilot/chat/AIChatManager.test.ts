@@ -261,6 +261,25 @@ describe('AIChatManager run form', () => {
 		expect(manager.displayMessages[0].isLoading).toBe(true)
 	})
 
+	// Only the rendered form reads the schema, and a settled card renders none. Kept, it
+	// would sit in history for the life of the chat with the script's own password and
+	// file defaults inside it.
+	it('drops the schema from a card that has stopped showing a form', () => {
+		const manager = new AIChatManager()
+		const runForm = { path: 'f/a/b', schema: { properties: { tok: { password: true } } }, args: {} }
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'call_r', content: '', isLoading: true, runForm }
+		]
+
+		manager.handleRunFormCancel('call_r')
+
+		expect(manager.displayMessages[0].runForm?.schema).toBeUndefined()
+		expect(manager.displayMessages[0].runForm?.canceled).toBe(true)
+	})
+
+	// The tool reads the deployed schema before it asks for arguments. A stop during that
+	// read drains the callbacks and settles the card, so a waiter installed afterwards was
+	// one no rendered form could resolve: the turn stayed loading until a second stop.
 	it('installs no run-form waiter once the turn is stopped', async () => {
 		const manager = new AIChatManager()
 		// The turn the tool is running under; cancel aborts it.

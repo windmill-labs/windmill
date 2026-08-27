@@ -190,6 +190,11 @@ const MAX_CONSECUTIVE_COMPACTION_FAILURES = 3
 // (panel teardown, save-and-clear) pass their own reason, so the queued-message
 // flush can tell "the user wants to move on" from "the turn was torn down".
 const USER_CANCEL_REASON = 'user_cancelled'
+// Applied wherever a run form stops rendering. Only the form reads the deployed schema,
+// so past that point it is a copy of the script's declarations — password and file
+// defaults with them — persisted for the life of the chat.
+const settledRunForm = (runForm: RunFormDisplay): RunFormDisplay =>
+	runForm.submitted || runForm.canceled ? { ...runForm, schema: undefined } : runForm
 // Built-in `/compact` session command — summarizes the conversation locally
 // instead of sending a turn to the model. Matched on the whole input so a
 // regular message that merely mentions "/compact" mid-sentence is unaffected.
@@ -1840,7 +1845,7 @@ export class AIChatManager {
 						isLoading: false,
 						error: 'Cancelled by user',
 						content: `Run of "${message.runForm.path}" cancelled by user`,
-						runForm: { ...message.runForm, canceled: true }
+						runForm: settledRunForm({ ...message.runForm, canceled: true })
 					}
 				: message
 		)
@@ -1854,7 +1859,7 @@ export class AIChatManager {
 	#patchRunForm = (toolId: string, patch: Partial<RunFormDisplay>) => {
 		this.displayMessages = this.displayMessages.map((message) =>
 			message.role === 'tool' && message.tool_call_id === toolId && message.runForm
-				? { ...message, runForm: { ...message.runForm, ...patch } }
+				? { ...message, runForm: settledRunForm({ ...message.runForm, ...patch }) }
 				: message
 		)
 	}
@@ -4643,7 +4648,7 @@ export class AIChatManager {
 						? { ...message.userQuestion, canceled: true }
 						: undefined,
 					runForm: message.runForm
-						? { ...message.runForm, canceled: runState === 'idle' }
+						? settledRunForm({ ...message.runForm, canceled: runState === 'idle' })
 						: undefined
 				}
 			}

@@ -27,12 +27,12 @@
 	const workspace = $derived(aiChatManager.operatingWorkspace)
 
 	// Deep copies, not spreads: runForm comes off displayMessages ($state), so its nested
-	// values are proxies that $state() hands back untouched. SchemaForm edits objects and
-	// arrays in place, so a shallow copy would write every keystroke — a password typed
-	// into a nested field included — straight into the persisted transcript. The schema
-	// goes the same way: SchemaForm binds it and reorders its properties on mount.
+	// values are proxies that $state() hands back untouched. SchemaForm edits both in
+	// place — and binds the schema, reordering its properties on mount — so a shallow
+	// copy would write every keystroke, a password typed into a nested field included,
+	// straight into the persisted transcript.
 	let args = $state($state.snapshot(runForm.args ?? {}) as Record<string, any>)
-	let schema = $state($state.snapshot(runForm.schema) as Record<string, any>)
+	let schema = $state($state.snapshot(runForm.schema ?? {}) as Record<string, any>)
 
 	const properties = $derived(schema?.properties ?? {})
 	const hasArgs = $derived(Object.keys(properties).length > 0)
