@@ -4436,11 +4436,11 @@ async fn push_next_flow_job(
             .and_then(|t| unresolved_tag_error(t, &push_args));
         let err = err.or(unresolved_tag.as_ref());
 
-        // A job carrying a pre-run error never runs user code; it only has to reach a worker to
-        // be marked failed. Its own tag may be the very thing that could not be resolved, and an
-        // unserved tag would leave it queued forever instead of failing the step. The flow's own
-        // tag is provably served: a worker is running the flow on it right now.
-        let tag = if err.is_some() {
+        // The step is failed before it runs, so it only has to reach a worker to be marked
+        // failed — but the tag it would go out on is the one that just failed to resolve, and no
+        // worker serves it. The flow's own tag is provably served: a worker is running the flow
+        // on it right now.
+        let tag = if unresolved_tag.is_some() {
             Some(flow_job.tag.clone())
         } else {
             tag
