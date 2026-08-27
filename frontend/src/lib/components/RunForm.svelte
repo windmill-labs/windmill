@@ -24,7 +24,7 @@
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
 	import { processSecretArgs } from './secretArgUtils'
-	import { enforceDisabledDefaults } from './job_args'
+	import { enforceDisabledDefaults, resetKeysToast } from './job_args'
 	import PowerShellCommonParams from './PowerShellCommonParams.svelte'
 
 	let reloadArgs = $state(0)
@@ -63,9 +63,7 @@
 		let processedArgs: Record<string, any>
 		const { args: withDefaults, resetKeys } = enforceDisabledDefaults(args ?? {}, runnable?.schema)
 		if (resetKeys.length > 0) {
-			sendUserToast(
-				`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
-			)
+			sendUserToast(resetKeysToast(resetKeys))
 		}
 		try {
 			processedArgs = await processSecretArgs(withDefaults, runnable?.schema)

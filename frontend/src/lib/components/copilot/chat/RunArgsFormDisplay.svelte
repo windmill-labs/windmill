@@ -4,7 +4,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { processSecretArgs } from '$lib/components/secretArgUtils'
-	import { enforceDisabledDefaults } from '$lib/components/job_args'
+	import { enforceDisabledDefaults, resetKeysToast } from '$lib/components/job_args'
 	import { sendUserToast } from '$lib/utils'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { PLAN_MODE_MESSAGES } from './planModeMessages'
@@ -74,9 +74,7 @@
 		// JSON editor to holds keys no schema names, and they are still theirs.
 		const { args: enforced, resetKeys } = enforceDisabledDefaults(args ?? {}, schema)
 		if (resetKeys.length > 0) {
-			sendUserToast(
-				`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
-			)
+			sendUserToast(resetKeysToast(resetKeys))
 		}
 		let processed: Record<string, any>
 		try {
