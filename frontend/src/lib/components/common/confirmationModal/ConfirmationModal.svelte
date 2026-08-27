@@ -141,7 +141,10 @@
 
 <svelte:window onkeydowncapture={onKeyDown} />
 
-<ConditionalPortal condition={!!hostEl} target={hostEl} class="contents">
+<!-- Always portalled, as Drawer and Modal are. Left in place, the dialog belongs to whatever
+     stacking context encloses the caller — a drawer opened over the page paints on top of it
+     however high its z-index — and an ancestor's `transform`, `filter` or `overflow` confines it. -->
+<ConditionalPortal condition target={hostEl} class={hostEl ? 'contents' : undefined}>
 	{#if open}
 		<div
 			transition:fadeFast|local
