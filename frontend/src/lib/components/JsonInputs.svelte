@@ -8,8 +8,9 @@
 		updateOnBlur?: boolean
 		placeholder?: string
 		selected?: boolean
-		/** Content the editor opens with. Read once, at mount: later changes to the value it was
-		 * derived from must not overwrite what is being typed. */
+		/** Content the editor opens with, and keeps following while the buffer is untouched — so a
+		 * payload nobody has typed into tracks the schema instead of going stale. The first edit
+		 * hands the buffer to the user and later changes stop overwriting it. */
 		initialCode?: string
 	}
 
@@ -21,8 +22,28 @@
 	}: Props = $props()
 
 	let pendingJson = $state(untrack(() => initialCode))
+	// The last content this component wrote. While the buffer still equals it nobody has typed,
+	// so it is ours to refresh; once they diverge the payload is the user's.
+	let seededCode = $state(untrack(() => initialCode))
 	let simpleEditor: SimpleEditor | undefined = $state(undefined)
 	let focusTrap: HTMLElement | undefined = $state()
+
+	$effect(() => {
+		const next = initialCode
+		untrack(() => {
+			if (next !== seededCode && pendingJson === seededCode) {
+				seed(next)
+			}
+		})
+	})
+
+	// `SimpleEditor.setCode` cancels the change burst its own `setValue` opens, so reseeding
+	// never dispatches `select` — the payload reaches `args` only when the user edits it.
+	function seed(code: string) {
+		seededCode = code
+		pendingJson = code
+		simpleEditor?.setCode(code)
+	}
 
 	function updatePayloadFromJson(jsonInput: string) {
 		if (jsonInput === undefined || jsonInput === null || jsonInput.trim() === '') {
@@ -37,8 +58,10 @@
 		}
 	}
 
+	/** Authoritative overwrite: replaces the buffer whether or not it has been typed into, and
+	 * re-establishes it as the content to keep following. */
 	export function setCode(code: string) {
-		simpleEditor?.setCode(code)
+		seed(code)
 	}
 
 	export function resetSelected(dispatchEvent?: boolean) {

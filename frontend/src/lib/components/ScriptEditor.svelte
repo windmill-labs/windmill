@@ -334,15 +334,18 @@
 	})
 
 	function switchToModule(modulePath: string) {
-		if (activeModuleTab !== null && modules && activeModuleTab !== modulePath) {
+		// Re-clicking the tab you are already on is a no-op. Re-running the body would reset this
+		// module's test state whenever its inference is still pending or has failed (the catch
+		// leaves `moduleTestState` unwritten), losing both the filled-in args and the arg views.
+		if (activeModuleTab === modulePath) {
+			return
+		}
+		if (activeModuleTab !== null && modules) {
 			// Switching from another module: save its content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
 		}
 		if (modules && modules[modulePath]) {
-			// Re-clicking the tab you are already on must not remount the arg views: it would
-			// throw away whatever is half-typed in the JSON editor.
-			const switched = activeModuleTab !== modulePath
 			activeModuleTab = modulePath
 			editorCode = modules[modulePath].content
 			editor?.setCode(editorCode)
@@ -361,15 +364,15 @@
 					}
 				})
 			}
-			if (switched) {
-				argsRender++
-			}
+			argsRender++
 		}
 	}
 
 	function switchToMain() {
-		const switched = activeModuleTab !== null
-		if (activeModuleTab !== null && modules) {
+		if (activeModuleTab === null) {
+			return
+		}
+		if (modules) {
 			// Save current module content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
@@ -378,9 +381,7 @@
 		editorCode = code
 		lastSyncedCode = code
 		editor?.setCode(editorCode)
-		if (switched) {
-			argsRender++
-		}
+		argsRender++
 	}
 
 	// Whether the open file is tested as a runnable of its own. A `__mod` helper
