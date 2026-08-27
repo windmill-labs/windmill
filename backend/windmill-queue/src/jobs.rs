@@ -4671,9 +4671,7 @@ pub async fn check_debouncing_within_limits(
     }
 }
 
-/// The placeholder's value as JSON text, so a JSON `null` stays distinguishable from the string
-/// `"null"`. Missing args and unreachable nested fields come back empty rather than as `null`.
-fn resolve_arg_placeholder_json(arg_name: &str, args: &PushArgs) -> String {
+fn resolve_arg_placeholder(arg_name: &str, args: &PushArgs) -> String {
     if arg_name.contains('.') {
         let parts: Vec<&str> = arg_name.split('.').collect();
         let root = parts[0];
@@ -4698,21 +4696,16 @@ fn resolve_arg_placeholder_json(arg_name: &str, args: &PushArgs) -> String {
                 break;
             }
         }
-        value
+        value.trim_matches('"').to_string()
     } else {
         args.args
             .get(arg_name)
             .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
             .map(|x| x.get())
             .unwrap_or_default()
+            .trim_matches('"')
             .to_string()
     }
-}
-
-fn resolve_arg_placeholder(arg_name: &str, args: &PushArgs) -> String {
-    resolve_arg_placeholder_json(arg_name, args)
-        .trim_matches('"')
-        .to_string()
 }
 
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
@@ -4736,50 +4729,6 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
 /// arguments it could not build knows the tag cannot be built either.
 pub fn tag_reads_args(tag: &str) -> bool {
     RE_ARG_TAG.is_match(tag)
-}
-
-/// The error for a tag that is nothing but placeholders with no value, or `None` otherwise.
-///
-/// Such a tag has nothing of its own to name a queue with: it interpolates to `""`, or — for a
-/// JSON `null` — to the literal `null`, the arg's absence leaking into the queue name rather
-/// than a queue anyone runs. Either way the job can only sit unpulled, and nothing else rejects
-/// it, so without this it is queued forever with no error.
-///
-/// A tag that resolves in part (`worker-`, `gpu`) is left alone: whether the leftover literal is
-/// a real queue depends on which tags workers advertise, which push cannot know, so
-/// `gpu$args[suffix]` with no suffix stays as valid as it has always been.
-///
-/// The string `"null"` is a real value, which is why this reads the JSON rather than the
-/// interpolated text.
-pub fn unresolved_tag_error(tag: &str, args: &PushArgs) -> Option<Error> {
-    if !RE_ARG_TAG.is_match(tag) {
-        return None;
-    }
-    let mut missing = Vec::new();
-    let mut interpolated = tag.to_string();
-    for cap in RE_ARG_TAG.captures_iter(tag) {
-        let arg_name = cap.get(1).unwrap().as_str();
-        let json = resolve_arg_placeholder_json(arg_name, args);
-        let value = if json == "null" {
-            ""
-        } else {
-            json.trim_matches('"')
-        };
-        if value.is_empty() {
-            missing.push(format!("$args[{arg_name}]"));
-        }
-        interpolated = interpolated.replace(format!("$args[{arg_name}]").as_str(), value);
-    }
-    if interpolated.is_empty() {
-        Some(Error::BadRequest(format!(
-            "Tag `{tag}` cannot be resolved: {} has no value in the job arguments, leaving the \
-             tag with nothing of its own to name a queue with. The job would sit in the queue \
-             and never be picked up.",
-            missing.join(", ")
-        )))
-    } else {
-        None
-    }
 }
 
 pub fn fullpath_with_workspace(
@@ -7958,70 +7907,5 @@ mod git_sync_concurrency_key_tests {
         let b = git_sync_concurrency_key(ws, Some(format!("u/user/b{long}")), 0);
         assert_ne!(a, b);
         assert!(a.len() <= 255 && b.len() <= 255);
-    }
-}
-
-#[cfg(test)]
-mod unresolved_tag_tests {
-    use super::{interpolate_args, unresolved_tag_error, PushArgs};
-    use serde_json::value::RawValue;
-    use std::collections::HashMap;
-
-    fn args(pairs: &[(&str, &str)]) -> HashMap<String, Box<RawValue>> {
-        pairs
-            .iter()
-            .map(|(k, v)| (k.to_string(), RawValue::from_string(v.to_string()).unwrap()))
-            .collect()
-    }
-
-    /// An empty tag names no queue, so the job could only ever sit unpulled. That is the one
-    /// case push can be sure about.
-    #[test]
-    fn rejects_a_tag_that_resolves_to_nothing() {
-        for missing in [None, Some("null"), Some(r#""""#)] {
-            let hm = missing.map_or_else(|| args(&[]), |v| args(&[("hostname", v)]));
-            assert!(
-                unresolved_tag_error("$args[hostname]", &PushArgs::from(&hm)).is_some(),
-                "expected a rejection for {missing:?}"
-            );
-        }
-
-        let hm = args(&[("host", r#"{"other":"x"}"#)]);
-        assert!(unresolved_tag_error("$args[host.name]", &PushArgs::from(&hm)).is_some());
-    }
-
-    /// Whether the leftover literal is a real queue depends on what workers advertise, which
-    /// push cannot know: `gpu$args[suffix]` with no suffix has always meant the `gpu` queue.
-    #[test]
-    fn leaves_a_partially_resolved_tag_alone() {
-        let hm = args(&[]);
-        assert!(unresolved_tag_error("gpu$args[suffix]", &PushArgs::from(&hm)).is_none());
-        assert!(unresolved_tag_error("worker-$args[hostname]", &PushArgs::from(&hm)).is_none());
-
-        let hm = args(&[("hostname", "null")]);
-        assert!(unresolved_tag_error("worker-$args[hostname]", &PushArgs::from(&hm)).is_none());
-    }
-
-    /// The JSON `null` that empties a tag is not a string that happens to read `null`.
-    #[test]
-    fn accepts_the_string_null() {
-        let hm = args(&[("hostname", r#""null""#)]);
-        assert!(unresolved_tag_error("$args[hostname]", &PushArgs::from(&hm)).is_none());
-        assert_eq!(
-            interpolate_args("$args[hostname]".to_string(), &PushArgs::from(&hm), "w"),
-            "null"
-        );
-    }
-
-    #[test]
-    fn accepts_a_resolvable_tag() {
-        let hm = args(&[("hostname", r#""host1""#)]);
-        assert!(unresolved_tag_error("worker-$args[hostname]", &PushArgs::from(&hm)).is_none());
-
-        let hm = args(&[("host", r#"{"name":"host1"}"#)]);
-        assert!(unresolved_tag_error("$args[host.name]", &PushArgs::from(&hm)).is_none());
-
-        let hm = args(&[]);
-        assert!(unresolved_tag_error("worker-$workspace", &PushArgs::from(&hm)).is_none());
     }
 }

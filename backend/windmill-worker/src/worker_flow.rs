@@ -71,8 +71,8 @@ use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
     insert_concurrency_key_capped, interpolate_args,
     report_error_to_workspace_handler_or_critical_side_channel, tag_reads_args,
-    try_schedule_next_job, unresolved_tag_error, CanceledBy, FlowRunners, MiniCompletedJob,
-    MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
+    try_schedule_next_job, CanceledBy, FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs,
+    PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
 use windmill_audit::audit_oss::audit_log;
@@ -1578,24 +1578,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 }
                 if let Some(t) = tag {
                     // `$workspace` is already resolved above; this fills in `$args`.
-                    // Writing back a tag that does not resolve would strand the flow and every
-                    // step inheriting it on a queue no worker serves, so keep the tag the flow
-                    // is already running on instead (`None` leaves it untouched below).
-                    tag = match unresolved_tag_error(&t, &args) {
-                        Some(e) => {
-                            // The run page is the only place the author would notice that the
-                            // dynamic tag they configured did not take effect.
-                            append_logs(
-                                &flow_job.id,
-                                &flow_job.workspace_id,
-                                format!("{e:#} Keeping the tag {}.\n", flow_job.tag),
-                                &db.into(),
-                            )
-                            .await;
-                            None
-                        }
-                        None => Some(interpolate_args(t, &args, &flow_job.workspace_id)),
-                    };
+                    tag = Some(interpolate_args(t, &args, &flow_job.workspace_id));
                 }
             } else if concurrent_limit.is_some() {
                 insert_concurrency_key_capped(
@@ -4433,14 +4416,13 @@ async fn push_next_flow_job(
         let step_is_pulled_by_tag = !continue_on_same_worker
             && !continue_with_runners
             && !payload_tag.payload.is_dedicated_worker();
-        let tag = if err.is_some()
-            && step_is_pulled_by_tag
-            && tag.as_deref().is_some_and(tag_reads_args)
-        {
-            Some(flow_job.tag.clone())
-        } else {
-            tag
-        };
+        let tag =
+            if err.is_some() && step_is_pulled_by_tag && tag.as_deref().is_some_and(tag_reads_args)
+            {
+                Some(flow_job.tag.clone())
+            } else {
+                tag
+            };
 
         let (email, permissioned_as) = if let Some(on_behalf_of) = payload_tag.on_behalf_of.as_ref()
         {
