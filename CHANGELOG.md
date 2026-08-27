@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.798.1](https://github.com/windmill-labs/windmill/compare/v1.798.0...v1.798.1) (2026-08-27)
+
+
+### Bug Fixes
+
+* allow job tokens to read the automate_username_creation setting ([#10869](https://github.com/windmill-labs/windmill/issues/10869)) ([c2279db](https://github.com/windmill-labs/windmill/commit/c2279db8a96ac76382eafe254627dafd24d173fd))
+
 ## [1.798.0](https://github.com/windmill-labs/windmill/compare/v1.797.0...v1.798.0) (2026-08-27)
 
 
