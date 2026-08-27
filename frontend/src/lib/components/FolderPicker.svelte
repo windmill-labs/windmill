@@ -3,16 +3,10 @@
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { isDemoWorkspaceRestricted } from '$lib/cloud'
 	import { ChevronDown, Pen, PlusIcon } from 'lucide-svelte'
-	import { Button, Drawer, DrawerContent } from './common'
-	import FolderEditor from './FolderEditor.svelte'
+	import { Button } from './common'
+	import FolderEditorDrawer from './FolderEditorDrawer.svelte'
 	import Select from './select/Select.svelte'
-	import TextInput from './text_input/TextInput.svelte'
-	import Label from './Label.svelte'
-	import InputError from './InputError.svelte'
-	import { tick } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-
-	const VALID_FOLDER_NAME = /^[a-zA-Z_0-9-]+$/
 
 	const restricted = $derived(
 		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
@@ -21,14 +15,8 @@
 	let folders: { name: string; write: boolean }[] = $state([])
 	let filterText: string = $state('')
 	let selectOpen: boolean = $state(false)
-	let nameInput: TextInput | undefined = $state()
-	let newFolder: Drawer | null = $state(null)
-	let viewFolder: Drawer | null = $state(null)
-	let newFolderName: string = $state('')
-	let folderCreated: string | undefined = $state(undefined)
-	let creating: boolean = $state(false)
+	let folderEditorDrawer: FolderEditorDrawer | undefined = $state()
 	let loadingFolders: boolean = $state(true)
-	let editingFolder: string = $state('')
 
 	type Props = {
 		folderName: string
@@ -84,37 +72,17 @@
 		}
 	}
 
-	async function openCreateFolder() {
-		newFolderName = filterText
-		folderCreated = undefined
-		newFolder?.openDrawer()
-		await tick()
-		nameInput?.focus()
-	}
+	async function onFolderSaved(saved: string, created: boolean) {
+		await loadFolders()
+		if (!created) return
+		folderName = saved
 
-	async function addFolder() {
-		if (nameError || !newFolderName || creating) return
-		creating = true
-		try {
-			await FolderService.createFolder({
-				workspace: $workspaceStore ?? '',
-				requestBody: { name: newFolderName }
-			})
-			folderCreated = newFolderName
-			await loadFolders()
-			folderName = newFolderName
-
-			// Writing $userStore.folders = [...] would call userStore.set(),
-			// which re-triggers Path.svelte's $effect.pre and calls initPath()/reset(),
-			// switching the owner toggle from "Folder" back to "User".
-			if ($userStore) {
-				if (!$userStore.folders) $userStore.folders = []
-				$userStore.folders.push(newFolderName)
-			}
-		} catch (e) {
-			sendUserToast(`Could not create folder: ${e}`, true)
-		} finally {
-			creating = false
+		// Writing $userStore.folders = [...] would call userStore.set(),
+		// which re-triggers Path.svelte's $effect.pre and calls initPath()/reset(),
+		// switching the owner toggle from "Folder" back to "User".
+		if ($userStore) {
+			if (!$userStore.folders) $userStore.folders = []
+			$userStore.folders.push(saved)
 		}
 	}
 
@@ -126,16 +94,6 @@
 		}))
 	)
 
-	let nameError = $derived(
-		!newFolderName
-			? ''
-			: !VALID_FOLDER_NAME.test(newFolderName)
-				? 'Folder name can only contain alphanumeric characters, underscores, and hyphens'
-				: folders.some((f) => f.name === newFolderName)
-					? 'A folder with this name already exists'
-					: ''
-	)
-
 	let noMatchingItems = $derived(
 		filterText &&
 			!selectItems.some((item) => item.label.toLowerCase().includes(filterText.toLowerCase()))
@@ -145,60 +103,14 @@
 		if (e.key === 'Enter' && selectOpen && noMatchingItems && !restricted) {
 			e.preventDefault()
 			selectOpen = false
-			openCreateFolder()
+			folderEditorDrawer?.initNew(filterText)
 		}
 	}
 
 	loadFolders()
 </script>
 
-<Drawer bind:this={newFolder} name="newFolder" offset={drawerOffset}>
-	<DrawerContent
-		title={folderCreated ? `Folder ${folderCreated}` : 'Create folder'}
-		on:close={() => {
-			newFolder?.closeDrawer()
-			folderCreated = undefined
-		}}
-	>
-		{#if folderCreated}
-			<FolderEditor name={folderCreated} />
-		{:else}
-			<div class="flex flex-col gap-4">
-				<Label label="Folder name">
-					<TextInput
-						bind:this={nameInput}
-						bind:value={newFolderName}
-						error={!!nameError}
-						inputProps={{
-							placeholder: 'folder_name',
-							onkeydown: (e: KeyboardEvent) => {
-								if (e.key === 'Enter' && newFolderName) {
-									e.preventDefault()
-									addFolder()
-								}
-							}
-						}}
-					/>
-					<InputError error={nameError} />
-				</Label>
-				<Button
-					variant="accent"
-					disabled={!newFolderName || !!nameError || creating}
-					loading={creating}
-					onClick={addFolder}
-				>
-					Create
-				</Button>
-			</div>
-		{/if}
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:this={viewFolder} offset={drawerOffset}>
-	<DrawerContent title="Folder {editingFolder}" on:close={viewFolder.closeDrawer}>
-		<FolderEditor name={editingFolder} />
-	</DrawerContent>
-</Drawer>
+<FolderEditorDrawer bind:this={folderEditorDrawer} offset={drawerOffset} onSaved={onFolderSaved} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -229,8 +141,7 @@
 				wrapperClasses="-mr-2 pl-1 -my-2"
 				btnClasses="hover:bg-surface-tertiary"
 				onClick={() => {
-					editingFolder = item.value ?? ''
-					viewFolder?.openDrawer()
+					folderEditorDrawer?.initEdit(item.value ?? '')
 					close()
 				}}
 				startIcon={{ icon: Pen }}
@@ -245,7 +156,7 @@
 						: ''}"
 					onclick={() => {
 						close()
-						openCreateFolder()
+						folderEditorDrawer?.initNew(filterText)
 					}}
 				>
 					<PlusIcon class="inline" size={16} />

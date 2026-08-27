@@ -4,11 +4,10 @@
 
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import FolderEditor from '$lib/components/FolderEditor.svelte'
+	import FolderEditorDrawer from '$lib/components/FolderEditorDrawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { Button, Drawer, DrawerContent, EmptyState, Skeleton } from '$lib/components/common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import FolderInfo from '$lib/components/FolderInfo.svelte'
 	import FolderUsageInfo from '$lib/components/FolderUsageInfo.svelte'
 	import { sendUserToast } from '$lib/utils'
@@ -28,9 +27,8 @@
 		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
 	)
 
-	let newFolderName: string = $state('')
 	let folders: FolderW[] | undefined = $state(undefined)
-	let folderDrawer: Drawer | undefined = $state()
+	let folderEditorDrawer: FolderEditorDrawer | undefined = $state()
 	let hubDrawer: Drawer | undefined = $state()
 	let publishFolderName: string = $state('')
 
@@ -47,23 +45,9 @@
 		})
 	}
 
-	function handleKeyUp(event: KeyboardEvent, close: () => void) {
-		const key = event.key
-		if (key === 'Enter') {
-			event.preventDefault()
-			addFolder()
-			close()
-		}
-	}
-	async function addFolder() {
-		await FolderService.createFolder({
-			workspace: $workspaceStore ?? '',
-			requestBody: { name: newFolderName }
-		})
-		$userStore?.folders.push(newFolderName)
+	function onFolderSaved(name: string, created: boolean) {
+		if (created) $userStore?.folders.push(name)
 		loadFolders()
-		editFolderName = newFolderName
-		folderDrawer?.openDrawer()
 	}
 
 	$effect(() => {
@@ -74,8 +58,6 @@
 		}
 	})
 
-	let editFolderName: string = $state('')
-
 	function computeMembers(owners: string[], extra_perms: Record<string, any>) {
 		const members = new Set(owners)
 		for (const [user, _] of Object.entries(extra_perms)) {
@@ -85,48 +67,18 @@
 	}
 </script>
 
-{#snippet newFolderPopover(
-	label: string,
-	placement: 'bottom' | 'bottom-end',
-	variant: 'accent' | 'default'
-)}
-	<Popover
-		floatingConfig={{ strategy: 'absolute', placement }}
-		contentClasses="flex flex-col gap-2 p-4"
+{#snippet newFolderButton(label: string, variant: 'accent' | 'default')}
+	<Button
+		{variant}
+		unifiedSize="md"
+		startIcon={{ icon: Plus }}
+		on:click={() => folderEditorDrawer?.initNew()}
 	>
-		{#snippet trigger()}
-			<Button {variant} unifiedSize="md" startIcon={{ icon: Plus }} nonCaptureEvent>{label}</Button>
-		{/snippet}
-		{#snippet content({ close })}
-			<input
-				class="mr-2"
-				onkeyup={(e) => handleKeyUp(e, () => close())}
-				placeholder="New folder name"
-				bind:value={newFolderName}
-			/>
-
-			<div>
-				<Button
-					variant="accent"
-					startIcon={{ icon: Plus }}
-					disabled={!newFolderName}
-					on:click={() => {
-						addFolder()
-						close()
-					}}
-				>
-					Create
-				</Button>
-			</div>
-		{/snippet}
-	</Popover>
+		{label}
+	</Button>
 {/snippet}
 
-<Drawer bind:this={folderDrawer}>
-	<DrawerContent title="Folder {editFolderName}" on:close={folderDrawer.closeDrawer}>
-		<FolderEditor on:update={loadFolders} name={editFolderName} />
-	</DrawerContent>
-</Drawer>
+<FolderEditorDrawer bind:this={folderEditorDrawer} onSaved={onFolderSaved} />
 
 <Drawer bind:this={hubDrawer} size="1100px">
 	<DrawerContent
@@ -168,7 +120,7 @@
 						New folder
 					</Button>
 				{:else}
-					{@render newFolderPopover('New folder', 'bottom-end', 'accent')}
+					{@render newFolderButton('New folder', 'accent')}
 				{/if}
 			</div>
 		</PageHeader>
@@ -181,7 +133,7 @@
 					description="Folders are how you grant permissions: make a user or group viewer, writer or admin on a folder and that access applies to every script, flow, app, resource and schedule inside it."
 				>
 					{#if !restricted}
-						{@render newFolderPopover('Add a folder', 'bottom', 'default')}
+						{@render newFolderButton('Add a folder', 'default')}
 					{/if}
 				</EmptyState>
 			{:else}
@@ -196,8 +148,8 @@
 							<Cell head class="w-20">Schedules</Cell>
 							<Cell head class="w-20">Variables</Cell>
 							<Cell head class="w-20">Resources</Cell>
-							<Cell head class="w-20">Participants</Cell>
-							<Cell head last stickyEnd />
+							<Cell head class="w-20">Members</Cell>
+							<Cell head last actions>Actions</Cell>
 						</tr>
 					</Head>
 					<tbody class="divide-y">
@@ -213,10 +165,7 @@
 							{#each folders as { name, extra_perms, owners, canWrite, summary, labels } (name)}
 								<Row
 									hoverable
-									on:click={() => {
-										editFolderName = name
-										folderDrawer?.openDrawer()
-									}}
+									on:click={() => folderEditorDrawer?.initEdit(name)}
 								>
 									<Cell first>
 										<span class="text-emphasis text-xs font-semibold">{name}</span>
@@ -250,17 +199,14 @@
 									<FolderUsageInfo {name} tabular />
 
 									<Cell><FolderInfo members={computeMembers(owners, extra_perms)} /></Cell>
-									<Cell last stickyEnd shouldStopPropagation>
+									<Cell last actions shouldStopPropagation>
 										<Dropdown
 											items={[
 												{
 													displayName: 'Manage folder',
 													icon: Pen,
 													disabled: !canWrite,
-													action: () => {
-														editFolderName = name
-														folderDrawer?.openDrawer()
-													}
+													action: () => folderEditorDrawer?.initEdit(name)
 												},
 												{
 													displayName: 'Publish to Hub',
