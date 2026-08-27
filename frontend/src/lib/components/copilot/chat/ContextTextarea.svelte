@@ -763,8 +763,17 @@
 <!-- The composer box: border + rounded live HERE (on the wrapper), not on the
      textarea, so context chips can sit INSIDE the box, above the text. The
      textarea's own @tailwindcss/forms border/ring is neutralized below. -->
+<!-- The disabled treatment lives on the wrapper for the same reason the box
+     does: `disabled` on the textarea alone leaves the field looking exactly
+     like a usable one, so the only cue that typing is refused is placeholder
+     text the eye reads as an invitation. -->
 <div
-	class="w-full scroll-pb-2 bg-surface-input rounded-md border border-border-light focus-within:border-border-selected transition-colors"
+	class={twMerge(
+		'w-full scroll-pb-2 rounded-md border border-border-light transition-colors',
+		disabled
+			? 'bg-surface-disabled cursor-not-allowed'
+			: 'bg-surface-input focus-within:border-border-selected'
+	)}
 >
 	<!-- Context chips live inside the input box, above the textarea. The snippet
 	     self-guards (renders nothing when empty) so no blank row appears. -->
@@ -818,6 +827,7 @@
 				// @tailwindcss/forms border, focus ring, and background so only the
 				// wrapper reads as the field.
 				'!border-transparent !bg-transparent !shadow-none focus:!border-transparent focus:!ring-0',
+				'disabled:cursor-not-allowed disabled:placeholder:text-disabled',
 				CHAT_INPUT_PADDING,
 				className
 			)}
