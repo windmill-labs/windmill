@@ -123,6 +123,39 @@
 			: {})
 	} satisfies FilterSchemaRec)
 
+	// Legacy Home links stored free-text in `search`, owner scope in `filter`, and could carry
+	// `kind=all` — none of which the generic searchbar sync (keys `_default_`, `owner`, and a kind
+	// enum without `all`) understands. Rewrite them once, before the sync reads window.location, so
+	// shared/bookmarked URLs still restore and an invalid `kind=all` can't wedge later edits.
+	if (typeof window !== 'undefined') {
+		const url = new URL(window.location.href)
+		const p = url.searchParams
+		let changed = false
+		const legacySearch = p.get('search')
+		if (legacySearch !== null) {
+			if (!p.has('_default_')) p.set('_default_', legacySearch)
+			p.delete('search')
+			changed = true
+		}
+		const legacyOwner = p.get('filter')
+		if (legacyOwner !== null) {
+			if (!p.has('owner')) p.set('owner', legacyOwner)
+			p.delete('filter')
+			changed = true
+		}
+		if (p.get('kind') === 'all') {
+			p.delete('kind')
+			changed = true
+		}
+		if (changed) {
+			history.replaceState(
+				history.state,
+				'',
+				`${url.pathname}${p.toString() ? `?${p}` : ''}${url.hash}`
+			)
+		}
+	}
+
 	// Single URL-synced source of truth for the searchbar-driven filters.
 	let filterValues = useUrlSyncedFilterInstance(untrack(() => searchFilterSchema))
 
