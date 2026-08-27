@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
-	import { Badge, Button, Skeleton } from '$lib/components/common'
+	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AssetService,
@@ -24,11 +24,11 @@
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
-		LayoutDashboard,
-		SearchCode,
-		Tag
+		LayoutDashboard
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import CreateActionsMenu from './CreateActionsMenu.svelte'
+	import ContentSearchInner from '$lib/components/ContentSearchInner.svelte'
 	import type { Item as MenuItem } from '$lib/utils'
 
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
@@ -38,7 +38,6 @@
 		useUrlSyncedFilterInstance,
 		type FilterSchemaRec
 	} from '$lib/components/FilterSearchbar.svelte'
-	import ListFilters from './ListFilters.svelte'
 	import NoItemFound from './NoItemFound.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -51,7 +50,7 @@
 	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
 	import { effectivePath, type ItemType } from './treeViewUtils'
-	import { getContext, tick, untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { NetworkIcon } from 'lucide-svelte'
 	import { base } from '$lib/base'
@@ -77,10 +76,20 @@
 	// FilterSearchbar schema — `_default_` is the free-text search; the rest mirror the
 	// boolean/kind list filters. Owner and label scoping stay on the server-side chips
 	// below (ListFilters / label badges) so the merged endpoint can scope by them
-	// (pathStart) rather than filtering client-side; content search stays on the "Content"
-	// button (opens the indexer modal).
+	// (pathStart) rather than filtering client-side. `content` is a distinct mode: it swaps
+	// the list for the full-text content-match view (EE indexer) below.
 	let searchFilterSchema = $derived({
 		_default_: { type: 'string' as const, hidden: true },
+		content: {
+			type: 'string' as const,
+			label: 'Content',
+			description: 'Full-text search across item content (EE)'
+		},
+		// Owner (u/<user> or f/<folder>) and label are offered as presets built from what the
+		// list actually holds (see searchPresets); they drive the same server path-scope / label
+		// filter the old on-page chips did.
+		owner: { type: 'string' as const, label: 'Owner' },
+		label: { type: 'string' as const, label: 'Label' },
 		kind: {
 			type: 'oneof' as const,
 			label: 'Kind',
@@ -92,7 +101,14 @@
 		},
 		archived: { type: 'boolean' as const, label: 'Only archived' },
 		...($userStore && !$userStore.operator
-			? { include_library: { type: 'boolean' as const, label: 'Include library scripts' } }
+			? {
+					include_library: {
+						type: 'boolean' as const,
+						label: 'Include library scripts',
+						// On by default, so selecting it means "turn it off" — keep the picker.
+						default: true
+					}
+				}
 			: {}),
 		...(filterUserFoldersType
 			? {
@@ -118,6 +134,35 @@
 	let archived = $derived(!!filterValues.val.archived)
 	let includeWithoutMain = $derived((filterValues.val.include_library ?? true) as boolean)
 	let filterUserFolders = $derived(!!filterValues.val.only_user_folders)
+
+	// Content search is a distinct mode: its results come from the indexer via
+	// ContentSearchInner (which carries only path + content), so the row-list filters can't
+	// apply to it. When it's active we restrict the searchbar to just the content filter,
+	// clear any other filters so they don't linger as ignored chips, and hide the row-list
+	// controls (kind toggle, tree view) that no longer drive anything.
+	let contentActive = $derived(!!filterValues.val.content)
+	let searchbarSchema = $derived(
+		contentActive ? { content: searchFilterSchema.content } : searchFilterSchema
+	)
+	$effect(() => {
+		if (!contentActive) return
+		untrack(() => {
+			for (const k of Object.keys(filterValues.val)) {
+				if (k !== 'content') delete (filterValues.val as Record<string, unknown>)[k]
+			}
+		})
+	})
+
+	// Content-filter view: reuse the Ctrl-K "Content" search (full-text, EE-gated). It loads
+	// its own dataset via `.open()`, then filters client-side by `search`. The component is
+	// keyed by workspace in the markup, so a workspace switch remounts it (this `bind:this`
+	// then points at the fresh instance and re-runs `open()`); the old instance is discarded,
+	// so its late in-flight responses can't overwrite the new workspace's results.
+	let contentSearchEl: ContentSearchInner | undefined = $state()
+	$effect(() => {
+		const el = contentSearchEl
+		if (el) untrack(() => el.open())
+	})
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -641,8 +686,11 @@
 		return true // should not happen
 	}
 
-	let ownerFilter: string | undefined = $state(undefined)
-	let labelFilter: string | undefined = $state(undefined)
+	// Owner/label scope now live on the URL-synced searchbar filters (set via the presets),
+	// not standalone chip state — the whole data layer below still reads these two, so keep
+	// them as the single derived source. Empty string reads as "no filter".
+	let ownerFilter = $derived((filterValues.val.owner || undefined) as string | undefined)
+	let labelFilter = $derived((filterValues.val.label || undefined) as string | undefined)
 
 	const cmp = new Intl.Collator('en').compare
 
@@ -758,10 +806,6 @@
 			)
 		)
 	})
-	const openSearchWithPrefilledText: (t?: string) => void = getContext(
-		'openSearchWithPrefilledText'
-	)
-
 	let viewCodeDrawer: Drawer | undefined = $state()
 	let viewCodeTitle: string | undefined = $state()
 	let script: Script | undefined = $state()
@@ -1083,15 +1127,23 @@
 	let allLabels = $derived(
 		Array.from(new Set(combinedItems?.flatMap((x) => itemLabels(x)) ?? [])).sort()
 	)
+	// FilterSearchbar presets: the owner prefixes and labels the list actually holds, so
+	// scoping to one is a click in the searchbar dropdown instead of a wall of on-page chips.
+	// Owner sets the `owner` filter (server path-scope), label sets `label` (client filter).
+	// Spaces are escaped to match the searchbar's tagged `key:value` syntax.
+	let searchPresets = $derived([
+		...owners.map((o) => ({ name: o, value: `owner:${o.replace(/ /g, '\\ ')}` })),
+		...allLabels.map((l) => ({ name: l, value: `label:${l.replace(/ /g, '\\ ')}` }))
+	])
 	let prevWorkspace: string | undefined = undefined
-	// Clear filters only when the workspace actually changes. The initial
-	// resolution must be left alone so URL-loaded filter values (set by
-	// ListFilters.loadFilterFromUrl on mount) survive the async store settling.
+	// An owner/label from one workspace means nothing in another, so drop them when the
+	// workspace actually changes. The initial resolution is left alone so URL-loaded filter
+	// values survive the async store settling.
 	$effect(() => {
 		const ws = $workspaceStore
 		if (ws && prevWorkspace !== undefined && ws !== prevWorkspace) {
-			ownerFilter = undefined
-			labelFilter = undefined
+			delete filterValues.val.owner
+			delete filterValues.val.label
 		}
 		prevWorkspace = ws
 	})
@@ -1517,99 +1569,79 @@
 			description: 'Lists of scripts, flows, and apps'
 		}}
 	>
-		<div class="flex justify-start">
-			<ToggleButtonGroup
-				selected={itemKind}
-				onSelected={(v) => {
-					// itemKind is derived from the shared filter object (which URL-syncs itself);
-					// `all` clears the kind filter (delete, not null, so it doesn't linger as a
-					// `kind: null` chip).
-					if (v === 'all') {
-						delete filterValues.val.kind
-					} else {
-						filterValues.val.kind = v
-						subtab = v
-					}
-				}}
-			>
-				{#snippet children({ item })}
-					<ToggleButton value="all" label="All" size="md" {item} />
-					<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
-					{#if HOME_SEARCH_SHOW_FLOW}
+		{#if !contentActive}
+			<div class="flex justify-start">
+				<ToggleButtonGroup
+					selected={itemKind}
+					onSelected={(v) => {
+						// itemKind is derived from the shared filter object (which URL-syncs itself);
+						// `all` clears the kind filter (delete, not null, so it doesn't linger as a
+						// `kind: null` chip).
+						if (v === 'all') {
+							delete filterValues.val.kind
+						} else {
+							filterValues.val.kind = v
+							subtab = v
+						}
+					}}
+				>
+					{#snippet children({ item })}
+						<ToggleButton value="all" label="All" size="md" {item} />
+						<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
+						{#if HOME_SEARCH_SHOW_FLOW}
+							<ToggleButton
+								value="flow"
+								label="Flows"
+								icon={FlowIcon}
+								selectedColor="#14b8a6"
+								size="md"
+								{item}
+							/>
+						{/if}
 						<ToggleButton
-							value="flow"
-							label="Flows"
-							icon={FlowIcon}
-							selectedColor="#14b8a6"
+							value="app"
+							label="Apps"
+							icon={LayoutDashboard}
+							selectedColor="#fb923c"
 							size="md"
 							{item}
 						/>
-					{/if}
-					<ToggleButton
-						value="app"
-						label="Apps"
-						icon={LayoutDashboard}
-						selectedColor="#fb923c"
-						size="md"
-						{item}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-		</div>
-
-		<div class="relative text-primary grow min-w-[200px] max-w-[30rem]">
-			<FilterSearchbar
-				schema={searchFilterSchema}
-				bind:value={filterValues.val}
-				placeholder={HOME_SEARCH_PLACEHOLDER}
-				autofocus
-				hideDropdownOnFreeText
-			/>
-		</div>
-		<Button
-			on:click={() => openSearchWithPrefilledText('#')}
-			variant="default"
-			unifiedSize="md"
-			endIcon={{
-				icon: SearchCode
-			}}
-		>
-			Content
-		</Button>
-	</div>
-	<div class="relative">
-		<ListFilters
-			syncQuery
-			bind:selectedFilter={ownerFilter}
-			filters={owners}
-			maxDisplayed={20}
-			bottomMargin={false}
-		/>
-		{#if allLabels.length > 0}
-			<div class="gap-1.5 w-full flex flex-wrap mt-2">
-				{#each allLabels as label (label)}
-					<Badge
-						color="blue"
-						small
-						clickable
-						selected={label === labelFilter}
-						title="Label: {label}"
-						onclick={() => {
-							labelFilter = labelFilter === label ? undefined : label
-						}}
-					>
-						<Tag size={10} class="inline -mt-px" />{label}
-						{#if label === labelFilter}&cross;{/if}
-					</Badge>
-				{/each}
+					{/snippet}
+				</ToggleButtonGroup>
 			</div>
 		{/if}
-		{#if filteredItems?.length == 0}
-			<div class="mt-10"></div>
-		{/if}
-		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-6">
+
+		{#if !loading && !contentActive}
+			<!-- List controls, between the kind toggle and the searchbar: select mode, tree
+			     view, expand/collapse (tree only), sort. -->
+			<div class="flex items-center gap-2">
+				{#if homeSelection.available && !homeSelection.active}
+					<Button
+						startIcon={{ icon: CheckSquare }}
+						iconOnly
+						size="xs"
+						color="light"
+						variant="default"
+						spacingSize="xs2"
+						title="Select items — move, archive, delete or discard several at once"
+						on:click={() => homeSelection.enter()}
+					/>
+				{/if}
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
+				{#if treeView}
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						on:click={() => (collapseAll = !collapseAll)}
+						startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
+					>
+						{#if collapseAll}
+							Expand all
+						{:else}
+							Collapse all
+						{/if}
+					</Button>
+				{/if}
 				<DropdownV2
 					items={sortItems}
 					disabled={filter !== ''}
@@ -1636,42 +1668,41 @@
 						</Button>
 					{/snippet}
 				</DropdownV2>
-				{#if treeView}
-					<Button
-						unifiedSize="sm"
-						variant="subtle"
-						on:click={() => (collapseAll = !collapseAll)}
-						startIcon={{
-							icon: collapseAll ? ChevronsUpDown : ChevronsDownUp
-						}}
-					>
-						{#if collapseAll}
-							Expand all
-						{:else}
-							Collapse all
-						{/if}
-					</Button>
-				{/if}
-				{#if homeSelection.available && !homeSelection.active}
-					<!-- Last child of a flex-row-reverse row, so `mr-auto` absorbs the free
-					     space and pins it to the far left, away from the view/sort controls. -->
-					<Button
-						wrapperClasses="mr-auto"
-						startIcon={{ icon: CheckSquare }}
-						iconOnly
-						size="xs"
-						color="light"
-						variant="default"
-						spacingSize="xs2"
-						title="Select items — move, archive, delete or discard several at once"
-						on:click={() => homeSelection.enter()}
-					/>
-				{/if}
 			</div>
 		{/if}
+
+		<div class="flex grow items-center justify-end gap-2 min-w-0">
+			<div class="relative text-primary w-full min-w-[200px] max-w-[26rem]">
+				<FilterSearchbar
+					schema={searchbarSchema}
+					bind:value={filterValues.val}
+					placeholder={HOME_SEARCH_PLACEHOLDER}
+					presets={contentActive ? [] : searchPresets}
+					autofocus
+					hideDropdownOnFreeText
+				/>
+			</div>
+			<CreateActionsMenu />
+		</div>
 	</div>
-	<div>
-		{#if filteredItems == undefined || treeCountsPending}
+	{#if filteredItems?.length == 0}
+		<div class="mt-10"></div>
+	{/if}
+	<div class="mt-3">
+		{#if filterValues.val.content}
+			<!-- Content filter: swap the normal list/tree for the full-text content-match view
+			     (the same one used by the Ctrl-K "Content" modal). It searches item contents via
+			     the indexer and shows matching snippets; off EE it renders its own warning + a
+			     limited fallback search. Keyed by workspace so a switch remounts a fresh instance
+			     and late in-flight responses from the previous workspace can't land in it. -->
+			<!-- -mx-2 cancels ContentSearchInner's own px-2 so its rows line up flush with the
+			     runnable list instead of sitting slightly inset. -->
+			<div class="-mx-2">
+				{#key $workspaceStore}
+					<ContentSearchInner bind:this={contentSearchEl} search={filterValues.val.content} />
+				{/key}
+			</div>
+		{:else if filteredItems == undefined || treeCountsPending}
 			<div class="mt-4"></div>
 			<Skeleton layout={[[2], 1]} />
 			{#each new Array(6) as _}

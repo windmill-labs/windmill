@@ -22,6 +22,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { ArrowUp, ExternalLink, Globe2, KeyRound, PlugZap, Settings } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
+	import { Badge } from '../common'
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
@@ -131,7 +132,10 @@
 <div class="w-full flex justify-center">
 	<div class="max-w-[40rem] grow relative group">
 		<div class={blurClass}>
-			<p class="text-center font-regular text-3xl mb-4">Build with AI</p>
+			<div class="flex items-center justify-center gap-2 mb-4">
+				<p class="text-center font-regular text-3xl">Build with AI</p>
+				<Badge color="blue" small>Beta</Badge>
+			</div>
 			<!-- anchors the send button / model settings to the input, not to the whole
 			     block — the row below would otherwise push them down -->
 			<div class="relative">
