@@ -6,6 +6,11 @@ pub use crate::ai_free_tier_ee::*;
 // callers in `ai.rs` / `workspaces.rs` compile while disabling the feature entirely —
 // `resolve_free_tier_credentials` never opts in, so the proxy falls through to its
 // normal "AI resource not configured" path and the copilot stays hidden.
+//
+// Caller contract (enforced by the private impl, restated here for parity): the `email`
+// passed to `resolve_free_tier_credentials` / `free_tier_copilot_config` MUST be the
+// authenticated caller's own identity (an `ApiAuthed` email), never a client-supplied one —
+// it selects whose lent-key grant is spent and whose usage is read.
 
 #[cfg(not(feature = "private"))]
 use crate::ai::AIConfig;
