@@ -1668,12 +1668,27 @@
 	$effect(() => {
 		!hasPreprocessor && (selectedTab = 'main')
 	})
+	// `main` and `preprocessor` describe the same args under different schemas. `diagram`
+	// leaves the schema alone, so it must not read as a switch.
+	let lastSchemaTab = untrack(() => (selectedTab === 'preprocessor' ? 'preprocessor' : 'main'))
 	$effect(() => {
 		// Only depend on selectedTab (preprocessor ↔ main toggle).
 		// Code changes are handled by the editor on:change handler and
 		// explicit inferSchema calls (initContent, onMount), so we read
 		// `code` inside untrack to avoid a redundant double-inference race.
-		selectedTab && untrack(() => code && inferSchema(code))
+		selectedTab &&
+			untrack(() => {
+				const schemaTab = selectedTab === 'preprocessor' ? 'preprocessor' : 'main'
+				const switched = schemaTab !== lastSchemaTab
+				lastSchemaTab = schemaTab
+				if (!code) return
+				// The other tab's schema only lands once inference resolves, so reseed then.
+				inferSchema(code).then(() => {
+					if (switched) {
+						argsRender++
+					}
+				})
+			})
 	})
 
 	export async function updateArgs(newArgs: Record<string, any>) {
