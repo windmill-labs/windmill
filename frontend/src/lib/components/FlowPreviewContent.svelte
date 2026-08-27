@@ -34,6 +34,8 @@
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import Toggle from './Toggle.svelte'
 	import JsonInputs from './JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
+	import type { Schema } from '$lib/common'
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
 	import type { DurationStatus, GraphModuleState } from './graph'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
@@ -264,7 +266,9 @@
 			previewArgs.val = input
 			inputSelected = type
 			preventEscape = true
-			jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
+			jsonEditor?.setCode(
+				argsToJsonPayload(flowStore.val.schema as Schema | undefined, previewArgs.val)
+			)
 		}
 	}
 
@@ -510,8 +514,7 @@
 										rightTooltip: 'Fill args from JSON'
 									}}
 									lightMode
-									on:change={(e) => {
-										jsonEditor?.setCode(JSON.stringify(previewArgs.val ?? {}, null, '\t'))
+									on:change={() => {
 										refresh()
 									}}
 								/>
@@ -526,6 +529,10 @@
 											previewArgs.val = e.detail
 										}
 									}}
+									initialCode={argsToJsonPayload(
+										flowStore.val.schema as Schema | undefined,
+										previewArgs.val
+									)}
 									updateOnBlur={false}
 									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 								/>

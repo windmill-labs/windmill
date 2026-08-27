@@ -1,6 +1,6 @@
 <script lang="ts">
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -8,15 +8,19 @@
 		updateOnBlur?: boolean
 		placeholder?: string
 		selected?: boolean
+		/** Content the editor opens with. Read once, at mount: later changes to the value it was
+		 * derived from must not overwrite what is being typed. */
+		initialCode?: string
 	}
 
 	let {
 		updateOnBlur = true,
 		placeholder = 'Write a JSON payload. The input schema will be inferred.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}',
-		selected = false
+		selected = false,
+		initialCode = ''
 	}: Props = $props()
 
-	let pendingJson = $state('')
+	let pendingJson = $state(untrack(() => initialCode))
 	let simpleEditor: SimpleEditor | undefined = $state(undefined)
 	let focusTrap: HTMLElement | undefined = $state()
 

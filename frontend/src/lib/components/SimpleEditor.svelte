@@ -74,6 +74,10 @@
 	let width = $state(0)
 	let initialized = $state(false)
 	let placeholderVisible = $state(false)
+	// Monaco's content origin. The placeholder is a plain overlay on the editor container, so
+	// without these it sits over the line-number gutter and off the line-1 baseline.
+	let contentLeft = $state(0)
+	let contentLineHeight = $state(0)
 	let mounted = $state(false)
 
 	let valueAfterDispose: string | undefined = undefined
@@ -533,6 +537,13 @@
 		}
 
 		if (placeholder) {
+			const syncPlaceholderOrigin = () => {
+				if (!editor) return
+				contentLeft = editor.getLayoutInfo().contentLeft
+				contentLineHeight = editor.getOption(meditor.EditorOption.lineHeight)
+			}
+			syncPlaceholderOrigin()
+			editor.onDidLayoutChange(syncPlaceholderOrigin)
 			editor.onDidChangeModelContent(() => {
 				if (!editor) return
 				const value = editor.getValue()
@@ -755,9 +766,10 @@
 	{#if placeholder}
 		<div
 			id="placeholder"
-			class="absolute text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
+			class="absolute text-tertiary pointer-events-none font-mono z-10 {placeholderVisible
 				? ''
 				: 'hidden'}"
+			style="left: {contentLeft}px; top: {yPadding}px; font-size: {fontSize}px; line-height: {contentLineHeight}px;"
 		>
 			{@html placeholder}
 		</div>

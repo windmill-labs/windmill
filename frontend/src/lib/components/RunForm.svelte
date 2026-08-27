@@ -19,6 +19,7 @@
 	import { page } from '$app/state'
 	import { replaceState } from '$app/navigation'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import InputSelectedBadge from './schema/InputSelectedBadge.svelte'
 	import { untrack } from 'svelte'
@@ -199,8 +200,10 @@
 		return result
 	}
 
-	export function setCode(code: string) {
-		jsonEditor?.setCode(code)
+	/** Rewrite the open JSON editor from the current args. Only for args replaced from outside
+	 * the editor: entering the JSON view already starts from whatever `args` holds. */
+	export function syncJsonEditor() {
+		jsonEditor?.setCode(argsToJsonPayload(runnable?.schema, args))
 	}
 	$effect(() => {
 		overrideTag
@@ -320,6 +323,7 @@
 							args = enforceDisabledDefaults(e.detail)
 						}
 					}}
+					initialCode={argsToJsonPayload(runnable.schema, args)}
 					updateOnBlur={false}
 					placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
 				/>
