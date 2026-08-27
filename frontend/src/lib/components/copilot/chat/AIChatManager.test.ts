@@ -2289,6 +2289,56 @@ describe('AIChatManager queued messages', () => {
 		])
 	})
 
+	// A checkpoint that leaves a card loading is betting the poller resolves it after
+	// the reload, and the poller only knows the jobs stored in the same record —
+	// registering one does not write it.
+	it('stores the job behind a card the checkpoint leaves loading', async () => {
+		const leavePage = stubHidingPage()
+		const manager = createManager()
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		mocks.runChatLoop.mockImplementationOnce(async (config: any) => {
+			config.addedMessages.push({
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [
+					{ id: 't1', type: 'function' as const, function: { name: 'run_script', arguments: '{}' } }
+				]
+			})
+			// Inside the inline wait: the job is registered and still running, so no
+			// persist path has run for it yet.
+			manager.registerJob({
+				jobId: 'job-1',
+				toolCallId: 't1',
+				kind: 'script',
+				label: 'f/a/b',
+				workspace: 'ws'
+			})
+			config.callbacks.setToolStatus('t1', { content: 'Running...', isLoading: true })
+			leavePage.forEach((fn) => fn())
+			// The wait ends normally, so the only save that stored this card loading is
+			// the checkpoint that landed inside it.
+			config.callbacks.setToolStatus('t1', { content: 'Ran', isLoading: false })
+			manager.updateJob('job-1', { status: 'success' })
+			config.addedMessages.push({ role: 'tool' as const, tool_call_id: 't1', content: 'ran' })
+			return {
+				addedMessages: config.addedMessages,
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		await manager.sendRequest({ instructions: 'run it' })
+
+		const checkpoint = saveChat.mock.calls.find(([display]) =>
+			(display as DisplayMessage[]).some(
+				(m) => m.role === 'tool' && m.tool_call_id === 't1' && m.isLoading
+			)
+		)
+		expect(checkpoint).toBeDefined()
+		expect(checkpoint?.[4]).toEqual([expect.objectContaining({ jobId: 'job-1' })])
+	})
+
 	it('stops checkpointing once the turn commits, so the transcript is never doubled', async () => {
 		const leavePage = stubHidingPage()
 		const manager = createManager()
