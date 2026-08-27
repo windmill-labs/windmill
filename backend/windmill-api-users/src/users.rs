@@ -3045,9 +3045,37 @@ pub struct LoginLink {
 }
 
 /// A post-login destination is only ever a same-origin path: anything else would hand the
-/// fresh session's first navigation to another host.
+/// fresh session's first navigation to another host. Control characters are refused because
+/// browsers strip tab/newline from a `Location` before parsing it, so `/\t/host` reads as
+/// the protocol-relative `//host`.
 fn same_origin_rd(rd: Option<String>) -> Option<String> {
-    rd.filter(|r| r.starts_with('/') && !r.starts_with("//") && !r.contains('\\'))
+    rd.filter(|r| {
+        r.starts_with('/')
+            && !r.starts_with("//")
+            && !r.contains('\\')
+            && !r.chars().any(|c| c.is_ascii_control())
+    })
+}
+
+#[cfg(test)]
+mod same_origin_rd_tests {
+    use super::same_origin_rd;
+
+    fn accepts(rd: &str) -> bool {
+        same_origin_rd(Some(rd.to_string())).is_some()
+    }
+
+    #[test]
+    fn only_plain_same_origin_paths_pass() {
+        assert!(accepts("/"));
+        assert!(accepts("/user/workspaces?rd=%2Fx"));
+        assert!(!accepts("https://evil.example/"));
+        assert!(!accepts("//evil.example/"));
+        assert!(!accepts("/\\evil.example/"));
+        assert!(!accepts("/\t/evil.example/"));
+        assert!(!accepts("/x\r\nSet-Cookie: a=b"));
+        assert!(!accepts("user/workspaces"));
+    }
 }
 
 fn login_link_redirect(location: String) -> Response {
@@ -3151,6 +3179,8 @@ async fn consume_login_link(
         return bounce("invalid");
     }
     let t_hash = hash_token(&token);
+    // The account is unknown until the row is read, so only the global and per-IP tiers
+    // apply here; a 32-char random token leaves nothing for the per-account tier to guard.
     windmill_common::login_rate_limit::check_and_increment_login_attempt(
         &headers,
         &t_hash[..TOKEN_PREFIX_LEN],
@@ -3170,7 +3200,7 @@ async fn consume_login_link(
             "SELECT consumed_at IS NOT NULL AS \"used!\" FROM login_link WHERE token_hash = $1",
             &t_hash
         )
-        .fetch_optional(&db)
+        .fetch_optional(&mut *tx)
         .await?;
         return bounce(match used {
             Some(true) => "used",

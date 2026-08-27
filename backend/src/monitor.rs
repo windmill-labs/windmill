@@ -1601,6 +1601,20 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
     }
 
+    let expired_login_links_r: std::result::Result<Vec<String>, _> =
+        sqlx::query_scalar("DELETE FROM login_link WHERE expiration <= now() RETURNING token_hash")
+            .fetch_all(db)
+            .await;
+
+    match expired_login_links_r {
+        Ok(hashes) => {
+            if !hashes.is_empty() {
+                tracing::info!("deleted {} expired login links", hashes.len())
+            }
+        }
+        Err(e) => tracing::error!("Error deleting login links: {}", e.to_string()),
+    }
+
     let pip_resolution_r = sqlx::query_scalar!(
         "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
     )
