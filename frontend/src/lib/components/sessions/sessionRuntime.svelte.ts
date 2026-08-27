@@ -1,11 +1,7 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { get } from 'svelte/store'
 import { base } from '$lib/base'
-import {
-	AIAutonomyMode,
-	AIChatManager,
-	AIMode
-} from '$lib/components/copilot/chat/AIChatManager.svelte'
+import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
@@ -101,18 +97,23 @@ import { canSpliceFrame, mirrorFrameStart, withoutHeavyPayloads } from './sessio
 import {
 	broadcastMirror,
 	broadcastTurnEnd,
-	isLocallyDriven,
-	isRemotelyDriven,
 	MIRROR_THROTTLE_MS,
 	registerSyncHandlers,
 	requestCancel,
 	requestResync,
 	sendQuestionAnswer,
 	sendToolConfirmation,
-	withSessionRunLock,
 	type MirrorMsg,
 	type MirrorSnapshot
 } from './sessionSync.svelte'
+import {
+	clearRunPosition,
+	isDriving,
+	isWatching,
+	noteCaughtUp,
+	onDriverLost,
+	withSessionRunLock
+} from './sessionRunOwner.svelte'
 
 // Per-kind load state for a session's editor target. Pure state container the
 // load methods write into; the editor-target gate reads it to decide between
@@ -940,16 +941,6 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// turns interleave into one chat id.
 	manager.runGuard = async (body) => {
 		const outcome = await withSessionRunLock(session.id, async () => {
-			// The picker has read Plan since the last driver left the session in it,
-			// and this send is the user acting on what it says. Take the posture on
-			// rather than drop it: running under this tab's own autonomy instead
-			// would unblock the very workspace tools the label promised were held
-			// back. Once it is genuinely this manager's mode, the mirrored copy has
-			// nothing left to say.
-			if (manager.mirroredPlanMode) {
-				if (manager.planModeAvailable) manager.setAutonomyMode(AIAutonomyMode.PLAN)
-				manager.mirroredPlanMode = false
-			}
 			// The first frame doubles as the "a run started here" signal: it is
 			// posted immediately and carries the chat id the watchers need.
 			startMirroring(session.id)
@@ -959,14 +950,7 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 				stopMirroring(session.id)
 				// The chat id is re-read here, not reused from above: the turn may
 				// have rotated it, and the listeners key their IndexedDB re-read on it.
-				broadcastTurnEnd(
-					session.id,
-					manager.historyManager.getCurrentChatId(),
-					// Not "did the send return truthy": that means the input was
-					// consumed, and stays true through provider errors and rollbacks.
-					// The manager reports the rule it applies to its own queue.
-					manager.lastTurnAcceptsFollowUp
-				)
+				broadcastTurnEnd(session.id, manager.historyManager.getCurrentChatId())
 			}
 		})
 		if (outcome === 'busy') {
@@ -978,7 +962,7 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// Stop is available wherever the run is visible, so from a watching tab it
 	// has to travel to the one holding the turn.
 	manager.remoteCancel = () => {
-		if (isLocallyDriven(session.id) || !isRemotelyDriven(session.id)) return false
+		if (!isWatching(session.id)) return false
 		requestCancel(session.id)
 		return true
 	}
@@ -986,12 +970,12 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// Same for a run parked on the user: the tab showing the prompt is not
 	// necessarily the tab whose loop is awaiting the answer.
 	manager.remoteToolConfirmation = (toolId, confirmed) => {
-		if (isLocallyDriven(session.id) || !isRemotelyDriven(session.id)) return false
+		if (!isWatching(session.id)) return false
 		sendToolConfirmation(session.id, toolId, confirmed)
 		return true
 	}
 	manager.remoteQuestionAnswer = (toolId, choices) => {
-		if (isLocallyDriven(session.id) || !isRemotelyDriven(session.id)) return false
+		if (!isWatching(session.id)) return false
 		sendQuestionAnswer(session.id, toolId, choices)
 		return true
 	}
@@ -1114,7 +1098,7 @@ function stopMirroring(sessionId: string): void {
 function applyMirror(msg: MirrorMsg): void {
 	// A tab mid-turn is the authority on its own session; a frame can only be
 	// an echo of a run this tab is itself driving.
-	if (isLocallyDriven(msg.sessionId)) return
+	if (isDriving(msg.sessionId)) return
 	const runtime = runtimes.get(msg.sessionId)
 	if (!runtime) return
 	const m = runtime.manager
@@ -1145,23 +1129,17 @@ function applyMirror(msg: MirrorMsg): void {
 	// holds complete from the store.
 	m.displayMessages =
 		msg.baseIndex === 0 ? msg.tail : [...m.displayMessages.slice(0, msg.baseIndex), ...msg.tail]
-	// The frame carries the rendered transcript but not the API-format history,
-	// so this manager is now holding a mismatched pair. Flag it: the save paths
-	// that run outside a turn would otherwise write that pair over the record the
-	// driving tab is still appending to.
-	m.mirroringRemoteRun = true
 	m.loading = msg.loading
 	m.currentReply = msg.currentReply
 	m.currentReasoning = msg.currentReasoning
 	m.currentReasoningActive = msg.currentReasoningActive
 	m.loadingLabel = msg.loadingLabel
 	m.compacting = msg.compacting
-	m.mirroredPlanMode = msg.planModeActive
 }
 
 /** The driver answers a resync with its whole transcript. */
 function answerResync(sessionId: string): void {
-	if (!isLocallyDriven(sessionId)) return
+	if (!isDriving(sessionId)) return
 	postMirror(sessionId, { full: true })
 }
 
@@ -1169,27 +1147,28 @@ function answerResync(sessionId: string): void {
  *  only, so re-read the record the driver just saved for everything else — the
  *  API-format history, context usage, the edits mask, background jobs — leaving
  *  this tab able to take the conversation over. */
-async function applyTurnEnd(sessionId: string, chatId: string, committed: boolean): Promise<void> {
-	if (isLocallyDriven(sessionId)) return
-	const runtime = runtimes.get(sessionId)
-	if (!runtime) return
-	const m = runtime.manager
-	// `loading` has to go first: loadPastChat refuses to run while the manager
-	// looks busy, and this one is the mirrored driver's, not a turn of our own.
-	m.loading = false
-	m.currentReply = ''
-	m.currentReasoning = ''
-	m.currentReasoningActive = false
-	m.loadingLabel = undefined
-	m.compacting = false
-	const id = chatId || m.historyManager.getCurrentChatId()
+async function applyTurnEnd(sessionId: string, chatId: string): Promise<void> {
+	if (isDriving(sessionId)) return
 	try {
+		const runtime = runtimes.get(sessionId)
+		if (!runtime) return
+		const m = runtime.manager
+		// `loading` has to go first: loadPastChat refuses to run while the manager
+		// looks busy, and this one is the mirrored driver's, not a turn of our own.
+		m.loading = false
+		m.currentReply = ''
+		m.currentReasoning = ''
+		m.currentReasoningActive = false
+		m.loadingLabel = undefined
+		m.compacting = false
+		const id = chatId || m.historyManager.getCurrentChatId()
 		if (!id) return
 		const found = await m.historyManager.reloadChat(id)
 		if (found === 'loaded') {
-			// `refresh`: the same conversation caught up from the store, so a message
-			// queued here while the other tab held the session is still meant for it.
-			// A plain load would drop it instead of sending it below.
+			// `refresh`: the same conversation caught up from the store, so whatever
+			// this manager still holds for it — a queued message, the background-job
+			// tray — belongs to the chat being reloaded rather than to a chat being
+			// left, and a plain load would drop it.
 			await m.loadPastChat(id, { refresh: true })
 		} else if (found === 'missing') {
 			// The driver rotated to a chat that holds nothing: it ran "/clear", or its
@@ -1202,30 +1181,16 @@ async function applyTurnEnd(sessionId: string, chatId: string, committed: boolea
 		// 'unavailable' leaves everything as it is: the store is unreadable right
 		// now, which says nothing about the conversation.
 	} finally {
-		// Cleared only once the catch-up is done. Until then this manager still
-		// pairs a mirrored transcript with the pre-turn history, and the send and
-		// save paths gate on this flag to stay off that pair.
-		m.mirroringRemoteRun = false
+		// Unconditional, including the paths that never reached the store: leaving
+		// the position at `catchingUp` would lock this tab's composer for a run
+		// that is already over, with nothing left to arrive and free it.
+		noteCaughtUp(sessionId)
 	}
-	// Anything typed here while the other tab held the session was queued rather
-	// than sent. Send it only after a turn that landed, which is the rule a turn
-	// follows locally: firing it into a failed turn, or into the gap left by a tab
-	// that vanished, is how a follow-up ends up answering nothing.
-	if (!committed) return
-	if (m.mirroredPlanMode) {
-		// Plan mode belongs to the tab that entered it, and a turn sent from here
-		// would run under this tab's own autonomy instead — unblocking the very
-		// workspace tools the posture exists to hold back. Leave the message where
-		// the user put it and say why, rather than quietly sending it out of mode.
-		sendUserToast('This session is planning in another tab. Your message stays queued.')
-		return
-	}
-	await m.flushQueuedMessage()
 }
 
 /** A Stop pressed in a watching tab reaches the run here. */
 function applyCancelRequest(sessionId: string): void {
-	if (!isLocallyDriven(sessionId)) return
+	if (!isDriving(sessionId)) return
 	// No reason: this IS the user's Stop, just pressed elsewhere, and the
 	// queued-message and rollback paths key off that.
 	runtimes.get(sessionId)?.manager.cancel()
@@ -1235,12 +1200,12 @@ function applyCancelRequest(sessionId: string): void {
 // most once — the driver drops the callback as it resolves it — so two tabs
 // answering the same prompt is a race the first click simply wins.
 function applyToolConfirmation(sessionId: string, toolId: string, confirmed: boolean): void {
-	if (!isLocallyDriven(sessionId)) return
+	if (!isDriving(sessionId)) return
 	runtimes.get(sessionId)?.manager.handleToolConfirmation(toolId, confirmed)
 }
 
 function applyQuestionAnswer(sessionId: string, toolId: string, choices: string[]): void {
-	if (!isLocallyDriven(sessionId)) return
+	if (!isDriving(sessionId)) return
 	runtimes.get(sessionId)?.manager.handleUserQuestionAnswer(toolId, choices)
 }
 
@@ -1250,7 +1215,7 @@ registerSyncHandlers({
 	onCancelRequest: applyCancelRequest,
 	onToolConfirmation: applyToolConfirmation,
 	onQuestionAnswer: applyQuestionAnswer,
-	onTurnEnd: (sessionId, chatId, committed) => void applyTurnEnd(sessionId, chatId, committed),
+	onTurnEnd: (sessionId, chatId) => void applyTurnEnd(sessionId, chatId),
 	// A session deleted in another tab takes its runtime with it, so an open
 	// chat for it stops streaming and releases its editors.
 	onSessionDelete: (id) => disposeRuntime(id),
@@ -1260,6 +1225,11 @@ registerSyncHandlers({
 	onSessionArtifact: (sessionId, artifactId) =>
 		void runtimes.get(sessionId)?.manager.artifacts.applyRemoteArtifact(artifactId)
 })
+
+// A driving tab that closed mid-turn sends no turn-end. Its watchers land here
+// instead, and take the same path: stop showing the run, re-read whatever the
+// store holds, and become able to send again.
+onDriverLost((sessionId) => void applyTurnEnd(sessionId, ''))
 
 export function getOrCreateRuntime(session: Session): SessionRuntime {
 	let runtime = runtimes.get(session.id)
@@ -1277,6 +1247,11 @@ export function disposeRuntime(sessionId: string) {
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
+	// The per-run bookkeeping outlives the manager it describes otherwise: a
+	// frame timer with no runtime to read keeps ticking, and a leftover position
+	// would answer for a session this tab no longer holds.
+	stopMirroring(sessionId)
+	clearRunPosition(sessionId)
 }
 
 export function listRuntimes(): SessionRuntime[] {

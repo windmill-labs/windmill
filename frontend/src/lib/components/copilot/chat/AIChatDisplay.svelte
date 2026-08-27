@@ -499,9 +499,8 @@
 	const availableAutonomyModeOptions = $derived(
 		autonomyModeOptions.filter((option) => option.isAvailable(autonomyAvailability))
 	)
-	// Only when this tab could hold the posture itself: the label is a promise that
-	// the workspace stays read-only, and the takeover in `runGuard` keeps it by
-	// entering plan mode here — which an unavailable mode would silently refuse.
+	// Only when this tab could hold the posture itself: a mode its own selector
+	// does not offer would read as a mode the user could switch away from here.
 	const showsMirroredPlan = $derived(
 		aiChatManager.mirroredPlanMode && aiChatManager.planModeAvailable
 	)
@@ -535,6 +534,17 @@
 		const pending = pendingUserActionDetail(messages)
 		return pending?.action === 'question' ? pending.toolCallId : undefined
 	})
+
+	// The composer is locked while another tab's run is on screen: this tab pairs
+	// a mirrored transcript with the history it held before that run, and a turn
+	// sent from that pair would reach the model as a conversation the driver has
+	// already moved past. It unlocks on its own once the re-read that follows the
+	// turn lands. A run parked on a question is the exception — answering is the
+	// one thing a watching tab is there to do, and the answer travels to the
+	// driver instead of starting a turn here.
+	const composerLocked = $derived(
+		aiChatManager.mirroringRemoteRun && pendingQuestionToolCallId === undefined
+	)
 
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
@@ -819,7 +829,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{initialInstructions}
 				{onDraftChange}
 				showContext={aiChatManager.mode !== AIMode.GLOBAL}
-				{disabled}
+				disabled={disabled || composerLocked}
 				{pendingQuestionToolCallId}
 				isFirstMessage={messages.length === 0}
 			/>

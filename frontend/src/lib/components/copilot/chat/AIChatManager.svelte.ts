@@ -61,6 +61,7 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { createLongHash } from '$lib/editorLangUtils'
 import type { AIProvider, UserDraftItemKind } from '$lib/gen'
 import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
+import { isMirroring, runPosition } from '$lib/components/sessions/sessionRunOwner.svelte'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
 import {
@@ -694,32 +695,35 @@ export class AIChatManager {
 	remoteToolConfirmation: ((toolId: string, confirmed: boolean) => boolean) | undefined = undefined
 	remoteQuestionAnswer: ((toolId: string, choices: string[]) => boolean) | undefined = undefined
 
-	/** True while this manager is rendering a run another tab is driving. Its
-	 *  transcript then comes from mirror frames while `messages` still holds the
-	 *  pre-run history, so the pair is mismatched and must not be written to the
-	 *  shared record — the driving tab owns it until the run ends. Set by the
-	 *  session runtime. */
-	mirroringRemoteRun = $state(false)
+	/** True while this manager is showing a run another tab is driving, and on
+	 *  through the re-read that follows it. Its transcript then comes from mirror
+	 *  frames while `messages` still holds the pre-run history, so the pair is
+	 *  mismatched and must not be written to the shared record — the driving tab
+	 *  owns it until the re-read lands.
+	 *
+	 *  Derived rather than stored: the position is what the runtime moves, and a
+	 *  second copy of it here could only ever be a copy that disagrees. A chat
+	 *  with no session (the docked copilot) is never mirroring. */
+	get mirroringRemoteRun(): boolean {
+		return isMirroring(this.sessionId)
+	}
 
-	/** Whether the tab driving this session was last seen in plan mode.
+	/** Whether the run on screen is one another tab is running in plan mode.
 	 *
-	 *  Plan mode is the one autonomy state that is deliberately never persisted
-	 *  (see `persistAutonomyMode`): a model entered it for this session, so it
-	 *  lives only in the memory of the tab running the turn. Every other mode is
-	 *  a stored preference each tab is entitled to its own copy of.
-	 *
-	 *  Kept after the turn ends rather than cleared with `mirroringRemoteRun`,
-	 *  because the driver stays in plan mode between turns and stops sending
-	 *  frames that could say so. The next turn's first frame corrects it; this
-	 *  tab driving one of its own clears it outright. */
-	mirroredPlanMode = $state(false)
+	 *  Plan mode is the one autonomy state deliberately never persisted (see
+	 *  `persistAutonomyMode`): a model entered it for this session, so it lives
+	 *  only in the memory of the tab running the turn. It is read from the run's
+	 *  position for the same reason it is not stored there — the posture belongs
+	 *  to that run, and must not outlive it into a turn this tab drives. */
+	get mirroredPlanMode(): boolean {
+		const position = runPosition(this.sessionId)
+		return position.state === 'watching' && position.planMode
+	}
 
 	/** Whether the turn that just finished is one a follow-up should be sent
 	 *  after: it committed, or the user deliberately stopped it. False through a
 	 *  provider error, an empty-response rollback, or a programmatic cancel — the
-	 *  states this manager deliberately keeps its own queued message through. The
-	 *  session runtime reports it to the other tabs, whose queues follow the same
-	 *  rule. */
+	 *  states this manager deliberately keeps its own queued message through. */
 	lastTurnAcceptsFollowUp = false
 
 	// Workspace items the CURRENT chat modified via AI tool calls, as
@@ -2880,13 +2884,13 @@ export class AIChatManager {
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
 			return
 		}
-		// Still holding a mirrored transcript against the pre-turn history: the
-		// other tab's run has ended but this one has not finished reading what it
-		// left behind. Sending now would put that stale history to the model and
-		// persist it over the driver's completed turn.
+		// Still pairing a mirrored transcript with the pre-run history: sending now
+		// would put a conversation the driving tab has already moved past to the
+		// model, and persist it over what that tab saved. The composer is locked
+		// for exactly this window, so nothing the user typed reaches here — this
+		// catches the sends that start without one (tool handlers, auto-resume).
 		if (this.mirroringRemoteRun) {
 			this.restoreRefusedSend(options)
-			sendUserToast('Catching up on the turn that just finished. Try again in a moment.', true)
 			return false
 		}
 		this.#sendsInFlight++

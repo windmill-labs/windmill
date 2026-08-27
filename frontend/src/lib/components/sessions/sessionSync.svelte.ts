@@ -1,37 +1,23 @@
 import { BROWSER } from 'esm-env'
-import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { onUserChange, scopedKey } from '$lib/userScopedStorage'
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
+import { noteDriverAlive, noteRemoteTurnEnded } from './sessionRunOwner.svelte'
 
-// Cross-tab coordination for AI sessions. Everything a session is made of —
-// the record list, the chat transcript, the run itself — lives in the tab, so
-// two tabs on the same session are two independent copies of it. This module
-// is the one channel between them: it mirrors record writes, elects a single
-// driving tab per run, and streams the driver's live transcript to the others.
-//
-// Why a run needs an owner at all: two tabs sending on one session append to
-// the same chat id, and whichever saveChat lands last silently drops the other's
-// turn — after its tool calls have already run against the workspace.
+// The channel between tabs open on the same AI session. Everything a session is
+// made of — the record list, the chat transcript, the run itself — lives in the
+// tab, so two tabs on one session are two independent copies of it. This module
+// carries messages between those copies: record writes, and the driving tab's
+// live transcript. Who is entitled to drive is sessionRunOwner's question; this
+// module only tells it what arrived.
 //
 // The channel is per-user (same email scoping as the IndexedDB stores), so a
 // browser shared by two accounts never crosses them.
 
 const CHANNEL_BASE = 'windmill-sessions-sync'
 
-/** Whether this context can hold a real lock on a run. Web Locks is
- *  secure-context only, so a self-hosted instance served over plain HTTP has
- *  none — mirroring still runs there, on the weaker footing described at
- *  {@link withSessionRunLock} and {@link runLockHeld}. */
-const EXCLUSIVE_OWNERSHIP = BROWSER && !!globalThis.navigator?.locks?.query
-
 /** Mirror ticks are throttled to this while a turn streams. Also the heartbeat
  *  interval: an unchanged run still ticks, so silence means the driver is gone. */
 export const MIRROR_THROTTLE_MS = 250
-
-/** A driver with no mirror for this long is presumed dead, pending the lock
- *  query that confirms it. Generous next to the heartbeat: a busy tab can be
- *  starved of frames for a while without actually having gone away. */
-const MIRROR_SILENCE_MS = 10_000
 
 /** Carries only the id on purpose. Broadcast delivery order and IndexedDB
  *  commit order are independent, so shipping a copy of the record lets an older
@@ -44,10 +30,12 @@ type SessionDeleteMsg = { kind: 'session-delete'; id: string }
  *  removal arrives. `sessionId` is here so a receiver can route to the right
  *  store without a database round-trip for artifacts it does not hold. */
 type SessionArtifactMsg = { kind: 'session-artifact'; sessionId: string; artifactId: string }
-/** `committed` distinguishes a turn that landed from one that errored, was
- *  rolled back, or belonged to a tab that vanished. Watchers auto-send what the
- *  user queued only on the first, matching the rule a turn follows locally. */
-type TurnEndMsg = { kind: 'turn-end'; sessionId: string; chatId: string; committed: boolean }
+/** Names the chat the driver ended on, which is not necessarily the one it
+ *  started on: a "/clear" rotates it mid-turn, and the watcher's re-read has to
+ *  follow. Whether the turn landed or errored is not carried, because the
+ *  watcher does the same thing either way — re-read the record and stop
+ *  showing the run. */
+type TurnEndMsg = { kind: 'turn-end'; sessionId: string; chatId: string }
 type MirrorMsg = {
 	kind: 'mirror'
 	sessionId: string
@@ -108,7 +96,7 @@ type Handlers = {
 	onSessionPut: (id: string) => void
 	onSessionDelete: (id: string) => void
 	onSessionArtifact: (sessionId: string, artifactId: string) => void
-	onTurnEnd: (sessionId: string, chatId: string, committed: boolean) => void
+	onTurnEnd: (sessionId: string, chatId: string) => void
 	onMirror: (msg: MirrorMsg) => void
 	onResyncRequest: (sessionId: string) => void
 	onCancelRequest: (sessionId: string) => void
@@ -181,11 +169,11 @@ function receive(msg: SyncMsg): void {
 			emit('onSessionArtifact', msg.sessionId, msg.artifactId)
 			break
 		case 'turn-end':
-			remoteDriven.delete(msg.sessionId)
-			emit('onTurnEnd', msg.sessionId, msg.chatId, msg.committed)
+			noteRemoteTurnEnded(msg.sessionId)
+			emit('onTurnEnd', msg.sessionId, msg.chatId)
 			break
 		case 'mirror':
-			noteDriverAlive(msg.sessionId)
+			noteDriverAlive(msg.sessionId, msg.planModeActive)
 			emit('onMirror', msg)
 			break
 		case 'resync-request':
@@ -230,134 +218,11 @@ export function broadcastSessionArtifact(sessionId: string, artifactId: string):
 }
 
 // ---------------------------------------------------------------------------
-// Ownership
-// ---------------------------------------------------------------------------
-
-/** Sessions currently being driven by another tab, with the time of the last
- *  sign of life. Reactive so a tab that starts or stops driving re-renders the
- *  gates that read it. */
-const remoteDriven = new SvelteMap<string, { lastAt: number }>()
-
-function noteDriverAlive(sessionId: string): void {
-	remoteDriven.set(sessionId, { lastAt: Date.now() })
-	ensureReaper()
-}
-
-// Runs only while some session is being driven elsewhere, and stops itself once
-// none is — a browser with a single tab open never arms it at all.
-let reaperTimer: ReturnType<typeof setInterval> | undefined
-
-function ensureReaper(): void {
-	if (reaperTimer) return
-	reaperTimer = setInterval(() => {
-		if (remoteDriven.size === 0) {
-			clearInterval(reaperTimer)
-			reaperTimer = undefined
-			return
-		}
-		void reapDeadDrivers()
-	}, MIRROR_SILENCE_MS)
-}
-
-export function isRemotelyDriven(sessionId: string): boolean {
-	return remoteDriven.has(sessionId)
-}
-
-/** Sessions this tab is currently driving. Reactive so the gates that read it
- *  re-render when a run starts or ends. */
-const locallyDriven = new SvelteSet<string>()
-
-export function isLocallyDriven(sessionId: string): boolean {
-	return locallyDriven.has(sessionId)
-}
-
-function lockName(sessionId: string): string {
-	return `wm-session-run:${sessionId}`
-}
-
-/** Run `body` as the session's sole driver, or return 'busy' without running it
- *  when another tab already holds the run.
- *
- *  Web Locks is what makes this safe across a crash: the lock is held by the tab,
- *  not by a record someone has to clean up, so a driver that dies mid-turn
- *  releases it and the next send succeeds. */
-export async function withSessionRunLock<T>(
-	sessionId: string,
-	body: () => Promise<T>
-): Promise<T | 'busy'> {
-	if (!EXCLUSIVE_OWNERSHIP) {
-		// No lock to take, so exclusion is best-effort: refuse only when another
-		// tab is visibly mid-run. That covers the case that actually happens (one
-		// tab already going) and leaves a genuine simultaneous start racing, which
-		// is what a session already did before any of this. Marking the run ours
-		// is what keeps the two tabs from adopting each other's frames.
-		if (isRemotelyDriven(sessionId)) return 'busy'
-		locallyDriven.add(sessionId)
-		try {
-			return await body()
-		} finally {
-			locallyDriven.delete(sessionId)
-		}
-	}
-	return (await navigator.locks.request(
-		lockName(sessionId),
-		{ mode: 'exclusive', ifAvailable: true },
-		async (lock) => {
-			// `ifAvailable` hands back a null lock instead of queueing when another
-			// tab holds it, which is exactly the "refuse, don't stack up turns"
-			// behavior we want.
-			if (!lock) return 'busy' as const
-			locallyDriven.add(sessionId)
-			try {
-				return await body()
-			} finally {
-				locallyDriven.delete(sessionId)
-			}
-		}
-	)) as T | 'busy'
-}
-
-/** Whether any tab currently holds the run lock for this session. Used to
- *  settle a driver that stopped mirroring: a released lock proves the tab is
- *  gone, where silence alone only suggests it. */
-async function runLockHeld(sessionId: string): Promise<boolean> {
-	// Nothing to consult without the lock API, so silence is the only evidence —
-	// and the caller only asks after a driver has gone quiet for the whole
-	// silence window. Reaping a driver that was merely starved is self-correcting:
-	// the watcher stops showing a run that is not visibly progressing and re-reads
-	// the record, which the next frame or the turn-end would have done anyway.
-	if (!EXCLUSIVE_OWNERSHIP) return false
-	try {
-		const state = await navigator.locks.query()
-		const name = lockName(sessionId)
-		return !!state.held?.some((l) => l.name === name)
-	} catch {
-		return true
-	}
-}
-
-/** Drop drivers that have gone silent and whose lock is no longer held, so a
- *  closed tab can't leave a session showing "generating" forever. */
-async function reapDeadDrivers(): Promise<void> {
-	const now = Date.now()
-	const stale = [...remoteDriven.entries()]
-		.filter(([, v]) => now - v.lastAt > MIRROR_SILENCE_MS)
-		.map(([id]) => id)
-	for (const id of stale) {
-		if (!(await runLockHeld(id))) {
-			remoteDriven.delete(id)
-			// A driver that disappeared mid-turn committed nothing.
-			emit('onTurnEnd', id, '', false)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // Live mirroring
 // ---------------------------------------------------------------------------
 
-export function broadcastTurnEnd(sessionId: string, chatId: string, committed: boolean): void {
-	post({ kind: 'turn-end', sessionId, chatId, committed })
+export function broadcastTurnEnd(sessionId: string, chatId: string): void {
+	post({ kind: 'turn-end', sessionId, chatId })
 }
 
 export function requestResync(sessionId: string): void {

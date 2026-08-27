@@ -11,6 +11,10 @@ import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
 import { runChatLoop } from './chatLoop'
 import { clearWorkspaceRoleCache } from '$lib/user'
+import {
+	noteDriverAlive,
+	noteRemoteTurnEnded
+} from '$lib/components/sessions/sessionRunOwner.svelte'
 
 // This suite forces esm-env BROWSER=true (below). That makes @sveltejs/kit's
 // client runtime (pulled transitively via $lib/navigation) evaluate browser-only
@@ -295,13 +299,29 @@ describe('AIChatManager cross-tab run guard', () => {
 	it('does not persist while rendering a run another tab owns', async () => {
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
+		manager.sessionId = 'session-watching'
 		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
-		manager.mirroringRemoteRun = true
+		noteDriverAlive('session-watching', false)
 
 		await manager.saveAndClear()
 		await manager.compactManually()
 
 		expect(saveChat).not.toHaveBeenCalled()
+	})
+
+	// The posture describes the run it arrived with, and the driving tab stops
+	// saying anything about it once that run is over. Outliving it is how a turn
+	// driven from this tab ends up promising a plan mode it is not in.
+	it('drops the mirrored plan posture when the remote run ends', () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.sessionId = 'session-planning'
+
+		noteDriverAlive('session-planning', true)
+		expect(manager.mirroredPlanMode).toBe(true)
+
+		noteRemoteTurnEnded('session-planning')
+		expect(manager.mirroredPlanMode).toBe(false)
 	})
 
 	// The other tab's run has ended but this one is still reading what it left
@@ -311,7 +331,9 @@ describe('AIChatManager cross-tab run guard', () => {
 	it('refuses to send while still catching up on a finished remote turn', async () => {
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
-		manager.mirroringRemoteRun = true
+		manager.sessionId = 'session-catching-up'
+		noteDriverAlive('session-catching-up', false)
+		noteRemoteTurnEnded('session-catching-up')
 		const restoreInstructions = vi.fn(() => true)
 		manager.setAiChatInput({ restoreInstructions } as any)
 

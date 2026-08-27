@@ -133,6 +133,13 @@
 			return 'Answer the question above'
 		}
 
+		// Ahead of 'Ask followup': a mirrored run is almost always mid-conversation,
+		// so a check below that one would never be reached, and the locked composer
+		// would sit there inviting a followup it will not accept.
+		if (aiChatManager.mirroringRemoteRun) {
+			return 'Running in another tab'
+		}
+
 		if (!isFirstMessage) {
 			return 'Ask followup'
 		}
