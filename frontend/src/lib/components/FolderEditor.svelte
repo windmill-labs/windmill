@@ -72,9 +72,21 @@
 		 * this stays true for edits that cannot be saved yet (an invalid rule, a name
 		 * already taken) — closing would still throw them away. */
 		onUnsavedChange?: (unsaved: boolean) => void
+		/** Edit a folder of this workspace rather than the active one. The folder picker
+		 * can be aimed elsewhere (the project import wizard picks a destination workspace
+		 * before entering it), and the folder must be written where it was listed. */
+		workspace?: string
 	}
 
-	let { name = $bindable(), mode = 'edit', onCanSaveChange, onUnsavedChange }: Props = $props()
+	let {
+		name = $bindable(),
+		mode = 'edit',
+		onCanSaveChange,
+		onUnsavedChange,
+		workspace
+	}: Props = $props()
+
+	const targetWorkspace = $derived(workspace ?? $workspaceStore ?? '')
 
 	let can_write = $state(false)
 	let folder: Folder | undefined
@@ -113,15 +125,15 @@
 	}
 
 	async function loadUsernames(): Promise<void> {
-		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
+		usernames = await UserService.listUsernames({ workspace: targetWorkspace })
 	}
 
 	async function loadGroups(): Promise<void> {
-		groups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
+		groups = await GroupService.listGroupNames({ workspace: targetWorkspace })
 	}
 
 	async function loadFolderNames(): Promise<void> {
-		folderNames = await FolderService.listFolderNames({ workspace: $workspaceStore! })
+		folderNames = await FolderService.listFolderNames({ workspace: targetWorkspace })
 	}
 
 	async function load() {
@@ -148,7 +160,7 @@
 
 	async function loadFolder(): Promise<void> {
 		try {
-			folder = await FolderService.getFolder({ workspace: $workspaceStore!, name })
+			folder = await FolderService.getFolder({ workspace: targetWorkspace, name })
 			folderNotFound = false
 			can_write =
 				$userStore != undefined &&
@@ -182,7 +194,7 @@
 	}
 
 	const restricted = $derived(
-		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+		isDemoWorkspaceRestricted(targetWorkspace, $userStore?.is_admin, $userStore?.is_super_admin)
 	)
 
 	const canEditDefaults = $derived(
@@ -295,7 +307,7 @@
 
 	async function addGroup() {
 		await GroupService.createGroup({
-			workspace: $workspaceStore ?? '',
+			workspace: targetWorkspace,
 			requestBody: { name: newGroupName }
 		})
 		groupCreated = newGroupName
@@ -309,7 +321,7 @@
 	 * logs a single "update owners"/"update acl" entry, so the permission history
 	 * would stop naming who was granted what. */
 	async function applyPermissionChanges(next: FolderDraft['perms'], prev: FolderDraft['perms']) {
-		const workspace = $workspaceStore ?? ''
+		const workspace = targetWorkspace
 		const prevRoles = new Map(prev.map((p) => [p.owner_name, p.role]))
 		for (const p of next) {
 			const before = prevRoles.get(p.owner_name)
@@ -365,7 +377,7 @@
 		try {
 			if (isNew) {
 				await FolderService.createFolder({
-					workspace: $workspaceStore ?? '',
+					workspace: targetWorkspace,
 					requestBody: {
 						name,
 						summary: next.summary,
@@ -390,7 +402,7 @@
 					requestBody.default_permissioned_as = next.defaultPermissionedAs
 				}
 				if (Object.keys(requestBody).length > 0) {
-					await FolderService.updateFolder({ workspace: $workspaceStore ?? '', name, requestBody })
+					await FolderService.updateFolder({ workspace: targetWorkspace, name, requestBody })
 				}
 				await applyPermissionChanges(next.perms, prev.perms)
 				await loadFolder()

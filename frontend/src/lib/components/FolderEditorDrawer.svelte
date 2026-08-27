@@ -7,11 +7,14 @@
 	let {
 		offset = 0,
 		disableChatOffset = false,
-		onSaved = undefined
+		onSaved = undefined,
+		workspace = undefined
 	}: {
 		offset?: number
 		disableChatOffset?: boolean
 		onSaved?: (name: string, created: boolean) => void
+		/** Edit a folder of this workspace rather than the active one. */
+		workspace?: string
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -95,6 +98,7 @@
 				bind:this={editor}
 				bind:name
 				{mode}
+				{workspace}
 				onCanSaveChange={(v) => (canSave = v)}
 				onUnsavedChange={(v) => (unsaved = v)}
 			/>
