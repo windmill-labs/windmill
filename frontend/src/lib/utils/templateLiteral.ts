@@ -44,12 +44,15 @@ export function unescapeTemplateBackticks(text: string): string {
 		return text
 	}
 	const unescaped = text.replaceAll('\\`', '`')
-	// The unescaped form is what the author typed when re-escaping reproduces the stored text,
-	// and also whenever it reads as a template literal in its own right — which is how an
-	// expression escaped by the old blanket rule comes back clean instead of showing backslashes
-	// the author never typed. Otherwise keep the text: unescaping it would corrupt a backtick
-	// that is escaped inside a nested template, where it belongs.
-	if (escapeTemplateBackticks(unescaped) === text || isCompleteTemplateBody(unescaped)) {
+	if (escapeTemplateBackticks(unescaped) === text) {
+		return unescaped
+	}
+	// The rule this replaced escaped every backtick, so anything it produced has none left bare.
+	// A text that mixes bare and escaped backticks was authored that way, and its escapes belong
+	// to a nested template: stripping them there changes what the expression means, or stops it
+	// parsing. Removing the escape pairs first is what tells the two apart.
+	const everyBacktickEscaped = !text.replace(/\\./g, '').includes('`')
+	if (everyBacktickEscaped && isCompleteTemplateBody(unescaped)) {
 		return unescaped
 	}
 	return text

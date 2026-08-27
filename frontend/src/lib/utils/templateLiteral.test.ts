@@ -82,6 +82,18 @@ describe('escapeTemplateBackticks', () => {
 		expect(unescapeTemplateBackticks(stored)).toBe(stored)
 	})
 
+	// Escapes the author wrote inside a nested template are not the old rule's doing, and
+	// stripping them changes what the expression means — here into chained tagged templates,
+	// which throw. Only a text whose backticks are *all* escaped came from the old rule.
+	it('leaves escapes that belong to a nested template alone', () => {
+		const run = (body: string) => new Function('flag', 'value', 'return `' + body + '`')(true, 'X')
+		for (const stored of ['${flag ? `\\`\\`${value}\\`\\`` : ""}', '${flag ? `a\\`b` : ""}']) {
+			expect(unescapeTemplateBackticks(stored)).toBe(stored)
+			expect(escapeTemplateBackticks(unescapeTemplateBackticks(stored))).toBe(stored)
+			expect(run(stored)).toBe(run(escapeTemplateBackticks(unescapeTemplateBackticks(stored))))
+		}
+	})
+
 	it('round-trips through unescapeTemplateBackticks', () => {
 		for (const v of [
 			nested,
