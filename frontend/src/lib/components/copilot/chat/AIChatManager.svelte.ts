@@ -1797,7 +1797,18 @@ export class AIChatManager {
 		files: AttachedTextFile[] = []
 	) {
 		if (this.mirroringRemoteRun) {
-			sendUserToast('This session is running in another tab. Try again when it finishes.', true)
+			// Handed back, not dropped. These senders have no draft of their own to
+			// fall back on — the raw-app inline prompt would lose what the user
+			// typed outright. Not `restoreToInput`, whose no-composer fallback is
+			// the very queue being refused.
+			const restored = this.aiChatInput?.prependText(text, images, files) === true
+			if (restored) this.#restoreDomContext(context, true)
+			sendUserToast(
+				restored
+					? 'This session is running in another tab. Your prompt is waiting in the composer.'
+					: 'This session is running in another tab. Try again when it finishes.',
+				true
+			)
 			return
 		}
 		const trimmed = text.trim()
