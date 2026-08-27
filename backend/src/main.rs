@@ -153,7 +153,7 @@ use crate::monitor::{
 use windmill_object_store::reload_object_store_setting;
 
 const DEFAULT_NUM_WORKERS: usize = 1;
-const DEFAULT_PORT: u16 = 8000;
+use windmill_common::utils::DEFAULT_PORT;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 const DEFAULT_WORKER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
 const BIND_ADDR_ENV: &str = "SERVER_BIND_ADDR";
@@ -577,6 +577,7 @@ fn print_help() {
         "  PORT = {}                              HTTP port (server/indexer/MCP modes)",
         DEFAULT_PORT
     );
+    println!("  INDEXER_ADVERTISED_URL = <hostname>    Base URL other instances forward search requests to (indexer mode); defaults to http://$HOSTNAME:$PORT");
     println!(
         "  SERVER_BIND_ADDR = <mode dependent>    IP to bind to (server: {}, worker: {})",
         DEFAULT_SERVER_BIND_ADDR, DEFAULT_WORKER_BIND_ADDR

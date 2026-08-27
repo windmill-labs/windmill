@@ -43,6 +43,11 @@ pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";
 pub const WORKER_NAME_PREFIX: &str = "wk";
 pub const AGENT_WORKER_NAME_PREFIX: &str = "ag";
 
+/// Port the server binds in server, indexer and MCP mode when neither PORT nor BACKEND_PORT is
+/// set. Anything deriving an address it expects to reach that server on must use this same
+/// fallback, or it will advertise a port nothing is listening on.
+pub const DEFAULT_PORT: u16 = 8000;
+
 use crate::CRITICAL_ALERT_MUTE_UI_ENABLED;
 use std::panic::{self, AssertUnwindSafe, Location};
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT last_locked_at, owner_addr FROM concurrency_locks WHERE id = $1",
+  "query": "SELECT last_locked_at, owner, owner_addr FROM concurrency_locks WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -10,6 +10,11 @@
       },
       {
         "ordinal": 1,
+        "name": "owner",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
         "name": "owner_addr",
         "type_info": "Varchar"
       }
@@ -21,8 +26,9 @@
     },
     "nullable": [
       false,
+      true,
       true
     ]
   },
-  "hash": "1ff3d43899a63d5f56450d8edfc741e2a4823ac287cb94b17c42277c67513b53"
+  "hash": "bf22c7378a3db96a205d69b01f94f1dc85de86517abfd7298f4026f6d4d71aa0"
 }
