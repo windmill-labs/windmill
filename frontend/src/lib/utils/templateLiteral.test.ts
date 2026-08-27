@@ -6,17 +6,17 @@ import { escapeTemplateBackticks, unescapeTemplateBackticks } from './templateLi
 // is a syntax error in expression position.
 describe('escapeTemplateBackticks', () => {
 	const nested =
-		'-p ${flow_input.iter.value}${results.pw ? ` --vault-password-file ${results.pw}` : ""} -H ${flow_input.hostname}'
+		'--input ${flow_input.iter.value}${results.config ? ` --config ${results.config}` : ""} --host ${flow_input.hostname}'
 
 	it('leaves a nested template literal inside an interpolation intact', () => {
 		const expr = '`' + escapeTemplateBackticks(nested) + '`'
 		expect(expr).not.toContain('\\`')
 		expect(
 			new Function('flow_input', 'results', 'return ' + expr)(
-				{ iter: { value: 'playbook.yml' }, hostname: 'host1' },
-				{ pw: '/tmp/pw.txt' }
+				{ iter: { value: 'data.csv' }, hostname: 'host1' },
+				{ config: '/tmp/cfg.json' }
 			)
-		).toBe('-p playbook.yml --vault-password-file /tmp/pw.txt -H host1')
+		).toBe('--input data.csv --config /tmp/cfg.json --host host1')
 	})
 
 	it('still escapes a backtick in the literal text', () => {
