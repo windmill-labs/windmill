@@ -3281,7 +3281,7 @@ export function untrackedSecretBearingDeletions<
   );
 }
 
-/** e.g. "2 variables and 1 resource", for the messages about what is being kept. */
+/** e.g. "2 variables and 1 resource", counted by object rather than by file. */
 export function describeSecretBearingChanges(
   changes: { path: string }[],
 ): string {
@@ -5226,15 +5226,17 @@ export async function push(
   const secretDeletionCandidates = changes.filter(
     (c) => c.name === "deleted" && secretBearingObjectKind(c.path) !== undefined,
   );
+  // Both notices go through `log`, which `--json-output` silences, so the history
+  // walk would be a second of `git log` for output nobody reads.
   const recordedSecretPaths: RecordedPaths =
-    secretDeletionCandidates.length > 0
+    secretDeletionCandidates.length > 0 && !opts.jsonOutput
       ? gitRecordedPaths(SECRET_BEARING_PATHSPECS)
       : { kind: "known", paths: new Set() };
-  const untrackedSecretDeletions = untrackedSecretBearingDeletions(
-    changes,
-    recordedSecretPaths,
-    (p) => getWorkspaceSpecificPath(p, specificItems, wsNameForFiles),
-  );
+  const untrackedSecretDeletions = opts.jsonOutput
+    ? []
+    : untrackedSecretBearingDeletions(changes, recordedSecretPaths, (p) =>
+        getWorkspaceSpecificPath(p, specificItems, wsNameForFiles),
+      );
 
   // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
   // and is excluded from the file diff (isNotWmillFile), so surface its diff in
@@ -5477,12 +5479,18 @@ export async function push(
         folderDefaultAnnotations,
       );
       if (untrackedSecretDeletions.length > 0) {
+        // Listed by path, not counted: a push can delete a tracked and a
+        // never-tracked resource together, and a bare "1 resource" names neither.
+        const paths = untrackedSecretDeletions
+          .map((c) => `  - ${c.path.replaceAll(SEP, "/")}`)
+          .join("\n");
         log.warn(
           colors.yellow(
-            `This branch's history has ${recordedSecretPaths.kind === "known" ? "no" : "no readable"} record of ${describeSecretBearingChanges(untrackedSecretDeletions)} above` +
-              `${recordedSecretPaths.kind === "known" ? ", so it was provisioned outside this repository rather than deleted from it" : ` (${recordedSecretPaths.reason})`}. ` +
-              `Deleting leaves only the workspace trash, which keeps an item for three days. ` +
-              `Exclude it from the sync (skipVariables/skipResources or excludes in wmill.yaml) to keep deploying without touching it.`,
+            recordedSecretPaths.kind === "known"
+              ? `Nothing in this branch's git history accounts for these deletions, so they were provisioned outside this repository rather than deleted from it:\n${paths}\n` +
+                  `Deleting leaves only the workspace trash, which keeps an item for three days. Exclude them from the sync (skipVariables/skipResources or excludes in wmill.yaml) to keep deploying without touching them.`
+              : `These deletions could not be checked against git history (${recordedSecretPaths.reason}), so this push may be removing objects the repository never had:\n${paths}\n` +
+                  `Deleting leaves only the workspace trash, which keeps an item for three days. ${recordedSecretPaths.remedy} to have them checked.`,
           ),
         );
       }

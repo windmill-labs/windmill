@@ -1,9 +1,10 @@
 /**
- * `sync push` archives a script but hard-deletes a variable or a resource, so a
- * remote-only one it has never tracked must not be read as a deletion: it is a
- * credential provisioned on the instance, or runtime state a script wrote. These
- * pin the classification (which files count, which look alike but don't) and the
- * evidence rule (only committed history vouches for a deletion).
+ * A remote variable or resource with no local file is deleted either way, but one
+ * this branch has never tracked was provisioned outside the repository — a
+ * credential set on the instance, or runtime state a script wrote — and the push
+ * says so. These pin what that claim rests on: the classification (which files
+ * count, which look alike but don't) and the evidence rule (a file in committed
+ * history vouches for the whole object).
  */
 
 import { describe, expect, test } from "bun:test";
@@ -136,8 +137,8 @@ describe("untrackedSecretBearingDeletions", () => {
   });
 
   test("surfaces everything when the history cannot be consulted", () => {
-    // Nothing is proven either way, so every candidate comes back for the caller
-    // to warn about (and, on a TTY, ask about).
+    // Nothing is proven either way, so every candidate comes back and the caller
+    // hedges the wording instead of asserting.
     expect(
       untrackedSecretBearingDeletions(changes, {
         kind: "unknown",
