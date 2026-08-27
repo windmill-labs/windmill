@@ -720,12 +720,6 @@ export class AIChatManager {
 		return position.state === 'watching' && position.planMode
 	}
 
-	/** Whether the turn that just finished is one a follow-up should be sent
-	 *  after: it committed, or the user deliberately stopped it. False through a
-	 *  provider error, an empty-response rollback, or a programmatic cancel — the
-	 *  states this manager deliberately keeps its own queued message through. */
-	lastTurnAcceptsFollowUp = false
-
 	// Workspace items the CURRENT chat modified via AI tool calls, as
 	// `${UserDraftItemKind}:${storagePath}` keys (see modifiedItemsMask.ts).
 	// undefined = untracked: only the global side-panel chat (never initialised),
@@ -1921,6 +1915,11 @@ export class AIChatManager {
 	private restoreRefusedSend(
 		options: NonNullable<Parameters<typeof this.sendRequestImpl>[0]>
 	): void {
+		// Every release site lives inside sendRequestImpl, and a refusal never gets
+		// there. A resend stages its files' bytes before the call, so without this
+		// a Retry that is refused charges them against the conversation's budget
+		// for the lifetime of the manager.
+		this.#releaseOutgoingReservation(options.resendReservationKey)
 		if (options.queued) return
 		const restored = this.aiChatInput?.restoreInstructions(
 			options.instructions ?? '',
@@ -1935,10 +1934,9 @@ export class AIChatManager {
 		}
 	}
 
-	/** Send the queued message, if there is one, as its own turn. Also the path a
-	 *  tab takes when the turn it was watching ends in another tab: the queue was
-	 *  filled here while that run held the session, and it is owed the same
-	 *  auto-send it would have got had this tab been the one running. */
+	/** Send the queued message, if there is one, as its own turn. The queue only
+	 *  ever fills while this tab is the one running, so this is the only thing
+	 *  that drains it. */
 	async flushQueuedMessage(): Promise<void> {
 		if (!this.#hasQueuedMessage()) return
 		const next = this.#takeQueue()
@@ -2968,9 +2966,6 @@ export class AIChatManager {
 		// send exits before install. Kept in a mutable local so every exit path
 		// releases the right key.
 		let reservationKey = options.resendReservationKey
-		// Cleared up front so an exit before the verdict below (a refused mode, a
-		// pre-flight throw) reports this turn rather than the previous one's.
-		this.lastTurnAcceptsFollowUp = false
 		const requestedMode = options.mode ?? this.mode
 		if (!isAIModeVisible(requestedMode)) {
 			this.#releaseOutgoingReservation(reservationKey)
@@ -3861,8 +3856,8 @@ export class AIChatManager {
 		// empty-response rollback, or a programmatic cancel (panel teardown,
 		// save-and-clear) leaves it in place as a card so it isn't fired into a
 		// failed or torn-down turn.
-		this.lastTurnAcceptsFollowUp = turnCommittedCleanly || this.wasCancelledByUser()
-		if (this.lastTurnAcceptsFollowUp) {
+		const acceptsFollowUp = turnCommittedCleanly || this.wasCancelledByUser()
+		if (acceptsFollowUp) {
 			await this.flushQueuedMessage()
 		}
 		// A background job may have finished mid-turn: its note missed this turn's

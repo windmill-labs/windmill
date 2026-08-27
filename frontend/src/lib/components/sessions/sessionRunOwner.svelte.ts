@@ -101,6 +101,14 @@ export function noteCaughtUp(sessionId: string): void {
  *  down tab can't leave a position behind for a session nothing is watching. */
 export function clearRunPosition(sessionId: string): void {
 	positions.delete(sessionId)
+	probeAnswers.delete(sessionId)
+}
+
+/** True from the driver's turn-end until this tab has re-read what it left
+ *  behind. The catch-up retry reads it to tell "still owed a read" from "a new
+ *  turn started" and from "this session is gone". */
+export function isCatchingUp(sessionId: string): boolean {
+	return runPosition(sessionId).state === 'catchingUp'
 }
 
 function lockName(sessionId: string): string {
@@ -147,12 +155,43 @@ export async function withSessionRunLock<T>(
 	}
 }
 
-/** Exclusion without a lock: refuse only when another tab is visibly mid-run.
- *  That covers the case that actually happens (one tab already going) and leaves
- *  a genuine simultaneous start racing, which is what a session already did
- *  before any of this. */
+/** How long a probe waits for the driver to answer before its silence counts.
+ *  Long enough to survive a busy main thread, short enough that the pre-flight
+ *  is not felt; only origins without Web Locks ever pay it. */
+const PROBE_GRACE_MS = 750
+
+let sendDriverProbe: ((sessionId: string) => void) | undefined
+
+/** Registered by sessionSync, which owns the channel this is asked over. */
+export function setDriverProbe(fn: (sessionId: string) => void): void {
+	sendDriverProbe = fn
+}
+
+const probeAnswers = new Set<string>()
+
+/** A driver answered a probe. Recorded rather than folded into the position:
+ *  the answer proves a run is alive, but carries none of the frame state a
+ *  `watching` position is made of. */
+export function noteDriverAnswered(sessionId: string): void {
+	probeAnswers.add(sessionId)
+}
+
+/** Exclusion without a lock. Silence is not enough to conclude a driver is
+ *  gone — a hidden tab's heartbeat is throttled to as little as once a minute
+ *  while its turn runs on perfectly well, and the reaper will have retired it
+ *  long before that. So ask, and treat only an unanswered probe as absence.
+ *  Getting this wrong runs a second turn against the same chat id, which is the
+ *  duplicate tool calls and lost transcript this whole module exists to stop. */
 async function bestEffort<T>(sessionId: string, body: () => Promise<T>): Promise<T | 'busy'> {
 	if (isWatching(sessionId)) return 'busy'
+	if (sendDriverProbe) {
+		probeAnswers.delete(sessionId)
+		sendDriverProbe(sessionId)
+		await new Promise((resolve) => setTimeout(resolve, PROBE_GRACE_MS))
+		if (probeAnswers.delete(sessionId)) return 'busy'
+		// A frame may also have arrived while the probe was outstanding.
+		if (isWatching(sessionId)) return 'busy'
+	}
 	return await drive(sessionId, body)
 }
 
@@ -171,11 +210,11 @@ async function drive<T>(sessionId: string, body: () => Promise<T>): Promise<T> {
  *  settle a driver that stopped sending frames: a released lock proves the tab
  *  is gone, where silence alone only suggests it. */
 async function runLockHeld(sessionId: string): Promise<boolean> {
-	// Nothing to consult without the lock API, so silence is the only evidence —
-	// and the caller only asks after a driver has gone quiet for the whole
-	// silence window. Reaping a driver that was merely starved costs a re-read
-	// the next frame would have triggered anyway, and cannot cost a turn: this
-	// tab still has to take the lock before it can send.
+	// Nothing to consult without the lock API, so a silent driver is reaped on
+	// silence alone. That only ever frees the UI: reaching `idle` does not by
+	// itself entitle this tab to drive, because {@link bestEffort} probes for a
+	// live driver at the moment it matters rather than trusting a conclusion
+	// drawn from silence up to ten seconds earlier.
 	if (!EXCLUSIVE_OWNERSHIP) return false
 	try {
 		const state = await navigator.locks.query()

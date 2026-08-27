@@ -108,6 +108,7 @@ import {
 } from './sessionSync.svelte'
 import {
 	clearRunPosition,
+	isCatchingUp,
 	isDriving,
 	isWatching,
 	noteCaughtUp,
@@ -1147,11 +1148,15 @@ function answerResync(sessionId: string): void {
  *  only, so re-read the record the driver just saved for everything else — the
  *  API-format history, context usage, the edits mask, background jobs — leaving
  *  this tab able to take the conversation over. */
-async function applyTurnEnd(sessionId: string, chatId: string): Promise<void> {
+async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Promise<void> {
 	if (isDriving(sessionId)) return
+	let caughtUp = false
 	try {
 		const runtime = runtimes.get(sessionId)
-		if (!runtime) return
+		if (!runtime) {
+			caughtUp = true
+			return
+		}
 		const m = runtime.manager
 		// `loading` has to go first: loadPastChat refuses to run while the manager
 		// looks busy, and this one is the mirrored driver's, not a turn of our own.
@@ -1162,8 +1167,20 @@ async function applyTurnEnd(sessionId: string, chatId: string): Promise<void> {
 		m.loadingLabel = undefined
 		m.compacting = false
 		const id = chatId || m.historyManager.getCurrentChatId()
-		if (!id) return
+		if (!id) {
+			caughtUp = true
+			return
+		}
 		const found = await m.historyManager.reloadChat(id)
+		if (found === 'unavailable') {
+			// The store is unreadable *right now*, which says nothing about the
+			// conversation — so this tab still pairs the mirrored transcript with
+			// the history it held before the run. Freeing it here would let a turn
+			// go out under that pair and save it over what the driver wrote. Stay
+			// gated and keep asking; the read is the only thing that can settle it.
+			scheduleCatchUpRetry(sessionId, chatId, attempt)
+			return
+		}
 		if (found === 'loaded') {
 			// `refresh`: the same conversation caught up from the store, so whatever
 			// this manager still holds for it — a queued message, the background-job
@@ -1178,14 +1195,40 @@ async function applyTurnEnd(sessionId: string, chatId: string): Promise<void> {
 			m.adoptEmptyChat(id)
 			setSessionChatId(sessionId, id)
 		}
-		// 'unavailable' leaves everything as it is: the store is unreadable right
-		// now, which says nothing about the conversation.
+		caughtUp = true
+	} catch (e) {
+		// A read that threw leaves the same mismatched pair an 'unavailable' one
+		// does, so it earns the same answer rather than a silent release.
+		console.error('sessionRuntime: catch-up failed', e)
+		scheduleCatchUpRetry(sessionId, chatId, attempt)
 	} finally {
-		// Unconditional, including the paths that never reached the store: leaving
-		// the position at `catchingUp` would lock this tab's composer for a run
-		// that is already over, with nothing left to arrive and free it.
-		noteCaughtUp(sessionId)
+		if (caughtUp) noteCaughtUp(sessionId)
 	}
+}
+
+/** Backoff for a catch-up that could not read the store, capped so a long
+ *  outage settles into polling rather than growing without bound. */
+const CATCH_UP_BACKOFF_MS = [300, 700, 1500, 3000, 5000]
+const catchUpRetries = new Map<string, ReturnType<typeof setTimeout>>()
+
+function scheduleCatchUpRetry(sessionId: string, chatId: string, attempt: number): void {
+	clearTimeout(catchUpRetries.get(sessionId))
+	const delay = CATCH_UP_BACKOFF_MS[Math.min(attempt, CATCH_UP_BACKOFF_MS.length - 1)]
+	catchUpRetries.set(
+		sessionId,
+		setTimeout(() => {
+			catchUpRetries.delete(sessionId)
+			// Only still owed if nothing else has moved the position on: a new turn
+			// starting, or the session going away, both settle this on their own.
+			if (!isCatchingUp(sessionId)) return
+			void applyTurnEnd(sessionId, chatId, attempt + 1)
+		}, delay)
+	)
+}
+
+function cancelCatchUpRetry(sessionId: string): void {
+	clearTimeout(catchUpRetries.get(sessionId))
+	catchUpRetries.delete(sessionId)
 }
 
 /** A Stop pressed in a watching tab reaches the run here. */
@@ -1248,9 +1291,11 @@ export function disposeRuntime(sessionId: string) {
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
 	// The per-run bookkeeping outlives the manager it describes otherwise: a
-	// frame timer with no runtime to read keeps ticking, and a leftover position
-	// would answer for a session this tab no longer holds.
+	// frame timer with no runtime to read keeps ticking, a pending catch-up would
+	// re-read for a manager that is gone, and a leftover position would answer
+	// for a session this tab no longer holds.
 	stopMirroring(sessionId)
+	cancelCatchUpRetry(sessionId)
 	clearRunPosition(sessionId)
 }
 

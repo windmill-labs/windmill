@@ -1,7 +1,13 @@
 import { BROWSER } from 'esm-env'
 import { onUserChange, scopedKey } from '$lib/userScopedStorage'
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
-import { noteDriverAlive, noteRemoteTurnEnded } from './sessionRunOwner.svelte'
+import {
+	isDriving,
+	noteDriverAlive,
+	noteDriverAnswered,
+	noteRemoteTurnEnded,
+	setDriverProbe
+} from './sessionRunOwner.svelte'
 
 // The channel between tabs open on the same AI session. Everything a session is
 // made of — the record list, the chat transcript, the run itself — lives in the
@@ -81,6 +87,13 @@ type QuestionAnswerMsg = {
 	choices: string[]
 }
 
+/** "Is anyone still running this?", asked by a tab about to drive where no lock
+ *  can answer for it. Delivery is a task rather than a timer, so a driver whose
+ *  timers have been throttled to a crawl in a hidden tab still receives it and
+ *  still answers — which is exactly the case silence alone gets wrong. */
+type DriverProbeMsg = { kind: 'driver-probe'; sessionId: string }
+type DriverAliveMsg = { kind: 'driver-alive'; sessionId: string }
+
 type SyncMsg =
 	| SessionPutMsg
 	| SessionDeleteMsg
@@ -91,6 +104,8 @@ type SyncMsg =
 	| CancelRequestMsg
 	| ToolConfirmationMsg
 	| QuestionAnswerMsg
+	| DriverProbeMsg
+	| DriverAliveMsg
 
 type Handlers = {
 	onSessionPut: (id: string) => void
@@ -188,6 +203,15 @@ function receive(msg: SyncMsg): void {
 		case 'question-answer':
 			emit('onQuestionAnswer', msg.sessionId, msg.toolId, msg.choices)
 			break
+		case 'driver-probe':
+			// Answered from inside the handler, never off a timer: a throttled tab
+			// still runs tasks, and routing the answer through a timeout would make
+			// it look dead for exactly the reason the probe exists to rule out.
+			if (isDriving(msg.sessionId)) post({ kind: 'driver-alive', sessionId: msg.sessionId })
+			break
+		case 'driver-alive':
+			noteDriverAnswered(msg.sessionId)
+			break
 	}
 }
 
@@ -220,6 +244,10 @@ export function broadcastSessionArtifact(sessionId: string, artifactId: string):
 // ---------------------------------------------------------------------------
 // Live mirroring
 // ---------------------------------------------------------------------------
+
+// sessionRunOwner decides when a probe is worth sending; posting one is this
+// module's job, and registering it here is what keeps the two out of a cycle.
+setDriverProbe((sessionId) => post({ kind: 'driver-probe', sessionId }))
 
 export function broadcastTurnEnd(sessionId: string, chatId: string): void {
 	post({ kind: 'turn-end', sessionId, chatId })
