@@ -76,14 +76,14 @@
 	// FilterSearchbar schema — `_default_` is the free-text search; the rest mirror the
 	// boolean/kind list filters. Owner and label scoping are offered as searchbar presets
 	// (searchPresets) and resolve server-side (path_start / label) rather than filtering
-	// client-side. `content` is a distinct mode: it swaps the list for the full-text
-	// content-match view (EE indexer) below.
+	// client-side. `content` is a distinct mode: it swaps the list for the client-side
+	// content-match view below (usable on any instance, not EE-gated).
 	let searchFilterSchema = $derived({
 		_default_: { type: 'string' as const, hidden: true },
 		content: {
 			type: 'string' as const,
 			label: 'Content',
-			description: 'Full-text search across item content (EE)'
+			description: 'Search across item contents'
 		},
 		// Owner (u/<user> or f/<folder>) and label are offered as presets built from what the
 		// list actually holds (see searchPresets); they drive the same server path-scope / label
@@ -168,8 +168,8 @@
 	let includeWithoutMain = $derived((filterValues.val.include_library ?? true) as boolean)
 	let filterUserFolders = $derived(!!filterValues.val.only_user_folders)
 
-	// Content search is a distinct mode: its results come from the indexer via
-	// ContentSearchInner (which carries only path + content), so the row-list filters can't
+	// Content search is a distinct mode: its results come from ContentSearchInner
+	// (which carries only path + content), so the row-list filters can't
 	// apply to it. When it's active we restrict the searchbar to just the content filter,
 	// clear any other filters so they don't linger as ignored chips, and hide the row-list
 	// controls (kind toggle, tree view) that no longer drive anything.
@@ -186,8 +186,8 @@
 		})
 	})
 
-	// Content-filter view: reuse the Ctrl-K "Content" search (full-text, EE-gated). It loads
-	// its own dataset via `.open()`, then filters client-side by `search`. The component is
+	// Content-filter view: reuse the Ctrl-K "Content" search. It loads its own dataset
+	// via `.open()`, then filters client-side by `search`. The component is
 	// keyed by workspace in the markup, so a workspace switch remounts it (this `bind:this`
 	// then points at the fresh instance and re-runs `open()`); the old instance is discarded,
 	// so its late in-flight responses can't overwrite the new workspace's results.
@@ -1726,11 +1726,11 @@
 	{/if}
 	<div class="mt-3">
 		{#if filterValues.val.content}
-			<!-- Content filter: swap the normal list/tree for the full-text content-match view
-			     (the same one used by the Ctrl-K "Content" modal). It searches item contents via
-			     the indexer and shows matching snippets; off EE it renders its own warning + a
-			     limited fallback search. Keyed by workspace so a switch remounts a fresh instance
-			     and late in-flight responses from the previous workspace can't land in it. -->
+			<!-- Content filter: swap the normal list/tree for the content-match view (the same one
+			     used by the Ctrl-K "Content" modal). It loads the workspace's scripts/flows/apps/
+			     resources and matches their contents client-side — usable on any instance. Keyed by
+			     workspace so a switch remounts a fresh instance and late in-flight responses from
+			     the previous workspace can't land in it. -->
 			<!-- -mx-2 cancels ContentSearchInner's own px-2 so its rows line up flush with the
 			     runnable list instead of sitting slightly inset. -->
 			<div class="-mx-2">
