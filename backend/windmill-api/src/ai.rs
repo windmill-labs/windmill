@@ -1094,6 +1094,7 @@ async fn proxy(
                                                 &db,
                                                 &ai_path,
                                                 &authed.email,
+                                                &body,
                                             )
                                             .await?
                                         };

@@ -29,6 +29,7 @@ pub async fn resolve_free_tier_credentials(
     _db: &DB,
     _ai_path: &str,
     _email: &str,
+    _body: &Bytes,
 ) -> Result<Option<(ProviderCredentials, FreeTierLease)>> {
     Ok(None)
 }
