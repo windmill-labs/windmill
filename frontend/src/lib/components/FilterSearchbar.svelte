@@ -398,16 +398,22 @@
 					key,
 					filterSchema,
 					onClick: () => {
-						// Replace the text segment with the new filter tag. A default-false boolean has
-						// only one useful value (true), so drop it in already set to true instead of
-						// opening a true/false picker; a default-true boolean tags in empty and shows
-						// the picker, where choosing false is the meaningful action. Either way the
-						// typed segment is removed, so no free-text (_default_) term lingers.
-						const boolShortcut = schema[key].type === 'boolean' && schema[key].default !== true
 						const before = asText.val.slice(0, currentTextSegment.start)
 						const after = asText.val.slice(currentTextSegment.end)
+						if (schema[key].type === 'boolean' && schema[key].default !== true) {
+							// A default-false boolean has only one useful value (true), so set it straight
+							// away instead of opening a true/false picker. Remove the typed search segment
+							// (so it doesn't linger as a free-text term), set the value, and reparse so the
+							// text is rebuilt canonically \u2014 this avoids the baked value merging into a
+							// following tag.
+							asText.val = `${before}${after}`
+							value[key] = true as any
+							asText.reparse()
+							return
+						}
+						// Replace the text segment with the new (empty) filter tag; the value picker opens.
 						asText.val =
-							`${before}${before && !before.endsWith(' ') ? ' ' : ''}${key}:\\\u00A0${boolShortcut ? 'true' : ''}${after}`.trim() +
+							`${before}${before && !before.endsWith(' ') ? ' ' : ''}${key}:\\\u00A0${after}`.trim() +
 							'\u00A0'
 					}
 				}))
