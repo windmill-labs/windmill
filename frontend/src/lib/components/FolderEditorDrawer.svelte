@@ -50,6 +50,10 @@
 
 	/** The editor keeps its draft in memory only, so closing throws it away. */
 	function requestClose() {
+		// A save is already writing. `unsaved` only clears once it reloads, so closing here
+		// would offer to discard changes the in-flight requests are busy persisting — and
+		// confirming would close on that lie. Saving is the shorter wait; ignore the close.
+		if (saving) return
 		if (discarding || !unsaved) {
 			drawer?.closeDrawer()
 			return
@@ -67,6 +71,9 @@
 				// The editor reloads its baseline after saving, but that lands a tick
 				// later; close on our own authority rather than racing it.
 				discarding = true
+				// Belt and braces with the `saving` guard on the close paths: nothing that
+				// asked to discard may outlive a save that then succeeded.
+				confirmDiscardOpen = false
 				drawer?.closeDrawer()
 			}
 		} finally {
@@ -83,6 +90,10 @@
 		// Escape and click-away close the drawer before asking. Reopening in the same
 		// tick is how the flow's script editor drawer handles this too: the close
 		// transition has not started, so nothing flickers.
+		if (saving) {
+			drawer?.openDrawer()
+			return
+		}
 		if (!discarding && unsaved) {
 			drawer?.openDrawer()
 			confirmDiscardOpen = true

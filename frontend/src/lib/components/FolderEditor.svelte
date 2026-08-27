@@ -6,7 +6,8 @@
 		FolderService,
 		UserService,
 		GranularAclService,
-		GroupService
+		GroupService,
+		type User
 	} from '$lib/gen'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
@@ -87,6 +88,46 @@
 	}: Props = $props()
 
 	const targetWorkspace = $derived(workspace ?? $workspaceStore ?? '')
+	const aimedElsewhere = $derived(!!workspace && workspace !== $workspaceStore)
+
+	// `$userStore` describes the workspace the app is *in*. Aimed at another one it answers
+	// the wrong question — a folder admin there would get read-only controls, and a
+	// non-member would get write ones — so resolve the membership of the workspace being
+	// edited. `whoami` returns group names unprefixed; `owners` holds them `g/`-prefixed.
+	let targetUser: User | undefined = $state(undefined)
+	const membership = $derived.by(() => {
+		if (!aimedElsewhere) {
+			return $userStore
+				? {
+						username: $userStore.username,
+						is_admin: $userStore.is_admin ?? false,
+						is_super_admin: $userStore.is_super_admin ?? false,
+						pgroups: $userStore.pgroups ?? [],
+						groups: $userStore.groups ?? []
+					}
+				: undefined
+		}
+		return targetUser
+			? {
+					username: targetUser.username,
+					is_admin: targetUser.is_admin ?? false,
+					is_super_admin: targetUser.is_super_admin ?? false,
+					pgroups: (targetUser.groups ?? []).map((g) => 'g/' + g),
+					groups: targetUser.groups ?? []
+				}
+			: undefined
+	})
+
+	async function loadTargetUser(): Promise<void> {
+		if (!aimedElsewhere || !workspace) return
+		try {
+			targetUser = await UserService.whoami({ workspace })
+		} catch {
+			// Not a member, or the call failed: no membership means read-only controls,
+			// which is the safe reading — the write would be refused anyway.
+			targetUser = undefined
+		}
+	}
 
 	let can_write = $state(false)
 	let folder: Folder | undefined
@@ -115,7 +156,7 @@
 			defaultPermissionedAs: [],
 			// The backend makes the creator an owner whatever we send, so the table
 			// shows that from the start rather than after the first reload.
-			perms: $userStore ? [{ owner_name: 'u/' + $userStore.username, role: 'admin' as Role }] : []
+			perms: membership ? [{ owner_name: 'u/' + membership.username, role: 'admin' as Role }] : []
 		}
 	}
 
@@ -139,6 +180,8 @@
 	async function load() {
 		loadUsernames()
 		loadGroups()
+		// Before the folder read: `can_write` is computed from this membership.
+		await loadTargetUser()
 		if (mode === 'new') {
 			loadFolderNames()
 			can_write = true
@@ -163,11 +206,11 @@
 			folder = await FolderService.getFolder({ workspace: targetWorkspace, name })
 			folderNotFound = false
 			can_write =
-				$userStore != undefined &&
-				(folder?.owners.includes('u/' + $userStore.username) ||
-					($userStore.is_admin ?? false) ||
-					($userStore.is_super_admin ?? false) ||
-					$userStore.pgroups.findIndex((x) => folder?.owners.includes(x)) != -1)
+				membership != undefined &&
+				(folder?.owners.includes('u/' + membership.username) ||
+					membership.is_admin ||
+					membership.is_super_admin ||
+					membership.pgroups.findIndex((x) => folder?.owners.includes(x)) != -1)
 
 			setDraft({
 				summary: folder.summary ?? '',
@@ -194,15 +237,15 @@
 	}
 
 	const restricted = $derived(
-		isDemoWorkspaceRestricted(targetWorkspace, $userStore?.is_admin, $userStore?.is_super_admin)
+		isDemoWorkspaceRestricted(targetWorkspace, membership?.is_admin, membership?.is_super_admin)
 	)
 
 	const canEditDefaults = $derived(
 		can_write &&
 			!restricted &&
-			($userStore?.is_admin ||
-				$userStore?.is_super_admin ||
-				($userStore?.groups ?? []).includes('wm_deployers'))
+			(membership?.is_admin ||
+				membership?.is_super_admin ||
+				(membership?.groups ?? []).includes('wm_deployers'))
 	)
 
 	function isValidGlob(glob: string): boolean {
@@ -351,6 +394,10 @@
 		}
 		for (const p of prev) {
 			if (next.some((n) => n.owner_name === p.owner_name)) continue
+			// Both calls, always: `removeowner` without a `write` only drops the member from
+			// `owners`, leaving their `extra_perms` entry — so on its own it demotes an admin
+			// to writer rather than removing them. Removing an admin therefore logs two
+			// history rows (revoke_all and revoke_write), which is the honest account of it.
 			await Promise.all([
 				FolderService.removeOwnerToFolder({
 					workspace,
@@ -568,7 +615,10 @@
 											class="grow min-w-0"
 										>
 											{#snippet endSnippet({ item, close: closeSelect })}
-												{#if ownerKind == 'group'}
+												<!-- GroupEditor reads and writes `$workspaceStore` and takes no workspace of its
+												     own, so it cannot follow a drawer aimed at another one: viewing a group
+												     there would edit the same-named group in the active workspace. -->
+												{#if ownerKind == 'group' && !aimedElsewhere}
 													<Button
 														title="View group"
 														variant="subtle"
@@ -587,7 +637,7 @@
 												{/if}
 											{/snippet}
 											{#snippet bottomSnippet({ close: closeSelect })}
-												{#if ownerKind == 'group'}
+												{#if ownerKind == 'group' && !aimedElsewhere}
 													<button
 														class="sticky py-2 px-4 w-full text-left text-xs font-medium hover:bg-surface-hover flex items-center justify-center gap-2 border-t border-border-light"
 														onclick={() => {
@@ -685,8 +735,8 @@
 									{#if can_write && !restricted}
 										<div>
 											<ToggleButtonGroup
-												disabled={perm.owner_name == 'u/' + $userStore?.username &&
-													!($userStore?.is_admin || $userStore?.is_super_admin)}
+												disabled={perm.owner_name == 'u/' + membership?.username &&
+													!(membership?.is_admin || membership?.is_super_admin)}
 												selected={perm.role}
 												on:selected={(e) => {
 													draft.perms[idx].role = e.detail
@@ -725,7 +775,7 @@
 								</Cell>
 								<Cell last actions>
 									<div class="flex items-center justify-end">
-										{#if (can_write && perm.owner_name != 'u/' + $userStore?.username) || $userStore?.is_admin}
+										{#if (can_write && perm.owner_name != 'u/' + membership?.username) || membership?.is_admin}
 											<Button
 												variant="subtle"
 												destructive
@@ -736,7 +786,7 @@
 													draft.perms = draft.perms.filter((p) => p.owner_name !== perm.owner_name)
 												}}
 											/>
-										{:else if can_write && perm.owner_name == 'u/' + $userStore?.username}
+										{:else if can_write && perm.owner_name == 'u/' + membership?.username}
 											<span class="text-2xs text-hint">cannot remove yourself</span>
 										{/if}
 									</div>
@@ -866,7 +916,9 @@
 		</CollapseLink>
 	{/if}
 
-	{#if !isNew && reloadHistory > 0}
+	<!-- PermissionHistory fetches against `$workspaceStore`; aimed elsewhere it would show
+	     another folder's history entirely. -->
+	{#if !isNew && !aimedElsewhere && reloadHistory > 0}
 		{#key reloadHistory}
 			<PermissionHistory
 				{name}
