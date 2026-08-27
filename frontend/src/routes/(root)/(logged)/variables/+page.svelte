@@ -488,8 +488,7 @@
 														{#snippet text()}
 															<div>
 																The value {expired ? 'expired' : 'expires'} on
-																{new Date(value_expires_at).toLocaleString()}. The workspace's
-																variable expiration handler runs an hour before that.
+																{new Date(value_expires_at).toLocaleString()}.
 															</div>
 														{/snippet}
 													</Popover>

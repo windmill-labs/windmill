@@ -46,6 +46,7 @@
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Popover from '$lib/components/Popover.svelte'
 
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
@@ -2160,22 +2161,31 @@ export async function main(
 									</div>
 
 									<SettingCard class="gap-2">
-										<Toggle
-											bind:checked={variableExpirationMutedOnUserPath}
-											disabled={!variableExpirationHasHandler}
-											options={{
-												right: 'Do not run the handler for variables in u/ paths',
-												rightTooltip: variableExpirationHasHandler
-													? undefined
-													: 'Select a handler first — this setting is stored with it.'
-											}}
-										/>
+										<!-- `w-fit`: the trigger is a flex item of the card, so it would otherwise
+										stretch the full width and anchor the popup away from the toggle. -->
+										<Popover
+											notClickable
+											disablePopup={variableExpirationHasHandler}
+											placement="bottom-start"
+											class="w-fit"
+										>
+											<Toggle
+												bind:checked={variableExpirationMutedOnUserPath}
+												disabled={!variableExpirationHasHandler}
+												options={{
+													right: 'Do not run the handler for variables in u/ paths'
+												}}
+											/>
+											{#snippet text()}
+												Select a handler first
+											{/snippet}
+										</Popover>
 									</SettingCard>
 
 									<Alert type="info" title="Runs as g/variable_expiration_handler">
 										The handler is executed by the automatically created group
 										g/variable_expiration_handler. Rotating a variable means writing to it, so grant
-										that group write access to the variables it is meant to rotate — it starts with
+										that group write access to the variables it is meant to rotate. It starts with
 										none. A script that carries an on-behalf-of identity is the exception: it runs
 										as that user, with their permissions rather than the group's.
 									</Alert>
