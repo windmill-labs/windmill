@@ -1682,7 +1682,12 @@
 					hideDropdownOnFreeText
 				/>
 			</div>
-			<CreateActionsMenu />
+			<!-- Same gate the old create actions used: hidden from operators and in workspaces
+			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
+			     the menu itself does no permission check. -->
+			{#if !$userStore?.operator && showEditButtons}
+				<CreateActionsMenu />
+			{/if}
 		</div>
 	</div>
 	{#if filteredItems?.length == 0}
