@@ -494,7 +494,7 @@
 														{#if refresh_error}
 															<Popover notClickable>
 																<!-- isolate: confine the ping indicator's z-50 to a local stacking context
-											     so it can't paint over a sticky-pinned actions column scrolling past it -->
+											     so it can't paint over anything that scrolls past it -->
 																<div
 																	class="relative inline-flex justify-center items-center w-4 h-4 isolate"
 																>

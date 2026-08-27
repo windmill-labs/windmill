@@ -11,7 +11,6 @@
 		shouldStopPropagation?: boolean
 		selected?: boolean
 		sticky?: boolean
-		stickyEnd?: boolean
 		/** The column holding a row's action buttons. It hugs its content at the table's
 		 *  right edge instead of absorbing the width the other columns leave over. */
 		actions?: boolean
@@ -28,7 +27,6 @@
 		shouldStopPropagation = false,
 		selected = false,
 		sticky = false,
-		stickyEnd = false,
 		actions = false,
 		wrap = false,
 		children,
@@ -63,11 +61,6 @@
 		// `text-right` then places inline content and `ml-auto` a block-level child, which a
 		// button wrapper is.
 		actions ? 'w-0 text-right [&>*]:ml-auto' : '',
-		// Pin an actions column to the right so it stays visible when a wide table
-		// scrolls horizontally. The background must be opaque so cells sliding under it
-		// are occluded — the row's hover tint is translucent and would bleed through.
-		stickyEnd ? 'sticky right-0 border-l' : '',
-		stickyEnd ? (head ? 'bg-surface-secondary' : 'bg-surface') : '',
 		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-2',
 		size === 'sm' ? 'px-1.5 py-2.5' : '',
 		size === 'lg' ? 'px-3 py-4' : '',
