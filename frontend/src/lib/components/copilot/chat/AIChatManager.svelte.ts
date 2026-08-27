@@ -4659,15 +4659,21 @@ export class AIChatManager {
 	 * no card, so one stored still pending comes back asking for input nothing can
 	 * deliver. Settles the stored copy only; the live turn keeps its cards.
 	 *
-	 * Except a detached job's card, which the poller does resolve after a reload: settling
-	 * that one stores an "Interrupted" error, and the patch a completed job merges in
-	 * carries no error to clear it with. */
+	 * Except a card the poller resolves after a reload: settling that one stores an
+	 * "Interrupted" error, and the patch a completed job merges in carries no error to
+	 * clear it with. Which cards those are is loadPastChat's question, so ask it the same
+	 * way — a job still running inline is detached by the restore and polled like any
+	 * other. */
 	#interruptedSnapshot = (): DisplayMessage[] => {
-		const detached = new Set(this.backgroundJobs.filter((j) => j.detached).map((j) => j.toolCallId))
+		const polled = new Set(
+			this.backgroundJobs
+				.filter((j) => j.detached || this.isJobNonTerminal(j.status))
+				.map((j) => j.toolCallId)
+		)
 		return this.settledToolDisplay(
 			this.displayMessages,
 			'Interrupted',
-			(message) => !detached.has(message.tool_call_id)
+			(message) => !polled.has(message.tool_call_id)
 		)
 	}
 }

@@ -261,9 +261,6 @@ describe('AIChatManager run form', () => {
 		expect(manager.displayMessages[0].isLoading).toBe(true)
 	})
 
-	// The tool reads the deployed schema before it asks for arguments. A stop during that
-	// read drains the callbacks and settles the card, so a waiter installed afterwards was
-	// one no rendered form could resolve: the turn stayed loading until a second stop.
 	it('installs no run-form waiter once the turn is stopped', async () => {
 		const manager = new AIChatManager()
 		// The turn the tool is running under; cancel aborts it.
@@ -3886,6 +3883,25 @@ describe('AIChatManager background job completion', () => {
 		const stored = (saveChat.mock.calls.at(-1)?.[0] as any[]).find((m) => m.tool_call_id === 'tc-1')
 		expect(stored.error).toBeUndefined()
 		expect(stored.content).toBe('running in background')
+	})
+
+	// A job still waiting inline is detached by the restore and polled like any other, so
+	// its card is one the poller resolves too — storing it as interrupted sticks, for the
+	// same reason an already-detached one would.
+	it("stores an inline job's card unsettled, so a later success is not left an error", async () => {
+		const manager = new AIChatManager()
+		manager.registerJob(datatableJob)
+		manager.registerJob({ ...datatableJob, jobId: 'job-2', toolCallId: 'tc-2' })
+		manager.applyToolStatus('tc-1', { content: 'running', isLoading: true })
+		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
+
+		// The other job reaching a terminal status is what fires the save; job-1 is still
+		// inside its inline wait when it lands.
+		manager.updateJob('job-2', { status: 'success' })
+		await vi.waitFor(() => expect(saveChat).toHaveBeenCalled())
+
+		const stored = (saveChat.mock.calls.at(-1)?.[0] as any[]).find((m) => m.tool_call_id === 'tc-1')
+		expect(stored.error).toBeUndefined()
 	})
 
 	it('skips reconstruction and emits no note for a canceled detached job', async () => {
