@@ -4671,41 +4671,10 @@ pub async fn check_debouncing_within_limits(
     }
 }
 
-fn resolve_arg_placeholder(arg_name: &str, args: &PushArgs) -> String {
-    if arg_name.contains('.') {
-        let parts: Vec<&str> = arg_name.split('.').collect();
-        let root = parts[0];
-        let mut value = args
-            .args
-            .get(root)
-            .or(args.extra.as_ref().and_then(|x| x.get(root)))
-            .map(|x| x.get())
-            .unwrap_or_default()
-            .to_string();
-
-        for part in parts.iter().skip(1) {
-            if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&value) {
-                value = obj
-                    .get(part)
-                    .and_then(|v| Some(v.to_string()))
-                    .unwrap_or_default()
-                    .as_str()
-                    .to_string();
-            } else {
-                value = "".to_string(); // Invalid JSON or missing field
-                break;
-            }
-        }
-        value.trim_matches('"').to_string()
-    } else {
-        args.args
-            .get(arg_name)
-            .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
-            .map(|x| x.get())
-            .unwrap_or_default()
-            .trim_matches('"')
-            .to_string()
-    }
+/// Whether the tag's queue name is computed from the job's arguments, so that a caller holding
+/// arguments it could not build knows the tag cannot be built either.
+pub fn tag_reads_args(tag: &str) -> bool {
+    RE_ARG_TAG.is_match(tag)
 }
 
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
@@ -4715,7 +4684,40 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
         let mut interpolated = workspaced.clone();
         for cap in RE_ARG_TAG.captures_iter(&workspaced) {
             let arg_name = cap.get(1).unwrap().as_str();
-            let arg_value = resolve_arg_placeholder(arg_name, args);
+            let arg_value = if arg_name.contains('.') {
+                let parts: Vec<&str> = arg_name.split('.').collect();
+                let root = parts[0];
+                let mut value = args
+                    .args
+                    .get(root)
+                    .or(args.extra.as_ref().and_then(|x| x.get(root)))
+                    .map(|x| x.get())
+                    .unwrap_or_default()
+                    .to_string();
+
+                for part in parts.iter().skip(1) {
+                    if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&value) {
+                        value = obj
+                            .get(part)
+                            .and_then(|v| Some(v.to_string()))
+                            .unwrap_or_default()
+                            .as_str()
+                            .to_string();
+                    } else {
+                        value = "".to_string(); // Invalid JSON or missing field
+                        break;
+                    }
+                }
+                value.trim_matches('"').to_string()
+            } else {
+                args.args
+                    .get(arg_name)
+                    .or(args.extra.as_ref().and_then(|x| x.get(arg_name)))
+                    .map(|x| x.get())
+                    .unwrap_or_default()
+                    .trim_matches('"')
+                    .to_string()
+            };
             interpolated =
                 interpolated.replace(format!("$args[{}]", arg_name).as_str(), &arg_value);
         }
@@ -4723,12 +4725,6 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
     } else {
         workspaced
     }
-}
-
-/// Whether the tag's queue name is computed from the job's arguments, so that a caller holding
-/// arguments it could not build knows the tag cannot be built either.
-pub fn tag_reads_args(tag: &str) -> bool {
-    RE_ARG_TAG.is_match(tag)
 }
 
 pub fn fullpath_with_workspace(
