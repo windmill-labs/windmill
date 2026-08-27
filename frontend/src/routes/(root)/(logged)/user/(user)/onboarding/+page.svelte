@@ -2,6 +2,8 @@
 	import { ArrowLeft } from 'lucide-svelte'
 	import { UserService } from '$lib/gen/services.gen'
 	import { goto } from '$lib/navigation'
+	import { page } from '$app/state'
+	import { toSameOriginRelativePath } from '$lib/logoutRedirect'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -16,7 +18,7 @@
 		Building2,
 		Twitter,
 		Youtube,
-		Bot, 
+		Bot,
 		MessageCircleCode
 	} from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -96,8 +98,21 @@
 			sendUserToast('Failed to save information: ' + (error?.body || error?.message || error), true)
 		} finally {
 			// do not block users from accessing windmill even if there is an error
-			goto('/user/workspaces')
+			goto(onboardingDestination())
 		}
+	}
+
+	/**
+	 * Where to go once onboarding is done. `/user/workspaces` unless the sign-in carried a
+	 * destination — a hub project import, say — in which case that is what the user came for.
+	 * Same-origin relative paths only, so a crafted `?rd=` cannot bounce them off-site.
+	 */
+	function onboardingDestination(): string {
+		// `toSameOriginRelativePath` rather than a local check: it already rejects `//host`,
+		// `/\\host` (which WHATWG URL parsing resolves to a different origin), control
+		// characters and oversized values. A second, weaker copy of this is how one of those
+		// gets missed.
+		return toSameOriginRelativePath(page.url.searchParams.get('rd')) ?? '/user/workspaces'
 	}
 
 	async function skip() {
@@ -110,7 +125,7 @@
 			console.error('Error skipping onboarding:', error)
 		} finally {
 			// do not block users from accessing windmill even if there is an error
-			goto('/user/workspaces')
+			goto(onboardingDestination())
 		}
 	}
 </script>

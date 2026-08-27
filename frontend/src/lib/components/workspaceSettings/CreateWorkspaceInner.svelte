@@ -4,7 +4,6 @@
 	import {
 		JobService,
 		ResourceService,
-		SettingService,
 		UserService,
 		VariableService,
 		WorkspaceService,
@@ -47,7 +46,12 @@
 	import { onMount } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import TestAIKey from '$lib/components/copilot/TestAIKey.svelte'
-	import { switchWorkspace } from '$lib/storeUtils'
+	import {
+		enterNewWorkspace,
+		loadUsernamePolicy,
+		refreshWorkspaceList
+	} from '$lib/workspaceCreation'
+	import { validateWorkspaceId } from '$lib/utils/workspaceId'
 	import { deleteSessionsForWorkspace } from '$lib/components/sessions/sessionState.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -270,13 +274,10 @@
 			errorId = forkIdTaken
 				? `A workspace with id '${effectiveId}' already exists. It may be an archived fork: archiving keeps the id reserved.`
 				: 'ID already exists'
-		} else if (id != '' && !/^\w+(-\w+)*$/.test(id)) {
-			errorId = 'ID can only contain letters, numbers and dashes and must not finish by a dash'
-		} else if (effectiveId.length > 50) {
-			// `wm-fork-` prefix included: matches the backend's 50-char (git-branch / DB) limit.
-			errorId = `ID '${effectiveId}' is too long (${effectiveId.length} chars). Maximum is 50.`
 		} else {
-			errorId = ''
+			// `effectiveId` carries the `wm-fork-` prefix into the length check, since
+			// that is what the backend stores.
+			errorId = (id != '' && validateWorkspaceId(id, effectiveId)) || ''
 		}
 		checking = false
 	}
@@ -482,8 +483,7 @@
 				: `Successfully forked workspace ${baseWorkspaceId} as: wm-fork-${id}`
 		)
 
-		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		switchWorkspace(prefixed_id)
+		await enterNewWorkspace(prefixed_id)
 
 		onFinish?.()
 	}
@@ -552,15 +552,11 @@
 						}
 					: {}
 			})
-
-			usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-			switchWorkspace(id)
 		}
 
 		sendUserToast(`Created workspace id: ${id}`)
 
-		usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-		switchWorkspace(id)
+		await enterNewWorkspace(id)
 		onFinish?.()
 	}
 
@@ -575,7 +571,7 @@
 	async function loadWorkspaces() {
 		if (!$usersWorkspaceStore) {
 			try {
-				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+				await refreshWorkspaceList()
 			} catch {}
 		}
 		if (!$usersWorkspaceStore) {
@@ -587,20 +583,10 @@
 
 	let automateUsernameCreation = $state(true)
 	async function getAutomateUsernameCreationSetting() {
-		automateUsernameCreation =
-			((await SettingService.getGlobal({ key: 'automate_username_creation' })) as any) ?? true
-
-		if (!automateUsernameCreation) {
-			UserService.globalWhoami().then((x) => {
-				let uname = ''
-				if (x.name) {
-					uname = x.name.split(' ')[0]
-				} else {
-					uname = x.email.split('@')[0]
-				}
-				uname = uname.replace(/\./gi, '')
-				username = uname.toLowerCase()
-			})
+		const policy = await loadUsernamePolicy()
+		automateUsernameCreation = policy.automate
+		if (policy.suggested) {
+			username = policy.suggested
 		}
 	}
 	getAutomateUsernameCreationSetting()

@@ -734,11 +734,17 @@ fn format_pull_query(peek: String) -> String {
     r
 }
 
+// The `CASE` is `suspend <= 0 OR suspend_until <= now()` written as one indexable
+// expression, equivalent only under the `suspend_until IS NOT NULL` guard. It must stay in
+// sync with `queue_suspended_v2` (migration 20260826202939): if it no longer matches, the
+// test silently reverts to a heap filter over every suspended row on every worker poll.
 pub fn make_suspended_pull_query(tags: &[String]) -> String {
     format_pull_query(format!(
         "SELECT id
         FROM v2_job_queue
-        WHERE suspend_until IS NOT NULL AND (suspend <= 0 OR suspend_until <= now()) AND tag IN ({})
+        WHERE suspend_until IS NOT NULL
+          AND (CASE WHEN suspend <= 0 THEN '-infinity'::timestamptz ELSE suspend_until END) <= now()
+          AND tag IN ({})
         ORDER BY priority DESC NULLS LAST, created_at
         FOR UPDATE SKIP LOCKED
         LIMIT 1",

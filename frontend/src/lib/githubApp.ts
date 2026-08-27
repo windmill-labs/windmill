@@ -10,7 +10,12 @@ export interface GitHubAppState {
 	loadingGithubInstallations: boolean
 	githubInstallations: GetGlobalConnectedRepositoriesResponse
 	workspaceGithubInstallations: GetGlobalConnectedRepositoriesResponse
-	selectedGHAppAccountId: string | undefined
+	/**
+	 * Installations are keyed by `installation_id`, never by `account_id`: an org
+	 * can be installed more than once (re-installed, or added from another
+	 * workspace), and matching on the org name resolves to the wrong one.
+	 */
+	selectedGHAppInstallationId: number | undefined
 	selectedGHAppRepository: string | undefined
 	githubInstallationUrl: string | undefined
 	installationCheckInterval: number | undefined
@@ -23,11 +28,6 @@ export interface GitHubAppState {
 	 * github.com-pointed installs.
 	 */
 	isGhesSelfManaged: boolean
-}
-
-export interface GitHubRepository {
-	name: string
-	url: string
 }
 
 export interface GitHubAppError extends Error {
@@ -101,7 +101,7 @@ export function createGitHubAppState(): GitHubAppState {
 		loadingGithubInstallations: false,
 		githubInstallations: [],
 		workspaceGithubInstallations: [],
-		selectedGHAppAccountId: undefined,
+		selectedGHAppInstallationId: undefined,
 		selectedGHAppRepository: undefined,
 		githubInstallationUrl: undefined,
 		installationCheckInterval: undefined,
@@ -239,18 +239,6 @@ export function stopInstallationCheck(state: GitHubAppState): void {
 		state.installationCheckInterval = undefined
 	}
 	state.isCheckingInstallation = false
-}
-
-/**
- * Gets repositories for a specific GitHub account
- */
-export function getRepositories(state: GitHubAppState, accountId: string): GitHubRepository[] {
-	if (!accountId) return []
-
-	return (
-		state.githubInstallations.find((installation) => installation.account_id === accountId)
-			?.repositories || []
-	)
 }
 
 /**
