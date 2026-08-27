@@ -27991,9 +27991,9 @@ components:
         args:
           $ref: "#/components/schemas/ScriptArgs"
         result:
-	   description: |
-	     For large results, this may be the placeholder string 'WINDMILL_TOO_BIG'.
-	     Use the completed job result endpoint to retrieve the full result.
+          description: |
+            For large results, this may be the placeholder string 'WINDMILL_TOO_BIG'.
+            Use the completed job result endpoint to retrieve the full result.
         logs:
           type: string
         deleted:
