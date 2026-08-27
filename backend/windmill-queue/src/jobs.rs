@@ -4732,6 +4732,12 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
     }
 }
 
+/// Whether the tag's queue name is computed from the job's arguments, so that a caller holding
+/// arguments it could not build knows the tag cannot be built either.
+pub fn tag_reads_args(tag: &str) -> bool {
+    RE_ARG_TAG.is_match(tag)
+}
+
 /// The error for a tag that is nothing but placeholders with no value, or `None` otherwise.
 ///
 /// Such a tag has nothing of its own to name a queue with: it interpolates to `""`, or — for a

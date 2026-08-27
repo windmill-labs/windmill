@@ -70,9 +70,9 @@ use windmill_queue::schedule::get_schedule_opt;
 use windmill_queue::{
     add_completed_job, add_completed_job_error, append_logs, get_mini_pulled_job,
     insert_concurrency_key_capped, interpolate_args,
-    report_error_to_workspace_handler_or_critical_side_channel, try_schedule_next_job,
-    unresolved_tag_error, CanceledBy, FlowRunners, MiniCompletedJob, MiniPulledJob, PushArgs,
-    PushIsolationLevel, SameWorkerPayload, WrappedError,
+    report_error_to_workspace_handler_or_critical_side_channel, tag_reads_args,
+    try_schedule_next_job, unresolved_tag_error, CanceledBy, FlowRunners, MiniCompletedJob,
+    MiniPulledJob, PushArgs, PushIsolationLevel, SameWorkerPayload, WrappedError,
 };
 
 use windmill_audit::audit_oss::audit_log;
@@ -4434,13 +4434,20 @@ async fn push_next_flow_job(
             .as_deref()
             .filter(|_| err.is_none() && step_is_pulled_by_tag)
             .and_then(|t| unresolved_tag_error(t, &push_args));
-        let err = err.or(unresolved_tag.as_ref());
 
         // The step is failed before it runs, so it only has to reach a worker to be marked
-        // failed — but the tag it would go out on is the one that just failed to resolve, and no
-        // worker serves it. The flow's own tag is provably served: a worker is running the flow
-        // on it right now.
-        let tag = if unresolved_tag.is_some() {
+        // failed — but there are two ways the tag it would go out on names a queue nobody
+        // serves. It resolved to nothing, or it is built from arguments that failed to
+        // evaluate: `push_args` is empty in that case, so every `$args[...]` in it interpolates
+        // to nothing whatever the arguments were meant to be. The flow's own tag is provably
+        // served: a worker is running the flow on it right now.
+        let reroute_to_flow_tag = unresolved_tag.is_some()
+            || (err.is_some()
+                && step_is_pulled_by_tag
+                && tag.as_deref().is_some_and(tag_reads_args));
+        let err = err.or(unresolved_tag.as_ref());
+
+        let tag = if reroute_to_flow_tag {
             Some(flow_job.tag.clone())
         } else {
             tag
