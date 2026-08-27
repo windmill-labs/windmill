@@ -398,19 +398,16 @@
 					key,
 					filterSchema,
 					onClick: () => {
-						// A default-false boolean has only one useful value (true), so set it straight
-						// away instead of opening a true/false picker. A default-true boolean still
-						// tags-in and shows the picker, where choosing false is the meaningful action.
-						if (filterSchema.type === 'boolean' && filterSchema.default !== true) {
-							value[key] = true
-							asText.reparse()
-							return
-						}
-						// Replace the text segment with the new filter tag
+						// Replace the text segment with the new filter tag. A default-false boolean has
+						// only one useful value (true), so drop it in already set to true instead of
+						// opening a true/false picker; a default-true boolean tags in empty and shows
+						// the picker, where choosing false is the meaningful action. Either way the
+						// typed segment is removed, so no free-text (_default_) term lingers.
+						const boolShortcut = schema[key].type === 'boolean' && schema[key].default !== true
 						const before = asText.val.slice(0, currentTextSegment.start)
 						const after = asText.val.slice(currentTextSegment.end)
 						asText.val =
-							`${before}${before && !before.endsWith(' ') ? ' ' : ''}${key}:\\\u00A0${after}`.trim() +
+							`${before}${before && !before.endsWith(' ') ? ' ' : ''}${key}:\\\u00A0${boolShortcut ? 'true' : ''}${after}`.trim() +
 							'\u00A0'
 					}
 				}))
@@ -477,7 +474,7 @@
 				return _presets
 					.filter((p) => p.value.startsWith(prefix) && !asText.val.includes(p.value))
 					.map((p) => {
-						const raw = p.value.slice(prefix.length).replace(/\\ /g, ' ')
+						const raw = p.value.slice(prefix.length).replace(/^\\ /, '').replace(/\\ /g, ' ')
 						return { name: p.name, raw }
 					})
 					.filter((p) => !suffix || p.raw.toLowerCase().includes(suffix))

@@ -63,8 +63,8 @@
 
 	let { subtab = $bindable('script'), showEditButtons = true }: Props = $props()
 
-	// Which user-folder scoping toggle (if any) this role gets. Moved above the
-	// FilterSearchbar schema, which references it, and the derived filters below.
+	// Which user-folder scoping toggle (if any) this role gets. Declared before the
+	// FilterSearchbar schema and the derived filters that both read it.
 	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
 		$userStore?.non_member
 			? 'only f/*'
@@ -74,10 +74,10 @@
 	)
 
 	// FilterSearchbar schema — `_default_` is the free-text search; the rest mirror the
-	// boolean/kind list filters. Owner and label scoping stay on the server-side chips
-	// below (ListFilters / label badges) so the merged endpoint can scope by them
-	// (pathStart) rather than filtering client-side. `content` is a distinct mode: it swaps
-	// the list for the full-text content-match view (EE indexer) below.
+	// boolean/kind list filters. Owner and label scoping are offered as searchbar presets
+	// (searchPresets) and resolve server-side (path_start / label) rather than filtering
+	// client-side. `content` is a distinct mode: it swaps the list for the full-text
+	// content-match view (EE indexer) below.
 	let searchFilterSchema = $derived({
 		_default_: { type: 'string' as const, hidden: true },
 		content: {
@@ -1130,10 +1130,12 @@
 	// FilterSearchbar presets: the owner prefixes and labels the list actually holds, so
 	// scoping to one is a click in the searchbar dropdown instead of a wall of on-page chips.
 	// Owner sets the `owner` filter (server path-scope), label sets `label` (client filter).
-	// Spaces are escaped to match the searchbar's tagged `key:value` syntax.
+	// The `:\ ` separator and escaped spaces match the canonical `key:\ value` form parseToText
+	// emits, so the "already applied" check finds them after a reparse and won't re-offer a
+	// duplicate.
 	let searchPresets = $derived([
-		...owners.map((o) => ({ name: o, value: `owner:${o.replace(/ /g, '\\ ')}` })),
-		...allLabels.map((l) => ({ name: l, value: `label:${l.replace(/ /g, '\\ ')}` }))
+		...owners.map((o) => ({ name: o, value: `owner:\\ ${o.replace(/ /g, '\\ ')}` })),
+		...allLabels.map((l) => ({ name: l, value: `label:\\ ${l.replace(/ /g, '\\ ')}` }))
 	])
 	let prevWorkspace: string | undefined = undefined
 	// An owner/label from one workspace means nothing in another, so drop them when the
@@ -1619,10 +1621,8 @@
 					<Button
 						startIcon={{ icon: CheckSquare }}
 						iconOnly
-						size="xs"
-						color="light"
+						unifiedSize="xs"
 						variant="default"
-						spacingSize="xs2"
 						title="Select items — move, archive, delete or discard several at once"
 						on:click={() => homeSelection.enter()}
 					/>
@@ -1655,10 +1655,8 @@
 							nonCaptureEvent
 							disabled={filter !== ''}
 							iconOnly={short === ''}
-							size="xs"
-							color="light"
+							unifiedSize="xs"
 							variant="default"
-							spacingSize="xs2"
 							startIcon={{ icon: ArrowDownUp }}
 							title={filter !== ''
 								? 'Sorting is disabled while searching (results are ranked by relevance)'

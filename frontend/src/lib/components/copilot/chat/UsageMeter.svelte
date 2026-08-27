@@ -2,8 +2,8 @@
 	import type { Snippet } from 'svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
-	// Presentational gauge shared by the context-usage and free-tier indicators: a thin
-	// bar in a tooltip. The owner computes the fill and supplies the tooltip content.
+	// Presentational gauge used by the context-usage indicator: a thin bar in a tooltip.
+	// The owner computes the fill and supplies the tooltip content.
 	let {
 		fillPct,
 		fillClass,
