@@ -648,9 +648,43 @@ describe('escapeTemplateBackticks', () => {
 		}
 	})
 
+	it('does not trust a walk that desynchronizes but lands on an empty stack', () => {
+		// A `{` inside a regex is counted as an expression brace and a later literal `}` pops it,
+		// so the stack balances while the walk has lost track of what is literal text. The output
+		// still has to parse, which is what the validation catches.
+		const v = '{"match": ${/{/.test(flow_input.x)}, "literal": "`x`"}'
+		expect(() => new Function('return `' + escapeTemplateBackticks(v) + '`')).not.toThrow()
+	})
+
 	it('round-trips through unescapeTemplateBackticks', () => {
-		for (const v of [nested, 'a ` b', '${ x["}"] } `', 'plain', '${a}${b}', '\\${a}']) {
+		for (const v of [
+			nested,
+			'a ` b',
+			'${ x["}"] } `',
+			'plain',
+			'${a}${b}',
+			'\\${a}',
+			'${cond ? `a\\`b` : ""}'
+		]) {
 			expect(unescapeTemplateBackticks(escapeTemplateBackticks(v))).toBe(v)
+		}
+	})
+	// The guarantee that matters: opening a flow in the editor and saving it back must not change
+	// the stored expression, even for input the walk cannot read (neither strategy displays those
+	// perfectly — blanket unescaping corrupts an escaped backtick inside a nested template, and
+	// the walk shows the escapes literally — but neither may rewrite what is stored).
+	it('never rewrites the stored expression on a view/save cycle', () => {
+		const inputs = [
+			'{"match": ${/{/.test(flow_input.x)}, "literal": "`x`"}',
+			'${cond ? `a\\`b` : ""}',
+			"${ x.replace(/'/g, '') } `",
+			'a ` b',
+			'${ /* ` */ x } `'
+		]
+		for (const v of inputs) {
+			const stored = escapeTemplateBackticks(v)
+			expect(() => new Function('return `' + stored + '`')).not.toThrow()
+			expect(escapeTemplateBackticks(unescapeTemplateBackticks(stored))).toBe(stored)
 		}
 	})
 })

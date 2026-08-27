@@ -1358,27 +1358,49 @@ function walkTemplateBody(
 	return { out: out.join(''), balanced: stack.length === 0 }
 }
 
+const escapeOuterBacktick = (t: string, i: number) =>
+	t[i] === '`' ? { emit: '\\`', consumed: 1 } : null
+
+const unescapeOuterBacktick = (t: string, i: number) =>
+	t[i] === '\\' && t[i + 1] === '`' ? { emit: '`', consumed: 2 } : null
+
+/** Whether `body` is a valid template-literal body. Parses only; nothing is evaluated. */
+function parsesAsTemplateBody(body: string): boolean {
+	try {
+		// eslint-disable-next-line no-new-func
+		new Function('return `' + body + '`')
+		return true
+	} catch {
+		return false
+	}
+}
+
 /**
  * Escape the backticks of `text` so it can be wrapped in a template literal, leaving `${...}`
  * interpolations alone: there a backslash is a syntax error, and a nested template literal is
  * legitimate (`${cond ? `--flag ${x}` : ''}`).
+ *
+ * The walk is only a heuristic — it has no notion of regex literals or comments, and a `{` inside
+ * one can leave it desynchronized yet ending on an empty stack. So its result is used only when it
+ * parses and inverts; anything else falls back to escaping every backtick, which is what this did
+ * before nested template literals were supported and is never worse than that.
  */
 export function escapeTemplateBackticks(text: string): string {
-	const { out, balanced } = walkTemplateBody(text, (t, i) =>
-		t[i] === '`' ? { emit: '\\`', consumed: 1 } : null
-	)
-	// The walk knows nothing of regex literals or comments, so an odd quote inside an
-	// interpolation desynchronizes it. Escaping everything is what this did before nested
-	// template literals were supported, so it is the safe answer when the walk got lost.
-	return balanced ? out : text.replaceAll('`', '\\`')
+	const { out, balanced } = walkTemplateBody(text, escapeOuterBacktick)
+	const trustworthy =
+		balanced &&
+		parsesAsTemplateBody(out) &&
+		walkTemplateBody(out, unescapeOuterBacktick).out === text
+	return trustworthy ? out : text.replaceAll('`', '\\`')
 }
 
 /** Inverse of {@link escapeTemplateBackticks}, for turning an expression back into a template. */
 export function unescapeTemplateBackticks(text: string): string {
-	const { out, balanced } = walkTemplateBody(text, (t, i) =>
-		t[i] === '\\' && t[i + 1] === '`' ? { emit: '`', consumed: 2 } : null
-	)
-	return balanced ? out : text.replaceAll('\\`', '`')
+	const { out, balanced } = walkTemplateBody(text, unescapeOuterBacktick)
+	// Same heuristic, so the same guard: keep the walk only when re-escaping reproduces the
+	// input, or the pair would not round-trip through the editor.
+	const trustworthy = balanced && walkTemplateBody(out, escapeOuterBacktick).out === text
+	return trustworthy ? out : text.replaceAll('\\`', '`')
 }
 
 const dynamicTemplateRegex = new RegExp(/\$\{(.*)\}/)
