@@ -10,7 +10,9 @@
 //! management, and the workspace-merge diff helper. Split out of `workspaces.rs`
 //! to keep that file focused on core workspace configuration.
 
-use crate::workspaces::{pg_dump_database, ItemComparison, PgDumpOptions};
+use crate::workspaces::{
+    pg_dump_database, strip_unreplayable_dump_lines, ItemComparison, PgDumpOptions,
+};
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -1408,26 +1410,24 @@ async fn generate_initial_datatable_migration(
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
 
-    // Snapshot the schema, excluding Windmill's own migration bookkeeping table.
+    // Snapshot the schema without `_wm_migrations`, Windmill's own bookkeeping table. The
+    // snapshot is replayed on other databases through whatever user those connect as,
+    // which owns none of this one's objects: ownership and grant statements can only fail
+    // there — `ALTER DEFAULT PRIVILEGES FOR ROLE ...` even on a same-server replay.
     let dump_file = pg_dump_database(
         &pg_db,
         PgDumpOptions {
             schema_only: true,
             exclude_tables: &["_wm_migrations"],
-            ..Default::default()
+            no_owner: true,
+            no_acl: true,
         },
     )
     .await?;
     let raw_dump = tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read schema dump: {}", e)))?;
-    // pg_dump emits psql meta-commands (\restrict / \unrestrict) that aren't
-    // valid SQL; drop them so the migration body can run via a plain query.
-    let code_up: String = raw_dump
-        .lines()
-        .filter(|line| !line.trim_start().starts_with('\\'))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let code_up = strip_unreplayable_dump_lines(&raw_dump);
 
     // Record the definition first, then mark it installed. If marking fails we
     // delete the definition, so a failure leaves no phantom "initial" (rather

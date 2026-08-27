@@ -2631,6 +2631,19 @@ mod tests {
         END;\n\
         $$;\n";
 
+    #[test]
+    fn replayable_dump_keeps_everything_but_meta_commands_and_session_timeouts() {
+        let replayable = strip_unreplayable_dump_lines(DUMP);
+
+        assert!(!replayable.contains("\\restrict"));
+        assert!(!replayable.contains("SET statement_timeout"));
+        assert!(!replayable.contains("SET transaction_timeout = 0;\nSET client_encoding"));
+        assert!(replayable.contains("SET client_encoding = 'UTF8';"));
+        assert!(replayable.contains("SET default_table_access_method = heap;"));
+        // Past the preamble the dump is an object's own text: left exactly as it is.
+        assert!(replayable.contains("BEGIN\nSET transaction_timeout = 0;\nEND;"));
+    }
+
     #[tokio::test]
     async fn dump_preamble_only_drops_settings_the_server_lacks() {
         let dump_file = DumpFile::new().unwrap();
@@ -2908,16 +2921,46 @@ fn is_dump_preamble_line(line: &[u8]) -> bool {
         || line.starts_with(b"SELECT pg_catalog.set_config(")
 }
 
+/// The GUCs pg_dump's preamble sets only to keep the dumping session out of the way.
+/// They are also the ones that come and go across versions (`transaction_timeout` is
+/// PG 17+), so they are what a dump replayed on an older server trips over first.
+const DUMP_SESSION_TIMEOUTS: [&str; 4] = [
+    "statement_timeout",
+    "lock_timeout",
+    "idle_in_transaction_session_timeout",
+    "transaction_timeout",
+];
+
+/// Turn a dump into SQL that can be replayed on another database: drop pg_dump's psql
+/// meta-commands (`\restrict` / `\unrestrict`, not valid SQL) and the session timeouts
+/// its preamble sets, which the replaying server may not have as GUCs at all. Only the
+/// preamble is filtered, so an object's body keeps whatever it holds.
+pub(crate) fn strip_unreplayable_dump_lines(dump: &str) -> String {
+    let mut in_preamble = true;
+    dump.lines()
+        .filter(|line| {
+            in_preamble = in_preamble && is_dump_preamble_line(line.as_bytes());
+            if line.trim_start().starts_with('\\') {
+                return false;
+            }
+            !(in_preamble
+                && preamble_setting_name(line.as_bytes())
+                    .is_some_and(|name| DUMP_SESSION_TIMEOUTS.contains(&name)))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// The GUC a preamble `SET <name> = ...;` line assigns, if the line is one.
 fn preamble_setting_name(line: &[u8]) -> Option<&str> {
     let name = line.strip_prefix(b"SET ")?.split(|c| *c == b' ').next()?;
     std::str::from_utf8(name).ok()
 }
 
-/// Windmill ships the newest postgres client, whose dump preamble sets GUCs an older
-/// server does not have (`transaction_timeout` is PG 17+) — harmless session tuning,
-/// but one failing statement aborts a restore that stops on the first error. Comment
-/// them out in place, three bytes each, so the data section's offsets stay put.
+/// The preamble Windmill's postgres client writes can set GUCs an older server does not
+/// have — harmless session tuning, but one failing statement aborts a restore that stops
+/// on the first error. Comment those out in place, three bytes each, so the data
+/// section's offsets stay put.
 async fn comment_out_unsupported_settings(
     dump_file: &DumpFile,
     supported_settings: &HashSet<String>,
