@@ -301,6 +301,30 @@ describe('AIChatManager run form', () => {
 		expect(manager.isRunFormPending('call_late')).toBe(false)
 	})
 
+	// The stop lands while the tool is still reading the deployed schema, so the form is
+	// attached after the card was settled. Nothing settles it a second time — the card
+	// stops loading without the form ever rendering — so the schema would otherwise stay
+	// in the transcript with the script's own password default inside it.
+	it('drops the schema from a form attached after the turn was stopped', async () => {
+		const manager = new AIChatManager()
+		manager.abortController = new AbortController()
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'call_x', content: 'Executing...', isLoading: true }
+		]
+		manager.cancel()
+
+		const runForm = {
+			path: 'f/a/b',
+			schema: { properties: { tok: { password: true, default: 'hunter2' } } },
+			args: {}
+		}
+		manager.applyToolStatus('call_x', { content: 'Waiting for you...', runForm, isLoading: true })
+
+		await expect(manager.requestRunArgs('call_x', runForm)).resolves.toBeUndefined()
+		expect(manager.displayMessages[0].runForm?.schema).toBeUndefined()
+		expect(JSON.stringify(manager.displayMessages[0])).not.toContain('hunter2')
+	})
+
 	// Stop ends the turn, not the job: the deployed script is already running with all
 	// its side effects, so the transcript must not record it as cancelled.
 	it('does not mark a started run cancelled when the turn is stopped', () => {
