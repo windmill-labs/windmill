@@ -1809,6 +1809,11 @@ export class AIChatManager {
 		// would park the turn on a form the settled card no longer renders, leaving nothing
 		// able to resolve it. The controller is per-turn, so a later turn still opens.
 		if (this.abortController?.signal.aborted) {
+			// Settle the form the tool attached after the stop. Its card is about to stop
+			// loading without ever having rendered, and settledToolDisplay only reaches a
+			// loading one — so this is the last point the deployed schema, with the
+			// script's own password and file defaults, can be dropped.
+			this.#patchRunForm(toolId, { canceled: true })
 			return Promise.resolve(undefined)
 		}
 		return new Promise((resolve) => {
