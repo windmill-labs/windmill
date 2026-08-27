@@ -11,7 +11,8 @@ import {
 	type Retry
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
-import { cleanExpr, emptySchema, unescapeTemplateBackticks } from '$lib/utils'
+import { cleanExpr, emptySchema } from '$lib/utils'
+import { unescapeTemplateBackticks } from '$lib/utils/templateLiteral'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'

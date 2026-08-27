@@ -29,11 +29,8 @@
 	import type ItemPicker from './ItemPicker.svelte'
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
-	import {
-		setInputCat as computeInputCat,
-		escapeTemplateBackticks,
-		isCodeInjection
-	} from '$lib/utils'
+	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
+	import { escapeTemplateBackticks } from '$lib/utils/templateLiteral'
 	import { FunctionSquare, InfoIcon } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
