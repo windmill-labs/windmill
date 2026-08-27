@@ -94,6 +94,13 @@ describe('escapeTemplateBackticks', () => {
 		}
 	})
 
+	// The old rule was a blind replaceAll, so it left a backslash before every backtick even
+	// where the author had typed one of their own. Reading its output with JS escape semantics
+	// misses that, and the value keeps its extra backslash instead of coming back clean.
+	it('heals a value whose text held a backslash before a backtick', () => {
+		expect(unescapeTemplateBackticks('a\\\\`')).toBe('a\\`')
+	})
+
 	it('round-trips through unescapeTemplateBackticks', () => {
 		for (const v of [
 			nested,

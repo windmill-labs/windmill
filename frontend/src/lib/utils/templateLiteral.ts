@@ -47,11 +47,12 @@ export function unescapeTemplateBackticks(text: string): string {
 	if (escapeTemplateBackticks(unescaped) === text) {
 		return unescaped
 	}
-	// The rule this replaced escaped every backtick, so anything it produced has none left bare.
-	// A text that mixes bare and escaped backticks was authored that way, and its escapes belong
-	// to a nested template: stripping them there changes what the expression means, or stops it
-	// parsing. Removing the escape pairs first is what tells the two apart.
-	const everyBacktickEscaped = !text.replace(/\\./g, '').includes('`')
+	// The rule this replaced escaped every backtick blindly, so anything it produced has a
+	// backslash before every one. A text with a bare backtick was authored that way, and its
+	// escapes belong to a nested template: stripping them there changes what the expression
+	// means, or stops it parsing. The test is textual, not JS escape semantics, because the rule
+	// that produced these was textual too — a backslash the author typed still counts.
+	const everyBacktickEscaped = !/(^|[^\\])`/.test(text)
 	if (everyBacktickEscaped && isCompleteTemplateBody(unescaped)) {
 		return unescaped
 	}
