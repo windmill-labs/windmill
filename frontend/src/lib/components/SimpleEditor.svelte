@@ -64,6 +64,9 @@
 	const CHANGE_TIMEOUT = 200
 
 	let changeTimeoutId: number | undefined = undefined
+	// Monaco fires onDidChangeModelContent synchronously from within `setValue`, so without
+	// this an authoritative overwrite reads as a user edit on the `input` event.
+	let applyingCode = false
 
 	let divEl: HTMLDivElement | null = null
 	let editor = $state<meditor.IStandaloneCodeEditor | null>(null)
@@ -183,7 +186,12 @@
 		if (ncode != code) {
 			code = ncode
 		}
-		editor?.setValue(ncode)
+		applyingCode = true
+		try {
+			editor?.setValue(ncode)
+		} finally {
+			applyingCode = false
+		}
 		// setValue emits a change event of its own; drop the burst it opens so an edit
 		// made right after an authoritative overwrite still counts as a leading change.
 		cancelPendingChanges()
@@ -458,6 +466,12 @@
 				changeTimeoutId = undefined
 				updateCode()
 			}, CHANGE_TIMEOUT)
+			// `change` trails the buffer by CHANGE_TIMEOUT, too late for a consumer that has to
+			// know the moment the buffer stopped being the one it wrote. `input` says only that,
+			// carrying no value: read `getCode()` for what is on screen.
+			if (!applyingCode) {
+				dispatch('input')
+			}
 			if (leading) {
 				updateCode()
 			}

@@ -356,13 +356,10 @@
 			} else {
 				testPanelArgs = {}
 				testPanelSchema = emptySchema()
-				// The schema lands asynchronously, so the bump below would leave the editor
-				// showing `{}`; reseed once inference has filled it in.
-				inferModuleSchema().then(() => {
-					if (activeModuleTab === modulePath) {
-						argsRender++
-					}
-				})
+				// Inference lands after the bump below, so the editor opens on `{}` and the arg
+				// views follow the schema in once it arrives. Remounting them again on arrival
+				// instead would discard anything typed while it was in flight.
+				inferModuleSchema()
 			}
 			argsRender++
 		}
@@ -1691,13 +1688,13 @@
 				const switched = schemaTab !== lastSchemaTab
 				lastSchemaTab = schemaTab
 				if (!code) return
-				// The other tab's schema only lands once inference resolves, so reseed then —
-				// unless the tab moved again while we waited, in which case a later run owns it.
-				inferSchema(code).then(() => {
-					if (switched && lastSchemaTab === schemaTab) {
-						argsRender++
-					}
-				})
+				// Bump on the switch itself, not on the inference it starts: the other tab's schema
+				// only lands once that resolves, and remounting the arg views then would discard
+				// anything typed while it was in flight. An untouched editor follows the schema in.
+				if (switched) {
+					argsRender++
+				}
+				inferSchema(code)
 			})
 	})
 

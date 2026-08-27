@@ -22,16 +22,20 @@
 	}: Props = $props()
 
 	let pendingJson = $state(untrack(() => initialCode))
-	// The last content this component wrote. While the buffer still equals it nobody has typed,
-	// so it is ours to refresh; once they diverge the payload is the user's.
-	let seededCode = $state(untrack(() => initialCode))
+	// The last content this component wrote, kept only to skip a reseed that would replace the
+	// buffer with what it already holds — `setValue` resets the cursor and the undo stack.
+	let seededCode = untrack(() => initialCode)
+	// Latched from Monaco's own change event, never from `pendingJson`: that trails the buffer by
+	// SimpleEditor's debounce, a window in which typed text still looks like the seeded payload
+	// and a reseed lands on top of it.
+	let userEdited = false
 	let simpleEditor: SimpleEditor | undefined = $state(undefined)
 	let focusTrap: HTMLElement | undefined = $state()
 
 	$effect(() => {
 		const next = initialCode
 		untrack(() => {
-			if (next !== seededCode && pendingJson === seededCode) {
+			if (next !== seededCode && !userEdited) {
 				seed(next)
 			}
 		})
@@ -41,6 +45,7 @@
 	// never dispatches `select` — the payload reaches `args` only when the user edits it.
 	function seed(code: string) {
 		seededCode = code
+		userEdited = false
 		pendingJson = code
 		simpleEditor?.setCode(code)
 	}
@@ -86,6 +91,7 @@
 <div class="h-full rounded-md border">
 	<SimpleEditor
 		bind:this={simpleEditor}
+		on:input={() => (userEdited = true)}
 		on:focus={() => {
 			if (updateOnBlur) {
 				dispatch('focus')

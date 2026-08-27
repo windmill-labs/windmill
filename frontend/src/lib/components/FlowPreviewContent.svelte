@@ -266,10 +266,12 @@
 			previewArgs.val = input
 			inputSelected = type
 			preventEscape = true
-			jsonEditor?.setCode(
-				argsToJsonPayload(flowStore.val.schema as Schema | undefined, previewArgs.val)
-			)
 		}
+		// Deselecting restores the args the same way selecting replaced them, so both branches
+		// owe the editor an overwrite — it holds a payload for the input being left behind.
+		jsonEditor?.setCode(
+			argsToJsonPayload(flowStore.val.schema as Schema | undefined, previewArgs.val)
+		)
 	}
 
 	export function refresh() {
