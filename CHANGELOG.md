@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.798.0](https://github.com/windmill-labs/windmill/compare/v1.797.0...v1.798.0) (2026-08-27)
+
+
+### Features
+
+* a wizard for importing a hub project, and finishing what the import cannot ([#10729](https://github.com/windmill-labs/windmill/issues/10729)) ([2913339](https://github.com/windmill-labs/windmill/commit/29133398f99cd2dd5b33057ee9df4492d82e067a))
+
 ## [1.797.0](https://github.com/windmill-labs/windmill/compare/v1.796.0...v1.797.0) (2026-08-26)
 
 
