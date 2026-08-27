@@ -4732,16 +4732,18 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
     }
 }
 
-/// The error for a tag that interpolates to nothing at all, or `None` otherwise.
+/// The error for a tag that is nothing but placeholders with no value, or `None` otherwise.
 ///
-/// Only an empty tag is judged here. It names no queue, so the job is guaranteed to sit
-/// unpulled — nothing else rejects it, so without this it is queued forever with no error. A
-/// tag that merely resolves in part (`worker-`, `gpu`) is left alone: whether the leftover
-/// literal is a real queue depends on which tags workers advertise, which push cannot know, so
+/// Such a tag has nothing of its own to name a queue with: it interpolates to `""`, or — for a
+/// JSON `null` — to the literal `null`, the arg's absence leaking into the queue name rather
+/// than a queue anyone runs. Either way the job can only sit unpulled, and nothing else rejects
+/// it, so without this it is queued forever with no error.
+///
+/// A tag that resolves in part (`worker-`, `gpu`) is left alone: whether the leftover literal is
+/// a real queue depends on which tags workers advertise, which push cannot know, so
 /// `gpu$args[suffix]` with no suffix stays as valid as it has always been.
 ///
-/// A JSON `null` counts as no value, since it is the arg being absent in all but name. The
-/// string `"null"` is a real value, which is why this reads the JSON rather than the
+/// The string `"null"` is a real value, which is why this reads the JSON rather than the
 /// interpolated text.
 pub fn unresolved_tag_error(tag: &str, args: &PushArgs) -> Option<Error> {
     if !RE_ARG_TAG.is_match(tag) {
@@ -4764,8 +4766,9 @@ pub fn unresolved_tag_error(tag: &str, args: &PushArgs) -> Option<Error> {
     }
     if interpolated.is_empty() {
         Some(Error::BadRequest(format!(
-            "Tag `{tag}` resolves to nothing: {} has no value in the job arguments. \
-             An empty tag names no queue, so the job would never be picked up.",
+            "Tag `{tag}` cannot be resolved: {} has no value in the job arguments, leaving the \
+             tag with nothing of its own to name a queue with. The job would sit in the queue \
+             and never be picked up.",
             missing.join(", ")
         )))
     } else {
