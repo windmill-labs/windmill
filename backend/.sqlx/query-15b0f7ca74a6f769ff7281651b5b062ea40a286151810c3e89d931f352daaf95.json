@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO concurrency_locks (id, last_locked_at, owner, owner_addr)\n                    VALUES ($1, now(), $2, $3)\n                    ON CONFLICT (id)\n                    DO UPDATE SET\n                        last_locked_at = now(),\n                        owner = EXCLUDED.owner,\n                        owner_addr = EXCLUDED.owner_addr",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "15b0f7ca74a6f769ff7281651b5b062ea40a286151810c3e89d931f352daaf95"
+}

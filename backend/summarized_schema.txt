@@ -62,7 +62,7 @@ cloud_workspace_settings: workspace_id(char), threshold_alert_amount(int), last_
   FK: (workspace_id) -> workspace(id)
 concurrency_counter: concurrency_id(char), job_uuids(jsonb)
 concurrency_key: key(char), ended_at(ts), job_id(uuid)
-concurrency_locks: id(char), last_locked_at(ts), owner(char)
+concurrency_locks: id(char), last_locked_at(ts), owner(char), owner_addr(char)
 ci_test_reference: workspace_id(char), test_script_path(char), test_script_hash(bigint), tested_item_path(char), tested_item_kind(char)
   FK: (workspace_id) -> workspace(id)
 concurrency_settings: hash(bigint), concurrency_key(char), concurrent_limit(int), concurrency_time_window_s(int)
