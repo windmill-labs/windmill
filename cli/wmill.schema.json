@@ -131,7 +131,7 @@
     },
     "deleteUntrackedSecrets": {
       "type": "boolean",
-      "description": "On push, delete remote variables and resources this repository's history has never tracked. They are kept by default: unlike a script (which push archives) they are deleted irrecoverably, and one that was never in the repo was provisioned outside it rather than deleted from it"
+      "description": "On push, delete remote variables and resources this repository's history has never tracked. They are kept by default: unlike a script, which push archives, a deleted one is only recoverable from the workspace trash for three days, and one that was never in the repo was provisioned outside it rather than deleted from it"
     },
     "nonDottedPaths": {
       "type": "boolean",

@@ -107,6 +107,37 @@ describe("untrackedSecretBearingDeletions", () => {
     ).toEqual([VAR, RES]);
   });
 
+  test("holds back a whole object when one of its files is unaccounted for", () => {
+    // A file resource is two files for one resource, and either survivor reaching
+    // the apply switch deletes the resource — so a half-recorded object is kept
+    // whole rather than reported as kept and deleted anyway.
+    const fileResource = [
+      { name: "deleted", path: "f/test/conf.resource.yaml" },
+      { name: "deleted", path: "f/test/conf.resource.file.ini" },
+    ];
+    expect(
+      untrackedSecretBearingDeletions(fileResource, {
+        kind: "known",
+        paths: new Set(["f/test/conf.resource.yaml"]),
+      }).map((c) => c.path),
+    ).toEqual(fileResource.map((c) => c.path));
+  });
+
+  test("a linked variable and resource at one path stand or fall together", () => {
+    // `DELETE /variables/delete` takes the resource at the same path with it, so
+    // deleting the tracked half would destroy the untracked half regardless.
+    const linked = [
+      { name: "deleted", path: "f/test/pair.variable.yaml" },
+      { name: "deleted", path: "f/test/pair.resource.yaml" },
+    ];
+    expect(
+      untrackedSecretBearingDeletions(linked, {
+        kind: "known",
+        paths: new Set(["f/test/pair.variable.yaml"]),
+      }).map((c) => c.path),
+    ).toEqual(linked.map((c) => c.path));
+  });
+
   test("surfaces everything when the history cannot be consulted", () => {
     // Nothing is proven either way, so every candidate comes back for the caller
     // to warn about (and, on a TTY, ask about).

@@ -129,7 +129,7 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     commented: true, templateValue: "staging" },
   { name: "skipBranchValidation", type: "boolean", default: "false", description: "Skip validation that current git branch matches a configured branch",
     commented: true },
-  { name: "deleteUntrackedSecrets", type: "boolean", default: "false", description: "On push, delete remote variables and resources this repository's history has never tracked. They are kept by default: unlike a script (which push archives) they are deleted irrecoverably, and one that was never in the repo was provisioned outside it rather than deleted from it",
+  { name: "deleteUntrackedSecrets", type: "boolean", default: "false", description: "On push, delete remote variables and resources this repository's history has never tracked. They are kept by default: unlike a script, which push archives, a deleted one is only recoverable from the workspace trash for three days, and one that was never in the repo was provisioned outside it rather than deleted from it",
     commented: true, templateValue: "true" },
   { name: "nonDottedPaths", type: "boolean", default: "true", description: "Use __flow/__app/__raw_app suffixes instead of .flow/.app/.raw_app",
     inlineComment: "recommended for new projects" },
