@@ -189,7 +189,8 @@
 	let variableExpirationItemKind: 'flow' | 'script' = $state('script')
 	let variableExpirationMutedOnUserPath: boolean = $state(false)
 	// Carried through saves rather than edited: `extra_args` is an API/CLI-only escape hatch
-	// for passing fixed arguments to the handler, and omitting it here would erase it.
+	// for passing fixed arguments to the handler, and omitting it on a save that keeps the
+	// handler would erase it. Only a save that clears the handler drops it.
 	let variableExpirationExtraArgs: Record<string, any> | undefined = $state(undefined)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
@@ -923,6 +924,13 @@
 
 	async function editVariableExpirationHandler() {
 		const path = variableExpirationFullPath(variableExpirationItemKind, variableExpirationPath)
+		// Saving with no path clears the whole setting server-side, `extra_args` included, so
+		// the loaded copy has to go too: a handler picked afterwards without reloading the page
+		// would otherwise be persisted with the cleared one's arguments, which this tab does
+		// not display.
+		if (!path) {
+			variableExpirationExtraArgs = undefined
+		}
 		await WorkspaceService.editVariableExpirationHandler({
 			workspace: $workspaceStore!,
 			requestBody: {
