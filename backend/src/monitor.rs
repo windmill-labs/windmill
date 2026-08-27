@@ -1602,7 +1602,10 @@ pub async fn delete_expired_items(db: &DB) -> () {
     }
 
     let expired_login_links_r: std::result::Result<Vec<String>, _> =
-        sqlx::query_scalar("DELETE FROM login_link WHERE expiration <= now() RETURNING token_hash")
+        // Expired rows stay a day so an open still reports "expired" rather than "invalid".
+        sqlx::query_scalar(
+            "DELETE FROM login_link WHERE expiration <= now() - interval '1 day' RETURNING token_hash",
+        )
             .fetch_all(db)
             .await;
 
