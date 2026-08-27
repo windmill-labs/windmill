@@ -4868,6 +4868,27 @@ describe('global AI tools', () => {
 		expect(result).toContain('Ran with arguments: {"name":"Grace"}')
 	})
 
+	// The arguments are already in the call this result answers, and every way the form's
+	// own differ from the proposed ones has its own clause — so an untouched form has
+	// nothing to name, and naming it anyway pays for the copy on every later iteration.
+	it('run_script names the arguments only when the user changed them', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			path: 'f/scripts/greet',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/greet', args: { name: 'Ada' } },
+				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => form.args }
+			)
+		)
+
+		expect(result).not.toContain('Ran with arguments')
+		expect(result).toContain('unedited')
+	})
+
 	it('test_run_step lists nested step ids when a step is not found', async () => {
 		await callGlobalTool('write_flow', {
 			path: 'f/flows/nested-step-error',
