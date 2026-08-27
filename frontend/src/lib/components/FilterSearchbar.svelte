@@ -9,6 +9,11 @@
 				type: 'string' | 'number' | 'boolean'
 				allowMultiple?: boolean
 				format?: 'json'
+				/** Boolean only: the value the filter holds while unset (defaults to false).
+				 *  Selecting a filter whose default is false sets it to true immediately rather
+				 *  than opening a true/false picker whose only useful choice is true. A default-true
+				 *  boolean still opens the picker, since choosing false is the meaningful action. */
+				default?: boolean
 		  }
 		| {
 				type: 'date'
@@ -393,6 +398,14 @@
 					key,
 					filterSchema,
 					onClick: () => {
+						// A default-false boolean has only one useful value (true), so set it straight
+						// away instead of opening a true/false picker. A default-true boolean still
+						// tags-in and shows the picker, where choosing false is the meaningful action.
+						if (filterSchema.type === 'boolean' && filterSchema.default !== true) {
+							value[key] = true
+							asText.reparse()
+							return
+						}
 						// Replace the text segment with the new filter tag
 						const before = asText.val.slice(0, currentTextSegment.start)
 						const after = asText.val.slice(currentTextSegment.end)
@@ -452,6 +465,28 @@
 						onClick: () => setValueForCurrentTag(false)
 					}
 				]
+			} else if (filter.type === 'string' && filter.format !== 'json') {
+				// A plain string filter has no fixed options, but any presets targeting this tag
+				// (`<tag>:<value>`) are exactly its useful values — surface them as suggestions so
+				// picking one is a click, matching the top-level preset row. Unescape the tagged
+				// syntax's `\ ` back to a real space for the stored value.
+				const prefix = `${String(currentTag)}:`
+				const suffix = String(value[currentTag!] ?? '')
+					.trim()
+					.toLowerCase()
+				return _presets
+					.filter((p) => p.value.startsWith(prefix) && !asText.val.includes(p.value))
+					.map((p) => {
+						const raw = p.value.slice(prefix.length).replace(/\\ /g, ' ')
+						return { name: p.name, raw }
+					})
+					.filter((p) => !suffix || p.raw.toLowerCase().includes(suffix))
+					.map((p) => ({
+						type: 'option' as const,
+						option: { value: p.raw, label: p.name },
+						onClick: () => appendOrSetValueForCurrentTag(p.raw),
+						onNegativeClick: undefined
+					}))
 			}
 		}
 		return []
@@ -796,6 +831,20 @@
 				class="border border-border-light rounded min-h-[4rem]"
 			/>
 		</div>
+	{:else if filter.type === 'string'}
+		{#if menuItems.length}
+			<div class="max-h-60 overflow-y-auto">
+				{#each menuItems as item, index}
+					{#if item.type === 'option' && item.option}
+						{@render menuItem({
+							onClick: item.onClick,
+							label: item.option.label || item.option.value,
+							highlighted: index === highlightedIndex
+						})}
+					{/if}
+				{/each}
+			</div>
+		{/if}
 	{/if}
 {/snippet}
 
