@@ -30,6 +30,9 @@ Open-source platform for internal tools, workflows, API integrations, background
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
   `cargo run`; a normal build cannot start one at all.
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Auth surface**: `docs/auth-surface.md` — credential precedence, session/cache invalidation
+  scope, how OAuth login matches `login_type`, and that every superadmin route refuses `$WM_TOKEN`.
+  Read before designing anything that creates users, tokens or sessions.
 - **Product telemetry**: `docs/feature-telemetry.md` — when to instrument a new feature with
   `feature_usage`, and the four-step recipe. An unregistered `(feature, kind)` pair is dropped
   silently, so frontend-only instrumentation records nothing.
@@ -56,8 +59,11 @@ Open-source platform for internal tools, workflows, API integrations, background
 use those, don't spawn your own. `tmux list-panes -t "$(tmux display-message -p -t "$TMUX_PANE"
 '#{window_id}')" -F '#{pane_index} #{pane_current_command}'` shows what is running; read its log
 with `tmux capture-pane`, and see `backend/AGENTS.md` to restart it with different cargo features.
-A second server started in your own shell fights the first one for the port. The commands below
-are for a plain checkout with nothing running.
+A second server started in your own shell fights the first one for the port. In a Herdr
+worktree there is no `runtime.env`: the ports and `DATABASE_URL` are in the system prompt, and
+`herdr pane list` / `herdr pane read <pane-id> --source visible --lines 50` replace the tmux
+commands (the `backend` pane's log shows which `_ee.rs` modules are compiled in). The commands
+below are for a plain checkout with nothing running.
 
 - **Backend**: `cargo run` from `backend/` (API at http://localhost:8000)
 - **Frontend**: `REMOTE=http://localhost:8000 npm run dev` from `frontend/` (port 3000+)
