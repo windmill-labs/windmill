@@ -4403,26 +4403,22 @@ async fn push_next_flow_job(
             payload_tag.tag.as_deref(),
         );
 
-        // A step whose input transforms failed is already going to fail, but it still has to
-        // reach a worker to be marked failed, and the tag it would go out on is built from
-        // arguments that do not exist: `push_args` is empty on that path, so every `$args[...]`
-        // in it interpolates to nothing whatever the arguments were meant to be. Left alone it
-        // sits in the queue and the real error is never reported. The flow's own tag is provably
-        // served: a worker is running the flow on it right now.
+        // `push_args` is empty once the input transforms failed, so a tag reading `$args[...]`
+        // interpolates to a queue nobody serves and the step sits there instead of reporting
+        // the error. Send it to the flow's tag, which a worker is provably serving right now.
         //
-        // Two kinds of step never reach a worker through their tag anyway, so rewriting theirs
-        // would be noise: one handed straight to this worker (fetched by id, with no tag
-        // predicate), and one on a dedicated runnable (whose tag `push` replaces).
+        // A step handed over by id, or one whose tag `push` replaces, never reaches a worker
+        // through its tag, so rewriting theirs would be noise.
         let step_is_pulled_by_tag = !continue_on_same_worker
             && !continue_with_runners
             && !payload_tag.payload.is_dedicated_worker();
-        let tag =
-            if err.is_some() && step_is_pulled_by_tag && tag.as_deref().is_some_and(tag_reads_args)
-            {
-                Some(flow_job.tag.clone())
-            } else {
-                tag
-            };
+        let reroute_to_flow_tag =
+            err.is_some() && step_is_pulled_by_tag && tag.as_deref().is_some_and(tag_reads_args);
+        let tag = if reroute_to_flow_tag {
+            Some(flow_job.tag.clone())
+        } else {
+            tag
+        };
 
         let (email, permissioned_as) = if let Some(on_behalf_of) = payload_tag.on_behalf_of.as_ref()
         {

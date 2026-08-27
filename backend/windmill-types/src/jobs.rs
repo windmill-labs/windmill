@@ -633,9 +633,13 @@ pub enum JobPayload {
 }
 
 impl JobPayload {
-    /// Whether `push` will replace whatever tag it is handed with the dedicated-worker tag for
-    /// this runnable. Callers that reason about the tag before pushing have to know: on a
-    /// dedicated runnable the tag they pass never reaches the queue.
+    /// Whether the payload itself declares a dedicated worker, in which case `push` replaces
+    /// whatever tag it is handed and the caller's tag never reaches the queue.
+    ///
+    /// This reads what the payload carries, not what `push` will conclude: a `SingleStepFlow`
+    /// loads the flag from the script row at push time and reports `false` here. That only
+    /// matters to a caller reasoning about the tag, and for those the answer is the same either
+    /// way, since `push` replaces the tag in exactly the case this misses.
     pub fn is_dedicated_worker(&self) -> bool {
         let dedicated_worker = match self {
             JobPayload::ScriptHash { dedicated_worker, .. }
