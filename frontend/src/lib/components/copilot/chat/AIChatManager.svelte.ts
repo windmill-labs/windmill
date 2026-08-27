@@ -813,19 +813,23 @@ export class AIChatManager {
 	// turn-end save.
 	#maskPersistQueue: Promise<void> = Promise.resolve()
 	#persistModifiedItems(): Promise<void> {
-		this.#maskPersistQueue = this.#maskPersistQueue.then(() =>
-			this.historyManager
-				.saveChat(
-					this.#interruptedSnapshot(),
-					this.messages,
-					this.contextUsage,
-					this.modifiedItems ? [...this.modifiedItems] : undefined
-				)
-				// Swallow (and log) a failed write so it can't wedge the queue as a
-				// rejected link — the next persist snapshots the full current set, so
-				// a lost write self-heals on the next mutation or turn-end save.
-				.catch((e) => console.error('Failed to persist modified-items mask', e))
-		)
+		this.#maskPersistQueue = this.#maskPersistQueue.then(() => {
+			const { display, jobs } = this.#interruptedSnapshot()
+			return (
+				this.historyManager
+					.saveChat(
+						display,
+						this.messages,
+						this.contextUsage,
+						this.modifiedItems ? [...this.modifiedItems] : undefined,
+						jobs
+					)
+					// Swallow (and log) a failed write so it can't wedge the queue as a
+					// rejected link — the next persist snapshots the full current set, so
+					// a lost write self-heals on the next mutation or turn-end save.
+					.catch((e) => console.error('Failed to persist modified-items mask', e))
+			)
+		})
 		return this.#maskPersistQueue
 	}
 
@@ -1137,17 +1141,12 @@ export class AIChatManager {
 	// (saveChat keeps the prior mask when it is undefined).
 	#jobPersistQueue: Promise<void> = Promise.resolve()
 	#persistBackgroundJobs(): Promise<void> {
-		this.#jobPersistQueue = this.#jobPersistQueue.then(() =>
-			this.historyManager
-				.saveChat(
-					this.#interruptedSnapshot(),
-					this.messages,
-					this.contextUsage,
-					undefined,
-					$state.snapshot(this.backgroundJobs)
-				)
+		this.#jobPersistQueue = this.#jobPersistQueue.then(() => {
+			const { display, jobs } = this.#interruptedSnapshot()
+			return this.historyManager
+				.saveChat(display, this.messages, this.contextUsage, undefined, jobs)
 				.catch((e) => console.error('Failed to persist background jobs', e))
-		)
+		})
 		return this.#jobPersistQueue
 	}
 
@@ -3385,7 +3384,7 @@ export class AIChatManager {
 			)
 			if (messages.length === this.messages.length) return
 			checkpointedShape = shape
-			const display = this.#interruptedSnapshot()
+			const { display, jobs } = this.#interruptedSnapshot()
 			// onMessageEnd is what gives streamed text its bubble, and it clears
 			// currentReply doing so — text still there has none, and without one the
 			// reply returns as context the reader cannot see.
@@ -3405,7 +3404,8 @@ export class AIChatManager {
 					// partial turn — enough to skip the compaction its next send needs.
 					// Omitting drops the field, which is the "readers estimate" fallback.
 					undefined,
-					this.modifiedItems ? [...this.modifiedItems] : undefined
+					this.modifiedItems ? [...this.modifiedItems] : undefined,
+					jobs
 				)
 			} catch (e) {
 				console.error('Failed to checkpoint chat mid-turn', e)
@@ -4668,18 +4668,25 @@ export class AIChatManager {
 	 * "Interrupted" error, and the patch a completed job merges in carries no error to
 	 * clear it with. Which cards those are is loadPastChat's question, so ask it the same
 	 * way — a job still running inline is detached by the restore and polled like any
-	 * other. */
-	#interruptedSnapshot = (): DisplayMessage[] => {
+	 * other.
+	 *
+	 * That exemption is a bet on the poller, and the poller only knows the jobs stored
+	 * in the same record — registering one does not write it. So the jobs come back
+	 * with the transcript that depends on them, and both go into the same saveChat. */
+	#interruptedSnapshot = (): { display: DisplayMessage[]; jobs: ChatJob[] } => {
 		const polled = new Set(
 			this.backgroundJobs
 				.filter((j) => j.detached || this.isJobNonTerminal(j.status))
 				.map((j) => j.toolCallId)
 		)
-		return this.settledToolDisplay(
-			this.displayMessages,
-			'Interrupted',
-			(message) => !polled.has(message.tool_call_id)
-		)
+		return {
+			display: this.settledToolDisplay(
+				this.displayMessages,
+				'Interrupted',
+				(message) => !polled.has(message.tool_call_id)
+			),
+			jobs: $state.snapshot(this.backgroundJobs) as ChatJob[]
+		}
 	}
 }
 
