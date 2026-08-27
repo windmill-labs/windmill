@@ -401,12 +401,9 @@
 						const before = asText.val.slice(0, currentTextSegment.start)
 						const after = asText.val.slice(currentTextSegment.end)
 						if (schema[key].type === 'boolean' && schema[key].default !== true) {
-							// A default-false boolean has only one useful value (true), so set it straight
-							// away instead of opening a true/false picker. Remove the typed search segment
-							// (so it doesn't linger as a free-text term), set the value, and reparse so the
-							// text is rebuilt canonically \u2014 this avoids the baked value merging into a
-							// following tag.
-							asText.val = `${before}${after}`
+							// Set the only useful value and reparse to canonical text. The space is
+							// required: dropping the segment must not fuse the tags that flanked it.
+							asText.val = `${before} ${after}`
 							value[key] = true as any
 							asText.reparse()
 							return
