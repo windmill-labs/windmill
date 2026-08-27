@@ -1,8 +1,10 @@
 /**
- * Preparing a caller's arguments for a run form, and for the readers of one. The filters
- * split by what a mistake costs: conforming must not drop what the user meant to send, so
- * it stays exact and shallow, while stripping and redacting only blank a field, so they go
- * to any depth and err towards visiting too much.
+ * A job's arguments as something other than the job sees them: prepared for a run form,
+ * for the readers of one, and — at the bottom of the file — for a result view.
+ *
+ * The form filters split by what a mistake costs: conforming must not drop what the user
+ * meant to send, so it stays exact and shallow, while stripping and redacting only blank
+ * a field, so they go to any depth and err towards visiting too much.
  */
 import { deepEqual } from 'fast-equals'
 
@@ -208,7 +210,8 @@ function mapArgLeaves(
 
 /**
  * Drop every password-typed argument, so a caller cannot propose a secret on the user's
- * behalf: password fields open empty and the user fills them in. Appends the path of
+ * behalf: the field falls back to whatever the script itself declares, as on any other
+ * run form, and the user fills in the rest. Appends the path of
  * each one removed, so the caller can be told the field was emptied rather than left to
  * read the absence as the user having deleted it.
  */
