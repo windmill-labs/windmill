@@ -26,7 +26,7 @@
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { aiUserDisabled, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { base } from '$lib/base'
 	import AIChatModelSettings from '../copilot/chat/AIChatModelSettings.svelte'
@@ -206,18 +206,26 @@
 				class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/70 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
 			>
 				<p class="text-sm text-secondary">
-					{freeTierExhausted
-						? 'You have used all of your free Windmill AI tokens'
-						: 'No AI provider is configured'}
+					{#if $aiUserDisabled}
+						Windmill AI is disabled in your account settings
+					{:else if freeTierExhausted}
+						You have used all of your free Windmill AI tokens
+					{:else}
+						No AI provider is configured
+					{/if}
 				</p>
-				<Button
-					unifiedSize="sm"
-					variant="accent"
-					startIcon={{ icon: freeTierExhausted ? KeyRound : Settings }}
-					href="{base}/workspace_settings?tab=ai"
-				>
-					{freeTierExhausted ? 'Add your own API key' : 'Configure AI'}
-				</Button>
+				<!-- No workspace-config button when the user disabled AI in their account: the fix is
+				     in account settings (a modal, no route), and "Configure AI" would be misleading. -->
+				{#if !$aiUserDisabled}
+					<Button
+						unifiedSize="sm"
+						variant="accent"
+						startIcon={{ icon: freeTierExhausted ? KeyRound : Settings }}
+						href="{base}/workspace_settings?tab=ai"
+					>
+						{freeTierExhausted ? 'Add your own API key' : 'Configure AI'}
+					</Button>
+				{/if}
 			</div>
 		{/if}
 	</div>
