@@ -62,13 +62,18 @@ describe('escapeTemplateBackticks', () => {
 		expect(evaluated).toContain('` + flow_input.y + `')
 	})
 
-	// A value stored before nested templates were handled carries `\\`` in expression position.
-	// It has to come back clean, or the editor shows the backslashes and each save adds one more.
-	it('heals an expression corrupted before nested templates were handled', () => {
+	// Expressions stored by the old blanket rule have to come back as the author typed them,
+	// whether that escaping left them valid or not — otherwise the editor shows backslashes
+	// nobody typed, and each save escapes them again one deeper.
+	it('shows an expression escaped by the old rule as it was authored', () => {
 		const corrupted = '-p ${a}${b ? \\` --x ${c}\\` : ""}'
 		const clean = '-p ${a}${b ? ` --x ${c}` : ""}'
 		expect(unescapeTemplateBackticks(corrupted)).toBe(clean)
 		expect(escapeTemplateBackticks(clean)).toBe(clean)
+
+		// This one stayed valid under the old rule, so it was never corrupted, only over-escaped.
+		expect(unescapeTemplateBackticks('${"\\`"}')).toBe('${"`"}')
+		expect(escapeTemplateBackticks('${"`"}')).toBe('${"`"}')
 	})
 
 	// ...but a backtick escaped inside a nested template belongs there and must survive.
