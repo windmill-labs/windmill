@@ -2,7 +2,7 @@
 	import { createBubbler, preventDefault } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { IndexSearchService, ServiceLogsService } from '$lib/gen'
+	import { IndexSearchService, ServiceLogsService, type LogSearchHit } from '$lib/gen'
 
 	import TimeframeSelect, {
 		serviceLogsTimeframes,
@@ -294,21 +294,21 @@
 		}
 	}
 
-	// Search hits are the raw indexed text, which is JSON for every log file the
-	// indexer has taken in. Prettify the whole stored line rather than the
-	// snippet: only a complete object parses, and the prettified line no longer
-	// shares byte offsets with the JSON, so the highlight ranges cannot come with
-	// it.
-	function renderHit(hit: any): { content: string; highlighted: any[] } {
-		const raw = hit.document?.logs?.[0]
-		if (!hit.document?.json_fmt?.[0]) {
-			return {
-				content: hit.snippet_fragment || raw,
-				highlighted: hit.snippet_highlighted ?? []
-			}
-		}
-		const pretty = processLogWithJsonFmt(raw, true).trimEnd()
-		return { content: pretty || hit.snippet_fragment || raw, highlighted: [] }
+	// A hit is one log line with its fields already separated, so rendering it is
+	// formatting rather than parsing — there is no JSON to prettify and no
+	// snippet to highlight.
+	function renderHit(hit: LogSearchHit): string {
+		const level =
+			hit.level === 'ERROR'
+				? '\x1b[31mERROR\x1b[0m'
+				: hit.level === 'WARN'
+					? '\x1b[33mWARN\x1b[0m'
+					: hit.level === 'INFO'
+						? '\x1b[32mINFO\x1b[0m'
+						: hit.level
+		return [hit.ts, level, hit.message, hit.target ? `target=${hit.target}` : '']
+			.filter(Boolean)
+			.join(' ')
 	}
 
 	let logs: any = $state()
@@ -707,26 +707,18 @@
 					{:else if logs != undefined}
 						<div class="flex flex-col min-w-full w-fit">
 							<!-- Keyed: LogSnippetViewer renders its html once at creation, so an
-										 index-reused instance would keep the previous search's snippet. -->
-							{#each logs.hits as hit (`${hit.document?.file_name?.[0]}:${hit.document?.line_number?.[0]}`)}
-								{@const rendered = renderHit(hit)}
+										 index-reused instance would keep the previous search's line. -->
+							{#each logs.hits ?? [] as hit (`${hit.file_path}:${hit.line_no}`)}
 								<LogSnippetViewer
-									content={rendered.content}
-									highlighted={rendered.highlighted}
-									onClick={() => {
-										let document = hit.document
-										let logLineNumber = document.line_number[0]
-										let logFile = document.file_name[0]
-										let host = document.host[0]
-										let jsonFmt = document.json_fmt[0]
-										seeLogContext(logLineNumber, logFile, host, jsonFmt)
-									}}
+									content={renderHit(hit)}
+									highlighted={[]}
+									onClick={() => seeLogContext(hit.line_no, hit.file_path, hit.host, true)}
 								/>
 							{/each}
-							{#if logs.hits.length === 0}
+							{#if (logs.hits ?? []).length === 0}
 								<div class="text-center py-20 text-bold text-xl text-primary"> No logs </div>
 							{/if}
-							{#if logs.hits.length === 1000}
+							{#if (logs.hits ?? []).length === 1000}
 								<div class="pl-6 py-6 text-sm text-secondary">
 									Older matches were truncated from this search, try refining your filters to get
 									more precise results.
