@@ -391,8 +391,8 @@
 									<Cell head>Path</Cell>
 									<Cell head>Value</Cell>
 									<Cell head>Description</Cell>
-									<Cell head />
-									<Cell head last stickyEnd />
+									<Cell head>Status</Cell>
+									<Cell head last actions>Actions</Cell>
 								</tr>
 							</Head>
 							<tbody class="divide-y">
@@ -546,7 +546,7 @@
 												{/if}
 											</div>
 										</Cell>
-										<Cell last stickyEnd shouldStopPropagation>
+										<Cell last actions shouldStopPropagation>
 											<Dropdown
 												items={() => {
 													let owner = isOwner(path, $userStore, $workspaceStore)

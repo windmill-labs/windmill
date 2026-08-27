@@ -12,6 +12,9 @@
 		selected?: boolean
 		sticky?: boolean
 		stickyEnd?: boolean
+		/** The column holding a row's action buttons. It hugs its content at the table's
+		 *  right edge instead of absorbing the width the other columns leave over. */
+		actions?: boolean
 		wrap?: boolean
 		children?: import('svelte').Snippet
 		[key: string]: any
@@ -26,6 +29,7 @@
 		selected = false,
 		sticky = false,
 		stickyEnd = false,
+		actions = false,
 		wrap = false,
 		children,
 		...rest
@@ -55,6 +59,10 @@
 		last && size === 'xs' ? 'sm:pr-3' : '',
 
 		numeric ? 'text-right' : '',
+		// `w-0` makes the column shrink to its buttons rather than take the leftover width;
+		// `text-right` then places inline content and `ml-auto` a block-level child, which a
+		// button wrapper is.
+		actions ? 'w-0 text-right [&>*]:ml-auto' : '',
 		// Pin an actions column to the right so it stays visible when a wide table
 		// scrolls horizontally. The background must be opaque so cells sliding under it
 		// are occluded — the row's hover tint is translucent and would bleed through.
