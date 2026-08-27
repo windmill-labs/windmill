@@ -1,6 +1,6 @@
 # Auth surface: facts that are easy to get wrong
 
-Verified 2026-08 by reading source. Line numbers drift; the symbols do not.
+Symbols, not line numbers, are cited: they drift less.
 
 - **Credential precedence** (`windmill-api-auth/src/auth.rs` `extract_token`): `Authorization: Bearer`
   → `token` cookie → `?token=` query param. A URL with `?token=` is a credential on every route, but
@@ -18,13 +18,17 @@ Verified 2026-08 by reading source. Line numbers drift; the symbols do not.
   token stored as a secret, never `$WM_TOKEN`. Token scopes cannot narrow superadmin routes.
 - **`login_type`** (`password` table) is a free-form `VARCHAR(50)`. Password login, `set_password`
   and password reset all require `login_type = 'password'`.
-- **OAuth login** (`oauth2_ee.rs` `login_externally`) matches an existing account by lowercased
-  email only and logs in **iff** `require_preexisting_user_for_oauth || login_type == client_name`;
-  otherwise it rejects with "exists but with a different login type". It never rewrites
-  `login_type`. A new account gets `login_type = <client key>`. With the setting on, *every*
-  existing account becomes loggable-into by any provider (the `||` short-circuits).
-- **OAuth email trust**: `LoginUserInfo` has no `email_verified`; only GitHub is filtered to
-  `primary && verified`; a missing email is fabricated from `name` as `<name>@windmill.dev`.
+- **OAuth login** (`oauth2_ee.rs` `login_externally`, decision in `existing_login_decision`)
+  matches an existing account by lowercased email only. Same provider → login; a
+  `pending_oauth` account (see `PENDING_OAUTH_LOGIN_TYPE`) is **claimed** by the first login
+  whose address the provider itself asserted and did not mark unverified — `login_type` becomes
+  the client key and the hash is nulled; otherwise `require_preexisting_user_for_oauth` decides:
+  on, *every* existing account is loggable-into by any provider; off, "exists but with a
+  different login type". A new account gets `login_type = <client key>`.
+- **OAuth email trust**: `LoginUserInfo.email_verified` is read leniently (bool or
+  "true"/"false" strings) and is only consulted for the claim above; only GitHub is filtered to
+  `primary && verified`; a missing email is fabricated from `name` as `<name>@windmill.dev` and
+  reaches `login_externally` with `email_asserted = false`.
 - **`GET /api/oauth/login/{client}`** is an unauthenticated 302 to the provider — a plain link
   from any page starts SSO.
 - **`CLOUD_HOSTED`** is presence-tested (`windmill-common/src/worker.rs`): `CLOUD_HOSTED=false`
