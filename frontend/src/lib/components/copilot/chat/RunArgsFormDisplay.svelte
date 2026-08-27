@@ -4,7 +4,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { processSecretArgs } from '$lib/components/secretArgUtils'
-	import { conformArgsToSchema } from '$lib/components/job_args'
+	import { enforceDisabledDefaults } from '$lib/components/job_args'
 	import { sendUserToast } from '$lib/utils'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { PLAN_MODE_MESSAGES } from './planModeMessages'
@@ -68,22 +68,19 @@
 			return
 		}
 		submitting = true
-		// Last gate before the job: what the card showed is what runs, conformed the same
-		// way the prefill was. Named for the same reason the prefill names what it drops —
-		// silently here, it is the user's own typing that disappears between Run and the job.
-		const conformed = conformArgsToSchema(args ?? {}, schema)
-		const removed = [...conformed.dropped.undeclared, ...conformed.dropped.unshowable]
-		if (removed.length > 0) {
-			sendUserToast(`Not sent, this script has no field for: ${removed.join(', ')}`, true)
-		}
-		if (conformed.resetKeys.length > 0) {
+		// Only the disabled fields, and only because `RunForm` does the same before its own
+		// run: what the card showed is otherwise what runs. Re-filtering it here would delete
+		// the user's own typing between Run and the job — a free-form field the form gave a
+		// JSON editor to holds keys no schema names, and they are still theirs.
+		const { args: enforced, resetKeys } = enforceDisabledDefaults(args ?? {}, schema)
+		if (resetKeys.length > 0) {
 			sendUserToast(
-				`Disabled field${conformed.resetKeys.length > 1 ? 's' : ''} ${conformed.resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${conformed.resetKeys.length > 1 ? 's' : ''}`
+				`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys.map((k) => `'${k}'`).join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
 			)
 		}
 		let processed: Record<string, any>
 		try {
-			processed = await processSecretArgs(conformed.args, schema as any, workspace)
+			processed = await processSecretArgs(enforced, schema as any, workspace)
 		} catch (e) {
 			submitting = false
 			sendUserToast('Failed to process sensitive args: ' + e, true)
