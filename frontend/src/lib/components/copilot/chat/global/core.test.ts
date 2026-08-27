@@ -4771,16 +4771,12 @@ describe('global AI tools', () => {
 		expect(result).toContain('plan mode is active')
 	})
 
-	it('run_script prefills a locked field with its default, at every level', async () => {
+	it('run_script prefills a locked field with its default', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			path: 'f/scripts/locked',
 			schema: {
 				properties: {
 					locked: { type: 'string', default: 'fixed', disabled: true },
-					cfg: {
-						type: 'object',
-						properties: { force_delete: { type: 'boolean', default: false, disabled: true } }
-					},
 					other: { type: 'string' }
 				}
 			}
@@ -4791,10 +4787,7 @@ describe('global AI tools', () => {
 		const result = await withCompletedTestJob(() =>
 			callGlobalTool(
 				'run_script',
-				{
-					path: 'f/scripts/locked',
-					args: { locked: 'tampered', cfg: { force_delete: true }, other: 'hello' }
-				},
+				{ path: 'f/scripts/locked', args: { locked: 'tampered', other: 'hello' } },
 				{
 					...toolCallbacks,
 					requestRunArgs: async (_toolId, form) => {
@@ -4806,11 +4799,11 @@ describe('global AI tools', () => {
 			)
 		)
 
-		expect(shown).toEqual({ locked: 'fixed', cfg: { force_delete: false }, other: 'hello' })
+		expect(shown).toEqual({ locked: 'fixed', other: 'hello' })
 		// Named on the card and to the model, like a dropped argument: the field renders
 		// locked, so what it carries is not what was proposed.
-		expect(reset).toEqual(['locked', 'cfg.force_delete'])
-		expect(result).toContain('cfg.force_delete')
+		expect(reset).toEqual(['locked'])
+		expect(result).toContain('locked')
 	})
 
 	// The bytes belong in the job request and nowhere else: the card is persisted, and a

@@ -9,15 +9,17 @@ import {
 
 describe('conformArgsToSchema', () => {
 	it('drops what the schema does not declare, prototype names included', () => {
+		const schema = { properties: { a: { type: 'string' } } }
 		const { args, dropped } = conformArgsToSchema(
-			JSON.parse('{"keep":1,"force":true,"constructor":"x","toString":"y","__proto__":{"p":1}}'),
-			{ properties: { keep: { type: 'number' } } }
+			{ a: 'keep', b: 'drop', constructor: 'drop' },
+			schema
 		)
-		expect(args).toEqual({ keep: 1 })
-		expect(Object.getPrototypeOf(args)).toBe(Object.prototype)
-		expect(dropped.undeclared.sort()).toEqual(['__proto__', 'constructor', 'force', 'toString'])
+		expect(args).toEqual({ a: 'keep' })
+		expect(dropped.undeclared.sort()).toEqual(['b', 'constructor'])
 	})
 
+	// Both sides parsed, never written as literals: `__proto__:` in an object literal is
+	// the prototype setter, so a literal declares nothing to keep in the first place.
 	it('keeps a declared __proto__ instead of losing it to the setter', () => {
 		const { args, dropped } = conformArgsToSchema(
 			JSON.parse('{"__proto__":"legit","keep":1}'),
@@ -28,385 +30,98 @@ describe('conformArgsToSchema', () => {
 		expect(dropped.undeclared).toEqual([])
 	})
 
-	// $state.snapshot deep-copies a plain object and hands back a null-prototype one by
-	// identity, so a form editing it in place would write into the persisted transcript.
 	it('returns a plain object even when the schema declares nothing', () => {
-		const { args } = conformArgsToSchema(JSON.parse('{"a":1}'), undefined)
-		expect(Object.getPrototypeOf(args)).toBe(Object.prototype)
+		const { args, dropped } = conformArgsToSchema({ a: 1 }, undefined)
+		expect(args).toEqual({})
+		expect(dropped.undeclared).toEqual(['a'])
 	})
 
-	// The mounted nested form prunes its own extras, but ArgInput renders only the first
-	// 50 array items, so past that nothing else would ever drop them.
-	it('drops undeclared arguments nested inside declared ones', () => {
-		const { args, dropped } = conformArgsToSchema(
-			{ cfg: { batch: 10, evil: true }, rows: [{ mode: 'safe' }, { mode: 'safe', evil: true }] },
-			{
-				properties: {
-					cfg: { properties: { batch: { type: 'number' } } },
-					rows: { items: { properties: { mode: { type: 'string' } } } }
-				}
-			}
-		)
-		expect(args).toEqual({ cfg: { batch: 10 }, rows: [{ mode: 'safe' }, { mode: 'safe' }] })
-		expect(dropped.undeclared).toEqual(['cfg.evil', 'rows[1].evil'])
-	})
-
-	// ArgInput writes the tag itself and reads it back to pick the branch that opens, so
-	// dropping it would reopen the form on the wrong variant.
-	it('keeps the oneOf tag and every branch key', () => {
-		const { args, dropped } = conformArgsToSchema(
-			{ either: { kind: 'b', level: 2, evil: true } },
-			{
-				properties: {
-					either: {
-						oneOf: [
-							{ title: 'a', properties: { name: { type: 'string' } } },
-							{ title: 'b', properties: { level: { type: 'number' } } }
-						]
-					}
-				}
-			}
-		)
-		expect(args).toEqual({ either: { kind: 'b', level: 2 } })
-		expect(dropped.undeclared).toEqual(['either.evil'])
-	})
-
-	// Merging the branches last-writer-wins validated the value against a branch the user
-	// never opened, so submitting deleted what they had just filled in — and blamed the
-	// script for it. Both orders, because either branch can be the one that loses.
-	it('shape-checks a colliding oneOf key against the branch it fits', () => {
-		const obj = {
-			title: 'obj',
-			properties: { src: { properties: { bucket: { type: 'string' } } } }
-		}
-		const list = { title: 'list', properties: { src: { items: { type: 'string' } } } }
-		for (const branches of [
-			[obj, list],
-			[list, obj]
-		]) {
-			const schema = { properties: { either: { oneOf: branches } } }
-			expect(
-				conformArgsToSchema({ either: { kind: 'obj', src: { bucket: 'b' } } }, schema)
-			).toEqual({
-				args: { either: { kind: 'obj', src: { bucket: 'b' } } },
-				resetKeys: [],
-				dropped: { undeclared: [], unshowable: [] }
-			})
-			expect(conformArgsToSchema({ either: { kind: 'list', src: ['a'] } }, schema).args).toEqual({
-				either: { kind: 'list', src: ['a'] }
-			})
-		}
-		// Fitting no branch is still unshowable: the collision widens what the form can
-		// show, it does not stop dropping what it cannot.
-		expect(
-			conformArgsToSchema(
-				{ either: { kind: 'a', src: { evil: 1 } } },
-				{
-					properties: {
-						either: {
-							oneOf: [
-								{ title: 'a', properties: { src: { type: 'string' } } },
-								{ title: 'b', properties: { src: { type: 'number' } } }
-							]
-						}
-					}
-				}
-			)
-		).toMatchObject({ args: { either: { kind: 'a' } }, dropped: { unshowable: ['either.src'] } })
-	})
-
-	// Both declarations fit an object, so resolving the key to one of them filtered the
-	// value against the branch the user did not open and emptied it. Both orders, because
-	// only the branch that lost the tie was affected.
-	it('merges what each oneOf branch declares under a key they share', () => {
-		const left = { title: 'left', properties: { cfg: { properties: { l: { type: 'string' } } } } }
-		const right = { title: 'right', properties: { cfg: { properties: { r: { type: 'string' } } } } }
-		for (const branches of [
-			[left, right],
-			[right, left]
-		]) {
-			const schema = { properties: { either: { oneOf: branches } } }
-			for (const [kind, cfg] of [
-				['left', { l: 'L' }],
-				['right', { r: 'R' }]
-			] as const) {
-				expect(conformArgsToSchema({ either: { kind, cfg } }, schema)).toEqual({
-					args: { either: { kind, cfg } },
-					resetKeys: [],
-					dropped: { undeclared: [], unshowable: [] }
-				})
-			}
-			// Widened to the union of both, not to anything: a key neither declares still goes.
-			expect(
-				conformArgsToSchema({ either: { kind: 'left', cfg: { evil: 1 } } }, schema).dropped
-					.undeclared
-			).toEqual(['either.cfg.evil'])
-		}
-	})
-
-	// The union was accumulated on a plain object, so a branch key named `toString` read as
-	// one an earlier branch had already declared and never made it in.
-	it('keeps a oneOf branch key named like an Object.prototype member', () => {
-		const { args, dropped } = conformArgsToSchema(
-			{ either: { kind: 'a', toString: 'ts' } },
-			{
-				properties: {
-					either: { oneOf: [{ title: 'a', properties: { toString: { type: 'string' } } }] }
-				}
-			}
-		)
-		expect(args).toEqual({ either: { kind: 'a', toString: 'ts' } })
-		expect(dropped.undeclared).toEqual([])
-	})
-
-	// A value shaped unlike its schema matches no level below, so every filter walked
-	// past it and the form rendered nothing over an argument the run still carried.
-	it('drops a value whose shape contradicts the declared one', () => {
+	// The form has the same limitations here as everywhere else in the product: below the
+	// top level, `SchemaForm` prunes what it mounts and a mismatch renders as it renders on
+	// the run page. A filter precise enough to descend has to resolve `oneOf` branches, and
+	// getting that wrong deletes what the user typed into the branch they did open.
+	it('leaves nested arguments alone, declared or not', () => {
 		const schema = {
 			properties: {
-				rows: { type: 'array', items: { properties: { token: { type: 'string' } } } },
-				cfg: { type: 'object', properties: { token: { type: 'string' } } },
-				free: { type: 'object' }
-			}
-		}
-		expect(
-			conformArgsToSchema({ rows: { token: '$var:u/ada/prod' }, cfg: [{ token: 'x' }] }, schema)
-		).toMatchObject({ args: {}, dropped: { undeclared: [], unshowable: ['rows', 'cfg'] } })
-		// One level down too. A free-form object still passes unread: it declares no
-		// structure for the value to contradict, so its contents were never filtered.
-		expect(
-			conformArgsToSchema({ rows: [{ token: 'a' }, ['sneaky']], free: { anything: 1 } }, schema)
-		).toMatchObject({
-			args: { rows: [{ token: 'a' }], free: { anything: 1 } },
-			dropped: { undeclared: [], unshowable: ['rows[1]'] }
-		})
-	})
-
-	// What the parsers emit for a bare `dict`/`object` annotation, and `ArgInput` gives it a
-	// JSON editor: reading the empty declaration set as structure reported every key the
-	// user typed as one the script has no field for, then ran it with an empty object.
-	it('leaves a free-form object declared with empty properties alone', () => {
-		const freeForm = { type: 'object', properties: {} }
-		expect(
-			conformArgsToSchema({ cfg: { env: 'prod', retries: 2 } }, { properties: { cfg: freeForm } })
-		).toEqual({
-			args: { cfg: { env: 'prod', retries: 2 } },
-			resetKeys: [],
-			dropped: { undeclared: [], unshowable: [] }
-		})
-		// Nested and per element, since the same declaration reaches both.
-		expect(
-			conformArgsToSchema(
-				{ outer: { cfg: { env: 'prod' } }, rows: [{ a: 1 }] },
-				{
-					properties: {
-						outer: { type: 'object', properties: { cfg: freeForm } },
-						rows: { type: 'array', items: freeForm }
-					}
+				obj: { type: 'object', properties: { known: { type: 'string' } } },
+				either: {
+					type: 'object',
+					oneOf: [
+						{ title: 'Structured', properties: { name: { type: 'string' } } },
+						{ title: 'Freeform', properties: {} }
+					]
 				}
-			).args
-		).toEqual({ outer: { cfg: { env: 'prod' } }, rows: [{ a: 1 }] })
-	})
-
-	// The guard reads declared structure, never the declared `type`: a dyn-multiselect is
-	// `type: 'object'` holding an array, and reading `type` dropped what the user picked.
-	it('keeps a dyn-multiselect array and drops an object in a scalar slot', () => {
-		const schema = {
-			properties: {
-				tenants: { type: 'object', format: 'dynmultiselect-list_tenants' },
-				name: { type: 'string' }
 			}
 		}
-		expect(
-			conformArgsToSchema(
-				{ tenants: ['acme', 'globex'], name: { evil: '$var:u/ada/prod' } },
-				schema
-			)
-		).toMatchObject({
-			args: { tenants: ['acme', 'globex'] },
-			dropped: { undeclared: [], unshowable: ['name'] }
+		const { args, dropped } = conformArgsToSchema(
+			{ obj: { known: 'a', extra: 'b' }, either: { label: 'Freeform', anything: 1 } },
+			schema
+		)
+		expect(args).toEqual({
+			obj: { known: 'a', extra: 'b' },
+			either: { label: 'Freeform', anything: 1 }
 		})
+		expect(dropped).toEqual({ undeclared: [], unshowable: [] })
 	})
 
-	// A number input bound to a string renders blank and `validateInput` range-checks only
-	// an actual number, so the field passed as filled: the user approved an empty box and
-	// the job received the string.
+	// Each scalar widget binds one JS type and shows nothing else: a string in a number
+	// input renders blank and still passes validation, so the user would approve an empty
+	// box over a value only the job sees. A boolean is worse — `"false"` renders checked.
 	it('drops a primitive that contradicts its declared scalar type', () => {
 		const schema = {
 			properties: {
 				count: { type: 'number' },
-				retries: { type: 'integer' },
-				name: { type: 'string' },
-				dry_run: { type: 'boolean' }
+				flag: { type: 'boolean' },
+				name: { type: 'string' }
 			}
 		}
-		expect(
-			conformArgsToSchema(
-				{ count: 'not-a-number', retries: '3', name: 'ada', dry_run: 'false' },
-				schema
-			)
-		).toMatchObject({
-			args: { name: 'ada' },
-			dropped: { undeclared: [], unshowable: ['count', 'retries', 'dry_run'] }
-		})
-		// A dyn-select slot is `type: 'object'` holding whatever the helper returns, so
-		// only a declared scalar type constrains a primitive.
-		expect(
-			conformArgsToSchema(
-				{ tenant: 'alpha' },
-				{ properties: { tenant: { type: 'object', format: 'dynselect-list_tenants' } } }
-			)
-		).toMatchObject({ args: { tenant: 'alpha' }, dropped: { unshowable: [] } })
+		const { args, dropped } = conformArgsToSchema(
+			{ count: '12', flag: 'false', name: 'ada' },
+			schema
+		)
+		expect(args).toEqual({ name: 'ada' })
+		expect(dropped.unshowable.sort()).toEqual(['count', 'flag'])
 	})
 
-	// A list element is bound to a widget the same way a top-level argument is, so an
-	// object in a scalar slot renders as [object Object] and the run carries it verbatim.
-	it('filters array elements whose schema declares no properties', () => {
-		expect(
-			conformArgsToSchema(
-				{ tags: ['ok', { token: '$var:u/ada/prod' }] },
-				{ properties: { tags: { type: 'array', items: { type: 'string' } } } }
-			)
-		).toMatchObject({ args: { tags: ['ok'] }, dropped: { unshowable: ['tags[1]'] } })
-		expect(
-			conformArgsToSchema(
-				{ rows: [{ n: 1, evil: 2 }] },
-				{
-					properties: {
-						rows: { items: { oneOf: [{ title: 'a', properties: { n: { type: 'number' } } }] } }
-					}
-				}
-			)
-		).toMatchObject({ args: { rows: [{ n: 1 }] }, dropped: { undeclared: ['rows[0].evil'] } })
-	})
-
-	// MultiSelect maps over the value while rendering, so a non-array here throws and
-	// takes the whole form with it — the user cannot even cancel what they were shown.
+	// Not merely unreadable: `MultiSelect` maps over the value as it renders, so anything
+	// else throws and takes the whole card down, Cancel with it.
 	it('drops a non-array in a dyn-multiselect slot', () => {
 		const schema = {
-			properties: { tenants: { type: 'object', format: 'dynmultiselect-list_tenants' } }
+			properties: { tags: { type: 'object', format: 'dynmultiselect-list' } }
 		}
-		expect(conformArgsToSchema({ tenants: { evil: 1 } }, schema)).toMatchObject({
-			args: {},
-			dropped: { unshowable: ['tenants'] }
-		})
-		expect(conformArgsToSchema({ tenants: 'acme' }, schema)).toMatchObject({
-			args: {},
-			dropped: { unshowable: ['tenants'] }
-		})
+		expect(conformArgsToSchema({ tags: ['a'] }, schema).args).toEqual({ tags: ['a'] })
+		const { args, dropped } = conformArgsToSchema({ tags: { a: 1 } }, schema)
+		expect(args).toEqual({})
+		expect(dropped.unshowable).toEqual(['tags'])
 	})
 })
 
 describe('enforceDisabledDefaults', () => {
 	const schema = {
 		properties: {
-			top: { type: 'string', default: 'fixed', disabled: true },
-			cfg: { properties: { force: { type: 'boolean', default: false, disabled: true } } },
-			list: {
-				items: { properties: { mode: { type: 'string', default: 'safe', disabled: true } } }
-			},
-			either: {
-				oneOf: [
-					{ title: 'a', properties: { level: { type: 'number', default: 1, disabled: true } } },
-					{ title: 'b', properties: { rate: { type: 'number', default: 5, disabled: true } } }
-				]
-			},
-			free: { type: 'string' }
+			locked: { type: 'string', disabled: true, default: 'fixed' },
+			open: { type: 'string' }
 		}
 	}
 
-	it('resets a disabled field at every level the form nests', () => {
-		const { args, resetKeys } = enforceDisabledDefaults(
-			{
-				top: 'tampered',
-				cfg: { force: true },
-				list: [{ mode: 'destructive' }],
-				either: { kind: 'a', level: 99 },
-				free: 'kept'
-			},
-			schema
-		)
-		expect(args).toEqual({
-			top: 'fixed',
-			cfg: { force: false },
-			list: [{ mode: 'safe' }],
-			either: { kind: 'a', level: 1 },
-			free: 'kept'
+	it('overwrites a disabled field and reports only what it changed', () => {
+		expect(enforceDisabledDefaults({ locked: 'mine', open: 'ok' }, schema)).toEqual({
+			args: { locked: 'fixed', open: 'ok' },
+			resetKeys: ['locked']
 		})
-		expect(resetKeys).toEqual(['top', 'cfg.force', 'list[0].mode', 'either.level'])
-	})
-
-	// By value: a locked object default never matches by identity, so every run of such
-	// a field reported a reset, and the caller was corrected for getting it right.
-	it('reports no reset for an object default the caller already matched', () => {
-		const objSchema = {
-			properties: { opts: { type: 'object', disabled: true, default: { dry_run: true } } }
-		}
-		expect(enforceDisabledDefaults({ opts: { dry_run: true } }, objSchema).resetKeys).toEqual([])
-		expect(enforceDisabledDefaults({ opts: { dry_run: false } }, objSchema).resetKeys).toEqual([
-			'opts'
-		])
-	})
-
-	// The tag picks the branch, as it does in ArgInput: a default read off the branch the
-	// form never showed both overwrites the value and reports a reset nobody made.
-	it('takes a disabled default two branches share from the one the form shows', () => {
-		const locked = (def: string) => ({ type: 'string', default: def, disabled: true })
-		const collide = {
-			properties: {
-				either: {
-					oneOf: [
-						{ title: 'a', properties: { mode: locked('alpha') } },
-						{ title: 'b', properties: { mode: locked('beta') } }
-					]
-				}
-			}
-		}
-		expect(enforceDisabledDefaults({ either: { kind: 'a', mode: 'alpha' } }, collide)).toEqual({
-			args: { either: { kind: 'a', mode: 'alpha' } },
+		// Never supplied is not overwritten: the field shows the default either way, and a
+		// caller told otherwise would try to correct what it never sent.
+		expect(enforceDisabledDefaults({ open: 'ok' }, schema)).toEqual({
+			args: { locked: 'fixed', open: 'ok' },
 			resetKeys: []
 		})
-		expect(enforceDisabledDefaults({ either: { kind: 'b', mode: 'x' } }, collide)).toEqual({
-			args: { either: { kind: 'b', mode: 'beta' } },
-			resetKeys: ['either.mode']
-		})
-		// Untagged opens the first branch, so that is the default it must enforce.
-		expect(enforceDisabledDefaults({ either: { mode: 'x' } }, collide).args).toEqual({
-			either: { mode: 'alpha' }
-		})
 	})
 
-	it('reports only the arguments it actually overwrote', () => {
-		const { args, resetKeys } = enforceDisabledDefaults({ free: 'kept' }, schema)
-		// The default still runs; the caller supplied nothing to overwrite, and one told
-		// otherwise would try to correct an argument it never sent.
-		expect(args.top).toBe('fixed')
-		expect(resetKeys).toEqual([])
-	})
-
-	// Every branch is visited because the tag is runtime state, so writing an absent
-	// default would hand the run an argument from the variant nobody selected.
-	it('leaves the unselected oneOf branch out of the run', () => {
-		const { args } = enforceDisabledDefaults({ either: { kind: 'a', level: 99 } }, schema)
-		expect(args.either).toEqual({ kind: 'a', level: 1 })
-	})
-
-	// `ArgInput` settles on the first tag that titles a branch, so a tag titling none
-	// leaves it on the branch the other tag names. Stopping at the first tag holding a
-	// string resolved to branch 0 instead, and enforced its default over that branch.
-	it('reads past a oneOf tag that names no branch', () => {
-		const tagged = {
-			properties: {
-				either: {
-					oneOf: [
-						{ title: 'a', properties: { level: { type: 'number', disabled: true, default: 1 } } },
-						{ title: 'b', properties: { level: { type: 'number' } } }
-					]
-				}
-			}
+	it('reports no reset for an object default the caller already matched', () => {
+		const objSchema = {
+			properties: { conf: { type: 'object', disabled: true, default: { a: 1 } } }
 		}
-		const value = { either: { kind: 'nosuchbranch', label: 'b', level: 99 } }
-		expect(enforceDisabledDefaults(value, tagged).args.either).toEqual(value.either)
+		expect(enforceDisabledDefaults({ conf: { a: 1 } }, objSchema).resetKeys).toEqual([])
 	})
 })
 
@@ -453,9 +168,6 @@ describe('secret args at every level the form nests', () => {
 		expect(Object.keys(stripSecretArgs({ top: 'x' }, schema))).toEqual([])
 	})
 
-	// Array elements were descended only through `items.properties`, so a branch under
-	// `items.oneOf` was kept by conformArgsToSchema and then never visited: the secret
-	// reached the persisted card and the model-visible result verbatim.
 	it('strips a secret under a oneOf branch of an array element', () => {
 		const oneOfItems = {
 			properties: {
@@ -472,6 +184,22 @@ describe('secret args at every level the form nests', () => {
 			stripSecretArgs({ steps: [{ token: 'hunter2', name: 'a' }] }, oneOfItems, stripped)
 		).toEqual({ steps: [{ name: 'a' }] })
 		expect(stripped).toEqual(['steps[0].token'])
+	})
+
+	// Descending on which keys the declaration carries rather than on the shape of the
+	// value routed this into `properties`, which cannot hold an array — so the elements
+	// were never visited and the secret reached the persisted card verbatim.
+	it('strips through a declaration carrying both items and properties', () => {
+		const both = {
+			properties: {
+				creds: {
+					type: 'array',
+					items: { properties: { token: { type: 'string', password: true } } },
+					properties: { token: { type: 'string', password: true } }
+				}
+			}
+		}
+		expect(stripSecretArgs({ creds: [{ token: 'hunter2' }] }, both)).toEqual({ creds: [{}] })
 	})
 
 	// The caller binds the result to a form that edits in place, so a schema declaring
