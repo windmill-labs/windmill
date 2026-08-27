@@ -4427,12 +4427,12 @@ async fn push_next_flow_job(
         // Two kinds of step never reach a worker through their tag, so an unresolvable one is
         // inert and must not fail them: one handed straight to this worker (fetched by id, with
         // no tag predicate), and one on a dedicated runnable (whose tag `push` replaces).
-        let tag_schedules_the_step = !continue_on_same_worker
+        let step_is_pulled_by_tag = !continue_on_same_worker
             && !continue_with_runners
             && !payload_tag.payload.is_dedicated_worker();
         let unresolved_tag = tag
             .as_deref()
-            .filter(|_| err.is_none() && tag_schedules_the_step)
+            .filter(|_| err.is_none() && step_is_pulled_by_tag)
             .and_then(|t| unresolved_tag_error(t, &push_args));
         let err = err.or(unresolved_tag.as_ref());
 
