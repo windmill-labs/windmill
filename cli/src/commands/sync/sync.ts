@@ -3232,26 +3232,21 @@ function secretBearingObjectPath(p: string): string {
 }
 
 /**
- * The `deleted` changes for variables and resources that a push cannot safely trust.
+ * The `deleted` changes for variables and resources this branch has never tracked.
  *
  * A remote variable or resource with no local file is equally a deletion being deployed
  * and one that was never in the repo to begin with — provisioned on the instance, or
- * created at runtime by a script (a cursor, a counter, a last-processed marker). Only
- * the first is a deletion, and reading the second as one leaves the object recoverable
- * for three days and then not at all. What this branch has ever committed is the
- * durable evidence that tells them apart (see `gitRecordedPaths`): a recorded path was
- * genuinely tracked, so its absence now is a real deletion; a path missing from a
- * `known` set is one this branch has never had, and deleting it is a guess. `unknown`
- * history is not evidence of anything, so every candidate comes back. The caller never
- * deletes what comes back without either the user's word for it or a warning naming
- * what it could not check.
+ * created at runtime by a script (a cursor, a counter, a last-processed marker). The
+ * push deploys both, but only the first is something the repository ever owned, and
+ * what this branch has committed is the durable evidence that tells them apart (see
+ * `gitRecordedPaths`): a recorded path was genuinely tracked; a path missing from a
+ * `known` set is one this branch has never had. `unknown` history is not evidence of
+ * anything, so every candidate comes back and the caller hedges the wording instead.
  *
  * Judged per server-side object, not per file, because that is what the backend
  * deletes: a file resource is two files for one resource, and `DELETE /variables/delete`
- * takes the resource at the same path down with it (and vice versa, for a value that
- * references it). One file of an object left unaccounted for therefore holds the whole
- * object back — deleting the rest would destroy what the push has just reported it is
- * keeping.
+ * takes the resource at the same path down with it. An object with any file in history
+ * was tracked, so reporting it as never-tracked would be false.
  */
 export function untrackedSecretBearingDeletions<
   T extends { name: string; path: string },
@@ -3261,7 +3256,7 @@ export function untrackedSecretBearingDeletions<
   // A `specificItems` item is committed under its workspace-specific name
   // (`y.staging.variable.yaml`) while `elementsToMap` collapses it to the base
   // path the changeset carries, so the history is searched under both names. Miss
-  // this and a deletion the user did commit reads as never tracked.
+  // this and an object the user did commit reads as never tracked.
   workspaceSpecificPath?: (p: string) => string | undefined,
 ): T[] {
   const candidates = changes.filter(
@@ -3276,13 +3271,13 @@ export function untrackedSecretBearingDeletions<
       (wsPath !== undefined && recordedKeys.has(secretBearingKey(wsPath)))
     );
   };
-  const heldBackObjects = new Set(
+  const trackedObjects = new Set(
     candidates
-      .filter((c) => !isRecorded(c.path))
+      .filter((c) => isRecorded(c.path))
       .map((c) => secretBearingObjectPath(c.path)),
   );
-  return candidates.filter((c) =>
-    heldBackObjects.has(secretBearingObjectPath(c.path)),
+  return candidates.filter(
+    (c) => !trackedObjects.has(secretBearingObjectPath(c.path)),
   );
 }
 
@@ -5222,65 +5217,24 @@ export async function push(
     ambiguousMigrationsResolved = true;
   }
 
-  // The same safety net for the two object kinds a push hard-deletes. Opt a
-  // mirror-semantics pipeline back into deleting them unattended with
-  // --delete-untracked-secrets / deleteUntrackedSecrets.
+  // `sync push` deletes a variable or resource that has no local file, but an
+  // object the repository has never tracked was provisioned outside it (by hand,
+  // or by a script at runtime) rather than deleted from it. The push still deploys
+  // the deletion — that is what the repo-is-the-mirror contract means, and a
+  // shallow clone could not tell the two apart anyway — but it says so first, so
+  // the change list a user confirms names the risk instead of hiding it.
+  const secretDeletionCandidates = changes.filter(
+    (c) => c.name === "deleted" && secretBearingObjectKind(c.path) !== undefined,
+  );
   const recordedSecretPaths: RecordedPaths =
-    !opts.deleteUntrackedSecrets &&
-    changes.some(
-      (c) =>
-        c.name === "deleted" && secretBearingObjectKind(c.path) !== undefined,
-    )
+    secretDeletionCandidates.length > 0
       ? gitRecordedPaths(SECRET_BEARING_PATHSPECS)
       : { kind: "known", paths: new Set() };
-  const untrackedSecretDeletions = opts.deleteUntrackedSecrets
-    ? []
-    : untrackedSecretBearingDeletions(changes, recordedSecretPaths, (p) =>
-        getWorkspaceSpecificPath(p, specificItems, wsNameForFiles),
-      );
-  // Why the deletions are in doubt, as a standalone sentence the keep,
-  // proceed-anyway and confirm messages each build on.
-  const untrackedSecretsReason =
-    recordedSecretPaths.kind === "known"
-      ? `This branch has never tracked what is now missing locally, so it was provisioned outside the repository rather than deleted from it.`
-      : `${recordedSecretPaths.reason.replace(/^./, (c) => c.toUpperCase())}. ` +
-        `Whether this branch ever tracked what is now missing locally cannot be established.`;
-  const keepUntrackedSecretsOnRemote = () => {
-    log.warn(
-      colors.yellow(
-        `Keeping ${describeSecretBearingChanges(untrackedSecretDeletions)} on the remote. ${untrackedSecretsReason} ` +
-          `Run 'wmill sync pull' to track it in git, delete it from the workspace, or pass --delete-untracked-secrets to remove it.`,
-      ),
-    );
-    const kept = changes.filter((c) => !untrackedSecretDeletions.includes(c));
-    changes.length = 0;
-    changes.push(...kept);
-  };
-  // Unlike a script (archived, restorable whenever), a deleted variable or resource
-  // outlives the push by three days in the workspace trash and no longer, so where
-  // the history settles it an unattended run keeps them and a dry-run preview shows
-  // what a push would really do. Where it cannot be read there is no evidence either
-  // way, and holding the deletion back would silently stop a shallow clone — the
-  // git-sync "Pull from repo" job included — from deploying deletions it has always
-  // deployed; that run warns and proceeds. A TTY push asks either way, after the
-  // user has seen the list.
-  let untrackedSecretsResolved = false;
-  if (
-    untrackedSecretDeletions.length > 0 &&
-    (opts.dryRun || opts.yes || !process.stdin.isTTY)
-  ) {
-    if (recordedSecretPaths.kind === "known") {
-      keepUntrackedSecretsOnRemote();
-    } else {
-      log.warn(
-        colors.yellow(
-          `${untrackedSecretsReason} ${describeSecretBearingChanges(untrackedSecretDeletions)} will be deleted on the remote anyway. ` +
-            `${recordedSecretPaths.remedy} so a variable or resource this repository never tracked is kept rather than deleted with only three days in the workspace trash to undo it.`,
-        ),
-      );
-    }
-    untrackedSecretsResolved = true;
-  }
+  const untrackedSecretDeletions = untrackedSecretBearingDeletions(
+    changes,
+    recordedSecretPaths,
+    (p) => getWorkspaceSpecificPath(p, specificItems, wsNameForFiles),
+  );
 
   // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
   // and is excluded from the file diff (isNotWmillFile), so surface its diff in
@@ -5522,6 +5476,16 @@ export async function push(
         wsNameForFiles,
         folderDefaultAnnotations,
       );
+      if (untrackedSecretDeletions.length > 0) {
+        log.warn(
+          colors.yellow(
+            `This branch's history has ${recordedSecretPaths.kind === "known" ? "no" : "no readable"} record of ${describeSecretBearingChanges(untrackedSecretDeletions)} above` +
+              `${recordedSecretPaths.kind === "known" ? ", so it was provisioned outside this repository rather than deleted from it" : ` (${recordedSecretPaths.reason})`}. ` +
+              `Deleting leaves only the workspace trash, which keeps an item for three days. ` +
+              `Exclude it from the sync (skipVariables/skipResources or excludes in wmill.yaml) to keep deploying without touching it.`,
+          ),
+        );
+      }
     }
 
     if (opts.dryRun) {
@@ -5600,18 +5564,6 @@ export async function push(
       });
       if (!deleteThem) {
         keepAmbiguousMigrationsOnRemote();
-      }
-    }
-
-    if (untrackedSecretDeletions.length > 0 && !untrackedSecretsResolved) {
-      const deleteThem = await Confirm.prompt({
-        message:
-          `${untrackedSecretsReason} ` +
-          `Deleting ${describeSecretBearingChanges(untrackedSecretDeletions)} leaves only the workspace trash, which keeps it for three days. Delete from the workspace anyway?`,
-        default: false,
-      });
-      if (!deleteThem) {
-        keepUntrackedSecretsOnRemote();
       }
     }
 
@@ -6603,6 +6555,22 @@ export async function push(
         ),
       );
     }
+    // `DELETE /variables/delete` and `DELETE /resources/delete` move the item to
+    // the workspace trash first, which the CLI is otherwise the only place not to
+    // mention — the bug report that prompted this concluded the delete was final.
+    const deletedSecretBearing = changes.filter(
+      (c) =>
+        c.name === "deleted" &&
+        secretBearingObjectKind(c.path) !== undefined &&
+        !failedChanges.some((f) => f.path === c.path),
+    );
+    if (deletedSecretBearing.length > 0) {
+      log.info(
+        colors.gray(
+          `${describeSecretBearingChanges(deletedSecretBearing)} deleted. Restore within three days from the workspace trash (Workspace settings -> Trash).`,
+        ),
+      );
+    }
     if (failedChanges.length > 0) {
       // Not process.exit: under Node a piped stdout write is async, so exiting
       // here would truncate the JSON result mid-object for CI consumers.
@@ -6741,10 +6709,6 @@ const command = new Command()
   .option(
     "--skip-reencrypt-on-key-change",
     "When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.",
-  )
-  .option(
-    "--delete-untracked-secrets",
-    "Delete remote variables and resources this repository's history has never tracked. They are kept by default: unlike a script, which push archives, a deleted one is only recoverable from the workspace trash for three days, and one that was never in the repo was provisioned outside it rather than deleted from it.",
   )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")

@@ -7530,7 +7530,6 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--include-settings\` - Include syncing workspace settings
   - \`--include-key\` - Include workspace encryption key
   - \`--skip-reencrypt-on-key-change\` - When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.
-  - \`--delete-untracked-secrets\` - Delete remote variables and resources this repository's history has never tracked. They are kept by default: unlike a script, which push archives, a deleted one is only recoverable from the workspace trash for three days, and one that was never in the repo was provisioned outside it rather than deleted from it.
   - \`--skip-branch-validation\` - Skip git branch validation and prompts
   - \`--json-output\` - Output results in JSON format
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)

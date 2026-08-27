@@ -107,35 +107,32 @@ describe("untrackedSecretBearingDeletions", () => {
     ).toEqual([VAR, RES]);
   });
 
-  test("holds back a whole object when one of its files is unaccounted for", () => {
-    // A file resource is two files for one resource, and either survivor reaching
-    // the apply switch deletes the resource — so a half-recorded object is kept
-    // whole rather than reported as kept and deleted anyway.
-    const fileResource = [
-      { name: "deleted", path: "f/test/conf.resource.yaml" },
-      { name: "deleted", path: "f/test/conf.resource.file.ini" },
-    ];
+  test("an object with any file in history is not reported as never tracked", () => {
+    // A file resource is two files for one resource; one of them in history is
+    // proof the repository owned it, so calling it never-tracked would be false.
     expect(
-      untrackedSecretBearingDeletions(fileResource, {
-        kind: "known",
-        paths: new Set(["f/test/conf.resource.yaml"]),
-      }).map((c) => c.path),
-    ).toEqual(fileResource.map((c) => c.path));
+      untrackedSecretBearingDeletions(
+        [
+          { name: "deleted", path: "f/test/conf.resource.yaml" },
+          { name: "deleted", path: "f/test/conf.resource.file.ini" },
+        ],
+        { kind: "known", paths: new Set(["f/test/conf.resource.yaml"]) },
+      ),
+    ).toEqual([]);
   });
 
-  test("a linked variable and resource at one path stand or fall together", () => {
+  test("a linked variable and resource at one path count as one object", () => {
     // `DELETE /variables/delete` takes the resource at the same path with it, so
-    // deleting the tracked half would destroy the untracked half regardless.
-    const linked = [
-      { name: "deleted", path: "f/test/pair.variable.yaml" },
-      { name: "deleted", path: "f/test/pair.resource.yaml" },
-    ];
+    // history for either half vouches for the pair.
     expect(
-      untrackedSecretBearingDeletions(linked, {
-        kind: "known",
-        paths: new Set(["f/test/pair.variable.yaml"]),
-      }).map((c) => c.path),
-    ).toEqual(linked.map((c) => c.path));
+      untrackedSecretBearingDeletions(
+        [
+          { name: "deleted", path: "f/test/pair.variable.yaml" },
+          { name: "deleted", path: "f/test/pair.resource.yaml" },
+        ],
+        { kind: "known", paths: new Set(["f/test/pair.variable.yaml"]) },
+      ),
+    ).toEqual([]);
   });
 
   test("surfaces everything when the history cannot be consulted", () => {
