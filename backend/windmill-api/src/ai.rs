@@ -1069,13 +1069,23 @@ async fn proxy(
                                 .fetch_optional(&db)
                                 .await?;
 
+                                let instance_has_config =
+                                    instance_config.as_ref().is_some_and(|v| {
+                                        serde_json::from_value::<AIConfig>(v.clone())
+                                            .ok()
+                                            .is_some_and(|c| c.has_providers())
+                                    });
                                 match instance_config {
-                                    Some(config) => (
+                                    // An instance `ai_config` row with no usable provider (e.g. `{}`
+                                    // or `{"providers":{}}`) is treated as unconfigured, exactly as
+                                    // build_copilot_settings_state does — otherwise its mere presence
+                                    // would suppress the free-tier fallback below.
+                                    Some(config) if instance_has_config => (
                                         config,
                                         "admins".to_string(),
                                         Some(current_instance_ai_config_revision()),
                                     ),
-                                    None => {
+                                    _ => {
                                         // Nothing configured: fall back to Windmill's free AI tier
                                         // (EE-only) if a lent key is set and both the user's
                                         // one-time grant and the instance's daily cap have room.

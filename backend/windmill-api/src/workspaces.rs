@@ -152,10 +152,16 @@ async fn edit_copilot_config(
             .await?;
     let settings_state =
         build_copilot_settings_state(workspace_has_config, instance_ai_config.as_ref());
+    // A provider-less instance config (e.g. `{}`) is unconfigured, same as build_copilot_settings_state
+    // treats it — so it must not shadow the free-tier fallback here either.
+    let instance_config_with_providers = instance_ai_config
+        .as_ref()
+        .and_then(|v| serde_json::from_value::<AIConfig>(v.clone()).ok())
+        .filter(|c| c.has_providers());
     let effective_ai_config = if workspace_has_config {
         ai_config
-    } else if let Some(instance_ai_config) = instance_ai_config {
-        serde_json::from_value::<AIConfig>(instance_ai_config).unwrap_or_default()
+    } else if let Some(instance_config) = instance_config_with_providers {
+        instance_config
     } else if let Some(free_config) =
         crate::ai_free_tier_oss::free_tier_copilot_config(&db, &authed.email).await?
     {
@@ -230,7 +236,14 @@ pub async fn get_critical_alerts(
     authed: ApiAuthed,
     Query(params): Query<crate::utils::AlertQueryParams>,
 ) -> JsonResult<serde_json::Value> {
-    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, authed.job_id.is_some(), &db).await?;
+    require_admin_or_devops(
+        authed.is_admin,
+        &authed.username,
+        &authed.email,
+        authed.job_id.is_some(),
+        &db,
+    )
+    .await?;
 
     crate::utils::get_critical_alerts(db, params, Some(w_id)).await
 }
@@ -246,7 +259,14 @@ pub async fn acknowledge_critical_alert(
     Path((w_id, id)): Path<(String, i32)>,
     authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin_or_devops(authed.is_admin, &authed.username, &authed.email, authed.job_id.is_some(), &db).await?;
+    require_admin_or_devops(
+        authed.is_admin,
+        &authed.username,
+        &authed.email,
+        authed.job_id.is_some(),
+        &db,
+    )
+    .await?;
     crate::utils::acknowledge_critical_alert(db, Some(w_id), id).await
 }
 
