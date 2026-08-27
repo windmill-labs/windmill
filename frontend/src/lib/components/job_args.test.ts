@@ -65,22 +65,39 @@ describe('conformArgsToSchema', () => {
 	})
 
 	// Each scalar widget binds one JS type and shows nothing else: a string in a number
-	// input renders blank and still passes validation, so the user would approve an empty
-	// box over a value only the job sees. A boolean is worse — `"false"` renders checked.
-	it('drops a primitive that contradicts its declared scalar type', () => {
+	// input renders blank, with no error and Run still enabled, so the user would approve
+	// an empty box over a value only the job sees. A boolean is worse — `"false"` renders
+	// checked. An object in the same slot renders blank the same way.
+	it('drops a value that contradicts its declared scalar type', () => {
 		const schema = {
 			properties: {
 				count: { type: 'number' },
 				flag: { type: 'boolean' },
+				label: { type: 'string' },
 				name: { type: 'string' }
 			}
 		}
 		const { args, dropped } = conformArgsToSchema(
-			{ count: '12', flag: 'false', name: 'ada' },
+			{ count: '12', flag: 'false', label: { a: 1 }, name: 'ada' },
 			schema
 		)
 		expect(args).toEqual({ name: 'ada' })
-		expect(dropped.unshowable.sort()).toEqual(['count', 'flag'])
+		expect(dropped.unshowable.sort()).toEqual(['count', 'flag', 'label'])
+	})
+
+	// `ArgInput` says "Expected an array, got object instead" and disables Run, and a
+	// nested form rewrites a stray array into its own shape. Filtering either here would
+	// only replace a message the form already gives with a quieter one.
+	it('leaves a container mismatch to the widget that reports it', () => {
+		const schema = {
+			properties: {
+				rows: { type: 'array', items: { type: 'object', properties: { id: {} } } },
+				cfg: { type: 'object', properties: { known: { type: 'string' } } }
+			}
+		}
+		const { args, dropped } = conformArgsToSchema({ rows: { id: 'x' }, cfg: [1, 2] }, schema)
+		expect(args).toEqual({ rows: { id: 'x' }, cfg: [1, 2] })
+		expect(dropped.unshowable).toEqual([])
 	})
 
 	// Not merely unreadable: `MultiSelect` maps over the value as it renders, so anything

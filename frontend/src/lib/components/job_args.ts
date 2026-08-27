@@ -81,15 +81,6 @@ const declaresDynMultiselect = (prop: any) =>
 	typeof prop?.format === 'string' && prop.format.startsWith('dynmultiselect-')
 
 /**
- * Declares a structure, rather than a free-form object. An empty `properties` is what the
- * parsers emit for a bare `dict`/`object` annotation, and `ArgInput` gives it a JSON
- * editor holding whatever the user types — so reading it as structure would call every
- * key the editor accepts a shape the form cannot show.
- */
-const declaresProperties = (prop: any) =>
-	prop?.properties != null && Object.keys(prop.properties).length > 0
-
-/**
  * Whether a primitive fits a declared scalar type. Each scalar widget binds one JS type and
  * shows nothing else: a string in a number input renders blank, and `ArgInput.validateInput`
  * range-checks only an actual number, so the field passes as filled. The user would approve
@@ -99,22 +90,18 @@ const fitsScalarType = (value: any, type: string): boolean =>
 	type === 'integer' ? typeof value === 'number' : typeof value === type
 
 /**
- * Whether `prop` declares a slot the form can show `value` in. A value that fits nowhere
- * is one the user would approve unseen: `ArgInput` binds it to a widget that renders
- * nothing — an object in a list slot, or in a scalar input.
+ * Whether `prop` declares a slot the form can show `value` in. Only the mismatches
+ * `ArgInput` itself passes over: a scalar slot renders a wrong-typed value as an empty
+ * box, with no error and Run still enabled, so the user approves nothing over a value
+ * only the job gets. Where `ArgInput` already says something — "Expected an array, got
+ * object instead" over a list, a nested form rewriting a stray array into its own shape —
+ * the value is left to it, and this form reads like every other one in the product.
  */
 function fitsDeclaredShape(value: any, prop: any): boolean {
 	if (value == null) return true
 	if (declaresDynMultiselect(prop)) return Array.isArray(value)
-	if (typeof value !== 'object')
-		return !SCALAR_TYPES.has(prop?.type) || fitsScalarType(value, prop.type)
-	if (SCALAR_TYPES.has(prop?.type)) return false
-	const isArray = Array.isArray(value)
-	// Declared nested structure, never the declared `type`: a dyn-multiselect argument is
-	// `type: 'object'` holding an array, so reading `type` would drop what the user picked.
-	const declaresArray = prop?.items != null
-	const declaresObject = declaresProperties(prop) || Array.isArray(prop?.oneOf)
-	return !(isArray ? declaresObject && !declaresArray : declaresArray && !declaresObject)
+	if (!SCALAR_TYPES.has(prop?.type)) return true
+	return typeof value !== 'object' && fitsScalarType(value, prop.type)
 }
 
 /**
