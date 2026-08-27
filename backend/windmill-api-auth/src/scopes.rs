@@ -996,6 +996,12 @@ fn scope_grants_access(
 /// the caller's own row; `email` and `allowed_domain_auto_invite` are derived from the
 /// token itself and touch no table.
 ///
+/// `settings/global/automate_username_creation` is the one instance setting on the list:
+/// `get_global_setting` exempts that key from its own super-admin gate, so the boolean is
+/// already readable by every authenticated user, and the CLI reads it before creating a
+/// user during a git-sync push, which runs as a job. No other `settings/global` key
+/// qualifies — the rest of that route stays confined.
+///
 /// Deliberately absent, as each crosses that line: `users/list_invites` (returns the
 /// workspace ids the identity was invited to), `users/tokens/list` (credential metadata
 /// of the borrowed identity), `users/exists/{email}` (an oracle over arbitrary
@@ -1011,6 +1017,7 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
             | "/api/users/usage"
             | "/api/users/tutorial_progress"
             | "/api/workspaces/allowed_domain_auto_invite"
+            | "/api/settings/global/automate_username_creation"
             | "/api/docs/search"
             | "/api/docs/page"
             | "/api/integrations/hub/list"

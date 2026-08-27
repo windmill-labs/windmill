@@ -318,6 +318,32 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
             resp.text().await?
         );
     }
+    // ...and the single `settings/global` key the handler itself leaves ungated, which the
+    // CLI reads before creating a user on a git-sync push. Every other key stays out.
+    let resp = authed(
+        client().get(format!("{api}/settings/global/automate_username_creation")),
+        &user_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "WM_TOKEN must still read automate_username_creation: {}",
+        resp.text().await?
+    );
+    let resp = authed(
+        client().get(format!("{api}/settings/global/base_url")),
+        &user_wm,
+    )
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "WM_TOKEN must not read any other global setting: {}",
+        resp.text().await?
+    );
     let resp = authed(client().post(format!("{api}/schedules/preview")), &user_wm)
         .json(&json!({ "schedule": "0 0 12 * * *", "timezone": "UTC" }))
         .send()
