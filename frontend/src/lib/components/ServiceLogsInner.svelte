@@ -294,6 +294,23 @@
 		}
 	}
 
+	// Search hits are the raw indexed text, which is JSON for every log file the
+	// indexer has taken in. Prettify the whole stored line rather than the
+	// snippet: only a complete object parses, and the prettified line no longer
+	// shares byte offsets with the JSON, so the highlight ranges cannot come with
+	// it.
+	function renderHit(hit: any): { content: string; highlighted: any[] } {
+		const raw = hit.document?.logs?.[0]
+		if (!hit.document?.json_fmt?.[0]) {
+			return {
+				content: hit.snippet_fragment || raw,
+				highlighted: hit.snippet_highlighted ?? []
+			}
+		}
+		const pretty = processLogWithJsonFmt(raw, true).trimEnd()
+		return { content: pretty || hit.snippet_fragment || raw, highlighted: [] }
+	}
+
 	let logs: any = $state()
 
 	let debounceTimeout: number | undefined = undefined
@@ -399,7 +416,9 @@
 	) {
 		const res = await ServiceLogsService.getLogFile({ path: `${hostname}/${path}` })
 
-		content = processLogWithJsonFmt(ansi_up.ansi_to_html(res), jsonFmt)
+		// Prettify first: it emits its own ANSI for the level, which converting
+		// beforehand would leave in the output as literal escapes.
+		content = ansi_up.ansi_to_html(processLogWithJsonFmt(res, jsonFmt))
 		hitLineNumber = lineNumber
 		logDrawerOpen = true
 
@@ -687,11 +706,15 @@
 						</div>
 					{:else if logs != undefined}
 						<div class="flex flex-col min-w-full w-fit">
-							{#each logs.hits as { snippet_fragment, snippet_highlighted, document }}
+							<!-- Keyed: LogSnippetViewer renders its html once at creation, so an
+										 index-reused instance would keep the previous search's snippet. -->
+							{#each logs.hits as hit (`${hit.document?.file_name?.[0]}:${hit.document?.line_number?.[0]}`)}
+								{@const rendered = renderHit(hit)}
 								<LogSnippetViewer
-									content={snippet_fragment || document.logs[0]}
-									highlighted={snippet_highlighted}
+									content={rendered.content}
+									highlighted={rendered.highlighted}
 									onClick={() => {
+										let document = hit.document
 										let logLineNumber = document.line_number[0]
 										let logFile = document.file_name[0]
 										let host = document.host[0]

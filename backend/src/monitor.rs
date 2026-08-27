@@ -81,7 +81,6 @@ use windmill_common::{
     jwt::JWT_SECRET,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
-    tracing_init::JSON_FMT,
     users::truncate_token,
     utils::{empty_as_none, now_from_db, report_critical_error, Mode, HUB_API_SECRET},
     worker::{
@@ -1373,7 +1372,7 @@ async fn send_log_file_to_object_store(
             match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
              VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
              ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
-                hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
+                hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, true)
                 .execute(db)).await {
                 Ok(Ok(_)) => {
                     if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
