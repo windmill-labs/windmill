@@ -1,73 +1,45 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
 	clearRunPosition,
-	noteCaughtUp,
 	noteDriverAlive,
-	noteDriverAnswered,
 	noteRemoteTurnEnded,
-	setDriverProbe,
 	withSessionRunLock
 } from './sessionRunOwner.svelte'
 
-const SESSIONS = ['session-throttled-driver', 'session-driver-gone', 'session-never-shared']
+const SESSIONS = ['session-watching', 'session-catching-up', 'session-idle']
 
 // `positions` is module state and a watching entry keeps the reaper interval
 // armed, so leave nothing behind for the next suite.
 afterEach(() => SESSIONS.forEach(clearRunPosition))
 
-/** The sequence a watcher goes through when its driver stops sending frames:
- *  seen driving, then reaped back to idle. The tab is now free to send, and
- *  whether it may is the question the probe answers. */
-function driverWasHereThenWentQuiet(sessionId: string) {
-	noteDriverAlive(sessionId, false)
-	noteRemoteTurnEnded(sessionId)
-	noteCaughtUp(sessionId)
-}
-
-// Under the test env there is no Web Locks API, which is the same footing a
-// self-hosted instance served over plain HTTP runs on — so these exercise the
-// path that has nothing but the channel to arbitrate with.
-//
-// A driving tab that is hidden has its timers throttled to as little as once a
-// minute, so its heartbeat stops long before its turn does and the reaper
-// retires it. Concluding from that silence that the run is over starts a second
-// turn against the same chat id: duplicate tool calls against the workspace,
-// and whichever save lands last discards the other's transcript.
+// The test env has no Web Locks API, which is the footing an origin served over
+// plain HTTP runs on, so these exercise the fallback rather than the lock.
 describe('withSessionRunLock with no lock to take', () => {
-	it('refuses the run when a driver answers the probe', async () => {
-		driverWasHereThenWentQuiet('session-throttled-driver')
-		setDriverProbe((sessionId) => noteDriverAnswered(sessionId))
+	it('refuses while another tab is driving', async () => {
+		noteDriverAlive('session-watching', false)
 		const body = vi.fn(async () => 'ran')
 
-		const outcome = await withSessionRunLock('session-throttled-driver', body)
-
-		expect(outcome).toBe('busy')
+		expect(await withSessionRunLock('session-watching', body)).toBe('busy')
 		expect(body).not.toHaveBeenCalled()
 	})
 
-	it('takes the run when nothing answers', async () => {
-		driverWasHereThenWentQuiet('session-driver-gone')
-		setDriverProbe(() => {})
+	// The window after the driver's turn ends and before this tab has re-read what
+	// it left behind. The run is over, so a check for "someone is driving" says
+	// go — but the transcript on screen is still paired with the history from
+	// before that turn, and sending would put that pair to the model.
+	it('refuses while still catching up on a finished turn', async () => {
+		noteDriverAlive('session-catching-up', false)
+		noteRemoteTurnEnded('session-catching-up')
 		const body = vi.fn(async () => 'ran')
 
-		const outcome = await withSessionRunLock('session-driver-gone', body)
-
-		expect(outcome).toBe('ran')
-		expect(body).toHaveBeenCalledTimes(1)
+		expect(await withSessionRunLock('session-catching-up', body)).toBe('busy')
+		expect(body).not.toHaveBeenCalled()
 	})
 
-	// The single-tab case, which is the common one: nobody has ever driven this
-	// session from anywhere else, so there is no one to answer and waiting out
-	// the grace on every send would be a tax paid for a race that cannot happen.
-	it('does not wait on a probe for a session it has never shared', async () => {
-		const probe = vi.fn()
-		setDriverProbe(probe)
-		const started = Date.now()
+	it('takes a session no other tab holds', async () => {
+		const body = vi.fn(async () => 'ran')
 
-		const outcome = await withSessionRunLock('session-never-shared', async () => 'ran')
-
-		expect(outcome).toBe('ran')
-		expect(probe).not.toHaveBeenCalled()
-		expect(Date.now() - started).toBeLessThan(300)
+		expect(await withSessionRunLock('session-idle', body)).toBe('ran')
+		expect(body).toHaveBeenCalledTimes(1)
 	})
 })

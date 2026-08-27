@@ -1188,10 +1188,6 @@ async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Pro
 			scheduleCatchUpRetry(sessionId, chatId, attempt)
 			return
 		}
-		// There is no store to catch up from, and no retry that would change that.
-		// Nothing was saved for this tab to be out of step with either, so holding
-		// the composer shut would cost the session for no gain.
-		if (found === 'no-store') caughtUp = true
 		if (found === 'loaded') {
 			// `refresh`: the same conversation caught up from the store, so whatever
 			// this manager still holds for it — a queued message, the background-job

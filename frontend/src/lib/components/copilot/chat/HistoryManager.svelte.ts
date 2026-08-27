@@ -612,13 +612,9 @@ export default class HistoryManager {
 	 *  'unavailable' is a fact about this browser. Callers act on the first and
 	 *  must not act on the second — treating a closed database as an empty chat
 	 *  would throw away a transcript that is merely unreadable right now. */
-	async reloadChat(id: string): Promise<'loaded' | 'missing' | 'unavailable' | 'no-store'> {
+	async reloadChat(id: string): Promise<'loaded' | 'missing' | 'unavailable'> {
 		const db = await this.dbh.whenReady()
-		// No database at all (disabled, private mode, a failed open) rather than a
-		// read that happened to fail. Worth distinguishing: a caller waiting for a
-		// readable store can wait forever on this one, and there is nothing stored
-		// for it to be out of step with either.
-		if (!db) return 'no-store'
+		if (!db) return 'unavailable'
 		try {
 			const chat = await db.get('chats', id)
 			if (!chat) return 'missing'

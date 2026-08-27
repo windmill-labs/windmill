@@ -79,7 +79,6 @@ export function noteDriverAlive(sessionId: string, planMode: boolean): void {
 	// A tab mid-turn is the authority on its own session; a frame reaching it can
 	// only be an echo of the run it is itself driving.
 	if (isDriving(sessionId)) return
-	seenDriver.add(sessionId)
 	positions.set(sessionId, { state: 'watching', lastHeardAt: Date.now(), planMode })
 	ensureReaper()
 }
@@ -102,8 +101,6 @@ export function noteCaughtUp(sessionId: string): void {
  *  down tab can't leave a position behind for a session nothing is watching. */
 export function clearRunPosition(sessionId: string): void {
 	positions.delete(sessionId)
-	probeAnswers.delete(sessionId)
-	seenDriver.delete(sessionId)
 }
 
 /** True from the driver's turn-end until this tab has re-read what it left
@@ -157,61 +154,26 @@ export async function withSessionRunLock<T>(
 	}
 }
 
-/** How long a probe waits for the driver to answer before its silence counts.
- *  Long enough to survive a busy main thread, short enough that the pre-flight
- *  is not felt; only origins without Web Locks ever pay it. */
-const PROBE_GRACE_MS = 750
-
-let sendDriverProbe: ((sessionId: string) => void) | undefined
-
-/** Registered by sessionSync, which owns the channel this is asked over. */
-export function setDriverProbe(fn: (sessionId: string) => void): void {
-	sendDriverProbe = fn
-}
-
-const probeAnswers = new Set<string>()
-
-/** Sessions this tab has ever seen driven elsewhere. Only these are worth
- *  probing before taking a lockless run; it is never cleared, because "there was
- *  another tab once" stays the reason to ask. */
-const seenDriver = new Set<string>()
-
-/** A driver answered a probe. Recorded rather than folded into the position:
- *  the answer proves a run is alive, but carries none of the frame state a
- *  `watching` position is made of. */
-export function noteDriverAnswered(sessionId: string): void {
-	probeAnswers.add(sessionId)
-}
-
-/** Exclusion without a lock. Silence is not enough to conclude a driver is
- *  gone — a hidden tab's heartbeat is throttled to as little as once a minute
- *  while its turn runs on perfectly well, and the reaper will have retired it
- *  long before that. So ask, and treat only an unanswered probe as absence.
- *  Getting this wrong runs a second turn against the same chat id, which is the
- *  duplicate tool calls and lost transcript this whole module exists to stop.
+/** What exclusion amounts to with no lock to take: refuse while another tab's
+ *  run is visibly on screen, and otherwise go.
  *
- *  This narrows the window rather than closing it, and it cannot close it: a tab
- *  the browser has frozen runs no script at all, so it answers a probe exactly
- *  the way a closed one does and nothing over this channel can tell them apart.
- *  Mutual exclusion needs Web Locks; where there is none, the honest guarantee
- *  is best-effort — still strictly more than the nothing a session had before
- *  any of this, and the reason the lock is what secure origins rely on. */
+ *  This is deliberately not mutual exclusion, and cannot be made into it. A
+ *  driver whose timers have been throttled in a hidden tab stops sending frames
+ *  long before its turn ends, so it is reaped as dead and a send from here can
+ *  start a second turn against the same chat id. Nothing over the channel fixes
+ *  that: a probe distinguishes a throttled tab from a closed one, but not a
+ *  frozen tab from a closed one, and the browser freezes hidden tabs on much the
+ *  same schedule as it throttles them.
+ *
+ *  Accepted rather than solved, because the only origins that land here are
+ *  served over plain HTTP and are not localhost — a shape used for local testing
+ *  rather than for running Windmill. Every HTTPS deployment, and localhost, is a
+ *  secure context and takes the real lock above. `isMirroring` and not
+ *  `isWatching`: a tab that has moved on to `catchingUp` is still owed its
+ *  re-read, and driving from here would send the pre-run history that re-read
+ *  exists to replace. */
 async function bestEffort<T>(sessionId: string, body: () => Promise<T>): Promise<T | 'busy'> {
 	if (isMirroring(sessionId)) return 'busy'
-	// Only worth asking where a driver has actually been seen. A session this tab
-	// has had to itself has nobody to answer, and paying the grace on every send
-	// would tax the single-tab case — the common one — for a race it cannot be in.
-	if (sendDriverProbe && seenDriver.has(sessionId)) {
-		probeAnswers.delete(sessionId)
-		sendDriverProbe(sessionId)
-		await new Promise((resolve) => setTimeout(resolve, PROBE_GRACE_MS))
-		if (probeAnswers.delete(sessionId)) return 'busy'
-		// A frame or a turn-end may also have landed while the probe was out.
-		// `isMirroring`, not `isWatching`: a tab that has moved on to `catchingUp`
-		// is owed a re-read, and driving from here would drop it and send the
-		// pre-run history the re-read exists to replace.
-		if (isMirroring(sessionId)) return 'busy'
-	}
 	return await drive(sessionId, body)
 }
 
