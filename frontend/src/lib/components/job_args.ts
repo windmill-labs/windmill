@@ -1,3 +1,9 @@
+/**
+ * Preparing a caller's arguments for a run form, and for the readers of one. The filters
+ * split by what a mistake costs: conforming must not drop what the user meant to send, so
+ * it stays exact and shallow, while stripping and redacting only blank a field, so they go
+ * to any depth and err towards visiting too much.
+ */
 import { deepEqual } from 'fast-equals'
 
 const isLockedProp = (prop: any) => !!prop?.disabled && 'default' in prop
@@ -30,6 +36,13 @@ export function enforceDisabledDefaults(
 	}
 	return { args: { ...result }, resetKeys }
 }
+
+/** How a form says what {@link enforceDisabledDefaults} overwrote, shared by the two that
+ * run it so the wording cannot drift apart. */
+export const resetKeysToast = (resetKeys: string[]): string =>
+	`Disabled field${resetKeys.length > 1 ? 's' : ''} ${resetKeys
+		.map((k) => `'${k}'`)
+		.join(', ')} reset to default value${resetKeys.length > 1 ? 's' : ''}`
 
 /**
  * Keys removed from a caller's arguments, split by cause. Kept apart because the two
@@ -138,10 +151,16 @@ function mapLeaves(
 	path: string
 ): any {
 	if (value == null || typeof value !== 'object') return value
+	// A container shaped unlike its declaration is kept rather than dropped, since the widget
+	// is the one that reports it — so the walk has to reach in through whichever half the
+	// declaration does carry, or a secret under one leaves the form verbatim.
 	if (Array.isArray(value))
-		return value.map((item, i) => mapLeaves(item, prop?.items, isLeaf, visit, `${path}[${i}]`))
+		return value.map((item, i) =>
+			mapLeaves(item, prop?.items ?? prop, isLeaf, visit, `${path}[${i}]`)
+		)
 	const bags = declarationBags(prop)
-	if (bags.length === 0) return value
+	if (bags.length === 0)
+		return prop?.items ? mapLeaves(value, prop.items, isLeaf, visit, path) : value
 	// Null prototype, and keyed off the value rather than the declaration: a key is only
 	// ever rewritten where it already exists, so no branch of a `oneOf` can add one.
 	const result: Record<string, any> = Object.assign(Object.create(null), value)
