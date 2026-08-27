@@ -2840,6 +2840,33 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.modifiedItems?.size).toBe(0)
 	})
 
+	// Reloading resolves no card on its own. Only the poller can, and only for the jobs
+	// that came back with the transcript — so a stored card without one must arrive
+	// settled, whichever build wrote it.
+	it('settles a restored loading card that no job came back to resolve', async () => {
+		const manager = createManager(createInputMock())
+		mocks.getJob.mockResolvedValue({ type: 'QueuedJob', id: 'job-1' })
+		vi.spyOn(manager.historyManager, 'loadPastChat').mockReturnValue({
+			id: 'reloaded',
+			title: 'Reloaded',
+			displayMessages: [
+				{ role: 'tool', tool_call_id: 'orphan', content: 'Running...', isLoading: true },
+				{ role: 'tool', tool_call_id: 'polled', content: 'Running...', isLoading: true }
+			],
+			actualMessages: [],
+			lastModified: 0
+		} as unknown as ReturnType<typeof manager.historyManager.loadPastChat>)
+		vi.spyOn(manager.historyManager, 'getBackgroundJobs').mockReturnValue([
+			{ jobId: 'job-1', toolCallId: 'polled', status: 'running' }
+		] as any)
+
+		await manager.loadPastChat('reloaded')
+
+		const card = (id: string) => manager.displayMessages.find((m) => m.tool_call_id === id) as any
+		expect(card('orphan')).toMatchObject({ isLoading: false, error: 'Interrupted' })
+		expect(card('polled').isLoading).toBe(true)
+	})
+
 	it('seeds a session chat mask from its stored modified-items', async () => {
 		const manager = createManager(createInputMock())
 		manager.isSessionChat = true
@@ -3919,6 +3946,22 @@ describe('AIChatManager background job completion', () => {
 		resultFormat: { kind: 'datatable' as const, datatableName: 'main' }
 	}
 
+	// Live, processToolCall clears isLoading when the launching tool returns. A card
+	// restored from a mid-turn checkpoint never sees that return, so completing its job
+	// is the only thing left that can stop it spinning.
+	it('stops a restored card spinning when the poller completes its job', async () => {
+		const manager = new AIChatManager()
+		manager.registerJob(datatableJob)
+		manager.displayMessages = [
+			{ role: 'tool', tool_call_id: 'tc-1', content: 'Running...', isLoading: true } as any
+		]
+		mocks.getJob.mockResolvedValue(completed({ result: [{ n: 1 }] }))
+
+		await completeDetachedJob(manager)
+
+		expect((manager.displayMessages[0] as any).isLoading).toBe(false)
+	})
+
 	it('reconstructs the datatable result contract from the persisted resultFormat', async () => {
 		const manager = new AIChatManager()
 		manager.registerJob(datatableJob)
@@ -3932,7 +3975,8 @@ describe('AIChatManager background job completion', () => {
 		// the SQL contract (row count + shaped rows) rather than generic job output.
 		expect(applyToolStatus).toHaveBeenCalledWith('tc-1', {
 			content: 'Query returned 2 row(s)',
-			result: JSON.stringify([{ n: 1 }, { n: 2 }], null, 2)
+			result: JSON.stringify([{ n: 1 }, { n: 2 }], null, 2),
+			isLoading: false
 		})
 		expect(manager.pendingJobNotes).toHaveLength(1)
 		expect(manager.pendingJobNotes[0]).toContain('"rowCount": 2')
@@ -3986,7 +4030,8 @@ describe('AIChatManager background job completion', () => {
 		expect(manager.backgroundJobs[0]?.status).toBe('canceled')
 		expect(applyToolStatus).toHaveBeenCalledWith('tc-1', {
 			content: 'Background job canceled',
-			logs: expect.anything()
+			logs: expect.anything(),
+			isLoading: false
 		})
 	})
 

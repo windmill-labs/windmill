@@ -1024,7 +1024,8 @@ export class AIChatManager {
 					this.updateJob(job.jobId, { status: 'failure', reported: true, job: trimJob(gone) })
 					this.applyToolStatus(job.toolCallId, {
 						content: 'Background job could not be retrieved (it may have been removed)',
-						error: `Job ${job.jobId} was unreachable`
+						error: `Job ${job.jobId} was unreachable`,
+						isLoading: false
 					})
 					anyTerminal = true
 				} else {
@@ -1066,8 +1067,14 @@ export class AIChatManager {
 			status === 'canceled' || !job.resultFormat
 				? undefined
 				: formatChatJobCompletion(completed, job.resultFormat)
-		// Fill the tool card that launched it (we run outside a turn here).
-		this.applyToolStatus(job.toolCallId, formatted?.card ?? completedJobToolStatus(completed))
+		// Fill the tool card that launched it (we run outside a turn here). isLoading is
+		// normally already false — processToolCall clears it when the launching tool
+		// returns — but a card restored from a mid-turn checkpoint never saw that return,
+		// so only this patch can stop it spinning.
+		this.applyToolStatus(job.toolCallId, {
+			...(formatted?.card ?? completedJobToolStatus(completed)),
+			isLoading: false
+		})
 		// A user-canceled job needs no model note or auto-resume: the user stopped it
 		// deliberately, so announcing it (as "FAILED", since a canceled job isn't a
 		// success) or burning a turn on it would be noise.
@@ -4273,6 +4280,15 @@ export class AIChatManager {
 				if (this.isJobNonTerminal(j.status)) j.detached = true
 			}
 			if (this.backgroundJobs.length > 0) this.backgroundJobs = [...this.backgroundJobs]
+			// Reloading resolves no card on its own. Settle every one the poller above
+			// will not reach, whoever wrote it — a record from a build that stored cards
+			// without their jobs would otherwise restore one that spins forever.
+			const pollable = this.#pollableToolCalls()
+			this.displayMessages = this.settledToolDisplay(
+				this.displayMessages,
+				'Interrupted',
+				(message) => !pollable.has(message.tool_call_id)
+			)
 			this.#ensureJobPoller()
 			// Message-attached files live in the transcript, not in the store's
 			// persistence — rebuild their rows so the loaded chat's references are
@@ -4674,11 +4690,7 @@ export class AIChatManager {
 	 * in the same record — registering one does not write it. So the jobs come back
 	 * with the transcript that depends on them, and both go into the same saveChat. */
 	#interruptedSnapshot = (): { display: DisplayMessage[]; jobs: ChatJob[] } => {
-		const polled = new Set(
-			this.backgroundJobs
-				.filter((j) => j.detached || this.isJobNonTerminal(j.status))
-				.map((j) => j.toolCallId)
-		)
+		const polled = this.#pollableToolCalls()
 		return {
 			display: this.settledToolDisplay(
 				this.displayMessages,
@@ -4688,6 +4700,15 @@ export class AIChatManager {
 			jobs: $state.snapshot(this.backgroundJobs) as ChatJob[]
 		}
 	}
+
+	/** Tool calls a restored transcript can still resolve. loadPastChat re-attaches the
+	 * poller to every non-terminal job and nothing else runs after a reload, so this is
+	 * the whole set — asked identically when storing a card and when restoring one, or
+	 * the two drift and a card is kept by one and stranded by the other. */
+	#pollableToolCalls = (): Set<string> =>
+		new Set(
+			this.backgroundJobs.filter((j) => this.isJobNonTerminal(j.status)).map((j) => j.toolCallId)
+		)
 }
 
 export const aiChatManager = new AIChatManager()
