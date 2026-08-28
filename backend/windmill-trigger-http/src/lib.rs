@@ -719,6 +719,10 @@ mod tests {
             "https://[notipv6]",
             "https://exa[mple.com",
             "https://[::1",
+            "https://[:::]",
+            "https://[1:2:3:4:5:6:7:8:9]",
+            "https://app.example.com:+80",
+            "https://app.example.com:000080",
         ] {
             assert!(
                 validate_allowed_origins(&[invalid.to_string()]).is_err(),

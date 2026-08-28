@@ -339,10 +339,9 @@ pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Res
             return Err(invalid("missing host"));
         }
         let host_ok = if bracketed {
-            host.contains(':')
-                && host
-                    .chars()
-                    .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.')
+            // Brackets promise an IPv6 literal, so parse one: a charset check
+            // would pass `[:::]`, which no browser can ever send.
+            host.parse::<std::net::Ipv6Addr>().is_ok()
         } else {
             host.chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
@@ -350,8 +349,14 @@ pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Res
         if !host_ok {
             return Err(invalid("invalid host"));
         }
-        // `u16` is exactly the rule: digits only, and no port above 65535.
-        if port.is_some_and(|port| port.parse::<u16>().is_err()) {
+        // `u16` gives the range. The digit and length checks are what keep `+80`
+        // and `000080` out, which it would otherwise accept as 80 and no browser
+        // sends; they also keep this identical to the editor's own check.
+        if port.is_some_and(|port| {
+            port.len() > 5
+                || !port.chars().all(|c| c.is_ascii_digit())
+                || port.parse::<u16>().is_err()
+        }) {
             return Err(invalid("invalid port"));
         }
     }

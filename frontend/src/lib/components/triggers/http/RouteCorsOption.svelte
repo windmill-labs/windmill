@@ -3,11 +3,17 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { allowedOriginError, parseAllowedOrigins } from './utils'
+	import { parseAllowedOrigins } from './utils'
 	import type { Snippet } from 'svelte'
 
 	interface Props {
 		allowed_origins: string[] | undefined
+		/**
+		 * Why the list cannot be saved, owned and derived by the editor. Passed
+		 * one way: this component displays it and never writes it back, so it
+		 * cannot outlive the tab or go stale against the stored value.
+		 */
+		error?: string | undefined
 		/** Fetched once by the editor, so the badge and this field agree. */
 		instanceDefaultOrigins?: string[]
 		disabled?: boolean
@@ -16,6 +22,7 @@
 
 	let {
 		allowed_origins = $bindable(),
+		error = undefined,
 		instanceDefaultOrigins = [],
 		disabled = false,
 		testingBadge = undefined
@@ -37,11 +44,6 @@
 	let inheritsInstanceDefault = $derived(!restricted && hasInstanceDefault)
 
 	let origins = $derived(parseAllowedOrigins(raw))
-	// Shown here; the editor gates the save on the same check applied to the
-	// stored list, so leaving this tab cannot strand a save.
-	let malformed = $derived(
-		restricted ? origins.map(allowedOriginError).find((message) => message !== undefined) : undefined
-	)
 
 	// While the toggle is on, whatever is typed is what gets saved. A rejected
 	// entry must never collapse to `undefined`, because `undefined` is stored as
@@ -97,13 +99,13 @@
 		<TextInput
 			bind:value={raw}
 			inputProps={{ autocomplete: 'off', disabled, placeholder: 'https://app.example.com' }}
-			error={malformed !== undefined}
+			error={error !== undefined}
 		/>
 		<!-- One line, per the form guideline's single Input -> Validation/Hint
 			 slot. An empty list is a real state rather than a mistake: it allows
 			 no origin at all, so say that instead of demanding an entry. -->
-		{#if malformed}
-			<div class="text-2xs text-red-600 dark:text-red-400">{malformed}</div>
+		{#if error}
+			<div class="text-2xs text-red-600 dark:text-red-400">{error}</div>
 		{:else if origins.length === 0}
 			<div class="text-2xs text-secondary">
 				Allows no origin. Add one, comma-separated, or * to allow any.

@@ -42,12 +42,23 @@ export function allowedOriginError(origin: string): string | undefined {
 	if (rest.includes('@')) return `'${origin}' must not contain userinfo`
 	// An IPv6 literal is bracketed, so its own colons are not the port separator
 	// and `http://[::1]` must not be read as host '[:'.
-	const authority = rest.startsWith('[')
-		? /^\[([0-9A-Fa-f.]*:[0-9A-Fa-f:.]*)\](?::(.*))?$/.exec(rest)
+	const bracketed = rest.startsWith('[')
+	const authority = bracketed
+		? /^\[([^\]]*)\](?::(.*))?$/.exec(rest)
 		: /^([A-Za-z0-9._-]*)(?::(.*))?$/.exec(rest)
 	if (!authority) return `'${origin}' has an invalid host`
 	const [, host, port] = authority
 	if (host === '') return `'${origin}' is missing a host`
+	// Brackets promise an IPv6 literal. The URL parser is the same one that
+	// decides what a browser can put in an Origin, and it agrees with the
+	// backend's `Ipv6Addr` parse, so `[:::]` is rejected on both sides.
+	if (bracketed) {
+		try {
+			new URL(`http://[${host}]`)
+		} catch {
+			return `'${origin}' has an invalid host`
+		}
+	}
 	if (port !== undefined && !(/^[0-9]{1,5}$/.test(port) && Number(port) <= 65535))
 		return `'${origin}' has an invalid port`
 	return undefined
