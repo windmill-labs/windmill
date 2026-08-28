@@ -1747,3 +1747,19 @@ pub struct SetEnabled {
 //     pub from: DateTime<Utc>,
 //     pub to: Option<DateTime<Utc>>,
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Twice a day, so the gaps alternate 8 hours and 16. A run only has to
+    /// outlast the shorter one to start skipping slots, so that is the number
+    /// the interval has to be.
+    #[test]
+    fn interval_is_the_shortest_gap_an_irregular_cron_leaves() {
+        assert_eq!(
+            configured_interval_s("0 0 9,17 * * *", Some("v2"), "UTC"),
+            Some(8 * 3600)
+        );
+    }
+}
