@@ -1143,9 +1143,8 @@ function cancelCatchUpRetry(sessionId: string): void {
 
 /** A Stop pressed in a watching tab reaches the run here. */
 function applyCancelRequest(sessionId: string, runId: string): void {
-	// Named for the turn it was pressed during. A Stop can be delivered after that
-	// turn ended, and the queue flush and job auto-resume both start the next one
-	// immediately, so an unqualified Stop would kill a turn nobody asked it to.
+	// A Stop that arrives after the turn it was pressed for has ended, with a
+	// later one already running, would cancel work nobody aimed it at.
 	if (currentRunId(sessionId) !== runId) return
 	if (!isDriving(sessionId)) return
 	// No reason: this IS the user's Stop, just pressed elsewhere, and the

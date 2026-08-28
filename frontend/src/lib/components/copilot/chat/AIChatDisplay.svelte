@@ -517,13 +517,10 @@
 	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
 	const effectiveAutonomyModeOption = $derived(autonomyModeOption(effectiveAutonomyMode))
 
-	// Both of these read `loading` together with a scan of `messages`, so both need
-	// the run and the transcript to be the same one. While another tab drives,
-	// `loading` describes its run and `messages` is this tab's own transcript from
-	// before it — and a card restored from history still looks parked, so the scan
-	// finds a question whose resolver left with the old page. Answering the local
-	// scan then would advertise an answer nothing can deliver, and mark a run that
-	// is streaming normally elsewhere as parked on the user.
+	// Both readers below pair `loading` with a scan of `messages`, which only means
+	// anything when the run and the transcript are the same one. While another tab
+	// drives they are not, and a restored card still looks parked — so the scan
+	// would find a question whose resolver left with the old page.
 	const runIsLocal = $derived(aiChatManager.loading && !aiChatManager.runHeldElsewhere)
 
 	// The typing-dots indicator implies the AI is busy, which is misleading while

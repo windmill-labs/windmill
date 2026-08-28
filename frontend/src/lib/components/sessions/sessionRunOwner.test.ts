@@ -24,7 +24,7 @@ afterEach(() => SESSIONS.forEach(clearRunPosition))
 // plain HTTP runs on, so these exercise the fallback rather than the lock.
 describe('withSessionRunLock with no lock to take', () => {
 	it('refuses while another tab is driving', async () => {
-		noteDriverAlive('session-watching', false)
+		noteDriverAlive('session-watching', false, 'run-1')
 		const body = vi.fn(async () => 'ran')
 
 		expect(await withSessionRunLock('session-watching', body)).toBe('busy')
@@ -37,7 +37,7 @@ describe('withSessionRunLock with no lock to take', () => {
 	// before that turn, and sending would put that pair to the model.
 	it('refuses while still catching up on a finished turn', async () => {
 		onDriverLost(() => {})
-		noteDriverAlive('session-catching-up', false)
+		noteDriverAlive('session-catching-up', false, 'run-1')
 		noteRemoteTurnEnded('session-catching-up')
 		const body = vi.fn(async () => 'ran')
 
@@ -92,7 +92,7 @@ describe('a turn ending in a tab with no session runtime', () => {
 		vi.resetModules()
 		const owner = await import('./sessionRunOwner.svelte')
 
-		owner.noteDriverAlive('session-no-runtime', false)
+		owner.noteDriverAlive('session-no-runtime', false, 'run-1')
 		owner.noteRemoteTurnEnded('session-no-runtime')
 
 		expect(owner.isCatchingUp('session-no-runtime')).toBe(false)

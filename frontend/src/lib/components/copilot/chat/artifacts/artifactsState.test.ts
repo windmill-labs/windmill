@@ -546,7 +546,11 @@ describe('cross-tab artifact sync', () => {
 	})
 
 	it('picks up a plan written in the other tab, and does not announce it back', async () => {
-		const plan = await store.savePlan('s1', { name: 'Add retries', content: '# Plan', note: 'n' })
+		const plan = await store.savePlan(
+			's1',
+			{ name: 'Add retries', content: '# Plan', note: 'n' },
+			undefined
+		)
 		expect(broadcasts).toEqual([{ sessionId: 's1', artifactId: plan.id }])
 		expect(watcher.artifacts).toEqual([])
 

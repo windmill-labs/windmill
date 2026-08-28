@@ -69,9 +69,10 @@ type RunStatusMsg = {
 	 *  tab's memory. */
 	planModeActive: boolean
 }
-/** A Stop pressed in a tab that is only watching the run. Names the run it was
- *  pressed for: turn-end and the next turn's start can both land inside the
- *  delivery gap, and the queue flush and job auto-resume start one immediately. */
+/** A Stop pressed in a tab that is only watching the run, named for the turn it
+ *  was pressed during: delivery is asynchronous, so it can arrive after that turn
+ *  ended and a later one began, and cancelling is not undoable. The sends a turn
+ *  spawns itself share its id — they are one run, and Stop should take the lot. */
 type CancelRequestMsg = { kind: 'cancel-request'; sessionId: string; runId: string }
 type SyncMsg =
 	| SessionPutMsg

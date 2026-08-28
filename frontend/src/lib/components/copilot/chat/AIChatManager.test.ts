@@ -301,7 +301,7 @@ describe('AIChatManager cross-tab run guard', () => {
 		manager.isSessionChat = true
 		manager.sessionId = 'session-watching'
 		const saveChat = vi.spyOn(manager.historyManager, 'saveChat').mockResolvedValue(undefined)
-		noteDriverAlive('session-watching', false)
+		noteDriverAlive('session-watching', false, 'run-1')
 
 		await manager.saveAndClear()
 		await manager.compactManually()
@@ -317,7 +317,7 @@ describe('AIChatManager cross-tab run guard', () => {
 		manager.isSessionChat = true
 		manager.sessionId = 'session-planning'
 
-		noteDriverAlive('session-planning', true)
+		noteDriverAlive('session-planning', true, 'run-1')
 		expect(manager.remotePlanMode).toBe(true)
 
 		noteRemoteTurnEnded('session-planning')
@@ -335,7 +335,7 @@ describe('AIChatManager cross-tab run guard', () => {
 		// A tab showing a session has sessionRuntime loaded, which is what makes
 		// `catchingUp` a position it can actually leave.
 		onDriverLost(() => {})
-		noteDriverAlive('session-catching-up', false)
+		noteDriverAlive('session-catching-up', false, 'run-1')
 		noteRemoteTurnEnded('session-catching-up')
 		const restoreInstructions = vi.fn(() => true)
 		manager.setAiChatInput({ restoreInstructions } as any)
@@ -407,7 +407,7 @@ describe('AIChatManager.sendOrQueue', () => {
 		manager.isSessionChat = true
 		manager.sessionId = 'session-synthetic-refusal'
 		onDriverLost(() => {})
-		noteDriverAlive('session-synthetic-refusal', false)
+		noteDriverAlive('session-synthetic-refusal', false, 'run-1')
 		manager.instructions = 'the message the user is sending'
 
 		await manager.sendRequest({ synthetic: true })
@@ -422,7 +422,7 @@ describe('AIChatManager.sendOrQueue', () => {
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
 		manager.sessionId = 'session-programmatic-queue'
-		noteDriverAlive('session-programmatic-queue', false)
+		noteDriverAlive('session-programmatic-queue', false, 'run-1')
 		manager.loading = true
 		const prependText = vi.fn(() => true)
 		manager.setAiChatInput({ prependText } as any)
