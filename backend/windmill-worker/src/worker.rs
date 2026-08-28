@@ -950,6 +950,51 @@ pub async fn workspace_registry_cache_suffix(w_id: &str) -> String {
     }
 }
 
+/// The name a build artifact is cached under, derived from `base` — the runnable's own
+/// cache-key input — and its inline modules.
+///
+/// `write_module_files` puts module content in the job dir where the build inlines it into
+/// the artifact, so a name without it serves one runnable's modules to another whose main
+/// content and lockfile match — across workspaces, the cache being global.
+///
+/// Only the path and content may name the artifact, because they are all the build reads.
+/// `ScriptModule::lock` especially must stay out: deploy regenerates it *after* the parent
+/// has prebuilt, so naming it would strand every prebuilt artifact.
+pub(crate) fn artifact_cache_name(
+    base: String,
+    modules: Option<&std::collections::HashMap<String, ScriptModule>>,
+) -> String {
+    let Some(modules) = modules.filter(|m| !m.is_empty()) else {
+        // Byte-identical to the name a module-free runnable had before modules entered this,
+        // so its cached artifacts stay reachable. A pre-fix multi-file runnable also stored
+        // here, so one of those stays reachable too — accepted over invalidating every cache,
+        // and once this ships nothing can be stored here with module content in it again.
+        return windmill_common::utils::calculate_hash(&base);
+    };
+    let mut entries: Vec<(&String, &ScriptModule)> = modules.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    // `base` ends in caller-supplied bytes (a preview brings its own lockfile), so it is
+    // sealed to a fixed width before the module block is appended — raw, a crafted lockfile
+    // could spell out another runnable's block and reach its slot.
+    let mut keyed = format!(
+        "{}:modules:{}",
+        windmill_common::utils::calculate_hash(&base),
+        entries.len()
+    );
+    for (path, module) in entries {
+        // Both length-prefixed, else `{"a": "bc"}` and `{"ab": "c"}` encode alike.
+        keyed.push_str(&format!(
+            ":{}:{path}:{}:{}",
+            path.len(),
+            module.content.len(),
+            module.content,
+        ));
+    }
+    // Its own namespace: `calculate_hash` emits hex, so however a module-free runnable
+    // crafts its content and lockfile it can never land on a module-bearing name.
+    format!("mod-{}", windmill_common::utils::calculate_hash(&keyed))
+}
+
 pub fn is_sandboxing_enabled() -> bool {
     if !*DISABLE_NSJAIL {
         return true;
@@ -5459,7 +5504,9 @@ async fn handle_code_execution_job(
         None => job,
     };
 
-    // For preview jobs, extract modules from args._MODULES if not already set
+    // Any job kind, not just previews: whatever is here is what gets written to the job dir
+    // and built in, so the agent-worker server precomputing a cache name has to resolve
+    // modules the same way (`windmill-api-agent-workers`, `get_code_and_lock`).
     let modules = modules_from_data.clone().or_else(|| {
         job.args.as_ref().and_then(|args| {
             args.get("_MODULES").and_then(|raw| {
@@ -5652,9 +5699,104 @@ mod write_module_files_tests {
     use super::*;
     use std::collections::HashMap;
     use windmill_common::scripts::ScriptLang;
+    use windmill_common::utils::calculate_hash;
 
     fn module(content: &str) -> ScriptModule {
         ScriptModule { content: content.to_string(), language: ScriptLang::Python3, lock: None }
+    }
+
+    /// Every language's artifact cache name funnels module content through this, so an
+    /// ambiguous encoding puts two different runnables back on one name.
+    #[test]
+    fn artifact_name_cannot_be_re_cut_into_another_module_map() {
+        fn name(entries: &[(&str, &str)]) -> String {
+            let map: HashMap<String, ScriptModule> = entries
+                .iter()
+                .map(|(p, c)| (p.to_string(), module(c)))
+                .collect();
+            artifact_cache_name("base".to_string(), Some(&map))
+        }
+
+        // Naive `path + content` concatenation renders both of these as "abc".
+        assert_ne!(name(&[("a", "bc")]), name(&[("ab", "c")]));
+        // Splitting one module into two must not read back as the joined one.
+        assert_ne!(name(&[("a", "b"), ("c", "d")]), name(&[("ac", "bd")]));
+        // Iteration order of the map must not move the name.
+        assert_eq!(
+            name(&[("a", "1"), ("b", "2")]),
+            name(&[("b", "2"), ("a", "1")])
+        );
+    }
+
+    /// A module-free runnable must keep the exact name it had before modules entered the
+    /// derivation, or upgrading strands every artifact already in the cache.
+    #[test]
+    fn artifact_name_is_unchanged_without_modules() {
+        assert_eq!(
+            artifact_cache_name("code+lock".to_string(), None),
+            calculate_hash("code+lock")
+        );
+        assert_eq!(
+            artifact_cache_name("code+lock".to_string(), Some(&HashMap::new())),
+            calculate_hash("code+lock")
+        );
+    }
+
+    /// A preview brings its own source and lockfile, so a module-free runnable picks its
+    /// whole `base`. Module-bearing names live in their own namespace precisely so that no
+    /// crafted `base` can be made to land on one.
+    #[test]
+    fn a_module_free_runnable_cannot_forge_a_module_bearing_name() {
+        let modules = HashMap::from([("h.ts".to_string(), module("evil"))]);
+        let victim = artifact_cache_name("code+lock".to_string(), Some(&modules));
+
+        // `calculate_hash` emits hex, so the namespace is unreachable however `base` is
+        // chosen — including by feeding it the victim's own name.
+        assert!(victim.starts_with("mod-"));
+        assert_ne!(artifact_cache_name(victim.clone(), None), victim);
+        assert!(!artifact_cache_name("anything".to_string(), None).starts_with("mod-"));
+    }
+
+    /// The `mod-` namespace separates module-free from module-bearing, and nothing separates
+    /// two module-bearing runnables — only the seal does. Unsealed, `base` is variable-width,
+    /// so the split between it and the module block is ambiguous and a preview (which brings
+    /// its own source *and* lockfile) can absorb part of another runnable's block.
+    #[test]
+    fn a_module_bearing_runnable_cannot_absorb_another_ones_block() {
+        let victim = artifact_cache_name(
+            "V".to_string(),
+            Some(&HashMap::from([(
+                "h.ts".to_string(),
+                module(":modules:1:1:a:1:b"),
+            )])),
+        );
+        // Byte-identical to the victim's without the seal: the forger's `base` spells out the
+        // victim's leading block, leaving its own single module to supply the tail.
+        let forged = artifact_cache_name(
+            "V:modules:1:4:h.ts:18:".to_string(),
+            Some(&HashMap::from([("a".to_string(), module("b"))])),
+        );
+
+        assert_ne!(victim, forged);
+    }
+
+    /// Deploy fills a module's lock in after the parent has prebuilt, so a name that moved
+    /// with it would leave every prebuilt artifact unreachable by the runs it was built for.
+    #[test]
+    fn artifact_name_ignores_the_lock_deploy_fills_in_later() {
+        let prebuild = artifact_cache_name(
+            "base".to_string(),
+            Some(&HashMap::from([("h.ts".to_string(), module("x"))])),
+        );
+
+        let mut locked = module("x");
+        locked.lock = Some("{}\n//bun.lock\n<empty>".to_string());
+        let after_deploy = artifact_cache_name(
+            "base".to_string(),
+            Some(&HashMap::from([("h.ts".to_string(), locked)])),
+        );
+
+        assert_eq!(prebuild, after_deploy);
     }
 
     #[test]
@@ -6386,6 +6528,7 @@ mount {{
                 envs,
                 occupancy_metrics,
                 maybe_lock,
+                modules.as_ref(),
             ))
             .await
         }
@@ -6515,6 +6658,7 @@ mount {{
                     worker_name,
                     envs,
                     occupancy_metrics,
+                    modules.as_ref(),
                 ))
                 .await
             }
@@ -6573,6 +6717,7 @@ mount {{
                 worker_name,
                 envs,
                 occupancy_metrics,
+                modules.as_ref(),
             ))
             .await
         }
@@ -6637,6 +6782,7 @@ mount {{
                     worker_name,
                     envs,
                     occupancy_metrics,
+                    modules: modules.as_ref(),
                 }))
                 .await
             }
