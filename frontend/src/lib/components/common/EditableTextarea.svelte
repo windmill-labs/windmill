@@ -125,17 +125,10 @@ owns the canonical state.
 </script>
 
 {#if editing}
-	<!-- `!min-h-0` but never `!h-auto`: the textarea grows via `use:autosize`, which sets an inline
-	     `style.height`, so an `!important` *height* class beats it and the field stops growing. The
-	     *min-height* is the opposite problem — `TextInput` floors it at 28px, which autosize then
-	     rounds up to 30 and the idle text is 22, so the row jumps on every click. `!block` because
-	     an inline-block textarea baseline-aligns in the cell and the idle button does not, which is
-	     a couple of pixels of drift on every click.
-
-	     The idle button's padding is deliberately lopsided — 2px over, 4px under. It has to match
-	     the textarea on two counts at once: the same 22px box (so the row does not resize) and the
-	     same 2px above the first line (so the text does not hop). An even 3px gives the right box
-	     and the wrong text position. -->
+	<!-- Every override below exists so the two states are the same size with the text in the same
+	     place, and clicking in moves nothing: `!min-h-0` (TextInput floors it at 28px), `!block` (an
+	     inline-block textarea baseline-aligns and the idle button does not), and never `!h-auto` —
+	     `use:autosize` grows the field with an inline `style.height` an `!important` class beats. -->
 	<TextInput
 		bind:this={textInputComponent}
 		bind:value={draft}
@@ -154,6 +147,8 @@ owns the canonical state.
 		}}
 	/>
 {:else}
+	<!-- Padding 2px over, 4px under: the same 22px box as the textarea *and* the same 2px above the
+	     first line. An even 3px gets the box right and leaves the text a pixel low. -->
 	<button
 		type="button"
 		onclick={startEditing}

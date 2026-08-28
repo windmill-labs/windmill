@@ -101,6 +101,9 @@
 	export function openDrawer(next: 'new' | 'edit') {
 		mode = next
 		pathError = ''
+		// Or the case added last time opens itself when the drawer is next opened on this dataset:
+		// ids survive `fromStoredCase`, so the id would still match a row.
+		focusCaseId = undefined
 		// What was collected for a dataset that was never created belongs to that attempt.
 		pendingScorers = []
 		workingCases = next === 'edit' ? cases.map((c) => fromStoredCase(c) as CaseDraft) : []

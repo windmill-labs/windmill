@@ -99,15 +99,9 @@
 	/** What the agent hashes to as deployed: a run of edits carrying it ran what was then saved. */
 	let deployedHash = $state<string | undefined>(undefined)
 	let running = $state(false)
-	/** The run on screen belongs to a dataset still being read. Its cases are what name every row,
-	 *  so until they arrive the table has nothing true to show: `displayRows` would still be built
-	 *  from the *previous* dataset's cases, and one run's cells under another run's name is the one
-	 *  thing a table of comparisons must never show. */
+	/** The run on screen belongs to a dataset still being read. Until it arrives the rows and the
+	 *  scorer columns would both be built from the *previous* dataset, so both are held back. */
 	let datasetLoading = $state(false)
-	/** Empty while the run's dataset is being read, not merely while `dataset` is stale: the
-	 *  columns are named by the dataset's scorers, so keeping the outgoing ones would put the
-	 *  previous dataset's column headers over the incoming run — the same lie the rows are guarded
-	 *  against, one row up. */
 	let scorers = $derived(datasetLoading ? [] : (dataset?.scorers ?? []))
 	let selectedCaseId = $state<string | undefined>(undefined)
 
@@ -238,6 +232,8 @@
 	// Switching datasets leaves the previous request in flight; only the newest may write, or a
 	// slow response for the dataset you just left replaces the one you are looking at.
 	let loadGeneration = 0
+	/** Which run the pane is opening; only the newest may clear `datasetLoading`. */
+	let openGeneration = 0
 
 	async function loadDataset(path: string | undefined): Promise<boolean> {
 		const generation = ++loadGeneration
@@ -423,13 +419,14 @@
 		datasetLoading = needsDataset
 		viewingRun = true
 		if (needsDataset) {
+			// Numbered like `loadDataset`'s own read, and for the same reason: opening a second run
+			// while the first is still loading leaves two `finally`s racing, and the loser clearing
+			// the flag would uncover the table with neither dataset in hand.
+			const generation = ++openGeneration
 			try {
-				// Against the dataset that is loaded, not the one that is selected: skipping on the
-				// selection alone would leave a run open over a dataset whose cases and scorers were
-				// never read.
 				await useDataset(target!.dataset)
 			} finally {
-				datasetLoading = false
+				if (generation === openGeneration) datasetLoading = false
 			}
 		}
 	}
@@ -655,6 +652,15 @@
 			warm
 			class="grow min-h-0"
 			current={!viewingRun || !loaded ? 'list' : 'run'}
+			onNavigate={(key) => {
+				// Right goes into whichever run is open, which is the one the arrow would have opened
+				// by clicking; left is the way back, the same as the breadcrumb.
+				if (key === 'run' && experimentId) viewingRun = true
+				else if (key === 'list') {
+					viewingRun = false
+					selectedCaseId = undefined
+				}
+			}}
 			pages={[
 				{ key: 'list', content: listPage },
 				{ key: 'run', content: runPage }
@@ -796,9 +802,8 @@
 						</Head>
 						<tbody class="divide-y">
 							{#if datasetLoading}
-								<!-- Only while the run's dataset is still being read. A run whose *results* are
-								     loading keeps its rows: `displayRows` already names every case from the
-								     dataset in hand, which is more use than a skeleton of the same shape. -->
+								<!-- A run whose *results* are loading keeps its rows instead: `displayRows` already
+								     names every case from the dataset in hand, which beats a skeleton. -->
 								<tr>
 									<td colspan={2 + scorers.length} class="p-3">
 										<Skeleton layout={[[2], 0.5, [2], 0.5, [2]]} />

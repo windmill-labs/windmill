@@ -6,6 +6,7 @@
 	import EditableTextarea from '$lib/components/common/EditableTextarea.svelte'
 	import { Button, EmptyState } from '$lib/components/common'
 	import { ListPlus, Plus, Trash2 } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 	import type { CaseDraft } from './evalUtils'
 
 	let {
@@ -28,6 +29,20 @@
 		locked?: boolean
 	} = $props()
 
+	/** A dataset is capped at 1000 cases and every row here mounts two editors and a button, so the
+	 *  whole set at once is thousands of components for a table you read a screenful of. ag-grid
+	 *  virtualised its rows; `DataTable` paginates instead, which is the primitive already here. */
+	const CASES_PER_PAGE = 25
+	let currentPage = $state(1)
+	let pageCases = $derived(
+		cases.slice((currentPage - 1) * CASES_PER_PAGE, currentPage * CASES_PER_PAGE)
+	)
+	// A case removed from the last page leaves it empty; step back rather than show nothing.
+	$effect(() => {
+		const lastPage = Math.max(1, Math.ceil(cases.length / CASES_PER_PAGE))
+		if (currentPage > lastPage) currentPage = lastPage
+	})
+
 	/** `expected` is whatever the case holds: a bare string, or a value shown as JSON. Read back
 	 *  the same way, so a case that held an object keeps holding one. */
 	function expectedToText(value: unknown): string {
@@ -40,8 +55,15 @@
 	$effect(() => {
 		const id = focusCaseId
 		if (!id) return
-		// After the row it belongs to has been rendered and registered itself.
-		requestAnimationFrame(() => questionEditors[id]?.edit())
+		untrack(() => {
+			// Onto the page the case is on before reaching for its editor: paginated, a case added to
+			// a full page is not rendered yet, and there would be nothing to open.
+			const at = cases.findIndex((c) => c.id === id)
+			if (at < 0) return
+			currentPage = Math.floor(at / CASES_PER_PAGE) + 1
+			// After the row has been rendered and registered itself.
+			requestAnimationFrame(() => questionEditors[id]?.edit())
+		})
 	})
 
 	function setExpected(c: CaseDraft, text: string) {
@@ -78,7 +100,16 @@
 		}}
 	/>
 {:else}
-	<DataTable size="xs" tableFixed containerClass="bg-surface-tertiary">
+	<DataTable
+		size="xs"
+		tableFixed
+		containerClass="bg-surface-tertiary"
+		paginated={cases.length > CASES_PER_PAGE}
+		bind:currentPage
+		perPage={CASES_PER_PAGE}
+		rowCount={cases.length}
+		hasMore={false}
+	>
 		<colgroup>
 			<col style="width: 55%" />
 			<col />
@@ -92,7 +123,7 @@
 			</tr>
 		</Head>
 		<tbody class="divide-y">
-			{#each cases as c (c.id)}
+			{#each pageCases as c (c.id)}
 				<Row>
 					<Cell first>
 						<!-- `commitOnInput`: the drawer's Save reads this list, so an edit has to be in it by

@@ -7,7 +7,7 @@
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { Button } from '$lib/components/common'
-	import { Bot, Code2, Loader2, Plus } from 'lucide-svelte'
+	import { Bot, ChevronRight, Code2, Loader2, Plus } from 'lucide-svelte'
 	import type { EvalDataset, EvalExperiment, ExperimentScore } from '$lib/gen'
 	import { datasetSummary, experimentName, formatScore, subjectLabel } from './evalUtils'
 
@@ -56,6 +56,7 @@
 		<col style="width: 6rem" />
 		<col />
 		<col style="width: 7rem" />
+		<col style="width: 2rem" />
 	</colgroup>
 	<Head>
 		<tr>
@@ -63,12 +64,14 @@
 			<Cell head>Dataset</Cell>
 			<Cell head numeric>Cases</Cell>
 			<Cell head>Scores</Cell>
-			<Cell head last numeric>When</Cell>
+			<Cell head numeric>When</Cell>
+			<Cell head last></Cell>
 		</tr>
 	</Head>
 	<tbody class="divide-y">
 		{#each experiments as experiment (experiment.id)}
-			<Row hoverable on:click={() => onOpen(experiment)}>
+			<!-- `group` so the chevron in the last cell can answer this row's hover. -->
+			<Row hoverable class="group" on:click={() => onOpen(experiment)}>
 				<Cell first>
 					<div class="flex flex-col min-w-0">
 						<div class="flex items-center gap-1.5 min-w-0">
@@ -146,22 +149,28 @@
 						{/if}
 					</div>
 				</Cell>
-				<Cell last numeric>
+				<Cell numeric>
 					<span class="text-2xs text-tertiary whitespace-nowrap">
 						<TimeAgo date={experiment.created_at} agoOnlyIfRecent />
 					</span>
+				</Cell>
+				<Cell last numeric>
+					<ChevronRight
+						size={14}
+						class="text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
+					/>
 				</Cell>
 			</Row>
 		{/each}
 		{#if experiments.length === 0 && !loaded}
 			<tr>
-				<td colspan="5" class="p-3">
+				<td colspan="6" class="p-3">
 					<Skeleton layout={[[2], 0.5, [2], 0.5, [2]]} />
 				</td>
 			</tr>
 		{:else if experiments.length === 0}
 			<tr>
-				<td colspan="5" class="p-6">
+				<td colspan="6" class="p-6">
 					<div class="flex flex-col items-center justify-center gap-3 text-center">
 						<span class="text-sm text-emphasis">No runs yet</span>
 						<span class="text-xs text-secondary max-w-md">
