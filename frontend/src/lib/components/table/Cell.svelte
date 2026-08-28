@@ -86,13 +86,30 @@
 <style>
 	/* A row's hover tint is set on the `tr`, which a `position: sticky` cell paints over
 	   rather than inheriting. The token carries its own alpha, so adopting it directly would
-	   make the cell translucent and stop it occluding what scrolls under; layering it over
-	   the opaque colour composites to the same result while keeping the cell opaque. */
-	:global(tr.wm-row-hoverable:hover) > .wm-cell-pinned {
-		background-image: linear-gradient(
-			rgb(var(--color-surface-hover)),
-			rgb(var(--color-surface-hover))
-		);
+	   make the cell translucent and stop it occluding what scrolls under: the tint goes on a
+	   layer over the opaque colour instead, which composites to the same result.
+	   That layer is a pseudo-element rather than a `background-image`, because the row fades
+	   its tint in and `background-image` is not animatable — a gradient toggled on and off
+	   would snap while the rest of the row faded. `opacity` animates, on the row's own
+	   150ms curve, so the two stay in step. */
+	.wm-cell-pinned {
+		isolation: isolate;
+	}
+
+	.wm-cell-pinned::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		/* Above the cell's own background, below its buttons. */
+		z-index: -1;
+		pointer-events: none;
+		background-color: rgb(var(--color-surface-hover));
+		opacity: 0;
+		transition: opacity 150ms cubic-bezier(0.4, 0, 0.2, 1);
+	}
+
+	:global(tr.wm-row-hoverable:hover) > .wm-cell-pinned::after {
+		opacity: 1;
 	}
 
 	/* The seam marks that content is passing under the pinned column, so it is drawn only
