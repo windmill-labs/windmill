@@ -6450,9 +6450,9 @@ export async function push(
         ),
       );
     }
-    // `DELETE /variables/delete` and `DELETE /resources/delete` move the item to
-    // the workspace trash first, which the CLI is otherwise the only place not to
-    // mention — the bug report that prompted this concluded the delete was final.
+    // Both delete handlers move the item to the workspace trashbin first; without
+    // this the CLI is the only surface that never says so, and the deletion reads
+    // as final.
     const deletedSecretBearing = changes.filter(
       (c) =>
         c.name === "deleted" &&
@@ -6462,7 +6462,7 @@ export async function push(
     if (deletedSecretBearing.length > 0) {
       log.info(
         colors.gray(
-          `${describeSecretBearingChanges(deletedSecretBearing)} deleted. Restore within three days from the workspace trash (Workspace settings -> Trash).`,
+          `${describeSecretBearingChanges(deletedSecretBearing)} deleted. The workspace trashbin keeps a deleted item for three days; a workspace admin can restore it from Workspace settings -> Trashbin.`,
         ),
       );
     }
