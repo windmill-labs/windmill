@@ -111,7 +111,10 @@
 		</div>
 	</div>
 
-	<div class="mt-3">
+	<!-- Only the fields scroll. A script with many arguments would otherwise grow a card
+	     taller than the pane, pushing the Run button and the lines naming what the form
+	     dropped — a secret it opened empty among them — below the fold. -->
+	<div class="mt-3 max-h-[min(28rem,50vh)] overflow-y-auto">
 		{#if hasArgs}
 			<!-- The one thing here that runs before Run: a `dynselect-`/`dynmultiselect-`
 			argument makes DynamicInput execute that entrypoint on mount to fill its options —
@@ -132,34 +135,35 @@
 		{:else}
 			<p class="text-xs text-secondary">This script takes no arguments.</p>
 		{/if}
-		{#if runForm.droppedKeys?.length}
-			<p class="mt-2 text-2xs text-secondary">
-				Not an input of this script, so it will not be sent:
-				<span class="font-mono">{runForm.droppedKeys.join(', ')}</span>
-			</p>
-		{/if}
-		{#if runForm.unshowableKeys?.length}
-			<p class="mt-2 text-2xs text-secondary">
-				Sent in a shape this form has no field for, so it opened empty:
-				<span class="font-mono">{runForm.unshowableKeys.join(', ')}</span>
-			</p>
-		{/if}
-		{#if runForm.resetKeys?.length}
-			<p class="mt-2 text-2xs text-secondary">
-				Disabled by this script, so it will run with its default:
-				<span class="font-mono">{runForm.resetKeys.join(', ')}</span>
-			</p>
-		{/if}
-		{#if runForm.strippedKeys?.length}
-			<p class="mt-2 text-2xs text-secondary">
-				A secret or a file, so it opened empty for you to fill in:
-				<span class="font-mono">{runForm.strippedKeys.join(', ')}</span>
-			</p>
-		{/if}
-		{#if planMode}
-			<p class="mt-2 text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
-		{/if}
 	</div>
+
+	{#if runForm.droppedKeys?.length}
+		<p class="mt-2 text-2xs text-secondary">
+			Not an input of this script, so it will not be sent:
+			<span class="font-mono">{runForm.droppedKeys.join(', ')}</span>
+		</p>
+	{/if}
+	{#if runForm.unshowableKeys?.length}
+		<p class="mt-2 text-2xs text-secondary">
+			Sent in a shape this form has no field for, so it opened empty:
+			<span class="font-mono">{runForm.unshowableKeys.join(', ')}</span>
+		</p>
+	{/if}
+	{#if runForm.resetKeys?.length}
+		<p class="mt-2 text-2xs text-secondary">
+			Disabled by this script, so it will run with its default:
+			<span class="font-mono">{runForm.resetKeys.join(', ')}</span>
+		</p>
+	{/if}
+	{#if runForm.strippedKeys?.length}
+		<p class="mt-2 text-2xs text-secondary">
+			A secret or a file, so it opened empty for you to fill in:
+			<span class="font-mono">{runForm.strippedKeys.join(', ')}</span>
+		</p>
+	{/if}
+	{#if planMode}
+		<p class="mt-2 text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
+	{/if}
 
 	<!-- Both buttons rest while a submit is in flight: the ephemeral variables exist by
 	     then, so cancelling would settle the call as declined on a run that is already
