@@ -26,6 +26,18 @@ async function readDirRecursive(
   return out;
 }
 
+/** The workspace's shared UI store, or undefined when it cannot be read. */
+async function fetchSharedUi(
+  workspace: string,
+): Promise<Record<string, string> | undefined> {
+  try {
+    const got = await wmill.getSharedUi({ workspace });
+    return got.files ?? {};
+  } catch {
+    return undefined;
+  }
+}
+
 export type SharedUiChange =
   | { type: "added"; path: string }
   | { type: "edited"; path: string; before: string; after: string }
@@ -41,21 +53,19 @@ export type SharedUiChange =
  * push, so the apply is a no-op and the preview must be empty (even when the
  * remote store is non-empty) to avoid phantom diffs the apply won't perform.
  */
-export async function diffSharedUi(workspace: string): Promise<SharedUiChange[]> {
+export async function diffSharedUi(
+  workspace: string,
+  keepDeleted?: boolean,
+): Promise<SharedUiChange[]> {
   const localDir = path.join(process.cwd(), SHARED_UI_DIR);
   if (!fs.existsSync(localDir)) {
     return [];
   }
   const files = await readDirRecursive(localDir);
 
-  let remote: Record<string, string> = {};
-  try {
-    const got = await wmill.getSharedUi({ workspace });
-    remote = got.files ?? {};
-  } catch {
-    // If endpoint missing or unauthorized, treat remote as empty (the push
-    // would attempt the PUT anyway).
-  }
+  // If endpoint missing or unauthorized, treat remote as empty (the push
+  // would attempt the PUT anyway).
+  const remote = (await fetchSharedUi(workspace)) ?? {};
 
   // Use Object.hasOwn, not `in`: a file named after an Object.prototype member
   // (e.g. ui/toString) would otherwise register as always-present and be
@@ -69,9 +79,11 @@ export async function diffSharedUi(workspace: string): Promise<SharedUiChange[]>
       changes.push({ type: "edited", path: p, before: remote[rel], after: content });
     }
   }
-  for (const rel of Object.keys(remote)) {
-    if (!Object.hasOwn(files, rel)) {
-      changes.push({ type: "deleted", path: `${SHARED_UI_DIR}/${rel}` });
+  if (!keepDeleted) {
+    for (const rel of Object.keys(remote)) {
+      if (!Object.hasOwn(files, rel)) {
+        changes.push({ type: "deleted", path: `${SHARED_UI_DIR}/${rel}` });
+      }
     }
   }
   return changes;
@@ -81,22 +93,43 @@ export async function diffSharedUi(workspace: string): Promise<SharedUiChange[]>
  * Push the local <cwd>/ui/ folder to the workspace's shared UI store.
  * Returns true if a push was performed, false if the folder is missing or
  * already matches the remote store. Note an empty-but-existing folder still
- * pushes an empty map (clearing the remote store) if the remote is non-empty.
+ * pushes an empty map (clearing the remote store) if the remote is non-empty —
+ * unless `keepDeleted`, which folds remote-only files back into the map.
  */
-export async function pushSharedUi(workspace: string): Promise<boolean> {
+export async function pushSharedUi(
+  workspace: string,
+  keepDeleted?: boolean,
+): Promise<boolean> {
   const localDir = path.join(process.cwd(), SHARED_UI_DIR);
   if (!fs.existsSync(localDir)) {
     return false;
   }
 
   // Skip if no change — reuse diffSharedUi so preview and push never diverge.
-  const diff = await diffSharedUi(workspace);
+  const diff = await diffSharedUi(workspace, keepDeleted);
   if (diff.length === 0) {
     log.info(colors.gray("Shared UI folder up to date"));
     return false;
   }
 
   const files = await readDirRecursive(localDir);
+  if (keepDeleted) {
+    // The store is written whole, so a remote-only file is pruned by omission
+    // alone: carry it back into the map. An unreadable store leaves no way to
+    // do that without pruning it, so the shared UI is left untouched instead.
+    const remote = await fetchSharedUi(workspace);
+    if (remote === undefined) {
+      log.warn(
+        colors.yellow(
+          "Could not read the shared UI folder from the remote; skipping its push so --keep-deleted does not clear it.",
+        ),
+      );
+      return false;
+    }
+    for (const [rel, content] of Object.entries(remote)) {
+      if (!Object.hasOwn(files, rel)) files[rel] = content;
+    }
+  }
   await wmill.updateSharedUi({
     workspace,
     requestBody: { files },
@@ -111,9 +144,12 @@ export async function pushSharedUi(workspace: string): Promise<boolean> {
 
 /**
  * Pull the workspace's shared UI store into <cwd>/ui/.
- * Files removed remotely are also removed locally.
+ * Files removed remotely are also removed locally, unless `keepDeleted`.
  */
-export async function pullSharedUi(workspace: string): Promise<boolean> {
+export async function pullSharedUi(
+  workspace: string,
+  keepDeleted?: boolean,
+): Promise<boolean> {
   const localDir = path.join(process.cwd(), SHARED_UI_DIR);
   let got;
   try {
@@ -145,15 +181,17 @@ export async function pullSharedUi(workspace: string): Promise<boolean> {
   }
 
   // Delete locally-orphaned files
-  const known = new Set(Object.keys(files));
-  const local = await readDirRecursive(localDir);
-  for (const rel of Object.keys(local)) {
-    if (!known.has(rel)) {
-      const full = path.join(localDir, rel);
-      try {
-        fs.unlinkSync(full);
-      } catch {
-        // ignore
+  if (!keepDeleted) {
+    const known = new Set(Object.keys(files));
+    const local = await readDirRecursive(localDir);
+    for (const rel of Object.keys(local)) {
+      if (!known.has(rel)) {
+        const full = path.join(localDir, rel);
+        try {
+          fs.unlinkSync(full);
+        } catch {
+          // ignore
+        }
       }
     }
   }
