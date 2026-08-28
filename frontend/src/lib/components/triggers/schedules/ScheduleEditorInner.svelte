@@ -131,12 +131,24 @@
 	let labels: string[] | undefined = $state(undefined)
 	let description = $state('')
 	let no_flow_overlap = $state(false)
-	// Measured on the deployed schedule, so it is read back rather than edited.
-	let intervalDrift: ScheduleIntervalDrift | undefined = $state(undefined)
+	// Measured on the deployed schedule, so it is read back rather than edited, and
+	// so is what the warning says about the runs: the form may be showing a draft
+	// that is not what has been running.
+	let deployedDrift:
+		| { interval: ScheduleIntervalDrift; queuesNextRunAtStart: boolean }
+		| undefined = $state(undefined)
+
 	// A flow queues its next run when the previous one starts, and so does a script
 	// carrying a skip handler, which is pushed as a single step flow. A retry policy
 	// does not: it is materialized natively onto a plain script job.
-	let queuesNextRunAtStart = $derived(is_flow || dynamicSkipPath != undefined)
+	function readDeployedDrift(deployed: Record<string, any>) {
+		deployedDrift = deployed.interval_drift
+			? {
+					interval: deployed.interval_drift,
+					queuesNextRunAtStart: !!deployed.is_flow || deployed.dynamic_skip != undefined
+				}
+			: undefined
+	}
 	let tag: string | undefined = $state(undefined)
 	let validCRON = $state(true)
 	let isValid = $state(true)
@@ -350,7 +362,7 @@
 			edit = false
 			// A new schedule has no run history, even when its fields were read
 			// from an existing one.
-			intervalDrift = undefined
+			deployedDrift = undefined
 			// No deployed baseline for a brand-new schedule. The editor instance
 			// is reused across open() calls, so clear any baseline left by a prior
 			// openEdit — otherwise the "unsaved changes" banner / dirty check would
@@ -517,7 +529,7 @@
 	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
 		// Reading the deployed row is the only thing that carries a measurement, and
 		// it omits the field when the schedule is keeping up.
-		intervalDrift = undefined
+		deployedDrift = undefined
 		if (defaultCfg) {
 			await loadScheduleCfg(defaultCfg)
 			return { overlay: undefined, noDeployed: false }
@@ -549,7 +561,7 @@
 		// Config snapshots from draftSync carry no measurement, and applying one
 		// leaves the deployed schedule running exactly as it was.
 		if ('interval_drift' in cfg) {
-			intervalDrift = cfg.interval_drift
+			readDeployedDrift(cfg)
 		}
 		cronVersion = cfg.cron_version ?? 'v2'
 		initialCronVersion = cronVersion
@@ -751,9 +763,9 @@
 					workspace: wsId ?? '',
 					path: initialPath
 				})
-				intervalDrift = (deployed as any).interval_drift
+				readDeployedDrift(deployed as any)
 			} catch {
-				intervalDrift = undefined
+				deployedDrift = undefined
 			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
 			onUpdate?.(initialPath)
@@ -955,13 +967,15 @@
 						bind:validCRON
 						bind:cronVersion
 					/>
-					{#if intervalDrift}
+					{#if deployedDrift}
 						<Alert type="warning" size="xs" title="Running less often than configured">
 							This schedule is running about every {msToReadableTime(
-								intervalDrift.effective_s * 1000
-							)} instead of every {msToReadableTime(intervalDrift.configured_s * 1000)}: each of the
-							last runs was queued too late for the slot that would have kept the cadence.
-							{#if queuesNextRunAtStart}
+								deployedDrift.interval.effective_s * 1000
+							)} instead of every {msToReadableTime(
+								deployedDrift.interval.configured_s * 1000
+							)}: each of the last runs was queued too late for the slot that would have kept the
+							cadence.
+							{#if deployedDrift.queuesNextRunAtStart}
 								Its next run is already queued when the previous one starts, so the runs are
 								starting late rather than overrunning: look at worker capacity or a concurrency
 								limit.
@@ -1035,7 +1049,9 @@
 							class="mt-2"
 						/>
 					{/if}
-					{#if itemKind == 'script' && !queuesNextRunAtStart}
+					<!-- Hidden for a skip handler, which makes the tick a single step flow: those
+					     runs do overlap, so the toggle would be asserting the opposite. -->
+					{#if itemKind == 'script' && dynamicSkipPath == undefined}
 						<div class="flex gap-2 items-center mt-2">
 							<Toggle options={{ right: 'no overlap' }} checked={true} disabled /><Tooltip
 								>Script runs never overlap: the next run is queued once the previous one has
