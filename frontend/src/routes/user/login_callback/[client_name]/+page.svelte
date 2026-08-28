@@ -44,7 +44,7 @@
 				// backend refused and the existing session is intact, so stay signed in.
 				const message = String(e?.body ?? e?.message ?? '')
 				if (message.includes('finish_setup_mismatch')) {
-					sendUserToast(message.replace(/^.*finish_setup_mismatch:\s*/, ''), true, undefined, 15000)
+					sendUserToast(message.replace(/^.*finish_setup_mismatch:\s*/, ''), true)
 					goto('/')
 					return
 				}
