@@ -96,7 +96,7 @@
      scrollIntoView leaves the Run button uncovered. -->
 <div
 	bind:this={cardNode}
-	class="scroll-mb-8 flex flex-col divide-y rounded-md border border-border-light bg-surface"
+	class="scroll-mb-8 flex flex-col divide-y rounded-md border border-border-light bg-surface-tertiary shadow-sm"
 	data-chat-keyboard-scope="run-args-form"
 >
 	<div class="flex items-start gap-2 p-3">
