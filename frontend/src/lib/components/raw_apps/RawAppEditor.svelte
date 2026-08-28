@@ -2019,8 +2019,10 @@
 		previewIframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
 	}
 
-	// Folders aren't selectable in the tree; it reports '' when the last file is
-	// deleted, and the tab cleanup picks the fallback selection in that case.
+	// Folders aren't selectable in the tree, so this only ever gets files — except
+	// for '' when the last file is deleted, where the tab cleanup picks the
+	// fallback selection instead. The trailing-slash guard keeps that true if a
+	// future `FileExplorer` caller feeds folder paths back in.
 	function handleSelectPath(path: string) {
 		if (!path || path.endsWith('/')) return
 		select({ kind: 'file', path })

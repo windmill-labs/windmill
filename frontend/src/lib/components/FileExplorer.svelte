@@ -11,8 +11,8 @@
 		/** Currently selected file (/-prefixed). Read-only; changes via onSelectPath callback. */
 		selectedPath?: string | undefined
 		/** Called when the user clicks a file. Folders aren't selectable — clicking
-		 * one only expands it — so this reports a folder path only for the root row
-		 * under `showRoot`, and '' when the last file is deleted. */
+		 * one only expands it — so the only non-file paths this reports are the root
+		 * row under `showRoot`, and '' when the last file is deleted. */
 		onSelectPath?: (path: string) => void
 		/** Extra tree nodes appended after the main tree (e.g. read-only wmill.ts). */
 		extraNodes?: TreeNode[]
@@ -173,7 +173,8 @@
 
 		files = nfiles
 		pathToEdit = undefined
-		onSelectPath?.(newPath)
+		// A renamed or newly created folder isn't selectable, so it stays unselected.
+		if (!isFolder) onSelectPath?.(newPath)
 	}
 
 	function handleDelete(path: string) {
@@ -194,12 +195,8 @@
 		files = nfiles
 
 		if (selectedPath === path || (isFolder && selectedPath?.startsWith(path))) {
-			const remaining = Object.keys(nfiles)
-			if (remaining.length > 0) {
-				onSelectPath?.(remaining[0])
-			} else {
-				onSelectPath?.(showRoot ? '/' : '')
-			}
+			const remainingFile = Object.keys(nfiles).find((key) => !key.endsWith('/'))
+			onSelectPath?.(remainingFile ?? (showRoot ? '/' : ''))
 		}
 	}
 </script>
