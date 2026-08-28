@@ -1,0 +1,168 @@
+<!--
+@component
+Inline-editable prose. The multiline counterpart to `EditableInput`: idle renders
+the whole text, wrapped, as a clickable button; clicking swaps to an auto-growing
+`textarea`. `Enter` or `blur` commits via `onSave`, `Shift+Enter` adds a line,
+`Escape` discards — except under `commitOnInput`, where every keystroke has
+already been propagated and there is nothing left to discard.
+
+Use it where a cell or a field holds a sentence rather than a label — a prompt, a
+description, an expected answer. For a one-line label, use `EditableInput`.
+
+```svelte
+<EditableTextarea
+  value={question}
+  placeholder="Question"
+  onSave={(v) => (question = v)}
+  textClass="text-xs font-normal"
+/>
+```
+
+Like `EditableInput`, the value isn't bound: `onSave` fires with the trimmed draft
+whenever it differs from the prior `value`, including `''` when cleared. The parent
+owns the canonical state.
+-->
+<script lang="ts">
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+
+	interface Props {
+		/** Current value shown in idle mode and pre-filled when entering edit mode. */
+		value: string
+		/** Shown when `value` is empty, in both idle and editing modes. */
+		placeholder?: string
+		/**
+		 * Called when the user commits a changed value (Enter or blur, or every keystroke when
+		 * {@link commitOnInput} is set). Fires with the trimmed draft, including `''` if the field
+		 * was cleared. Not called on Escape, or when the draft matches the prior `value`.
+		 */
+		onSave?: (newValue: string) => void
+		/**
+		 * Fire `onSave` on every keystroke instead of only on Enter/blur. Use when the parent
+		 * autosaves, or when a control outside this one reads the value on click — the click blurs
+		 * the textarea, and a commit-on-blur would land after the read. Escape no longer discards
+		 * with this on: the live commits have already propagated.
+		 */
+		commitOnInput?: boolean
+		/** When false, renders as plain text and is not clickable. */
+		editable?: boolean
+		/** Textarea size in editing mode. Idle mode is text only and unaffected. */
+		size?: 'xs' | 'sm' | 'md' | 'lg'
+		/** Wrapper classes. Layout only — margin, width, alignment — not text styling. */
+		class?: string
+		/** Extra classes on the `<textarea>`. Background, border and shadow are reset over these. */
+		inputClass?: string
+		/**
+		 * Text styling applied to *both* the idle text and the textarea, so the two render
+		 * identically and clicking in does not shift the text.
+		 */
+		textClass?: string
+	}
+
+	let {
+		value,
+		placeholder = '',
+		onSave,
+		commitOnInput = false,
+		editable = true,
+		size = 'sm',
+		class: className = '',
+		inputClass = '',
+		textClass = ''
+	}: Props = $props()
+
+	let editing = $state(false)
+	let draft = $state('')
+	let textInputComponent: TextInput | undefined = $state(undefined)
+
+	function startEditing() {
+		if (!editable) return
+		editing = true
+		draft = value ?? ''
+		requestAnimationFrame(() => {
+			textInputComponent?.focus()
+			textInputComponent?.select()
+		})
+	}
+
+	/** Open the editor from outside — a row that was just added, say, so the caller does not have
+	 *  to click into it. */
+	export function edit() {
+		startEditing()
+	}
+
+	function save() {
+		// Re-entry guard: Enter calls `save()` and clears `editing`, which unmounts the textarea and
+		// synchronously fires its `blur` handler — also `save()`. Without this, `onSave` fires twice.
+		if (!editing) return
+		editing = false
+		const trimmed = draft.trim()
+		if (trimmed !== (value ?? '')) {
+			onSave?.(trimmed)
+		}
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			// Kept from whatever is around this: a drawer or a dialog closes on Escape, and leaving
+			// an edit is not asking to leave that.
+			e.preventDefault()
+			e.stopPropagation()
+			editing = false
+			return
+		}
+		// Shift+Enter falls through to the textarea's own newline; plain Enter commits, which is
+		// what makes this usable in a table where Enter means "done with this cell".
+		if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+			e.preventDefault()
+			save()
+		}
+	}
+
+	function handleLiveInput(e: Event) {
+		const next = (e.currentTarget as HTMLTextAreaElement).value.trim()
+		if (next !== (value ?? '')) onSave?.(next)
+	}
+</script>
+
+{#if editing}
+	<!-- `!min-h-0` but never `!h-auto`: the textarea grows via `use:autosize`, which sets an inline
+	     `style.height`, so an `!important` *height* class beats it and the field stops growing. The
+	     *min-height* is the opposite problem — `TextInput` floors it at 28px, which autosize then
+	     rounds up to 30 and the idle text is 22, so the row jumps on every click. `!block` because
+	     an inline-block textarea baseline-aligns in the cell and the idle button does not, which is
+	     a couple of pixels of drift on every click.
+
+	     The idle button's padding is deliberately lopsided — 2px over, 4px under. It has to match
+	     the textarea on two counts at once: the same 22px box (so the row does not resize) and the
+	     same 2px above the first line (so the text does not hop). An even 3px gives the right box
+	     and the wrong text position. -->
+	<TextInput
+		bind:this={textInputComponent}
+		bind:value={draft}
+		{size}
+		underlyingInputEl="textarea"
+		autosizeParams={{ minHeight: 0 }}
+		class="!block !bg-transparent !border-0 !shadow-none !m-0 !min-w-0 !min-h-0 !py-0 {textClass} {inputClass} {className}"
+		inputProps={{
+			placeholder,
+			rows: 1,
+			onblur: save,
+			onkeydown: handleKeydown,
+			oninput: commitOnInput ? handleLiveInput : undefined,
+			spellcheck: false,
+			style: 'padding: 2px !important; resize: none'
+		}}
+	/>
+{:else}
+	<button
+		type="button"
+		onclick={startEditing}
+		disabled={!editable}
+		aria-label={editable ? `Edit ${placeholder.toLowerCase() || 'value'}` : undefined}
+		class="w-full text-left whitespace-pre-wrap break-words rounded px-0.5 pt-[2px] pb-[4px] {editable
+			? 'cursor-text hover:bg-surface-hover'
+			: 'cursor-default'} {textClass} {className}"
+	>
+		{value || placeholder}
+	</button>
+{/if}

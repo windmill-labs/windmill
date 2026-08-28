@@ -10,6 +10,12 @@
 			label: string
 			icon?: any
 			onClick: () => void
+			/**
+			 * `default` unless the surface has no other live call to action. Accent is for the case
+			 * where this button is the only thing to press — a form whose submit is disabled until
+			 * this is done, say — so it is not competing with one.
+			 */
+			variant?: 'default' | 'accent'
 			aiId?: string
 			aiDescription?: string
 		}
@@ -32,11 +38,12 @@
 		{/if}
 	</div>
 	{#if action}
-		<!-- `default`, not `accent`: the page header already carries the accent CTA for
-			 this same action, and one accent per view is the rule. -->
+		<!-- `default` by default: the page header usually carries the accent CTA for this same
+			 action, and one accent per view is the rule. A caller whose other CTA is disabled until
+			 this is done opts into `accent`. -->
 		<Button
 			unifiedSize="md"
-			variant="default"
+			variant={action.variant ?? 'default'}
 			startIcon={action.icon ? { icon: action.icon } : undefined}
 			onClick={action.onClick}
 			aiId={action.aiId}

@@ -89,11 +89,6 @@
 	let storedIds = $state<Set<string>>(new Set())
 
 	let removingCase = $state<CaseDraft | undefined>(undefined)
-	/** The grid, so an open cell can be committed before the list is read to write it. */
-	let casesGrid: EvalCasesGrid | undefined = $state()
-	/** A cell is open in the grid: an edit the list does not hold yet, so Save stays live for the
-	 *  press that commits it. */
-	let casesEditing = $state(false)
 
 	/** The next free `<agent>_datasetN`, which is what a dataset is called until it is named. */
 	function nextDatasetIndex(): number {
@@ -106,9 +101,6 @@
 	export function openDrawer(next: 'new' | 'edit') {
 		mode = next
 		pathError = ''
-		// The grid is rebuilt per open and reports afresh; a cell left open when the drawer closed
-		// would otherwise leave Save live over a set nothing has changed.
-		casesEditing = false
 		// What was collected for a dataset that was never created belongs to that attempt.
 		pendingScorers = []
 		workingCases = next === 'edit' ? cases.map((c) => fromStoredCase(c) as CaseDraft) : []
@@ -142,7 +134,6 @@
 
 	async function createDataset() {
 		if (!workspace || !path || pathError) return
-		await casesGrid?.flush()
 		creating = true
 		const created = path
 		const submittedSummary = summary || undefined
@@ -190,8 +181,6 @@
 	 *  refuses the case edits with it instead of leaving them written under the old name. */
 	async function saveDataset() {
 		if (!workspace || !datasetPath || !dataset || !path || pathError) return
-		// Before anything reads the list: a cell still open is an edit that must go in with it.
-		await casesGrid?.flush()
 		// Read once, so every step of the save agrees on what was submitted: the fields are locked
 		// while it runs, and the one the drawer navigates to afterwards must be the one written.
 		// `summary` always travels: the server keeps the stored one when it is absent, so clearing
@@ -230,8 +219,13 @@
 		saving = false
 	}
 
+	/** The case the grid should open for typing: the one just added. */
+	let focusCaseId = $state<string | undefined>(undefined)
+
 	function addCase() {
-		workingCases = [...workingCases, { ...emptyCase(), id: randomUUID() }]
+		const id = randomUUID()
+		workingCases = [...workingCases, { ...emptyCase(), id }]
+		focusCaseId = id
 	}
 
 	function deleteCase(id: string) {
@@ -260,6 +254,12 @@
 		)
 	})
 	let nothingToSave = $derived(metadataUnchanged && !casesChanged)
+	/** A dataset with no cases cannot be run — the server refuses it (`run.rs`, "has no case to
+	 *  run") — so there is no point creating one. Only creation is blocked: a saved dataset must
+	 *  stay editable down to its last case, or removing that case, or renaming while it is the only
+	 *  one left, would have no way to be saved. */
+	let noCases = $derived(workingCases.length === 0)
+	let noCasesTitle = $derived(noCases ? 'Add at least one case first' : undefined)
 </script>
 
 <Drawer bind:this={drawer} size="900px">
@@ -351,7 +351,10 @@
 					onWriting={(w) => (scorersWriting = w)}
 				/>
 			</div>
-			<div class="flex flex-col gap-2 grow min-h-0">
+			<!-- Sized by its rows, not by what is left of the drawer: a dataset with one case should
+			     not be followed by an empty half-screen of table. The drawer body scrolls when the
+			     list outgrows it. -->
+			<div class="flex flex-col gap-2">
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-semibold text-emphasis">Cases</span>
 					<span class="text-2xs text-tertiary">{workingCases.length}</span>
@@ -366,13 +369,13 @@
 						Add a case
 					</Button>
 				</div>
-				<div class="grow min-h-0">
+				<div>
 					<EvalCasesGrid
-						bind:this={casesGrid}
 						bind:cases={workingCases}
 						onRemove={removeCase}
+						onAdd={addCase}
+						{focusCaseId}
 						locked={writing}
-						onEditingChange={(v) => (casesEditing = v)}
 					/>
 				</div>
 			</div>
@@ -394,7 +397,7 @@
 					unifiedSize="md"
 					variant="accent"
 					loading={saving}
-					disabled={writing || !path || !!pathError || (nothingToSave && !casesEditing)}
+					disabled={writing || !path || !!pathError || nothingToSave}
 					onclick={saveDataset}
 				>
 					Save
@@ -405,7 +408,8 @@
 					variant="accent"
 					startIcon={{ icon: Plus }}
 					loading={creating}
-					disabled={creating || !path || !!pathError}
+					disabled={creating || !path || !!pathError || noCases}
+					title={noCasesTitle}
 					onclick={createDataset}
 				>
 					Create dataset

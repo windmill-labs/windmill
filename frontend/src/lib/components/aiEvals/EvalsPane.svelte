@@ -9,6 +9,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
+	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import {
 		type AgentDraft,
 		AiEvalsService,
@@ -40,6 +41,7 @@
 	import EvalDatasetDrawer from './EvalDatasetDrawer.svelte'
 	import EvalRunsList from './EvalRunsList.svelte'
 	import EvalRunDialog from './EvalRunDialog.svelte'
+	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import {
 		caseLabel,
@@ -97,7 +99,16 @@
 	/** What the agent hashes to as deployed: a run of edits carrying it ran what was then saved. */
 	let deployedHash = $state<string | undefined>(undefined)
 	let running = $state(false)
-	let scorers = $derived(dataset?.scorers ?? [])
+	/** The run on screen belongs to a dataset still being read. Its cases are what name every row,
+	 *  so until they arrive the table has nothing true to show: `displayRows` would still be built
+	 *  from the *previous* dataset's cases, and one run's cells under another run's name is the one
+	 *  thing a table of comparisons must never show. */
+	let datasetLoading = $state(false)
+	/** Empty while the run's dataset is being read, not merely while `dataset` is stale: the
+	 *  columns are named by the dataset's scorers, so keeping the outgoing ones would put the
+	 *  previous dataset's column headers over the incoming run — the same lie the rows are guarded
+	 *  against, one row up. */
+	let scorers = $derived(datasetLoading ? [] : (dataset?.scorers ?? []))
 	let selectedCaseId = $state<string | undefined>(undefined)
 
 	let datasetDrawer: EvalDatasetDrawer | undefined = $state()
@@ -399,19 +410,28 @@
 	/** Opens a run, bringing its dataset with it and offering the run before it as the baseline.
 	 *  Reading the cells is left to the effect on the selection, so every way in opens one alike. */
 	async function openRun(id: string) {
-		// Against the dataset that is loaded, not the one that is selected: skipping on the selection
-		// alone would leave a run open over a dataset whose cases and scorers were never read.
 		const target = experiments.find((e) => e.id === id)
-		if (target && target.dataset !== dataset?.path) {
-			await useDataset(target.dataset)
-		}
 		const index = experiments.findIndex((e) => e.id === id)
 		// The run before it *of the same dataset*: the list spans datasets, and a run of another set
 		// of cases is not a baseline for this one.
 		baselineId = experiments.slice(index + 1).find((e) => e.dataset === target?.dataset)?.id
 		experimentId = id
-		viewingRun = true
 		selectedCaseId = undefined
+		// Opened first, read second: the dataset is a request, and waiting on it here is a click
+		// that does nothing at all until the network answers. The page carries the wait instead.
+		const needsDataset = !!target && target.dataset !== dataset?.path
+		datasetLoading = needsDataset
+		viewingRun = true
+		if (needsDataset) {
+			try {
+				// Against the dataset that is loaded, not the one that is selected: skipping on the
+				// selection alone would leave a run open over a dataset whose cases and scorers were
+				// never read.
+				await useDataset(target!.dataset)
+			} finally {
+				datasetLoading = false
+			}
+		}
 	}
 
 	async function runAll(runSubject: EvalSubject, path: string): Promise<boolean> {
@@ -485,6 +505,13 @@
 	}
 
 	let selectedRow = $derived(displayRows.find((row) => row.case_id === selectedCaseId))
+	/** The case the side panel is showing. Held rather than read straight off the selection: the
+	 *  pane animates shut over a few hundred milliseconds, and the selection is gone on the first
+	 *  of them, which would empty the panel before it had finished closing. */
+	let openRow = $state<ExperimentRow | undefined>(undefined)
+	$effect(() => {
+		if (selectedRow) openRow = selectedRow
+	})
 
 	$effect(() => {
 		if (!ws) return
@@ -621,7 +648,11 @@
 			</span>
 		</div>
 	{:else}
+		<!-- Warmed: the run page is a table, a splitter and two selects, and building it on the first
+		     click lands that work inside the transition — only the first navigation stutters, which
+		     reads as the animation being unreliable rather than as a cost. -->
 		<PagedContent
+			warm
 			class="grow min-h-0"
 			current={!viewingRun || !loaded ? 'list' : 'run'}
 			pages={[
@@ -711,10 +742,10 @@
 		{/if}
 	</div>
 	<div class="grow min-h-0">
-		<Splitpanes class="h-full">
-			<Pane size={selectedRow ? 60 : 100} minSize={35}>
+		<Splitpanes class="h-full splitter-hidden">
+			<Pane minSize={35}>
 				<div class="h-full overflow-auto">
-					<DataTable size="sm" tableFixed rounded={!selectedRow}>
+					<DataTable size="sm" tableFixed>
 						<colgroup>
 							<col style="width: 24%" />
 							<col style="width: 32%" />
@@ -764,150 +795,183 @@
 							</tr>
 						</Head>
 						<tbody class="divide-y">
-							{#each displayRows as row (row.case_id)}
-								{@const status = statusOf(row.status)}
-								<Row
-									hoverable
-									selected={row.case_id === selectedCaseId}
-									on:click={() => openCase(row)}
-								>
-									<Cell first>
-										<span class="truncate block text-emphasis">{caseLabel(row)}</span>
-									</Cell>
-									<Cell last={scorers.length === 0}>
-										<span
-											class="flex items-center gap-1.5 min-w-0"
-											title={row.subject_version
-												? `${status.label} · v${row.subject_version}`
-												: status.label}
-										>
-											<status.icon size={14} class={`shrink-0 ${status.class}`} />
-											{#if row.output != undefined}
-												<span class="truncate text-secondary">{row.output}</span>
-											{:else if status === STATUS.not_run}
-												<span class="text-2xs text-tertiary">not run</span>
-											{:else}
-												<span class="text-2xs text-tertiary">{status.label.toLowerCase()}</span>
-											{/if}
-										</span>
-									</Cell>
-									{#each scorers as scorer, index (scorer.id)}
-										{@const cell = row.scores.find((s) => s.scorer_id === scorer.id)}
-										<Cell numeric last={index === scorers.length - 1}>
-											{#if cell?.pending}
-												<span class="inline-flex justify-end" title="Scoring">
-													<Loader2 size={13} class="animate-spin text-blue-500" />
-												</span>
-											{:else if cell?.score != undefined}
-												<Popover placement="left">
-													{#snippet text()}
-														<div class="flex flex-col gap-2 max-w-80 text-left">
-															{#if cell.reason}
-																<span class="text-xs">{cell.reason}</span>
-															{/if}
-															{#each checksOf(cell) as check (check.name)}
-																<span class="text-2xs flex items-baseline gap-1.5">
-																	<span class={check.passed ? 'text-green-500' : 'text-red-500'}>
-																		{check.passed ? '✓' : '✗'}
-																	</span>
-																	<span>{check.name}</span>
-																	{#if check.detail}
-																		<span class="text-tertiary">{check.detail}</span>
-																	{/if}
-																</span>
-															{/each}
-														</div>
-													{/snippet}
-													<span class="inline-flex items-baseline gap-1.5 justify-end">
-														{#if cell.passed != undefined}
-															<span
-																class={cell.passed ? 'text-green-500' : 'text-red-500'}
-																title={`${cell.passed ? 'Passed' : 'Failed'}: the threshold is ${scorer.pass_if}`}
-															>
-																{cell.passed ? '✓' : '✗'}
-															</span>
-														{/if}
-														<span class="tabular-nums font-medium text-emphasis">
-															{formatScore(cell.score)}
-														</span>
-														{#if cell.baseline != undefined && cell.score !== cell.baseline}
-															{@const delta = cell.score - cell.baseline}
-															<span
-																class={`text-2xs tabular-nums ${delta > 0 ? 'text-green-500' : 'text-red-500'}`}
-															>
-																{formatDelta(delta)}
-															</span>
-														{/if}
-													</span>
-												</Popover>
-											{:else if cell?.not_applicable}
-												<Popover placement="left" disablePopup={!cell.reason}>
-													{#snippet text()}
-														<span class="text-xs max-w-80 text-left">{cell.reason}</span>
-													{/snippet}
-													<span class="text-2xs text-tertiary" title="Not measured on this case">
-														n/a
-													</span>
-												</Popover>
-											{:else if cell?.error}
-												<Popover placement="left">
-													{#snippet text()}
-														<span class="text-xs max-w-80 text-left">{cell.error}</span>
-													{/snippet}
-													<span class="text-2xs text-red-500">failed</span>
-												</Popover>
-											{:else}
-												<span class="text-2xs text-tertiary">—</span>
-											{/if}
+							{#if datasetLoading}
+								<!-- Only while the run's dataset is still being read. A run whose *results* are
+								     loading keeps its rows: `displayRows` already names every case from the
+								     dataset in hand, which is more use than a skeleton of the same shape. -->
+								<tr>
+									<td colspan={2 + scorers.length} class="p-3">
+										<Skeleton layout={[[2], 0.5, [2], 0.5, [2]]} />
+									</td>
+								</tr>
+							{:else}
+								{#each displayRows as row (row.case_id)}
+									{@const status = statusOf(row.status)}
+									<Row
+										hoverable
+										selected={row.case_id === selectedCaseId}
+										on:click={() => openCase(row)}
+									>
+										<Cell first>
+											<span class="truncate block text-emphasis">{caseLabel(row)}</span>
 										</Cell>
-									{/each}
-								</Row>
-							{/each}
+										<Cell last={scorers.length === 0}>
+											<span
+												class="flex items-center gap-1.5 min-w-0"
+												title={row.subject_version
+													? `${status.label} · v${row.subject_version}`
+													: status.label}
+											>
+												<status.icon size={14} class={`shrink-0 ${status.class}`} />
+												{#if row.output != undefined}
+													<span class="truncate text-secondary">{row.output}</span>
+												{:else if status === STATUS.not_run}
+													<span class="text-2xs text-tertiary">not run</span>
+												{:else}
+													<span class="text-2xs text-tertiary">{status.label.toLowerCase()}</span>
+												{/if}
+											</span>
+										</Cell>
+										{#each scorers as scorer, index (scorer.id)}
+											{@const cell = row.scores.find((s) => s.scorer_id === scorer.id)}
+											<Cell numeric last={index === scorers.length - 1}>
+												{#if cell?.pending}
+													<span class="inline-flex justify-end" title="Scoring">
+														<Loader2 size={13} class="animate-spin text-blue-500" />
+													</span>
+												{:else if cell?.score != undefined}
+													<Popover placement="left">
+														{#snippet text()}
+															<div class="flex flex-col gap-2 max-w-80 text-left">
+																{#if cell.reason}
+																	<span class="text-xs">{cell.reason}</span>
+																{/if}
+																{#each checksOf(cell) as check (check.name)}
+																	<span class="text-2xs flex items-baseline gap-1.5">
+																		<span class={check.passed ? 'text-green-500' : 'text-red-500'}>
+																			{check.passed ? '✓' : '✗'}
+																		</span>
+																		<span>{check.name}</span>
+																		{#if check.detail}
+																			<span class="text-tertiary">{check.detail}</span>
+																		{/if}
+																	</span>
+																{/each}
+															</div>
+														{/snippet}
+														<span class="inline-flex items-baseline gap-1.5 justify-end">
+															{#if cell.passed != undefined}
+																<span
+																	class={cell.passed ? 'text-green-500' : 'text-red-500'}
+																	title={`${cell.passed ? 'Passed' : 'Failed'}: the threshold is ${scorer.pass_if}`}
+																>
+																	{cell.passed ? '✓' : '✗'}
+																</span>
+															{/if}
+															<span class="tabular-nums font-medium text-emphasis">
+																{formatScore(cell.score)}
+															</span>
+															{#if cell.baseline != undefined && cell.score !== cell.baseline}
+																{@const delta = cell.score - cell.baseline}
+																<span
+																	class={`text-2xs tabular-nums ${delta > 0 ? 'text-green-500' : 'text-red-500'}`}
+																>
+																	{formatDelta(delta)}
+																</span>
+															{/if}
+														</span>
+													</Popover>
+												{:else if cell?.not_applicable}
+													<Popover placement="left" disablePopup={!cell.reason}>
+														{#snippet text()}
+															<span class="text-xs max-w-80 text-left">{cell.reason}</span>
+														{/snippet}
+														<span class="text-2xs text-tertiary" title="Not measured on this case">
+															n/a
+														</span>
+													</Popover>
+												{:else if cell?.error}
+													<Popover placement="left">
+														{#snippet text()}
+															<span class="text-xs max-w-80 text-left">{cell.error}</span>
+														{/snippet}
+														<span class="text-2xs text-red-500">failed</span>
+													</Popover>
+												{:else}
+													<span class="text-2xs text-tertiary">—</span>
+												{/if}
+											</Cell>
+										{/each}
+									</Row>
+								{/each}
+							{/if}
 						</tbody>
 					</DataTable>
 				</div>
 			</Pane>
-			{#if selectedRow}
-				{@const openRow = selectedRow}
-				<Pane size={40} minSize={25}>
+			<!-- Animated rather than mounted and unmounted: the pane's own width is what moves, so the
+			     cells table reflows alongside it instead of being shoved aside. -->
+			<AnimatedPane size={40} minSize={25} duration={180} opened={!!selectedRow}>
+				{#if openRow}
 					<div class="h-full overflow-auto flex flex-col">
-						<div class="flex items-start gap-2 px-3 py-2 border-b">
-							<span class="text-xs font-semibold text-emphasis break-words">
+						<!-- The title and the actions are different type sizes, so nothing lines them up on
+						     its own. `leading-7` gives the title's first line the same box height as the
+						     close button, and the actions centre in a row of that height beside it — so a
+						     title that wraps grows downwards and leaves the row where it is. -->
+						<div class="flex items-start gap-2 px-3 py-2">
+							<span
+								class="text-xs font-semibold text-emphasis break-words leading-7 flex-1 min-w-0"
+							>
 								{openRow.input?.user_message ?? caseLabel(openRow)}
 							</span>
-							<div class="grow"></div>
-							{#if openRow.job_id}
-								<a
-									class="text-2xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 mt-0.5"
-									href={`${base}/run/${openRow.job_id}?workspace=${ws}`}
-									target="_blank"
-								>
-									Open the case job
-									<ExternalLink size={12} />
-								</a>
-							{/if}
-							<Button
-								unifiedSize="sm"
-								variant="subtle"
-								startIcon={{ icon: X }}
-								iconOnly
-								title="Close"
-								onclick={() => (selectedCaseId = undefined)}
-							/>
+							<div class="flex items-center gap-2 shrink-0 h-7">
+								{#if openRow.job_id}
+									<a
+										class="text-2xs text-accent hover:underline inline-flex items-center gap-1"
+										href={`${base}/run/${openRow.job_id}?workspace=${ws}`}
+										target="_blank"
+									>
+										Open the case job
+										<ExternalLink size={12} />
+									</a>
+								{/if}
+								<Button
+									unifiedSize="sm"
+									variant="subtle"
+									startIcon={{ icon: X }}
+									iconOnly
+									title="Close"
+									onclick={() => (selectedCaseId = undefined)}
+								/>
+							</div>
 						</div>
-						<div class="p-3 flex flex-col gap-4">
+						<!-- One card per thing the case has, rather than sections divided by rules: each
+						     stands on its own and the panel reads as a stack. -->
+						<div class="px-3 pb-3 flex flex-col gap-2">
 							{#if openRow.expected != undefined && openRow.expected !== ''}
-								<Label label="Expected">
-									<span class="text-xs text-secondary whitespace-pre-wrap break-words">
-										{typeof openRow.expected === 'string'
-											? openRow.expected
-											: JSON.stringify(openRow.expected, null, 2)}
-									</span>
-								</Label>
+								<div class="rounded-md border border-light overflow-hidden">
+									<div
+										class="flex items-center gap-2 px-2 py-1 border-b border-light bg-surface-secondary"
+									>
+										<span class="text-2xs font-semibold text-secondary truncate">Expected</span>
+									</div>
+									<div class="p-2">
+										<span class="text-xs text-secondary whitespace-pre-wrap break-words">
+											{typeof openRow.expected === 'string'
+												? openRow.expected
+												: JSON.stringify(openRow.expected, null, 2)}
+										</span>
+									</div>
+								</div>
 							{/if}
 							{#if scorers.length > 0 && openRow.scores.length > 0}
-								<Label label="Scores">
-									<div class="flex flex-col divide-y border rounded-md">
+								<div class="rounded-md border border-light overflow-hidden">
+									<div
+										class="flex items-center gap-2 px-2 py-1 border-b border-light bg-surface-secondary"
+									>
+										<span class="text-2xs font-semibold text-secondary truncate">Scores</span>
+									</div>
+									<div class="flex flex-col divide-y divide-light">
 										{#each scorers as scorer (scorer.id)}
 											{@const cell = openRow.scores.find((s) => s.scorer_id === scorer.id)}
 											<div class="flex flex-col gap-1 px-2 py-1.5">
@@ -948,7 +1012,7 @@
 											</div>
 										{/each}
 									</div>
-								</Label>
+								</div>
 							{/if}
 							{#if experiment && (openRow.job_id || openRow.output != undefined)}
 								<div class="rounded-md border border-light overflow-hidden">
@@ -977,8 +1041,8 @@
 							{/if}
 						</div>
 					</div>
-				</Pane>
-			{/if}
+				{/if}
+			</AnimatedPane>
 		</Splitpanes>
 	</div>
 {/snippet}
@@ -1012,3 +1076,13 @@
 	onCasesChanged={casesChanged}
 	onScorersChanged={scorersChanged}
 />
+
+<style>
+	/* Direct child only, so the rule cannot reach a Splitpanes nested inside a page. Transparent
+	   rather than `opacity: 0`: the gutter stays there to be dragged, it just stops drawing a line
+	   between the cells and the case beside them. */
+	:global(.splitter-hidden > .splitpanes__splitter) {
+		background-color: transparent !important;
+		border: none !important;
+	}
+</style>
