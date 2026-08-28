@@ -121,6 +121,12 @@
 	let raw_string = $state(false)
 	let wrap_body = $state(false)
 	let allowed_origins = $state<string[] | undefined>(undefined)
+	// Derived from the stored list, not reported by the field: the field only
+	// exists on the request-options tab, so an error owned by it would keep Save
+	// disabled from a screen that cannot show why. An empty list is not an error
+	// at all, it is the deny-every-origin state, so only what the API refuses
+	// blocks the save.
+	const originsError = $derived(allowedOriginsError(allowed_origins))
 	// Fetched once here rather than in RouteCorsOption so the Advanced badge can
 	// show an inherited restriction without the section being expanded.
 	let instanceDefaultOrigins = $state<string[]>([])
@@ -163,21 +169,6 @@
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<NewHttpTrigger | undefined>(undefined)
-	// Derived from the stored list, not reported by the field: the field only
-	// exists on the request-options tab, so an error owned by it would keep Save
-	// disabled from a screen that cannot show why.
-	//
-	// An empty list denies every origin, which a route can legitimately be in
-	// and must stay editable in. Only turning the toggle on and saving without
-	// naming one is refused, since that reads as "I restricted this", not "I
-	// locked every browser out". Both sides come from editor state, so nothing
-	// here can go stale the way a component-held snapshot did.
-	const originsError = $derived(
-		allowedOriginsError(allowed_origins) ??
-			(allowed_origins?.length === 0 && originalConfig?.allowed_origins?.length !== 0
-				? 'Enter at least one origin, or turn this off'
-				: undefined)
-	)
 	let userSettings = $state<UserSettings | undefined>(undefined)
 
 	let hasChanged = $derived(!deepEqual(getRouteConfig(), originalConfig ?? {}))
