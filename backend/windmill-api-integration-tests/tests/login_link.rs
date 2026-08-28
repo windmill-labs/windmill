@@ -28,6 +28,11 @@ async fn login_link_is_single_use_and_same_origin(db: Pool<Postgres>) -> anyhow:
     let resp = mint("SECRET_TOKEN_2", json!({"email": "test2@windmill.dev"})).await?;
     assert_eq!(resp.status(), 401);
 
+    // A superadmin account is never a valid target: the minting credential must not
+    // become an instance-wide role.
+    let resp = mint("SECRET_TOKEN", json!({"email": "test@windmill.dev"})).await?;
+    assert_eq!(resp.status(), 400);
+
     // An off-origin destination is refused before anything is minted.
     let resp = mint(
         "SECRET_TOKEN",

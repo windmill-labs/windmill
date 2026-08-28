@@ -3113,15 +3113,21 @@ async fn create_login_link(
         .clamp(1, LOGIN_LINK_MAX_TTL_S);
 
     let mut tx = db.begin().await?;
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1 AND disabled = false)",
+    let target = sqlx::query!(
+        "SELECT super_admin, devops FROM password WHERE email = $1 AND disabled = false",
         &email
     )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
-    if !exists {
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(target) = target else {
         return Err(Error::NotFound(format!("no active account for {email}")));
+    };
+    // A link is a full session for its account; whoever holds the minting credential
+    // must not be able to turn it into an instance-wide role.
+    if target.super_admin || target.devops {
+        return Err(Error::BadRequest(
+            "login links cannot target superadmin or devops accounts".to_string(),
+        ));
     }
 
     let token = rd_string(32);
