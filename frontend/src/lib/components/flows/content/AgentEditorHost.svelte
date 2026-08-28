@@ -270,6 +270,7 @@
 							extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
 							{enableAi}
 							{workspace}
+							staticOnly
 							visibilityKey={`agent:${path}`}
 							{tools}
 							onSelectTool={(id) => onSelectTool?.(id)}

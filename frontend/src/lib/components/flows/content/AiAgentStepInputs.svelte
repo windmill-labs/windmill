@@ -66,6 +66,10 @@
 		/** Identifies the step, so the fields it has open survive leaving and coming back. */
 		visibilityKey?: string
 		tools?: AgentTool[]
+		/** Offer only static values, for a surface whose store cannot hold anything else — a saved
+		 *  agent's config is plain JSON, so an expression on a brain field would be dropped on save.
+		 *  A step's own agent has no such limit: its transforms are evaluated per run. */
+		staticOnly?: boolean
 		onSelectTool?: (toolId: string) => void
 		/** Adds a tool to this agent. Without it the roster is read-only, as it is for a linked
 		 *  agent and inside the agent editor, where the graph is not on screen to receive the new
@@ -93,6 +97,7 @@
 		workspace,
 		visibilityKey = undefined,
 		tools = [],
+		staticOnly = false,
 		onSelectTool = undefined,
 		onAddTool = undefined
 	}: Props = $props()
@@ -352,6 +357,7 @@
 										{helperScript}
 										{isAgentTool}
 										{allowedAiTransforms}
+										noDynamicToggle={staticOnly}
 										{s3StorageConfigured}
 										{chatInputEnabled}
 										{workspace}

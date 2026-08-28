@@ -88,7 +88,11 @@ export function inputTransformsToAgentConfig(
 	const config: AIAgentConfig = { tools: tools ?? [] }
 	for (const key of AGENT_BRAIN_KEYS) {
 		const t = inputTransforms?.[key] as any
-		if (t && t.type === 'static' && t.value !== undefined) {
+		// `null` as well as `undefined`: a placeholder transform is `{"type":"static"}`, and it comes
+		// back from the API — and from a schema backfill — with an explicit null. Writing it through
+		// would put `memory: null` in the saved agent and show as a change against a config that
+		// simply omits the key.
+		if (t && t.type === 'static' && t.value !== undefined && t.value !== null) {
 			;(config as any)[key] = t.value
 		}
 	}
