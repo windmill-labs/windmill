@@ -62,18 +62,24 @@ describe('escapeTemplateBackticks', () => {
 		expect(evaluated).toContain('` + flow_input.y + `')
 	})
 
-	// Expressions stored by the old blanket rule have to come back as the author typed them,
-	// whether that escaping left them valid or not — otherwise the editor shows backslashes
-	// nobody typed, and each save escapes them again one deeper.
-	it('shows an expression escaped by the old rule as it was authored', () => {
-		const corrupted = '-p ${a}${b ? \\` --x ${c}\\` : ""}'
+	// An expression the old blanket rule broke — it escaped backticks inside `${...}`, which
+	// does not parse — comes back as the author typed it, instead of showing the backslashes
+	// and escaping them one deeper on every save.
+	it('heals an expression the old rule broke', () => {
+		const broken = '-p ${a}${b ? \\` --x ${c}\\` : ""}'
 		const clean = '-p ${a}${b ? ` --x ${c}` : ""}'
-		expect(unescapeTemplateBackticks(corrupted)).toBe(clean)
+		expect(unescapeTemplateBackticks(broken)).toBe(clean)
 		expect(escapeTemplateBackticks(clean)).toBe(clean)
+	})
 
-		// This one stayed valid under the old rule, so it was never corrupted, only over-escaped.
-		expect(unescapeTemplateBackticks('${"\\`"}')).toBe('${"`"}')
-		expect(escapeTemplateBackticks('${"`"}')).toBe('${"`"}')
+	// A text that already parses is left alone: an over-escaped legacy value and a backslash the
+	// author wrote are the same bytes, so healing on looks alone would drop a real character.
+	it('leaves an expression that already parses alone', () => {
+		const run = (body: string) => new Function('return `' + body + '`')()
+		for (const stored of ['${"\\`"}', '${"a\\\\`"}']) {
+			expect(unescapeTemplateBackticks(stored)).toBe(stored)
+			expect(run(escapeTemplateBackticks(unescapeTemplateBackticks(stored)))).toBe(run(stored))
+		}
 	})
 
 	// ...but a backtick escaped inside a nested template belongs there and must survive.
@@ -92,13 +98,6 @@ describe('escapeTemplateBackticks', () => {
 			expect(escapeTemplateBackticks(unescapeTemplateBackticks(stored))).toBe(stored)
 			expect(run(stored)).toBe(run(escapeTemplateBackticks(unescapeTemplateBackticks(stored))))
 		}
-	})
-
-	// The old rule was a blind replaceAll, so it left a backslash before every backtick even
-	// where the author had typed one of their own. Reading its output with JS escape semantics
-	// misses that, and the value keeps its extra backslash instead of coming back clean.
-	it('heals a value whose text held a backslash before a backtick', () => {
-		expect(unescapeTemplateBackticks('a\\\\`')).toBe('a\\`')
 	})
 
 	it('round-trips through unescapeTemplateBackticks', () => {
