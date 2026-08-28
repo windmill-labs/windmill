@@ -42,6 +42,11 @@ pub fn workspaced_service() -> Router {
         .route("/migrations", post(publish_migrations))
         .route("/projects/{slug}/export", get(get_project_export))
         .route("/projects/{slug}/submit", post(submit_project))
+        .route("/projects/{slug}/withdraw", post(withdraw_project))
+        .route(
+            "/projects/{slug}/discard_update",
+            post(discard_project_update),
+        )
         .route("/project", get(get_project_by_source))
 }
 
@@ -554,9 +559,35 @@ async fn submit_project(
     .await
 }
 
-// The Hub has no auth of its own: it validates bearer tokens by calling this
-// instance's /api/users/whoami. Forwarding the caller's own token logs them in
-// on the Hub as themselves (account auto-created on first use).
+// Take a submission back out of review, keeping what was pushed for it.
+async fn withdraw_project(
+    ctx: HubPublishCtx,
+    Path((_workspace, slug)): Path<(String, ProjectSlug)>,
+) -> Result<impl IntoResponse, Error> {
+    ctx.post(
+        &format!("/projects/{}/withdraw", slug),
+        &serde_json::json!({}),
+    )
+    .await
+}
+
+// Throw away the pending update to an already-published project. The published
+// version is untouched — it never saw the update.
+async fn discard_project_update(
+    ctx: HubPublishCtx,
+    Path((_workspace, slug)): Path<(String, ProjectSlug)>,
+) -> Result<impl IntoResponse, Error> {
+    ctx.post(
+        &format!("/projects/{}/discard_update", slug),
+        &serde_json::json!({}),
+    )
+    .await
+}
+
+// The Hub has no auth of its own: it validates bearer tokens by calling
+// /api/users/whoami — on app.windmill.dev for the public Hub, on the paired
+// instance for a private one. Forwarding the caller's own token logs them in on
+// the Hub as themselves (account auto-created on first use).
 async fn get_from_hub(
     path: &str,
     source_id: &str,

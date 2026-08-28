@@ -69,7 +69,7 @@ export const httpTriggerRequestSchema = z.object({
 	"wrap_body": z.boolean().describe("If true, wraps the request body in a 'body' parameter").optional(),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
 	"raw_string": z.boolean().describe("If true, passes the request body as a raw string instead of parsing as JSON").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -128,7 +128,7 @@ export const websocketTriggerRequestSchema = z.object({
 		"message": z.string().describe("Message to send as heartbeat. Use {{state}} as a placeholder for a value extracted from incoming messages (see state_field)."),
 		"state_field": z.string().describe("Optional. Top-level JSON field to extract from incoming messages. The extracted value replaces {{state}} in the heartbeat message.").optional()
 	}).describe("Optional periodic heartbeat message configuration").nullable().optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -174,7 +174,7 @@ export const kafkaTriggerRequestSchema = z.object({
 	"auto_offset_reset": z.enum(["latest", "earliest"]).describe("Initial offset behavior when consumer group has no committed offset.").default("latest").optional(),
 	"auto_commit": z.boolean().describe("When true (default), offsets are committed automatically after receiving each message. When false, you must manually commit offsets using the commit_offsets endpoint.").default(true).optional(),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -206,7 +206,7 @@ export const natsTriggerRequestSchema = z.object({
 	"consumer_name": z.string().describe("JetStream consumer name (required when use_jetstream is true)").nullable().optional(),
 	"subjects": z.array(z.string()).describe("Array of NATS subjects to subscribe to"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -247,7 +247,7 @@ export const postgresTriggerRequestSchema = z.object({
 		})).optional(),
 		"transaction_to_track": z.array(z.string())
 	}).describe("Configuration for creating/managing the publication (tables, operations)").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -289,7 +289,7 @@ export const mqttTriggerRequestSchema = z.object({
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -326,7 +326,7 @@ export const amqpTriggerRequestSchema = z.object({
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({
@@ -357,7 +357,7 @@ export const sqsTriggerRequestSchema = z.object({
 	"script_path": z.string().describe("Path to the script or flow to execute when a message is received"),
 	"is_flow": z.boolean().describe("True if script_path points to a flow, false if it points to a script"),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"error_handler_path": z.string().describe("Path to a script or flow to run when the triggered job fails").optional(),
+	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
 		"constant": z.object({

@@ -3,7 +3,7 @@
 
 use sqlx::{Pool, Postgres};
 use windmill_common::workspaces::{
-    count_paid_seats, count_workspace_forks, fork_chain_depth, fork_subtree_height,
+    billable_seats, count_paid_seats, count_workspace_forks, fork_chain_depth, fork_subtree_height,
     get_billing_workspace_id, invalidate_billing_workspace_cache, list_fork_descendants,
 };
 
@@ -106,11 +106,17 @@ async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
     insert_member(&db, "seat-root", "dev2@w.dev", false, false, false).await;
     insert_member(&db, "seat-root", "op1@w.dev", true, false, false).await;
     insert_member(&db, "seat-root", "op2@w.dev", true, false, false).await;
-    // These must NOT count towards seats.
+    // These must NOT count towards seats. The service account is a non-operator, so counting it
+    // would inflate the developer tally the invoice line is written from, not the operator one.
     insert_member(&db, "seat-root", "disabled@w.dev", false, true, false).await;
     insert_member(&db, "seat-root", "svc@w.dev", false, false, true).await;
 
     assert_eq!(count_paid_seats(&db, "seat-root").await.unwrap(), 3);
+    let breakdown = billable_seats(&db, "seat-root").await.unwrap();
+    assert_eq!(
+        (breakdown.developers, breakdown.operators, breakdown.seats),
+        (2, 2, 3)
+    );
 
     insert_ws(&db, "seat-fork1", Some("seat-root"), false).await;
     insert_ws(&db, "seat-fork2", Some("seat-root"), false).await;
