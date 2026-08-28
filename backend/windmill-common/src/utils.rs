@@ -980,20 +980,15 @@ impl ScheduleType {
         &self,
         starting_from: &chrono::DateTime<chrono_tz::Tz>,
     ) -> chrono::DateTime<chrono_tz::Tz> {
-        match self {
-            ScheduleType::Croner(croner_schedule) => croner_schedule
-                .find_next_occurrence(starting_from, false)
-                .expect("cron: a schedule should have a next event"),
-            ScheduleType::Cron(schedule) => schedule
-                .after(starting_from)
-                .next()
-                .expect("cron: a schedule should have a next event"),
-        }
+        self.find_next_opt(starting_from)
+            .expect("cron: a schedule should have a next event")
     }
 
     /// An expression can be parseable and still have no next occurrence (Feb
     /// 30th), which the pusher has no answer for; a reader recomputing past
-    /// occurrences does, so it takes the fallible form.
+    /// occurrences does, so it takes the fallible form. What croner had to say
+    /// about it is logged here rather than carried out, so that the pusher's
+    /// panic is still preceded by the reason.
     pub fn find_next_opt(
         &self,
         starting_from: &chrono::DateTime<chrono_tz::Tz>,
@@ -1001,6 +996,9 @@ impl ScheduleType {
         match self {
             ScheduleType::Croner(croner_schedule) => croner_schedule
                 .find_next_occurrence(starting_from, false)
+                .inspect_err(|err| {
+                    tracing::error!("cron: no occurrence after {starting_from}: {err:?}")
+                })
                 .ok(),
             ScheduleType::Cron(schedule) => schedule.after(starting_from).next(),
         }

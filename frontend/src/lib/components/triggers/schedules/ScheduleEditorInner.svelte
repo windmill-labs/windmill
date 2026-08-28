@@ -733,8 +733,15 @@
 				enabled = previousEnabled
 				return
 			}
-			if (!nEnabled) {
-				// The measurement describes a schedule that is running.
+			// The measurement describes the deployed schedule, which just changed:
+			// disabling drops it, and enabling brings back what the runs still show.
+			try {
+				const deployed = await ScheduleService.getSchedule({
+					workspace: wsId ?? '',
+					path: initialPath
+				})
+				intervalDrift = (deployed as any).interval_drift
+			} catch {
 				intervalDrift = undefined
 			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)

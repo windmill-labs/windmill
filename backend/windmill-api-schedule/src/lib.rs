@@ -1022,6 +1022,13 @@ const DRIFT_MIN_MISSED_SLOTS: usize = 3;
 /// each comparison spans a pair.
 const DRIFT_SAMPLE_SIZE: i64 = DRIFT_MIN_MISSED_SLOTS as i64 + 1;
 
+/// Root jobs of the runnable the sample may walk before giving up. There is no
+/// index on `trigger`, so the sample rides the one on `runnable_path` and finds
+/// the schedule's own runs by filter: a runnable that is also busy outside this
+/// schedule would otherwise be read back as far as its fourth scheduled run.
+/// Past the budget the schedule reports nothing rather than costing the walk.
+const DRIFT_SCAN_BUDGET: i64 = 100;
+
 /// `push_times` are the moments the last runs were queued, newest first. The
 /// pusher anchors `find_next` on exactly that moment, so recomputing from it
 /// recovers each run's slot, which the queue row no longer holds once the run
@@ -1137,11 +1144,10 @@ async fn list_schedule_with_jobs(
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
         // - both `workspace_id = $1` checks are required to hit both indexes.
         // - `push_times` rides the `(workspace_id, runnable_path, created_at DESC)` index,
-        //   hence its own `parent_job IS NULL` clause. `trigger` is only a filter on that
-        //   scan, so the `edited_at` bound is what ends the walk: without it, a path that
-        //   also carries non-schedule traffic is read to the end of its range whenever it
-        //   holds fewer than the sampled number of scheduled runs. Nothing writes
-        //   `edited_at` after the insert, so no run of the schedule can predate it.
+        //   hence its own `parent_job IS NULL` clause, and is capped by DRIFT_SCAN_BUDGET.
+        //   The `edited_at` bound is not that cap: it drops the runs of whatever schedule
+        //   last held this path, which carry the same `trigger`. Nothing writes `edited_at`
+        //   after the insert, so no run of this schedule can predate it.
         "SELECT
             schedule.path, schedule.schedule, schedule.timezone,
             schedule.cron_version, t.jobs, p.push_times FROM schedule,
@@ -1158,14 +1164,17 @@ async fn list_schedule_with_jobs(
                 LIMIT 20
             ) AS jobs) t,
             LATERAL(SELECT ARRAY(
-                SELECT created_at
-                FROM v2_job
-                WHERE schedule.enabled
-                    AND trigger_kind = 'schedule'
-                    AND trigger = schedule.path
-                    AND v2_job.workspace_id = $1
-                    AND parent_job IS NULL AND runnable_path = schedule.script_path
-                    AND created_at > schedule.edited_at
+                SELECT created_at FROM (
+                    SELECT created_at, trigger, trigger_kind
+                    FROM v2_job
+                    WHERE schedule.enabled
+                        AND v2_job.workspace_id = $1
+                        AND parent_job IS NULL AND runnable_path = schedule.script_path
+                        AND created_at > schedule.edited_at
+                    ORDER BY created_at DESC
+                    LIMIT $6
+                ) recent
+                WHERE trigger_kind = 'schedule' AND trigger = schedule.path
                 ORDER BY created_at DESC
                 LIMIT $5
             ) AS push_times) p
@@ -1176,7 +1185,8 @@ async fn list_schedule_with_jobs(
         per_page as i64,
         offset as i64,
         windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX,
-        DRIFT_SAMPLE_SIZE
+        DRIFT_SAMPLE_SIZE,
+        DRIFT_SCAN_BUDGET
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1282,20 +1292,27 @@ async fn fetch_interval_drift(
     if !schedule.enabled {
         return Ok(None);
     }
-    // Same index, and the same `edited_at` bound for the same reason, as the sample
-    // in `list_schedule_with_jobs`.
+    // Same index, same budget and same `edited_at` bound, for the same reasons as
+    // the sample in `list_schedule_with_jobs`.
     let push_times = sqlx::query_scalar!(
-        "SELECT created_at FROM v2_job
-        WHERE workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
-            AND parent_job IS NULL AND runnable_path = $3
-            AND created_at > $4
+        "SELECT created_at FROM (
+            SELECT created_at, trigger, trigger_kind
+            FROM v2_job
+            WHERE workspace_id = $1
+                AND parent_job IS NULL AND runnable_path = $3
+                AND created_at > $4
+            ORDER BY created_at DESC
+            LIMIT $6
+        ) recent
+        WHERE trigger_kind = 'schedule' AND trigger = $2
         ORDER BY created_at DESC
         LIMIT $5",
         w_id,
         &schedule.path,
         &schedule.script_path,
         schedule.edited_at,
-        DRIFT_SAMPLE_SIZE
+        DRIFT_SAMPLE_SIZE,
+        DRIFT_SCAN_BUDGET
     )
     .fetch_all(db)
     .await?;
