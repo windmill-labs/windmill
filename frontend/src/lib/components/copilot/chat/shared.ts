@@ -1415,12 +1415,9 @@ async function loadHubIntegrations(): Promise<HubIntegration[]> {
 	return hubIntegrationsCache
 }
 
-/** Which integrations carry hand-written provider knowledge, lowercased because a
- * hub slug is case-sensitive and both casings of one vendor can exist. The mark says
- * get_hub_integration has verified pagination, enums and gotchas to add for this one.
- * It must never become a reason to skip the call for the others: that call still
- * carries the resource type and the usage-ranked examples, neither of which is
- * guessable from a search result. */
+/** Which integrations carry provider knowledge checked against the live API,
+ * lowercased because a hub slug is case-sensitive and both casings can exist. The
+ * mark means there is more to read, never that the call is skippable elsewhere. */
 async function documentedIntegrations(): Promise<Set<string>> {
 	const available = await loadHubIntegrations()
 	return new Set(available.filter((i) => i.documented).map((i) => i.name.toLowerCase()))
