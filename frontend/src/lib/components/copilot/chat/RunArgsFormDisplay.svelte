@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte'
-	import { Play, X } from 'lucide-svelte'
+	import { Code, Play, X } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { processSecretArgs } from '$lib/components/secretArgUtils'
@@ -96,11 +96,13 @@
      scrollIntoView leaves the Run button uncovered. -->
 <div
 	bind:this={cardNode}
-	class="scroll-mb-8 flex flex-col divide-y rounded-md border border-border-light bg-surface-tertiary shadow-sm"
+	class="scroll-mb-8 flex flex-col rounded-md border border-border-light bg-surface-tertiary shadow-sm"
 	data-chat-keyboard-scope="run-args-form"
 >
 	<div class="flex items-start gap-2 p-3">
-		<Play class="h-4 w-4 shrink-0 text-accent" />
+		<!-- The script's own kind icon, as `getJobKindIcon` gives it everywhere else. Run belongs
+		     to the button that runs it, not to the heading of the thing being run. -->
+		<Code class="h-4 w-4 shrink-0 text-accent" />
 		<div class="min-w-0 flex-1">
 			<p class="truncate text-xs font-semibold text-emphasis">
 				Run {runForm.summary || runForm.path}
@@ -113,9 +115,19 @@
 
 	<!-- Only the fields scroll. A script with many arguments would otherwise grow a card
 	     taller than the pane, pushing the Run button and the lines naming what the form
-	     dropped — a secret it opened empty among them — below the fold. The dividers come
-	     from the card, as in DrawerContent, so they bleed to its edges. -->
-	<div class="max-h-[min(28rem,50vh)] overflow-y-auto p-3" style="scrollbar-gutter: stable;">
+	     dropped — a secret it opened empty among them — below the fold. `both-edges` reserves
+	     the gutter on both sides, so the fields stay centred rather than drifting left of it. -->
+	<div
+		class="max-h-[min(28rem,50vh)] overflow-y-auto px-3"
+		style="scrollbar-gutter: stable both-edges;"
+	>
+		<!-- Fades what scrolls under the heading and over the actions instead of cutting it, as
+		     ArtifactViewer does under its own header. The negative margins cancel the flow height
+		     so each overlays the fields rather than pushing them. The scroller carries no vertical
+		     padding: sticky cannot enter it, so a padded box would fade short of its own edges and
+		     leave a band of content sharp. The heading and the actions pad this gap instead. -->
+		<div class="sticky top-0 z-10 -mb-3 h-3 bg-gradient-to-b from-surface-tertiary to-transparent"
+		></div>
 		{#if hasArgs}
 			<!-- The one thing here that runs before Run: a `dynselect-`/`dynmultiselect-`
 			argument makes DynamicInput execute that entrypoint on mount to fill its options —
@@ -136,10 +148,13 @@
 		{:else}
 			<p class="text-xs text-secondary">This script takes no arguments.</p>
 		{/if}
+		<div
+			class="sticky bottom-0 z-10 -mt-3 h-3 bg-gradient-to-t from-surface-tertiary to-transparent"
+		></div>
 	</div>
 
-	<!-- One region with the actions, not its own: these lines report on the run the button
-	     below launches, and a rule between them would read as separating two subjects. -->
+	<!-- One region with the actions: these lines report on the run the button below launches,
+	     and separating them would read as two subjects. -->
 	<div class="flex flex-col gap-2 p-3">
 		{#if runForm.droppedKeys?.length}
 			<p class="text-2xs text-secondary">
