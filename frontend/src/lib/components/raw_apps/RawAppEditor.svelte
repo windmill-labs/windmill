@@ -796,6 +796,13 @@
 		)
 	}
 
+	// `wmill.ts` is generated inside the iframe from `populateRunnables`' dts: the
+	// sidebar lists it and the iframe can open it, but it is never a key of `files`.
+	// Every "does this document exist?" test has to allow for that.
+	function isOpenableDocument(path: string) {
+		return path === WMILL_TS_PATH || (files ?? {})[path] !== undefined
+	}
+
 	function populateFiles() {
 		if (files) {
 			suppressSetActiveDocument = true
@@ -805,7 +812,7 @@
 				suppressTimer = undefined
 			}, 500)
 			const doc = untrack(() => iframeDocument)
-			if (doc !== undefined && files[doc] !== undefined) {
+			if (doc !== undefined && isOpenableDocument(doc)) {
 				setFilesAndSelectInIframe(files, doc)
 			} else {
 				// Deleted or renamed away since we last told the iframe to open it;
@@ -2065,13 +2072,10 @@
 		void Object.keys(files ?? {})
 		void Object.keys(runnables ?? {})
 		untrack(() => {
-			const filesSet = files ?? {}
 			const runnablesSet = runnables ?? {}
 			const stale = tabs.filter((t) => {
 				if (t.id.startsWith(FILE_PREFIX)) {
-					const fp = t.id.slice(FILE_PREFIX.length)
-					// wmill.ts is generated from the runnables, so it is never in `files`.
-					return fp !== WMILL_TS_PATH && filesSet[fp] === undefined
+					return !isOpenableDocument(t.id.slice(FILE_PREFIX.length))
 				}
 				if (t.id.startsWith(RUNNABLE_PREFIX)) {
 					const k = t.id.slice(RUNNABLE_PREFIX.length)
