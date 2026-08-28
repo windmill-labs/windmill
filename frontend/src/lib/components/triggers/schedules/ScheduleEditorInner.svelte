@@ -133,6 +133,10 @@
 	let no_flow_overlap = $state(false)
 	// Measured on the deployed schedule, so it is read back rather than edited.
 	let intervalDrift: ScheduleIntervalDrift | undefined = $state(undefined)
+	// A flow queues its next run when the previous one starts, and so does a script
+	// carrying a skip handler, which is pushed as a single step flow. A retry policy
+	// does not: it is materialized natively onto a plain script job.
+	let queuesNextRunAtStart = $derived(is_flow || dynamicSkipPath != undefined)
 	let tag: string | undefined = $state(undefined)
 	let validCRON = $state(true)
 	let isValid = $state(true)
@@ -957,6 +961,15 @@
 								intervalDrift.effective_s * 1000
 							)} instead of every {msToReadableTime(intervalDrift.configured_s * 1000)}: each of the
 							last runs was queued too late for the slot that would have kept the cadence.
+							{#if queuesNextRunAtStart}
+								Its next run is already queued when the previous one starts, so the runs are
+								starting late rather than overrunning: look at worker capacity or a concurrency
+								limit.
+							{:else}
+								Script runs never overlap, so a run that outlasts its interval pushes the next one
+								out. To keep the cadence, schedule a flow instead: a flow queues its next run when
+								the previous one starts.
+							{/if}
 						</Alert>
 					{/if}
 					<div class="flex flex-col gap-1">
@@ -1022,27 +1035,12 @@
 							class="mt-2"
 						/>
 					{/if}
-					{#if itemKind == 'script'}
-						<!-- A skip handler makes the tick a single step flow, which is armed when the
-						     run starts rather than when it finishes. A retry policy does not: it is
-						     materialized natively onto a plain script job. -->
-						{@const runsAsFlow = dynamicSkipPath != undefined}
-						<div class="flex flex-col gap-1 mt-2">
-							{#if !runsAsFlow}
-								<Toggle options={{ right: 'no overlap' }} checked={true} disabled />
-							{/if}
-							<p class="text-xs text-secondary">
-								{#if runsAsFlow}
-									A skip handler makes this schedule run as a single step flow: the next run is
-									queued when the previous one starts, so runs can overlap.
-								{:else}
-									Script runs never overlap: the next run is queued once the previous one has
-									completed, so a run that outlasts its interval pushes the next one to a later
-									slot. To keep the configured cadence, schedule a flow instead: a flow starts on
-									time, and its "no overlap of flows" setting skips a slot while the previous run is
-									still going.
-								{/if}
-							</p>
+					{#if itemKind == 'script' && !queuesNextRunAtStart}
+						<div class="flex gap-2 items-center mt-2">
+							<Toggle options={{ right: 'no overlap' }} checked={true} disabled /><Tooltip
+								>Script runs never overlap: the next run is queued once the previous one has
+								completed.</Tooltip
+							>
 						</div>
 					{/if}
 				{/if}

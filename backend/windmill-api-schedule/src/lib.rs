@@ -1223,8 +1223,11 @@ async fn fetch_interval_drift(
     if !schedule.enabled {
         return Ok(None);
     }
-    // Same index, same budget and same `edited_at` bound, for the same reasons as
-    // the sample in `list_schedule_with_jobs`.
+    // Query plan: `(workspace_id, runnable_path, created_at DESC)` index, hence the
+    // `parent_job IS NULL` clause, with the walk capped by DRIFT_SCAN_BUDGET. The
+    // `edited_at` bound is not that cap: it drops the runs of whatever schedule last
+    // held this path, which carry the same `trigger`. Nothing writes `edited_at` after
+    // the insert, so no run of this schedule can predate it.
     let push_times = sqlx::query_scalar!(
         "SELECT created_at FROM (
             SELECT created_at, trigger, trigger_kind
