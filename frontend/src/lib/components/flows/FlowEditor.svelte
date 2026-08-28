@@ -2,6 +2,8 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Disposable from '$lib/components/common/drawer/Disposable.svelte'
 	import FlowEditorPanel from './content/FlowEditorPanel.svelte'
+	import { agentEditorTarget } from './agentEditorStore.svelte'
+	import AgentEditorModal from './content/AgentEditorModal.svelte'
 	import FlowModuleSchemaMap from './map/FlowModuleSchemaMap.svelte'
 	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import WindmillIcon from '../icons/WindmillIcon.svelte'
@@ -231,7 +233,9 @@
 	setContext<PropPickerContext>('PropPickerContext', {
 		flowPropPickerConfig,
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined),
-		inModalPanel: () => panelMode === 'modal'
+		// The agent editor is a dialog over the same graph, so a connect started inside it has the
+		// same closure hazard as one started from the modal panel.
+		inModalPanel: () => panelMode === 'modal' || agentEditorTarget() !== undefined
 	})
 
 	// Read by graph step items (VirtualItem) to show a per-step "explore" hint on hover,
@@ -524,3 +528,8 @@
 		{/if}
 	{/snippet}
 </Disposable>
+
+<!-- Mounted here rather than in the panel, which is keyed on the selection and would take the
+     dialog down with it — and here rather than higher up, because the form inside needs the
+     PropPickerContext this component sets. -->
+<AgentEditorModal enableAi={!disableAi} />

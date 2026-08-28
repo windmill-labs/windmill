@@ -20,9 +20,9 @@ describe('summarizeAgentBrain', () => {
 			max_iterations: 10
 		})
 		expect(rows).toEqual([
-			{ label: 'Model', value: 'openai · gpt-4o' },
-			{ label: 'System prompt', value: 'You are helpful' },
-			{ label: 'Streaming', value: 'on' },
+			{ label: 'Provider', value: 'openai · gpt-4o' },
+			{ label: 'System message', value: 'You are helpful' },
+			{ label: 'Stream the response', value: 'on' },
 			{ label: 'Temperature', value: '0.7' },
 			{ label: 'Max iterations', value: '10' }
 		])

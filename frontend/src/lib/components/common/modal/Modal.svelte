@@ -43,6 +43,10 @@
 		 * the dialog otherwise hugs its content, and percentage heights inside it do not
 		 * resolve (the centering wrapper is `min-h-full`, i.e. height:auto). */
 		fillHeight?: boolean
+		/** Confirm on Enter. On by default, which suits a dialog whose body is a short form. Turn it
+		 *  off for one holding a multi-line field: the handler is on the window and preventDefaults
+		 *  every Enter while the dialog is open, so a newline never reaches the editor. */
+		enterConfirms?: boolean
 		/** Force a minimum z-index base. Defaults to elevating above the AI chat
 		 * side panel when it is open. Pass an explicit value to stack above other
 		 * surfaces (e.g. a modal opened over the /sessions preview-pane editor). */
@@ -65,6 +69,7 @@
 		trail = undefined,
 		description = undefined,
 		fillHeight = false,
+		enterConfirms = true,
 		minZIndex: minZIndexProp = undefined,
 		titleBadge,
 		settings,
@@ -114,6 +119,7 @@
 		if (open) {
 			switch (event.key) {
 				case 'Enter':
+					if (!enterConfirms) break
 					event.stopPropagation()
 					event.preventDefault()
 					dispatch('confirmed')

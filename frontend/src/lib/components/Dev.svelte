@@ -33,6 +33,7 @@
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import FlowModuleSchemaMap from './flows/map/FlowModuleSchemaMap.svelte'
 	import FlowEditorPanel from './flows/content/FlowEditorPanel.svelte'
+	import AgentEditorModal from './flows/content/AgentEditorModal.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { findModuleInFlow } from './flows/flowDiff'
 	import { writable } from 'svelte/store'
@@ -1313,5 +1314,8 @@
 				</Splitpanes>
 			</div>
 		</div>
+		<!-- Outside the panel, which is keyed on the selection: the dialog stays on the step it was
+		opened for while the graph is used behind it. -->
+		<AgentEditorModal enableAi />
 	{/if}
 </main>

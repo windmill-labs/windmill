@@ -31,6 +31,7 @@
 		linkedToolsScope
 	} from '../linkedAgentToolsStore.svelte'
 	import { getAgentEdit, getAgentEditingPath, setAgentEditingPath } from '../agentEditStore.svelte'
+	import { agentEditorOwns, openAgentEditor } from '../agentEditorStore.svelte'
 	import { claimLinkedToolsFetch } from '../flowState'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
@@ -42,6 +43,7 @@
 		tools = $bindable(),
 		toolInputs = $bindable(),
 		moduleId,
+		agentNodeId,
 		opWorkspace = undefined,
 		flowPath = ''
 	}: {
@@ -50,6 +52,9 @@
 		tools: AgentTool[]
 		toolInputs: Record<string, Record<string, InputTransform>>
 		moduleId: string
+		// The step's own id in the flow tree, which is what the agent editor resolves it by. Distinct
+		// from moduleId, which is ancestry-qualified for a nested agent and would not resolve.
+		agentNodeId: string
 		// The workspace the flow editor operates on (differs from the nav workspace in session/fork
 		// editors). All resource reads/writes must target it, not $workspaceStore.
 		opWorkspace?: string
@@ -436,7 +441,7 @@
 			if (fork) {
 				const { path, ...baselines } = fork
 				setAgentEditingPath(tools, path, baselines)
-				sendUserToast(`Editing ${path}. Make changes, then Save changes to update it`)
+				openAgentEditor(agentNodeId)
 			} else {
 				sendUserToast('The step changed while loading the agent. Try Edit again', true)
 			}
@@ -673,6 +678,17 @@
 				</Button>
 			</div>
 			<div class="flex items-center justify-end gap-1">
+				{#if !agentEditorOwns(agentNodeId)}
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						startIcon={{ icon: Pencil }}
+						disabled={saving}
+						onclick={() => openAgentEditor(agentNodeId)}
+					>
+						Continue editing
+					</Button>
+				{/if}
 				<Button unifiedSize="sm" variant="default" disabled={saving} onclick={cancelEdit}>
 					Cancel
 				</Button>

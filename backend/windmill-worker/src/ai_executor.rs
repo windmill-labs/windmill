@@ -1099,7 +1099,10 @@ pub async fn run_agent(
         // For non-Anthropic providers, response_format is handled by the query builder
     }
 
-    let user_wants_streaming = args.streaming.unwrap_or(false);
+    // Absence means on, matching the schema's own default: a step that never wrote the key is a
+    // step that never had an opinion, and the answer arriving as it is generated is the one people
+    // expect. Only an explicit `false` holds the answer back until it is complete.
+    let user_wants_streaming = args.streaming.unwrap_or(true);
     *has_stream = user_wants_streaming && is_text_output;
 
     let mut final_events_str = String::new();

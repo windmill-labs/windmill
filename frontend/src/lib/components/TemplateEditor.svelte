@@ -392,6 +392,10 @@
 		fontSize?: number
 		loadAsync?: boolean
 		class?: string | undefined
+		/** Height the editor opens at, in lines, for a field that expects more than a phrase. */
+		minRows?: number
+		/** Shown over the empty editor. Monaco has no placeholder of its own. */
+		placeholder?: string
 	}
 
 	let {
@@ -403,12 +407,20 @@
 		fixedOverflowWidgets = true,
 		fontSize,
 		loadAsync = false,
-		class: clazz = ''
+		class: clazz = '',
+		minRows = undefined,
+		placeholder = undefined
 	}: Props = $props()
 
 	let effectiveFontSize = $derived(fontSize ?? editorFontSize.regular)
 
 	let yPadding = MONACO_Y_PADDING
+
+	// Monaco derives an unset line height as 1.5x the font size, rounded. Reproducing it here lets
+	// the box stand at its final height before the editor exists, so opening a field does not jump.
+	let minHeightPx = $derived(
+		minRows ? minRows * Math.round(1.5 * effectiveFontSize) + yPadding * 2 : 0
+	)
 
 	if (typeof code != 'string') {
 		code = ''
@@ -538,7 +550,7 @@
 			const updateHeight = () => {
 				const contentHeight = Math.min(1000, editor?.getContentHeight() ?? 0)
 				if (divEl) {
-					divEl.style.height = `${contentHeight}px`
+					divEl.style.height = `${Math.max(contentHeight, minHeightPx)}px`
 				}
 			}
 			editor.onDidContentSizeChange(updateHeight)
@@ -709,16 +721,31 @@
 <EditorTheme />
 
 <div
-	class={twMerge(inputBorderClass({ forceFocus: isFocus }), 'rounded-md overflow-auto pl-2', clazz)}
+	class={twMerge(
+		inputBorderClass({ forceFocus: isFocus }),
+		'relative rounded-md overflow-auto pl-2',
+		clazz
+	)}
+	style={minHeightPx ? `min-height: ${minHeightPx}px` : undefined}
 >
 	{#if !editor}
 		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} fontSize={effectiveFontSize} />
 	{/if}
 	<div
 		bind:this={divEl}
-		style="height: 18px;"
+		style="height: {Math.max(18, minHeightPx)}px;"
 		class="template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
 	></div>
+	{#if placeholder && !code}
+		<div
+			class="absolute inset-0 px-2 pointer-events-none whitespace-pre-wrap text-hint font-mono"
+			style="font-size: {effectiveFontSize}px; line-height: {Math.round(
+				1.5 * effectiveFontSize
+			)}px; padding-top: {yPadding}px;"
+		>
+			{placeholder}
+		</div>
+	{/if}
 </div>
 
 <style>

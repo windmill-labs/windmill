@@ -216,6 +216,43 @@
 		return module
 	}
 
+	/**
+	 * Add a tool to an agent, from the graph's own `+ Tool` or from a surface that has no graph
+	 * node to click — the agent step's Tools section. Kept here because it needs the map's history,
+	 * id allocation and `flowStateStore` seeding.
+	 */
+	export async function addToolToAgent(
+		agentId: string,
+		detail: { kind: string; script?: any; flow?: any; inlineScript?: any }
+	) {
+		push(history, flowStore.val)
+		const agentMod = findModuleInFlow(flowStore.val.value, agentId)
+		const agentValue = agentMod?.value as { tools?: AgentTool[] } | undefined
+		if (agentValue) {
+			// `tools` is optional, so a module authored without it starts undefined here and would
+			// silently swallow its first tool.
+			agentValue.tools ??= []
+			const tools = agentValue.tools
+			await insertNewModuleAtIndex(
+				tools,
+				tools.length,
+				detail.kind as InsertKind,
+				detail.script,
+				detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
+				detail.inlineScript,
+				(SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
+					? (detail.kind as SpecialToolKind)
+					: 'flowmoduleTool'
+			)
+			const id = tools[tools.length - 1].id
+			// Reveal the new tool's config right away — in modal (unanchored) panel mode its editor
+			// is otherwise hidden behind the graph.
+			selectionManager.selectId(id, { openPanel: true })
+		}
+		refreshFlowStateStore(flowStore)
+		dispatch('change')
+	}
+
 	export async function insertNewModuleAtIndex(
 		modules: FlowModule[] | AgentTool[],
 		index: number,
@@ -710,42 +747,13 @@
 					return
 				}
 
-				push(history, flowStore.val)
-
-				const isAgentInsert = !!detail.agentId
-				const toolKind: SpecialToolKind | 'flowmoduleTool' | undefined = isAgentInsert
-					? (SPECIAL_TOOL_KINDS as readonly string[]).includes(detail.kind)
-						? (detail.kind as SpecialToolKind)
-						: 'flowmoduleTool'
-					: undefined
-
 				// Agent tool inserts operate on the FlowModule's tools array directly
-				if (isAgentInsert) {
-					const agentMod = findModuleInFlow(flowStore.val.value, detail.agentId!)
-					const agentValue = agentMod?.value as { tools?: AgentTool[] } | undefined
-					if (agentValue) {
-						// `tools` is optional, so a module authored without it starts undefined here and
-						// would silently swallow its first tool.
-						agentValue.tools ??= []
-						const tools = agentValue.tools
-						await insertNewModuleAtIndex(
-							tools,
-							tools.length,
-							detail.kind as InsertKind,
-							detail.script,
-							detail.flow ? { path: detail.flow.path, summary: detail.flow.summary } : undefined,
-							detail.inlineScript,
-							toolKind
-						)
-						const id = tools[tools.length - 1].id
-						// Reveal the new tool's config right away — in modal (unanchored)
-						// panel mode its editor is otherwise hidden behind the graph.
-						selectionManager.selectId(id, { openPanel: true })
-					}
-					refreshFlowStateStore(flowStore)
-					dispatch('change')
+				if (detail.agentId) {
+					await addToolToAgent(detail.agentId, detail)
 					return
 				}
+
+				push(history, flowStore.val)
 
 				// Regular module insert: create the module, then insert a leaf node via tree mutation
 				const module = await createNewModule(

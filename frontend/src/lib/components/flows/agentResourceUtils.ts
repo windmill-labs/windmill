@@ -1,5 +1,6 @@
 import { deepEqual } from 'fast-equals'
 import type { InputTransform } from '$lib/gen'
+import { AGENT_FIELDS } from './agentFormFields'
 
 // The brain fields stored flat in an `ai_agent` resource value. The flow-local inputs
 // (user_message/user_attachments) are intentionally excluded — they are supplied per-flow.
@@ -138,17 +139,11 @@ export function flowLocalAgentSchema(schema: any): any {
 	}
 }
 
-const AGENT_BRAIN_LABELS: Record<string, string> = {
-	provider: 'Model',
-	output_type: 'Output type',
-	system_prompt: 'System prompt',
-	streaming: 'Streaming',
-	memory: 'Memory',
-	output_schema: 'Output schema',
-	max_completion_tokens: 'Max tokens',
-	temperature: 'Temperature',
-	max_iterations: 'Max iterations'
-}
+/** Read off the form's own registry, so a linked agent's summary cannot name a field differently
+ *  from the form that edits it. */
+const AGENT_BRAIN_LABELS: Record<string, string> = Object.fromEntries(
+	AGENT_FIELDS.map((f) => [f.key, f.label])
+)
 
 /** Flatten a saved agent's brain config into human-readable label/value rows for a read-only
  * display on a linked step. Only set fields are returned, in the canonical brain-key order. */

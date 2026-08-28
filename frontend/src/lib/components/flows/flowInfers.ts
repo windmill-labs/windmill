@@ -26,13 +26,17 @@ export const AI_AGENT_SCHEMA: Schema = {
 		},
 		system_prompt: {
 			type: 'string',
-			description: 'The system prompt to give as input to the AI agent.'
+			description: 'The system prompt to give as input to the AI agent.',
+			// The one field people write paragraphs into, so it opens as a text area.
+			minRows: 5,
+			placeholder:
+				"You are a support agent.\nLook up an answer with your tools before replying.\nCite what you used, and say you don't know rather than guessing."
 		},
 		streaming: {
 			type: 'boolean',
 			description: 'Whether to stream the output of the AI agent.',
 			default: true,
-			showExpr: "fields.output_type === 'text'"
+			showExpr: "fields.output_type !== 'image'"
 		},
 		memory: {
 			type: 'object',
@@ -133,13 +137,13 @@ export const AI_AGENT_SCHEMA: Schema = {
 					required: ['kind', 'messages']
 				}
 			],
-			showExpr: "fields.output_type === 'text'"
+			showExpr: "fields.output_type !== 'image'"
 		},
 		output_schema: {
 			type: 'object',
 			description: 'JSON schema that the AI agent will follow for its response format.',
 			format: 'json-schema',
-			showExpr: "fields.output_type === 'text'"
+			showExpr: "fields.output_type !== 'image'"
 		},
 		user_attachments: {
 			type: 'array',
@@ -158,7 +162,7 @@ export const AI_AGENT_SCHEMA: Schema = {
 			type: 'number',
 			description:
 				'Controls randomness in text generation. Range: 0.0 (deterministic) to 2.0 (random).',
-			showExpr: "fields.output_type === 'text'"
+			showExpr: "fields.output_type !== 'image'"
 		},
 		max_iterations: {
 			type: 'number',
@@ -167,7 +171,9 @@ export const AI_AGENT_SCHEMA: Schema = {
 			default: 10
 		}
 	},
-	required: ['provider', 'output_type'],
+	// `output_type` defaults to text on the backend, so leaving it unset is valid. Listing it here
+	// would make the graph's missing-input warning fire on any step that never materialized the key.
+	required: ['provider'],
 	type: 'object',
 	order: [
 		'provider',

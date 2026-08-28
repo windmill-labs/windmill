@@ -52,6 +52,13 @@
 		label?: string
 		/** Replaces the label header, so a setting's own toggle can name the field. */
 		header?: Snippet
+		/** Renders after the label: a button to unset the field, a badge. */
+		labelExtra?: Snippet
+		/** Drop the schema's description paragraph, for a form that carries it in a tooltip. */
+		hideDescription?: boolean
+		/** Keep the connect and transform controls out of the way until the row is reached, unless
+		 *  the field already holds something the controls are needed to read. */
+		subtleControls?: boolean
 		/** The kind this field always holds, for a value that doesn't carry a `type` of its
 		 *  own — a flow predicate is stored as a bare `{ expr }`. */
 		argType?: InputTransform['type']
@@ -103,6 +110,9 @@
 		argName = $bindable(),
 		label = undefined,
 		header = undefined,
+		labelExtra = undefined,
+		hideDescription = false,
+		subtleControls = false,
 		argType = undefined,
 		collapsed = false,
 		animateAppear = false,
@@ -560,6 +570,12 @@
 		untrack(() => handleFieldVisibility(schema, arg, otherArgs))
 	})
 	let connecting = $derived($propPickerConfig?.propName == argName)
+	let fieldDescription = $derived(
+		hideDescription ? undefined : schema?.properties?.[argName]?.description
+	)
+	// Fading the controls away is only safe while the row itself says what it holds. An expression
+	// or an AI-filled value is only legible from the toggle, so those keep it on screen.
+	let controlsPinned = $derived(connecting || propertyType !== 'static' || Boolean(suggestion))
 	let shouldShowS3ArrayHelper = $derived(
 		inputCat === 'list' &&
 			['s3object', 's3_object'].includes(schema?.properties?.[argName]?.items?.resourceType)
@@ -599,6 +615,8 @@
 						type={schema.properties?.[argName]?.type}
 					/>
 
+					{@render labelExtra?.()}
+
 					{#if isStaticTemplate(inputCat)}
 						<div>
 							<span
@@ -615,9 +633,13 @@
 			</div>
 			<!-- Nothing to connect to or switch while collapsed: there is no value yet. -->
 			<div
-				class="flex flex-row items-end gap-x-2 z-10 absolute right-0 bottom-0 group-hover:bg-surface transition-colors {collapsed
-					? 'hidden'
-					: ''}"
+				class={twMerge(
+					'flex flex-row items-end gap-x-2 z-10 absolute right-0 bottom-0 group-hover:bg-surface transition-colors',
+					collapsed ? 'hidden' : '',
+					subtleControls && !controlsPinned
+						? 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity'
+						: ''
+				)}
 			>
 				{#if aiGen}
 					{@render aiGen()}
@@ -846,19 +868,19 @@
 										This field will be filled by the AI agent dynamically
 									</span>
 								</div>
-								{#if argName && schema?.properties?.[argName]?.description}
+								{#if fieldDescription}
 									<div class="text-xs italic py-1 text-hint">
 										<pre class="font-main whitespace-normal">
-										{schema.properties[argName].description}
+										{fieldDescription}
 									</pre>
 									</div>
 								{/if}
 							{:else if isStaticTemplate(inputCat) && propertyType == 'static' && !noDynamicToggle}
 								<div class="flex flex-col gap-1">
-									{#if argName && schema?.properties?.[argName]?.description}
+									{#if fieldDescription}
 										<div class="text-xs text-secondary">
 											<pre class="font-main whitespace-normal">
-										{schema.properties[argName].description}
+										{fieldDescription}
 										</pre>
 										</div>
 									{/if}
@@ -867,6 +889,8 @@
 										<TemplateEditor
 											bind:this={monacoTemplate}
 											{extraLib}
+											minRows={schema?.properties?.[argName]?.minRows}
+											placeholder={schema?.properties?.[argName]?.placeholder}
 											on:focus={onFocus}
 											on:blur={() => {
 												focused = false
@@ -897,7 +921,13 @@
 									}}
 									label={argName}
 									bind:editor={monaco}
-									bind:description={schema.properties[argName].description}
+									bind:description={
+										() => fieldDescription,
+										(v) => {
+											const property = schema.properties?.[argName]
+											if (!hideDescription && property) property.description = v
+										}
+									}
 									bind:value={arg.value}
 									type={schema.properties[argName].type}
 									oneOf={schema.properties[argName].oneOf}
@@ -994,11 +1024,9 @@
 									/>
 								{/if}
 
-								{#if argName && schema?.properties?.[argName]?.description}
+								{#if fieldDescription}
 									<div class="text-xs italic py-1 text-secondary">
-										<pre class="font-main whitespace-normal"
-											>{schema.properties[argName].description}</pre
-										>
+										<pre class="font-main whitespace-normal">{fieldDescription}</pre>
 									</div>
 								{/if}
 

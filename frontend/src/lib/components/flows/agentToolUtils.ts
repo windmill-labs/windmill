@@ -21,6 +21,11 @@ export function getToolNameError(
 	if (kind === 'mcp') {
 		return name.length > 0 ? undefined : 'Tool name must not be empty'
 	}
+	// Ahead of the pattern, which an empty name also fails: "must only contain letters" reads as a
+	// complaint about characters that are not there.
+	if (name.length === 0) {
+		return 'Tool name must not be empty'
+	}
 	if (!/^[a-zA-Z0-9_]+$/.test(name)) {
 		return 'Tool name must only contain letters, numbers and underscores'
 	}
@@ -75,6 +80,13 @@ export function isMcpTool(tool: AgentTool): tool is McpTool {
  */
 export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
 	return tool.value.tool_type === 'websearch'
+}
+
+/** What to call a tool on screen: its summary is the name the model is given, so it is also the
+ *  name a reader knows it by. Falls back to whatever else identifies it. */
+export function toolDisplayName(tool: AgentTool): string {
+	const value = tool.value as Record<string, any>
+	return tool.summary || value?.path || value?.resource_path || tool.id || 'tool'
 }
 
 /**
