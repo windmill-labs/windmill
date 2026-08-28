@@ -120,6 +120,10 @@ pub fn workspaced_service() -> Router {
         .route("/edit_error_handler", post(edit_error_handler))
         .route("/edit_success_handler", post(edit_success_handler))
         .route(
+            "/edit_variable_expiration_handler",
+            post(edit_variable_expiration_handler),
+        )
+        .route(
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
         )
@@ -312,6 +316,8 @@ pub struct WorkspaceSettings {
     pub error_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success_handler: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variable_expiration_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub public_app_execution_limit_per_minute: Option<i32>,
     pub error_handler_fallback_to_instance_alerts: bool,
@@ -1028,6 +1034,7 @@ async fn get_settings(
             auto_invite,
             error_handler,
             success_handler,
+            variable_expiration_handler,
             public_app_execution_limit_per_minute,
             error_handler_fallback_to_instance_alerts
         FROM
@@ -4614,6 +4621,122 @@ async fn edit_error_handler(
     Ok(format!("Edit error_handler for workspace {}", &w_id))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditVariableExpirationHandler {
+    pub path: Option<String>,
+    pub extra_args: Option<serde_json::Value>,
+    #[serde(default)]
+    pub muted_on_user_path: bool,
+}
+
+async fn edit_variable_expiration_handler(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(es): Json<EditVariableExpirationHandler>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    // The group starts empty of permissions beyond its creator: rotating a variable requires
+    // an admin to grant it write access to that variable explicitly.
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        w_id,
+        "variable_expiration_handler",
+        "The group the variable expiration handler acts on behalf of",
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if let Some(path) = &es.path {
+        if es
+            .extra_args
+            .as_ref()
+            .is_some_and(|extra_args| !extra_args.is_object())
+        {
+            return Err(Error::BadRequest(
+                "Field `extra_args` expected to be JSON object".to_string(),
+            ));
+        }
+
+        // Prefix only — whether the runnable exists is left to the sweep, which reports an
+        // unresolvable handler as a critical alert.
+        if !path.starts_with("script/") && !path.starts_with("flow/") {
+            return Err(Error::BadRequest(format!(
+                "Field `path` must start with script/ or flow/ (got {path})"
+            )));
+        }
+
+        // Persisted even when false, matching `error_handler`, so the stored shape is the same
+        // whether or not the caller sent the field.
+        let mut variable_expiration_handler = serde_json::json!({
+            "path": path,
+            "muted_on_user_path": es.muted_on_user_path,
+        });
+        if let Some(extra_args) = &es.extra_args {
+            variable_expiration_handler["extra_args"] = extra_args.clone();
+        }
+
+        sqlx::query!(
+            "UPDATE workspace_settings SET variable_expiration_handler = $1 WHERE workspace_id = $2",
+            variable_expiration_handler,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            "UPDATE workspace_settings SET variable_expiration_handler = NULL WHERE workspace_id = $1",
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_variable_expiration_handler",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("variable_expiration_handler", &format!("{:?}", es.path)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings {
+            setting_type: "variable_expiration_handler".to_string(),
+        },
+        Some("Variable expiration handler configuration updated".to_string()),
+        false,
+        None,
+    )
+    .await?;
+
+    windmill_common::feature_usage::log_feature_usage(
+        "variable_expiration",
+        "handler_configured",
+        if es.path.is_some() { "set" } else { "cleared" },
+    );
+
+    Ok(format!(
+        "Edit variable_expiration_handler for workspace {}",
+        &w_id
+    ))
+}
+
 async fn edit_success_handler(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -6060,9 +6183,11 @@ async fn clone_variables(
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
+    // Dispatch bookkeeping is deliberately not copied: the fork re-arms its own expiration
+    // handler rather than inheriting the source's already-dispatched state.
     sqlx::query!(
-        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at)
-         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_expires_at)
+         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_expires_at
          FROM variable
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -11315,7 +11440,7 @@ async fn compare_two_variables(
 
     // Get variable from each workspace
     let source_variable = sqlx::query!(
-        "SELECT value, is_secret, description
+        "SELECT value, is_secret, description, value_expires_at
          FROM variable
          WHERE workspace_id = $1 AND path = $2",
         source_workspace_id,
@@ -11325,7 +11450,7 @@ async fn compare_two_variables(
     .await?;
 
     let target_variable = sqlx::query!(
-        "SELECT value, is_secret, description
+        "SELECT value, is_secret, description, value_expires_at
          FROM variable
          WHERE workspace_id = $1 AND path = $2",
         fork_workspace_id,
@@ -11341,6 +11466,7 @@ async fn compare_two_variables(
         if source.is_secret != target.is_secret
             || source.value != target.value
             || source.description != target.description
+            || source.value_expires_at != target.value_expires_at
         {
             has_changes = true;
         }

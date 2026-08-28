@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.workspace_id AS \"workspace_id!\", v.path AS \"path!\", v.description AS \"description!\",\n                  v.value_expires_at AS \"value_expires_at!\", v.is_secret AS \"is_secret!\",\n                  ws.variable_expiration_handler->>'path' AS \"handler_path!\",\n                  (ws.variable_expiration_handler->'extra_args')::text::json AS \"extra_args: Json<Box<RawValue>>\"\n           FROM variable v\n           JOIN workspace_settings ws ON ws.workspace_id = v.workspace_id\n           JOIN workspace w ON w.id = v.workspace_id\n           WHERE NOT w.deleted\n             AND v.workspace_id <> ALL($3)\n             AND v.value_expires_at IS NOT NULL\n             AND v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for\n             AND v.value_expires_at <= now() + ($1::text)::interval\n             AND ws.variable_expiration_handler->>'path' IS NOT NULL\n             AND (NOT COALESCE((ws.variable_expiration_handler->>'muted_on_user_path')::boolean, false)\n                  OR v.path NOT LIKE 'u/%')\n           ORDER BY v.value_expires_at\n           LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "description!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "value_expires_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_secret!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "handler_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "extra_args: Json<Box<RawValue>>",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "6e64c0eaa4b804424f5890468eac6b1cf4b1d811bcf6a3e2e7b0d39b321eaeef"
+}

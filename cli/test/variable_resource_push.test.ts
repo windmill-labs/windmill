@@ -133,6 +133,68 @@ describe("variable", () => {
     });
   });
 
+  test("push clears value_expires_at when the key is dropped from the file", async () => {
+    await withTestBackend(async (backend, tempDir) => {
+      await setupWorkspaceProfile(backend);
+
+      const uniqueId = Date.now();
+      const path = `f/test/expiry_var_${uniqueId}`;
+
+      const createResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/create`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            path,
+            value: "original_value",
+            is_secret: false,
+            description: "Expiring",
+            value_expires_at: "2027-03-15T08:00:00Z",
+          }),
+        }
+      );
+      expect(createResp.status).toBeLessThan(300);
+      await createResp.text();
+
+      await writeFile(
+        join(tempDir, "wmill.yaml"),
+        `defaultTs: bun\nincludes:\n  - "**"\nexcludes: []\n`,
+        "utf-8"
+      );
+      await mkdir(join(tempDir, "f", "test"), { recursive: true });
+      // No value_expires_at: the server reads an absent field as "leave the stored
+      // date alone", so the clear only lands if the CLI sends an explicit null.
+      await writeFile(
+        join(tempDir, `${path}.variable.yaml`),
+        `value: "original_value"\nis_secret: false\ndescription: "Expiring"\n`,
+        "utf-8"
+      );
+
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--includes", `${path}**`],
+        tempDir
+      );
+      expect(pushResult.code).toEqual(0);
+
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/variables/get/${path}`
+      );
+      expect(apiResp.status).toEqual(200);
+      const varData = await apiResp.json();
+      expect(varData.value_expires_at ?? null).toBeNull();
+
+      // A clear that does not apply leaves the same diff pending forever, so the
+      // push reporting success is not on its own evidence that it landed.
+      const secondPush = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--includes", `${path}**`],
+        tempDir
+      );
+      expect(secondPush.code).toEqual(0);
+      expect(secondPush.stdout).toContain("0 changes to apply");
+    });
+  });
+
   test("add creates secret by default and preserves fields on update", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);

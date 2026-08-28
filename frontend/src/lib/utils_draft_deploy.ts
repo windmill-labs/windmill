@@ -205,14 +205,15 @@ function stripScheduleTriggerRuntime(row: any): Record<string, unknown> {
 function canonicalizeDraftDiffValue(kind: DraftKind, raw: any, isDraft: boolean): unknown {
 	if (!raw || typeof raw !== 'object') return raw ?? {}
 	if (kind === 'variable') {
-		// draft: { variable: { value, is_secret, description }, labels, wsSpecific }
-		// deployed row: { value, is_secret, description, labels, ws_specific }
+		// draft: { variable: { value, is_secret, description }, value_expires_at, labels, wsSpecific }
+		// deployed row: { value, is_secret, description, value_expires_at, labels, ws_specific }
 		const v = isDraft ? (raw.variable ?? {}) : raw
 		const is_secret = !!v.is_secret
 		return {
 			value: is_secret ? '<secret>' : (v.value ?? ''),
 			is_secret,
 			description: v.description ?? '',
+			value_expires_at: raw.value_expires_at ?? undefined,
 			labels: raw.labels ?? undefined,
 			ws_specific: (isDraft ? raw.wsSpecific : raw.ws_specific) ?? undefined
 		}
@@ -549,7 +550,7 @@ export async function deployDraft(
 		} else if (kind === 'variable') {
 			const { deployed, draft: d } = splitOverlay(await OVERLAY_GETTERS.variable!(workspace, path))
 			// VariableEditor's `VariableState` draft shape:
-			// { path, variable: { value, is_secret, description }, labels?, wsSpecific }
+			// { path, variable: { value, is_secret, description }, value_expires_at?, labels?, wsSpecific }
 			if (draftOnly) {
 				await VariableService.createVariable({
 					workspace,
@@ -558,6 +559,7 @@ export async function deployDraft(
 						value: d.variable?.value ?? '',
 						is_secret: !!d.variable?.is_secret,
 						description: d.variable?.description ?? '',
+						value_expires_at: d.value_expires_at,
 						labels: d.labels,
 						ws_specific: d.wsSpecific
 					}
@@ -572,12 +574,18 @@ export async function deployDraft(
 						value: d.variable?.value === '' ? undefined : d.variable?.value,
 						is_secret: d.variable?.is_secret,
 						description: d.variable?.description,
+						// Tri-state: absent leaves the stored date alone, `null` clears it. Diffed
+						// against the deployed row because the draft carries no baseline of its own
+						// and an absent date in it means "no expiry", not "unchanged".
+						value_expires_at:
+							(deployed.value_expires_at ?? undefined) !== d.value_expires_at
+								? (d.value_expires_at ?? null)
+								: undefined,
 						labels: d.labels,
 						ws_specific: d.wsSpecific
 					}
 				})
 			}
-			void deployed
 		} else if (kind === 'resource') {
 			const { deployed, draft: d } = splitOverlay(await OVERLAY_GETTERS.resource!(workspace, path))
 			// ResourceEditor's `ResourceState` draft shape:
