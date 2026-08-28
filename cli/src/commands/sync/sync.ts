@@ -106,9 +106,8 @@ import {
   deriveGitSyncDeployIncludes,
   isForkWorkspace,
   gitRecordedDatatableMigrationPaths,
-  gitRecordedPaths,
   type GitSyncDeployItem,
-  type RecordedPaths,
+  type RecordedMigrationPaths,
 } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
@@ -3166,7 +3165,7 @@ export function countDatatableMigrationRecords(
  */
 export function untrackedDatatableMigrationDeletions<
   T extends { name: string; path: string },
->(changes: T[], recorded: RecordedPaths): T[] {
+>(changes: T[], recorded: RecordedMigrationPaths): T[] {
   return changes.filter(
     (c) =>
       c.name === "deleted" &&
@@ -3174,21 +3173,6 @@ export function untrackedDatatableMigrationDeletions<
       !(recorded.kind === "known" && recorded.paths.has(c.path)),
   );
 }
-
-/**
- * The git pathspecs covering every file whose deletion deletes a variable or a
- * resource, whatever the repo's `--json`/YAML setting or workspace-specific suffix
- * (`f/x/y.<workspace>.resource.yaml`). A file resource's content file is one of
- * them: deleting `f/x.resource.file.ini` deletes the resource `f/x` outright, so
- * leaving it out would let every file resource walk past the check below.
- */
-const SECRET_BEARING_PATHSPECS = [
-  "*.variable.yaml",
-  "*.variable.json",
-  "*.resource.yaml",
-  "*.resource.json",
-  "*.resource.file.*",
-];
 
 /**
  * The kind of secret-bearing object whose deletion this path is, if it is one.
@@ -3212,12 +3196,6 @@ export function secretBearingObjectKind(
   return typ === "variable" || typ === "resource" ? typ : undefined;
 }
 
-/** Kind and path together identify the object: two files of one resource share an id,
- * a variable and a resource at one path do not. */
-function secretBearingObjectId(p: string): string {
-  return `${secretBearingObjectKind(p)} ${secretBearingObjectPath(p)}`;
-}
-
 /** The server-side object a secret-bearing file belongs to, so a file resource's two
  * files are counted (and reported) as the one resource they delete. */
 function secretBearingObjectPath(p: string): string {
@@ -3225,47 +3203,6 @@ function secretBearingObjectPath(p: string): string {
   return secretBearingObjectKind(p) === "resource"
     ? removeResourceSuffix(normalized)
     : normalized.replace(/\.variable\.(yaml|json)$/, "");
-}
-
-/**
- * The `deleted` changes for variables and resources this branch has never tracked.
- *
- * A remote object with no local file is equally a deletion being deployed and one that
- * was never in the repo — provisioned on the instance, or written by a script at
- * runtime. Committed history is the only thing that tells them apart; `unknown` history
- * proves nothing either way, so every candidate comes back and the caller hedges.
- *
- * Identity is kind plus object path, which is what the backend deletes. A file
- * resource's two files share it, so either in history vouches for the object —
- * including a companion this push is not deleting, hence a tracked set built from the
- * whole history rather than from the deletions being judged. A variable and a resource
- * at one path do not share it: deleting either can take the other, which is a reason to
- * report both, not to let history for one vouch for the other.
- */
-export function untrackedSecretBearingDeletions<
-  T extends { name: string; path: string },
->(
-  changes: T[],
-  recorded: RecordedPaths,
-  // History holds a `specificItems` item under its workspace-specific name while the
-  // changeset carries the base path; without normalizing the two an object the user
-  // did commit reads as never tracked.
-  toBasePath?: (p: string) => string,
-): T[] {
-  const candidates = changes.filter(
-    (c) => c.name === "deleted" && secretBearingObjectKind(c.path) !== undefined,
-  );
-  if (recorded.kind !== "known") return candidates;
-  const trackedObjects = new Set<string>();
-  for (const recordedPath of recorded.paths) {
-    const base = toBasePath ? toBasePath(recordedPath) : recordedPath;
-    if (secretBearingObjectKind(base) !== undefined) {
-      trackedObjects.add(secretBearingObjectId(base));
-    }
-  }
-  return candidates.filter(
-    (c) => !trackedObjects.has(secretBearingObjectId(c.path)),
-  );
 }
 
 /** e.g. "2 variables and 1 resource", counted by object rather than by file. */
@@ -5166,7 +5103,7 @@ export async function push(
 
   await fetchRemoteVersion(workspace);
 
-  const recordedMigrationPaths: RecordedPaths = changes.some(
+  const recordedMigrationPaths: RecordedMigrationPaths = changes.some(
     (c) => c.name === "deleted" && isDatatableMigrationPath(c.path),
   )
     ? gitRecordedDatatableMigrationPaths()
@@ -5203,30 +5140,6 @@ export async function push(
     keepAmbiguousMigrationsOnRemote();
     ambiguousMigrationsResolved = true;
   }
-
-  // A deletion of something the repository never tracked still deploys — the repo is
-  // the mirror, and a shallow clone could not tell it apart anyway — but the change
-  // list names it first, so what a user confirms states the risk instead of hiding it.
-  const secretDeletionCandidates = changes.filter(
-    (c) => c.name === "deleted" && secretBearingObjectKind(c.path) !== undefined,
-  );
-  // `--json-output` silences both notices, so the history walk would be a second of
-  // `git log` for output nobody reads.
-  const recordedSecretPaths: RecordedPaths =
-    secretDeletionCandidates.length > 0 && !opts.jsonOutput
-      ? gitRecordedPaths(SECRET_BEARING_PATHSPECS)
-      : { kind: "known", paths: new Set() };
-  const untrackedSecretDeletions = opts.jsonOutput
-    ? []
-    : untrackedSecretBearingDeletions(changes, recordedSecretPaths, (p) => {
-        // `fromWorkspaceSpecificPath` strips a `.<workspace>` segment wherever it
-        // finds one, so an ordinary object whose own path ends in the workspace
-        // name (`f/x/db.prod` under workspace `prod`) would be re-keyed onto a
-        // different object. Only a path `specificItems` claims is really suffixed.
-        if (!wsNameForFiles) return p;
-        const base = fromWorkspaceSpecificPath(p, wsNameForFiles);
-        return base !== p && isSpecificItem(base, specificItems) ? base : p;
-      });
 
   // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
   // and is excluded from the file diff (isNotWmillFile), so surface its diff in
@@ -5468,30 +5381,6 @@ export async function push(
         wsNameForFiles,
         folderDefaultAnnotations,
       );
-      if (untrackedSecretDeletions.length > 0) {
-        // Named, not counted: a push can delete a tracked and a never-tracked
-        // resource together, and a bare "1 resource" identifies neither. One line
-        // per object, so a file resource's two files read as the one deletion.
-        const paths = Array.from(
-          new Set(
-            untrackedSecretDeletions.map(
-              (c) =>
-                `  - ${secretBearingObjectKind(c.path)} ${secretBearingObjectPath(c.path)}`,
-            ),
-          ),
-        )
-          .sort()
-          .join("\n");
-        log.warn(
-          colors.yellow(
-            recordedSecretPaths.kind === "known"
-              ? `Nothing in this branch's git history accounts for these deletions, so they were provisioned outside this repository rather than deleted from it:\n${paths}\n` +
-                  `Deleting leaves only the workspace trash, which keeps an item for three days. Exclude them from the sync (skipVariables/skipResources or excludes in wmill.yaml) to keep deploying without touching them.`
-              : `These deletions could not be checked against git history (${recordedSecretPaths.reason}), so this push may be removing objects the repository never had:\n${paths}\n` +
-                  `Deleting leaves only the workspace trash, which keeps an item for three days. ${recordedSecretPaths.remedy} to have them checked.`,
-          ),
-        );
-      }
     }
 
     if (opts.dryRun) {
