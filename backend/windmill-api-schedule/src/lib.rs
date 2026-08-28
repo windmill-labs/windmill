@@ -127,6 +127,7 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_schedule))
         .route("/list_with_jobs", get(list_schedule_with_jobs))
         .route("/get/{*path}", get(get_schedule))
+        .route("/interval_drift/{*path}", get(get_interval_drift))
         .route("/exists/{*path}", get(exists_schedule))
         .route("/create", post(create_schedule))
         .route("/update/{*path}", post(edit_schedule))
@@ -1012,6 +1013,17 @@ pub struct IntervalDrift {
     pub configured_s: i64,
 }
 
+/// What the reader needs on top of the numbers: which way out to offer. A flow
+/// already queues its next run when the previous one starts, so its runs are
+/// starting late rather than overrunning. Answered from the deployed row, so the
+/// editor never has to derive it from the form a draft may be sitting in.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct IntervalDriftReport {
+    #[serde(flatten)]
+    pub drift: IntervalDrift,
+    pub queues_next_run_at_start: bool,
+}
+
 /// Consecutive slots a schedule has to miss before we call it drift: one slow
 /// run is not a change of cadence.
 const DRIFT_MIN_MISSED_SLOTS: usize = 3;
@@ -1188,13 +1200,6 @@ async fn get_schedule(
 
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
     tx.commit().await?;
-    let deployed = match schedule_o {
-        Some(schedule) => Some(ScheduleWithIntervalDrift {
-            interval_drift: fetch_interval_drift(&db, &w_id, &schedule).await?,
-            schedule,
-        }),
-        None => None,
-    };
     let overlay = overlay_or_draft_only(
         &db,
         &w_id,
@@ -1202,21 +1207,35 @@ async fn get_schedule(
         UserDraftItemKind::TriggerSchedule,
         path,
         q.get_draft,
-        deployed,
+        schedule_o,
         || Error::NotFound(format!("Schedule not found at path {path}")),
     )
     .await?;
     Ok(Json(overlay))
 }
 
-/// The schedule editor reads a schedule through this, so its drift surfaces
-/// next to the cron expression that is running behind.
-#[derive(Serialize)]
-struct ScheduleWithIntervalDrift {
-    #[serde(flatten)]
-    schedule: Schedule,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    interval_drift: Option<IntervalDrift>,
+/// Measured, not configured: kept off `get_schedule`, whose response is the
+/// schedule's configuration and is diffed for deploys and read by exporters that
+/// fan out over every schedule in a workspace.
+async fn get_interval_drift(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
+    Path((w_id, path)): Path<(String, StripPath)>,
+) -> JsonResult<Option<IntervalDriftReport>> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("schedules:read:{}", path))?;
+    let mut tx = user_db.begin(&authed).await?;
+    let schedule = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
+    tx.commit().await?;
+    let schedule = not_found_if_none(schedule, "Schedule", path)?;
+    let report = fetch_interval_drift(&db, &w_id, &schedule)
+        .await?
+        .map(|drift| IntervalDriftReport {
+            drift,
+            queues_next_run_at_start: schedule.is_flow || schedule.dynamic_skip.is_some(),
+        });
+    Ok(Json(report))
 }
 
 async fn fetch_interval_drift(
@@ -1227,7 +1246,12 @@ async fn fetch_interval_drift(
     // A schedule that is off is not running behind, it is not running. Nor is one
     // told to skip: a skip handler and `no_flow_overlap` both exist to drop runs, so
     // for those two the cadence the cron asks for was never the promise.
-    if !schedule.enabled || schedule.no_flow_overlap || schedule.dynamic_skip.is_some() {
+    // `no_flow_overlap` is only consulted by the flow runtime, so on a plain script
+    // schedule it is inert and must not suppress anything.
+    if !schedule.enabled
+        || (schedule.is_flow && schedule.no_flow_overlap)
+        || schedule.dynamic_skip.is_some()
+    {
         return Ok(None);
     }
     // Query plan: `(workspace_id, runnable_path, created_at DESC)` index, hence the

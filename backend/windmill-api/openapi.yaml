@@ -17035,10 +17035,27 @@ paths:
                 allOf:
                   - $ref: "#/components/schemas/Schedule"
                   - $ref: "#/components/schemas/UserDraftOverlay"
-                  - type: object
-                    properties:
-                      interval_drift:
-                        $ref: "#/components/schemas/ScheduleIntervalDrift"
+
+  /w/{workspace}/schedules/interval_drift/{path}:
+    get:
+      summary: get how far a schedule's runs have drifted from its cron
+      operationId: getScheduleIntervalDrift
+      tags:
+        - schedule
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: >-
+            The measurement, or null when the schedule is keeping up, is
+            disabled, is configured to skip runs, or has not run often enough
+            under its current cron to tell
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleIntervalDrift"
+                nullable: true
 
   /w/{workspace}/schedules/exists/{path}:
     get:
@@ -29792,9 +29809,16 @@ components:
         configured_s:
           type: integer
           description: Seconds the cron expression puts between those same two slots
+        queues_next_run_at_start:
+          type: boolean
+          description: >-
+            True when the schedule queues its next run as the previous one
+            starts (a flow, or a script with a skip handler), which means its
+            runs are starting late rather than overrunning
       required:
         - effective_s
         - configured_s
+        - queues_next_run_at_start
 
     ErrorHandler:
       type: string

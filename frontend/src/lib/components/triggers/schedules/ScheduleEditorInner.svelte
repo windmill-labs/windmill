@@ -131,20 +131,18 @@
 	let labels: string[] | undefined = $state(undefined)
 	let description = $state('')
 	let no_flow_overlap = $state(false)
-	// Measured on the deployed schedule, so it is read back rather than edited, and
-	// so is what the warning says about the runs: the form may be showing a draft
-	// that is not what has been running.
-	let deployedDrift:
-		| { interval: ScheduleIntervalDrift; queuesNextRunAtStart: boolean }
-		| undefined = $state(undefined)
+	// Measured rather than configured, so it comes from its own read of the deployed
+	// schedule: everything else on this form may be a draft that has never run.
+	let deployedDrift: ScheduleIntervalDrift | undefined = $state(undefined)
 
-	// A flow queues its next run when the previous one starts, where a script queues it
-	// once the previous one has finished, and the two have different ways out. Only
-	// those two reach here: a schedule set to skip runs is not measured at all.
-	function readDeployedDrift(deployed: Record<string, any>) {
-		deployedDrift = deployed.interval_drift
-			? { interval: deployed.interval_drift, queuesNextRunAtStart: !!deployed.is_flow }
-			: undefined
+	async function readDeployedDrift(path: string) {
+		try {
+			deployedDrift =
+				(await ScheduleService.getScheduleIntervalDrift({ workspace: wsId ?? '', path })) ??
+				undefined
+		} catch {
+			deployedDrift = undefined
+		}
 	}
 	let tag: string | undefined = $state(undefined)
 	let validCRON = $state(true)
@@ -536,9 +534,7 @@
 				getDraft: true
 			})
 			const { draft: draftFromBackend, ...deployedSchedule } = s as any
-			// Read here and nowhere else: the overlay below merges the draft over these
-			// same fields, so anything downstream of it would diagnose the draft.
-			readDeployedDrift(deployedSchedule)
+			readDeployedDrift(initialPath)
 			await loadScheduleCfg(deployedSchedule)
 			return {
 				overlay: draftFromBackend
@@ -751,15 +747,7 @@
 			}
 			// The measurement describes the deployed schedule, which just changed:
 			// disabling drops it, and enabling brings back what the runs still show.
-			try {
-				const deployed = await ScheduleService.getSchedule({
-					workspace: wsId ?? '',
-					path: initialPath
-				})
-				readDeployedDrift(deployed as any)
-			} catch {
-				deployedDrift = undefined
-			}
+			await readDeployedDrift(initialPath)
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
 			onUpdate?.(initialPath)
 		}
@@ -963,11 +951,11 @@
 					{#if deployedDrift}
 						<Alert type="warning" size="xs" title="Running less often than configured">
 							This schedule is running about every {msToReadableTime(
-								deployedDrift.interval.effective_s * 1000
-							)} instead of every {msToReadableTime(deployedDrift.interval.configured_s * 1000)}:
+								deployedDrift.effective_s * 1000
+							)} instead of every {msToReadableTime(deployedDrift.configured_s * 1000)}:
 							each of the last runs was queued too late for the slot that would have kept the
 							cadence.
-							{#if deployedDrift.queuesNextRunAtStart}
+							{#if deployedDrift.queues_next_run_at_start}
 								Its next run is already queued when the previous one starts, so the runs are
 								starting late rather than overrunning: look at worker capacity or a concurrency
 								limit.
