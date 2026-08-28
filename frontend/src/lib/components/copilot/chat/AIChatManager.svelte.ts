@@ -1098,11 +1098,9 @@ export class AIChatManager {
 				count === 1 ? 'A background job just finished.' : `${count} background jobs just finished.`
 			this.instructions = note
 			const accepted = await this.sendRequest({ synthetic: true })
-			// Only sendRequestImpl clears these, and a refusal returns before it —
-			// leaving them set, which this method's own guard above reads as "the
-			// user is mid-compose" and never resumes again. Cleared only while they
-			// are still the note put there: a send that won the lock meanwhile owns
-			// the field, and blanking it would take the user's message mid-turn.
+			// A refusal returns before sendRequestImpl's clear, and the guard above
+			// reads a leftover note as "the user is mid-compose" and never resumes.
+			// Conditional because a send that won the lock meanwhile owns this field.
 			if (accepted === false && this.instructions === note) this.instructions = ''
 		} catch (e) {
 			console.error('Auto-resume after background job failed', e)
@@ -4172,10 +4170,15 @@ export class AIChatManager {
 		this.displayMessages = []
 		this.messages = []
 		this.contextUsage = undefined
-		// Same reason saveAndClear drops it: a queue belongs to the conversation it
-		// was written in, and this is the other door onto a fresh chat — one left
-		// here would auto-send into a conversation it was never meant for.
-		this.#clearQueue()
+		// A queue belongs to the conversation it was written in, and this is the
+		// other door onto a fresh chat, so it cannot stay queued. Handed back
+		// rather than dropped: unlike saveAndClear, nobody in this tab asked for
+		// this — the clear arrived from elsewhere, and one of the two ways here is
+		// a turn that rolled back, where the conversation the follow-up was written
+		// for is still the one on screen. Gated on a mounted composer because
+		// restoreToInput's fallback is the very queue being emptied.
+		if (this.aiChatInput) this.dequeueMessage()
+		else this.#clearQueue()
 		this.clearBackgroundJobs()
 		if (this.modifiedItems) this.modifiedItems = new SvelteSet()
 		this.#syncMessageFiles()

@@ -1,5 +1,6 @@
 import { BROWSER } from 'esm-env'
 import { SvelteMap } from 'svelte/reactivity'
+import { randomUUID } from '$lib/utils/uuid'
 
 // Who holds a session's run, for every tab open on it.
 //
@@ -31,10 +32,14 @@ const DRIVER_SILENCE_MS = 10_000
  *  the model. */
 export type RunPosition =
 	| { state: 'idle' }
-	| { state: 'driving' }
+	| { state: 'driving'; runId: string }
 	| {
 			state: 'watching'
 			lastHeardAt: number
+			/** Which of the driver's turns this tab is watching. A control message
+			 *  names the run it was pressed for, so one delayed across a turn
+			 *  boundary is dropped instead of landing on the turn that followed. */
+			runId: string
 			/** The driver's plan-mode posture, carried so a watching tab can show the
 			 *  mode the run is actually under. It lives here rather than on the
 			 *  manager so it cannot outlive the run it describes: the position moves
@@ -74,12 +79,19 @@ export function runHeldElsewhere(sessionId: string | undefined): boolean {
 }
 
 /** The driver said how its run is going, which is also its sign of life. */
-export function noteDriverAlive(sessionId: string, planMode: boolean): void {
+export function noteDriverAlive(sessionId: string, planMode: boolean, runId: string): void {
 	// A tab mid-turn is the authority on its own session; a status message
 	// reaching it can only be an echo of the run it is itself driving.
 	if (isDriving(sessionId)) return
-	positions.set(sessionId, { state: 'watching', lastHeardAt: Date.now(), planMode })
+	positions.set(sessionId, { state: 'watching', lastHeardAt: Date.now(), planMode, runId })
 	ensureReaper()
+}
+
+/** The run this tab is in, either as its driver or as a watcher. Control
+ *  messages carry it so they can only act on the turn they were meant for. */
+export function currentRunId(sessionId: string): string | undefined {
+	const p = runPosition(sessionId)
+	return p.state === 'driving' || p.state === 'watching' ? p.runId : undefined
 }
 
 /** The driver says its turn is over. The re-read that follows is what frees this
@@ -190,7 +202,7 @@ async function bestEffort<T>(sessionId: string, body: () => Promise<T>): Promise
 }
 
 async function drive<T>(sessionId: string, body: () => Promise<T>): Promise<T> {
-	positions.set(sessionId, { state: 'driving' })
+	positions.set(sessionId, { state: 'driving', runId: randomUUID() })
 	try {
 		return await body()
 	} finally {

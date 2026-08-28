@@ -1,13 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
 	clearRunPosition,
+	currentRunId,
 	noteDriverAlive,
 	noteRemoteTurnEnded,
 	onDriverLost,
 	withSessionRunLock
 } from './sessionRunOwner.svelte'
 
-const SESSIONS = ['session-watching', 'session-catching-up', 'session-idle', 'session-unheard']
+const SESSIONS = [
+	'session-watching',
+	'session-catching-up',
+	'session-idle',
+	'session-unheard',
+	'session-runs'
+]
 
 // `positions` is module state and a watching entry keeps the reaper interval
 // armed, so leave nothing behind for the next suite.
@@ -43,6 +50,26 @@ describe('withSessionRunLock with no lock to take', () => {
 
 		expect(await withSessionRunLock('session-idle', body)).toBe('ran')
 		expect(body).toHaveBeenCalledTimes(1)
+	})
+
+	// A control message names the run it was pressed for, so a Stop delivered
+	// after its turn ended is dropped rather than landing on the turn that
+	// followed — which the queue flush and job auto-resume start immediately.
+	// Reusing an id across turns would defeat that, so pin that they differ.
+	it('gives each turn its own run id', async () => {
+		const seen: (string | undefined)[] = []
+		await withSessionRunLock('session-runs', async () => {
+			seen.push(currentRunId('session-runs'))
+		})
+		await withSessionRunLock('session-runs', async () => {
+			seen.push(currentRunId('session-runs'))
+		})
+
+		expect(seen[0]).toBeTruthy()
+		expect(seen[1]).toBeTruthy()
+		expect(seen[0]).not.toBe(seen[1])
+		// And nothing is left claiming a run once the turn is over.
+		expect(currentRunId('session-runs')).toBeUndefined()
 	})
 
 	// A tab that opened between the driver's last status message and its turn-end

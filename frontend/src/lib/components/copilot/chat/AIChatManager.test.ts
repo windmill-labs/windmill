@@ -401,12 +401,7 @@ describe('AIChatManager.sendOrQueue', () => {
 		expect(manager.queuedMessage).toBe('')
 	})
 
-	// The auto-resume writes its prompt into `this.instructions` before sending,
-	// and only sendRequestImpl clears them. A refusal that returns before that
-	// `instructions` belongs to whichever turn is running, not to the send being
-	// refused. A synthetic auto-resume racing a user's send must not unwind it
-	// from under them — its own caller clears it, and only while it still holds
-	// the note it put there.
+	// The refused send must not unwind a field the winning turn now owns.
 	it('does not blank instructions when a synthetic send is refused', async () => {
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
@@ -980,16 +975,21 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.queuedMessage).toBe('first line\nsecond line')
 	})
 
-	// A queue belongs to the conversation it was written in. adoptEmptyChat is the
-	// cross-tab door onto a fresh chat — another tab ran "/clear" — and a queue
-	// left behind would auto-send into a conversation it was never meant for.
-	it('drops a queued message when another tab clears the chat', () => {
-		const manager = createManager()
+	// A queue belongs to the conversation it was written in, so it cannot survive
+	// the cross-tab door onto a fresh chat — it would auto-send into a
+	// conversation it was never meant for. Handed back rather than dropped:
+	// nobody in this tab asked for the clear, and one of the two ways here is a
+	// rolled-back turn, where the conversation it was written for is still on
+	// screen.
+	it('hands a queued message back to the composer when another tab clears the chat', () => {
+		const input = createInputMock()
+		const manager = createManager(input)
 		manager.queueMessage('follow up to the old conversation')
 
 		manager.adoptEmptyChat('a-brand-new-chat-id')
 
 		expect(manager.queuedMessage).toBe('')
+		expect(input.prependText).toHaveBeenCalledWith('follow up to the old conversation', [], [])
 	})
 
 	it('dequeues the message and restores it into the input', () => {

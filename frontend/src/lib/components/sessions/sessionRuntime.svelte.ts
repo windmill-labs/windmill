@@ -103,6 +103,7 @@ import {
 } from './sessionSync.svelte'
 import {
 	clearRunPosition,
+	currentRunId,
 	isCatchingUp,
 	isDriving,
 	isWatching,
@@ -956,11 +957,11 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	// Stop is available wherever the run is visible, so from a watching tab it
 	// has to travel to the one holding the turn.
 	manager.remoteCancel = () => {
-		if (!isWatching(session.id)) return false
-		requestCancel(session.id)
+		const runId = currentRunId(session.id)
+		if (!isWatching(session.id) || !runId) return false
+		requestCancel(session.id, runId)
 		return true
 	}
-
 
 	await manager.historyManager.init()
 	manager.historyManager.setSessionId(session.id)
@@ -1001,8 +1002,11 @@ function postRunStatus(sessionId: string): void {
 	const runtime = runtimes.get(sessionId)
 	if (!runtime) return
 	const m = runtime.manager
+	const runId = currentRunId(sessionId)
+	if (!runId) return
 	broadcastRunStatus({
 		sessionId,
+		runId,
 		loading: m.loading,
 		compacting: m.compacting,
 		blockedOnUser: pendingUserAction(m.displayMessages) !== undefined,
@@ -1138,7 +1142,11 @@ function cancelCatchUpRetry(sessionId: string): void {
 }
 
 /** A Stop pressed in a watching tab reaches the run here. */
-function applyCancelRequest(sessionId: string): void {
+function applyCancelRequest(sessionId: string, runId: string): void {
+	// Named for the turn it was pressed during. A Stop can be delivered after that
+	// turn ended, and the queue flush and job auto-resume both start the next one
+	// immediately, so an unqualified Stop would kill a turn nobody asked it to.
+	if (currentRunId(sessionId) !== runId) return
 	if (!isDriving(sessionId)) return
 	// No reason: this IS the user's Stop, just pressed elsewhere, and the
 	// queued-message and rollback paths key off that.

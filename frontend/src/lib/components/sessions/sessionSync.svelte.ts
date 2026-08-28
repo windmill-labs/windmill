@@ -54,6 +54,9 @@ type TurnEndMsg = { kind: 'turn-end'; sessionId: string; chatId: string }
 type RunStatusMsg = {
 	kind: 'run-status'
 	sessionId: string
+	/** Identifies the turn. A watcher echoes it back on a control message so one
+	 *  delayed past the turn's end cannot act on the turn that followed. */
+	runId: string
 	loading: boolean
 	compacting: boolean
 	/** Parked on a question that only the driving tab can render. The watcher
@@ -66,8 +69,10 @@ type RunStatusMsg = {
 	 *  tab's memory. */
 	planModeActive: boolean
 }
-/** A Stop pressed in a tab that is only watching the run. */
-type CancelRequestMsg = { kind: 'cancel-request'; sessionId: string }
+/** A Stop pressed in a tab that is only watching the run. Names the run it was
+ *  pressed for: turn-end and the next turn's start can both land inside the
+ *  delivery gap, and the queue flush and job auto-resume start one immediately. */
+type CancelRequestMsg = { kind: 'cancel-request'; sessionId: string; runId: string }
 type SyncMsg =
 	| SessionPutMsg
 	| SessionDeleteMsg
@@ -82,7 +87,7 @@ type Handlers = {
 	onSessionArtifact: (sessionId: string, artifactId: string) => void
 	onTurnEnd: (sessionId: string, chatId: string) => void
 	onRunStatus: (msg: RunStatusMsg) => void
-	onCancelRequest: (sessionId: string) => void
+	onCancelRequest: (sessionId: string, runId: string) => void
 }
 
 const subscribers: Partial<Handlers>[] = []
@@ -154,11 +159,11 @@ function receive(msg: SyncMsg): void {
 			emit('onTurnEnd', msg.sessionId, msg.chatId)
 			break
 		case 'run-status':
-			noteDriverAlive(msg.sessionId, msg.planModeActive)
+			noteDriverAlive(msg.sessionId, msg.planModeActive, msg.runId)
 			emit('onRunStatus', msg)
 			break
 		case 'cancel-request':
-			emit('onCancelRequest', msg.sessionId)
+			emit('onCancelRequest', msg.sessionId, msg.runId)
 			break
 	}
 }
@@ -197,8 +202,8 @@ export function broadcastTurnEnd(sessionId: string, chatId: string): void {
 	post({ kind: 'turn-end', sessionId, chatId })
 }
 
-export function requestCancel(sessionId: string): void {
-	post({ kind: 'cancel-request', sessionId })
+export function requestCancel(sessionId: string, runId: string): void {
+	post({ kind: 'cancel-request', sessionId, runId })
 }
 
 export type RunStatus = Omit<RunStatusMsg, 'kind'>
