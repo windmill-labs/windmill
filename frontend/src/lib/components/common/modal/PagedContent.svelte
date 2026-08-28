@@ -8,8 +8,6 @@
 </script>
 
 <script lang="ts">
-	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
-
 	let {
 		pages,
 		current,
@@ -58,30 +56,21 @@
 
 	let box: HTMLDivElement | undefined = $state()
 
-	/** The depth of the overlay stack when this mounted. Anything opened afterwards — a drawer, a
-	 *  confirmation, another dialog — sits above us, and a window key handler that ignored that
-	 *  would drive this surface from underneath whatever the user is actually looking at. */
-	let depthAtMount = overlayStack().val.length
-	let onTop = $derived(overlayStack().val.length <= depthAtMount)
-
 	/** Whether the keyboard is ours to answer.
 	 *
-	 *  Focus inside the component is the clear case. `document.body` counts too, and has to: the
-	 *  control that navigates usually sits on the page being left, `inert` drops focus to the body
-	 *  when that page is hidden, and the focus put back below does not always survive the page
-	 *  settling. Without the body case the arrows would work only until the first navigation. */
+	 *  Deliberately not "focus is inside the pages". Navigating leaves focus wherever the page that
+	 *  was left put it — the body, once `inert` lands on it, or a button in the surrounding dialog
+	 *  chrome — so a containment test answers the first press and refuses every one after it. What
+	 *  is actually being asked is whether the key is meant for something else, and only a control
+	 *  that reads arrows itself qualifies. */
 	function ownsKeyboard(target: EventTarget | null): boolean {
 		if (!box || !box.isConnected) return false
-		if (target === document.body) return true
-		if (!(target instanceof Node) || !box.contains(target)) return false
-		// A field or a menu takes arrow keys for itself; stepping pages under someone typing is
-		// never what they meant.
-		const el = target as HTMLElement
-		return !el.closest?.('input, textarea, select, [contenteditable="true"], [role="listbox"]')
+		const el = target as HTMLElement | null
+		return !el?.closest?.('input, textarea, select, [contenteditable="true"], [role="listbox"]')
 	}
 
 	function onKeydown(event: KeyboardEvent) {
-		if (!onNavigate || !onTop || event.metaKey || event.ctrlKey || event.altKey) return
+		if (!onNavigate || event.metaKey || event.ctrlKey || event.altKey) return
 		if (!ownsKeyboard(event.target)) return
 		const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
 		if (step === 0) return

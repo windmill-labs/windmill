@@ -8,7 +8,6 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { Button } from '$lib/components/common'
 	import { Bot, ChevronRight, Code2, Loader2, Plus } from 'lucide-svelte'
-	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import type { EvalDataset, EvalExperiment, ExperimentScore } from '$lib/gen'
 	import { datasetSummary, experimentName, formatScore, subjectLabel } from './evalUtils'
 
@@ -53,12 +52,6 @@
 	let cursor = $state(-1)
 	let body: HTMLTableSectionElement | undefined = $state()
 
-	/** The depth of the overlay stack when this mounted. Anything opened afterwards — a drawer, a
-	 *  confirmation, another dialog — sits above us, and a window key handler that ignored that
-	 *  would drive this surface from underneath whatever the user is actually looking at. */
-	let depthAtMount = overlayStack().val.length
-	let onTop = $derived(overlayStack().val.length <= depthAtMount)
-
 	// A cursor left on a row that is no longer there — a run pruned, or the list filtered — would
 	// open the wrong run on the next Enter.
 	$effect(() => {
@@ -76,7 +69,7 @@
 	}
 
 	function onKeydown(event: KeyboardEvent) {
-		if (!active || !onTop || event.metaKey || event.ctrlKey || event.altKey) return
+		if (!active || event.metaKey || event.ctrlKey || event.altKey) return
 		const el = event.target as HTMLElement | null
 		if (el?.closest?.('input, textarea, select, [contenteditable="true"], [role="listbox"]')) return
 		if (event.key === 'ArrowDown') {
