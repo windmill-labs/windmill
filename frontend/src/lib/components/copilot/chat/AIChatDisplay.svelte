@@ -501,9 +501,7 @@
 	)
 	// Only when this tab could hold the posture itself: a mode its own selector
 	// does not offer would read as a mode the user could switch away from here.
-	const showsRemotePlan = $derived(
-		aiChatManager.remotePlanMode && aiChatManager.planModeAvailable
-	)
+	const showsRemotePlan = $derived(aiChatManager.remotePlanMode && aiChatManager.planModeAvailable)
 	// Fall back to ask-permission when the persisted mode isn't applicable in the
 	// current AI mode (e.g. auto-accept edits while in a mode without edits).
 	// A session planning in another tab overrides both: that posture governs the
@@ -519,16 +517,22 @@
 	const showAutonomyModeSelector = $derived(!disabled && availableAutonomyModeOptions.length > 1)
 	const effectiveAutonomyModeOption = $derived(autonomyModeOption(effectiveAutonomyMode))
 
+	// Both of these read `loading` together with a scan of `messages`, so both need
+	// the run and the transcript to be the same one. While another tab drives,
+	// `loading` describes its run and `messages` is this tab's own transcript from
+	// before it — and a card restored from history still looks parked, so the scan
+	// finds a question whose resolver left with the old page. Answering the local
+	// scan then would advertise an answer nothing can deliver, and mark a run that
+	// is streaming normally elsewhere as parked on the user.
+	const runIsLocal = $derived(aiChatManager.loading && !aiChatManager.runHeldElsewhere)
+
 	// The typing-dots indicator implies the AI is busy, which is misleading while
 	// the loop is parked on the user; surface a text pill instead so users know to
 	// act on the tool above.
-	const waitingForUserAction = $derived(aiChatManager.loading && !!pendingUserAction(messages))
+	const waitingForUserAction = $derived(runIsLocal && !!pendingUserAction(messages))
 
-	// Gated on `loading` because a card restored from history still looks parked:
-	// its resolver left with the old page, so the composer must not advertise an
-	// answer it cannot deliver.
 	const pendingQuestionToolCallId = $derived.by(() => {
-		if (!aiChatManager.loading) {
+		if (!runIsLocal) {
 			return undefined
 		}
 		const pending = pendingUserActionDetail(messages)

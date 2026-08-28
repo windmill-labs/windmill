@@ -54,7 +54,6 @@ type TurnEndMsg = { kind: 'turn-end'; sessionId: string; chatId: string }
 type RunStatusMsg = {
 	kind: 'run-status'
 	sessionId: string
-	chatId: string
 	loading: boolean
 	compacting: boolean
 	/** Parked on a question that only the driving tab can render. The watcher
@@ -69,21 +68,6 @@ type RunStatusMsg = {
 }
 /** A Stop pressed in a tab that is only watching the run. */
 type CancelRequestMsg = { kind: 'cancel-request'; sessionId: string }
-/** A run blocked on the user is unblocked from whichever tab the user is in;
- *  the resolver waiting on the answer only exists in the driving tab. */
-type ToolConfirmationMsg = {
-	kind: 'tool-confirmation'
-	sessionId: string
-	toolId: string
-	confirmed: boolean
-}
-type QuestionAnswerMsg = {
-	kind: 'question-answer'
-	sessionId: string
-	toolId: string
-	choices: string[]
-}
-
 type SyncMsg =
 	| SessionPutMsg
 	| SessionDeleteMsg
@@ -91,8 +75,6 @@ type SyncMsg =
 	| TurnEndMsg
 	| RunStatusMsg
 	| CancelRequestMsg
-	| ToolConfirmationMsg
-	| QuestionAnswerMsg
 
 type Handlers = {
 	onSessionPut: (id: string) => void
@@ -101,8 +83,6 @@ type Handlers = {
 	onTurnEnd: (sessionId: string, chatId: string) => void
 	onRunStatus: (msg: RunStatusMsg) => void
 	onCancelRequest: (sessionId: string) => void
-	onToolConfirmation: (sessionId: string, toolId: string, confirmed: boolean) => void
-	onQuestionAnswer: (sessionId: string, toolId: string, choices: string[]) => void
 }
 
 const subscribers: Partial<Handlers>[] = []
@@ -180,12 +160,6 @@ function receive(msg: SyncMsg): void {
 		case 'cancel-request':
 			emit('onCancelRequest', msg.sessionId)
 			break
-		case 'tool-confirmation':
-			emit('onToolConfirmation', msg.sessionId, msg.toolId, msg.confirmed)
-			break
-		case 'question-answer':
-			emit('onQuestionAnswer', msg.sessionId, msg.toolId, msg.choices)
-			break
 	}
 }
 
@@ -225,14 +199,6 @@ export function broadcastTurnEnd(sessionId: string, chatId: string): void {
 
 export function requestCancel(sessionId: string): void {
 	post({ kind: 'cancel-request', sessionId })
-}
-
-export function sendToolConfirmation(sessionId: string, toolId: string, confirmed: boolean): void {
-	post({ kind: 'tool-confirmation', sessionId, toolId, confirmed })
-}
-
-export function sendQuestionAnswer(sessionId: string, toolId: string, choices: string[]): void {
-	post({ kind: 'question-answer', sessionId, toolId, choices })
 }
 
 export type RunStatus = Omit<RunStatusMsg, 'kind'>

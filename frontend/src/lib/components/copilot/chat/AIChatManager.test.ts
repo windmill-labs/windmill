@@ -362,24 +362,6 @@ describe('AIChatManager cross-tab run guard', () => {
 		expect(restoreInstructions).toHaveBeenCalledWith('the message I typed', [], [], [])
 	})
 
-	// A run parked on the user is answered from whichever tab the user is in, but
-	// the resolver exists only in the tab running the loop. Routing has to be the
-	// fallback, never the first move: the driving tab holds its own resolvers and
-	// must answer them directly.
-	it('routes a confirmation onward only when no local resolver holds it', async () => {
-		const manager = new AIChatManager()
-		const remoteToolConfirmation = vi.fn(() => true)
-		manager.remoteToolConfirmation = remoteToolConfirmation
-
-		const local = manager.requestConfirmation('tool-local', 'delete_workspace_item')
-		manager.handleToolConfirmation('tool-local', true)
-		await expect(local).resolves.toBe(true)
-		expect(remoteToolConfirmation).not.toHaveBeenCalled()
-
-		manager.handleToolConfirmation('tool-elsewhere', false)
-		expect(remoteToolConfirmation).toHaveBeenCalledWith('tool-elsewhere', false)
-	})
-
 	// Only the user's own Stop travels to the driving tab. Every internal cancel
 	// names a reason, and routing one would let a passive tab's teardown kill a
 	// turn still running in the tab that owns it.
@@ -996,6 +978,18 @@ describe('AIChatManager queued messages', () => {
 		manager.queueMessage('first line')
 		manager.queueMessage('second line')
 		expect(manager.queuedMessage).toBe('first line\nsecond line')
+	})
+
+	// A queue belongs to the conversation it was written in. adoptEmptyChat is the
+	// cross-tab door onto a fresh chat — another tab ran "/clear" — and a queue
+	// left behind would auto-send into a conversation it was never meant for.
+	it('drops a queued message when another tab clears the chat', () => {
+		const manager = createManager()
+		manager.queueMessage('follow up to the old conversation')
+
+		manager.adoptEmptyChat('a-brand-new-chat-id')
+
+		expect(manager.queuedMessage).toBe('')
 	})
 
 	it('dequeues the message and restores it into the input', () => {

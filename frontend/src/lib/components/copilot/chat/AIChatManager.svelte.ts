@@ -688,12 +688,14 @@ export class AIChatManager {
 	// Wraps a whole turn so the coordinator can bracket it, or refuse it outright
 	// by returning 'busy' without running the body.
 	runGuard: (<T>(body: () => Promise<T>) => Promise<T | 'busy'>) | undefined = undefined
-	// A tab rendering someone else's run holds no abortController and no pending
-	// resolvers, so its Stop and its answers have to reach the tab that does.
-	// Each returns true once the request is on its way, and the local path is skipped.
+	// A tab watching someone else's run holds no abortController, so its Stop has
+	// to reach the tab that does. Returns true once the request is on its way, and
+	// the local path is skipped.
+	//
+	// Stop is the only control that crosses: it hangs off `loading`, which the run
+	// status carries. A confirmation or a question hangs off a card, and the
+	// driver's cards never leave the driving tab.
 	remoteCancel: (() => boolean) | undefined = undefined
-	remoteToolConfirmation: ((toolId: string, confirmed: boolean) => boolean) | undefined = undefined
-	remoteQuestionAnswer: ((toolId: string, choices: string[]) => boolean) | undefined = undefined
 
 	/** True while another tab is driving this session's run, and on through the
 	 *  re-read that follows it. What this manager holds is the conversation from
@@ -1649,10 +1651,8 @@ export class AIChatManager {
 			this.confirmationCallbacks.delete(toolId)
 			return
 		}
-		// No local resolver. Either another tab is running this turn and holds it,
-		// or this is a card restored from history whose resolver died with the old
-		// page — the hook answers only in the first case.
-		this.remoteToolConfirmation?.(toolId, confirmed)
+		// No local resolver: a card restored from history, whose resolver died with
+		// the old page. Nothing to deliver to.
 	}
 
 	private acceptPendingToolConfirmations = () => {
@@ -1748,11 +1748,7 @@ export class AIChatManager {
 	handleUserQuestionAnswer = (toolId: string, choices: string[]): boolean => {
 		const callback = this.userQuestionCallbacks.get(toolId)
 		if (!callback) {
-			// Another tab is running this turn and holds the resolver: hand the
-			// answer over, and report it delivered so the composer clears as it
-			// would locally. A card restored from history reaches the same branch
-			// with nobody driving, and still reports undelivered.
-			return this.remoteQuestionAnswer?.(toolId, choices) ?? false
+			return false
 		}
 
 		// Display-only readback for the collapsed tool-header: a compact comma list.
@@ -4176,6 +4172,10 @@ export class AIChatManager {
 		this.displayMessages = []
 		this.messages = []
 		this.contextUsage = undefined
+		// Same reason saveAndClear drops it: a queue belongs to the conversation it
+		// was written in, and this is the other door onto a fresh chat — one left
+		// here would auto-send into a conversation it was never meant for.
+		this.#clearQueue()
 		this.clearBackgroundJobs()
 		if (this.modifiedItems) this.modifiedItems = new SvelteSet()
 		this.#syncMessageFiles()

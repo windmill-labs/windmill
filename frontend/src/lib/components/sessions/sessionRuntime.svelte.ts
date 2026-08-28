@@ -99,8 +99,6 @@ import {
 	registerSyncHandlers,
 	requestCancel,
 	RUN_STATUS_INTERVAL_MS,
-	sendQuestionAnswer,
-	sendToolConfirmation,
 	type RunStatusMsg
 } from './sessionSync.svelte'
 import {
@@ -963,18 +961,6 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 		return true
 	}
 
-	// Same for a run parked on the user: the tab showing the prompt is not
-	// necessarily the tab whose loop is awaiting the answer.
-	manager.remoteToolConfirmation = (toolId, confirmed) => {
-		if (!isWatching(session.id)) return false
-		sendToolConfirmation(session.id, toolId, confirmed)
-		return true
-	}
-	manager.remoteQuestionAnswer = (toolId, choices) => {
-		if (!isWatching(session.id)) return false
-		sendQuestionAnswer(session.id, toolId, choices)
-		return true
-	}
 
 	await manager.historyManager.init()
 	manager.historyManager.setSessionId(session.id)
@@ -1017,7 +1003,6 @@ function postRunStatus(sessionId: string): void {
 	const m = runtime.manager
 	broadcastRunStatus({
 		sessionId,
-		chatId: m.historyManager.getCurrentChatId(),
 		loading: m.loading,
 		compacting: m.compacting,
 		blockedOnUser: pendingUserAction(m.displayMessages) !== undefined,
@@ -1028,8 +1013,8 @@ function postRunStatus(sessionId: string): void {
 
 function startRunStatus(sessionId: string): void {
 	stopRunStatus(sessionId)
-	// Posted immediately: this first message doubles as the "a run started here"
-	// signal, and carries the chat id the watching tabs key their re-read on.
+	// Posted immediately: this first message is the "a run started here" signal,
+	// which is what locks the other tabs' composers.
 	postRunStatus(sessionId)
 	statusTimers.set(
 		sessionId,
@@ -1160,24 +1145,9 @@ function applyCancelRequest(sessionId: string): void {
 	runtimes.get(sessionId)?.manager.cancel()
 }
 
-// An answer from a watching tab reaches the parked loop here. Both resolve at
-// most once — the driver drops the callback as it resolves it — so two tabs
-// answering the same prompt is a race the first click simply wins.
-function applyToolConfirmation(sessionId: string, toolId: string, confirmed: boolean): void {
-	if (!isDriving(sessionId)) return
-	runtimes.get(sessionId)?.manager.handleToolConfirmation(toolId, confirmed)
-}
-
-function applyQuestionAnswer(sessionId: string, toolId: string, choices: string[]): void {
-	if (!isDriving(sessionId)) return
-	runtimes.get(sessionId)?.manager.handleUserQuestionAnswer(toolId, choices)
-}
-
 registerSyncHandlers({
 	onRunStatus: applyRunStatus,
 	onCancelRequest: applyCancelRequest,
-	onToolConfirmation: applyToolConfirmation,
-	onQuestionAnswer: applyQuestionAnswer,
 	onTurnEnd: (sessionId, chatId) => void applyTurnEnd(sessionId, chatId),
 	// A session deleted in another tab takes its runtime with it, so an open
 	// chat for it stops streaming and releases its editors.
