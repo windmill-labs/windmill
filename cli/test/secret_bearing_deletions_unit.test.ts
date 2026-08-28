@@ -1,9 +1,9 @@
 /**
- * `sync push` deletes a variable or resource outright, and both go to the workspace
- * trash rather than being lost, which the CLI is the one surface that never said. The
- * notice it now prints is only as good as its classification: these pin which files
- * count as one of those two kinds, which look alike but aren't, and how a file
- * resource's two files collapse to the single deletion they are.
+ * The trashbin notice a push prints is only as good as its classification, which has
+ * to agree with the apply loop on two things: which deleted files are a variable or a
+ * resource — a path the loop skips must not be counted, or the notice announces a
+ * deletion that never happened — and that the unit is the server-side object, so a
+ * file resource's two files are the one deletion they cause.
  */
 
 import { describe, expect, test } from "bun:test";
