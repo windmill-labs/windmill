@@ -3,6 +3,7 @@
 		ScriptService,
 		type AiAgent,
 		type FlowModule,
+		type InputTransform,
 		type JavascriptTransform,
 		type Job
 	} from '$lib/gen'
@@ -127,17 +128,25 @@
 		} else if (val.type == 'aiagent') {
 			const { schema } = await loadSchemaFromModule(mod, opWs)
 
-			const inputTransforms: { [key: string]: JavascriptTransform } = Object.fromEntries(
-				Object.keys(args).map((key) => [
-					key,
-					{
-						expr: `flow_input.${key}`,
-						type: 'javascript'
-					}
-				])
-			)
-
 			const agentVal = val
+
+			// The test form only covers the schema it was given, and for a standalone agent that may be
+			// the flow-local one (the agent editor shows the brain in its own form, not here). Take the
+			// brain from the module as authored and let the form's own keys win over it, so an edit made
+			// in the form after the test panel mounted is what runs. A linked agent needs none of this:
+			// the server reads its brain from the resource.
+			const inputTransforms: { [key: string]: JavascriptTransform | InputTransform } = {
+				...(agentVal.agent ? {} : ((agentVal.input_transforms ?? {}) as Record<string, InputTransform>)),
+				...Object.fromEntries(
+					Object.keys(args).map((key) => [
+						key,
+						{
+							expr: `flow_input.${key}`,
+							type: 'javascript'
+						}
+					])
+				)
+			}
 
 			await jobLoader?.runFlowPreview(
 				args,
