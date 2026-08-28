@@ -26,8 +26,7 @@
 		onRenamed,
 		onDeleted,
 		onCasesChanged,
-		onScorersChanged,
-		onClosed
+		onScorersChanged
 	}: {
 		workspace: string | undefined
 		/** The agent the dataset is named after and belongs to. */
@@ -45,8 +44,6 @@
 		onDeleted: (path: string) => void | Promise<void>
 		onCasesChanged: () => void | Promise<void>
 		onScorersChanged: () => void | Promise<void>
-		/** The drawer is done, whether it saved anything or not. */
-		onClosed?: () => void
 	} = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -265,7 +262,7 @@
 	let nothingToSave = $derived(metadataUnchanged && !casesChanged)
 </script>
 
-<Drawer bind:this={drawer} size="900px" on:close={() => onClosed?.()}>
+<Drawer bind:this={drawer} size="900px">
 	<!-- Inside the drawer, not beside it. The drawer is portalled to the body and stacked above the
 	     pane that opened it, so a modal rendered from here is otherwise trapped under it. -->
 	<ConfirmationModal

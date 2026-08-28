@@ -96,7 +96,6 @@
 
 	let datasetDrawer: EvalDatasetDrawer | undefined = $state()
 	let runDialogOpen = $state(false)
-	let resumeRunDialog = $state(false)
 
 	let experiment = $derived(experiments.find((e) => e.id === experimentId))
 
@@ -407,8 +406,6 @@
 
 	/** The dataset is gone and every run of it with it: back to the list, on no dataset. */
 	async function datasetDeleted(path: string) {
-		// A run dialog waiting behind the drawer has nothing to come back to.
-		resumeRunDialog = false
 		if (selectedDataset === path) {
 			viewingRun = false
 			selectedCaseId = undefined
@@ -633,22 +630,6 @@
 							<span class="text-xs text-secondary max-w-md">
 								The datasets or runs could not be read. Check your access to this agent and reload.
 							</span>
-						</div>
-					{:else if loaded && datasets.length === 0}
-						<div class="h-full flex flex-col items-center justify-center gap-3 p-6 text-center">
-							<span class="text-sm text-emphasis">No dataset yet</span>
-							<span class="text-xs text-secondary max-w-md">
-								A dataset is the set of cases this agent is measured on. Runs are of a dataset, so
-								it is the first thing to make.
-							</span>
-							<Button
-								unifiedSize="md"
-								variant="accent"
-								startIcon={{ icon: Plus }}
-								onclick={() => datasetDrawer?.openDrawer('new')}
-							>
-								New dataset
-							</Button>
 						</div>
 					{:else if !viewingRun || !loaded}
 						<EvalRunsList
@@ -944,15 +925,9 @@
 	{running}
 	onRun={runAll}
 	onEditDataset={async (path) => {
-		if (await useDataset(path)) {
-			resumeRunDialog = true
-			datasetDrawer?.openDrawer('edit')
-		}
+		if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
 	}}
-	onNewDataset={() => {
-		resumeRunDialog = true
-		datasetDrawer?.openDrawer('new')
-	}}
+	onNewDataset={() => datasetDrawer?.openDrawer('new')}
 />
 
 <EvalDatasetDrawer
@@ -968,11 +943,4 @@
 	onDeleted={datasetDeleted}
 	onCasesChanged={casesChanged}
 	onScorersChanged={scorersChanged}
-	onClosed={() => {
-		if (!resumeRunDialog) return
-		resumeRunDialog = false
-		// On the dataset the drawer was just in: the dialog opens on the pane's own, which
-		// creating or editing one has already moved to it.
-		runDialogOpen = true
-	}}
 />
