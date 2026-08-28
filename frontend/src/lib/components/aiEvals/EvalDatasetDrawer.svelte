@@ -155,9 +155,9 @@
 			creating = false
 			return
 		}
-		// The pane moves onto the created dataset before the drawer closes: closing reopens the Run
-		// dialog, which reads the pane's selection as it opens. A refresh that fails must still not
-		// read as a create that failed, or the retry hits "already exists".
+		// The pane moves onto the created dataset while the drawer is still open — the Run dialog
+		// stands underneath and follows that selection. A refresh that fails must still not read as
+		// a create that failed, or the retry hits "already exists".
 		try {
 			await onCreated(created)
 		} catch (e) {

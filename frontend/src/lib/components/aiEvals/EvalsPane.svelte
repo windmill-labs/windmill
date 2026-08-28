@@ -666,8 +666,10 @@
 				// Right opens the run under the highlight, falling back to whichever was open before;
 				// left is the way back, the same as the breadcrumb.
 				if (key === 'run') {
-					if (highlightedRunId) openRun(highlightedRunId)
-					else if (experimentId) viewingRun = true
+					// Both branches go through `openRun`: it is what brings the run's own dataset back,
+					// and the fallback run may be of a dataset the list has since moved off.
+					const id = highlightedRunId ?? experimentId
+					if (id) openRun(id)
 				} else if (key === 'list') {
 					viewingRun = false
 					selectedCaseId = undefined
