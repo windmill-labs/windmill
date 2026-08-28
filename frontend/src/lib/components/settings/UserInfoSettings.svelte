@@ -25,6 +25,7 @@
 				}
 			})
 			sendUserToast('Your password was successfully updated')
+			await loadLoginType()
 		} else {
 			sendUserToast('Specify a new password value to change your password', true)
 		}
@@ -44,7 +45,7 @@
 
 		<label class="flex flex-col gap-1 w-120">
 			<span class="text-xs text-emphasis font-semibold">Password</span>
-			{#if login_type == 'password'}
+			{#if login_type == 'password' || login_type == 'pending_oauth'}
 				<div class="flex flex-row gap-1 items-center">
 					<TextInput
 						inputProps={{ autocomplete: 'new-password', type: 'password' }}

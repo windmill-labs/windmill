@@ -16,8 +16,20 @@ Symbols, not line numbers, are cited: they drift less.
   (`windmill-api-auth/src/lib.rs`) errors on `authed.job_id.is_some()`. A script that needs
   `users/create`, `tokens/impersonate`, `set_login_type`, … must use a dedicated superadmin user
   token stored as a secret, never `$WM_TOKEN`. Token scopes cannot narrow superadmin routes.
-- **`login_type`** (`password` table) is a free-form `VARCHAR(50)`. Password login, `set_password`
-  and password reset all require `login_type = 'password'`.
+- **`login_type`** (`password` table) is a free-form `VARCHAR(50)`. Password login and password
+  reset require `login_type = 'password'`; `set_password` also accepts `pending_oauth` and turns
+  the account into a `password` one in the same statement (an account created ahead of its owner
+  gets its first credential that way, or through the OAuth claim below).
+- **Login links** (`login_link` table, `POST /users/login_links` superadmin-only,
+  `GET /auth/login_link/{token}` unauthenticated): single-use, ≤15 min, a session cookie and a
+  302 to a same-origin `rd`. `require_login_type` on the mint refuses (409) an account whose
+  `login_type` has moved on — the way a caller re-entering an account it created stops being
+  able to once the owner has a password or a provider.
+- **Pre-approved trial offer** (`cloud_trial_offer`, cloud-only routes under
+  `/users/cloud_trial_offer`): written by a superadmin at provisioning, consumed by
+  `{consumed: true}` or by the portal's refusal; `…/go` is the one Windmill→portal hop that
+  mints a portal login, over the same `CUSTOMER_SERVICE_TOKEN` trust the onboarding hook uses
+  (`users_ee.rs`, the portal's admin token). It never expires on its own.
 - **OAuth login** (`oauth2_ee.rs` `login_externally`, decision in `existing_login_decision`)
   matches an existing account by lowercased email only. Same provider → login; a
   `pending_oauth` account (see `PENDING_OAUTH_LOGIN_TYPE`) is **claimed** by the first login

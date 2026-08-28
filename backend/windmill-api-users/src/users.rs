@@ -141,6 +141,11 @@ pub fn global_service() -> Router {
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
         .route("/login_links", post(create_login_link))
+        .route(
+            "/cloud_trial_offer",
+            post(set_cloud_trial_offer).get(get_cloud_trial_offer),
+        )
+        .route("/cloud_trial_offer/go", get(go_cloud_trial_offer))
         .route("/usage", get(get_usage))
         .route("/all_runnables", get(get_all_runnables))
         .route("/refresh_token", get(refresh_token))
@@ -3036,6 +3041,10 @@ pub struct NewLoginLink {
     pub email: String,
     pub expires_in_s: Option<u32>,
     pub rd: Option<String>,
+    /// Refuse to mint unless the account still has this login type: a caller re-entering an
+    /// account it created can require `pending_oauth`, so the link stops working once the
+    /// owner has set a password or signed in with a provider.
+    pub require_login_type: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -3114,7 +3123,7 @@ async fn create_login_link(
 
     let mut tx = db.begin().await?;
     let target = sqlx::query!(
-        "SELECT super_admin, devops FROM password WHERE email = $1 AND disabled = false",
+        "SELECT super_admin, devops, login_type FROM password WHERE email = $1 AND disabled = false",
         &email
     )
     .fetch_optional(&mut *tx)
@@ -3128,6 +3137,17 @@ async fn create_login_link(
         return Err(Error::BadRequest(
             "login links cannot target superadmin or devops accounts".to_string(),
         ));
+    }
+    if let Some(required) = nl.require_login_type.as_deref() {
+        if target.login_type != required {
+            return Err(Error::Generic(
+                StatusCode::CONFLICT,
+                format!(
+                    "login_type_mismatch: {email} signs in with {}, not {required}",
+                    target.login_type
+                ),
+            ));
+        }
     }
 
     let token = rd_string(32);
@@ -3162,6 +3182,137 @@ async fn create_login_link(
         token
     );
     Ok((StatusCode::CREATED, Json(LoginLink { url, expires_at })))
+}
+
+#[derive(Deserialize)]
+pub struct CloudTrialOfferUpdate {
+    pub email: String,
+    #[serde(default)]
+    pub consumed: bool,
+}
+
+#[derive(Serialize)]
+pub struct CloudTrialOffer {
+    pub offered: bool,
+}
+
+/// What the customer portal answers when asked to sign a cloud account in and start its
+/// pre-approved trial.
+pub enum PortalTrialLogin {
+    /// Send the browser here: a short-lived portal login that starts the trial on landing.
+    LoginUrl(String),
+    /// The portal will not start one (a subscription exists, or it knows no offer); the
+    /// offer is spent and the browser goes to the portal home instead.
+    Unavailable { reason: String, portal_url: String },
+}
+
+async fn set_cloud_trial_offer(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Json(body): Json<CloudTrialOfferUpdate>,
+) -> Result<String> {
+    if !*CLOUD_HOSTED {
+        return Err(Error::NotFound("cloud only".to_string()));
+    }
+    require_super_admin(&db, &authed).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    let email = body.email.to_lowercase();
+    let mut tx = db.begin().await?;
+    if body.consumed {
+        sqlx::query!(
+            "UPDATE cloud_trial_offer SET consumed_at = now() WHERE email = $1 AND consumed_at IS NULL",
+            &email
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        // A consumed offer stays consumed: a trial or subscription already exists for it.
+        sqlx::query!(
+            "INSERT INTO cloud_trial_offer (email, created_by) VALUES ($1, $2)
+             ON CONFLICT (email) DO NOTHING",
+            &email,
+            &authed.email
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.cloud_trial_offer.set",
+        ActionKind::Update,
+        "global",
+        Some(&email),
+        Some([("consumed", if body.consumed { "true" } else { "false" })].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!(
+        "cloud trial offer for {email} {}",
+        if body.consumed { "consumed" } else { "recorded" }
+    ))
+}
+
+async fn offered(db: &DB, email: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM cloud_trial_offer WHERE email = $1 AND consumed_at IS NULL)",
+        email
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false))
+}
+
+async fn get_cloud_trial_offer(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<CloudTrialOffer> {
+    if !*CLOUD_HOSTED {
+        return Ok(Json(CloudTrialOffer { offered: false }));
+    }
+    Ok(Json(CloudTrialOffer { offered: offered(&db, &authed.email).await? }))
+}
+
+/// The one click that turns a cloud account's pre-approved offer into a trial: the portal
+/// is asked for a login that starts it, and the browser is handed over. The portal is the
+/// authority on whether the offer still stands; its refusal spends the offer here so the
+/// sidebar stops advertising it.
+async fn go_cloud_trial_offer(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> Result<Response> {
+    if !*CLOUD_HOSTED || !offered(&db, &authed.email).await? {
+        return Err(Error::NotFound(
+            "no pre-approved trial offer for this account".to_string(),
+        ));
+    }
+    let outcome = crate::users_oss::portal_cloud_trial_login(&authed.email).await?;
+    let (location, reason) = match outcome {
+        PortalTrialLogin::LoginUrl(url) => (url, None),
+        PortalTrialLogin::Unavailable { reason, portal_url } => (portal_url, Some(reason)),
+    };
+    let mut tx = db.begin().await?;
+    if reason.is_some() {
+        sqlx::query!(
+            "UPDATE cloud_trial_offer SET consumed_at = now() WHERE email = $1 AND consumed_at IS NULL",
+            &authed.email
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.cloud_trial_offer.go",
+        ActionKind::Execute,
+        "global",
+        Some(&authed.email),
+        Some([("outcome", reason.as_deref().unwrap_or("login"))].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(login_link_redirect(location))
 }
 
 #[derive(Deserialize)]

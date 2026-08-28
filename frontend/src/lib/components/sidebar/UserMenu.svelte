@@ -11,7 +11,9 @@
 	import { USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { twMerge } from 'tailwind-merge'
-	import { Crown, ServerCog, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
+	import { Crown, KeyRound, ServerCog, LogOut, Moon, Settings, Sun, User } from 'lucide-svelte'
+	import { UserService } from '$lib/gen'
+	import FinishAccountSetup from './FinishAccountSetup.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import MenuButton from './MenuButton.svelte'
 	import { Menu, MenuItem, Tooltip } from '$lib/components/meltComponents'
@@ -27,6 +29,22 @@
 	}
 
 	let { isCollapsed = false, lightMode = false, createMenu }: Props = $props()
+
+	// `login_type` is global (whoami), not on the workspace user store. Only the value
+	// pending_oauth matters here: it marks an account entered through invite links that
+	// still has no credentials of its own.
+	let pendingSetup = $state(false)
+	let setupOpen = $state(false)
+	async function refreshLoginType() {
+		try {
+			pendingSetup = (await UserService.globalWhoami()).login_type === 'pending_oauth'
+		} catch {
+			pendingSetup = false
+		}
+	}
+	$effect(() => {
+		refreshLoginType()
+	})
 
 	const itemClass = twMerge(
 		'text-secondary text-left font-normal text-xs ',
@@ -72,6 +90,15 @@
 			{/if}
 		</div>
 		<div class="py-1">
+			{#if pendingSetup}
+				<MenuItem onClick={() => (setupOpen = true)} class={itemClass} {item}>
+					<span class="relative">
+						<KeyRound size={16} />
+						<span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500"></span>
+					</span>
+					Finish setting up your account
+				</MenuItem>
+			{/if}
 			<MenuItem href={USER_SETTINGS_HASH} class={itemClass} {item}>
 				<Settings size={16} />
 				Account settings
@@ -171,3 +198,7 @@
 </Menu>
 
 <DarkModeObserver bind:darkMode />
+
+{#if pendingSetup}
+	<FinishAccountSetup bind:open={setupOpen} email={$userStore?.email ?? ''} onDone={refreshLoginType} />
+{/if}

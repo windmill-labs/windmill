@@ -6144,6 +6144,12 @@ paths:
                 rd:
                   type: string
                   description: same-origin path the browser lands on after login (default /user/workspaces)
+                require_login_type:
+                  type: string
+                  description: >-
+                    mint only while the account still has this login type (for example
+                    pending_oauth), so a link stops working once the owner has set a password
+                    or signed in with a provider
       responses:
         "201":
           description: login link minted
@@ -6160,6 +6166,65 @@ paths:
                   expires_at:
                     type: string
                     format: date-time
+        "409":
+          description: the account does not have the required login type
+
+  /users/cloud_trial_offer:
+    post:
+      summary: record or consume a pre-approved self-hosted trial offer for a cloud account (require superadmin, cloud only)
+      operationId: setCloudTrialOffer
+      tags:
+        - user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                consumed:
+                  type: boolean
+                  description: mark the offer used (a trial or subscription now exists) instead of recording it
+      responses:
+        "200":
+          description: offer recorded or consumed
+          content:
+            text/plain:
+              schema:
+                type: string
+    get:
+      summary: whether the signed-in account holds an unconsumed pre-approved self-hosted trial offer (cloud only)
+      operationId: getCloudTrialOffer
+      tags:
+        - user
+      responses:
+        "200":
+          description: offer state
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - offered
+                properties:
+                  offered:
+                    type: boolean
+
+  /users/cloud_trial_offer/go:
+    get:
+      summary: start the signed-in account's pre-approved self-hosted trial on the customer portal, signed in (cloud only)
+      operationId: goCloudTrialOffer
+      tags:
+        - user
+      responses:
+        "302":
+          description: redirect to the customer portal, signed in, with the trial being started; or to the portal home when the offer is no longer available
+        "404":
+          description: no offer for this account
 
   /users/tokens/delete/{token_prefix}:
     delete:

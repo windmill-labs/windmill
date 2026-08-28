@@ -2,6 +2,8 @@
 	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
 	import { isCloudHosted } from '$lib/cloud'
+	import { base } from '$lib/base'
+	import { Sparkles } from 'lucide-svelte'
 	import { UserService } from '$lib/gen'
 	import {
 		isPremiumStore,
@@ -29,6 +31,21 @@
 	let { isCollapsed = false }: Props = $props()
 
 	let open = $state(false)
+
+	// A pre-approved self-hosted Enterprise trial travels with accounts created through an
+	// invite; the offer lives on the account, not the workspace, and never expires. The
+	// click hands the browser to the customer portal already signed in, which starts it.
+	let trialOffered = $state(false)
+	$effect(() => {
+		if (!isCloudHosted()) return
+		UserService.getCloudTrialOffer()
+			.then((r) => (trialOffered = r.offered))
+			.catch(() => (trialOffered = false))
+	})
+	function startPreApprovedTrial() {
+		logFeatureUsage('cloud_trial_offer', 'go')
+		window.location.assign(`${base}/api/users/cloud_trial_offer/go`)
+	}
 
 	// A fork's usage and tier resolve to its billing root while its member list is a
 	// subset of the root's, so seats must come from the root or the cap is fork-sized
@@ -201,6 +218,35 @@
 		/>
 	</svg>
 {/snippet}
+
+{#if isCloudHosted() && trialOffered}
+	<div class="px-2 pt-2">
+		<Tooltip placement="right" class="w-full">
+			{#snippet text()}
+				Your 30-day self-hosted Enterprise trial is pre-approved — start it whenever you're ready.
+			{/snippet}
+			{#if isCollapsed}
+				<Button
+					variant="accent-secondary"
+					unifiedSize="sm"
+					iconOnly
+					startIcon={{ icon: Sparkles }}
+					onclick={startPreApprovedTrial}
+					aria-label="Start your pre-approved Enterprise trial"
+				/>
+			{:else}
+				<Button
+					variant="accent-secondary"
+					unifiedSize="sm"
+					startIcon={{ icon: Sparkles }}
+					onclick={startPreApprovedTrial}
+				>
+					Start your Enterprise trial
+				</Button>
+			{/if}
+		</Tooltip>
+	</div>
+{/if}
 
 {#if isCloudHosted() && tightest}
 	<div class="px-2 pt-2 pb-2">

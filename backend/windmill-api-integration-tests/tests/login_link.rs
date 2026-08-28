@@ -114,3 +114,32 @@ async fn login_link_is_single_use_and_same_origin(db: Pool<Postgres>) -> anyhow:
 
     Ok(())
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn login_link_mint_can_require_a_login_type(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api");
+    let mint = || {
+        client()
+            .post(format!("{base}/users/login_links"))
+            .header("Authorization", "Bearer SECRET_TOKEN")
+            .json(&json!({"email": "test2@windmill.dev", "require_login_type": "pending_oauth"}))
+            .send()
+    };
+
+    // A password account is not the account the caller created: no link.
+    let resp = mint().await?;
+    assert_eq!(resp.status(), 409);
+    assert!(resp.text().await?.contains("login_type_mismatch"));
+
+    sqlx::query!(
+        "UPDATE password SET login_type = 'pending_oauth', password_hash = NULL WHERE email = 'test2@windmill.dev'"
+    )
+    .execute(&db)
+    .await?;
+    let resp = mint().await?;
+    assert_eq!(resp.status(), 201);
+    Ok(())
+}
