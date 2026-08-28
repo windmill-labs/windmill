@@ -35,6 +35,12 @@
 	import InputError from './InputError.svelte'
 	import Popover from './meltComponents/Popover.svelte'
 	import { deepEqual } from 'fast-equals'
+	import {
+		folderPermissionDiff,
+		isFolderDraftDirty,
+		type FolderDraft,
+		type FolderRole
+	} from '$lib/folderDraft'
 
 	const VALID_FOLDER_NAME = /^[a-zA-Z_0-9-]+$/
 
@@ -50,18 +56,10 @@
 	const MEMBERS_EXPLAINER =
 		"A member is a user or group with a role on this folder. The role applies to every script, flow, app, resource, variable and schedule inside it: viewers can read them, writers can also edit them, and admins can additionally manage the folder's members."
 
-	type Role = 'viewer' | 'writer' | 'admin'
-
-	/** Everything the editor can change, held as one value. Edits mutate `draft`
-	 * only; `save()` is the sole writer to the backend, and `baseline` is what the
-	 * folder held when it was loaded, so the two compare to give both the dirty
-	 * state and the permission changes to replay. */
-	type FolderDraft = {
-		summary: string
-		labels: string[]
-		defaultPermissionedAs: FolderDefaultPermissionedAs
-		perms: { owner_name: string; role: Role }[]
-	}
+	// Edits mutate `draft` only; `save()` is the sole writer to the backend, and `baseline` is
+	// what the folder held when it was loaded, so comparing the two gives both the dirty state
+	// and the permission calls to replay. Both live in `folderDraft.ts`, with tests.
+	type Role = FolderRole
 
 	interface Props {
 		/** In `new` mode this is the name being typed, hence bindable. */
@@ -332,7 +330,7 @@
 						: ''
 	)
 
-	const dirty = $derived(baseline != undefined && !deepEqual(draft, baseline))
+	const dirty = $derived(isFolderDraftDirty(draft, baseline))
 	// A typed name is progress too, even before any other field is touched.
 	const unsaved = $derived(dirty || (mode === 'new' && !!name))
 
@@ -361,55 +359,49 @@
 	/** Replays the permission rows the user changed. `updateFolder` could write
 	 * `owners`/`extra_perms` wholesale in the same call as the settings, but it only
 	 * logs a single "update owners"/"update acl" entry, so the permission history
-	 * would stop naming who was granted what. */
+	 * would stop naming who was granted what. The diff itself is in `folderDraft.ts`. */
 	async function applyPermissionChanges(next: FolderDraft['perms'], prev: FolderDraft['perms']) {
 		const workspace = targetWorkspace
-		const prevRoles = new Map(prev.map((p) => [p.owner_name, p.role]))
-		for (const p of next) {
-			const before = prevRoles.get(p.owner_name)
-			if (before === p.role) continue
-			if (p.role === 'admin') {
-				await FolderService.addOwnerToFolder({
-					workspace,
-					name,
-					requestBody: { owner: p.owner_name }
-				})
-			} else if (before === 'admin') {
-				// Only removeowner takes the member out of `owners`; it sets the write
-				// flag in the same call.
-				await FolderService.removeOwnerToFolder({
-					workspace,
-					name,
-					requestBody: { owner: p.owner_name, write: p.role === 'writer' }
-				})
-			} else {
-				await GranularAclService.addGranularAcls({
-					workspace,
-					path: name,
-					kind: 'folder',
-					requestBody: { owner: p.owner_name, write: p.role === 'writer' }
-				})
+		for (const call of folderPermissionDiff(prev, next)) {
+			switch (call.kind) {
+				case 'grantAdmin':
+					await FolderService.addOwnerToFolder({
+						workspace,
+						name,
+						requestBody: { owner: call.owner }
+					})
+					break
+				case 'demoteAdmin':
+					await FolderService.removeOwnerToFolder({
+						workspace,
+						name,
+						requestBody: { owner: call.owner, write: call.write }
+					})
+					break
+				case 'setAcl':
+					await GranularAclService.addGranularAcls({
+						workspace,
+						path: name,
+						kind: 'folder',
+						requestBody: { owner: call.owner, write: call.write }
+					})
+					break
+				case 'remove':
+					await Promise.all([
+						FolderService.removeOwnerToFolder({
+							workspace,
+							name,
+							requestBody: { owner: call.owner }
+						}),
+						GranularAclService.removeGranularAcls({
+							workspace,
+							path: name,
+							kind: 'folder',
+							requestBody: { owner: call.owner }
+						})
+					])
+					break
 			}
-		}
-		for (const p of prev) {
-			if (next.some((n) => n.owner_name === p.owner_name)) continue
-			// Both calls, always: `removeowner` without a `write` only drops the member from
-			// `owners`, leaving their `extra_perms` entry — so on its own it demotes an admin
-			// to writer rather than removing them. Removing an admin therefore logs two
-			// history rows (revoke_all and revoke_write), which is the honest account of it.
-			await Promise.all([
-				FolderService.removeOwnerToFolder({
-					workspace,
-					name,
-					requestBody: { owner: p.owner_name }
-				}),
-				GranularAclService.removeGranularAcls({
-					workspace,
-					path: name,
-					kind: 'folder',
-					requestBody: { owner: p.owner_name }
-				})
-			])
 		}
 	}
 
