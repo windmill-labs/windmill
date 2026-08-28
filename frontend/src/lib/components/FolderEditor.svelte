@@ -354,7 +354,6 @@
 			requestBody: { name: newGroupName }
 		})
 		groupCreated = newGroupName
-		$userStore?.folders?.push(newGroupName)
 		loadGroups()
 		ownerItem = newGroupName
 	}
@@ -414,15 +413,17 @@
 		}
 	}
 
-	export async function save(): Promise<string | undefined> {
+	export async function save(): Promise<{ name: string; created: boolean } | undefined> {
 		if (defaultRulesInvalid) {
 			sendUserToast('Some rules have invalid globs or permissioned_as values', true)
 			return undefined
 		}
 		const next = $state.snapshot(draft) as FolderDraft
 		const prev = baseline as FolderDraft
+		// Captured before the write: `folderNotFound` clears once the reload below succeeds.
+		const created = isNew
 		try {
-			if (isNew) {
+			if (created) {
 				await FolderService.createFolder({
 					workspace: targetWorkspace,
 					requestBody: {
@@ -455,15 +456,22 @@
 				await loadFolder()
 				sendUserToast('Folder updated')
 			}
-			return name
+			return { name, created }
 		} catch (e) {
 			sendUserToast(e.body ?? String(e), true)
 			return undefined
 		}
 	}
 
+	// The stores are read only to wait until they are populated, and the load runs once: this
+	// editor holds an unsaved draft, and the layout re-`set`s `$userStore` periodically — a
+	// second `load()` would overwrite the draft with the server's state and lose the edits
+	// silently, `unsaved` included. The drawer remounts this component per opening.
+	let loadStarted = false
 	$effect.pre(() => {
+		if (loadStarted) return
 		if ($workspaceStore && $userStore) {
+			loadStarted = true
 			untrack(() => {
 				load()
 			})
@@ -550,7 +558,7 @@
 				are labeled with them.
 			</div>
 			{#if can_write}
-				<LabelsInput bind:labels={draft.labels} />
+				<LabelsInput bind:labels={draft.labels} workspace={targetWorkspace} />
 			{:else}
 				<div class="inline-flex items-center gap-1 h-5">
 					{#each draft.labels as label (label)}

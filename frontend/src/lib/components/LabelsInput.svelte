@@ -8,9 +8,12 @@
 		labels: string[] | undefined
 		onchange?: () => void
 		class?: string
+		/** Suggest the labels of this workspace rather than the active one, for an editor
+		 * aimed elsewhere (the folder drawer opened from a cross-workspace picker). */
+		workspace?: string
 	}
 
-	let { labels = $bindable(), onchange, class: clazz = '' }: Props = $props()
+	let { labels = $bindable(), onchange, class: clazz = '', workspace }: Props = $props()
 
 	let adding = $state(false)
 	let inputValue = $state('')
@@ -36,7 +39,7 @@
 
 	async function loadExistingLabels() {
 		try {
-			const resp = await fetch(`/api/w/${$workspaceStore}/labels/list`)
+			const resp = await fetch(`/api/w/${workspace ?? $workspaceStore}/labels/list`)
 			if (resp.ok) existingLabels = await resp.json()
 		} catch {}
 	}

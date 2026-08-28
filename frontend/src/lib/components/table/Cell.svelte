@@ -85,10 +85,6 @@
 	   token carries alpha — adopting it would make the cell translucent and stop it
 	   occluding. So it is layered over the opaque colour. A pseudo-element, not a
 	   `background-image`: that is not animatable, and the row fades its tint on this curve. */
-	.wm-cell-pinned {
-		isolation: isolate;
-	}
-
 	.wm-cell-pinned::after {
 		content: '';
 		position: absolute;

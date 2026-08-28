@@ -25,7 +25,9 @@
 	let saving = $state(false)
 	let confirmDiscardOpen = $state(false)
 	let discarding = $state(false)
-	let editor: { save: () => Promise<string | undefined> } | undefined = $state()
+	let editor:
+		| { save: () => Promise<{ name: string; created: boolean } | undefined> }
+		| undefined = $state()
 	// Bumped per open so the editor reloads its draft from the folder it is now
 	// pointed at. Keying on `name` instead would remount on every keystroke of the
 	// name field in `new` mode.
@@ -63,11 +65,12 @@
 
 	async function save() {
 		saving = true
-		const created = mode === 'new'
 		try {
+			// `created` comes from the editor, not from `mode`: a folder whose row turned out
+			// not to exist is created from an `initEdit` drawer.
 			const saved = await editor?.save()
 			if (saved) {
-				onSaved?.(saved, created)
+				onSaved?.(saved.name, saved.created)
 				// The editor reloads its baseline after saving, but that lands a tick
 				// later; close on our own authority rather than racing it.
 				discarding = true
