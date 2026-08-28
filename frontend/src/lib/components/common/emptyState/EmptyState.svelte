@@ -16,6 +16,10 @@
 			 * this is done, say — so it is not competing with one.
 			 */
 			variant?: 'default' | 'accent'
+			/** Same write lock the surface's other controls take. An empty state is still a live
+			 *  control: without this it stays clickable while a request that has already read the
+			 *  empty list is in flight, and whatever it adds is discarded when that request lands. */
+			disabled?: boolean
 			aiId?: string
 			aiDescription?: string
 		}
@@ -44,6 +48,7 @@
 		<Button
 			unifiedSize="md"
 			variant={action.variant ?? 'default'}
+			disabled={action.disabled}
 			startIcon={action.icon ? { icon: action.icon } : undefined}
 			onClick={action.onClick}
 			aiId={action.aiId}

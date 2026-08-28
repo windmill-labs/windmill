@@ -70,6 +70,9 @@
 			label: 'Add a case',
 			icon: Plus,
 			onClick: onAdd,
+			// The same lock the header's own button takes: a save reads the case list before it is
+			// sent, so a case added while one is in flight would be dropped when it lands.
+			disabled: locked,
 			// The only live call to action here: Save stays disabled until a case exists.
 			variant: 'accent'
 		}}
