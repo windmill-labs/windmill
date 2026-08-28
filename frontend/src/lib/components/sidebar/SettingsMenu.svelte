@@ -18,7 +18,8 @@
 		Newspaper,
 		Crown,
 		Gauge,
-		Trash2
+		Trash2,
+		KeyRound
 	} from 'lucide-svelte'
 	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
@@ -36,6 +37,8 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
+	import FinishAccountSetup from './FinishAccountSetup.svelte'
+	import { UserService } from '$lib/gen'
 	import { EXECUTIONS_HINT } from './executionsHint'
 	import {
 		userWorkspaces,
@@ -209,6 +212,22 @@
 			: [])
 	])
 
+	// `login_type` is global (whoami), not on the workspace user store. Only the value
+	// pending_oauth matters here: an account entered through invite links that still has
+	// no credentials of its own; the entry disappears with it.
+	let pendingSetup = $state(false)
+	let setupOpen = $state(false)
+	async function refreshLoginType() {
+		try {
+			pendingSetup = (await UserService.globalWhoami()).login_type === 'pending_oauth'
+		} catch {
+			pendingSetup = false
+		}
+	}
+	$effect(() => {
+		refreshLoginType()
+	})
+
 	const items = $derived<Item[]>([
 		{
 			displayName: 'Help',
@@ -227,7 +246,17 @@
 				? `${$userStore?.email} (superadmin, not a member)`
 				: ($userStore?.email ?? 'User'),
 			icon: $userStore?.is_admin || $userStore?.non_member ? Crown : User,
+			extra: pendingSetup ? setupPing : undefined,
 			submenuItems: [
+				...(pendingSetup
+					? [
+							{
+								displayName: 'Finish setting up your account',
+								icon: KeyRound,
+								action: () => (setupOpen = true)
+							}
+						]
+					: []),
 				{
 					displayName: 'Account settings',
 					icon: Settings,
@@ -271,6 +300,11 @@
 	{#if numUnacknowledgedCriticalAlerts > 0}
 		<SideBarNotification notificationCount={numUnacknowledgedCriticalAlerts} />
 	{/if}
+{/snippet}
+
+{#snippet setupPing()}
+	<span class="ml-auto h-2 w-2 shrink-0 rounded-full bg-blue-500" title="Finish setting up your account"
+	></span>
 {/snippet}
 
 {#snippet helpPing()}
@@ -401,3 +435,7 @@
 <DeleteForkedWorkspaceModal bind:this={deleteForkModal} />
 
 <DarkModeObserver bind:darkMode />
+
+{#if pendingSetup}
+	<FinishAccountSetup bind:open={setupOpen} email={$userStore?.email ?? ''} onDone={refreshLoginType} />
+{/if}

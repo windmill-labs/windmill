@@ -97,7 +97,7 @@
 					inputProps={{ autocomplete: 'new-password', type: 'password', placeholder: 'At least 8 characters' }}
 					bind:value={password}
 				/>
-				<Button variant="accent" unifiedSize="md" disabled={saving || password.length < 8} onClick={setPassword}>
+				<Button variant="accent" unifiedSize="md" disabled={saving} onClick={setPassword}>
 					Set password
 				</Button>
 			</div>
