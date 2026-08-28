@@ -3215,18 +3215,23 @@ async fn consume_login_link(
         });
     };
 
-    let super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1 AND disabled = false",
+    // Re-checked at open time and locked through session creation: a promotion inside
+    // the link's window must not turn a link minted for an ordinary account into a
+    // privileged session. The bounce drops the transaction, so the link is not spent.
+    let target = sqlx::query!(
+        "SELECT super_admin, devops FROM password WHERE email = $1 AND disabled = false FOR UPDATE",
         &link.email
     )
     .fetch_optional(&mut *tx)
     .await?;
-    let Some(super_admin) = super_admin else {
+    let Some(target) = target else {
         return bounce("invalid");
     };
+    if target.super_admin || target.devops {
+        return bounce("invalid");
+    }
 
-    let session =
-        create_session_token(&link.email, super_admin, None, false, &mut tx, cookies).await?;
+    let session = create_session_token(&link.email, false, None, false, &mut tx, cookies).await?;
     audit_log(
         &mut *tx,
         &AuditAuthor {

@@ -57,6 +57,22 @@ async fn login_link_is_single_use_and_same_origin(db: Pool<Postgres>) -> anyhow:
         .to_string();
     let consume_url = format!("{base}{path}");
 
+    // A promotion inside the link's window is re-checked at open time: no session,
+    // and the link is not spent while the account is privileged.
+    sqlx::query("UPDATE password SET super_admin = true WHERE email = 'test2@windmill.dev'")
+        .execute(&db)
+        .await?;
+    let resp = client().get(&consume_url).send().await?;
+    assert_eq!(resp.status(), 302);
+    assert_eq!(
+        resp.headers()["location"],
+        "/user/login_link_expired?reason=invalid"
+    );
+    assert!(resp.headers().get("set-cookie").is_none());
+    sqlx::query("UPDATE password SET super_admin = false WHERE email = 'test2@windmill.dev'")
+        .execute(&db)
+        .await?;
+
     // First open: session cookie for the target account, redirected to the stored rd.
     let resp = client().get(&consume_url).send().await?;
     assert_eq!(resp.status(), 302);
