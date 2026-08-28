@@ -184,8 +184,9 @@
 		checkForUnsavedChanges()
 	}}
 >
-	<!-- Inside the drawer only so the modal mounts and unmounts with it; ConfirmationModal
-	     portals itself, so this position controls when it exists, not what it paints over. -->
+	<!-- Inside the portalled drawer: rendered where this component is mounted, the modal is trapped
+	     under it by any positioned ancestor with its own z-index (the flow editor's split panes),
+	     and the drawer cannot be closed. -->
 	<ConfirmationModal
 		open={unsavedModalOpen}
 		title="Unsaved changes detected"

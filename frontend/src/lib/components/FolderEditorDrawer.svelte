@@ -137,7 +137,11 @@
 	</DrawerContent>
 </Drawer>
 
+<!-- `alwaysPortal`: this sits inside the drawer so it mounts and unmounts with it, and the
+     drawer is a stacking context — without portalling, the dialog asking whether to discard
+     paints underneath the drawer it is about, leaving the drawer impossible to close. -->
 <ConfirmationModal
+	alwaysPortal
 	open={confirmDiscardOpen}
 	title="Unsaved changes detected"
 	confirmationText="Discard changes"
