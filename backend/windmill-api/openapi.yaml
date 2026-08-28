@@ -406,6 +406,28 @@ paths:
         "400":
           description: SMTP not configured
 
+  /auth/login_link/{token}:
+    get:
+      security: []
+      summary: consume a single-use login link, set the session cookie and redirect
+      operationId: consumeLoginLink
+      tags:
+        - user
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: rd
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: redirected to the post-login destination, or to /user/login_link_expired when the link is used, expired or unknown
+
   /auth/reset_password:
     post:
       security: []
@@ -623,9 +645,14 @@ paths:
                 skip_email:
                   type: boolean
                   description: Skip sending email notifications to the user
+                login_type:
+                  type: string
+                  description: >-
+                    password (default, requires `password`), pending_oauth (no credential
+                    until the first OAuth login proving the address adopts the account), or
+                    a configured OAuth login client key
               required:
                 - email
-                - password
                 - super_admin
       responses:
         "201":
@@ -6092,6 +6119,47 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /users/login_links:
+    post:
+      summary: mint a single-use login link for an account (require superadmin)
+      operationId: createLoginLink
+      tags:
+        - user
+      requestBody:
+        description: target account and link options
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                expires_in_s:
+                  type: integer
+                  description: link lifetime in seconds, at most 900 (default 600)
+                rd:
+                  type: string
+                  description: same-origin path the browser lands on after login (default /user/workspaces)
+      responses:
+        "201":
+          description: login link minted
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - url
+                  - expires_at
+                properties:
+                  url:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
 
   /users/tokens/delete/{token_prefix}:
     delete:

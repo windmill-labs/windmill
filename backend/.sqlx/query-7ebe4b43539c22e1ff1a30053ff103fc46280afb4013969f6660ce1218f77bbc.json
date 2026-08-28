@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT super_admin, devops FROM password WHERE email = $1 AND disabled = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "super_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "devops",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "7ebe4b43539c22e1ff1a30053ff103fc46280afb4013969f6660ce1218f77bbc"
+}
