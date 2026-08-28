@@ -2850,6 +2850,26 @@ describe("keep deleted", () => {
       expect(afterPull).toContain(localOnly);
       // Adds still apply: the script deleted above is written back.
       expect(afterPull).toContain(contentFile);
+
+      // An empty changeset falls past the dry-run return, on to the shared-UI
+      // step — which writes to disk, so a dry run must skip it.
+      // Including the metadata and lock the pull's auto-fill generated for it.
+      for (const ext of [".ts", ".script.yaml", ".script.lock"]) {
+        await rm(join(tempDir, `f/test/local_only_${uniqueId}${ext}`), {
+          force: true,
+        });
+      }
+      await mkdir(join(tempDir, "ui"), { recursive: true });
+      await writeFile(join(tempDir, "ui", "custom.css"), "body{}", "utf-8");
+      const dryRun = await backend.runCLICommand(
+        ["sync", "pull", "--dry-run"],
+        tempDir
+      );
+      expect(dryRun.code).toEqual(0);
+      // Guards against a vacuous pass: a non-empty changeset would return at
+      // the dry-run check above and never reach the shared-UI step.
+      expect(dryRun.stdout + dryRun.stderr).toContain("0 changes to apply");
+      expect(await listFilesRecursive(tempDir)).toContain("ui/custom.css");
     });
   });
 });

@@ -44,29 +44,15 @@ export type SharedUiChange =
   | { type: "deleted"; path: string };
 
 /**
- * Diff the local <cwd>/ui/ folder against the workspace's shared UI store in
- * the push direction (local -> remote), returning entries whose `path` is
- * prefixed with `ui/`. This is the same comparison pushSharedUi applies, so the
- * dry-run preview and the real push never diverge.
- *
- * Mirrors pushSharedUi's no-op: with no local ui/ folder there is nothing to
- * push, so the apply is a no-op and the preview must be empty (even when the
- * remote store is non-empty) to avoid phantom diffs the apply won't perform.
+ * The push-direction diff (local -> remote) of two already-read file maps.
+ * Split out so the preview and the push itself compare identically off one
+ * read of each side.
  */
-export async function diffSharedUi(
-  workspace: string,
+function sharedUiChanges(
+  files: Record<string, string>,
+  remote: Record<string, string>,
   keepDeleted?: boolean,
-): Promise<SharedUiChange[]> {
-  const localDir = path.join(process.cwd(), SHARED_UI_DIR);
-  if (!fs.existsSync(localDir)) {
-    return [];
-  }
-  const files = await readDirRecursive(localDir);
-
-  // If endpoint missing or unauthorized, treat remote as empty (the push
-  // would attempt the PUT anyway).
-  const remote = (await fetchSharedUi(workspace)) ?? {};
-
+): SharedUiChange[] {
   // Use Object.hasOwn, not `in`: a file named after an Object.prototype member
   // (e.g. ui/toString) would otherwise register as always-present and be
   // misdiffed.
@@ -90,6 +76,35 @@ export async function diffSharedUi(
 }
 
 /**
+ * Diff the local <cwd>/ui/ folder against the workspace's shared UI store in
+ * the push direction (local -> remote), returning entries whose `path` is
+ * prefixed with `ui/`. This is the same comparison pushSharedUi applies, so the
+ * dry-run preview and the real push never diverge.
+ *
+ * Mirrors pushSharedUi's no-ops: with no local ui/ folder, or under
+ * `keepDeleted` with an unreadable store, the apply does nothing, so the
+ * preview must be empty (even when the remote store is non-empty) to avoid
+ * phantom diffs the apply won't perform.
+ */
+export async function diffSharedUi(
+  workspace: string,
+  keepDeleted?: boolean,
+): Promise<SharedUiChange[]> {
+  const localDir = path.join(process.cwd(), SHARED_UI_DIR);
+  if (!fs.existsSync(localDir)) {
+    return [];
+  }
+  const files = await readDirRecursive(localDir);
+  const remote = await fetchSharedUi(workspace);
+  if (remote === undefined && keepDeleted) {
+    return [];
+  }
+  // If endpoint missing or unauthorized, treat remote as empty (the push
+  // would attempt the PUT anyway).
+  return sharedUiChanges(files, remote ?? {}, keepDeleted);
+}
+
+/**
  * Push the local <cwd>/ui/ folder to the workspace's shared UI store.
  * Returns true if a push was performed, false if the folder is missing or
  * already matches the remote store. Note an empty-but-existing folder still
@@ -105,29 +120,40 @@ export async function pushSharedUi(
     return false;
   }
 
-  // Skip if no change — reuse diffSharedUi so preview and push never diverge.
-  const diff = await diffSharedUi(workspace, keepDeleted);
-  if (diff.length === 0) {
+  const files = await readDirRecursive(localDir);
+  const remote = await fetchSharedUi(workspace);
+  // The store is written whole, so a remote-only file is pruned by omission
+  // alone. An unreadable store leaves no way to carry those files over, so
+  // the shared UI is left untouched rather than cleared.
+  if (remote === undefined && keepDeleted) {
+    log.warn(
+      colors.yellow(
+        "Could not read the shared UI folder from the remote; skipping its push so --keep-deleted does not clear it.",
+      ),
+    );
+    return false;
+  }
+
+  // Same comparison as diffSharedUi, off the same two maps, so preview and
+  // push never diverge.
+  if (sharedUiChanges(files, remote ?? {}, keepDeleted).length === 0) {
     log.info(colors.gray("Shared UI folder up to date"));
     return false;
   }
 
-  const files = await readDirRecursive(localDir);
   if (keepDeleted) {
-    // The store is written whole, so a remote-only file is pruned by omission
-    // alone: carry it back into the map. An unreadable store leaves no way to
-    // do that without pruning it, so the shared UI is left untouched instead.
-    const remote = await fetchSharedUi(workspace);
-    if (remote === undefined) {
-      log.warn(
-        colors.yellow(
-          "Could not read the shared UI folder from the remote; skipping its push so --keep-deleted does not clear it.",
-        ),
-      );
-      return false;
-    }
-    for (const [rel, content] of Object.entries(remote)) {
-      if (!Object.hasOwn(files, rel)) files[rel] = content;
+    for (const [rel, content] of Object.entries(remote!)) {
+      // defineProperty, not assignment: `files.__proto__ = "..."` runs the
+      // inherited setter and creates no own property, so a remote `ui/__proto__`
+      // would be dropped from the whole-map PUT — i.e. deleted despite the flag.
+      if (!Object.hasOwn(files, rel)) {
+        Object.defineProperty(files, rel, {
+          value: content,
+          writable: true,
+          enumerable: true,
+          configurable: true,
+        });
+      }
     }
   }
   await wmill.updateSharedUi({
