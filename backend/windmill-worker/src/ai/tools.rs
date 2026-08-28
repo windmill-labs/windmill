@@ -371,6 +371,13 @@ async fn execute_windmill_tool(
 
     let is_ai_agent_tool = matches!(tool_value, FlowModuleValue::AIAgent { .. });
 
+    // The permissions the tool job is pushed with. Resolved before the payload because the
+    // tool's script reference is looked up under them.
+    let job_perms: Option<windmill_common::db::Authed> =
+        windmill_common::auth::get_job_perms(ctx.db, &ctx.job.id, &ctx.job.workspace_id)
+            .await?
+            .map(|x| x.into());
+
     let job_payload = match tool_value {
         FlowModuleValue::Script { path: script_path, hash: script_hash, tag_override, .. } => {
             script_to_payload(
@@ -381,6 +388,7 @@ async fn execute_windmill_tool(
                 tool_module,
                 tag_override,
                 tool_module.apply_preprocessor,
+                job_perms.as_ref(),
             )
             .await?
         }
@@ -459,12 +467,7 @@ async fn execute_windmill_tool(
         }
     };
 
-    let mut tx = ctx.db.begin().await?;
-
-    let job_perms =
-        windmill_common::auth::get_job_perms(&mut *tx, &ctx.job.id, &ctx.job.workspace_id)
-            .await?
-            .map(|x| x.into());
+    let tx = ctx.db.begin().await?;
 
     let (email, permissioned_as) = if let Some(on_behalf_of) = job_payload.on_behalf_of.as_ref() {
         (&on_behalf_of.email, on_behalf_of.permissioned_as.clone())
