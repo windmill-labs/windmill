@@ -105,6 +105,7 @@
 		"@windmill-labs/svelte-dnd-action": "^0.9.44",
 		"@xterm/addon-fit": "^0.10.0",
 		"@xyflow/svelte": "^1.0.0",
+		"acorn": "^8.15.0",
 		"ag-charts-community": "^9.0.1",
 		"ag-charts-enterprise": "^9.0.1",
 		"ag-grid-community": "^31.3.4",

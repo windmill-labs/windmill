@@ -3532,7 +3532,13 @@ pub async fn run_worker(
                     job.kind,
                     JobKind::Script | JobKind::Preview | JobKind::FlowScript
                 ) {
-                    if !dedicated_workers.is_empty() {
+                    // A job carrying a pre-run error never runs its code: it only has to be
+                    // pulled so `handle_queued_job` can fail it. Both hand-off paths below
+                    // dispatch by path and return before that check, so a job sent down them
+                    // would run with whatever arguments survived the failure.
+                    let fails_before_running = job.pre_run_error.is_some();
+
+                    if !dedicated_workers.is_empty() && !fails_before_running {
                         let dedicated_worker_tx = job.runnable_path.as_ref().and_then(|path| {
                             // For flow steps inside branches/loops, runnable_path includes
                             // nesting segments (e.g. f/flow/branchone-0/a) but the dedicated
@@ -3577,7 +3583,7 @@ pub async fn run_worker(
                         NextJob::Http(_) => None,
                     };
 
-                    if let Some(flow_runners) = flow_runners {
+                    if let Some(flow_runners) = flow_runners.filter(|_| !fails_before_running) {
                         let key_o = job.flow_step_id.as_ref().map(|x| x.to_string());
                         if let Some(key) = key_o {
                             if let Some(flow_runner_tx) = flow_runners.runners.get(&key) {
