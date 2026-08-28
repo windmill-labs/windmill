@@ -11,7 +11,6 @@
 		displayDate,
 		getLocalSetting,
 		msToReadableTime,
-		msToReadableTimeShort,
 		storeLocalSetting
 	} from '$lib/utils'
 	import { runsOutlastingInterval } from '$lib/components/schedules/scheduleDrift'
@@ -657,9 +656,9 @@
 												<AlertTriangle size={14} class="text-yellow-600" />
 												{#snippet text()}
 													<div>
-														Runs have been taking about {msToReadableTimeShort(outlastingMs, 0)}, longer
-														than the {msToReadableTime(interval_s! * 1000)} between scheduled events, so
-														this schedule is running less often than its cron asks for.
+														Runs have been taking about {msToReadableTime(outlastingMs, 0)}, longer than
+														the {msToReadableTime(interval_s! * 1000, 0)} between scheduled events, so this
+														schedule is running less often than its cron asks for.
 													</div>
 												{/snippet}
 											</Popover>

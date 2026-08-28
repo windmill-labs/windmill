@@ -35,7 +35,6 @@
 		emptyString,
 		formatCron,
 		msToReadableTime,
-		msToReadableTimeShort,
 		sendUserToast,
 		cronV1toV2
 	} from '$lib/utils'
@@ -944,8 +943,9 @@
 					/>
 					{#if outlastingMs && runsSample?.interval_s}
 						<Alert type="warning" size="xs" title="Runs are outlasting the interval">
-							Recent runs have been taking about {msToReadableTimeShort(outlastingMs, 0)}, against {msToReadableTime(
-								runsSample.interval_s * 1000
+							Recent runs have been taking about {msToReadableTime(outlastingMs, 0)}, against {msToReadableTime(
+								runsSample.interval_s * 1000,
+								0
 							)} between scheduled events. Script runs never overlap, so the next run is only queued once the
 							previous one has completed: this schedule is running less often than its cron asks
 							for. To keep the cadence, schedule a flow instead, which queues its next run when the
