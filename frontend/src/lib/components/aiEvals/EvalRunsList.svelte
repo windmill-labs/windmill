@@ -8,6 +8,7 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { Button } from '$lib/components/common'
 	import { Bot, ChevronRight, Code2, Loader2, Plus } from 'lucide-svelte'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import type { EvalDataset, EvalExperiment, ExperimentScore } from '$lib/gen'
 	import { datasetSummary, experimentName, formatScore, subjectLabel } from './evalUtils'
 
@@ -45,10 +46,18 @@
 		onNew: () => void
 	} = $props()
 
-	/** The row the keyboard is on, or -1 for none. Separate from any notion of a selected run: this
-	 *  only says where the cursor is, and a run is not opened until Enter. */
+	/** The highlighted row, or -1 for none. One state for both the pointer and the keyboard, as a
+	 *  melt menu does it: hovering a row moves the highlight to it, so the arrows carry on from
+	 *  wherever the pointer left off instead of running a second, invisible cursor of their own.
+	 *  It says where the highlight is, not what is chosen — a run is not opened until Enter. */
 	let cursor = $state(-1)
 	let body: HTMLTableSectionElement | undefined = $state()
+
+	/** The depth of the overlay stack when this mounted. Anything opened afterwards — a drawer, a
+	 *  confirmation, another dialog — sits above us, and a window key handler that ignored that
+	 *  would drive this surface from underneath whatever the user is actually looking at. */
+	let depthAtMount = overlayStack().val.length
+	let onTop = $derived(overlayStack().val.length <= depthAtMount)
 
 	// A cursor left on a row that is no longer there — a run pruned, or the list filtered — would
 	// open the wrong run on the next Enter.
@@ -67,7 +76,7 @@
 	}
 
 	function onKeydown(event: KeyboardEvent) {
-		if (!active || event.metaKey || event.ctrlKey || event.altKey) return
+		if (!active || !onTop || event.metaKey || event.ctrlKey || event.altKey) return
 		const el = event.target as HTMLElement | null
 		if (el?.closest?.('input, textarea, select, [contenteditable="true"], [role="listbox"]')) return
 		if (event.key === 'ArrowDown') {
@@ -114,12 +123,13 @@
 	<tbody class="divide-y" bind:this={body}>
 		{#each experiments as experiment, i (experiment.id)}
 			<!-- `group` so the chevron in the last cell can answer this row's hover. -->
+			<!-- No `hoverable`: its own hover tint would be a second highlight competing with this
+			     one. The pointer moves the highlight instead, and `selected` draws it. -->
 			<Row
-				hoverable
 				selected={i === cursor}
-				class="group"
+				class="cursor-pointer"
 				on:click={() => onOpen(experiment)}
-				on:hover={(e) => e.detail && (cursor = -1)}
+				on:hover={(e) => e.detail && (cursor = i)}
 			>
 				<Cell first>
 					<div class="flex flex-col min-w-0">
@@ -206,9 +216,7 @@
 				<Cell last numeric>
 					<ChevronRight
 						size={14}
-						class="text-tertiary transition-opacity {i === cursor
-							? 'opacity-100'
-							: 'opacity-0 group-hover:opacity-100'}"
+						class="text-tertiary transition-opacity {i === cursor ? 'opacity-100' : 'opacity-0'}"
 					/>
 				</Cell>
 			</Row>

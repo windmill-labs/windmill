@@ -8,6 +8,8 @@
 </script>
 
 <script lang="ts">
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
+
 	let {
 		pages,
 		current,
@@ -56,6 +58,12 @@
 
 	let box: HTMLDivElement | undefined = $state()
 
+	/** The depth of the overlay stack when this mounted. Anything opened afterwards — a drawer, a
+	 *  confirmation, another dialog — sits above us, and a window key handler that ignored that
+	 *  would drive this surface from underneath whatever the user is actually looking at. */
+	let depthAtMount = overlayStack().val.length
+	let onTop = $derived(overlayStack().val.length <= depthAtMount)
+
 	/** Whether the keyboard is ours to answer.
 	 *
 	 *  Focus inside the component is the clear case. `document.body` counts too, and has to: the
@@ -73,7 +81,7 @@
 	}
 
 	function onKeydown(event: KeyboardEvent) {
-		if (!onNavigate || event.metaKey || event.ctrlKey || event.altKey) return
+		if (!onNavigate || !onTop || event.metaKey || event.ctrlKey || event.altKey) return
 		if (!ownsKeyboard(event.target)) return
 		const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
 		if (step === 0) return
