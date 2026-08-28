@@ -1,23 +1,27 @@
 import { BROWSER } from 'esm-env'
 import { onUserChange, scopedKey } from '$lib/userScopedStorage'
-import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
 import { noteDriverAlive, noteRemoteTurnEnded } from './sessionRunOwner.svelte'
 
 // The channel between tabs open on the same AI session. Everything a session is
 // made of — the record list, the chat transcript, the run itself — lives in the
 // tab, so two tabs on one session are two independent copies of it. This module
-// carries messages between those copies: record writes, and the driving tab's
-// live transcript. Who is entitled to drive is sessionRunOwner's question; this
-// module only tells it what arrived.
+// carries messages between those copies: record writes, and how the driving
+// tab's run is going. Who is entitled to drive is sessionRunOwner's question;
+// this module only tells it what arrived.
+//
+// No message carries a transcript. Tabs converge by re-reading the shared
+// IndexedDB record once a run ends, so what crosses the channel stays small and
+// bounded whatever a turn produced.
 //
 // The channel is per-user (same email scoping as the IndexedDB stores), so a
 // browser shared by two accounts never crosses them.
 
 const CHANNEL_BASE = 'windmill-sessions-sync'
 
-/** Mirror ticks are throttled to this while a turn streams. Also the heartbeat
- *  interval: an unchanged run still ticks, so silence means the driver is gone. */
-export const MIRROR_THROTTLE_MS = 250
+/** How often a driving tab posts its status. An unchanged run still ticks, so
+ *  silence is what tells the other tabs the driver is gone; the reaper's
+ *  threshold is several times this. */
+export const RUN_STATUS_INTERVAL_MS = 1000
 
 /** Carries only the id on purpose. Broadcast delivery order and IndexedDB
  *  commit order are independent, so shipping a copy of the record lets an older
@@ -36,34 +40,33 @@ type SessionArtifactMsg = { kind: 'session-artifact'; sessionId: string; artifac
  *  watcher does the same thing either way — re-read the record and stop
  *  showing the run. */
 type TurnEndMsg = { kind: 'turn-end'; sessionId: string; chatId: string }
-type MirrorMsg = {
-	kind: 'mirror'
+/**
+ * How the driving tab's run is going. Deliberately carries no transcript: a
+ * watching tab keeps showing its own, and drives the same loading indicator a
+ * local turn shows from these fields, then re-reads the record once `turn-end`
+ * says the run is over.
+ *
+ * Every field here is a scalar of fixed size. That is the property to preserve:
+ * the transcript this replaced carried tool results and job logs, which are
+ * bounded by nothing, and re-broadcasting them several times a second was a
+ * responsiveness bug that recurred once per field anyone forgot to strip.
+ */
+type RunStatusMsg = {
+	kind: 'run-status'
 	sessionId: string
 	chatId: string
-	/** Index the tail starts at; the receiver keeps its own prefix below it, and
-	 *  asks for a full snapshot when it has no prefix that reaches this far. */
-	baseIndex: number
-	tail: DisplayMessage[]
-	/** The driver's whole transcript length. A watcher holding more than this has
-	 *  a prefix the driver no longer has, so its splice would invent a transcript
-	 *  that never existed; it resyncs instead. */
-	total: number
 	loading: boolean
-	currentReply: string
-	currentReasoning: string
-	currentReasoningActive: boolean
-	loadingLabel: string | undefined
 	compacting: boolean
+	/** Parked on a question that only the driving tab can render. The watcher
+	 *  says where to answer it rather than implying work is in progress. */
+	blockedOnUser: boolean
+	loadingLabel: string | undefined
 	/** The driver's plan-mode posture. The only autonomy state worth carrying:
 	 *  every other one is a stored preference each tab keeps its own copy of,
 	 *  while plan mode is never persisted and so exists nowhere but the driving
 	 *  tab's memory. */
 	planModeActive: boolean
 }
-/** Sent by a tab whose local prefix can't host the tail it just received (it
- *  joined mid-run, or is on a different chat). The driver answers with a full
- *  snapshot. */
-type ResyncRequestMsg = { kind: 'resync-request'; sessionId: string }
 /** A Stop pressed in a tab that is only watching the run. */
 type CancelRequestMsg = { kind: 'cancel-request'; sessionId: string }
 /** A run blocked on the user is unblocked from whichever tab the user is in;
@@ -86,8 +89,7 @@ type SyncMsg =
 	| SessionDeleteMsg
 	| SessionArtifactMsg
 	| TurnEndMsg
-	| MirrorMsg
-	| ResyncRequestMsg
+	| RunStatusMsg
 	| CancelRequestMsg
 	| ToolConfirmationMsg
 	| QuestionAnswerMsg
@@ -97,8 +99,7 @@ type Handlers = {
 	onSessionDelete: (id: string) => void
 	onSessionArtifact: (sessionId: string, artifactId: string) => void
 	onTurnEnd: (sessionId: string, chatId: string) => void
-	onMirror: (msg: MirrorMsg) => void
-	onResyncRequest: (sessionId: string) => void
+	onRunStatus: (msg: RunStatusMsg) => void
 	onCancelRequest: (sessionId: string) => void
 	onToolConfirmation: (sessionId: string, toolId: string, confirmed: boolean) => void
 	onQuestionAnswer: (sessionId: string, toolId: string, choices: string[]) => void
@@ -172,12 +173,9 @@ function receive(msg: SyncMsg): void {
 			noteRemoteTurnEnded(msg.sessionId)
 			emit('onTurnEnd', msg.sessionId, msg.chatId)
 			break
-		case 'mirror':
+		case 'run-status':
 			noteDriverAlive(msg.sessionId, msg.planModeActive)
-			emit('onMirror', msg)
-			break
-		case 'resync-request':
-			emit('onResyncRequest', msg.sessionId)
+			emit('onRunStatus', msg)
 			break
 		case 'cancel-request':
 			emit('onCancelRequest', msg.sessionId)
@@ -218,15 +216,11 @@ export function broadcastSessionArtifact(sessionId: string, artifactId: string):
 }
 
 // ---------------------------------------------------------------------------
-// Live mirroring
+// Run status
 // ---------------------------------------------------------------------------
 
 export function broadcastTurnEnd(sessionId: string, chatId: string): void {
 	post({ kind: 'turn-end', sessionId, chatId })
-}
-
-export function requestResync(sessionId: string): void {
-	post({ kind: 'resync-request', sessionId })
 }
 
 export function requestCancel(sessionId: string): void {
@@ -241,11 +235,11 @@ export function sendQuestionAnswer(sessionId: string, toolId: string, choices: s
 	post({ kind: 'question-answer', sessionId, toolId, choices })
 }
 
-export type MirrorSnapshot = Omit<MirrorMsg, 'kind'>
+export type RunStatus = Omit<RunStatusMsg, 'kind'>
 
-/** Send the driver's current view of a run. */
-export function broadcastMirror(snap: MirrorSnapshot): void {
-	post({ kind: 'mirror', ...snap })
+/** Say how the run this tab is driving is going. */
+export function broadcastRunStatus(status: RunStatus): void {
+	post({ kind: 'run-status', ...status })
 }
 
-export type { MirrorMsg }
+export type { RunStatusMsg }

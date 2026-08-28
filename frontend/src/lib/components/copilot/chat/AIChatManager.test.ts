@@ -294,10 +294,9 @@ describe('AIChatManager cross-tab run guard', () => {
 	})
 
 	// The save paths that run outside a turn have no guard over them, and a tab
-	// rendering someone else's run holds a transcript that does not match its own
-	// `messages` — writing that pair would clobber the record the driving tab is
-	// still appending to.
-	it('does not persist while rendering a run another tab owns', async () => {
+	// watching someone else's run holds the conversation from before it — writing
+	// that would clobber the record the driving tab is still appending to.
+	it('does not persist while another tab owns the run', async () => {
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
 		manager.sessionId = 'session-watching'
@@ -319,16 +318,16 @@ describe('AIChatManager cross-tab run guard', () => {
 		manager.sessionId = 'session-planning'
 
 		noteDriverAlive('session-planning', true)
-		expect(manager.mirroredPlanMode).toBe(true)
+		expect(manager.remotePlanMode).toBe(true)
 
 		noteRemoteTurnEnded('session-planning')
-		expect(manager.mirroredPlanMode).toBe(false)
+		expect(manager.remotePlanMode).toBe(false)
 	})
 
 	// The other tab's run has ended but this one is still reading what it left
-	// behind, so its transcript is mirrored while `messages` is the pre-turn
-	// history. A send in that window would put the stale history to the model and
-	// persist it over the completed turn.
+	// behind, so it holds the conversation from before that turn. A send in that
+	// window would put the stale history to the model and persist it over the
+	// completed turn.
 	it('refuses to send while still catching up on a finished remote turn', async () => {
 		const manager = new AIChatManager()
 		manager.isSessionChat = true

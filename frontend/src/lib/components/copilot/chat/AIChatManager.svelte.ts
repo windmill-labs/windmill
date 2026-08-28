@@ -61,7 +61,7 @@ import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { createLongHash } from '$lib/editorLangUtils'
 import type { AIProvider, UserDraftItemKind } from '$lib/gen'
 import { maskKey } from '$lib/components/sessions/modifiedItemsMask'
-import { isMirroring, runPosition } from '$lib/components/sessions/sessionRunOwner.svelte'
+import { runHeldElsewhere, runPosition } from '$lib/components/sessions/sessionRunOwner.svelte'
 import { getStringError } from './utils'
 import { type PasteAttachment } from './pasteTokens'
 import {
@@ -695,17 +695,16 @@ export class AIChatManager {
 	remoteToolConfirmation: ((toolId: string, confirmed: boolean) => boolean) | undefined = undefined
 	remoteQuestionAnswer: ((toolId: string, choices: string[]) => boolean) | undefined = undefined
 
-	/** True while this manager is showing a run another tab is driving, and on
-	 *  through the re-read that follows it. Its transcript then comes from mirror
-	 *  frames while `messages` still holds the pre-run history, so the pair is
-	 *  mismatched and must not be written to the shared record — the driving tab
-	 *  owns it until the re-read lands.
+	/** True while another tab is driving this session's run, and on through the
+	 *  re-read that follows it. What this manager holds is the conversation from
+	 *  before that turn, so it must not be written to the shared record — the
+	 *  driving tab owns it until the re-read lands.
 	 *
 	 *  Derived rather than stored: the position is what the runtime moves, and a
 	 *  second copy of it here could only ever be a copy that disagrees. A chat
-	 *  with no session (the docked copilot) is never mirroring. */
-	get mirroringRemoteRun(): boolean {
-		return isMirroring(this.sessionId)
+	 *  with no session (the docked copilot) never holds a run elsewhere. */
+	get runHeldElsewhere(): boolean {
+		return runHeldElsewhere(this.sessionId)
 	}
 
 	/** Whether the run on screen is one another tab is running in plan mode.
@@ -715,7 +714,7 @@ export class AIChatManager {
 	 *  only in the memory of the tab running the turn. It is read from the run's
 	 *  position for the same reason it is not stored there — the posture belongs
 	 *  to that run, and must not outlive it into a turn this tab drives. */
-	get mirroredPlanMode(): boolean {
+	get remotePlanMode(): boolean {
 		const position = runPosition(this.sessionId)
 		return position.state === 'watching' && position.planMode
 	}
@@ -804,7 +803,7 @@ export class AIChatManager {
 		// than deferred: the re-read when the run ends reseeds the mask from the
 		// driving tab's record, so a write held back here would be overwritten by
 		// it anyway — and writing now would put a mismatched pair in the record.
-		if (this.mirroringRemoteRun) return this.#maskPersistQueue
+		if (this.runHeldElsewhere) return this.#maskPersistQueue
 		this.#maskPersistQueue = this.#maskPersistQueue.then(() =>
 			this.historyManager
 				.saveChat(
@@ -1116,7 +1115,7 @@ export class AIChatManager {
 	#jobPersistQueue: Promise<void> = Promise.resolve()
 	#persistBackgroundJobs(): Promise<void> {
 		// Runs outside any turn, so the run guard never sees it.
-		if (this.mirroringRemoteRun) return this.#jobPersistQueue
+		if (this.runHeldElsewhere) return this.#jobPersistQueue
 		this.#jobPersistQueue = this.#jobPersistQueue.then(() =>
 			this.historyManager
 				.saveChat(
@@ -1540,9 +1539,9 @@ export class AIChatManager {
 	 * summary, leaving history untouched.
 	 */
 	compactManually = async (): Promise<void> => {
-		// `loading` is the mirrored driver's while another tab runs the session;
+		// `loading` reflects the driver's run while another tab has the session;
 		// compacting here would rewrite a conversation this tab does not own.
-		if (this.loading || this.mirroringRemoteRun) {
+		if (this.loading || this.runHeldElsewhere) {
 			return
 		}
 		// A summary round-trip only pays off once there's a prior exchange to fold
@@ -1803,7 +1802,7 @@ export class AIChatManager {
 		context?: ContextElement[],
 		files: AttachedTextFile[] = []
 	) {
-		if (this.mirroringRemoteRun) {
+		if (this.runHeldElsewhere) {
 			// Handed back, not dropped. These senders have no draft of their own to
 			// fall back on — the raw-app inline prompt would lose what the user
 			// typed outright. Not `restoreToInput`, whose no-composer fallback is
@@ -2926,12 +2925,12 @@ export class AIChatManager {
 			sendUserToast('This action needs the AI chat. Start an AI session to continue.', true)
 			return
 		}
-		// Still pairing a mirrored transcript with the pre-run history: sending now
-		// would put a conversation the driving tab has already moved past to the
-		// model, and persist it over what that tab saved. The composer is locked
-		// for exactly this window, so nothing the user typed reaches here — this
-		// catches the sends that start without one (tool handlers, auto-resume).
-		if (this.mirroringRemoteRun) {
+		// This tab holds the conversation from before the driver's turn: sending now
+		// would put one the driving tab has already moved past to the model, and
+		// persist it over what that tab saved. The composer is locked for exactly
+		// this window, so nothing the user typed reaches here — this catches the
+		// sends that start without one (tool handlers, auto-resume).
+		if (this.runHeldElsewhere) {
 			this.restoreRefusedSend(options)
 			return false
 		}
@@ -4080,7 +4079,7 @@ export class AIChatManager {
 	saveAndClear = async () => {
 		// The transcript on screen belongs to a run another tab owns; saving it
 		// here would write a history this manager does not have.
-		if (this.mirroringRemoteRun) return
+		if (this.runHeldElsewhere) return
 		this.cancel('saveAndClear')
 		// Drop any message queued in this conversation so it can't auto-send into
 		// the fresh chat or linger as a card across the switch.

@@ -133,10 +133,10 @@
 			return 'Answer the question above'
 		}
 
-		// Ahead of 'Ask followup': a mirrored run is almost always mid-conversation,
-		// so a check below that one would never be reached, and the locked composer
-		// would sit there inviting a followup it will not accept.
-		if (aiChatManager.mirroringRemoteRun) {
+		// Ahead of 'Ask followup': a run held elsewhere is almost always
+		// mid-conversation, so a check below that one would never be reached, and the
+		// locked composer would sit there inviting a followup it will not accept.
+		if (aiChatManager.runHeldElsewhere) {
 			return 'Running in another tab'
 		}
 
@@ -704,6 +704,15 @@
 		// Read before `take()` empties the draft the id derives from, and only take
 		// once the answer is delivered — an undelivered one would leave the user
 		// with neither their text nor a resumed turn.
+		// Ahead of every `draft.take()` below, including the edit branch: a send
+		// refused after the draft is consumed loses the user's text, and
+		// restartGeneration has truncated the transcript by then as well. The
+		// composer is disabled while another tab drives, so this catches the ways
+		// in that bypass it — Enter, and submitting an edit.
+		if (aiChatManager.runHeldElsewhere) {
+			sendUserToast('This session is running in another tab. Continue it there.')
+			return
+		}
 		const answeredQuestionId = questionAnsweredBySend
 		if (
 			answeredQuestionId &&
@@ -716,16 +725,6 @@
 			return
 		}
 		if (aiChatManager.loading) {
-			// The composer is locked while another tab drives, with one exception:
-			// a run parked on a question stays answerable from here. An answer
-			// carrying an attachment misses the branch above (it only routes plain
-			// choices) and would land on the queue — which in this tab nothing
-			// drains, because the turn that would flush it belongs elsewhere. Keep
-			// the draft where the user put it and say what will send.
-			if (aiChatManager.mirroringRemoteRun) {
-				sendUserToast('This session is running in another tab. Answer with text to send it there.')
-				return
-			}
 			// Queue the message instead of silently discarding it — it is auto-sent
 			// when this tab's own streaming turn completes successfully.
 			// Editing-while-loading keeps the old discard behavior. Paste

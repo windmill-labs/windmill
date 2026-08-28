@@ -93,18 +93,15 @@ import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import { sendUserToast } from '$lib/toast'
 import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-import { canSpliceFrame, mirrorFrameStart, withoutHeavyPayloads } from './sessionMirrorPayload'
 import {
-	broadcastMirror,
+	broadcastRunStatus,
 	broadcastTurnEnd,
-	MIRROR_THROTTLE_MS,
 	registerSyncHandlers,
 	requestCancel,
-	requestResync,
+	RUN_STATUS_INTERVAL_MS,
 	sendQuestionAnswer,
 	sendToolConfirmation,
-	type MirrorMsg,
-	type MirrorSnapshot
+	type RunStatusMsg
 } from './sessionSync.svelte'
 import {
 	clearRunPosition,
@@ -938,17 +935,15 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 	manager.onChatRotated = (chatId) => setSessionChatId(session.id, chatId)
 
 	// One tab drives a session at a time. The lock brackets the turn so the other
-	// tabs can mirror it, and refuses a second driver rather than letting two
-	// turns interleave into one chat id.
+	// tabs can show that it is running, and refuses a second driver rather than
+	// letting two turns interleave into one chat id.
 	manager.runGuard = async (body) => {
 		const outcome = await withSessionRunLock(session.id, async () => {
-			// The first frame doubles as the "a run started here" signal: it is
-			// posted immediately and carries the chat id the watchers need.
-			startMirroring(session.id)
+			startRunStatus(session.id)
 			try {
 				return await body()
 			} finally {
-				stopMirroring(session.id)
+				stopRunStatus(session.id)
 				// The chat id is re-read here, not reused from above: the turn may
 				// have rotated it, and the listeners key their IndexedDB re-read on it.
 				broadcastTurnEnd(session.id, manager.historyManager.getCurrentChatId())
@@ -1007,154 +1002,67 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 }
 
 // ---------------------------------------------------------------------------
-// Cross-tab mirroring
+// Cross-tab run status
 // ---------------------------------------------------------------------------
 
-// Driving tabs post a frame on this cadence for as long as their turn runs.
-// A plain interval rather than an $effect on the manager's fields: it also
-// serves as the liveness heartbeat (a run that stalls in a long tool call
-// still ticks), and it picks up in-place edits to already-rendered tool cards
-// that reactive tracking of the array root would miss.
-const mirrorTimers = new Map<string, ReturnType<typeof setInterval>>()
+// Driving tabs post their status on this cadence for as long as their turn
+// runs. A plain interval rather than an $effect on the manager's fields: it
+// doubles as the liveness heartbeat, so a run stalled in a long tool call still
+// ticks and is not reaped as a closed tab.
+const statusTimers = new Map<string, ReturnType<typeof setInterval>>()
 
-// Where the running turn's own messages start, per session. A frame never
-// reaches below it, which is what makes overwriting safe: everything at or after
-// it either is new this turn or is a stripped copy the watcher got from an
-// earlier frame of this same turn, so a frame can never replace a message the
-// watcher holds complete from the store. Reset to 0 by a rewrite (compaction),
-// after which no index is stable and whole transcripts travel instead.
-const turnStarts = new Map<string, number>()
-// The driver's transcript length at its last frame, so a shrink is detectable.
-const lastSentTotals = new Map<string, number>()
-
-function mirrorSnapshotOf(sessionId: string, full: boolean): MirrorSnapshot | undefined {
+function postRunStatus(sessionId: string): void {
 	const runtime = runtimes.get(sessionId)
-	if (!runtime) return undefined
+	if (!runtime) return
 	const m = runtime.manager
-	const total = m.displayMessages.length
-	// A shrink means the transcript was rewritten, not appended to: compaction
-	// folds the head into a summary mid-turn. A watcher's prefix is then a
-	// conversation that no longer exists, and no index check can tell — the
-	// lengths still line up. Send the whole thing instead.
-	const rewritten = total < (lastSentTotals.get(sessionId) ?? 0)
-	lastSentTotals.set(sessionId, total)
-	if (rewritten) turnStarts.set(sessionId, 0)
-	// Slice before cloning: `$state.snapshot` walks whatever it is handed, so
-	// snapshotting the whole transcript to send ten messages would traverse the
-	// entire conversation on every tick.
-	const baseIndex = mirrorFrameStart({
-		total,
-		turnStart: turnStarts.get(sessionId) ?? 0,
-		full: full || rewritten
-	})
-	return {
+	broadcastRunStatus({
 		sessionId,
 		chatId: m.historyManager.getCurrentChatId(),
-		baseIndex,
-		// Stripped before the clone, not after: `$state.snapshot` deep-copies
-		// whatever it is handed, so stripping second still copies every image data
-		// URL and pasted file body first — megabytes per tick, several times a
-		// second, for bytes about to be thrown away.
-		tail: $state.snapshot(
-			withoutHeavyPayloads(m.displayMessages.slice(baseIndex))
-		) as DisplayMessage[],
-		total,
 		loading: m.loading,
-		currentReply: m.currentReply,
-		currentReasoning: m.currentReasoning,
-		currentReasoningActive: m.currentReasoningActive,
-		loadingLabel: m.loadingLabel,
 		compacting: m.compacting,
+		blockedOnUser: pendingUserAction(m.displayMessages) !== undefined,
+		loadingLabel: m.loadingLabel,
 		planModeActive: m.planModeActive
-	}
+	})
 }
 
-function postMirror(sessionId: string, { full = false } = {}): void {
-	const snap = mirrorSnapshotOf(sessionId, full)
-	if (snap) broadcastMirror(snap)
-}
-
-function startMirroring(sessionId: string): void {
-	stopMirroring(sessionId)
-	// Captured before the turn pushes its first message, so it is the index of
-	// the oldest message this turn owns.
-	turnStarts.set(sessionId, runtimes.get(sessionId)?.manager.displayMessages.length ?? 0)
-	postMirror(sessionId)
-	mirrorTimers.set(
+function startRunStatus(sessionId: string): void {
+	stopRunStatus(sessionId)
+	// Posted immediately: this first message doubles as the "a run started here"
+	// signal, and carries the chat id the watching tabs key their re-read on.
+	postRunStatus(sessionId)
+	statusTimers.set(
 		sessionId,
-		setInterval(() => postMirror(sessionId), MIRROR_THROTTLE_MS)
+		setInterval(() => postRunStatus(sessionId), RUN_STATUS_INTERVAL_MS)
 	)
 }
 
-function stopMirroring(sessionId: string): void {
-	const timer = mirrorTimers.get(sessionId)
+function stopRunStatus(sessionId: string): void {
+	const timer = statusTimers.get(sessionId)
 	if (!timer) return
 	clearInterval(timer)
-	mirrorTimers.delete(sessionId)
-	// One last frame: the closing tokens of a turn usually land between ticks,
-	// and this is what the passive tabs render until their re-read completes.
-	// Posted while the turn's bookkeeping still stands — it is a frame like any
-	// other, and one sent without `turnStart` reaches below the turn and replaces
-	// complete messages with payload-stripped copies, while one sent without
-	// `lastSentTotals` cannot notice a compaction landing on this very tick.
-	postMirror(sessionId)
-	lastSentTotals.delete(sessionId)
-	turnStarts.delete(sessionId)
+	statusTimers.delete(sessionId)
 }
 
-/** Adopt a frame from the tab driving this session. */
-function applyMirror(msg: MirrorMsg): void {
-	// A tab mid-turn is the authority on its own session; a frame can only be
-	// an echo of a run this tab is itself driving.
+/** Adopt the driving tab's status. The transcript is left alone: this tab keeps
+ *  showing its own until `turn-end` triggers the re-read. */
+function applyRunStatus(msg: RunStatusMsg): void {
+	// A tab mid-turn is the authority on its own session; a status message can
+	// only be an echo of a run this tab is itself driving.
 	if (isDriving(msg.sessionId)) return
 	const runtime = runtimes.get(msg.sessionId)
 	if (!runtime) return
 	const m = runtime.manager
-	const onSameChat = m.historyManager.getCurrentChatId() === msg.chatId
-	if (
-		!canSpliceFrame({
-			baseIndex: msg.baseIndex,
-			total: msg.total,
-			localLength: m.displayMessages.length,
-			onSameChat
-		})
-	) {
-		// Nothing here can host this tail: this tab joined mid-run, or the driver
-		// rotated to a chat it isn't on. Ask for the whole transcript instead of
-		// splicing onto a prefix that isn't the same conversation.
-		requestResync(msg.sessionId)
-		return
-	}
-	if (!onSameChat) {
-		// A full snapshot names the conversation it came from, so follow the
-		// driver onto it rather than rendering it under the wrong chat id.
-		m.historyManager.setCurrentChatId(msg.chatId)
-		setSessionChatId(msg.sessionId, msg.chatId)
-	}
-	// Safe to overwrite wholesale: a frame reaches no further back than the
-	// running turn's first message, so everything it replaces is either new or a
-	// stripped copy of its own from an earlier frame — never a message this tab
-	// holds complete from the store.
-	m.displayMessages =
-		msg.baseIndex === 0 ? msg.tail : [...m.displayMessages.slice(0, msg.baseIndex), ...msg.tail]
 	m.loading = msg.loading
-	m.currentReply = msg.currentReply
-	m.currentReasoning = msg.currentReasoning
-	m.currentReasoningActive = msg.currentReasoningActive
-	m.loadingLabel = msg.loadingLabel
 	m.compacting = msg.compacting
+	m.loadingLabel = msg.blockedOnUser ? 'Waiting for your answer in the other tab' : msg.loadingLabel
 }
 
-/** The driver answers a resync with its whole transcript. */
-function answerResync(sessionId: string): void {
-	if (!isDriving(sessionId)) return
-	postMirror(sessionId, { full: true })
-}
-
-/** A run finished in another tab. The mirror carried the rendered transcript
- *  only, so re-read the record the driver just saved for everything else — the
- *  API-format history, context usage, the edits mask, background jobs — leaving
- *  this tab able to take the conversation over. */
+/** A run finished in another tab. Nothing of it crossed the channel but its
+ *  status, so re-read the record the driver just saved for everything else —
+ *  the rendered transcript, the API-format history, context usage, the edits
+ *  mask, background jobs — leaving this tab able to take the conversation
+ *  over. */
 async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Promise<void> {
 	if (isDriving(sessionId)) return
 	let caughtUp = false
@@ -1166,11 +1074,9 @@ async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Pro
 		}
 		const m = runtime.manager
 		// `loading` has to go first: loadPastChat refuses to run while the manager
-		// looks busy, and this one is the mirrored driver's, not a turn of our own.
+		// looks busy, and this one is the driver's, not a turn of our own. These
+		// three are exactly what applyRunStatus sets.
 		m.loading = false
-		m.currentReply = ''
-		m.currentReasoning = ''
-		m.currentReasoningActive = false
 		m.loadingLabel = undefined
 		m.compacting = false
 		const id = chatId || m.historyManager.getCurrentChatId()
@@ -1181,10 +1087,10 @@ async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Pro
 		const found = await m.historyManager.reloadChat(id)
 		if (found === 'unavailable') {
 			// The store is unreadable *right now*, which says nothing about the
-			// conversation — so this tab still pairs the mirrored transcript with
-			// the history it held before the run. Freeing it here would let a turn
-			// go out under that pair and save it over what the driver wrote. Stay
-			// gated and keep asking; the read is the only thing that can settle it.
+			// conversation — so this tab still holds the one from before the run.
+			// Freeing it here would let a turn go out under that and save it over
+			// what the driver wrote. Stay gated and keep asking; the read is the only
+			// thing that can settle it.
 			scheduleCatchUpRetry(sessionId, chatId, attempt)
 			return
 		}
@@ -1218,9 +1124,9 @@ async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Pro
  *
  *  It retries for as long as the runtime lives, including against a store that
  *  will never open. Deliberate: the alternative is giving up and releasing the
- *  gate, and this tab would then send a mirrored transcript paired with pre-run
- *  history — the driver's completed turn missing from what reaches the model,
- *  and its record overwritten. A read every few seconds is the cheaper half of
+ *  gate, and this tab would then send the pre-run conversation — the driver's
+ *  completed turn missing from what reaches the model, and its record
+ *  overwritten. A read every few seconds is the cheaper half of
  *  that trade, and a browser whose IndexedDB never opens has no session history,
  *  artifacts or records either, so a locked composer is not what is broken. */
 const CATCH_UP_BACKOFF_MS = [300, 700, 1500, 3000, 5000]
@@ -1268,8 +1174,7 @@ function applyQuestionAnswer(sessionId: string, toolId: string, choices: string[
 }
 
 registerSyncHandlers({
-	onMirror: applyMirror,
-	onResyncRequest: answerResync,
+	onRunStatus: applyRunStatus,
 	onCancelRequest: applyCancelRequest,
 	onToolConfirmation: applyToolConfirmation,
 	onQuestionAnswer: applyQuestionAnswer,
@@ -1279,7 +1184,7 @@ registerSyncHandlers({
 	onSessionDelete: (id) => disposeRuntime(id),
 	// Artifacts persist to a store both tabs share, but each keeps its own
 	// reactive copy, so the tab that did not write one never hears of it. That is
-	// what leaves a mirrored plan awaiting approval with no document behind it.
+	// what leaves a plan awaiting approval with no document behind it.
 	onSessionArtifact: (sessionId, artifactId) =>
 		void runtimes.get(sessionId)?.manager.artifacts.applyRemoteArtifact(artifactId)
 })
@@ -1306,10 +1211,10 @@ export function disposeRuntime(sessionId: string) {
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
 	// The per-run bookkeeping outlives the manager it describes otherwise: a
-	// frame timer with no runtime to read keeps ticking, a pending catch-up would
-	// re-read for a manager that is gone, and a leftover position would answer
-	// for a session this tab no longer holds.
-	stopMirroring(sessionId)
+	// status timer with no runtime to read keeps ticking, a pending catch-up
+	// would re-read for a manager that is gone, and a leftover position would
+	// answer for a session this tab no longer holds.
+	stopRunStatus(sessionId)
 	cancelCatchUpRetry(sessionId)
 	clearRunPosition(sessionId)
 }

@@ -7,7 +7,7 @@ import {
 	withSessionRunLock
 } from './sessionRunOwner.svelte'
 
-const SESSIONS = ['session-watching', 'session-catching-up', 'session-idle']
+const SESSIONS = ['session-watching', 'session-catching-up', 'session-idle', 'session-unheard']
 
 // `positions` is module state and a watching entry keeps the reaper interval
 // armed, so leave nothing behind for the next suite.
@@ -44,6 +44,18 @@ describe('withSessionRunLock with no lock to take', () => {
 		expect(await withSessionRunLock('session-idle', body)).toBe('ran')
 		expect(body).toHaveBeenCalledTimes(1)
 	})
+
+	// A tab that opened between the driver's last status message and its turn-end
+	// never saw the run start, so it is idle — holding the conversation from
+	// before the turn, and idle is the position that permits driving on it.
+	it('refuses a turn-end it never saw start, rather than driving on stale history', async () => {
+		onDriverLost(() => {})
+		noteRemoteTurnEnded('session-unheard')
+		const body = vi.fn(async () => 'ran')
+
+		expect(await withSessionRunLock('session-unheard', body)).toBe('busy')
+		expect(body).not.toHaveBeenCalled()
+	})
 })
 
 // A fresh module instance is the only honest way to test this: the runtime's
@@ -57,7 +69,7 @@ describe('a turn ending in a tab with no session runtime', () => {
 		owner.noteRemoteTurnEnded('session-no-runtime')
 
 		expect(owner.isCatchingUp('session-no-runtime')).toBe(false)
-		expect(owner.isMirroring('session-no-runtime')).toBe(false)
+		expect(owner.runHeldElsewhere('session-no-runtime')).toBe(false)
 		owner.clearRunPosition('session-no-runtime')
 	})
 })

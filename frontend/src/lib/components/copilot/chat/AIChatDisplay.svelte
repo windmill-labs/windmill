@@ -501,8 +501,8 @@
 	)
 	// Only when this tab could hold the posture itself: a mode its own selector
 	// does not offer would read as a mode the user could switch away from here.
-	const showsMirroredPlan = $derived(
-		aiChatManager.mirroredPlanMode && aiChatManager.planModeAvailable
+	const showsRemotePlan = $derived(
+		aiChatManager.remotePlanMode && aiChatManager.planModeAvailable
 	)
 	// Fall back to ask-permission when the persisted mode isn't applicable in the
 	// current AI mode (e.g. auto-accept edits while in a mode without edits).
@@ -510,7 +510,7 @@
 	// run this tab is showing, and this tab's own mode governs nothing until it
 	// drives a turn itself.
 	const effectiveAutonomyMode = $derived(
-		showsMirroredPlan
+		showsRemotePlan
 			? AIAutonomyMode.PLAN
 			: availableAutonomyModeOptions.some((option) => option.mode === aiChatManager.autonomyMode)
 				? aiChatManager.autonomyMode
@@ -535,16 +535,16 @@
 		return pending?.action === 'question' ? pending.toolCallId : undefined
 	})
 
-	// The composer is locked while another tab's run is on screen: this tab pairs
-	// a mirrored transcript with the history it held before that run, and a turn
-	// sent from that pair would reach the model as a conversation the driver has
-	// already moved past. It unlocks on its own once the re-read that follows the
-	// turn lands. A run parked on a question is the exception — answering is the
-	// one thing a watching tab is there to do, and the answer travels to the
-	// driver instead of starting a turn here.
-	const composerLocked = $derived(
-		aiChatManager.mirroringRemoteRun && pendingQuestionToolCallId === undefined
-	)
+	// The composer is locked for as long as another tab's run is in flight: this
+	// tab still shows the transcript from before that run, and a turn sent from
+	// it would reach the model as a conversation the driver has already moved
+	// past. It unlocks on its own once the re-read that follows the turn lands.
+	//
+	// No exception for a run parked on a question. Only the driving tab holds the
+	// question and the resolver waiting on it; a card that looks parked here is a
+	// restored one whose resolver left with the old page, and answering it would
+	// deliver to nobody.
+	const composerLocked = $derived(aiChatManager.runHeldElsewhere)
 
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
@@ -639,10 +639,14 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 									{#each pastChats as chat (chat.id)}
 										<button
 											class="text-left flex flex-row items-center gap-2 justify-between hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md p-1 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent dark:disabled:hover:bg-transparent"
-											disabled={aiChatManager.loading || aiChatManager.sendInFlight}
-											title={aiChatManager.loading || aiChatManager.sendInFlight
-												? 'Stop the current answer to switch conversation'
-												: undefined}
+											disabled={aiChatManager.loading ||
+												aiChatManager.sendInFlight ||
+												aiChatManager.runHeldElsewhere}
+											title={aiChatManager.runHeldElsewhere
+												? 'This session is running in another tab'
+												: aiChatManager.loading || aiChatManager.sendInFlight
+													? 'Stop the current answer to switch conversation'
+													: undefined}
 											onclick={() => {
 												loadPastChat(chat.id)
 												close()
@@ -654,11 +658,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											>
 												{chat.title}
 											</div>
+											<!-- Gated separately: it sits inside the disabled row button,
+											     which does not disable it, and the catch-up re-read is
+											     keyed on a chat id this would delete out from under it. -->
 											<Button
 												iconOnly
 												size="xs2"
 												btnClasses="!p-1"
 												variant="default"
+												disabled={aiChatManager.runHeldElsewhere}
 												startIcon={{ icon: X }}
 												on:click={() => {
 													deletePastChat(chat.id)
@@ -672,10 +680,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					{/snippet}
 				</Popover>
 				<Button
-					title={aiChatManager.mirroringRemoteRun
+					title={aiChatManager.runHeldElsewhere
 						? 'This session is running in another tab'
 						: 'New chat'}
-					disabled={aiChatManager.mirroringRemoteRun}
+					disabled={aiChatManager.runHeldElsewhere}
 					on:click={() => {
 						saveAndClear()
 					}}
@@ -976,7 +984,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 								onchange={onFolderInputChange}
 							/>
 						{/if}
-						{#if showsMirroredPlan}
+						{#if showsRemotePlan}
 							<!-- The posture belongs to the tab running the turn, so it reads here
 							     rather than offering a choice that would only move this tab's own
 							     preference while the label stayed put. -->

@@ -8,9 +8,9 @@ import { SvelteMap } from 'svelte/reactivity'
 // have already run against the workspace. So one tab drives and the rest watch.
 //
 // Every gate in the cross-tab paths asks a variant of one question: may I send,
-// is this frame mine to adopt, is what I am showing still the other tab's. This
-// module answers all of them from a single position per session, so they cannot
-// disagree with each other.
+// may I save, is the run on screen still someone else's. This module answers all
+// of them from a single position per session, so they cannot disagree with each
+// other.
 
 /** Whether this context can hold a real lock on a run. Web Locks is
  *  secure-context only, so a self-hosted instance served over plain HTTP has
@@ -18,17 +18,17 @@ import { SvelteMap } from 'svelte/reactivity'
  *  {@link withSessionRunLock} and {@link runLockHeld}. */
 const EXCLUSIVE_OWNERSHIP = BROWSER && !!globalThis.navigator?.locks?.query
 
-/** A driver with no frame for this long is presumed gone, pending the lock
- *  query that confirms it. Deliberately many times the frame cadence: a busy
- *  tab can be starved of ticks for a while without having gone anywhere. */
+/** A driver silent for this long is presumed gone, pending the lock query that
+ *  confirms it. Deliberately many times the status cadence: a busy tab can be
+ *  starved of ticks for a while without having gone anywhere. */
 const DRIVER_SILENCE_MS = 10_000
 
 /** Where this tab stands in one session's run.
  *
  *  `catchingUp` is its own position rather than a corner of `watching`: the
- *  driver's turn is over, but this tab still pairs a mirrored transcript with
- *  the history it held before that turn, and sending from that pair would put a
- *  conversation the driver has already moved past to the model. */
+ *  driver's turn is over, but this tab still holds the conversation from before
+ *  it, and sending from there would put one the driver has already moved past to
+ *  the model. */
 export type RunPosition =
 	| { state: 'idle' }
 	| { state: 'driving' }
@@ -60,24 +60,23 @@ export function isDriving(sessionId: string): boolean {
 	return runPosition(sessionId).state === 'driving'
 }
 
-/** Another tab is running the turn and this one is rendering its frames. */
+/** Another tab is running the turn and this one is showing that it is. */
 export function isWatching(sessionId: string): boolean {
 	return runPosition(sessionId).state === 'watching'
 }
 
-/** True from the first frame adopted until the re-read that follows the
- *  driver's turn completes. The save and send paths gate on it: until it
- *  clears, this tab's transcript and its model history are not the same
- *  conversation. */
-export function isMirroring(sessionId: string | undefined): boolean {
+/** True from the driver's first status message until the re-read that follows
+ *  its turn completes. The save and send paths gate on it: until it clears, what
+ *  this tab holds is the conversation from before the driver's turn. */
+export function runHeldElsewhere(sessionId: string | undefined): boolean {
 	const state = runPosition(sessionId).state
 	return state === 'watching' || state === 'catchingUp'
 }
 
-/** A frame arrived, which is both the transcript and the sign of life. */
+/** The driver said how its run is going, which is also its sign of life. */
 export function noteDriverAlive(sessionId: string, planMode: boolean): void {
-	// A tab mid-turn is the authority on its own session; a frame reaching it can
-	// only be an echo of the run it is itself driving.
+	// A tab mid-turn is the authority on its own session; a status message
+	// reaching it can only be an echo of the run it is itself driving.
 	if (isDriving(sessionId)) return
 	positions.set(sessionId, { state: 'watching', lastHeardAt: Date.now(), planMode })
 	ensureReaper()
@@ -88,7 +87,12 @@ export function noteDriverAlive(sessionId: string, planMode: boolean): void {
  *  to perform it. The channel runs this in every tab that loads it, and one with
  *  no runtime would sit in a state nothing can leave. */
 export function noteRemoteTurnEnded(sessionId: string): void {
-	if (runPosition(sessionId).state !== 'watching') return
+	const state = runPosition(sessionId).state
+	// `idle` counts. A tab that heard the turn end without having heard it start
+	// — it opened between the driver's last status message and its turn-end, or
+	// its handler registered in that window — holds a transcript from before the
+	// turn, and idle is precisely the position that permits driving on it.
+	if (state === 'driving' || state === 'catchingUp') return
 	if (!canCompleteCatchUp()) {
 		positions.delete(sessionId)
 		return
@@ -131,6 +135,12 @@ export async function withSessionRunLock<T>(
 	sessionId: string,
 	body: () => Promise<T>
 ): Promise<T | 'busy'> {
+	// Ahead of the lock, because holding the lock is not the same as being
+	// entitled to the conversation: the driver releases it at turn-end while this
+	// tab still owes itself the re-read, and a turn driven in that window sends
+	// the pre-run history the re-read exists to replace. `runHeldElsewhere` and not
+	// `isWatching` for exactly that reason.
+	if (runHeldElsewhere(sessionId)) return 'busy'
 	if (!EXCLUSIVE_OWNERSHIP) return await bestEffort(sessionId, body)
 	// Set before the body runs, so a turn that throws is told apart from a lock
 	// that could not be taken. Without it a failing turn would look like a failed
@@ -164,8 +174,8 @@ export async function withSessionRunLock<T>(
  *  run is visibly on screen, and otherwise go.
  *
  *  This is deliberately not mutual exclusion, and cannot be made into it. A
- *  driver whose timers have been throttled in a hidden tab stops sending frames
- *  long before its turn ends, so it is reaped as dead and a send from here can
+ *  driver whose timers have been throttled in a hidden tab goes silent long
+ *  before its turn ends, so it is reaped as dead and a send from here can
  *  start a second turn against the same chat id. Nothing over the channel fixes
  *  that: a probe distinguishes a throttled tab from a closed one, but not a
  *  frozen tab from a closed one, and the browser freezes hidden tabs on much the
@@ -174,12 +184,8 @@ export async function withSessionRunLock<T>(
  *  Accepted rather than solved, because the only origins that land here are
  *  served over plain HTTP and are not localhost — a shape used for local testing
  *  rather than for running Windmill. Every HTTPS deployment, and localhost, is a
- *  secure context and takes the real lock above. `isMirroring` and not
- *  `isWatching`: a tab that has moved on to `catchingUp` is still owed its
- *  re-read, and driving from here would send the pre-run history that re-read
- *  exists to replace. */
+ *  secure context and takes the real lock above. */
 async function bestEffort<T>(sessionId: string, body: () => Promise<T>): Promise<T | 'busy'> {
-	if (isMirroring(sessionId)) return 'busy'
 	return await drive(sessionId, body)
 }
 
@@ -195,8 +201,8 @@ async function drive<T>(sessionId: string, body: () => Promise<T>): Promise<T> {
 }
 
 /** Whether any tab currently holds the run lock for this session. Used to
- *  settle a driver that stopped sending frames: a released lock proves the tab
- *  is gone, where silence alone only suggests it. */
+ *  settle a driver that went silent: a released lock proves the tab is gone,
+ *  where silence alone only suggests it. */
 async function runLockHeld(sessionId: string): Promise<boolean> {
 	// Nothing to consult without the lock API, so a silent driver is reaped on
 	// silence alone — and on that path reaching `idle` does entitle this tab to
@@ -250,8 +256,8 @@ async function reapDeadDrivers(): Promise<void> {
 		.filter(([, p]) => p.state === 'watching' && now - p.lastHeardAt > DRIVER_SILENCE_MS)
 		.map(([id]) => id)
 	for (const id of stale) {
-		// Re-checked after the await: a frame may have landed while the query was
-		// in flight, and reaping then would tear down a run that is visibly alive.
+		// Re-checked after the await: a status message may have landed while the
+		// query was in flight, and reaping then would tear down a live run.
 		if (await runLockHeld(id)) continue
 		if (!isWatching(id)) continue
 		noteRemoteTurnEnded(id)
