@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.799.0](https://github.com/windmill-labs/windmill/compare/v1.798.1...v1.799.0) (2026-08-28)
+
+
+### Features
+
+* enable Anthropic prompt caching on Vertex AI agent steps ([#10876](https://github.com/windmill-labs/windmill/issues/10876)) ([320f400](https://github.com/windmill-labs/windmill/commit/320f4005124202852e6e9c70b394e7f87231d278))
+* instrument AI fill/fix, evals, agents and the debugger ([#10853](https://github.com/windmill-labs/windmill/issues/10853)) ([0bbd559](https://github.com/windmill-labs/windmill/commit/0bbd559ac8a35dba04ba5e8d6f2fd8d1d1124891))
+
+
+### Bug Fixes
+
+* **datatables:** stop a fork's pg_dump restore from failing silently ([#10830](https://github.com/windmill-labs/windmill/issues/10830)) ([3ce9bbc](https://github.com/windmill-labs/windmill/commit/3ce9bbc7168b837cb2111aabd533bb67803502b8))
+* key build artifact caches on a runnable's inline modules ([#10819](https://github.com/windmill-labs/windmill/issues/10819)) ([b72ccc3](https://github.com/windmill-labs/windmill/commit/b72ccc35934165b4bad112b947ca5af064aab26f))
+* nested template literals in step inputs, and unresolvable $args tags ([#10856](https://github.com/windmill-labs/windmill/issues/10856)) ([8f349c0](https://github.com/windmill-labs/windmill/commit/8f349c032a0d75fc3350292075e5050a030f6166))
+* pre-fill the test panel JSON args editor and align its placeholder ([#10871](https://github.com/windmill-labs/windmill/issues/10871)) ([fb82f36](https://github.com/windmill-labs/windmill/commit/fb82f36e6d6492dd0740984d8d78ea4eaa30361e))
+* reject a prefixed error_handler_path on triggers ([#10847](https://github.com/windmill-labs/windmill/issues/10847)) ([d334831](https://github.com/windmill-labs/windmill/commit/d33483173526a3b352d2829ac8a2e1e229cc1127))
+* unify billable seat counting and prevent fork subscriptions ([#10818](https://github.com/windmill-labs/windmill/issues/10818)) ([7dd88c4](https://github.com/windmill-labs/windmill/commit/7dd88c470caee5f095dc240667aa7550c55696bc))
+
 ## [1.798.1](https://github.com/windmill-labs/windmill/compare/v1.798.0...v1.798.1) (2026-08-27)
 
 
