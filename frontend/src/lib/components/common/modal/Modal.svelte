@@ -38,6 +38,11 @@
 		/** A line under the title saying what the dialog is for; in the header so it does not
 		 * scroll away with the body. */
 		description?: string
+		/** The body holds pages that are laid over each other rather than stacked, so the header
+		 * keeps its own height and only the pages move. Requires `fillHeight`: pages are absolutely
+		 * positioned and need a definite height to fill. Pair with `PagedContent`, which does the
+		 * laying over; this only makes room for it. */
+		paginated?: boolean
 		/** Make the dialog fill the height it is anchored to and lay its body out as a flex
 		 * column, so content can size itself with `h-full` / `flex-1 min-h-0`. Off by default:
 		 * the dialog otherwise hugs its content, and percentage heights inside it do not
@@ -65,6 +70,7 @@
 		trail = undefined,
 		description = undefined,
 		fillHeight = false,
+		paginated = false,
 		minZIndex: minZIndexProp = undefined,
 		titleBadge,
 		settings,
@@ -231,7 +237,9 @@
 															{@render titleBadge?.()}
 														{/if}
 														{#if i > 0}
-															<ChevronRight size={18} class="text-tertiary shrink-0" />
+															<span class="flex shrink-0" in:fade={{ duration: 150 }}>
+																<ChevronRight size={18} class="text-tertiary shrink-0" />
+															</span>
 														{/if}
 														{#if i === 0}
 															<!-- flex: an inline child holding an icon sits on the baseline and adds
@@ -250,7 +258,11 @@
 														{:else if segment.onclick}
 															{@render crumb(segment, i === crumbs.length - 2)}
 														{:else}
-															<span class="text-emphasis truncate" aria-current="page">
+															<span
+																class="text-emphasis truncate"
+																aria-current="page"
+																in:fade={{ duration: 150 }}
+															>
 																{segment.label}
 															</span>
 														{/if}
@@ -276,7 +288,13 @@
 											<p class="mt-1 text-xs text-secondary">{description}</p>
 										{/if}
 
-										<div class="mt-4 text-sm text-primary {fillHeight ? 'flex-1 min-h-0' : ''}">
+										<!-- `mt-1` when paginated: a page carries its own description as its first line,
+										     and it belongs where the dialog's own sat, right under the title. -->
+										<div
+											class="{paginated ? 'mt-1' : 'mt-4'} text-sm text-primary {fillHeight
+												? 'flex-1 min-h-0'
+												: ''}"
+										>
 											{@render children_render?.()}
 										</div>
 									</div>

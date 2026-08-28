@@ -27,18 +27,13 @@
 	let trail = $derived(
 		location ? [{ label: TITLE, onclick: location.back }, { label: location.label }] : undefined
 	)
-	let description = $derived(
-		location
-			? undefined
-			: 'Each run answers a dataset of cases with this agent and scores the answers, so runs can be compared.'
-	)
 </script>
 
 <!-- The `sm:` widths are what actually win: the dialog's own are breakpoint-prefixed. -->
 <Modal
 	title={TITLE}
 	{trail}
-	{description}
+	paginated
 	bind:open
 	kind="X"
 	class="w-[90vw] sm:w-[90vw] max-w-[1400px] sm:max-w-[1400px] h-[85vh]"

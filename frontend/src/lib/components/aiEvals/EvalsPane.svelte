@@ -12,6 +12,7 @@
 	import {
 		type AgentDraft,
 		AiEvalsService,
+		JobService,
 		type EvalCase,
 		type EvalDataset,
 		type EvalExperiment,
@@ -35,6 +36,7 @@
 		Code2,
 		ExternalLink
 	} from 'lucide-svelte'
+	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
 	import EvalDatasetDrawer from './EvalDatasetDrawer.svelte'
 	import EvalRunsList from './EvalRunsList.svelte'
 	import EvalRunDialog from './EvalRunDialog.svelte'
@@ -51,6 +53,10 @@
 
 	/** A dataset is capped at this many cases, so one page holds the whole set. */
 	const CASE_PAGE_SIZE = 1000
+
+	/** The id the run's flow gives the loop over its cases (`CASES_NODE_ID` in `ai_evals/run.rs`).
+	 *  Looked up by id rather than by position: the flow has a step after the loop too. */
+	const CASES_MODULE_ID = 'cases'
 
 	let {
 		agentPath,
@@ -97,6 +103,44 @@
 	let datasetDrawer: EvalDatasetDrawer | undefined = $state()
 	let runDialogOpen = $state(false)
 
+	/** How many cases each still-running run has finished, keyed by run id. Read from the flow
+	 *  executing the run: the list carries the case total, and counting the finished ones there
+	 *  would be a per-case query for every run listed. The flow already records it — one slot per
+	 *  case in `flow_jobs_success`, null until that case's iteration is over. */
+	let caseProgress = $state<Record<string, number>>({})
+
+	async function readCaseProgress() {
+		const workspace = ws
+		const live = experiments.filter((e) => e.running)
+		if (!workspace || live.length === 0) {
+			if (Object.keys(caseProgress).length > 0) caseProgress = {}
+			return
+		}
+		const read = await Promise.all(
+			live.map(async (e) => {
+				try {
+					const update = await JobService.getJobUpdates({
+						workspace,
+						id: e.run_job_id,
+						running: true,
+						noLogs: true
+					})
+					const cases = update.flow_status?.modules?.find((m) => m.id === CASES_MODULE_ID)
+					if (!cases) return undefined
+					return [
+						e.id,
+						(cases.flow_jobs_success ?? []).filter((s) => s != undefined).length
+					] as const
+				} catch {
+					// The row falls back to its plain case count. A flow that cannot be read is
+					// already the list's problem to report, not this one's.
+					return undefined
+				}
+			})
+		)
+		caseProgress = Object.fromEntries(read.filter((e) => e !== undefined))
+	}
+
 	let experiment = $derived(experiments.find((e) => e.id === experimentId))
 
 	async function listSubjectExperiments(): Promise<EvalExperiment[]> {
@@ -119,6 +163,7 @@
 		runsLoadError = false
 		try {
 			experiments = await listSubjectExperiments()
+			await readCaseProgress()
 		} catch (e) {
 			runsLoadError = true
 			sendUserToast(`Failed to load the runs: ${e}`, true)
@@ -344,6 +389,7 @@
 				await loadResults()
 			} else {
 				experiments = await listSubjectExperiments()
+				await readCaseProgress()
 			}
 		} finally {
 			refreshing = false
@@ -371,9 +417,8 @@
 	async function runAll(runSubject: EvalSubject, path: string): Promise<boolean> {
 		if (!ws || !path) return false
 		running = true
-		let id: string
 		try {
-			id = await AiEvalsService.runExperiment({
+			await AiEvalsService.runExperiment({
 				workspace: ws,
 				requestBody: { dataset: path, subject: runSubject }
 			})
@@ -385,9 +430,10 @@
 		// From here the run exists and is billing: what can still fail is reading it back, and
 		// saying "failed to run" to that invites a second, duplicate run.
 		try {
+			// Onto the list rather than into the run: a run that has just started has no answers and
+			// no scores, and the list already fills its row in as they land. Reading it is a click.
 			if (path !== dataset?.path) await useDataset(path)
 			await loadRuns()
-			await openRun(id)
 		} catch (e) {
 			sendUserToast(
 				`The run started but could not be read back: ${e}. Reload the runs list to see it.`,
@@ -567,34 +613,35 @@
 </script>
 
 <div class="flex flex-col h-full min-h-0">
+	{#if loaded && loadError}
+		<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
+			<span class="text-sm text-emphasis">Could not load evals</span>
+			<span class="text-xs text-secondary max-w-md">
+				The datasets or runs could not be read. Check your access to this agent and reload.
+			</span>
+		</div>
+	{:else}
+		<PagedContent
+			class="grow min-h-0"
+			current={!viewingRun || !loaded ? 'list' : 'run'}
+			pages={[
+				{ key: 'list', content: listPage },
+				{ key: 'run', content: runPage }
+			]}
+		/>
+	{/if}
+</div>
+
+{#snippet listPage()}
+	<!-- Carried by the level rather than by the dialog: as the dialog's own `description` it
+	     vanished the moment a run opened, shrinking the header and jolting the page under it. -->
+	<p class="text-xs text-secondary">
+		Each run answers a dataset of cases with this agent and scores the answers, so runs can be
+		compared.
+	</p>
 	<div class="flex flex-wrap items-end gap-2 py-2">
-		{#if viewingRun}
-			<Label label="Run" class="w-52 shrink">
-				<Select items={experimentItems} bind:value={experimentId} class="text-xs" />
-			</Label>
-			<Label label="Compare to" class="w-48 shrink">
-				<Select
-					items={experimentItems.filter((i) => i.value !== experimentId)}
-					bind:value={baselineId}
-					placeholder="No comparison"
-					clearable
-					disabled={experiments.length < 2}
-					class="text-xs"
-				/>
-			</Label>
-		{/if}
 		<div class="grow"></div>
-		{#if viewingRun && experiment?.run_job_id}
-			<a
-				class="text-xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 pb-2"
-				href={`${base}/run/${experiment.run_job_id}?workspace=${ws}`}
-				target="_blank"
-			>
-				Open the job
-				<ExternalLink size={12} />
-			</a>
-		{/if}
-		{#if !viewingRun && loaded && datasets.length > 0}
+		{#if loaded && datasets.length > 0}
 			<Button
 				unifiedSize="md"
 				variant="default"
@@ -619,184 +666,205 @@
 			{/if}
 		{/if}
 	</div>
+	<div class="grow min-h-0 overflow-auto">
+		<EvalRunsList
+			{experiments}
+			{datasets}
+			{caseProgress}
+			{loaded}
+			{deployedHash}
+			{currentVersion}
+			onOpen={(e) => openRun(e.id)}
+			onEditDataset={async (path) => {
+				if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
+			}}
+			onNew={() => (runDialogOpen = true)}
+		/>
+	</div>
+{/snippet}
 
+{#snippet runPage()}
+	<div class="flex flex-wrap items-end gap-2 py-2">
+		<Label label="Run" class="w-52 shrink">
+			<Select items={experimentItems} bind:value={experimentId} class="text-xs" />
+		</Label>
+		<Label label="Compare to" class="w-48 shrink">
+			<Select
+				items={experimentItems.filter((i) => i.value !== experimentId)}
+				bind:value={baselineId}
+				placeholder="No comparison"
+				clearable
+				disabled={experiments.length < 2}
+				class="text-xs"
+			/>
+		</Label>
+		<div class="grow"></div>
+		{#if experiment?.run_job_id}
+			<a
+				class="text-xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 pb-2"
+				href={`${base}/run/${experiment.run_job_id}?workspace=${ws}`}
+				target="_blank"
+			>
+				Open the job
+				<ExternalLink size={12} />
+			</a>
+		{/if}
+	</div>
 	<div class="grow min-h-0">
 		<Splitpanes class="h-full">
 			<Pane size={selectedRow ? 60 : 100} minSize={35}>
 				<div class="h-full overflow-auto">
-					{#if loaded && loadError}
-						<div class="h-full flex flex-col items-center justify-center gap-2 p-6 text-center">
-							<span class="text-sm text-emphasis">Could not load evals</span>
-							<span class="text-xs text-secondary max-w-md">
-								The datasets or runs could not be read. Check your access to this agent and reload.
-							</span>
-						</div>
-					{:else if !viewingRun || !loaded}
-						<EvalRunsList
-							{experiments}
-							{datasets}
-							{loaded}
-							{deployedHash}
-							{currentVersion}
-							onOpen={(e) => openRun(e.id)}
-							onEditDataset={async (path) => {
-								if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
-							}}
-							onNew={() => (runDialogOpen = true)}
-						/>
-					{:else}
-						<DataTable size="sm" tableFixed rounded={!selectedRow}>
-							<colgroup>
-								<col style="width: 24%" />
-								<col style="width: 32%" />
-								{#each scorers as scorer (scorer.id)}
-									<col style="width: 9rem" />
-								{/each}
-							</colgroup>
-							<Head>
-								<tr>
-									<Cell head first>Case</Cell>
-									<Cell head last={scorers.length === 0}>Answer</Cell>
-									{#each scorers as scorer, index (scorer.id)}
-										{@const mean = means.find((m) => m.scorer_id === scorer.id)}
-										{@const headline = columnHeadline(scorer, mean)}
-										<Cell head numeric last={index === scorers.length - 1}>
-											<!-- The second row keeps its height while there is nothing in it, so the table
-											     does not move when the first score lands. -->
-											<div class="flex flex-col items-end min-w-0 w-full overflow-hidden">
-												<span
-													class="flex items-center gap-1 min-w-0 max-w-full"
-													title={columnTitle(scorer, mean)}
-												>
-													{#if scorer.kind === 'agent'}
-														<Bot size={13} class="text-tertiary shrink-0" />
-													{:else}
-														<Code2 size={13} class="text-tertiary shrink-0" />
-													{/if}
-													<span class="truncate min-w-0">{scorerLabel(scorer)}</span>
-												</span>
-												<span class="h-4 flex items-baseline gap-1.5 font-normal">
-													{#if headline}
-														<span class="tabular-nums text-emphasis font-semibold">
-															{headline.value}
-														</span>
-														{#if headline.delta && headline.direction !== 0}
-															<span
-																class={`text-2xs tabular-nums ${headline.direction > 0 ? 'text-green-500' : headline.direction < 0 ? 'text-red-500' : 'text-tertiary'}`}
-															>
-																{headline.delta}
-															</span>
-														{/if}
-													{/if}
-												</span>
-											</div>
-										</Cell>
-									{/each}
-								</tr>
-							</Head>
-							<tbody class="divide-y">
-								{#each displayRows as row (row.case_id)}
-									{@const status = statusOf(row.status)}
-									<Row
-										hoverable
-										selected={row.case_id === selectedCaseId}
-										on:click={() => openCase(row)}
-									>
-										<Cell first>
-											<span class="truncate block text-emphasis">{caseLabel(row)}</span>
-										</Cell>
-										<Cell last={scorers.length === 0}>
+					<DataTable size="sm" tableFixed rounded={!selectedRow}>
+						<colgroup>
+							<col style="width: 24%" />
+							<col style="width: 32%" />
+							{#each scorers as scorer (scorer.id)}
+								<col style="width: 9rem" />
+							{/each}
+						</colgroup>
+						<Head>
+							<tr>
+								<Cell head first>Case</Cell>
+								<Cell head last={scorers.length === 0}>Answer</Cell>
+								{#each scorers as scorer, index (scorer.id)}
+									{@const mean = means.find((m) => m.scorer_id === scorer.id)}
+									{@const headline = columnHeadline(scorer, mean)}
+									<Cell head numeric last={index === scorers.length - 1}>
+										<!-- The second row keeps its height while there is nothing in it, so the table
+								     does not move when the first score lands. -->
+										<div class="flex flex-col items-end min-w-0 w-full overflow-hidden">
 											<span
-												class="flex items-center gap-1.5 min-w-0"
-												title={row.subject_version
-													? `${status.label} · v${row.subject_version}`
-													: status.label}
+												class="flex items-center gap-1 min-w-0 max-w-full"
+												title={columnTitle(scorer, mean)}
 											>
-												<status.icon size={14} class={`shrink-0 ${status.class}`} />
-												{#if row.output != undefined}
-													<span class="truncate text-secondary">{row.output}</span>
-												{:else if status === STATUS.not_run}
-													<span class="text-2xs text-tertiary">not run</span>
+												{#if scorer.kind === 'agent'}
+													<Bot size={13} class="text-tertiary shrink-0" />
 												{:else}
-													<span class="text-2xs text-tertiary">{status.label.toLowerCase()}</span>
+													<Code2 size={13} class="text-tertiary shrink-0" />
+												{/if}
+												<span class="truncate min-w-0">{scorerLabel(scorer)}</span>
+											</span>
+											<span class="h-4 flex items-baseline gap-1.5 font-normal">
+												{#if headline}
+													<span class="tabular-nums text-emphasis font-semibold">
+														{headline.value}
+													</span>
+													{#if headline.delta && headline.direction !== 0}
+														<span
+															class={`text-2xs tabular-nums ${headline.direction > 0 ? 'text-green-500' : headline.direction < 0 ? 'text-red-500' : 'text-tertiary'}`}
+														>
+															{headline.delta}
+														</span>
+													{/if}
 												{/if}
 											</span>
-										</Cell>
-										{#each scorers as scorer, index (scorer.id)}
-											{@const cell = row.scores.find((s) => s.scorer_id === scorer.id)}
-											<Cell numeric last={index === scorers.length - 1}>
-												{#if cell?.pending}
-													<span class="inline-flex justify-end" title="Scoring">
-														<Loader2 size={13} class="animate-spin text-blue-500" />
-													</span>
-												{:else if cell?.score != undefined}
-													<Popover placement="left">
-														{#snippet text()}
-															<div class="flex flex-col gap-2 max-w-80 text-left">
-																{#if cell.reason}
-																	<span class="text-xs">{cell.reason}</span>
-																{/if}
-																{#each checksOf(cell) as check (check.name)}
-																	<span class="text-2xs flex items-baseline gap-1.5">
-																		<span class={check.passed ? 'text-green-500' : 'text-red-500'}>
-																			{check.passed ? '✓' : '✗'}
-																		</span>
-																		<span>{check.name}</span>
-																		{#if check.detail}
-																			<span class="text-tertiary">{check.detail}</span>
-																		{/if}
-																	</span>
-																{/each}
-															</div>
-														{/snippet}
-														<span class="inline-flex items-baseline gap-1.5 justify-end">
-															{#if cell.passed != undefined}
-																<span
-																	class={cell.passed ? 'text-green-500' : 'text-red-500'}
-																	title={`${cell.passed ? 'Passed' : 'Failed'}: the threshold is ${scorer.pass_if}`}
-																>
-																	{cell.passed ? '✓' : '✗'}
-																</span>
-															{/if}
-															<span class="tabular-nums font-medium text-emphasis">
-																{formatScore(cell.score)}
-															</span>
-															{#if cell.baseline != undefined && cell.score !== cell.baseline}
-																{@const delta = cell.score - cell.baseline}
-																<span
-																	class={`text-2xs tabular-nums ${delta > 0 ? 'text-green-500' : 'text-red-500'}`}
-																>
-																	{formatDelta(delta)}
-																</span>
-															{/if}
-														</span>
-													</Popover>
-												{:else if cell?.not_applicable}
-													<Popover placement="left" disablePopup={!cell.reason}>
-														{#snippet text()}
-															<span class="text-xs max-w-80 text-left">{cell.reason}</span>
-														{/snippet}
-														<span class="text-2xs text-tertiary" title="Not measured on this case">
-															n/a
-														</span>
-													</Popover>
-												{:else if cell?.error}
-													<Popover placement="left">
-														{#snippet text()}
-															<span class="text-xs max-w-80 text-left">{cell.error}</span>
-														{/snippet}
-														<span class="text-2xs text-red-500">failed</span>
-													</Popover>
-												{:else}
-													<span class="text-2xs text-tertiary">—</span>
-												{/if}
-											</Cell>
-										{/each}
-									</Row>
+										</div>
+									</Cell>
 								{/each}
-							</tbody>
-						</DataTable>
-					{/if}
+							</tr>
+						</Head>
+						<tbody class="divide-y">
+							{#each displayRows as row (row.case_id)}
+								{@const status = statusOf(row.status)}
+								<Row
+									hoverable
+									selected={row.case_id === selectedCaseId}
+									on:click={() => openCase(row)}
+								>
+									<Cell first>
+										<span class="truncate block text-emphasis">{caseLabel(row)}</span>
+									</Cell>
+									<Cell last={scorers.length === 0}>
+										<span
+											class="flex items-center gap-1.5 min-w-0"
+											title={row.subject_version
+												? `${status.label} · v${row.subject_version}`
+												: status.label}
+										>
+											<status.icon size={14} class={`shrink-0 ${status.class}`} />
+											{#if row.output != undefined}
+												<span class="truncate text-secondary">{row.output}</span>
+											{:else if status === STATUS.not_run}
+												<span class="text-2xs text-tertiary">not run</span>
+											{:else}
+												<span class="text-2xs text-tertiary">{status.label.toLowerCase()}</span>
+											{/if}
+										</span>
+									</Cell>
+									{#each scorers as scorer, index (scorer.id)}
+										{@const cell = row.scores.find((s) => s.scorer_id === scorer.id)}
+										<Cell numeric last={index === scorers.length - 1}>
+											{#if cell?.pending}
+												<span class="inline-flex justify-end" title="Scoring">
+													<Loader2 size={13} class="animate-spin text-blue-500" />
+												</span>
+											{:else if cell?.score != undefined}
+												<Popover placement="left">
+													{#snippet text()}
+														<div class="flex flex-col gap-2 max-w-80 text-left">
+															{#if cell.reason}
+																<span class="text-xs">{cell.reason}</span>
+															{/if}
+															{#each checksOf(cell) as check (check.name)}
+																<span class="text-2xs flex items-baseline gap-1.5">
+																	<span class={check.passed ? 'text-green-500' : 'text-red-500'}>
+																		{check.passed ? '✓' : '✗'}
+																	</span>
+																	<span>{check.name}</span>
+																	{#if check.detail}
+																		<span class="text-tertiary">{check.detail}</span>
+																	{/if}
+																</span>
+															{/each}
+														</div>
+													{/snippet}
+													<span class="inline-flex items-baseline gap-1.5 justify-end">
+														{#if cell.passed != undefined}
+															<span
+																class={cell.passed ? 'text-green-500' : 'text-red-500'}
+																title={`${cell.passed ? 'Passed' : 'Failed'}: the threshold is ${scorer.pass_if}`}
+															>
+																{cell.passed ? '✓' : '✗'}
+															</span>
+														{/if}
+														<span class="tabular-nums font-medium text-emphasis">
+															{formatScore(cell.score)}
+														</span>
+														{#if cell.baseline != undefined && cell.score !== cell.baseline}
+															{@const delta = cell.score - cell.baseline}
+															<span
+																class={`text-2xs tabular-nums ${delta > 0 ? 'text-green-500' : 'text-red-500'}`}
+															>
+																{formatDelta(delta)}
+															</span>
+														{/if}
+													</span>
+												</Popover>
+											{:else if cell?.not_applicable}
+												<Popover placement="left" disablePopup={!cell.reason}>
+													{#snippet text()}
+														<span class="text-xs max-w-80 text-left">{cell.reason}</span>
+													{/snippet}
+													<span class="text-2xs text-tertiary" title="Not measured on this case">
+														n/a
+													</span>
+												</Popover>
+											{:else if cell?.error}
+												<Popover placement="left">
+													{#snippet text()}
+														<span class="text-xs max-w-80 text-left">{cell.error}</span>
+													{/snippet}
+													<span class="text-2xs text-red-500">failed</span>
+												</Popover>
+											{:else}
+												<span class="text-2xs text-tertiary">—</span>
+											{/if}
+										</Cell>
+									{/each}
+								</Row>
+							{/each}
+						</tbody>
+					</DataTable>
 				</div>
 			</Pane>
 			{#if selectedRow}
@@ -913,7 +981,7 @@
 			{/if}
 		</Splitpanes>
 	</div>
-</div>
+{/snippet}
 
 <EvalRunDialog
 	bind:open={runDialogOpen}

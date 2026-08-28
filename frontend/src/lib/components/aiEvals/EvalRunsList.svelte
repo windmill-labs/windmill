@@ -14,6 +14,7 @@
 	let {
 		experiments,
 		datasets,
+		caseProgress,
 		loaded,
 		deployedHash = undefined,
 		currentVersion = undefined,
@@ -27,6 +28,10 @@
 		loaded: boolean
 		/** The workspace's datasets, for naming the one a run is of by what it is for. */
 		datasets: EvalDataset[]
+		/** How many cases each still-running run has finished, keyed by run id. A run the flow has
+		 *  not been read for yet is at none of them rather than absent: the count is on the row from
+		 *  the moment it appears, so it never arrives late and shifts the column. */
+		caseProgress: Record<string, number>
 		/** What the agent hashes to as deployed, and the version it is on: they resolve a run of
 		 *  edits that were later saved, so a run is labelled here as the run picker labels it. */
 		deployedHash?: string
@@ -48,7 +53,7 @@
 	<colgroup>
 		<col style="width: 20%" />
 		<col style="width: 22%" />
-		<col style="width: 5rem" />
+		<col style="width: 6rem" />
 		<col />
 		<col style="width: 7rem" />
 	</colgroup>
@@ -99,7 +104,18 @@
 					</Button>
 				</Cell>
 				<Cell numeric>
-					<span class="tabular-nums text-secondary">{experiment.case_count}</span>
+					{#if experiment.running}
+						<!-- The run's only spinner. One per score badge instead read as the judge being
+						     slow, when what is unfinished is the run. -->
+						<span
+							class="inline-flex items-center gap-1 tabular-nums text-secondary whitespace-nowrap"
+						>
+							<Loader2 size={11} class="animate-spin text-blue-500 shrink-0" />
+							{caseProgress[experiment.id] ?? 0}/{experiment.case_count}
+						</span>
+					{:else}
+						<span class="tabular-nums text-secondary">{experiment.case_count}</span>
+					{/if}
 				</Cell>
 				<Cell>
 					<div class="flex flex-wrap gap-1 min-w-0">
@@ -117,8 +133,6 @@
 										<span class="tabular-nums font-semibold text-emphasis">{value}</span>
 									{:else if score.failed > 0}
 										<span class="text-red-500">failed</span>
-									{:else if experiment.running}
-										<Loader2 size={11} class="animate-spin text-blue-500 self-center" />
 									{:else}
 										<span class="text-tertiary">—</span>
 									{/if}
@@ -126,14 +140,9 @@
 							</Badge>
 						{/each}
 						{#if (experiment.scores ?? []).length === 0}
-							{#if experiment.running}
-								<span class="text-2xs text-tertiary inline-flex items-center gap-1">
-									<Loader2 size={11} class="animate-spin text-blue-500" />
-									scoring
-								</span>
-							{:else}
-								<span class="text-2xs text-tertiary">not scored</span>
-							{/if}
+							<!-- Not a pending state: a scorer's column is on the run from the moment it is
+							     created, with or without a number in it, so nothing arrives here later. -->
+							<span class="text-2xs text-tertiary">not scored</span>
 						{/if}
 					</div>
 				</Cell>
