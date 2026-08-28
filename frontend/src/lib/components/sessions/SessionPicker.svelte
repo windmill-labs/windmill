@@ -36,6 +36,7 @@
 		setNewSessionWorkspace,
 		setSessionArchived,
 		syncWorkspaceTo,
+		withOpenSessionTeardown,
 		type Session
 	} from './sessionState.svelte'
 	import { unreadCountFor } from './sessionUnread.svelte'
@@ -571,8 +572,8 @@
 
 	// After deleting the open session, land somewhere usable: the newest remaining
 	// session, else a fresh one. The page derives the visible session from the
-	// `session_name` query, so leaving the URL on a deleted session would render
-	// its not-found state instead of a ready-to-type composer.
+	// `session_name` query, so leaving the URL on a deleted session would fall
+	// through to recovery and open a blank one rather than their recent work.
 	async function openReplacementSession() {
 		const next = sessionState.sessions[0]
 		if (next) await activate(next)
@@ -590,9 +591,11 @@
 		if (ids.length === 0) return
 		const current = sessionState.currentSessionId
 		const wasActive = !!current && ids.includes(current)
-		for (const id of ids) removeSession(id)
-		exitSelectionMode()
-		if (wasActive) await openReplacementSession()
+		await withOpenSessionTeardown(async () => {
+			for (const id of ids) removeSession(id)
+			exitSelectionMode()
+			if (wasActive) await openReplacementSession()
+		})
 	}
 
 	async function handleConfirmedDelete() {
@@ -608,23 +611,25 @@
 		deleteAlsoFork = false
 		if (!session) return
 		const wasActive = sessionState.currentSessionId === session.id
-		removeSession(session.id)
-		if (forkToDelete) {
-			try {
-				await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
-				await deleteSessionsForWorkspace(forkToDelete)
-				sendUserToast(`Deleted forked workspace ${forkToDelete}`)
-				await reconcileAfterWorkspaceChange()
-			} catch (e: any) {
-				sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
+		await withOpenSessionTeardown(async () => {
+			removeSession(session.id)
+			if (forkToDelete) {
+				try {
+					await WorkspaceService.deleteWorkspace({ workspace: forkToDelete })
+					await deleteSessionsForWorkspace(forkToDelete)
+					sendUserToast(`Deleted forked workspace ${forkToDelete}`)
+					await reconcileAfterWorkspaceChange()
+				} catch (e: any) {
+					sendUserToast(`Failed to delete fork ${forkToDelete}: ${e?.body ?? e}`, true)
+				}
 			}
-		}
-		// If the deleted fork was the active workspace, fall back to its parent
-		// so the user isn't stranded on a workspace that no longer exists.
-		if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
-			syncWorkspaceTo(forkParentId)
-		}
-		if (wasActive) await openReplacementSession()
+			// If the deleted fork was the active workspace, fall back to its parent
+			// so the user isn't stranded on a workspace that no longer exists.
+			if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
+				syncWorkspaceTo(forkParentId)
+			}
+			if (wasActive) await openReplacementSession()
+		})
 	}
 
 	function focusAt(index: number) {

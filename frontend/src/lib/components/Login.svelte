@@ -329,7 +329,11 @@
 				} else {
 					goto(resolvedRd ?? '/')
 				}
-			} else if (resolvedRd?.startsWith('/user/workspaces')) {
+				// See (root)/+layout.svelte for why /projects/import skips the picker.
+			} else if (
+				resolvedRd?.startsWith('/user/workspaces') ||
+				resolvedRd?.startsWith(`${base}/projects/import`)
+			) {
 				goto(resolvedRd)
 			} else if (resolvedRd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)
@@ -732,7 +736,7 @@
 						contact@windmill.dev
 					</p>
 				{/if}
-				<div bind:this={fieldsEl} class="space-y-6 {shake ? 'motion-safe:animate-shake' : ''}">
+				<div bind:this={fieldsEl} class="space-y-2 {shake ? 'motion-safe:animate-shake' : ''}">
 					<div class="space-y-1">
 						<label for={emailId} class="block text-xs font-semibold text-emphasis"> Email </label>
 						<div>

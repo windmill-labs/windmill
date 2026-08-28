@@ -1970,6 +1970,23 @@ async fn edit_large_file_storage_config(
             )));
         }
 
+        if !windmill_common::workspaces::filesystem_storage_allowed() {
+            let named = std::iter::once(("primary storage", &lfs_config.large_file_storage)).chain(
+                lfs_config
+                    .secondary_storage
+                    .iter()
+                    .map(|(name, storage)| (name.as_str(), storage)),
+            );
+            for (name, storage) in named {
+                if matches!(storage, LargeFileStorage::FilesystemStorage(_)) {
+                    return Err(Error::BadRequest(format!(
+                        "{name}: {}",
+                        windmill_common::workspaces::FILESYSTEM_STORAGE_DEV_ONLY_MSG
+                    )));
+                }
+            }
+        }
+
         let serialized_lfs_config =
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;

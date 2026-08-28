@@ -42,7 +42,6 @@ pub mod db;
 mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
-pub mod db_params;
 pub mod dbt_manifest;
 pub mod deploy_origin;
 #[cfg(feature = "private")]
@@ -354,6 +353,7 @@ lazy_static::lazy_static! {
 
     pub static ref CRITICAL_ALERT_MUTE_UI_ENABLED: AtomicBool = AtomicBool::new(false);
     pub static ref CRITICAL_ALERTS_ON_TOKEN_EXPIRY: AtomicBool = AtomicBool::new(false);
+    pub static ref CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART: AtomicBool = AtomicBool::new(false);
 
     pub static ref BASE_URL: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee("".to_string());
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -1478,6 +1478,17 @@ pub async fn create_custom_instance_database(
     Ok(())
 }
 
+/// Connection options parsed from a database URL.
+///
+/// The only place a database URL becomes `PgConnectOptions`. Providers that mint the password
+/// themselves override it on these and keep the rest: options assembled field by field instead
+/// would drop every query parameter, `sslmode` and `sslrootcert` above all, leaving the
+/// connection on sqlx's default TLS policy rather than the operator's.
+pub fn base_connect_options(database_url: &str) -> Result<sqlx::postgres::PgConnectOptions, Error> {
+    sqlx::postgres::PgConnectOptions::from_str(database_url)
+        .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e)))
+}
+
 #[derive(Clone)]
 pub enum DatabaseUrl {
     #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -1508,8 +1519,8 @@ impl DatabaseUrl {
     }
 
     /// Get PgConnectOptions for this database URL.
-    /// For token-based auth (IAM RDS, Entra ID), this returns options built directly from the
-    /// token to avoid double-encoding issues with temporary credentials.
+    /// For token-based auth (IAM RDS, Entra ID), this returns options carrying the current
+    /// token, set on the builder to avoid double-encoding temporary credentials.
     /// For static URLs, this parses the URL string.
     pub async fn connect_options(&self) -> Result<sqlx::postgres::PgConnectOptions, Error> {
         match self {
@@ -1523,8 +1534,7 @@ impl DatabaseUrl {
                 let guard = entra_url.read().await;
                 Ok(guard.connect_options())
             }
-            DatabaseUrl::Static(url) => sqlx::postgres::PgConnectOptions::from_str(url)
-                .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e))),
+            DatabaseUrl::Static(url) => base_connect_options(url),
         }
     }
 

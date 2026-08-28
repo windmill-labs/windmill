@@ -30,6 +30,7 @@
 	import type { InputTransform } from '$lib/gen'
 	import TemplateEditor from './TemplateEditor.svelte'
 	import { setInputCat as computeInputCat, isCodeInjection } from '$lib/utils'
+	import { escapeTemplateBackticks } from '$lib/utils/templateLiteral'
 	import { FunctionSquare, InfoIcon } from 'lucide-svelte'
 	import { getResourceTypes } from './resourceTypesStore'
 	import type { FlowCopilotContext } from './copilot/flow'
@@ -94,6 +95,7 @@
 		allowedAiTransforms?: string[] | undefined
 		s3StorageConfigured?: boolean
 		chatInputEnabled?: boolean
+		workspace?: string | undefined
 	}
 
 	let {
@@ -131,7 +133,8 @@
 		isAgentTool = false,
 		allowedAiTransforms = isAgentTool ? undefined : [],
 		s3StorageConfigured = true,
-		chatInputEnabled = false
+		chatInputEnabled = false,
+		workspace
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -251,7 +254,7 @@
 			arg.expr = getDefaultExpr(
 				argName,
 				previousModuleId,
-				`\`${rawValue.toString().replaceAll('`', '\\`')}\``
+				`\`${escapeTemplateBackticks(rawValue.toString())}\``
 			)
 			arg.type = 'javascript'
 			propertyType = 'static'
@@ -685,7 +688,7 @@
 											argName,
 											previousModuleId,
 											staticTemplate
-												? `\`${arg?.value?.toString().replaceAll('`', '\\`') ?? ''}\``
+												? `\`${escapeTemplateBackticks(arg?.value?.toString() ?? '')}\``
 												: arg.value
 													? '(' + JSON.stringify(arg?.value, null, 4) + ')'
 													: ''
@@ -882,6 +885,7 @@
 							{:else if (propertyType === undefined || propertyType == 'static') && schema?.properties?.[argName]}
 								<ArgInput
 									{resourceTypes}
+									{workspace}
 									noMargin
 									compact
 									on:focus={onFocus}
