@@ -527,8 +527,6 @@
 	async function loadSchedule(
 		defaultCfg?: Record<string, any>
 	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
-		// Reading the deployed row is the only thing that carries a measurement, and
-		// it omits the field when the schedule is keeping up.
 		deployedDrift = undefined
 		if (defaultCfg) {
 			await loadScheduleCfg(defaultCfg)
@@ -541,6 +539,9 @@
 				getDraft: true
 			})
 			const { draft: draftFromBackend, ...deployedSchedule } = s as any
+			// Read here and nowhere else: the overlay below merges the draft over these
+			// same fields, so anything downstream of it would diagnose the draft.
+			readDeployedDrift(deployedSchedule)
 			await loadScheduleCfg(deployedSchedule)
 			return {
 				overlay: draftFromBackend
@@ -558,11 +559,6 @@
 	async function loadScheduleCfg(cfg: Record<string, any>): Promise<void> {
 		loading = true
 
-		// Config snapshots from draftSync carry no measurement, and applying one
-		// leaves the deployed schedule running exactly as it was.
-		if ('interval_drift' in cfg) {
-			readDeployedDrift(cfg)
-		}
 		cronVersion = cfg.cron_version ?? 'v2'
 		initialCronVersion = cronVersion
 		isLatestCron = cronVersion == 'v2'
@@ -971,9 +967,8 @@
 						<Alert type="warning" size="xs" title="Running less often than configured">
 							This schedule is running about every {msToReadableTime(
 								deployedDrift.interval.effective_s * 1000
-							)} instead of every {msToReadableTime(
-								deployedDrift.interval.configured_s * 1000
-							)}: each of the last runs was queued too late for the slot that would have kept the
+							)} instead of every {msToReadableTime(deployedDrift.interval.configured_s * 1000)}:
+							each of the last runs was queued too late for the slot that would have kept the
 							cadence.
 							{#if deployedDrift.queuesNextRunAtStart}
 								Its next run is already queued when the previous one starts, so the runs are
