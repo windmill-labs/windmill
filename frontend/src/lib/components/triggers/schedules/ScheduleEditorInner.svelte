@@ -733,6 +733,10 @@
 				enabled = previousEnabled
 				return
 			}
+			if (!nEnabled) {
+				// The measurement describes a schedule that is running.
+				intervalDrift = undefined
+			}
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
 			onUpdate?.(initialPath)
 		}
@@ -1005,17 +1009,18 @@
 						/>
 					{/if}
 					{#if itemKind == 'script'}
-						<!-- A retry policy or a skip handler makes the tick a single step flow, which
-						     is armed when the run starts rather than when it finishes. -->
-						{@const runsAsFlow = retry != undefined || dynamicSkipPath != undefined}
+						<!-- A skip handler makes the tick a single step flow, which is armed when the
+						     run starts rather than when it finishes. A retry policy does not: it is
+						     materialized natively onto a plain script job. -->
+						{@const runsAsFlow = dynamicSkipPath != undefined}
 						<div class="flex flex-col gap-1 mt-2">
 							{#if !runsAsFlow}
 								<Toggle options={{ right: 'no overlap' }} checked={true} disabled />
 							{/if}
 							<p class="text-xs text-secondary">
 								{#if runsAsFlow}
-									A retry policy or a skip handler makes this schedule run as a single step flow:
-									the next run is queued when the previous one starts, so runs can overlap.
+									A skip handler makes this schedule run as a single step flow: the next run is
+									queued when the previous one starts, so runs can overlap.
 								{:else}
 									Script runs never overlap: the next run is queued once the previous one has
 									completed, so a run that outlasts its interval pushes the next one to a later

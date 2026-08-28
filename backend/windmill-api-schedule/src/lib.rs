@@ -1282,11 +1282,8 @@ async fn fetch_interval_drift(
     if !schedule.enabled {
         return Ok(None);
     }
-    // Query plan: `(workspace_id, runnable_path, created_at DESC)` index, hence the
-    // `parent_job IS NULL` clause. `trigger` is only a filter on that scan, so the
-    // `edited_at` bound is what ends the walk on a path that also carries
-    // non-schedule traffic. Nothing writes `edited_at` after the insert, so no run
-    // of the schedule can predate it.
+    // Same index, and the same `edited_at` bound for the same reason, as the sample
+    // in `list_schedule_with_jobs`.
     let push_times = sqlx::query_scalar!(
         "SELECT created_at FROM v2_job
         WHERE workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
@@ -1309,10 +1306,11 @@ async fn fetch_interval_drift(
         &schedule.timezone,
     );
     if drift.is_some() {
-        let oldest = push_times.last().copied().unwrap_or_default();
-        let changed = cron_changed_at(db, w_id, std::slice::from_ref(&schedule.path)).await?;
-        if changed.iter().any(|(_, changed_at)| oldest < *changed_at) {
-            return Ok(None);
+        if let Some(oldest) = push_times.last() {
+            let changed = cron_changed_at(db, w_id, std::slice::from_ref(&schedule.path)).await?;
+            if changed.iter().any(|(_, changed_at)| *oldest < *changed_at) {
+                return Ok(None);
+            }
         }
     }
     Ok(drift)
@@ -1958,19 +1956,19 @@ mod tests {
         );
     }
 
-    /// Slot gaps under this cron run 5 minutes inside the working day and 16
-    /// hours across the night, and the schedule keeps up with all of them. The
-    /// long gaps are the cron's own, so none of them is drift.
+    /// Twice a day, so consecutive runs sit 8 hours apart and then 16. Every
+    /// run here landed on the slot after its predecessor's, the overnight one
+    /// included: a gap the cron itself asks for is not drift.
     #[test]
     fn stays_quiet_on_the_long_gaps_an_irregular_cron_leaves() {
         let push_times = [
-            at("2024-01-02T09:00:01Z"),
-            at("2024-01-01T17:00:01Z"),
-            at("2024-01-01T16:55:01Z"),
-            at("2024-01-01T16:50:01Z"),
+            at("2024-01-02T17:00:05Z"),
+            at("2024-01-02T09:00:05Z"),
+            at("2024-01-01T17:00:05Z"),
+            at("2024-01-01T09:00:05Z"),
         ];
         assert_eq!(
-            detect_interval_drift(&push_times, "0 */5 9-17 * * 1-5", Some("v2"), "UTC"),
+            detect_interval_drift(&push_times, "0 0 9,17 * * *", Some("v2"), "UTC"),
             None
         );
     }
