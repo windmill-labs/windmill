@@ -199,7 +199,13 @@
 		close()
 	}
 
-	async function loadFolder(): Promise<void> {
+	/** `baselineOnly` re-reads the folder without touching the draft: after a save that
+	 *  committed some of its calls and then failed, the baseline must become what the server
+	 *  actually holds while the draft stays the user's intent — the applied changes then stop
+	 *  counting as dirty, and the ones still missing stay dirty and retryable. */
+	async function loadFolder(opts?: { baselineOnly?: boolean }): Promise<void> {
+		const apply = (value: FolderDraft) =>
+			opts?.baselineOnly ? (baseline = structuredClone(value)) : setDraft(value)
 		try {
 			folder = await FolderService.getFolder({ workspace: targetWorkspace, name })
 			folderNotFound = false
@@ -210,7 +216,7 @@
 					membership.is_super_admin ||
 					membership.pgroups.findIndex((x) => folder?.owners.includes(x)) != -1)
 
-			setDraft({
+			apply({
 				summary: folder.summary ?? '',
 				labels: [...(folder.labels ?? [])],
 				defaultPermissionedAs: (folder.default_permissioned_as ?? []).map((r) => ({ ...r })),
@@ -231,7 +237,7 @@
 			if (e?.status === 404) {
 				folderNotFound = true
 				can_write = true
-				setDraft(emptyDraft())
+				apply(emptyDraft())
 			} else {
 				sendUserToast(e?.body ?? String(e), true)
 			}
@@ -472,10 +478,11 @@
 			return { name, created }
 		} catch (e) {
 			sendUserToast(e.body ?? String(e), true)
-			// The calls are sequential, so a rejection can land with earlier ones committed: only
-			// then is the draft out of step with the server and worth replacing. A failure with
-			// nothing committed leaves it alone — the server never saw it, so it stays retryable.
-			if (!created && committed) await loadFolder()
+			// The calls are sequential, so a rejection can land with earlier ones committed. Move
+			// the baseline to what the server now holds and keep the draft: what was applied
+			// stops being dirty, what was not stays dirty, and a retry re-sends only that.
+			// Nothing committed means the server never saw it, so leave both alone.
+			if (!created && committed) await loadFolder({ baselineOnly: true })
 			return undefined
 		}
 	}
