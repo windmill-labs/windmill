@@ -11,9 +11,19 @@
 		/** Suggest the labels of this workspace rather than the active one, for an editor
 		 * aimed elsewhere (the folder drawer opened from a cross-workspace picker). */
 		workspace?: string
+		/** Text typed into the input but not yet added to `labels`. An editor with a Save
+		 * button needs it: without it that text is invisible to the editor's dirty state,
+		 * so it is silently dropped on close and cannot even enable Save on its own. */
+		onPendingChange?: (pending: string) => void
 	}
 
-	let { labels = $bindable(), onchange, class: clazz = '', workspace }: Props = $props()
+	let {
+		labels = $bindable(),
+		onchange,
+		class: clazz = '',
+		workspace,
+		onPendingChange
+	}: Props = $props()
 
 	let adding = $state(false)
 	let inputValue = $state('')
@@ -36,6 +46,10 @@
 			!suggestions.some((s) => s.toLowerCase() === trimmedInput.toLowerCase()) &&
 			!(labels ?? []).includes(trimmedInput)
 	)
+
+	$effect(() => {
+		onPendingChange?.(adding ? trimmedInput : '')
+	})
 
 	async function loadExistingLabels() {
 		try {

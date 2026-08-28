@@ -141,6 +141,7 @@
 	let baseline: FolderDraft | undefined = $state(undefined)
 	let draft: FolderDraft = $state(emptyDraft())
 	let labelsInput: LabelsInput | undefined = $state()
+	let pendingLabel = $state('')
 	let folderNotFound: boolean | undefined = $state(undefined)
 	let loaded = $state(false)
 
@@ -354,7 +355,10 @@
 		return isNew && owner === 'u/' + membership?.username
 	}
 
-	const dirty = $derived(isFolderDraftDirty(draft, baseline))
+	// The label input holds typed text until Enter or a blur, and that text is an edit like
+	// any other: it has to count as dirty here, or Save stays disabled when it is the only
+	// change and closing drops it without asking. `save()` flushes it into `draft.labels`.
+	const dirty = $derived(isFolderDraftDirty(draft, baseline) || pendingLabel !== '')
 	// A typed name is progress too, even before any other field is touched.
 	const unsaved = $derived(dirty || (mode === 'new' && !!name))
 
@@ -590,6 +594,7 @@
 					bind:this={labelsInput}
 					bind:labels={draft.labels}
 					workspace={targetWorkspace}
+					onPendingChange={(v) => (pendingLabel = v)}
 				/>
 			{:else}
 				<div class="inline-flex items-center gap-1 h-5">
