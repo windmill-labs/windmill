@@ -1,8 +1,15 @@
 <script lang="ts">
 	import { tickPainted } from '$lib/utils/paint'
 	import ScheduleEditorInner from './ScheduleEditorInner.svelte'
+	import type { ScheduleRunsSample } from '$lib/components/schedules/scheduleDrift'
 
-	let { onUpdate }: { onUpdate?: (path?: string) => void } = $props()
+	let {
+		onUpdate,
+		getRunsSample
+	}: {
+		onUpdate?: (path?: string) => void
+		getRunsSample?: (path: string) => ScheduleRunsSample | undefined
+	} = $props()
 
 	let open = $state(false)
 	export async function openEdit(ePath: string, isFlow: boolean, fixedScriptPath?: string) {
@@ -26,5 +33,5 @@
 </script>
 
 {#if open}
-	<ScheduleEditorInner {onUpdate} bind:this={drawer} />
+	<ScheduleEditorInner {onUpdate} {getRunsSample} bind:this={drawer} />
 {/if}

@@ -30,7 +30,15 @@
 		type ErrorHandler
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
+	import {
+		canWrite,
+		emptyString,
+		formatCron,
+		msToReadableTime,
+		msToReadableTimeShort,
+		sendUserToast,
+		cronV1toV2
+	} from '$lib/utils'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
@@ -50,6 +58,10 @@
 	import { twMerge } from 'tailwind-merge'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import {
+		runsOutlastingInterval,
+		type ScheduleRunsSample
+	} from '$lib/components/schedules/scheduleDrift'
 
 	let {
 		useDrawer = true,
@@ -63,7 +75,14 @@
 		onConfigChange = undefined,
 		onDelete = undefined,
 		onReset = undefined,
-		trigger = undefined
+		trigger = undefined,
+		getRunsSample = undefined
+	}: {
+		[key: string]: any
+		/// Supplied by callers that already hold the schedule's recent runs, so the
+		/// warning below costs no fetch of its own. Absent everywhere else, and the
+		/// warning simply does not appear.
+		getRunsSample?: (path: string) => ScheduleRunsSample | undefined
 	} = $props()
 
 	let optionTabSelected:
@@ -123,6 +142,10 @@
 	let labels: string[] | undefined = $state(undefined)
 	let description = $state('')
 	let no_flow_overlap = $state(false)
+	// Measured, not configured: it describes the runs the deployed schedule has
+	// already had, so it is read from the caller's sample rather than the form.
+	let runsSample = $derived(initialPath ? getRunsSample?.(initialPath) : undefined)
+	let outlastingMs = $derived(runsSample ? runsOutlastingInterval(runsSample) : undefined)
 	let tag: string | undefined = $state(undefined)
 	let validCRON = $state(true)
 	let isValid = $state(true)
@@ -919,6 +942,16 @@
 						bind:validCRON
 						bind:cronVersion
 					/>
+					{#if outlastingMs && runsSample?.interval_s}
+						<Alert type="warning" size="xs" title="Runs are outlasting the interval">
+							Recent runs have been taking about {msToReadableTimeShort(outlastingMs, 0)}, against {msToReadableTime(
+								runsSample.interval_s * 1000
+							)} between slots. Script runs never overlap, so the next run is only queued once the
+							previous one has completed: this schedule is running less often than its cron asks
+							for. To keep the cadence, schedule a flow instead, which queues its next run when the
+							previous one starts.
+						</Alert>
+					{/if}
 					<div class="flex flex-col gap-1">
 						<Toggle
 							options={{
