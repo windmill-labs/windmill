@@ -263,13 +263,15 @@ pub fn allows_any_origin(allowed_origins: &[String]) -> bool {
     allowed_origins.iter().any(|allowed| allowed == "*")
 }
 
-/// Reject allowlist entries a browser would silently ignore.
+/// Reject allowlist entries that cannot be compared, or that must not be allowed.
 ///
-/// An origin is a bare `scheme://host[:port]`: anything with a path, query,
-/// fragment, userinfo or whitespace never equals the `Origin` header a browser
-/// sends, so it would look configured while matching nothing. `null` is rejected
-/// outright — every sandboxed iframe sends `Origin: null`, so allowing it grants
-/// access to any page that can open one.
+/// The stored string is only ever an operand: `match_origin` echoes the
+/// request's own `Origin` back, never this value, so a malformed entry matches
+/// nothing and fails closed. That leaves the one entry where being permissive
+/// has a consequence rather than just being dead config: `null` is what every
+/// sandboxed iframe sends, so allowing it would grant access to any page that
+/// can open one. Shapes that merely cannot match are the editor's business to
+/// warn about, not this function's to refuse.
 pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Result<()> {
     for origin in allowed_origins {
         if origin == "*" {
@@ -278,86 +280,22 @@ pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Res
 
         let invalid = |reason: &str| {
             crate::error::Error::BadRequest(format!(
-                "Invalid allowed origin '{}': {}. Expected an origin such as https://app.example.com, or * to allow any origin.",
+                "Invalid allowed origin '{}': {}.",
                 origin, reason
             ))
         };
 
-        // An Origin header is always visible ASCII — browsers punycode IDNs —
-        // so this is both the header-value check and a whitespace check.
+        if origin.eq_ignore_ascii_case("null") {
+            return Err(invalid(
+                "'null' is what a sandboxed iframe sends, so allowing it would allow any page that can open one",
+            ));
+        }
+        // An Origin header is always visible ASCII, so a value outside it can
+        // never be the string this is compared against.
         if !origin.chars().all(|c| c.is_ascii_graphic()) {
             return Err(invalid(
                 "must contain only visible ASCII, with no whitespace",
             ));
-        }
-
-        let Some((scheme, rest)) = origin.split_once("://") else {
-            return Err(invalid("missing scheme"));
-        };
-        if !scheme
-            .chars()
-            .next()
-            .is_some_and(|first| first.is_ascii_alphabetic())
-            || !scheme
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '+' || c == '-')
-        {
-            return Err(invalid("invalid scheme"));
-        }
-        if rest.is_empty() {
-            return Err(invalid("missing host"));
-        }
-        if rest.contains('/') {
-            return Err(invalid("must not contain a path or trailing slash"));
-        }
-        if rest.contains('?') || rest.contains('#') {
-            return Err(invalid("must not contain a query or fragment"));
-        }
-        if rest.contains('@') {
-            return Err(invalid("must not contain userinfo"));
-        }
-
-        // An IPv6 literal is bracketed, so its own colons are not the port
-        // separator: splitting on the last colon would read `http://[::1]` as
-        // host `[:` and reject an origin a browser really does send.
-        let bracketed = rest.starts_with('[');
-        let (host, port) = match rest.strip_prefix('[') {
-            Some(after_bracket) => match after_bracket.split_once(']') {
-                Some((host, "")) => (host, None),
-                Some((host, tail)) => match tail.strip_prefix(':') {
-                    Some(port) => (host, Some(port)),
-                    None => return Err(invalid("invalid port")),
-                },
-                None => return Err(invalid("invalid host")),
-            },
-            None => match rest.split_once(':') {
-                Some((host, port)) => (host, Some(port)),
-                None => (rest, None),
-            },
-        };
-        if host.is_empty() {
-            return Err(invalid("missing host"));
-        }
-        let host_ok = if bracketed {
-            // Brackets promise an IPv6 literal, so parse one: a charset check
-            // would pass `[:::]`, which no browser can ever send.
-            host.parse::<std::net::Ipv6Addr>().is_ok()
-        } else {
-            host.chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
-        };
-        if !host_ok {
-            return Err(invalid("invalid host"));
-        }
-        // `u16` gives the range. The digit and length checks are what keep `+80`
-        // and `000080` out, which it would otherwise accept as 80 and no browser
-        // sends; they also keep this identical to the editor's own check.
-        if port.is_some_and(|port| {
-            port.len() > 5
-                || !port.chars().all(|c| c.is_ascii_digit())
-                || port.parse::<u16>().is_err()
-        }) {
-            return Err(invalid("invalid port"));
         }
     }
 

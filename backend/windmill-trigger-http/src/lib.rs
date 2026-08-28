@@ -712,12 +712,19 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_allowed_origins_accepts_origins_and_wildcard() {
+    fn test_validate_allowed_origins_accepts_anything_comparable() {
+        // A shape that cannot match simply matches nothing, so it is the
+        // editor's job to warn and not this one's to refuse. Only `null` and
+        // values that are not header-comparable are rejected.
         let allowed = vec![
             "https://app.example.com".to_string(),
             "http://localhost:3000".to_string(),
-            "http://[::1]".to_string(),
             "http://[::1]:8080".to_string(),
+            "chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai".to_string(),
+            // Never matches, but that is the caller's problem, not an error.
+            "https://app.example.com/".to_string(),
+            "https://app.example.com:99999".to_string(),
+            "not-an-origin".to_string(),
             "*".to_string(),
         ];
         assert!(validate_allowed_origins(&allowed).is_ok());
@@ -725,32 +732,15 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_allowed_origins_rejects_non_origins() {
+    fn test_validate_allowed_origins_rejects_null_and_uncomparable() {
         for invalid in [
-            "https://app.example.com/",
-            "https://app.example.com/path",
-            "https://user@app.example.com",
-            "https://app.example.com?a=b",
-            "app.example.com",
-            // Legal header-value bytes, so nothing downstream rejects them, but
-            // no browser ever sends an Origin with a space in it.
-            "https://app.example.com ",
-            "https://a b.com",
             // Every sandboxed iframe sends `Origin: null`, so allowing it would
             // grant access to any page that can open one.
             "null",
-            "1://app.example.com",
-            "https://app.example.com:not-a-port",
-            "https://app.example.com:",
-            "https://:3000",
-            "https://app.example.com:99999",
-            "https://[notipv6]",
-            "https://exa[mple.com",
-            "https://[::1",
-            "https://[:::]",
-            "https://[1:2:3:4:5:6:7:8:9]",
-            "https://app.example.com:+80",
-            "https://app.example.com:000080",
+            "NULL", // Cannot be the string an Origin header is compared against.
+            "https://a b.com",
+            "https://app.example.com ",
+            "https://exämple.com",
         ] {
             assert!(
                 validate_allowed_origins(&[invalid.to_string()]).is_err(),

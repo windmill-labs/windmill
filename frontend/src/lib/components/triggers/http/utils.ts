@@ -20,60 +20,48 @@ export function parseAllowedOrigins(raw: string): string[] {
 }
 
 /**
- * Mirrors `validate_allowed_origins` in windmill-common, so an entry that could
- * never equal a browser `Origin` is caught in the editor rather than coming
- * back as a 400.
+ * Entries the API refuses, mirroring `validate_allowed_origins`.
+ *
+ * Deliberately short: a stored origin is only ever compared against the
+ * request's `Origin`, so a shape that cannot match is dead config rather than a
+ * risk. `null` is the exception, since it is what every sandboxed iframe sends.
  */
-export function allowedOriginError(origin: string): string | undefined {
+export function allowedOriginRejection(origin: string): string | undefined {
 	if (origin === '*') return undefined
-	// An Origin header is always visible ASCII, so this covers both embedded
-	// whitespace and a non-punycoded IDN, which the backend rejects too.
+	if (origin.toLowerCase() === 'null')
+		return `'null' is what a sandboxed iframe sends, so it would allow any page that can open one`
 	if (!/^[\x21-\x7e]+$/.test(origin))
 		return `'${origin}' must contain only visible ASCII, with no whitespace`
-	const separator = origin.indexOf('://')
-	if (separator < 0) return `'${origin}' is missing a scheme, such as https://`
-	const scheme = origin.slice(0, separator)
-	const rest = origin.slice(separator + 3)
-	if (!/^[A-Za-z][A-Za-z0-9.+-]*$/.test(scheme)) return `'${origin}' has an invalid scheme`
-	if (rest === '') return `'${origin}' is missing a host`
-	if (rest.includes('/')) return `'${origin}' must not contain a path or trailing slash`
-	if (rest.includes('?') || rest.includes('#'))
-		return `'${origin}' must not contain a query or fragment`
-	if (rest.includes('@')) return `'${origin}' must not contain userinfo`
-	// An IPv6 literal is bracketed, so its own colons are not the port separator
-	// and `http://[::1]` must not be read as host '[:'.
-	const bracketed = rest.startsWith('[')
-	const authority = bracketed
-		? /^\[([^\]]*)\](?::(.*))?$/.exec(rest)
-		: /^([A-Za-z0-9._-]*)(?::(.*))?$/.exec(rest)
-	if (!authority) return `'${origin}' has an invalid host`
-	const [, host, port] = authority
-	if (host === '') return `'${origin}' is missing a host`
-	// Brackets promise an IPv6 literal. The URL parser is the same one that
-	// decides what a browser can put in an Origin, and it agrees with the
-	// backend's `Ipv6Addr` parse, so `[:::]` is rejected on both sides.
-	if (bracketed) {
-		try {
-			new URL(`http://[${host}]`)
-		} catch {
-			return `'${origin}' has an invalid host`
-		}
-	}
-	if (port !== undefined && !(/^[0-9]{1,5}$/.test(port) && Number(port) <= 65535))
-		return `'${origin}' has an invalid port`
 	return undefined
 }
 
 /**
- * The first entry of a route's allowlist that could never match, if any.
+ * Shapes that save fine but can never equal an `Origin` header, so the route
+ * would read as configured while allowing nothing.
  *
- * Derived from the stored list rather than from the field, so it stays correct
- * while the editor is on another tab and the field is not even mounted. An
- * empty list is not an error: it is the deny-every-origin state the backend
- * accepts.
+ * Advisory only. What a browser sends is the caller's to know, so this points
+ * at the usual slips rather than deciding which origins are legitimate.
+ */
+export function allowedOriginWarning(origin: string): string | undefined {
+	if (origin === '*' || allowedOriginRejection(origin) !== undefined) return undefined
+	const separator = origin.indexOf('://')
+	if (separator < 0) return `'${origin}' has no scheme, such as https://`
+	const rest = origin.slice(separator + 3)
+	if (rest === '') return `'${origin}' has no host`
+	if (/[/?#]/.test(rest))
+		return `'${origin}' should be scheme://host[:port], with no path, query or fragment`
+	if (rest.includes('@')) return `'${origin}' should not contain userinfo`
+	return undefined
+}
+
+/**
+ * The first entry the API would refuse, if any. Derived from the stored list
+ * rather than the field, so it stays correct while the editor is on another tab
+ * and the field is not mounted. An empty list is not an error here: it is the
+ * deny-every-origin state the backend accepts.
  */
 export function allowedOriginsError(allowed_origins: string[] | undefined): string | undefined {
-	return allowed_origins?.map(allowedOriginError).find((message) => message !== undefined)
+	return allowed_origins?.map(allowedOriginRejection).find((message) => message !== undefined)
 }
 
 /**

@@ -3,7 +3,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { parseAllowedOrigins } from './utils'
+	import { allowedOriginWarning, parseAllowedOrigins } from './utils'
 	import type { Snippet } from 'svelte'
 
 	interface Props {
@@ -44,6 +44,11 @@
 	let inheritsInstanceDefault = $derived(!restricted && hasInstanceDefault)
 
 	let origins = $derived(parseAllowedOrigins(raw))
+	// Advisory: the value saves either way, so this only points out an entry
+	// that could never match rather than deciding what a browser may send.
+	let warning = $derived(
+		restricted ? origins.map(allowedOriginWarning).find((message) => message !== undefined) : undefined
+	)
 
 	// While the toggle is on, whatever is typed is what gets saved. A rejected
 	// entry must never collapse to `undefined`, because `undefined` is stored as
@@ -102,10 +107,13 @@
 			error={error !== undefined}
 		/>
 		<!-- One line, per the form guideline's single Input -> Validation/Hint
-			 slot. An empty list is a real state rather than a mistake: it allows
-			 no origin at all, so say that instead of demanding an entry. -->
+			 slot. Red is what the API refuses, yellow is what saves but will
+			 never match, and an empty list is neither: it allows no origin at
+			 all, which is a state a route can legitimately be in. -->
 		{#if error}
 			<div class="text-2xs text-red-600 dark:text-red-400">{error}</div>
+		{:else if warning}
+			<div class="text-2xs text-yellow-600 dark:text-yellow-400">{warning}</div>
 		{:else if origins.length === 0}
 			<div class="text-2xs text-secondary">
 				Allows no origin. Add one, comma-separated, or * to allow any.
