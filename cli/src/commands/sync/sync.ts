@@ -3216,12 +3216,6 @@ export function secretBearingObjectKind(
   return typ === "variable" || typ === "resource" ? typ : undefined;
 }
 
-/** Extension-insensitive identity of a metadata file, so a repo that switched between
- * YAML and `--json` still recognises its own history. */
-function secretBearingKey(p: string): string {
-  return p.replaceAll(SEP, "/").replace(/\.(yaml|json)$/, "");
-}
-
 /** The server-side object a secret-bearing file belongs to, so a file resource's two
  * files are counted (and reported) as the one resource they delete. */
 function secretBearingObjectPath(p: string): string {
@@ -5231,9 +5225,15 @@ export async function push(
       : { kind: "known", paths: new Set() };
   const untrackedSecretDeletions = opts.jsonOutput
     ? []
-    : untrackedSecretBearingDeletions(changes, recordedSecretPaths, (p) =>
-        wsNameForFiles ? fromWorkspaceSpecificPath(p, wsNameForFiles) : p,
-      );
+    : untrackedSecretBearingDeletions(changes, recordedSecretPaths, (p) => {
+        // `fromWorkspaceSpecificPath` strips a `.<workspace>` segment wherever it
+        // finds one, so an ordinary object whose own path ends in the workspace
+        // name (`f/x/db.prod` under workspace `prod`) would be re-keyed onto a
+        // different object. Only a path `specificItems` claims is really suffixed.
+        if (!wsNameForFiles) return p;
+        const base = fromWorkspaceSpecificPath(p, wsNameForFiles);
+        return base !== p && isSpecificItem(base, specificItems) ? base : p;
+      });
 
   // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
   // and is excluded from the file diff (isNotWmillFile), so surface its diff in
@@ -5480,13 +5480,15 @@ export async function push(
         // resource together, and a bare "1 resource" identifies neither. One line
         // per server-side object, since that is the unit being deleted — a file
         // resource's two files are one deletion, not two.
+        // Keyed by kind as well as path: a variable and a resource at one path are
+        // judged together (deleting either takes both) but are two objects to name.
         const paths = Array.from(
-          new Map(
-            untrackedSecretDeletions.map((c) => [
-              secretBearingObjectPath(c.path),
-              `  - ${secretBearingObjectKind(c.path)} ${secretBearingObjectPath(c.path)}`,
-            ]),
-          ).values(),
+          new Set(
+            untrackedSecretDeletions.map(
+              (c) =>
+                `  - ${secretBearingObjectKind(c.path)} ${secretBearingObjectPath(c.path)}`,
+            ),
+          ),
         )
           .sort()
           .join("\n");
