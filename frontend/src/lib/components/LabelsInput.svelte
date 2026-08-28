@@ -103,6 +103,14 @@
 			if (adding) addLabel()
 		}, 150)
 	}
+
+	/** Add whatever is typed but not yet committed, right now. Blur commits on a 150ms
+	 *  grace period, so a caller that reads `labels` in the same tick as the blur — a Save
+	 *  button, which blurs this input by being clicked — would miss the last label.
+	 *  `adding` is cleared here, so the pending timer then finds nothing to do. */
+	export function flushPendingLabel(): void {
+		if (adding) addLabel()
+	}
 </script>
 
 <div class="inline-flex items-center gap-1 ml-0.5 h-5 {clazz}">

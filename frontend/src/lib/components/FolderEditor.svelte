@@ -140,6 +140,7 @@
 
 	let baseline: FolderDraft | undefined = $state(undefined)
 	let draft: FolderDraft = $state(emptyDraft())
+	let labelsInput: LabelsInput | undefined = $state()
 	let folderNotFound: boolean | undefined = $state(undefined)
 	let loaded = $state(false)
 
@@ -434,6 +435,9 @@
 	}
 
 	export async function save(): Promise<{ name: string; created: boolean } | undefined> {
+		// Clicking Save blurs the label input, which commits its text on a delay — after the
+		// snapshot below. Take the label first or it is dropped as the drawer closes.
+		labelsInput?.flushPendingLabel()
 		const next = $state.snapshot(draft) as FolderDraft
 		const prev = baseline as FolderDraft
 		// Captured before the write: an edit-branch save reloads, which clears `folderNotFound`.
@@ -582,7 +586,11 @@
 				are labeled with them.
 			</div>
 			{#if can_write}
-				<LabelsInput bind:labels={draft.labels} workspace={targetWorkspace} />
+				<LabelsInput
+					bind:this={labelsInput}
+					bind:labels={draft.labels}
+					workspace={targetWorkspace}
+				/>
 			{:else}
 				<div class="inline-flex items-center gap-1 h-5">
 					{#each draft.labels as label (label)}
@@ -847,9 +855,7 @@
 
 	{#if canEditDefaults}
 		<CollapseLink
-			bind:open={
-				() => defaultRulesOpen || defaultRulesInvalid, (v) => (defaultRulesOpen = v)
-			}
+			bind:open={() => defaultRulesOpen || defaultRulesInvalid, (v) => (defaultRulesOpen = v)}
 			text="Default permissioned as (advanced, prod only)"
 		>
 			<div class="flex flex-col gap-2">
