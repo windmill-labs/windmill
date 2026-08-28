@@ -156,9 +156,34 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
   }
   const prefix = (prefixOut.stdout ?? "").trim();
 
+  // `git log HEAD` fails on a repository with no commits, which is not the same as
+  // git being broken and must not be reported as such.
+  const head = spawnSync("git", ["rev-parse", "--verify", "--quiet", "HEAD"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if ((head.status ?? 1) !== 0) {
+    return {
+      kind: "unknown",
+      reason: "this repository has no commits yet",
+      remedy: "Commit the migrations you sync",
+    };
+  }
+
+  // `core.quotePath` (on by default) C-quotes any path with a non-ASCII byte, which
+  // matches nothing the caller holds and reads as "never tracked".
   const r = spawnSync(
     "git",
-    ["log", "HEAD", "--format=", "--name-only", "--", "migrations/datatable"],
+    [
+      "-c",
+      "core.quotePath=false",
+      "log",
+      "HEAD",
+      "--format=",
+      "--name-only",
+      "--",
+      "migrations/datatable",
+    ],
     { encoding: "utf8", stdio: "pipe", maxBuffer: 64 * 1024 * 1024 },
   );
   if ((r.status ?? 1) !== 0) {
