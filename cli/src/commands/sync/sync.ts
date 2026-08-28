@@ -3216,6 +3216,12 @@ export function secretBearingObjectKind(
   return typ === "variable" || typ === "resource" ? typ : undefined;
 }
 
+/** Kind and path together identify the object: two files of one resource share an id,
+ * a variable and a resource at one path do not. */
+function secretBearingObjectId(p: string): string {
+  return `${secretBearingObjectKind(p)} ${secretBearingObjectPath(p)}`;
+}
+
 /** The server-side object a secret-bearing file belongs to, so a file resource's two
  * files are counted (and reported) as the one resource they delete. */
 function secretBearingObjectPath(p: string): string {
@@ -3238,12 +3244,16 @@ function secretBearingObjectPath(p: string): string {
  * anything, so every candidate comes back and the caller hedges the wording instead.
  *
  * Judged per server-side object, not per file, because that is what the backend
- * deletes: a file resource is two files for one resource, and `DELETE /variables/delete`
- * takes the resource at the same path down with it. An object with any file in history
- * was tracked, so reporting it as never-tracked would be false — including when that
- * file is a companion the push is not deleting (a file resource whose `.resource.yaml`
- * stays while its content file goes), which is why the tracked set is built from the
- * whole history rather than from the deletions being judged.
+ * deletes: a file resource's `.resource.yaml` and content file are one resource, and
+ * either of them in history proves the repository owned it — including a companion the
+ * push is not deleting, which is why the tracked set is built from the whole history
+ * rather than from the deletions being judged.
+ *
+ * Kind is part of that identity. A variable and a resource can share a path and are
+ * still two objects: `DELETE /variables/delete` drops the same-path resource
+ * unconditionally, `DELETE /resources/delete` drops only the variables its value
+ * references. That cascade is a reason to report both, not to let history for one
+ * vouch for the other.
  */
 export function untrackedSecretBearingDeletions<
   T extends { name: string; path: string },
@@ -3264,11 +3274,11 @@ export function untrackedSecretBearingDeletions<
   for (const recordedPath of recorded.paths) {
     const base = toBasePath ? toBasePath(recordedPath) : recordedPath;
     if (secretBearingObjectKind(base) !== undefined) {
-      trackedObjects.add(secretBearingObjectPath(base));
+      trackedObjects.add(secretBearingObjectId(base));
     }
   }
   return candidates.filter(
-    (c) => !trackedObjects.has(secretBearingObjectPath(c.path)),
+    (c) => !trackedObjects.has(secretBearingObjectId(c.path)),
   );
 }
 

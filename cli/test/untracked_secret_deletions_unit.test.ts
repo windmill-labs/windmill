@@ -133,9 +133,9 @@ describe("untrackedSecretBearingDeletions", () => {
     ).toEqual([]);
   });
 
-  test("a linked variable and resource at one path count as one object", () => {
-    // `DELETE /variables/delete` takes the resource at the same path with it, so
-    // history for either half vouches for the pair.
+  test("a variable and a resource at one path vouch only for themselves", () => {
+    // They share a path but are two backend objects, so committing the variable
+    // says nothing about a resource the repository never had.
     expect(
       untrackedSecretBearingDeletions(
         [
@@ -143,8 +143,8 @@ describe("untrackedSecretBearingDeletions", () => {
           { name: "deleted", path: "f/test/pair.resource.yaml" },
         ],
         { kind: "known", paths: new Set(["f/test/pair.variable.yaml"]) },
-      ),
-    ).toEqual([]);
+      ).map((c) => c.path),
+    ).toEqual(["f/test/pair.resource.yaml"]);
   });
 
   test("surfaces everything when the history cannot be consulted", () => {

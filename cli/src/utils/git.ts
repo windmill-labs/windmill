@@ -169,6 +169,20 @@ export function gitRecordedPaths(pathspecs: string[]): RecordedPaths {
   if ("kind" in pre) return pre;
   const { prefix } = pre;
 
+  // `git log HEAD` fails on a repository with no commits, which is not the same
+  // as git being broken and must not be reported as such.
+  const head = spawnSync("git", ["rev-parse", "--verify", "--quiet", "HEAD"], {
+    encoding: "utf8",
+    stdio: "pipe",
+  });
+  if ((head.status ?? 1) !== 0) {
+    return {
+      kind: "unknown",
+      reason: "this repository has no commits yet",
+      remedy: "Commit the files you sync",
+    };
+  }
+
   // `core.quotePath` (on by default) C-quotes any path with a non-ASCII byte
   // — `f/café.variable.yaml` comes back as `"f/caf\303\251.variable.yaml"` —
   // which matches nothing the caller holds.
