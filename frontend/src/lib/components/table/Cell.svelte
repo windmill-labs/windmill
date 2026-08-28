@@ -59,8 +59,12 @@
 		numeric ? 'text-right' : '',
 		// `w-0` makes the column shrink to its buttons rather than take the leftover width;
 		// `text-right` then places inline content and `ml-auto` a block-level child, which a
-		// button wrapper is.
-		actions ? 'w-0 text-right [&>*]:ml-auto' : '',
+		// button wrapper is. Pinned to the right edge so the buttons stay reachable when a
+		// wide table scrolls horizontally; the background must be opaque for the cells
+		// sliding under it to be occluded, and `wm-cell-pinned` below repaints the row's
+		// own tint over it so it still reads as part of its row.
+		actions ? 'w-0 text-right [&>*]:ml-auto sticky right-0 wm-cell-pinned' : '',
+		actions ? (head ? 'bg-surface-secondary' : 'bg-surface') : '',
 		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-2',
 		size === 'sm' ? 'px-1.5 py-2.5' : '',
 		size === 'lg' ? 'px-3 py-4' : '',
@@ -78,3 +82,16 @@
 		{@render children?.()}
 	{/if}
 </svelte:element>
+
+<style>
+	/* A row's hover tint is set on the `tr`, which a `position: sticky` cell paints over
+	   rather than inheriting. The token carries its own alpha, so adopting it directly would
+	   make the cell translucent and stop it occluding what scrolls under; layering it over
+	   the opaque colour composites to the same result while keeping the cell opaque. */
+	:global(tr.wm-row-hoverable:hover) > .wm-cell-pinned {
+		background-image: linear-gradient(
+			rgb(var(--color-surface-hover)),
+			rgb(var(--color-surface-hover))
+		);
+	}
+</style>
