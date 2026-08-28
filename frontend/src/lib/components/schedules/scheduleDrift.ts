@@ -1,3 +1,5 @@
+const MIN_RUNS = 3
+
 /**
  * Whether a schedule's runs are taking longer than the gap between its slots.
  *
@@ -10,8 +12,6 @@
  * Reads the runs the schedules page has already loaded, and asks for a few of
  * them so that one slow run is not read as a change of cadence.
  */
-const MIN_RUNS = 3
-
 export function scheduleOutlastsItsInterval(schedule: {
 	queues_next_run_at_start?: boolean
 	enabled?: boolean
