@@ -2132,7 +2132,7 @@
 			data = structuredClone($state.snapshot(entry.data))
 
 			// If the open document survives into the new files, use the combined message
-			if (iframeDocument && entry.files[iframeDocument] !== undefined) {
+			if (iframeDocument && isOpenableDocument(iframeDocument)) {
 				// Use combined setFilesAndSelect message to avoid race condition
 				setFilesAndSelectInIframe(entry.files, iframeDocument)
 			} else {
