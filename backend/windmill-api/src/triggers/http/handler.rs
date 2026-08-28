@@ -101,6 +101,37 @@ enum CorsDecision {
     Unavailable,
 }
 
+impl CorsDecision {
+    /// Combine the decision taken before the handler ran with the one taken
+    /// after it, keeping whichever is stricter.
+    ///
+    /// The routers are rebuilt while requests are in flight — a route renamed,
+    /// deleted, or given a wider list — and the response was produced under
+    /// whatever the handler resolved. Reading only before, or only after,
+    /// leaves one ordering in which a policy is stamped that is more permissive
+    /// than the one the response was served under. A deleted route is the sharp
+    /// case: the later read matches nothing, which on its own reads as "no
+    /// allowlist applies" and would answer `*`.
+    fn stricter(self, other: Self) -> Self {
+        use CorsDecision::*;
+        match (self, other) {
+            (Unavailable, _) | (_, Unavailable) => Unavailable,
+            (
+                Restricted { route_method, allow_origin },
+                Restricted { allow_origin: also_allowed, .. },
+            ) => Restricted {
+                route_method,
+                // Echo only where both reads agreed the origin is allowed, so a
+                // list narrowed mid-request is honoured too.
+                allow_origin: allow_origin.filter(|_| also_allowed.is_some()),
+            },
+            (restricted @ Restricted { .. }, Unrestricted)
+            | (Unrestricted, restricted @ Restricted { .. }) => restricted,
+            (Unrestricted, Unrestricted) => Unrestricted,
+        }
+    }
+}
+
 /// Decide the CORS answer for a request, from the routers cache.
 ///
 /// Loads the routers when the cache is cold, the way `get_http_route_trigger`
@@ -157,17 +188,23 @@ async fn conditional_cors_middleware(
     // (`Body` is not `Sync`), so nothing borrowed from it can cross the await.
     let lookup = cors_lookup_method(&req).zip(cors_lookup_path(req.uri().path()));
 
-    let mut response = next.run(req).await;
-
-    // Decided after the handler, so the policy stamped here is never older than
-    // the one the handler resolved: a route made stricter while the request was
-    // in flight is answered with the stricter list, not the snapshot it started
-    // with. Reading the cache once, here, is what keeps the two from diverging.
-    let decision = match lookup {
-        Some((method, path)) => resolve_cors_decision(&db, method, &path, origin.as_ref()).await,
+    // Decided on both sides of the handler and combined strictly. Only the
+    // verdict crosses the await, never the allowlist, so the second read costs
+    // a cache lookup rather than a copy of the list.
+    let before = match lookup.as_ref() {
+        Some((method, path)) => resolve_cors_decision(&db, *method, path, origin.as_ref()).await,
         // Nothing to look up: not a preflight, not a method any route can be
         // registered under, or a path that does not decode.
         None => CorsDecision::Unrestricted,
+    };
+
+    let mut response = next.run(req).await;
+
+    let decision = match lookup.as_ref() {
+        Some((method, path)) => {
+            before.stricter(resolve_cors_decision(&db, *method, path, origin.as_ref()).await)
+        }
+        None => before,
     };
 
     let headers = response.headers_mut();
