@@ -8,9 +8,11 @@
 	interface Props {
 		/** File path → content map. Keys use / prefix (e.g. /index.html). */
 		files: Record<string, string>
-		/** Currently selected path (/-prefixed). Read-only; changes via onSelectPath callback. */
+		/** Currently selected file (/-prefixed). Read-only; changes via onSelectPath callback. */
 		selectedPath?: string | undefined
-		/** Called when user clicks a path (file or folder). */
+		/** Called when the user clicks a file. Folders aren't selectable — clicking
+		 * one only expands it — so this reports a folder path only for the root row
+		 * under `showRoot`, and '' when the last file is deleted. */
 		onSelectPath?: (path: string) => void
 		/** Extra tree nodes appended after the main tree (e.g. read-only wmill.ts). */
 		extraNodes?: TreeNode[]
@@ -80,6 +82,12 @@
 		onSelectPath?.(path)
 	}
 
+	function parentFolderOfSelection(): string {
+		if (!selectedPath || selectedPath === '/') return '/'
+		const pathParts = selectedPath.split('/').filter(Boolean)
+		return pathParts.length > 1 ? '/' + pathParts.slice(0, -1).join('/') + '/' : '/'
+	}
+
 	function handleAddFile(folderPath: string) {
 		const normalizedFolder = folderPath.endsWith('/') ? folderPath : folderPath + '/'
 		const basePath = normalizedFolder + 'newfile.txt'
@@ -88,20 +96,10 @@
 		pathToEdit = newPath
 	}
 
+	// New entries land beside the selected file; with nothing selected, at the
+	// root. To create inside another folder, use that folder row's own menu.
 	export function handleAddRootFile() {
-		let basePath: string
-		if (selectedPath && selectedPath !== '/') {
-			if (selectedPath.endsWith('/')) {
-				basePath = selectedPath + 'newfile.txt'
-			} else {
-				const pathParts = selectedPath.split('/').filter(Boolean)
-				const parentPath =
-					pathParts.length > 1 ? '/' + pathParts.slice(0, -1).join('/') + '/' : '/'
-				basePath = parentPath + 'newfile.txt'
-			}
-		} else {
-			basePath = '/newfile.txt'
-		}
+		const basePath = parentFolderOfSelection() + 'newfile.txt'
 		const newPath = getUniquePath(basePath)
 		pendingNewFilePath = newPath
 		pathToEdit = newPath
@@ -116,19 +114,7 @@
 	}
 
 	export function handleAddRootFolder() {
-		let basePath: string
-		if (selectedPath && selectedPath !== '/') {
-			if (selectedPath.endsWith('/')) {
-				basePath = selectedPath + 'newfolder/'
-			} else {
-				const pathParts = selectedPath.split('/').filter(Boolean)
-				const parentPath =
-					pathParts.length > 1 ? '/' + pathParts.slice(0, -1).join('/') + '/' : '/'
-				basePath = parentPath + 'newfolder/'
-			}
-		} else {
-			basePath = '/newfolder/'
-		}
+		const basePath = parentFolderOfSelection() + 'newfolder/'
 		const newPath = getUniquePath(basePath)
 		pendingNewFilePath = newPath
 		pathToEdit = newPath

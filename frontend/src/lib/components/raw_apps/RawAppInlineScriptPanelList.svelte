@@ -13,12 +13,13 @@
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
+		/** Read-only; the editor switches selection through `onSelect`. */
 		selectedRunnable: string | undefined
 		runnables: Record<string, Runnable>
 		onSelect?: (id: string) => void
 	}
 
-	let { selectedRunnable = $bindable(), runnables, onSelect }: Props = $props()
+	let { selectedRunnable, runnables, onSelect }: Props = $props()
 
 	let editingId: string | undefined = $state(undefined)
 
@@ -54,7 +55,6 @@
 		delete runnables[oldId]
 
 		if (selectedRunnable === oldId) {
-			selectedRunnable = newId
 			onSelect?.(newId)
 		}
 		editingId = undefined
@@ -86,7 +86,6 @@
 			type: 'inline'
 		}
 
-		selectedRunnable = nid
 		onSelect?.(nid)
 	}
 </script>
@@ -125,15 +124,11 @@
 								{runnable}
 								isSelected={selectedRunnable === id}
 								isEditing={editingId === id}
-								onSelect={() => {
-									selectedRunnable = id
-									onSelect?.(id)
-								}}
+								onSelect={() => onSelect?.(id)}
 								onDelete={() => {
+									// The editor's stale-tab cleanup closes the tab, which clears
+									// the selection.
 									delete runnables[id]
-									if (selectedRunnable === id) {
-										selectedRunnable = undefined
-									}
 								}}
 								onRename={(newId) => renameRunnable(id, newId)}
 								onRequestEdit={() => (editingId = id)}

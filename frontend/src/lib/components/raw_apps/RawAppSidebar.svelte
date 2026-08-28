@@ -18,10 +18,13 @@
 
 	interface Props {
 		runnables: Record<string, Runnable>
+		/** Read-only; the editor switches selection through `onSelectRunnable`. */
 		selectedRunnable: string | undefined
 		files: Record<string, string>
 		modules?: Modules
-		onSelectFile?: (path: string) => void
+		onSelectRunnable?: (key: string) => void
+		onSelectPath?: (path: string) => void
+		/** Read-only; the editor switches selection through `onSelectPath`. */
 		selectedDocument: string | undefined
 		historyManager?: RawAppHistoryManager
 		historySelectedId?: number | undefined
@@ -39,11 +42,12 @@
 
 	let {
 		runnables,
-		selectedRunnable = $bindable(),
+		selectedRunnable,
 		files = $bindable({}),
 		modules,
-		onSelectFile,
-		selectedDocument = $bindable(),
+		onSelectRunnable,
+		onSelectPath,
+		selectedDocument,
 		historyManager,
 		historySelectedId,
 		onHistorySelect,
@@ -79,13 +83,6 @@
 	}
 
 	let fileExplorer: FileExplorer | undefined = $state()
-
-	function handleSelectPath(path: string) {
-		selectedDocument = path
-		if (!path.endsWith('/')) {
-			onSelectFile?.(path)
-		}
-	}
 </script>
 
 <PanelSection
@@ -132,7 +129,7 @@
 		bind:this={fileExplorer}
 		bind:files
 		selectedPath={selectedDocument}
-		onSelectPath={handleSelectPath}
+		{onSelectPath}
 		extraNodes={[{ name: 'wmill.ts', path: '/wmill.ts', isFolder: false }]}
 		hideHeader
 	/>
@@ -141,13 +138,7 @@
 <RawAppModules {modules} />
 
 <div class="py-4"></div>
-<RawAppInlineScriptPanelList
-	bind:selectedRunnable
-	{runnables}
-	onSelect={() => {
-		selectedDocument = undefined
-	}}
-/>
+<RawAppInlineScriptPanelList {selectedRunnable} {runnables} onSelect={onSelectRunnable} />
 
 <div class="py-4"></div>
 <RawAppDataTableList
