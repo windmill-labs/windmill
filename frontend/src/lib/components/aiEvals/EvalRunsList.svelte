@@ -16,6 +16,7 @@
 		datasets,
 		caseProgress,
 		loaded,
+		active = false,
 		deployedHash = undefined,
 		currentVersion = undefined,
 		onOpen,
@@ -26,6 +27,9 @@
 		experiments: EvalExperiment[]
 		/** Whether the list has been read: an empty table is a statement about the agent. */
 		loaded: boolean
+		/** Whether this list is the page on screen. The keyboard is only answered while it is: the
+		 *  run page keeps its own rows, and both would otherwise move on one press. */
+		active?: boolean
 		/** The workspace's datasets, for naming the one a run is of by what it is for. */
 		datasets: EvalDataset[]
 		/** How many cases each still-running run has finished, keyed by run id. A run the flow has
@@ -41,6 +45,43 @@
 		onNew: () => void
 	} = $props()
 
+	/** The row the keyboard is on, or -1 for none. Separate from any notion of a selected run: this
+	 *  only says where the cursor is, and a run is not opened until Enter. */
+	let cursor = $state(-1)
+	let body: HTMLTableSectionElement | undefined = $state()
+
+	// A cursor left on a row that is no longer there — a run pruned, or the list filtered — would
+	// open the wrong run on the next Enter.
+	$effect(() => {
+		if (!active || cursor >= experiments.length) cursor = -1
+	})
+
+	function move(by: number) {
+		if (experiments.length === 0) return
+		const next = cursor < 0 ? (by > 0 ? 0 : experiments.length - 1) : cursor + by
+		cursor = Math.max(0, Math.min(experiments.length - 1, next))
+		// `nearest`, so arrowing through a long list scrolls by a row rather than jumping the table.
+		requestAnimationFrame(() =>
+			body?.querySelectorAll('tr')[cursor]?.scrollIntoView({ block: 'nearest' })
+		)
+	}
+
+	function onKeydown(event: KeyboardEvent) {
+		if (!active || event.metaKey || event.ctrlKey || event.altKey) return
+		const el = event.target as HTMLElement | null
+		if (el?.closest?.('input, textarea, select, [contenteditable="true"], [role="listbox"]')) return
+		if (event.key === 'ArrowDown') {
+			event.preventDefault()
+			move(1)
+		} else if (event.key === 'ArrowUp') {
+			event.preventDefault()
+			move(-1)
+		} else if (event.key === 'Enter' && cursor >= 0 && experiments[cursor]) {
+			event.preventDefault()
+			onOpen(experiments[cursor])
+		}
+	}
+
 	/** The one number a column reports: a pass rate where it has a line to pass, the mean where it
 	 *  does not. */
 	function headline(score: ExperimentScore): string | undefined {
@@ -48,6 +89,8 @@
 		return score.mean == undefined ? undefined : formatScore(score.mean)
 	}
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <DataTable size="sm" tableFixed>
 	<colgroup>
@@ -68,10 +111,16 @@
 			<Cell head last></Cell>
 		</tr>
 	</Head>
-	<tbody class="divide-y">
-		{#each experiments as experiment (experiment.id)}
+	<tbody class="divide-y" bind:this={body}>
+		{#each experiments as experiment, i (experiment.id)}
 			<!-- `group` so the chevron in the last cell can answer this row's hover. -->
-			<Row hoverable class="group" on:click={() => onOpen(experiment)}>
+			<Row
+				hoverable
+				selected={i === cursor}
+				class="group"
+				on:click={() => onOpen(experiment)}
+				on:hover={(e) => e.detail && (cursor = -1)}
+			>
 				<Cell first>
 					<div class="flex flex-col min-w-0">
 						<div class="flex items-center gap-1.5 min-w-0">
@@ -157,7 +206,9 @@
 				<Cell last numeric>
 					<ChevronRight
 						size={14}
-						class="text-tertiary opacity-0 group-hover:opacity-100 transition-opacity"
+						class="text-tertiary transition-opacity {i === cursor
+							? 'opacity-100'
+							: 'opacity-0 group-hover:opacity-100'}"
 					/>
 				</Cell>
 			</Row>

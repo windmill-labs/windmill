@@ -34,6 +34,7 @@
 	title={TITLE}
 	{trail}
 	paginated
+	enterConfirms={false}
 	bind:open
 	kind="X"
 	class="w-[90vw] sm:w-[90vw] max-w-[1400px] sm:max-w-[1400px] h-[85vh]"

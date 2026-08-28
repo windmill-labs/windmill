@@ -415,7 +415,13 @@
 		selectedCaseId = undefined
 		// Opened first, read second: the dataset is a request, and waiting on it here is a click
 		// that does nothing at all until the network answers. The page carries the wait instead.
-		const needsDataset = !!target && target.dataset !== dataset?.path
+		//
+		// Against what is *selected* as well as what is loaded. `selectedDataset` moves the moment a
+		// read starts, so a load still in flight for another dataset shows up here: without that
+		// test, opening a run of the dataset already committed would skip `useDataset` entirely and
+		// leave the in-flight one free to commit its cases under this run.
+		const needsDataset =
+			!!target && (target.dataset !== dataset?.path || target.dataset !== selectedDataset)
 		datasetLoading = needsDataset
 		viewingRun = true
 		if (needsDataset) {
@@ -709,6 +715,7 @@
 			{datasets}
 			{caseProgress}
 			{loaded}
+			active={!viewingRun}
 			{deployedHash}
 			{currentVersion}
 			onOpen={(e) => openRun(e.id)}

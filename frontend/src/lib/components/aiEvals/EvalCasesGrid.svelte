@@ -34,12 +34,13 @@
 	 *  virtualised its rows; `DataTable` paginates instead, which is the primitive already here. */
 	const CASES_PER_PAGE = 25
 	let currentPage = $state(1)
-	let pageCases = $derived(
-		cases.slice((currentPage - 1) * CASES_PER_PAGE, currentPage * CASES_PER_PAGE)
-	)
+	/** Bound to `DataTable`'s own per-page selector, so changing it there re-slices here rather
+	 *  than only relabelling the footer. */
+	let perPage = $state(CASES_PER_PAGE)
+	let lastPage = $derived(Math.max(1, Math.ceil(cases.length / perPage)))
+	let pageCases = $derived(cases.slice((currentPage - 1) * perPage, currentPage * perPage))
 	// A case removed from the last page leaves it empty; step back rather than show nothing.
 	$effect(() => {
-		const lastPage = Math.max(1, Math.ceil(cases.length / CASES_PER_PAGE))
 		if (currentPage > lastPage) currentPage = lastPage
 	})
 
@@ -60,7 +61,7 @@
 			// a full page is not rendered yet, and there would be nothing to open.
 			const at = cases.findIndex((c) => c.id === id)
 			if (at < 0) return
-			currentPage = Math.floor(at / CASES_PER_PAGE) + 1
+			currentPage = Math.floor(at / perPage) + 1
 			// After the row has been rendered and registered itself.
 			requestAnimationFrame(() => questionEditors[id]?.edit())
 		})
@@ -104,11 +105,14 @@
 		size="xs"
 		tableFixed
 		containerClass="bg-surface-tertiary"
-		paginated={cases.length > CASES_PER_PAGE}
+		paginated={cases.length > perPage}
 		bind:currentPage
-		perPage={CASES_PER_PAGE}
+		bind:perPage
 		rowCount={cases.length}
-		hasMore={false}
+		hasMore={currentPage < lastPage}
+		showPrev={currentPage > 1}
+		on:next={() => (currentPage = Math.min(currentPage + 1, lastPage))}
+		on:previous={() => (currentPage = Math.max(currentPage - 1, 1))}
 	>
 		<colgroup>
 			<col style="width: 55%" />

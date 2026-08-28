@@ -19,9 +19,11 @@
 		/** The `key` of the page on screen. */
 		current: string
 		/**
-		 * Go to a page. Given, the component answers the keyboard: left/right arrows and Escape
-		 * step between pages the way the surface's own controls do. Without it the pages are still
-		 * navigable, just not from the keyboard — the caller owns `current` either way.
+		 * Go to a page. Given, the component answers the left and right arrow keys, stepping between
+		 * pages the way the surface's own controls do. Escape is deliberately not taken: the dialog
+		 * around this owns it, and a page component that swallowed it would stop the dialog from
+		 * closing. Without this prop the pages are still navigable, just not from the keyboard —
+		 * the caller owns `current` either way.
 		 */
 		onNavigate?: (key: string) => void
 		/**

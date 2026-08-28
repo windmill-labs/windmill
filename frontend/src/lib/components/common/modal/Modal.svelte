@@ -43,6 +43,13 @@
 		 * positioned and need a definite height to fill. Pair with `PagedContent`, which does the
 		 * laying over; this only makes room for it. */
 		paginated?: boolean
+		/**
+		 * Whether Enter confirms the dialog. On by default, which is right for a form. Turn it off
+		 * where the body is a surface with its own meaning for Enter: the handler runs at `window`
+		 * in the capture phase and stops propagation, so while it is on nothing inside the dialog
+		 * can see the key at all.
+		 */
+		enterConfirms?: boolean
 		/** Make the dialog fill the height it is anchored to and lay its body out as a flex
 		 * column, so content can size itself with `h-full` / `flex-1 min-h-0`. Off by default:
 		 * the dialog otherwise hugs its content, and percentage heights inside it do not
@@ -71,6 +78,7 @@
 		description = undefined,
 		fillHeight = false,
 		paginated = false,
+		enterConfirms = true,
 		minZIndex: minZIndexProp = undefined,
 		titleBadge,
 		settings,
@@ -120,6 +128,7 @@
 		if (open) {
 			switch (event.key) {
 				case 'Enter':
+					if (!enterConfirms) break
 					event.stopPropagation()
 					event.preventDefault()
 					dispatch('confirmed')
