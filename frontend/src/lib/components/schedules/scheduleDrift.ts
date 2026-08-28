@@ -10,11 +10,11 @@ export type ScheduleRunsSample = {
 
 /**
  * How long a schedule's runs have been taking, when that is longer than the gap
- * between its slots, and `undefined` otherwise.
+ * between its scheduled events, and `undefined` otherwise.
  *
  * A plain script schedule queues its next run only once the previous one has
  * completed, so a run that outlasts the interval necessarily pushes the next one
- * to a later slot: the schedule quietly runs less often than its cron says.
+ * to a later event: the schedule quietly runs less often than its cron says.
  * Schedules that queue the next run as the previous one starts are exempt, and
  * the server says which those are.
  */

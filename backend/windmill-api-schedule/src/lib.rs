@@ -1010,8 +1010,8 @@ pub struct ScheduleWJobs {
     pub queues_next_run_at_start: bool,
 }
 
-/// Occurrences to look ahead over when sizing the interval.
-const INTERVAL_SAMPLE_SLOTS: usize = 5;
+/// Scheduled events to look ahead over when sizing the interval.
+const INTERVAL_SAMPLE_EVENTS: usize = 5;
 
 /// The *shortest* gap, not the average: under an irregular expression a run can
 /// outlast the tight gaps while still fitting inside the mean, and it is the
@@ -1023,8 +1023,8 @@ fn configured_interval_s(
 ) -> Option<i64> {
     let tz = chrono_tz::Tz::from_str(timezone).ok()?;
     let cron = ScheduleType::from_str(schedule, cron_version, false).ok()?;
-    let slots = cron.upcoming(tz, INTERVAL_SAMPLE_SLOTS).ok()?;
-    slots
+    let events = cron.upcoming(tz, INTERVAL_SAMPLE_EVENTS).ok()?;
+    events
         .windows(2)
         .map(|pair| (pair[1] - pair[0]).num_seconds())
         .min()
@@ -1753,7 +1753,7 @@ mod tests {
     use super::*;
 
     /// Twice a day, so the gaps alternate 8 hours and 16. A run only has to
-    /// outlast the shorter one to start skipping slots, so that is the number
+    /// outlast the shorter one to start skipping events, so that is the number
     /// the interval has to be.
     #[test]
     fn interval_is_the_shortest_gap_an_irregular_cron_leaves() {

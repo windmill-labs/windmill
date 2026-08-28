@@ -5,9 +5,9 @@ const runs = (duration_ms: number) => Array.from({ length: 5 }, () => ({ duratio
 
 // Each exemption below is a schedule that is genuinely running less often than
 // its cron reads, and is still not something to report. Losing one of them turns
-// the badge into noise on a correctly configured schedule.
+// the warning into noise on a correctly configured schedule.
 describe('runsOutlastingInterval', () => {
-	it('reports how long runs that outlast the gap between slots are taking', () => {
+	it('reports how long runs that outlast the gap between events are taking', () => {
 		expect(runsOutlastingInterval({ enabled: true, interval_s: 20, jobs: runs(50_000) })).toBe(
 			50_000
 		)
