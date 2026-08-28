@@ -1042,8 +1042,12 @@ fn detect_interval_drift(
             .map(|slot| slot.with_timezone(&Utc))
     };
 
-    let mut effective = Vec::with_capacity(DRIFT_MIN_MISSED_SLOTS);
-    let mut configured = Vec::with_capacity(DRIFT_MIN_MISSED_SLOTS);
+    // The two intervals are reported from the pair with the least drift in the
+    // sample, and always from the same pair so they stay comparable. A sample
+    // reaching over a pause, or over a stretch with the schedule turned off,
+    // carries one enormous gap; the mildest pair is the one still describing
+    // how the schedule runs when it is running.
+    let mut mildest: Option<IntervalDrift> = None;
     for pair in push_times[..=DRIFT_MIN_MISSED_SLOTS].windows(2) {
         let previous = next_slot(&pair[1])?;
         let ran_at = next_slot(&pair[0])?;
@@ -1051,25 +1055,56 @@ fn detect_interval_drift(
         if ran_at <= kept_cadence {
             return None;
         }
-        effective.push((ran_at - previous).num_seconds());
-        configured.push((kept_cadence - previous).num_seconds());
+        let pair_drift = IntervalDrift {
+            effective_s: (ran_at - previous).num_seconds(),
+            configured_s: (kept_cadence - previous).num_seconds(),
+        };
+        if mildest
+            .as_ref()
+            .is_none_or(|mildest| pair_drift.effective_s < mildest.effective_s)
+        {
+            mildest = Some(pair_drift);
+        }
     }
-    Some(IntervalDrift {
-        effective_s: median(&mut effective),
-        configured_s: median(&mut configured),
-    })
+    mildest
 }
 
-/// Slot gaps vary under an irregular cron, so both intervals are reported as
-/// the middle of the sample rather than an average a single outlier moves.
-fn median(values: &mut [i64]) -> i64 {
-    values.sort_unstable();
-    values[values.len() / 2]
+/// When each schedule's cron expression last changed, for the paths asked
+/// about and only those that ever recorded such a change.
+///
+/// Runs queued under a previous expression measure as drift against the one
+/// that replaced it, so a sample reaching back past the change has to be
+/// dropped. `schedule.edited_at` cannot draw that line: nothing updates it
+/// after the insert. The trigger history can, and is only read once a sample
+/// has already come out as drifting.
+///
+/// Compare strictly: the edit queues a tick of its own in the same
+/// transaction, so that first run under the new expression carries the very
+/// timestamp recorded here.
+async fn cron_changed_at(
+    db: &DB,
+    w_id: &str,
+    paths: &[String],
+) -> Result<Vec<(String, DateTime<Utc>)>> {
+    let rows = sqlx::query!(
+        "SELECT DISTINCT ON (path) path, created_at
+        FROM trigger_history
+        WHERE workspace_id = $1 AND trigger_kind = $2 AND path = ANY($3)
+            AND (changes ? 'schedule' OR changes ? 'timezone' OR changes ? 'cron_version')
+        ORDER BY path, id DESC",
+        w_id,
+        SCHEDULE_TRIGGER_KIND,
+        paths
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.path, r.created_at)).collect())
 }
 
 async fn list_schedule_with_jobs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<ScheduleWJobs>> {
@@ -1113,7 +1148,6 @@ async fn list_schedule_with_jobs(
                     AND trigger = schedule.path
                     AND v2_job.workspace_id = $1
                     AND parent_job IS NULL AND runnable_path = schedule.script_path
-                    AND created_at > schedule.edited_at
                 ORDER BY created_at DESC
                 LIMIT $5
             ) AS push_times) p
@@ -1130,25 +1164,41 @@ async fn list_schedule_with_jobs(
     .await?;
     tx.commit().await?;
     let allowed = build_scope_path_predicate(&authed, "schedules", "read");
-    Ok(Json(
-        rows.into_iter()
-            .filter(|r| allowed(&r.path))
-            .map(|r| ScheduleWJobs {
-                interval_drift: r.push_times.as_deref().filter(|_| r.enabled).and_then(
-                    |push_times| {
-                        detect_interval_drift(
-                            push_times,
-                            &r.schedule,
-                            r.cron_version.as_deref(),
-                            &r.timezone,
-                        )
-                    },
-                ),
-                path: r.path,
-                jobs: r.jobs,
-            })
-            .collect(),
-    ))
+
+    let mut out: Vec<ScheduleWJobs> = Vec::with_capacity(rows.len());
+    // Oldest run each reported drift rests on, kept to check it against the
+    // cron's own history below.
+    let mut drifting: Vec<(String, DateTime<Utc>)> = Vec::new();
+    for r in rows.into_iter().filter(|r| allowed(&r.path)) {
+        let sample = r.push_times.filter(|_| r.enabled).unwrap_or_default();
+        let interval_drift =
+            detect_interval_drift(&sample, &r.schedule, r.cron_version.as_deref(), &r.timezone);
+        if interval_drift.is_some() {
+            if let Some(oldest) = sample.last() {
+                drifting.push((r.path.clone(), *oldest));
+            }
+        }
+        out.push(ScheduleWJobs { path: r.path, jobs: r.jobs, interval_drift });
+    }
+
+    if !drifting.is_empty() {
+        let paths = drifting
+            .iter()
+            .map(|(path, _)| path.clone())
+            .collect::<Vec<_>>();
+        for (path, changed_at) in cron_changed_at(&db, &w_id, &paths).await? {
+            if drifting
+                .iter()
+                .any(|(p, oldest)| *p == path && *oldest < changed_at)
+            {
+                if let Some(row) = out.iter_mut().find(|r| r.path == path) {
+                    row.interval_drift = None;
+                }
+            }
+        }
+    }
+
+    Ok(Json(out))
 }
 
 // SELECT id, title AS item_title, t.tag_array
@@ -1215,29 +1265,34 @@ async fn fetch_interval_drift(
         return Ok(None);
     }
     // Query plan: `(workspace_id, runnable_path, created_at DESC)` index, hence the
-    // `parent_job IS NULL` clause. Runs from before the last edit are left out: they
-    // were queued under whatever cron the schedule had then.
+    // `parent_job IS NULL` clause.
     let push_times = sqlx::query_scalar!(
         "SELECT created_at FROM v2_job
         WHERE workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
             AND parent_job IS NULL AND runnable_path = $3
-            AND created_at > $4
         ORDER BY created_at DESC
-        LIMIT $5",
+        LIMIT $4",
         w_id,
         &schedule.path,
         &schedule.script_path,
-        schedule.edited_at,
         DRIFT_SAMPLE_SIZE
     )
     .fetch_all(db)
     .await?;
-    Ok(detect_interval_drift(
+    let drift = detect_interval_drift(
         &push_times,
         &schedule.schedule,
         schedule.cron_version.as_deref(),
         &schedule.timezone,
-    ))
+    );
+    if drift.is_some() {
+        let oldest = push_times.last().copied().unwrap_or_default();
+        let changed = cron_changed_at(db, w_id, std::slice::from_ref(&schedule.path)).await?;
+        if changed.iter().any(|(_, changed_at)| oldest < *changed_at) {
+            return Ok(None);
+        }
+    }
+    Ok(drift)
 }
 
 async fn exists_schedule(
@@ -1871,6 +1926,23 @@ mod tests {
         let push_times = [
             at("2024-01-01T00:03:10Z"),
             at("2024-01-01T00:02:10Z"),
+            at("2024-01-01T00:01:10Z"),
+            at("2024-01-01T00:00:10Z"),
+        ];
+        assert_eq!(
+            detect_interval_drift(&push_times, "*/20 * * * * *", Some("v2"), "UTC"),
+            Some(IntervalDrift { effective_s: 60, configured_s: 20 })
+        );
+    }
+
+    /// The schedule spent most of this window turned off. The gap that leaves
+    /// is not the cadence, so the interval reported is the one the runs on
+    /// either side of it settled into.
+    #[test]
+    fn reports_past_the_gap_a_pause_leaves() {
+        let push_times = [
+            at("2024-01-01T04:01:10Z"),
+            at("2024-01-01T04:00:10Z"),
             at("2024-01-01T00:01:10Z"),
             at("2024-01-01T00:00:10Z"),
         ];
