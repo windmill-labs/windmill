@@ -27,11 +27,21 @@
 	let password = $state('')
 	let saving = $state(false)
 
+	const labels: Record<string, string> = { github: 'GitHub', google: 'Google', gitlab: 'GitLab' }
 	$effect(() => {
 		if (!open) return
-		OauthService.listLogins()
-			.then((r) => (logins = r.oauth ?? []))
-			.catch(() => (logins = []))
+		OauthService.listOauthLogins()
+			.then((r) => {
+				logins = (r.oauth ?? []).map((l) => ({
+					type: l.type,
+					displayName:
+						l.display_name || labels[l.type] || l.type.charAt(0).toUpperCase() + l.type.slice(1)
+				}))
+			})
+			.catch((err) => {
+				console.warn('Could not list OAuth logins', err)
+				logins = []
+			})
 	})
 
 	async function setPassword() {
