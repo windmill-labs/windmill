@@ -63,11 +63,7 @@
 		// wide table scrolls horizontally; the background must be opaque for the cells
 		// sliding under it to be occluded, and `wm-cell-pinned` below repaints the row's
 		// own tint over it so it still reads as part of its row.
-		// The seam is drawn only while the table overflows (DataTable measures it), so a table
-		// that fits shows no stray line beside its last column.
-		actions
-			? 'w-0 text-right [&>*]:ml-auto sticky right-0 wm-cell-pinned [.wm-table-x-overflow_&]:border-l'
-			: '',
+		actions ? 'w-0 text-right [&>*]:ml-auto sticky right-0 wm-cell-pinned' : '',
 		actions ? (head ? 'bg-surface-secondary' : 'bg-surface') : '',
 		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-2',
 		size === 'sm' ? 'px-1.5 py-2.5' : '',
@@ -97,5 +93,13 @@
 			rgb(var(--color-surface-hover)),
 			rgb(var(--color-surface-hover))
 		);
+	}
+
+	/* The seam marks that content is passing under the pinned column, so it is drawn only
+	   while the table overflows — DataTable measures that. It has to be a shadow rather than
+	   a border: under `border-collapse: collapse` a cell's borders belong to the table and
+	   scroll away with it, while a shadow is painted by the cell and stays on its edge. */
+	:global(.wm-table-x-overflow) .wm-cell-pinned {
+		box-shadow: -1px 0 0 0 rgb(var(--color-border-light));
 	}
 </style>
