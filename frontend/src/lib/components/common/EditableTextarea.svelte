@@ -6,6 +6,11 @@ the whole text, wrapped, as a clickable button; clicking swaps to an auto-growin
 `Escape` discards — except under `commitOnInput`, where every keystroke has
 already been propagated and there is nothing left to discard.
 
+Escape is stopped from propagating, which keeps a surrounding `Drawer` open. It does
+*not* keep a surrounding `Modal` open: `Modal` takes Escape on `window` in the capture
+phase, before this ever sees it. Inside a dialog, expect Escape to leave the edit and
+close the dialog together.
+
 Use it where a cell or a field holds a sentence rather than a label — a prompt, a
 description, an expected answer. For a one-line label, use `EditableInput`.
 
@@ -18,9 +23,10 @@ description, an expected answer. For a one-line label, use `EditableInput`.
 />
 ```
 
-Like `EditableInput`, the value isn't bound: `onSave` fires with the trimmed draft
-whenever it differs from the prior `value`, including `''` when cleared. The parent
-owns the canonical state.
+Like `EditableInput`, the value isn't bound: `onSave` fires whenever the draft
+differs from the prior `value`, including `''` when cleared. Unlike it, the draft
+goes back verbatim — whitespace a caller stored on purpose survives a focus and a
+blur. The parent owns the canonical state.
 -->
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -32,8 +38,8 @@ owns the canonical state.
 		placeholder?: string
 		/**
 		 * Called when the user commits a changed value (Enter or blur, or every keystroke when
-		 * {@link commitOnInput} is set). Fires with the trimmed draft, including `''` if the field
-		 * was cleared. Not called on Escape, or when the draft matches the prior `value`.
+		 * {@link commitOnInput} is set). Fires with the draft exactly as typed, including `''` if the
+		 * field was cleared. Not called on Escape, or when the draft matches the prior `value`.
 		 */
 		onSave?: (newValue: string) => void
 		/**
@@ -95,16 +101,17 @@ owns the canonical state.
 		// synchronously fires its `blur` handler — also `save()`. Without this, `onSave` fires twice.
 		if (!editing) return
 		editing = false
-		const trimmed = draft.trim()
-		if (trimmed !== (value ?? '')) {
-			onSave?.(trimmed)
+		// Verbatim, not trimmed: a caller's value may hold whitespace that means something, and
+		// merely focusing and blurring a field must never count as an edit.
+		if (draft !== (value ?? '')) {
+			onSave?.(draft)
 		}
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
 		if (e.key === 'Escape') {
-			// Kept from whatever is around this: a drawer or a dialog closes on Escape, and leaving
-			// an edit is not asking to leave that.
+			// Kept from a surrounding drawer, which would otherwise close on it. A `Modal` takes
+			// Escape at `window` in the capture phase and is past us before this runs.
 			e.preventDefault()
 			e.stopPropagation()
 			editing = false
@@ -119,7 +126,7 @@ owns the canonical state.
 	}
 
 	function handleLiveInput(e: Event) {
-		const next = (e.currentTarget as HTMLTextAreaElement).value.trim()
+		const next = (e.currentTarget as HTMLTextAreaElement).value
 		if (next !== (value ?? '')) onSave?.(next)
 	}
 </script>

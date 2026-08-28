@@ -107,6 +107,10 @@
 
 	let datasetDrawer: EvalDatasetDrawer | undefined = $state()
 	let runDialogOpen = $state(false)
+	/** The run the list has highlighted, so arrowing into the run page opens that one. Without it
+	 *  the arrow could only fall back to whichever run was opened last, which on a dialog just
+	 *  opened is none at all. */
+	let highlightedRunId = $state<string | undefined>(undefined)
 
 	/** How many cases each still-running run has finished, keyed by run id. Read from the flow
 	 *  executing the run: the list carries the case total, and counting the finished ones there
@@ -659,10 +663,12 @@
 			class="grow min-h-0"
 			current={!viewingRun || !loaded ? 'list' : 'run'}
 			onNavigate={(key) => {
-				// Right goes into whichever run is open, which is the one the arrow would have opened
-				// by clicking; left is the way back, the same as the breadcrumb.
-				if (key === 'run' && experimentId) viewingRun = true
-				else if (key === 'list') {
+				// Right opens the run under the highlight, falling back to whichever was open before;
+				// left is the way back, the same as the breadcrumb.
+				if (key === 'run') {
+					if (highlightedRunId) openRun(highlightedRunId)
+					else if (experimentId) viewingRun = true
+				} else if (key === 'list') {
 					viewingRun = false
 					selectedCaseId = undefined
 				}
@@ -719,6 +725,7 @@
 			{deployedHash}
 			{currentVersion}
 			onOpen={(e) => openRun(e.id)}
+			onHighlight={(id) => (highlightedRunId = id)}
 			onEditDataset={async (path) => {
 				if (await useDataset(path)) datasetDrawer?.openDrawer('edit')
 			}}

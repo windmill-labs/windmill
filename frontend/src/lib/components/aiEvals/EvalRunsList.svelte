@@ -21,6 +21,7 @@
 		deployedHash = undefined,
 		currentVersion = undefined,
 		onOpen,
+		onHighlight,
 		onEditDataset,
 		onNew
 	}: {
@@ -42,6 +43,9 @@
 		deployedHash?: string
 		currentVersion?: number
 		onOpen: (experiment: EvalExperiment) => void
+		/** The highlighted run, reported up so the surface can act on it — arrowing into the run
+		 *  page opens the run under the highlight rather than whichever was opened last. */
+		onHighlight?: (id: string | undefined) => void
 		onEditDataset: (dataset: string) => void
 		onNew: () => void
 	} = $props()
@@ -65,6 +69,10 @@
 	const hostActive = overlayHostActive()
 	const onTop = topmostSurface()
 	const listening = () => hostActive() && onTop()
+
+	$effect(() => {
+		onHighlight?.(cursorId)
+	})
 
 	// A highlight on a run that has since gone, and the highlight itself when the list is not the
 	// page on screen.
@@ -133,11 +141,11 @@
 	</Head>
 	<tbody class="divide-y" bind:this={body}>
 		{#each experiments as experiment, i (experiment.id)}
-			<!-- No `hoverable`: its own hover tint would be a second highlight competing with this one.
-			     The pointer moves the highlight instead, and `selected` draws it. -->
+			<!-- No `hoverable`, and not `selected` either: the first is a second hover tint competing
+			     with this highlight, the second is the blue that means "chosen". Nothing here is
+			     chosen until Enter, so the highlight wears the ordinary hover surface. -->
 			<Row
-				selected={i === cursor}
-				class="cursor-pointer"
+				class="cursor-pointer {i === cursor ? 'bg-surface-hover' : ''}"
 				on:click={() => onOpen(experiment)}
 				on:hover={(e) => e.detail && (cursorId = experiment.id)}
 			>
