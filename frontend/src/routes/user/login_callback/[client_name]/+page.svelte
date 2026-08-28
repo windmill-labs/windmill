@@ -40,6 +40,14 @@
 			try {
 				await UserService.loginWithOauth({ requestBody: { code, state }, clientName })
 			} catch (e) {
+				// "Finish account setup" with a provider that asserts another address: the
+				// backend refused and the existing session is intact, so stay signed in.
+				const message = String(e?.body ?? e?.message ?? '')
+				if (message.includes('finish_setup_mismatch')) {
+					sendUserToast(message.replace(/^.*finish_setup_mismatch:\s*/, ''), true, undefined, 15000)
+					goto('/')
+					return
+				}
 				if (closeUponLogin) {
 					goto('/user/close')
 					return

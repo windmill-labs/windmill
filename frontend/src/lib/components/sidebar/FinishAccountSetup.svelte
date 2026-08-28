@@ -81,6 +81,9 @@
 							unifiedSize="lg"
 							startIcon={Icon ? { icon: Icon, classes: 'h-4' } : undefined}
 							onClick={() => {
+								// Read by the OAuth callback: a provider asserting another address is refused
+								// rather than opening a second account under it (see oauth2_ee.rs).
+								document.cookie = `finish_setup=${encodeURIComponent(email)}; path=/; max-age=600; SameSite=Lax`
 								window.location.assign(`${base}/api/oauth/login/${login.type}`)
 							}}
 						>
