@@ -17035,6 +17035,10 @@ paths:
                 allOf:
                   - $ref: "#/components/schemas/Schedule"
                   - $ref: "#/components/schemas/UserDraftOverlay"
+                  - type: object
+                    properties:
+                      interval_drift:
+                        $ref: "#/components/schemas/ScheduleIntervalDrift"
 
   /w/{workspace}/schedules/exists/{path}:
     get:
@@ -29771,6 +29775,25 @@ components:
                   - id
                   - success
                   - duration_ms
+            interval_drift:
+              $ref: "#/components/schemas/ScheduleIntervalDrift"
+
+    ScheduleIntervalDrift:
+      type: object
+      description: >-
+        How often the schedule's runs are actually landing, present only while
+        the last runs have consistently missed their next slot and the schedule
+        is therefore running less often than its cron asks for.
+      properties:
+        effective_s:
+          type: number
+          description: Observed seconds between the last runs
+        configured_s:
+          type: number
+          description: Seconds the cron expression puts between those same slots
+      required:
+        - effective_s
+        - configured_s
 
     ErrorHandler:
       type: string

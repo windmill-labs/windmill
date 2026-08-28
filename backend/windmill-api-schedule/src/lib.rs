@@ -1000,6 +1000,71 @@ async fn list_schedule(
 pub struct ScheduleWJobs {
     pub path: String,
     pub jobs: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval_drift: Option<IntervalDrift>,
+}
+
+/// How often a schedule's runs are actually landing, reported only while that
+/// is consistently slower than its cron asks for. A run still going when its
+/// next slot comes round moves the run after it to a later slot, and nothing
+/// else on the schedule records that its cadence changed.
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct IntervalDrift {
+    pub effective_s: i64,
+    pub configured_s: i64,
+}
+
+/// Consecutive slots a schedule has to miss before we call it drift: one slow
+/// run is not a change of cadence.
+const DRIFT_MIN_MISSED_SLOTS: usize = 3;
+
+/// Runs to read back per schedule: one more than the slots to compare, since
+/// each comparison spans a pair.
+const DRIFT_SAMPLE_SIZE: i64 = DRIFT_MIN_MISSED_SLOTS as i64 + 1;
+
+/// `push_times` are the moments the last runs were queued, newest first. The
+/// pusher anchors `find_next` on exactly that moment, so recomputing from it
+/// recovers each run's slot, which the queue row no longer holds once the run
+/// has completed.
+fn detect_interval_drift(
+    push_times: &[DateTime<Utc>],
+    schedule: &str,
+    cron_version: Option<&str>,
+    timezone: &str,
+) -> Option<IntervalDrift> {
+    if push_times.len() <= DRIFT_MIN_MISSED_SLOTS {
+        return None;
+    }
+    let tz = chrono_tz::Tz::from_str(timezone).ok()?;
+    let cron = ScheduleType::from_str(schedule, cron_version, false).ok()?;
+    let next_slot = |after: &DateTime<Utc>| {
+        cron.find_next_opt(&after.with_timezone(&tz))
+            .map(|slot| slot.with_timezone(&Utc))
+    };
+
+    let mut effective = Vec::with_capacity(DRIFT_MIN_MISSED_SLOTS);
+    let mut configured = Vec::with_capacity(DRIFT_MIN_MISSED_SLOTS);
+    for pair in push_times[..=DRIFT_MIN_MISSED_SLOTS].windows(2) {
+        let previous = next_slot(&pair[1])?;
+        let ran_at = next_slot(&pair[0])?;
+        let kept_cadence = next_slot(&previous)?;
+        if ran_at <= kept_cadence {
+            return None;
+        }
+        effective.push((ran_at - previous).num_seconds());
+        configured.push((kept_cadence - previous).num_seconds());
+    }
+    Some(IntervalDrift {
+        effective_s: median(&mut effective),
+        configured_s: median(&mut configured),
+    })
+}
+
+/// Slot gaps vary under an irregular cron, so both intervals are reported as
+/// the middle of the sample rather than an average a single outlier moves.
+fn median(values: &mut [i64]) -> i64 {
+    values.sort_unstable();
+    values[values.len() / 2]
 }
 
 async fn list_schedule_with_jobs(
@@ -1010,13 +1075,25 @@ async fn list_schedule_with_jobs(
 ) -> JsonResult<Vec<ScheduleWJobs>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(pagination);
-    let rows = sqlx::query_as!(ScheduleWJobs,
+    struct ScheduleWJobsRow {
+        path: String,
+        jobs: Option<Vec<serde_json::Value>>,
+        push_times: Option<Vec<DateTime<Utc>>>,
+        enabled: bool,
+        schedule: String,
+        timezone: String,
+        cron_version: Option<String>,
+    }
+    let rows = sqlx::query_as!(ScheduleWJobsRow,
         // Query plan:
         // - use of the `ix_completed_job_workspace_id_started_at_new_2` index first, then;
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
         // - both `workspace_id = $1` checks are required to hit both indexes.
+        // - `push_times` rides the `(workspace_id, runnable_path, created_at DESC)` index,
+        //   hence its own `parent_job IS NULL` clause.
         "SELECT
-            schedule.path, t.jobs FROM schedule,
+            schedule.path, schedule.enabled, schedule.schedule, schedule.timezone,
+            schedule.cron_version, t.jobs, p.push_times FROM schedule,
             LATERAL(SELECT ARRAY(
                 SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
                 FROM v2_job_completed c JOIN v2_job j USING (id)
@@ -1028,21 +1105,49 @@ async fn list_schedule_with_jobs(
                     AND status <> 'skipped'
                 ORDER BY completed_at DESC
                 LIMIT 20
-            ) AS jobs) t
+            ) AS jobs) t,
+            LATERAL(SELECT ARRAY(
+                SELECT created_at
+                FROM v2_job
+                WHERE trigger_kind = 'schedule'
+                    AND trigger = schedule.path
+                    AND v2_job.workspace_id = $1
+                    AND parent_job IS NULL AND runnable_path = schedule.script_path
+                    AND created_at > schedule.edited_at
+                ORDER BY created_at DESC
+                LIMIT $5
+            ) AS push_times) p
         WHERE workspace_id = $1 AND NOT starts_with(schedule.path, $4)
         ORDER BY edited_at DESC
         LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64,
-        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
+        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX,
+        DRIFT_SAMPLE_SIZE
     )
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     let allowed = build_scope_path_predicate(&authed, "schedules", "read");
     Ok(Json(
-        rows.into_iter().filter(|r| allowed(&r.path)).collect(),
+        rows.into_iter()
+            .filter(|r| allowed(&r.path))
+            .map(|r| ScheduleWJobs {
+                interval_drift: r.push_times.as_deref().filter(|_| r.enabled).and_then(
+                    |push_times| {
+                        detect_interval_drift(
+                            push_times,
+                            &r.schedule,
+                            r.cron_version.as_deref(),
+                            &r.timezone,
+                        )
+                    },
+                ),
+                path: r.path,
+                jobs: r.jobs,
+            })
+            .collect(),
     ))
 }
 
@@ -1069,6 +1174,13 @@ async fn get_schedule(
 
     let schedule_o = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
     tx.commit().await?;
+    let deployed = match schedule_o {
+        Some(schedule) => Some(ScheduleWithIntervalDrift {
+            interval_drift: fetch_interval_drift(&db, &w_id, &schedule).await?,
+            schedule,
+        }),
+        None => None,
+    };
     let overlay = overlay_or_draft_only(
         &db,
         &w_id,
@@ -1076,11 +1188,56 @@ async fn get_schedule(
         UserDraftItemKind::TriggerSchedule,
         path,
         q.get_draft,
-        schedule_o,
+        deployed,
         || Error::NotFound(format!("Schedule not found at path {path}")),
     )
     .await?;
     Ok(Json(overlay))
+}
+
+/// The schedule editor reads a schedule through this, so its drift surfaces
+/// next to the cron expression that is running behind.
+#[derive(Serialize)]
+struct ScheduleWithIntervalDrift {
+    #[serde(flatten)]
+    schedule: Schedule,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interval_drift: Option<IntervalDrift>,
+}
+
+async fn fetch_interval_drift(
+    db: &DB,
+    w_id: &str,
+    schedule: &Schedule,
+) -> Result<Option<IntervalDrift>> {
+    // A schedule that is off is not running behind, it is not running.
+    if !schedule.enabled {
+        return Ok(None);
+    }
+    // Query plan: `(workspace_id, runnable_path, created_at DESC)` index, hence the
+    // `parent_job IS NULL` clause. Runs from before the last edit are left out: they
+    // were queued under whatever cron the schedule had then.
+    let push_times = sqlx::query_scalar!(
+        "SELECT created_at FROM v2_job
+        WHERE workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
+            AND parent_job IS NULL AND runnable_path = $3
+            AND created_at > $4
+        ORDER BY created_at DESC
+        LIMIT $5",
+        w_id,
+        &schedule.path,
+        &schedule.script_path,
+        schedule.edited_at,
+        DRIFT_SAMPLE_SIZE
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(detect_interval_drift(
+        &push_times,
+        &schedule.schedule,
+        schedule.cron_version.as_deref(),
+        &schedule.timezone,
+    ))
 }
 
 async fn exists_schedule(
@@ -1696,3 +1853,46 @@ pub struct SetEnabled {
 //     pub from: DateTime<Utc>,
 //     pub to: Option<DateTime<Utc>>,
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn at(ts: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(ts)
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    /// A 50s run on a 20s cron is queued again only once the next two slots
+    /// have gone by, so the cadence settles at 60s and stays there.
+    #[test]
+    fn reports_the_cadence_a_slow_run_settles_into() {
+        let push_times = [
+            at("2024-01-01T00:03:10Z"),
+            at("2024-01-01T00:02:10Z"),
+            at("2024-01-01T00:01:10Z"),
+            at("2024-01-01T00:00:10Z"),
+        ];
+        assert_eq!(
+            detect_interval_drift(&push_times, "*/20 * * * * *", Some("v2"), "UTC"),
+            Some(IntervalDrift { effective_s: 60, configured_s: 20 })
+        );
+    }
+
+    /// One run overrunning its slot is not a change of cadence: the two runs
+    /// before it kept up.
+    #[test]
+    fn stays_quiet_when_only_the_last_run_overran() {
+        let push_times = [
+            at("2024-01-01T00:01:50Z"),
+            at("2024-01-01T00:00:50Z"),
+            at("2024-01-01T00:00:30Z"),
+            at("2024-01-01T00:00:10Z"),
+        ];
+        assert_eq!(
+            detect_interval_drift(&push_times, "*/20 * * * * *", Some("v2"), "UTC"),
+            None
+        );
+    }
+}

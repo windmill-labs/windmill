@@ -6,7 +6,14 @@
 		type WorkspaceDeployUISettings,
 		WorkspaceService
 	} from '$lib/gen'
-	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import {
+		canWrite,
+		displayDate,
+		getLocalSetting,
+		msToReadableTime,
+		msToReadableTimeShort,
+		storeLocalSetting
+	} from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -149,6 +156,7 @@
 		for (let schedule of schedules) {
 			if (schedulesWithJobsByPath[schedule.path]) {
 				schedule.jobs = schedulesWithJobsByPath[schedule.path].jobs
+				schedule.interval_drift = schedulesWithJobsByPath[schedule.path].interval_drift
 			}
 		}
 		loadingSchedulesWithJobStats = false
@@ -400,7 +408,7 @@
 				{/if}
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, interval_drift, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
 						{@const hasDraft =
 							getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
@@ -466,6 +474,23 @@
 								<div class="gap-2 items-center hidden md:flex">
 									<Badge large color="blue">{schedule}</Badge>
 									<Badge small color="gray">{timezone}</Badge>
+									{#if interval_drift}
+										<Popover notClickable>
+											<Badge small color="yellow"
+												>every ~{msToReadableTimeShort(interval_drift.effective_s * 1000)}</Badge
+											>
+											{#snippet text()}
+												<div>
+													This schedule is running about every {msToReadableTime(
+														interval_drift.effective_s * 1000
+													)} instead of every {msToReadableTime(
+														interval_drift.configured_s * 1000
+													)}: each of the last runs was still going when its next slot came round,
+													so the run after it started at a later slot.
+												</div>
+											{/snippet}
+										</Popover>
+									{/if}
 								</div>
 
 								<div class="hidden lg:flex flex-row gap-1 items-center">

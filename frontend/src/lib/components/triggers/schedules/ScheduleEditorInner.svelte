@@ -27,10 +27,18 @@
 		SettingService,
 		type Retry,
 		type Schedule,
+		type ScheduleIntervalDrift,
 		type ErrorHandler
 	} from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
+	import {
+		canWrite,
+		emptyString,
+		formatCron,
+		msToReadableTime,
+		sendUserToast,
+		cronV1toV2
+	} from '$lib/utils'
 	import { base } from '$lib/base'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, Save, AlertTriangle } from 'lucide-svelte'
@@ -123,6 +131,8 @@
 	let labels: string[] | undefined = $state(undefined)
 	let description = $state('')
 	let no_flow_overlap = $state(false)
+	// Measured on the deployed schedule, so it is read back rather than edited.
+	let intervalDrift: ScheduleIntervalDrift | undefined = $state(undefined)
 	let tag: string | undefined = $state(undefined)
 	let validCRON = $state(true)
 	let isValid = $state(true)
@@ -334,6 +344,9 @@
 			drawer?.openDrawer()
 			runnable = undefined
 			edit = false
+			// A new schedule has no run history, even when its fields were read
+			// from an existing one.
+			intervalDrift = undefined
 			// No deployed baseline for a brand-new schedule. The editor instance
 			// is reused across open() calls, so clear any baseline left by a prior
 			// openEdit — otherwise the "unsaved changes" banner / dirty check would
@@ -526,6 +539,7 @@
 	async function loadScheduleCfg(cfg: Record<string, any>): Promise<void> {
 		loading = true
 
+		intervalDrift = cfg.interval_drift ?? undefined
 		cronVersion = cfg.cron_version ?? 'v2'
 		initialCronVersion = cronVersion
 		isLatestCron = cronVersion == 'v2'
@@ -919,6 +933,15 @@
 						bind:validCRON
 						bind:cronVersion
 					/>
+					{#if intervalDrift}
+						<Alert type="warning" size="xs" title="Running less often than configured">
+							This schedule is running about every {msToReadableTime(
+								intervalDrift.effective_s * 1000
+							)} instead of every {msToReadableTime(intervalDrift.configured_s * 1000)}: each of the
+							last runs was still going when its next slot came round, so the run after it started
+							at a later slot.
+						</Alert>
+					{/if}
 					<div class="flex flex-col gap-1">
 						<Toggle
 							options={{
@@ -983,11 +1006,15 @@
 						/>
 					{/if}
 					{#if itemKind == 'script'}
-						<div class="flex gap-2 items-center mt-2">
-							<Toggle options={{ right: 'no overlap' }} checked={true} disabled /><Tooltip
-								>Currently, overlapping scripts' executions is not supported. The next execution
-								will be scheduled only after the previous iteration has completed.</Tooltip
-							>
+						<div class="flex flex-col gap-1 mt-2">
+							<Toggle options={{ right: 'no overlap' }} checked={true} disabled />
+							<p class="text-xs text-secondary">
+								Script runs never overlap: the next run is scheduled once the previous one has
+								completed, so a run that outlasts its interval pushes the next one to a later slot.
+								To keep the configured cadence, schedule a flow instead: a flow starts on time, and
+								its "no overlap of flows" setting skips a slot while the previous run is still
+								going.
+							</p>
 						</div>
 					{/if}
 				{/if}

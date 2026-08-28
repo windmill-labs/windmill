@@ -980,14 +980,22 @@ impl ScheduleType {
         &self,
         starting_from: &chrono::DateTime<chrono_tz::Tz>,
     ) -> chrono::DateTime<chrono_tz::Tz> {
+        self.find_next_opt(starting_from)
+            .expect("cron: a schedule should have a next event")
+    }
+
+    /// An expression can be parseable and still have no next occurrence (Feb
+    /// 30th), which the pusher has no answer for; a reader recomputing past
+    /// occurrences does, so it takes the fallible form.
+    pub fn find_next_opt(
+        &self,
+        starting_from: &chrono::DateTime<chrono_tz::Tz>,
+    ) -> Option<chrono::DateTime<chrono_tz::Tz>> {
         match self {
             ScheduleType::Croner(croner_schedule) => croner_schedule
                 .find_next_occurrence(starting_from, false)
-                .expect("cron: a schedule should have a next event"),
-            ScheduleType::Cron(schedule) => schedule
-                .after(starting_from)
-                .next()
-                .expect("cron: a schedule should have a next event"),
+                .ok(),
+            ScheduleType::Cron(schedule) => schedule.after(starting_from).next(),
         }
     }
 
