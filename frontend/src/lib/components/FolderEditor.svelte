@@ -330,6 +330,17 @@
 						: ''
 	)
 
+	// `create_folder` folds the caller into `owners` with write whatever the payload says, so
+	// on create their own row is fixed: offering to demote or remove it would be a change the
+	// backend silently discards.
+	// An invalid rule disables Save, so the section holding it is held open rather than merely
+	// opened once: collapsing it would hide the only explanation for the disabled button.
+	let defaultRulesOpen = $state(false)
+
+	function isFixedCreatorRow(owner: string): boolean {
+		return isNew && owner === 'u/' + membership?.username
+	}
+
 	const dirty = $derived(isFolderDraftDirty(draft, baseline))
 	// A typed name is progress too, even before any other field is touched.
 	const unsaved = $derived(dirty || (mode === 'new' && !!name))
@@ -406,13 +417,9 @@
 	}
 
 	export async function save(): Promise<{ name: string; created: boolean } | undefined> {
-		if (defaultRulesInvalid) {
-			sendUserToast('Some rules have invalid globs or permissioned_as values', true)
-			return undefined
-		}
 		const next = $state.snapshot(draft) as FolderDraft
 		const prev = baseline as FolderDraft
-		// Captured before the write: `folderNotFound` clears once the reload below succeeds.
+		// Captured before the write: an edit-branch save reloads, which clears `folderNotFound`.
 		const created = isNew
 		try {
 			if (created) {
@@ -451,6 +458,10 @@
 			return { name, created }
 		} catch (e) {
 			sendUserToast(e.body ?? String(e), true)
+			// The calls are sequential, so a rejection can land with earlier ones committed.
+			// Reload rather than keep the draft: the members table would otherwise show roles
+			// the server never accepted, and `baseline` would call them saved.
+			if (!created) await loadFolder()
 			return undefined
 		}
 	}
@@ -738,8 +749,9 @@
 									{#if can_write && !restricted}
 										<div>
 											<ToggleButtonGroup
-												disabled={perm.owner_name == 'u/' + membership?.username &&
-													!(membership?.is_admin || membership?.is_super_admin)}
+												disabled={isFixedCreatorRow(perm.owner_name) ||
+													(perm.owner_name == 'u/' + membership?.username &&
+														!(membership?.is_admin || membership?.is_super_admin))}
 												selected={perm.role}
 												on:selected={(e) => {
 													draft.perms[idx].role = e.detail
@@ -778,7 +790,7 @@
 								</Cell>
 								<Cell last actions>
 									<div class="flex items-center justify-end">
-										{#if (can_write && perm.owner_name != 'u/' + membership?.username) || membership?.is_admin}
+										{#if !isFixedCreatorRow(perm.owner_name) && ((can_write && perm.owner_name != 'u/' + membership?.username) || membership?.is_admin)}
 											<Button
 												variant="subtle"
 												destructive
@@ -790,7 +802,11 @@
 												}}
 											/>
 										{:else if can_write && perm.owner_name == 'u/' + membership?.username}
-											<span class="text-2xs text-hint">cannot remove yourself</span>
+											<span class="text-2xs text-hint">
+												{isFixedCreatorRow(perm.owner_name)
+													? 'admin as the creator'
+													: 'cannot remove yourself'}
+											</span>
 										{/if}
 									</div>
 								</Cell>
@@ -809,7 +825,12 @@
 	</Label>
 
 	{#if canEditDefaults}
-		<CollapseLink text="Default permissioned as (advanced, prod only)">
+		<CollapseLink
+			bind:open={
+				() => defaultRulesOpen || defaultRulesInvalid, (v) => (defaultRulesOpen = v)
+			}
+			text="Default permissioned as (advanced, prod only)"
+		>
 			<div class="flex flex-col gap-2">
 				<Alert type="info" title="Advanced — for prod workspaces (least privilege)" size="xs">
 					This setting is mostly relevant on <strong>production workspaces</strong> where you want
@@ -861,6 +882,7 @@
 											<Select
 												items={safeSelectItems(itemsForKind)}
 												size="sm"
+												error={!isValidPermissionedAs(rule.permissioned_as)}
 												bind:value={
 													() => ownerNameOf(rule.permissioned_as),
 													(v) => setRulePermissionedAs(idx, kind, v ?? '')

@@ -185,7 +185,7 @@
 	}}
 >
 	<!-- Inside the drawer only so the modal mounts and unmounts with it; ConfirmationModal
-	     portals itself, so its position here no longer decides what it paints over. -->
+	     portals itself, so this position controls when it exists, not what it paints over. -->
 	<ConfirmationModal
 		open={unsavedModalOpen}
 		title="Unsaved changes detected"
