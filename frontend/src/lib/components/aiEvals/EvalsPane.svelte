@@ -141,8 +141,8 @@
 						(cases.flow_jobs_success ?? []).filter((s) => s != undefined).length
 					] as const
 				} catch {
-					// The row falls back to its plain case count. A flow that cannot be read is
-					// already the list's problem to report, not this one's.
+					// Left out of the map, so the row reads `0/total` until a later poll answers. A
+					// flow that cannot be read is already the list's problem to report, not this one's.
 					return undefined
 				}
 			})
@@ -411,10 +411,14 @@
 	 *  Reading the cells is left to the effect on the selection, so every way in opens one alike. */
 	async function openRun(id: string) {
 		const target = experiments.find((e) => e.id === id)
-		const index = experiments.findIndex((e) => e.id === id)
-		// The run before it *of the same dataset*: the list spans datasets, and a run of another set
-		// of cases is not a baseline for this one.
-		baselineId = experiments.slice(index + 1).find((e) => e.dataset === target?.dataset)?.id
+		// Only when the run itself changes: re-showing the one already open — arrowing back into it
+		// from the list — must keep whatever comparison the user picked.
+		if (id !== experimentId) {
+			const index = experiments.findIndex((e) => e.id === id)
+			// The run before it *of the same dataset*: the list spans datasets, and a run of another
+			// set of cases is not a baseline for this one.
+			baselineId = experiments.slice(index + 1).find((e) => e.dataset === target?.dataset)?.id
+		}
 		experimentId = id
 		selectedCaseId = undefined
 		// Opened first, read second: the dataset is a request, and waiting on it here is a click
