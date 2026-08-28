@@ -1416,10 +1416,11 @@ async function loadHubIntegrations(): Promise<HubIntegration[]> {
 }
 
 /** Which integrations carry hand-written provider knowledge, lowercased because a
- * hub slug is case-sensitive and both casings of one vendor can exist. Roughly one
- * in twelve qualifies, and for the rest get_hub_integration returns what was
- * inferred from the very scripts a search already hands back — so marking the few
- * is what keeps the call aimed. */
+ * hub slug is case-sensitive and both casings of one vendor can exist. The mark says
+ * get_hub_integration has verified pagination, enums and gotchas to add for this one.
+ * It must never become a reason to skip the call for the others: that call still
+ * carries the resource type and the usage-ranked examples, neither of which is
+ * guessable from a search result. */
 async function documentedIntegrations(): Promise<Set<string>> {
 	const available = await loadHubIntegrations()
 	return new Set(available.filter((i) => i.documented).map((i) => i.name.toLowerCase()))
@@ -1494,7 +1495,7 @@ const getHubIntegrationSchema = z.object({
 const getHubIntegrationToolDef = createToolDef(
 	getHubIntegrationSchema,
 	'get_hub_integration',
-	'Read how one integration works before writing code against it: which resource type it takes, its auth, pagination, enums, error codes and gotchas, plus its most-used scripts as examples. Auth, pagination, enums, error codes and gotchas exist only for an integration a search marked `documented`.'
+	'Read how one integration works before writing code against it: the resource type it takes, its auth fields, and its most-used scripts as examples. For an integration a search marked `documented` it also returns provider knowledge checked against the live API: pagination, enums, error codes and gotchas.'
 )
 
 /** Enough to show the integration's idiom; search_hub_scripts is the way to find
@@ -1623,8 +1624,8 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 		const subject = query ? `"${query}"` : `the ${app} integration`
 		toolCallbacks.setToolStatus(toolId, { content: `Searching hub scripts for ${subject}...` })
 		// Started alongside the search, not after it: this is where the model learns a
-		// slug exists, so it is where it has to learn whether get_hub_integration has
-		// anything to add for that slug. One cached fetch per session either way.
+		// slug exists, so it is where it has to learn how much get_hub_integration has
+		// to add for that slug. One cached fetch per session either way.
 		const documented = documentedIntegrations()
 
 		// Listing an integration goes through the hub's top-scripts endpoint rather

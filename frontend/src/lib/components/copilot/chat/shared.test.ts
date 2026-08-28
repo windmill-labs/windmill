@@ -1972,7 +1972,7 @@ describe('createSearchHubScriptsTool', () => {
 
 	// Only about one hub integration in twelve carries authored provider knowledge,
 	// and a search result is where the model first sees a slug — so the mark has to
-	// ride along, or every get_hub_integration call is a coin flip.
+	// ride along, or nothing tells it which integrations have verified notes to read.
 	it('marks the integrations get_hub_integration has knowledge for', async () => {
 		const { ScriptService, IntegrationService } = await import('$lib/gen')
 		Object.assign(ScriptService, {
