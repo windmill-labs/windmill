@@ -511,6 +511,9 @@
 	async function loadSchedule(
 		defaultCfg?: Record<string, any>
 	): Promise<{ overlay: Record<string, any> | undefined; noDeployed: boolean }> {
+		// Reading the deployed row is the only thing that carries a measurement, and
+		// it omits the field when the schedule is keeping up.
+		intervalDrift = undefined
 		if (defaultCfg) {
 			await loadScheduleCfg(defaultCfg)
 			return { overlay: undefined, noDeployed: false }
@@ -539,7 +542,11 @@
 	async function loadScheduleCfg(cfg: Record<string, any>): Promise<void> {
 		loading = true
 
-		intervalDrift = cfg.interval_drift ?? undefined
+		// Config snapshots from draftSync carry no measurement, and applying one
+		// leaves the deployed schedule running exactly as it was.
+		if ('interval_drift' in cfg) {
+			intervalDrift = cfg.interval_drift
+		}
 		cronVersion = cfg.cron_version ?? 'v2'
 		initialCronVersion = cronVersion
 		isLatestCron = cronVersion == 'v2'

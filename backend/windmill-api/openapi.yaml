@@ -29775,8 +29775,6 @@ components:
                   - id
                   - success
                   - duration_ms
-            interval_drift:
-              $ref: "#/components/schemas/ScheduleIntervalDrift"
 
     ScheduleIntervalDrift:
       type: object

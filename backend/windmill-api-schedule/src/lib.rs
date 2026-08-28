@@ -1000,8 +1000,6 @@ async fn list_schedule(
 pub struct ScheduleWJobs {
     pub path: String,
     pub jobs: Option<Vec<serde_json::Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub interval_drift: Option<IntervalDrift>,
 }
 
 /// How often a schedule's runs are actually landing, reported only while that
@@ -1025,9 +1023,11 @@ const DRIFT_SAMPLE_SIZE: i64 = DRIFT_MIN_MISSED_SLOTS as i64 + 1;
 /// Root jobs of the runnable the sample may walk before giving up. There is no
 /// index on `trigger`, so the sample rides the one on `runnable_path` and finds
 /// the schedule's own runs by filter: a runnable that is also busy outside this
-/// schedule would otherwise be read back as far as its fourth scheduled run.
-/// Past the budget the schedule reports nothing rather than costing the walk.
-const DRIFT_SCAN_BUDGET: i64 = 100;
+/// schedule would otherwise be read back as far as its fourth scheduled run,
+/// which for a slow schedule on a busy script is unbounded. This covers that
+/// case with room to spare, and is affordable because the sample is only taken
+/// when someone opens one schedule, never once per row of a listing.
+const DRIFT_SCAN_BUDGET: i64 = 2000;
 
 /// `push_times` are the moments the last runs were queued, newest first. The
 /// pusher anchors `find_next` on exactly that moment, so recomputing from it
@@ -1082,8 +1082,7 @@ fn detect_interval_drift(
     mildest
 }
 
-/// When each schedule's cron expression last changed, for the paths asked
-/// about and only those that ever recorded such a change.
+/// When this schedule's cron expression last changed, if it ever has.
 ///
 /// Runs queued under a previous expression measure as drift against the one
 /// that replaced it, so a sample reaching back past the change has to be
@@ -1091,66 +1090,47 @@ fn detect_interval_drift(
 /// after the insert. The trigger history can, and is only read once a sample
 /// has already come out as drifting.
 ///
-/// Compare strictly: the edit queues a tick of its own in the same
+/// Compare strictly against it: the edit queues a tick of its own in the same
 /// transaction, so that first run under the new expression carries the very
 /// timestamp recorded here.
 ///
-/// Reads on the privileged pool: the paths reaching here have already come
-/// back from an RLS read of their own schedule row and passed the caller's
-/// read scope.
-async fn cron_changed_at(
-    db: &DB,
-    w_id: &str,
-    paths: &[String],
-) -> Result<Vec<(String, DateTime<Utc>)>> {
-    let rows = sqlx::query!(
+/// Reads on the privileged pool, which the caller has earned with an RLS read
+/// of the schedule row itself.
+async fn cron_changed_at(db: &DB, w_id: &str, path: &str) -> Result<Option<DateTime<Utc>>> {
+    let changed_at = sqlx::query_scalar!(
         // An entry too large to record field by field keeps only the names, so both
         // shapes have to be asked.
-        "SELECT DISTINCT ON (path) path, created_at
+        "SELECT created_at
         FROM trigger_history
-        WHERE workspace_id = $1 AND trigger_kind = $2 AND path = ANY($3)
+        WHERE workspace_id = $1 AND trigger_kind = $2 AND path = $3
             AND (changes ?| array['schedule', 'timezone', 'cron_version']
                 OR changes -> 'truncated_fields' ?| array['schedule', 'timezone', 'cron_version'])
-        ORDER BY path, id DESC",
+        ORDER BY id DESC
+        LIMIT 1",
         w_id,
         SCHEDULE_TRIGGER_KIND,
-        paths
+        path
     )
-    .fetch_all(db)
+    .fetch_optional(db)
     .await?;
-    Ok(rows.into_iter().map(|r| (r.path, r.created_at)).collect())
+    Ok(changed_at)
 }
 
 async fn list_schedule_with_jobs(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<ScheduleWJobs>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(pagination);
-    struct ScheduleWJobsRow {
-        path: String,
-        jobs: Option<Vec<serde_json::Value>>,
-        push_times: Option<Vec<DateTime<Utc>>>,
-        schedule: String,
-        timezone: String,
-        cron_version: Option<String>,
-    }
-    let rows = sqlx::query_as!(ScheduleWJobsRow,
+    let rows = sqlx::query_as!(ScheduleWJobs,
         // Query plan:
         // - use of the `ix_completed_job_workspace_id_started_at_new_2` index first, then;
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
         // - both `workspace_id = $1` checks are required to hit both indexes.
-        // - `push_times` rides the `(workspace_id, runnable_path, created_at DESC)` index,
-        //   hence its own `parent_job IS NULL` clause, and is capped by DRIFT_SCAN_BUDGET.
-        //   The `edited_at` bound is not that cap: it drops the runs of whatever schedule
-        //   last held this path, which carry the same `trigger`. Nothing writes `edited_at`
-        //   after the insert, so no run of this schedule can predate it.
         "SELECT
-            schedule.path, schedule.schedule, schedule.timezone,
-            schedule.cron_version, t.jobs, p.push_times FROM schedule,
+            schedule.path, t.jobs FROM schedule,
             LATERAL(SELECT ARRAY(
                 SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
                 FROM v2_job_completed c JOIN v2_job j USING (id)
@@ -1162,71 +1142,22 @@ async fn list_schedule_with_jobs(
                     AND status <> 'skipped'
                 ORDER BY completed_at DESC
                 LIMIT 20
-            ) AS jobs) t,
-            LATERAL(SELECT ARRAY(
-                SELECT created_at FROM (
-                    SELECT created_at, trigger, trigger_kind
-                    FROM v2_job
-                    WHERE schedule.enabled
-                        AND v2_job.workspace_id = $1
-                        AND parent_job IS NULL AND runnable_path = schedule.script_path
-                        AND created_at > schedule.edited_at
-                    ORDER BY created_at DESC
-                    LIMIT $6
-                ) recent
-                WHERE trigger_kind = 'schedule' AND trigger = schedule.path
-                ORDER BY created_at DESC
-                LIMIT $5
-            ) AS push_times) p
+            ) AS jobs) t
         WHERE workspace_id = $1 AND NOT starts_with(schedule.path, $4)
         ORDER BY edited_at DESC
         LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64,
-        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX,
-        DRIFT_SAMPLE_SIZE,
-        DRIFT_SCAN_BUDGET
+        windmill_common::workspaces::DUCKLAKE_MAINTENANCE_PATH_PREFIX
     )
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
     let allowed = build_scope_path_predicate(&authed, "schedules", "read");
-
-    let mut out: Vec<ScheduleWJobs> = Vec::with_capacity(rows.len());
-    // Oldest run each reported drift rests on, kept to check it against the
-    // cron's own history below.
-    let mut drifting: Vec<(String, DateTime<Utc>)> = Vec::new();
-    for r in rows.into_iter().filter(|r| allowed(&r.path)) {
-        let sample = r.push_times.unwrap_or_default();
-        let interval_drift =
-            detect_interval_drift(&sample, &r.schedule, r.cron_version.as_deref(), &r.timezone);
-        if interval_drift.is_some() {
-            if let Some(oldest) = sample.last() {
-                drifting.push((r.path.clone(), *oldest));
-            }
-        }
-        out.push(ScheduleWJobs { path: r.path, jobs: r.jobs, interval_drift });
-    }
-
-    if !drifting.is_empty() {
-        let paths = drifting
-            .iter()
-            .map(|(path, _)| path.clone())
-            .collect::<Vec<_>>();
-        for (path, changed_at) in cron_changed_at(&db, &w_id, &paths).await? {
-            if drifting
-                .iter()
-                .any(|(p, oldest)| *p == path && *oldest < changed_at)
-            {
-                if let Some(row) = out.iter_mut().find(|r| r.path == path) {
-                    row.interval_drift = None;
-                }
-            }
-        }
-    }
-
-    Ok(Json(out))
+    Ok(Json(
+        rows.into_iter().filter(|r| allowed(&r.path)).collect(),
+    ))
 }
 
 // SELECT id, title AS item_title, t.tag_array
@@ -1324,8 +1255,8 @@ async fn fetch_interval_drift(
     );
     if drift.is_some() {
         if let Some(oldest) = push_times.last() {
-            let changed = cron_changed_at(db, w_id, std::slice::from_ref(&schedule.path)).await?;
-            if changed.iter().any(|(_, changed_at)| *oldest < *changed_at) {
+            let changed_at = cron_changed_at(db, w_id, &schedule.path).await?;
+            if changed_at.is_some_and(|changed_at| *oldest < changed_at) {
                 return Ok(None);
             }
         }
