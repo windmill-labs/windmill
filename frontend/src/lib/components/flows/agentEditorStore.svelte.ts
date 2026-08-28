@@ -1,15 +1,24 @@
 /**
- * Which agent step the agent editor is showing, and which of its tools.
+ * Which saved agent the agent editor is showing, and which of its tools.
  *
- * Module-level rather than a context value: the modal is mounted where `FlowEditorContext` is set,
- * while what opens it is the step's own card, which unmounts the moment the selection moves. The
- * editor is a view onto the step's existing fork-for-edit session, so this holds only where to
- * look, never the edits themselves.
+ * The editor edits the `ai_agent` resource through its own draft, so this holds a resource path
+ * rather than a flow node: the same agent opens the same editor from a flow step and from the
+ * resources page. Module-level rather than a context value because what opens it — a step's card,
+ * a list row — unmounts the moment the selection moves.
  */
-let target = $state<{ agentId: string; toolId?: string } | undefined>(undefined)
+export interface AgentEditorTarget {
+	path: string
+	/** The workspace the opener operates on; the nav workspace when absent. */
+	workspace?: string
+	toolId?: string
+	/** Where to re-resolve a graph's tool nodes after a deploy, when opened from a flow step. */
+	host?: { flowPath: string; moduleId: string }
+}
 
-export function openAgentEditor(agentId: string) {
-	target = { agentId }
+let target = $state<AgentEditorTarget | undefined>(undefined)
+
+export function openAgentEditor(open: Omit<AgentEditorTarget, 'toolId'>) {
+	target = { ...open }
 }
 
 export function closeAgentEditor() {
@@ -19,15 +28,15 @@ export function closeAgentEditor() {
 /** Navigate between the agent and one of its tools. Passing undefined returns to the agent. */
 export function showAgentEditorTool(toolId: string | undefined) {
 	if (!target) return
-	target = { agentId: target.agentId, toolId }
+	target = { ...target, toolId }
 }
 
-export function agentEditorTarget(): { agentId: string; toolId?: string } | undefined {
+export function agentEditorTarget(): AgentEditorTarget | undefined {
 	return target
 }
 
-/** Whether the editor currently owns this step, so the step panel can stand down rather than mount
- *  a second copy of the same form, test runner and edit card. */
-export function agentEditorOwns(moduleId: string | undefined): boolean {
-	return moduleId !== undefined && target?.agentId === moduleId
+/** Whether the editor is already open on this agent, so a card can offer "Continue editing"
+ *  rather than a second way in. */
+export function agentEditorOwns(path: string | undefined): boolean {
+	return path !== undefined && target?.path === path
 }

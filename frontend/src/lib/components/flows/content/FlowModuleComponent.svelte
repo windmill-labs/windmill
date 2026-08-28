@@ -30,7 +30,6 @@
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import AgentResourceBar from './AgentResourceBar.svelte'
 	import AiAgentStepInputs from './AiAgentStepInputs.svelte'
-	import { agentEditorOwns } from '../agentEditorStore.svelte'
 	import AgentToolBindings from './AgentToolBindings.svelte'
 	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import { flowLocalAgentSchema } from '../agentResourceUtils'
@@ -1131,7 +1130,6 @@
 													scroll region) instead of stacking a second scrollbar above it. -->
 													<AgentResourceBar
 														moduleId={linkedToolsModuleId}
-														agentNodeId={flowModule.id}
 														opWorkspace={opWs}
 														flowPath={$pathStore}
 														bind:agent={
@@ -1297,30 +1295,22 @@
 												/>
 											</div>
 										{/if}
-										{#if agentEditorOwns(flowModule.id)}
-											<!-- The agent editor is testing this step from its own console. Two runners on
-											one step would share `stepsInputArgs` and overwrite each other's cancel handle. -->
-											<div class="p-4 text-xs text-tertiary">
-												Testing this step happens in the agent editor while it is open.
-											</div>
-										{:else}
-											<ModulePreview
-												class="flex-1"
-												pickableProperties={stepPropPicker.pickableProperties}
-												bind:this={modulePreview}
-												mod={flowModule}
-												{noEditor}
-												schema={agentLinked
-													? flowLocalAgentSchema(flowStateStore.val[flowModule.id]?.schema ?? {})
-													: (flowStateStore.val[flowModule.id]?.schema ?? {})}
-												bind:testJob
-												bind:testIsLoading
-												bind:scriptProgress
-												focusArg={highlightArg}
-												{onJobDone}
-												hideRunButton={debugMode && isDebuggableScript}
-											/>
-										{/if}
+										<ModulePreview
+											class="flex-1"
+											pickableProperties={stepPropPicker.pickableProperties}
+											bind:this={modulePreview}
+											mod={flowModule}
+											{noEditor}
+											schema={agentLinked
+												? flowLocalAgentSchema(flowStateStore.val[flowModule.id]?.schema ?? {})
+												: (flowStateStore.val[flowModule.id]?.schema ?? {})}
+											bind:testJob
+											bind:testIsLoading
+											bind:scriptProgress
+											focusArg={highlightArg}
+											{onJobDone}
+											hideRunButton={debugMode && isDebuggableScript}
+										/>
 									{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
 										<div class="flex-1 overflow-auto p-4">
 											<Section label="Conversation output">

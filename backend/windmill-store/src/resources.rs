@@ -2005,6 +2005,27 @@ async fn update_resource(
     // Detect if this was a rename operation
     let old_path_if_renamed = if npath != path { Some(path) } else { None };
 
+    // An agent's eval runs are filed under `subject->>'path'`, a plain string with no FK, so a
+    // rename would strand every run the agent has ever had. The guard reads the destination, which
+    // by now holds the renamed row, so only agents are rewritten. Datasets and scorers are
+    // associated by naming convention alone and keep their names.
+    if let Some(old_path) = old_path_if_renamed {
+        sqlx::query!(
+            "UPDATE eval_experiment e
+                SET subject = jsonb_set(e.subject, '{path}', to_jsonb($1::text))
+              WHERE e.workspace_id = $2
+                AND e.subject->>'path' = $3
+                AND EXISTS (SELECT 1 FROM resource r
+                             WHERE r.workspace_id = $2 AND r.path = $1
+                               AND r.resource_type = 'ai_agent')",
+            &npath,
+            &w_id,
+            old_path
+        )
+        .execute(&db)
+        .await?;
+    }
+
     // On rename the draft at the OLD path orphans (no SQL FK); clear the deployer's
     // own (+ legacy NULL) there, teammates keep theirs (StaleDraftModal). The linked
     // variable renames alongside the resource, so its old-path draft orphans too.

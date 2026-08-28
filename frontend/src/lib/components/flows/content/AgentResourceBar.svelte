@@ -2,17 +2,12 @@
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { ResourceService, type AgentDraft, type InputTransform } from '$lib/gen'
+	import { ResourceService, type InputTransform } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Bot, ChevronDown, ChevronUp, FlaskConical, Save, Unlink, Pencil } from 'lucide-svelte'
-	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
-	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
-	import type { Value } from '$lib/utils'
-	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_BRAIN_KEYS,
 		AGENT_FLOW_LOCAL_KEYS,
@@ -25,13 +20,13 @@
 		type AIAgentConfig,
 		type AgentTool
 	} from '../agentResourceUtils'
+	import { openAgentEditor } from '../agentEditorStore.svelte'
 	import {
 		setLinkedAgentTools,
 		clearLinkedAgentTools,
 		linkedToolsScope
 	} from '../linkedAgentToolsStore.svelte'
 	import { getAgentEdit, getAgentEditingPath, setAgentEditingPath } from '../agentEditStore.svelte'
-	import { agentEditorOwns, openAgentEditor } from '../agentEditorStore.svelte'
 	import { claimLinkedToolsFetch } from '../flowState'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
@@ -43,7 +38,6 @@
 		tools = $bindable(),
 		toolInputs = $bindable(),
 		moduleId,
-		agentNodeId,
 		opWorkspace = undefined,
 		flowPath = ''
 	}: {
@@ -52,9 +46,6 @@
 		tools: AgentTool[]
 		toolInputs: Record<string, Record<string, InputTransform>>
 		moduleId: string
-		// The step's own id in the flow tree, which is what the agent editor resolves it by. Distinct
-		// from moduleId, which is ancestry-qualified for a nested agent and would not resolve.
-		agentNodeId: string
 		// The workspace the flow editor operates on (differs from the nav workspace in session/fork
 		// editors). All resource reads/writes must target it, not $workspaceStore.
 		opWorkspace?: string
@@ -142,7 +133,6 @@
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
 	/** The agent the card is about: the one this step links to, or the one being edited. */
 	let cardPath = $derived(agent ?? editingPath)
-	let evalsOpen = $state(false)
 	// Bumped on every write to the resource, so a save that leaves the card on the same agent still
 	// refetches the version it just minted.
 	let writes = $state(0)
@@ -352,24 +342,6 @@
 		}
 	}
 
-	// Save the forked-for-edit step back to the agent it came from, updating it in place.
-	async function saveChanges() {
-		if (!ws || !editingPath) {
-			return
-		}
-		saving = true
-		const path = editingPath
-		try {
-			if (await persist(path)) {
-				sendUserToast(`Updated agent ${path}`)
-			}
-		} catch (e) {
-			sendUserToast(`Failed to update agent: ${e}`, true)
-		} finally {
-			saving = false
-		}
-	}
-
 	// Copy the resource's brain + tools into the step, for Unlink (diverge here) and Edit (change the
 	// saved agent). Unlink folds this flow's tool_inputs into the tools and clears them, so the
 	// standalone step keeps its bindings; Edit must not fold, or those overrides would be promoted
@@ -433,93 +405,19 @@
 		}
 	}
 
-	// Edit the saved agent itself: fork it into the step for editing, remembering the path so
-	// "Save changes" writes back to it (updating every flow that links to it).
-	async function editAgent() {
-		try {
-			const fork = await forkFromResource(false)
-			if (fork) {
-				const { path, ...baselines } = fork
-				setAgentEditingPath(tools, path, baselines)
-				openAgentEditor(agentNodeId)
-			} else {
-				sendUserToast('The step changed while loading the agent. Try Edit again', true)
-			}
-		} catch (e) {
-			sendUserToast(`Failed to edit agent: ${e}`, true)
-		}
-	}
-
-	/** The edits as a run of them executes them: the step's brain transforms as authored
-	 *  (expressions included) and its tools. Flow-local inputs are left out: a case supplies them,
-	 *  and that is what lets the server recognise a run of later-deployed edits as that version. */
-	function editedConfig(): AgentDraft {
-		const brain: Record<string, InputTransform> = {}
-		for (const [key, transform] of Object.entries(inputTransforms ?? {})) {
-			if (!(AGENT_FLOW_LOCAL_KEYS as readonly string[]).includes(key)) {
-				brain[key] = transform
-			}
-		}
-		return {
-			input_transforms: $state.snapshot(brain) as Record<string, unknown>,
-			tools: $state.snapshot(tools) as Record<string, unknown>[]
-		}
-	}
-
-	/** The configuration the step holds now, in the form it is compared with the deployed agent in.
-	 *  Expressions count: the saved config cannot hold one, but a run of the edits executes it and
-	 *  Cancel drops it. */
-	let currentConfig = $derived(JSON.stringify(agentConfigAsEdited(inputTransforms, tools)))
-	/** The agent as deployed, in the same form; kept on the edit session so an editor mounted
-	 *  part-way through still has it. */
-	let deployedConfig = $derived(editing?.deployedConfig)
-	let edited = $derived(deployedConfig !== undefined && currentConfig !== deployedConfig)
-
-	let diffDrawer: DiffDrawer | undefined = $state()
-	// Both sides snapshotted at click time: the drawer would otherwise keep re-reading the live
-	// step while the user types behind it.
-	function showDiff() {
-		if (!deployedConfig) return
-		diffDrawer?.openDrawer()
-		diffDrawer?.setDiff({
-			mode: 'simple',
-			original: JSON.parse(deployedConfig) as Value,
-			current: $state.snapshot(agentConfigAsEdited(inputTransforms, tools)) as Value,
-			title: 'Deployed <> Unsaved agent changes',
-			button: {
-				text: 'Discard changes',
-				onClick: () => {
-					// Asked for by name, from a drawer showing exactly what goes: no second question.
-					const path = editingPath
-					if (path) relink(path)
-					diffDrawer?.closeDrawer()
-				}
-			}
+	// Edit the saved agent itself. The step stays linked throughout: the edits live in the agent's
+	// own resource draft, not in this step, so they survive leaving the flow and are the same edits
+	// whichever flow — or the resources page — opened them.
+	function editAgent() {
+		if (!agent) return
+		openAgentEditor({
+			path: agent,
+			workspace: ws,
+			// Where to re-resolve this graph's tool nodes once the agent is deployed.
+			host: { flowPath, moduleId }
 		})
 	}
 
-	let confirmCancel = $state(false)
-	// Cancel drops the edits and re-links the step without saving anything, so it asks first when
-	// there are edits to drop.
-	function cancelEdit() {
-		const path = editingPath
-		if (!path) return
-		if (edited) {
-			confirmCancel = true
-			return
-		}
-		relink(path)
-	}
-
-	// Put the step back on the agent. Edit kept this flow's `tool_inputs` off the forked tools
-	// rather than folding them in, so they survive the round trip as overrides.
-	function relink(path: string) {
-		// Clear the entry while `tools` is still the fork's array, which is what keys it.
-		setAgentEditingPath(tools, undefined)
-		agent = path
-		tools = []
-		inputTransforms = flowLocalInputs(inputTransforms)
-	}
 </script>
 
 <div class="px-2 xl:px-4 py-1.5 border-b border-light">
@@ -565,18 +463,6 @@
 							{/if}
 						</span>
 					{/if}
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						startIcon={{ icon: FlaskConical }}
-						title="Run this agent against a dataset of cases"
-						onclick={(e) => {
-							e.stopPropagation()
-							evalsOpen = true
-						}}
-					>
-						Evals
-					</Button>
 					<Button
 						unifiedSize="sm"
 						variant="default"
@@ -630,83 +516,6 @@
 					Unlink to fork the agent, or gain access to the provider resource.
 				</Alert>
 			</div>
-		{/if}
-	{:else if editingPath}
-		<div
-			class="rounded-md border border-light bg-surface-tertiary px-3 py-1.5 flex flex-col gap-1.5"
-		>
-			<div class="flex items-center gap-2">
-				<Pencil size={16} class="text-primary shrink-0" />
-				<div class="min-w-0 flex-1 flex flex-col">
-					<div class="flex items-center gap-2 min-w-0">
-						<span class="truncate text-xs font-medium" title={editingPath}>{editingPath}</span>
-						{#if version != undefined}
-							<Badge color="gray" class="shrink-0" title="The version these edits sit on">
-								v{version}
-							</Badge>
-						{/if}
-						{#if edited}
-							<Badge
-								color="yellow"
-								class="shrink-0"
-								clickable
-								title="Show what differs from the deployed agent"
-								onclick={showDiff}
-							>
-								unsaved changes
-							</Badge>
-						{/if}
-					</div>
-					<div class="text-2xs text-secondary flex items-center gap-0.5">
-						saving updates every flow using it<Tooltip small>
-							{#snippet text()}
-								The edits live in this step until you decide: Evals runs them as they are here, Save
-								changes writes them to the agent, Cancel drops them and re-links the step.
-							{/snippet}
-						</Tooltip>
-					</div>
-				</div>
-				<Button
-					unifiedSize="sm"
-					variant="default"
-					startIcon={{ icon: FlaskConical }}
-					title="Run these edits against a dataset of cases"
-					disabled={saving}
-					onclick={() => (evalsOpen = true)}
-				>
-					Evals
-				</Button>
-			</div>
-			<div class="flex items-center justify-end gap-1">
-				{#if !agentEditorOwns(agentNodeId)}
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						startIcon={{ icon: Pencil }}
-						disabled={saving}
-						onclick={() => openAgentEditor(agentNodeId)}
-					>
-						Continue editing
-					</Button>
-				{/if}
-				<Button unifiedSize="sm" variant="default" disabled={saving} onclick={cancelEdit}>
-					Cancel
-				</Button>
-				<Button
-					unifiedSize="sm"
-					variant="accent"
-					startIcon={{ icon: Save }}
-					disabled={saving || !!providerSaveError}
-					onclick={saveChanges}
-				>
-					Save changes
-				</Button>
-			</div>
-		</div>
-		{#if providerSaveError}
-			<p class="text-2xs text-red-500 mt-1">
-				{providerSaveError}
-			</p>
 		{/if}
 	{:else}
 		<Button
@@ -765,30 +574,3 @@
 	</DrawerContent>
 </Drawer>
 
-<!-- Opened from the editing card, the edits are what is under test, read from the step when Run is
-     pressed; from the linked card, the deployed agent is. -->
-<AgentEvalModal
-	agentPath={cardPath}
-	{opWorkspace}
-	editedConfig={editingPath ? editedConfig : undefined}
-	bind:open={evalsOpen}
-/>
-
-<DiffDrawer bind:this={diffDrawer} />
-
-<ConfirmationModal
-	open={confirmCancel}
-	title="Drop these edits?"
-	confirmationText="Drop edits"
-	onConfirmed={() => {
-		confirmCancel = false
-		const path = editingPath
-		if (path) relink(path)
-	}}
-	onCanceled={() => (confirmCancel = false)}
->
-	<span class="text-sm">
-		The step goes back to {editingPath} as it is deployed, and the edits are not kept anywhere. Save
-		changes writes them to the agent instead.
-	</span>
-</ConfirmationModal>
