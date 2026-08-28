@@ -18,6 +18,7 @@
 	import { setRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import {
+		WMILL_TS_PATH,
 		genWmillTs,
 		normalizeRawAppRuntimeLogs,
 		type Runnable,
@@ -533,10 +534,8 @@
 	}
 
 	// The only writer of `activeTabId`, `selectedRunnable` and `selectedDocument`.
-	// Tab bars, sidebar, chat tools and the UI Builder iframe all switch through
-	// here, so the three can never disagree about what is selected — one of them
-	// left stale is what marks two sidebar rows selected at once, or leaves a
-	// runnable tab active over an empty editor.
+	// Everything switches through here, so the three can't disagree: one left
+	// stale marks two sidebar rows selected, or leaves a tab over an empty pane.
 	function select(next: EditorSelection, opts?: { force?: boolean; notifyIframe?: boolean }): void {
 		if (next.kind === 'preview') {
 			// In split mode Preview is always shown on the right, so selecting it is
@@ -1333,12 +1332,10 @@
 			const activePath: string | undefined = e.data.path?.replace(/\\/g, '/')
 			if (!activePath) return
 			iframeDocument = activePath
-			// VS Code switched document (the user clicked in its file tree, or we
-			// auto-opened the main app file at boot). Follow it only while the
-			// iframe is the visible surface — behind a runnable tab it must not
-			// steal the selection — plus at boot in split mode, where Preview is
-			// active and no file tab exists yet. Otherwise just backfill a tab.
-			// `notifyIframe: false` keeps us from echoing the move back at it.
+			// Follow VS Code's document only while the iframe is the visible surface
+			// (behind a runnable tab it must not steal the selection), plus at boot
+			// in split mode where no file tab exists yet. `notifyIframe: false`
+			// keeps us from echoing the move back at it.
 			const bootIntoFirstFile = splitWithPreview && activeTabKind === 'preview' && tabs.length === 1
 			if (activeTabKind === 'file' || bootIntoFirstFile) {
 				select({ kind: 'file', path: activePath }, { notifyIframe: false })
@@ -2073,7 +2070,8 @@
 			const stale = tabs.filter((t) => {
 				if (t.id.startsWith(FILE_PREFIX)) {
 					const fp = t.id.slice(FILE_PREFIX.length)
-					return filesSet[fp] === undefined
+					// wmill.ts is generated from the runnables, so it is never in `files`.
+					return fp !== WMILL_TS_PATH && filesSet[fp] === undefined
 				}
 				if (t.id.startsWith(RUNNABLE_PREFIX)) {
 					const k = t.id.slice(RUNNABLE_PREFIX.length)

@@ -3,6 +3,7 @@
 		SUBTLE_PANEL_TITLE
 	} from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import type { Runnable } from '../apps/inputType'
+	import { WMILL_TS_PATH } from './utils'
 	import RawAppInlineScriptPanelList from './RawAppInlineScriptPanelList.svelte'
 	import FileExplorer from '../FileExplorer.svelte'
 	import { Plus, File, Folder, Camera } from 'lucide-svelte'
@@ -130,7 +131,7 @@
 		bind:files
 		selectedPath={selectedDocument}
 		{onSelectPath}
-		extraNodes={[{ name: 'wmill.ts', path: '/wmill.ts', isFolder: false }]}
+		extraNodes={[{ name: 'wmill.ts', path: WMILL_TS_PATH, isFolder: false }]}
 		hideHeader
 	/>
 </PanelSection>
