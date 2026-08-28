@@ -420,6 +420,24 @@ describe('AIChatManager.sendOrQueue', () => {
 		expect(manager.queuedMessage).toBe('')
 	})
 
+	// The auto-resume writes its prompt into `this.instructions` before sending,
+	// and only sendRequestImpl clears them. A refusal that returns before that
+	// leaves them set, and the arming check bails while they are non-empty — so
+	// one refused resume disarms every later one for the session.
+	it('leaves nothing behind when a synthetic auto-resume is refused', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.sessionId = 'session-synthetic-refusal'
+		onDriverLost(() => {})
+		noteDriverAlive('session-synthetic-refusal', false)
+		manager.instructions = 'A background job just finished.'
+
+		await manager.sendRequest({ synthetic: true })
+
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.instructions).toBe('')
+	})
+
 	// These senders have no draft of their own, so a refusal that keeps nothing
 	// loses what the user typed.
 	it('hands a programmatic prompt back instead of queueing it for another tab', () => {

@@ -83,24 +83,12 @@ export function noteDriverAlive(sessionId: string, planMode: boolean): void {
 	ensureReaper()
 }
 
-/** The driver says its turn is over. The re-read that follows is what actually
- *  frees this tab, so the position moves to `catchingUp` rather than to idle —
- *  but only where something can perform that re-read.
- *
- *  The channel calls this from module scope in every tab that has it, including
- *  ones that never load sessionRuntime (a page carrying the session sidebar with
- *  no session open). Only sessionRuntime can call {@link noteCaughtUp}, so
- *  entering `catchingUp` there would be entering a state with nothing able to
- *  leave it — and `mirroringRemoteRun` reads true for as long as it lasts, which
- *  locks the composer against a run that has already ended and drops the edits
- *  mask and background-job writes that expect the re-read to reseed them. With
- *  no runtime there is no mirrored transcript to be out of step with, so idle is
- *  the truthful position rather than merely the convenient one. */
+/** The driver says its turn is over. The re-read that follows is what frees this
+ *  tab, so the position moves to `catchingUp` — but only where a runtime exists
+ *  to perform it. The channel runs this in every tab that loads it, and one with
+ *  no runtime would sit in a state nothing can leave. */
 export function noteRemoteTurnEnded(sessionId: string): void {
 	if (runPosition(sessionId).state !== 'watching') return
-	// Deleted rather than set to idle: a missing entry already reads as idle, and
-	// the tab this branch exists for has no runtime, so nothing in it would ever
-	// call clearRunPosition to take the entry back out again.
 	if (!canCompleteCatchUp()) {
 		positions.delete(sessionId)
 		return
@@ -232,9 +220,8 @@ export function onDriverLost(fn: (sessionId: string) => void): void {
 	driverLost = fn
 }
 
-/** Whether a module that can finish a catch-up is loaded in this tab. It is the
- *  same registration either way: sessionRuntime owns both the re-read and the
- *  handler, so having one means having the other. */
+/** sessionRuntime owns both the re-read and this handler, so registering one
+ *  means having the other. */
 function canCompleteCatchUp(): boolean {
 	return driverLost !== undefined
 }

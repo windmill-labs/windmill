@@ -46,13 +46,7 @@ describe('withSessionRunLock with no lock to take', () => {
 	})
 })
 
-// The channel runs these transitions in every tab that loads it, including ones
-// that never load sessionRuntime — a page carrying the session sidebar with no
-// session open. Only sessionRuntime performs the re-read that leaves
-// `catchingUp`, so parking there would strand the session: `mirroringRemoteRun`
-// stays true, which locks the composer against a run that already ended and
-// drops the edits-mask and background-job writes that expect the re-read to
-// reseed them. A fresh module instance is the only honest way to test it — the
+// A fresh module instance is the only honest way to test this: the runtime's
 // registration is process-wide and one-way, exactly as it is in a real tab.
 describe('a turn ending in a tab with no session runtime', () => {
 	it('settles to idle rather than waiting for a re-read nobody can do', async () => {
