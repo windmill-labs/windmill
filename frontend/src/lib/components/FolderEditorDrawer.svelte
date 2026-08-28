@@ -137,9 +137,10 @@
 	</DrawerContent>
 </Drawer>
 
-<!-- `alwaysPortal`: this sits inside the drawer so it mounts and unmounts with it, and the
-     drawer is a stacking context — without portalling, the dialog asking whether to discard
-     paints underneath the drawer it is about, leaving the drawer impossible to close. -->
+<!-- `alwaysPortal`: this drawer is opened from inside other drawers (the folder picker of a
+     resource or variable form), and that outer drawer is a stacking context this dialog
+     cannot climb out of on z-index alone. Left in place it paints under the drawer whose
+     unsaved changes it is asking about, which leaves that drawer impossible to close. -->
 <ConfirmationModal
 	alwaysPortal
 	open={confirmDiscardOpen}
