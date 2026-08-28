@@ -20,6 +20,52 @@ export function parseAllowedOrigins(raw: string): string[] {
 }
 
 /**
+ * Mirrors `validate_allowed_origins` in windmill-common, so an entry that could
+ * never equal a browser `Origin` is caught in the editor rather than coming
+ * back as a 400.
+ */
+export function allowedOriginError(origin: string): string | undefined {
+	if (origin === '*') return undefined
+	// An Origin header is always visible ASCII, so this covers both embedded
+	// whitespace and a non-punycoded IDN, which the backend rejects too.
+	if (!/^[\x21-\x7e]+$/.test(origin))
+		return `'${origin}' must contain only visible ASCII, with no whitespace`
+	const separator = origin.indexOf('://')
+	if (separator < 0) return `'${origin}' is missing a scheme, such as https://`
+	const scheme = origin.slice(0, separator)
+	const rest = origin.slice(separator + 3)
+	if (!/^[A-Za-z][A-Za-z0-9.+-]*$/.test(scheme)) return `'${origin}' has an invalid scheme`
+	if (rest === '') return `'${origin}' is missing a host`
+	if (rest.includes('/')) return `'${origin}' must not contain a path or trailing slash`
+	if (rest.includes('?') || rest.includes('#'))
+		return `'${origin}' must not contain a query or fragment`
+	if (rest.includes('@')) return `'${origin}' must not contain userinfo`
+	// An IPv6 literal is bracketed, so its own colons are not the port separator
+	// and `http://[::1]` must not be read as host '[:'.
+	const authority = rest.startsWith('[')
+		? /^\[([0-9A-Fa-f.]*:[0-9A-Fa-f:.]*)\](?::(.*))?$/.exec(rest)
+		: /^([A-Za-z0-9._-]*)(?::(.*))?$/.exec(rest)
+	if (!authority) return `'${origin}' has an invalid host`
+	const [, host, port] = authority
+	if (host === '') return `'${origin}' is missing a host`
+	if (port !== undefined && !(/^[0-9]{1,5}$/.test(port) && Number(port) <= 65535))
+		return `'${origin}' has an invalid port`
+	return undefined
+}
+
+/**
+ * The first entry of a route's allowlist that could never match, if any.
+ *
+ * Derived from the stored list rather than from the field, so it stays correct
+ * while the editor is on another tab and the field is not even mounted. An
+ * empty list is not an error: it is the deny-every-origin state the backend
+ * accepts.
+ */
+export function allowedOriginsError(allowed_origins: string[] | undefined): string | undefined {
+	return allowed_origins?.map(allowedOriginError).find((message) => message !== undefined)
+}
+
+/**
  * Read the instance-default setting, mirroring `parse_allowed_origins_setting`
  * in windmill-common: the settings UI writes a comma-separated string, but the
  * API accepts an array too.

@@ -3,13 +3,11 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { parseAllowedOrigins } from './utils'
+	import { allowedOriginError, parseAllowedOrigins } from './utils'
 	import type { Snippet } from 'svelte'
 
 	interface Props {
 		allowed_origins: string[] | undefined
-		/** Bound so the editor can block saving while the list is unusable. */
-		error?: string | undefined
 		/** Fetched once by the editor, so the badge and this field agree. */
 		instanceDefaultOrigins?: string[]
 		disabled?: boolean
@@ -18,7 +16,6 @@
 
 	let {
 		allowed_origins = $bindable(),
-		error = $bindable(),
 		instanceDefaultOrigins = [],
 		disabled = false,
 		testingBadge = undefined
@@ -30,38 +27,6 @@
 	let raw = $state(allowed_origins?.join(', ') ?? '')
 	let restricted = $state(allowed_origins !== undefined)
 
-	const parse = parseAllowedOrigins
-
-	// Mirrors `validate_allowed_origins` in windmill-trigger-http so the error
-	// shows before saving rather than as a 400 from the API.
-	function originError(origin: string): string | undefined {
-		if (origin === '*') return undefined
-		// An Origin header is always visible ASCII, so this covers both embedded
-		// whitespace and a non-punycoded IDN, which the backend rejects too.
-		if (!/^[\x21-\x7e]+$/.test(origin))
-			return `'${origin}' must contain only visible ASCII, with no whitespace`
-		const separator = origin.indexOf('://')
-		if (separator < 0) return `'${origin}' is missing a scheme, such as https://`
-		const scheme = origin.slice(0, separator)
-		const rest = origin.slice(separator + 3)
-		if (!/^[A-Za-z][A-Za-z0-9.+-]*$/.test(scheme)) return `'${origin}' has an invalid scheme`
-		if (rest === '') return `'${origin}' is missing a host`
-		if (rest.includes('/')) return `'${origin}' must not contain a path or trailing slash`
-		if (rest.includes('?') || rest.includes('#'))
-			return `'${origin}' must not contain a query or fragment`
-		if (rest.includes('@')) return `'${origin}' must not contain userinfo`
-		// An IPv6 literal is bracketed, so its own colons are not the port
-		// separator, and `http://[::1]` must not be read as host '[:'.
-		const authority = rest.startsWith('[')
-			? /^\[([^\]]*)\](?::(.*))?$/.exec(rest)
-			: /^([^:]*)(?::(.*))?$/.exec(rest)
-		if (!authority) return `'${origin}' is missing a host`
-		const [, host, port] = authority
-		if (host === '') return `'${origin}' is missing a host`
-		if (port !== undefined && !/^[0-9]+$/.test(port)) return `'${origin}' has an invalid port`
-		return undefined
-	}
-
 	// Independent of the toggle: it decides what the toggle is called, which must
 	// not change as it is flipped.
 	let hasInstanceDefault = $derived(
@@ -71,39 +36,19 @@
 	// anywhere" on an instance that has narrowed the default.
 	let inheritsInstanceDefault = $derived(!restricted && hasInstanceDefault)
 
-	let origins = $derived(parse(raw))
-	// Only a typed entry that cannot work is shown as an error. A list that is
-	// merely still empty is where the reader has just arrived, not a mistake to
-	// report back at them.
+	let origins = $derived(parseAllowedOrigins(raw))
+	// Shown here; the editor gates the save on the same check applied to the
+	// stored list, so leaving this tab cannot strand a save.
 	let malformed = $derived(
-		restricted ? origins.map(originError).find((message) => message !== undefined) : undefined
+		restricted ? origins.map(allowedOriginError).find((message) => message !== undefined) : undefined
 	)
 
-	// Gates the save; only `malformed` is rendered. An empty list still blocks
-	// saving, because storing it as NULL would mean "any origin".
-	$effect(() => {
-		error = restricted
-			? (malformed ?? (origins.length === 0 ? 'Enter at least one origin' : undefined))
-			: undefined
-	})
-
-	// While the toggle is on, whatever is typed is what gets saved — a rejected
+	// While the toggle is on, whatever is typed is what gets saved. A rejected
 	// entry must never collapse to `undefined`, because `undefined` is stored as
-	// NULL and NULL means "any origin". A typo would otherwise lift the
-	// restriction while the toggle still reads as on. `error` blocks the save,
-	// and the backend rejects the same values if one ever gets past it.
+	// NULL and NULL means "any origin", so a typo would lift the restriction
+	// while the toggle still reads as on.
 	$effect(() => {
 		allowed_origins = restricted ? origins : undefined
-	})
-
-	// This option renders on one tab only, so an unusable list must not outlive
-	// it: `error` alone would keep Save disabled from a screen that cannot show
-	// why, and clearing it alone would let a half-typed list save as a real
-	// restriction. Leaving restores what was there on arrival, never widening.
-	const mountedWith = allowed_origins
-	$effect(() => () => {
-		if (error !== undefined) allowed_origins = mountedWith
-		error = undefined
 	})
 
 	// Re-seed the text field when the value is replaced from outside — applying
@@ -155,14 +100,16 @@
 			error={malformed !== undefined}
 		/>
 		<!-- One line, per the form guideline's single Input -> Validation/Hint
-			 slot. The format stays on screen until something is actually wrong,
-			 so it is there when the field first appears empty. -->
+			 slot. An empty list is a real state rather than a mistake: it allows
+			 no origin at all, so say that instead of demanding an entry. -->
 		{#if malformed}
 			<div class="text-2xs text-red-600 dark:text-red-400">{malformed}</div>
-		{:else}
+		{:else if origins.length === 0}
 			<div class="text-2xs text-secondary">
-				At least one origin, comma-separated. Use * to allow any.
+				Allows no origin. Add one, comma-separated, or * to allow any.
 			</div>
+		{:else}
+			<div class="text-2xs text-secondary">Comma-separated. Use * to allow any.</div>
 		{/if}
 	{:else if inheritsInstanceDefault}
 		<div class="text-2xs text-secondary">

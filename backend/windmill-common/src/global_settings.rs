@@ -320,6 +320,7 @@ pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Res
         // An IPv6 literal is bracketed, so its own colons are not the port
         // separator: splitting on the last colon would read `http://[::1]` as
         // host `[:` and reject an origin a browser really does send.
+        let bracketed = rest.starts_with('[');
         let (host, port) = match rest.strip_prefix('[') {
             Some(after_bracket) => match after_bracket.split_once(']') {
                 Some((host, "")) => (host, None),
@@ -327,7 +328,7 @@ pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Res
                     Some(port) => (host, Some(port)),
                     None => return Err(invalid("invalid port")),
                 },
-                None => return Err(invalid("missing host")),
+                None => return Err(invalid("invalid host")),
             },
             None => match rest.split_once(':') {
                 Some((host, port)) => (host, Some(port)),
@@ -337,7 +338,20 @@ pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Res
         if host.is_empty() {
             return Err(invalid("missing host"));
         }
-        if port.is_some_and(|port| port.is_empty() || !port.chars().all(|c| c.is_ascii_digit())) {
+        let host_ok = if bracketed {
+            host.contains(':')
+                && host
+                    .chars()
+                    .all(|c| c.is_ascii_hexdigit() || c == ':' || c == '.')
+        } else {
+            host.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
+        };
+        if !host_ok {
+            return Err(invalid("invalid host"));
+        }
+        // `u16` is exactly the rule: digits only, and no port above 65535.
+        if port.is_some_and(|port| port.parse::<u16>().is_err()) {
             return Err(invalid("invalid port"));
         }
     }

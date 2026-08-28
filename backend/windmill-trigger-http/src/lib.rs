@@ -715,6 +715,10 @@ mod tests {
             "https://app.example.com:not-a-port",
             "https://app.example.com:",
             "https://:3000",
+            "https://app.example.com:99999",
+            "https://[notipv6]",
+            "https://exa[mple.com",
+            "https://[::1",
         ] {
             assert!(
                 validate_allowed_origins(&[invalid.to_string()]).is_err(),

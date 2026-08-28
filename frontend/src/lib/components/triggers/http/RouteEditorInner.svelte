@@ -50,6 +50,7 @@
 	import {
 		HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
 		HUB_SCRIPT_ID,
+		allowedOriginsError,
 		isOriginRestricted,
 		parseAllowedOriginsSetting,
 		saveHttpRouteFromCfg,
@@ -120,7 +121,10 @@
 	let raw_string = $state(false)
 	let wrap_body = $state(false)
 	let allowed_origins = $state<string[] | undefined>(undefined)
-	let allowedOriginsError = $state<string | undefined>(undefined)
+	// Derived from the stored list, not reported by the field: the field only
+	// exists on the request-options tab, so an error owned by it would keep Save
+	// disabled from a screen that cannot show why.
+	const originsError = $derived(allowedOriginsError(allowed_origins))
 	// Fetched once here rather than in RouteCorsOption so the Advanced badge can
 	// show an inherited restriction without the section being expanded.
 	let instanceDefaultOrigins = $state<string[]>([])
@@ -185,7 +189,7 @@
 			!can_write ||
 			pathError != '' ||
 			!isValid ||
-			allowedOriginsError != undefined ||
+			originsError != undefined ||
 			(!static_asset_config && emptyString(script_path)) ||
 			!hasChanged
 	)
@@ -322,7 +326,6 @@
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
 			allowed_origins = defaultValues?.allowed_origins ?? undefined
-			allowedOriginsError = undefined
 			summary = defaultValues?.summary ?? ''
 			routeDescription = defaultValues?.description ?? ''
 			error_handler_path = defaultValues?.error_handler_path ?? undefined
@@ -352,10 +355,6 @@
 		wrap_body = cfg?.wrap_body ?? false
 		raw_string = cfg?.raw_string ?? false
 		allowed_origins = cfg?.allowed_origins ?? undefined
-		// RouteCorsOption only lives on the request-options tab, so its error
-		// would otherwise outlive the trigger it came from and block saving one
-		// that has nothing wrong with it.
-		allowedOriginsError = undefined
 		summary = cfg?.summary ?? ''
 		mode = cfg?.mode ?? 'enabled'
 		routeDescription = cfg?.description ?? ''
@@ -1002,7 +1001,6 @@
 
 									<RouteCorsOption
 										bind:allowed_origins
-										bind:error={allowedOriginsError}
 										{instanceDefaultOrigins}
 										disabled={!can_write}
 										{testingBadge}
