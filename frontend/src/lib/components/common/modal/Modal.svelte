@@ -265,9 +265,16 @@
 												{@render settings?.()}
 											</div>
 										{:else}
-											<div class="flex flex-row items-center justify-between">
+											<!-- pr-8 under `kind="X"`, as on the trail row: the close button is absolutely
+											     positioned, so a long title or the header actions would run under it. -->
+											<div
+												class="flex flex-row items-center justify-between gap-2 min-w-0 {kind ===
+												'X'
+													? 'pr-8'
+													: ''}"
+											>
 												<h3
-													class="text-emphasis text-lg font-semibold {titleBadge
+													class="text-emphasis text-lg font-semibold truncate {titleBadge
 														? 'flex items-center gap-1'
 														: ''}"
 												>

@@ -1,17 +1,20 @@
 <script lang="ts">
 	import { FlaskConical, History, Save } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 	import { resource } from 'runed'
 	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
 	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import ResourceVersionHistory from '$lib/components/ResourceVersionHistory.svelte'
-	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
+	import EvalsPane from '$lib/components/aiEvals/EvalsPane.svelte'
+	import type { EvalsLocation } from '$lib/components/aiEvals/evalUtils'
 	import { ResourceService, type AgentDraft } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import {
 		agentEditorTarget,
 		closeAgentEditor,
-		showAgentEditorTool
+		showAgentEditorTool,
+		showAgentEditorView
 	} from '../agentEditorStore.svelte'
 	import { agentConfigToInputTransforms } from '../agentResourceUtils'
 	import { toolDisplayName } from '../agentToolUtils'
@@ -29,7 +32,6 @@
 	let ws = $derived(target?.workspace ?? $workspaceStore)
 	let host = $state<ReturnType<typeof AgentEditorHost> | undefined>(undefined)
 	let versionDrawer: Drawer | undefined = $state(undefined)
-	let evalsOpen = $state(false)
 	let saving = $state(false)
 
 	// Bumped after every write, so a deploy that leaves the editor on the same agent still refetches
@@ -53,14 +55,39 @@
 	let draft = $derived(host?.draftHandle())
 	let tools = $derived((draft?.state?.args?.tools ?? []) as { id: string; summary?: string }[])
 	let openTool = $derived(target?.toolId ? tools.find((t) => t.id === target?.toolId) : undefined)
+	let inEvals = $derived(target?.view === 'evals')
 
+	// Where the evals pane is within itself, so its levels extend this dialog's trail rather than
+	// opening a dialog of their own. Cleared on the way in: the pane reports a level once it is on
+	// one, and never that it is back at its root.
+	let evalsLocation = $state<EvalsLocation | undefined>(undefined)
+	let evalsKey = $derived(`${ws}:${target?.path}:${target?.view}`)
+	$effect(() => {
+		evalsKey
+		untrack(() => (evalsLocation = undefined))
+	})
+
+	const AGENT_DESCRIPTION = 'Changes here update the saved agent, and every flow that links to it.'
+	const EVALS_DESCRIPTION =
+		'Each run answers a dataset of cases with this agent and scores the answers, so runs can be compared.'
+
+	let root = $derived<ModalTrailSegment>({
+		label: target?.path ?? 'Agent',
+		onclick: openTool || inEvals ? () => showAgentEditorView(undefined) : undefined
+	})
 	let trail = $derived<ModalTrailSegment[]>(
 		openTool
-			? [
-					{ label: target?.path ?? 'Agent', onclick: () => showAgentEditorTool(undefined) },
-					{ label: toolDisplayName(openTool as any) }
-				]
-			: [{ label: target?.path ?? 'Agent' }]
+			? [root, { label: toolDisplayName(openTool as any) }]
+			: inEvals
+				? [
+						root,
+						{ label: 'Evals', onclick: evalsLocation ? evalsLocation.back : undefined },
+						...(evalsLocation ? [{ label: evalsLocation.label }] : [])
+					]
+				: [root]
+	)
+	let description = $derived(
+		inEvals ? (evalsLocation ? undefined : EVALS_DESCRIPTION) : AGENT_DESCRIPTION
 	)
 
 	/** The unsaved edits, in the shape the server builds from a deployed config
@@ -107,65 +134,87 @@
 			enterConfirms={false}
 			title={target.path}
 			{trail}
-			description="Changes here update the saved agent, and every flow that links to it."
+			{description}
 			class="w-[92vw] sm:w-[92vw] max-w-[1500px] sm:max-w-[1500px] h-[88vh]"
 			on:canceled={closeAgentEditor}
 		>
-			<div class="h-full min-h-0 flex flex-col">
-				{#if !openTool}
-					<div class="flex flex-row items-center gap-2 px-4 py-2 border-b border-light shrink-0">
-						{#if version != undefined}
-							<Badge color="gray" class="shrink-0" title="The version runs are recorded against">
-								v{version}
-							</Badge>
-						{/if}
-						<div class="grow min-w-0">
-							<LocalDraftBanner
-								show={draft?.sync.hasDraft ?? false}
-								reserveSpace={draft?.sync.hasBaseline ?? false}
-								getDeployed={() => draft?.deployed}
-								getCurrent={() => draft?.state}
-								onDiscard={() => draft?.sync.resetToDeployed(target?.path ?? '')}
-								title="Deployed <> Unsaved agent changes"
-							/>
-						</div>
+			{#snippet titleBadge()}
+				{#if version != undefined}
+					<Badge color="gray" class="shrink-0" title="The version runs are recorded against">
+						v{version}
+					</Badge>
+				{/if}
+			{/snippet}
+			{#snippet settings()}
+				<div class="flex flex-row items-center gap-2 shrink-0">
+					{#if inEvals}
+						<!-- Marks the level, not the agent, so it sits with the actions rather than in
+						     `titleBadge`, which names the dialog. -->
+						<Badge color="blue" small class="shrink-0 !py-0 leading-4">Beta</Badge>
+					{:else}
 						<Button
 							unifiedSize="sm"
 							variant="default"
 							startIcon={{ icon: FlaskConical }}
 							title="Run this agent against a dataset of cases"
-							on:click={() => (evalsOpen = true)}
+							on:click={() => showAgentEditorView('evals')}
 						>
 							Evals
 						</Button>
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							startIcon={{ icon: History }}
-							iconOnly
-							title="Version history"
-							on:click={() => versionDrawer?.openDrawer()}
-						/>
-						<Button
-							unifiedSize="sm"
-							variant="accent"
-							startIcon={{ icon: Save }}
-							loading={saving}
-							on:click={onDeploy}
-						>
-							Deploy
-						</Button>
-					</div>
-				{/if}
-				<div class="flex-1 min-h-0">
-					<AgentEditorHost
-						bind:this={host}
-						path={target.path}
-						workspace={ws}
-						{enableAi}
-						toolId={target.toolId}
-						onSelectTool={(id) => showAgentEditorTool(id)}
+					{/if}
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						startIcon={{ icon: History }}
+						iconOnly
+						title="Version history"
+						on:click={() => versionDrawer?.openDrawer()}
 					/>
+					<Button
+						unifiedSize="sm"
+						variant="accent"
+						startIcon={{ icon: Save }}
+						loading={saving}
+						on:click={onDeploy}
+					>
+						Deploy
+					</Button>
+				</div>
+			{/snippet}
+			<div class="h-full min-h-0 flex flex-col">
+				<!-- Full-bleed, as a banner is everywhere else: the dialog's own horizontal padding is
+				     cancelled so it spans the body. -->
+				<div class="-mx-4 sm:-mx-6 shrink-0">
+					<LocalDraftBanner
+						show={draft?.sync.hasDraft ?? false}
+						reserveSpace={draft?.sync.hasBaseline ?? false}
+						getDeployed={() => draft?.deployed}
+						getCurrent={() => draft?.state}
+						onDiscard={() => draft?.sync.resetToDeployed(target?.path ?? '')}
+						title="Deployed <> Unsaved agent changes"
+					/>
+				</div>
+				<div class="flex-1 min-h-0">
+					<!-- The host stays mounted under the evals level: it holds the draft the header's
+					     banner and Deploy act on, and the config a draft run is offered on. -->
+					<div class="h-full min-h-0 {inEvals ? 'hidden' : ''}">
+						<AgentEditorHost
+							bind:this={host}
+							path={target.path}
+							workspace={ws}
+							{enableAi}
+							toolId={target.toolId}
+							onSelectTool={(id) => showAgentEditorTool(id)}
+						/>
+					</div>
+					{#if inEvals}
+						<EvalsPane
+							agentPath={target.path}
+							opWorkspace={ws}
+							editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
+							bind:location={evalsLocation}
+						/>
+					{/if}
 				</div>
 			</div>
 		</Modal>
@@ -186,11 +235,4 @@
 			/>
 		</DrawerContent>
 	</Drawer>
-
-	<AgentEvalModal
-		agentPath={target.path}
-		opWorkspace={ws}
-		editedConfig={draft?.sync.hasDraft ? editedConfig : undefined}
-		bind:open={evalsOpen}
-	/>
 {/if}
