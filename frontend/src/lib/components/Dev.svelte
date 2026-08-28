@@ -28,6 +28,7 @@
 	} from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { onDestroy, onMount, setContext, untrack } from 'svelte'
+	import { insertClipboardText } from './insertClipboardText'
 	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
 	import { page } from '$app/state'
 	import { getUserExt } from '$lib/user'
@@ -324,6 +325,8 @@
 			}, 500)
 		} else if (event.data.type == 'error') {
 			sendUserToast(event.data.error.message, true)
+		} else if (event.data.type == 'clipboardPaste' && typeof event.data.text == 'string') {
+			insertClipboardText(event.data.text)
 		}
 	}
 
@@ -583,9 +586,6 @@
 			document.execCommand('copy')
 		} else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyX') {
 			document.execCommand('cut')
-		} else if ((event.ctrlKey || event.metaKey) && event.code === 'KeyV') {
-			event.preventDefault()
-			document.execCommand('paste')
 		}
 	}
 
