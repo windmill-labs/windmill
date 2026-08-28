@@ -20,7 +20,6 @@
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import { initCss } from '../../utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import Portal from '$lib/components/Portal.svelte'
 
 	interface Props {
 		id: string
@@ -360,27 +359,25 @@
 </RunnableWrapper>
 
 {#if resolvedConfig?.confirmationModal?.selected === 'confirmationModal'}
-	<Portal name="app-button" target="#app-editor-top-level-drawer">
-		<ConfirmationModal
-			open={Boolean(confirmedCallback)}
-			title={resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.title ?? ''}
-			confirmationText={resolvedConfig?.confirmationModal?.configuration?.confirmationModal
-				?.confirmationText ?? ''}
-			on:canceled={() => {
-				confirmedCallback = undefined
-			}}
-			on:confirmed={() => {
-				if (confirmedCallback) {
-					confirmedCallback()
-				}
-				confirmedCallback = undefined
-			}}
-		>
-			<div class="flex flex-col w-full space-y-4">
-				<span>
-					{resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.description ?? ''}
-				</span>
-			</div>
-		</ConfirmationModal>
-	</Portal>
+	<ConfirmationModal
+		open={Boolean(confirmedCallback)}
+		title={resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.title ?? ''}
+		confirmationText={resolvedConfig?.confirmationModal?.configuration?.confirmationModal
+			?.confirmationText ?? ''}
+		on:canceled={() => {
+			confirmedCallback = undefined
+		}}
+		on:confirmed={() => {
+			if (confirmedCallback) {
+				confirmedCallback()
+			}
+			confirmedCallback = undefined
+		}}
+	>
+		<div class="flex flex-col w-full space-y-4">
+			<span>
+				{resolvedConfig?.confirmationModal?.configuration?.confirmationModal?.description ?? ''}
+			</span>
+		</div>
+	</ConfirmationModal>
 {/if}

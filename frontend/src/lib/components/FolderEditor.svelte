@@ -766,10 +766,10 @@
 				<DataTable size="sm">
 					<Head>
 						<tr>
-							<Cell head first class="text-secondary">name</Cell>
-							<Cell head class="text-secondary">kind</Cell>
-							<Cell head class="text-secondary">role</Cell>
-							<Cell head last actions class="text-secondary">actions</Cell>
+							<Cell head first class="text-secondary">Name</Cell>
+							<Cell head class="text-secondary">Kind</Cell>
+							<Cell head class="text-secondary">Role</Cell>
+							<Cell head last actions class="text-secondary">Actions</Cell>
 						</tr>
 					</Head>
 					<tbody class="divide-y">
@@ -881,8 +881,8 @@
 								<Cell head first class="text-secondary">
 									path_glob <Tooltip>Glob relative to <code>f/{name}/</code></Tooltip>
 								</Cell>
-								<Cell head class="text-secondary">permissioned as</Cell>
-								<Cell head last actions class="text-secondary">actions</Cell>
+								<Cell head class="text-secondary">Permissioned as</Cell>
+								<Cell head last actions class="text-secondary">Actions</Cell>
 							</tr>
 						</Head>
 						<tbody class="divide-y">
