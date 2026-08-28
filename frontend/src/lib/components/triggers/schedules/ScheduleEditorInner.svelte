@@ -136,12 +136,18 @@
 	let deployedDrift: ScheduleIntervalDrift | undefined = $state(undefined)
 
 	async function readDeployedDrift(path: string) {
+		let drift: ScheduleIntervalDrift | undefined
 		try {
-			deployedDrift =
+			drift =
 				(await ScheduleService.getScheduleIntervalDrift({ workspace: wsId ?? '', path })) ??
 				undefined
 		} catch {
-			deployedDrift = undefined
+			drift = undefined
+		}
+		// The drawer is reused, so a slow answer can arrive once it has moved on to
+		// another schedule. It describes the one it asked about, not the one on screen.
+		if (path === initialPath) {
+			deployedDrift = drift
 		}
 	}
 	let tag: string | undefined = $state(undefined)
@@ -952,9 +958,8 @@
 						<Alert type="warning" size="xs" title="Running less often than configured">
 							This schedule is running about every {msToReadableTime(
 								deployedDrift.effective_s * 1000
-							)} instead of every {msToReadableTime(deployedDrift.configured_s * 1000)}:
-							each of the last runs was queued too late for the slot that would have kept the
-							cadence.
+							)} instead of every {msToReadableTime(deployedDrift.configured_s * 1000)}: each of the
+							last runs was queued too late for the slot that would have kept the cadence.
 							{#if deployedDrift.queues_next_run_at_start}
 								Its next run is already queued when the previous one starts, so the runs are
 								starting late rather than overrunning: look at worker capacity or a concurrency
