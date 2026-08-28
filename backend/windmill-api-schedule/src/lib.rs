@@ -1224,8 +1224,10 @@ async fn fetch_interval_drift(
     w_id: &str,
     schedule: &Schedule,
 ) -> Result<Option<IntervalDrift>> {
-    // A schedule that is off is not running behind, it is not running.
-    if !schedule.enabled {
+    // A schedule that is off is not running behind, it is not running. Nor is one
+    // told to skip: a skip handler and `no_flow_overlap` both exist to drop runs, so
+    // for those two the cadence the cron asks for was never the promise.
+    if !schedule.enabled || schedule.no_flow_overlap || schedule.dynamic_skip.is_some() {
         return Ok(None);
     }
     // Query plan: `(workspace_id, runnable_path, created_at DESC)` index, hence the

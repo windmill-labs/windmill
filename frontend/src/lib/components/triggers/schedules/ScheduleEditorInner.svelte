@@ -138,15 +138,12 @@
 		| { interval: ScheduleIntervalDrift; queuesNextRunAtStart: boolean }
 		| undefined = $state(undefined)
 
-	// A flow queues its next run when the previous one starts, and so does a script
-	// carrying a skip handler, which is pushed as a single step flow. A retry policy
-	// does not: it is materialized natively onto a plain script job.
+	// A flow queues its next run when the previous one starts, where a script queues it
+	// once the previous one has finished, and the two have different ways out. Only
+	// those two reach here: a schedule set to skip runs is not measured at all.
 	function readDeployedDrift(deployed: Record<string, any>) {
 		deployedDrift = deployed.interval_drift
-			? {
-					interval: deployed.interval_drift,
-					queuesNextRunAtStart: !!deployed.is_flow || deployed.dynamic_skip != undefined
-				}
+			? { interval: deployed.interval_drift, queuesNextRunAtStart: !!deployed.is_flow }
 			: undefined
 	}
 	let tag: string | undefined = $state(undefined)
