@@ -1403,8 +1403,9 @@ async function loadHubIntegrations(): Promise<HubIntegration[]> {
 			const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
 			hubIntegrationsCache = integrations.map((i) => ({
 				name: i.name,
-				// A hub predating the flag omits it, and so does one that has no authored
-				// notes at all. Both mean the same thing to a caller: read the scripts.
+				// A hub predating the flag omits it, and so does one with no authored
+				// notes. Both mean the same thing: nothing to read beyond what the
+				// metadata call returns for every integration.
 				documented: i.documented === true
 			}))
 		} catch (err) {

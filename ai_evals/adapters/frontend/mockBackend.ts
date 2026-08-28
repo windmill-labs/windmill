@@ -1278,6 +1278,9 @@ function listBenchmarkHubScriptsByApp(app: string | null, kind: string | null) {
 /** What `/integrations/hub/<app>/meta` serves. Carries the integration's conventions
  * and none of the endpoints a case asks the model to write, so the tool shortens the
  * path to that knowledge without supplying answers. */
+/** The integrations a case writes against, none of which the content repo documents —
+ * the same majority shape as the live hub, where 18 of ~216 carry a meta.json. Their
+ * conventions live in their shipped scripts, which is what these cases exercise. */
 const BENCHMARK_HUB_INTEGRATION_META: Record<
 	string,
 	{
@@ -1293,37 +1296,14 @@ const BENCHMARK_HUB_INTEGRATION_META: Record<
 		description: 'Subscription analytics for recurring-revenue businesses.',
 		docs_url: 'https://developers.baremetrics.com/reference',
 		curated: null,
-		meta: {
-			api_docs: 'https://developers.baremetrics.com/reference',
-			auth: 'Bearer token. The resource carries a single `apiKey` field; send it as `Authorization: Bearer <apiKey>`.',
-			base_url: 'https://api.baremetrics.com/v1',
-			pagination: {
-				pattern: 'page',
-				request_params: { page: 'page', per_page: 'per_page' }
-			},
-			gotchas: [
-				'Every write is scoped to a source, so the source id is part of the path rather than the body.',
-				'The API answers 200 with an empty `{}` body on some writes; treat a 2xx as success rather than parsing a payload.'
-			],
-			errors: {
-				'401': 'The apiKey is missing or revoked.',
-				'404': 'Unknown source id, or the key cannot see that source.'
-			}
-		}
+		meta: null
 	},
 	holded: {
 		display_name: 'Holded',
 		description: 'Invoicing, accounting and CRM for small businesses.',
 		docs_url: 'https://developers.holded.com/reference',
 		curated: null,
-		meta: {
-			api_docs: 'https://developers.holded.com/reference',
-			auth: 'The resource carries an `apiKey`; send it in the `key` header, not as a bearer token.',
-			base_url: 'https://api.holded.com/api',
-			gotchas: [
-				'Each product area has its own path segment (invoicing, crm, projects) after the version.'
-			]
-		}
+		meta: null
 	}
 }
 
