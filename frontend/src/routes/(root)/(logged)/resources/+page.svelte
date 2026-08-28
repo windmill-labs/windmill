@@ -68,7 +68,6 @@
 		Plus,
 		RotateCw,
 		Save,
-		FlaskConical,
 		SearchX,
 		Shield,
 		Trash,
@@ -78,12 +77,13 @@
 	import autosize from '$lib/autosize'
 	import EditableSchemaWrapper from '$lib/components/schema/EditableSchemaWrapper.svelte'
 	import ResourceEditorDrawer from '$lib/components/ResourceEditorDrawer.svelte'
+	import AgentEditorModal from '$lib/components/flows/content/AgentEditorModal.svelte'
+	import { openAgentEditor } from '$lib/components/flows/agentEditorStore.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
-	import AgentEvalModal from '$lib/components/aiEvals/AgentEvalModal.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -129,14 +129,23 @@
 		isFileset: false
 	})
 	let resourceEditor: ResourceEditorDrawer | undefined = $state(undefined)
+
+	/** An `ai_agent` gets the agent editor rather than the generic resource form, which would
+	 *  render its configuration as raw JSON. Both write the same resource draft, so the choice is
+	 *  presentational and either can open a path the other left a draft at. */
+	function openResourceEditor(path: string, resourceType: string | undefined) {
+		if (resourceType === 'ai_agent') {
+			openAgentEditor({ path })
+		} else {
+			resourceEditor?.initEdit?.(path)
+		}
+	}
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let appConnect: AppConnect | undefined = $state(undefined)
 	let supabaseConnect: SupabaseConnect | undefined = $state(undefined)
 	let deleteConfirmedCallback: (() => void) | undefined = $state(undefined)
 	let deleteIsLinked = $state(false)
 	let deletePath = $state('')
-	let evalsOpen = $state(false)
-	let evalsAgentPath = $state<string | undefined>(undefined)
 	let loading = $state({
 		resources: true,
 		types: true
@@ -1106,7 +1115,7 @@
 														href="#/resource/{path}"
 														onclick={() => {
 															handledHash = `#/resource/${path}`
-															resourceEditor?.initEdit?.(path)
+															openResourceEditor(path, resource_type)
 														}}
 														>{#if marked}{@html marked}{:else}{path}{/if}{hasDraft ? '*' : ''}</a
 													>
@@ -1266,18 +1275,6 @@
 													<Dropdown
 														class="w-fit"
 														items={[
-															...(resource_type === 'ai_agent' && !draft_only
-																? [
-																		{
-																			displayName: 'Evals',
-																			icon: FlaskConical,
-																			action: () => {
-																				evalsAgentPath = path
-																				evalsOpen = true
-																			}
-																		}
-																	]
-																: []),
 															{
 																displayName: 'Permissions',
 																icon: Shield,
@@ -1290,7 +1287,7 @@
 																icon: Pen,
 																disabled: !canWrite || !showCreateButtons,
 																action: () => {
-																	resourceEditor?.initEdit?.(path)
+																	openResourceEditor(path, resource_type)
 																}
 															},
 															...(!ws_specific && isDeployable('resource', path, deployUiSettings)
@@ -1478,7 +1475,6 @@
 
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
-<AgentEvalModal agentPath={evalsAgentPath} bind:open={evalsOpen} />
 
 <ResourceEditorDrawer
 	bind:this={resourceEditor}
@@ -1492,3 +1488,5 @@
 		loadResources()
 	}}
 />
+
+<AgentEditorModal />
