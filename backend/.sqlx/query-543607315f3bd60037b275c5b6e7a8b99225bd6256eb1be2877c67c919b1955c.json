@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_at FROM v2_job\n        WHERE workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2\n            AND parent_job IS NULL AND runnable_path = $3\n            AND created_at > $4\n        ORDER BY created_at DESC\n        LIMIT $5",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "543607315f3bd60037b275c5b6e7a8b99225bd6256eb1be2877c67c919b1955c"
+}

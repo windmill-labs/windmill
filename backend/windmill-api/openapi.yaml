@@ -29786,11 +29786,14 @@ components:
         is therefore running less often than its cron asks for.
       properties:
         effective_s:
-          type: number
-          description: Observed seconds between the last runs
+          type: integer
+          description: >-
+            Observed seconds between two consecutive runs, taken from the pair
+            that drifted least, so that a sample spanning a pause reports the
+            cadence rather than the pause
         configured_s:
-          type: number
-          description: Seconds the cron expression puts between those same slots
+          type: integer
+          description: Seconds the cron expression puts between those same two slots
       required:
         - effective_s
         - configured_s

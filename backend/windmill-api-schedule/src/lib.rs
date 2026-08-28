@@ -1026,6 +1026,12 @@ const DRIFT_SAMPLE_SIZE: i64 = DRIFT_MIN_MISSED_SLOTS as i64 + 1;
 /// pusher anchors `find_next` on exactly that moment, so recomputing from it
 /// recovers each run's slot, which the queue row no longer holds once the run
 /// has completed.
+///
+/// Not every push follows the cadence: enabling, editing and re-arming each
+/// queue one against the wall clock, and a push made while the schedule is
+/// paused anchors on `paused_until` rather than on its own timestamp. Holding
+/// out for a whole run of missed slots is what keeps one of those from reading
+/// as a change of cadence.
 fn detect_interval_drift(
     push_times: &[DateTime<Utc>],
     schedule: &str,
@@ -1081,16 +1087,23 @@ fn detect_interval_drift(
 /// Compare strictly: the edit queues a tick of its own in the same
 /// transaction, so that first run under the new expression carries the very
 /// timestamp recorded here.
+///
+/// Reads on the privileged pool: the paths reaching here have already come
+/// back from an RLS read of their own schedule row and passed the caller's
+/// read scope.
 async fn cron_changed_at(
     db: &DB,
     w_id: &str,
     paths: &[String],
 ) -> Result<Vec<(String, DateTime<Utc>)>> {
     let rows = sqlx::query!(
+        // An entry too large to record field by field keeps only the names, so both
+        // shapes have to be asked.
         "SELECT DISTINCT ON (path) path, created_at
         FROM trigger_history
         WHERE workspace_id = $1 AND trigger_kind = $2 AND path = ANY($3)
-            AND (changes ? 'schedule' OR changes ? 'timezone' OR changes ? 'cron_version')
+            AND (changes ?| array['schedule', 'timezone', 'cron_version']
+                OR changes -> 'truncated_fields' ?| array['schedule', 'timezone', 'cron_version'])
         ORDER BY path, id DESC",
         w_id,
         SCHEDULE_TRIGGER_KIND,
@@ -1114,7 +1127,6 @@ async fn list_schedule_with_jobs(
         path: String,
         jobs: Option<Vec<serde_json::Value>>,
         push_times: Option<Vec<DateTime<Utc>>>,
-        enabled: bool,
         schedule: String,
         timezone: String,
         cron_version: Option<String>,
@@ -1125,9 +1137,13 @@ async fn list_schedule_with_jobs(
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
         // - both `workspace_id = $1` checks are required to hit both indexes.
         // - `push_times` rides the `(workspace_id, runnable_path, created_at DESC)` index,
-        //   hence its own `parent_job IS NULL` clause.
+        //   hence its own `parent_job IS NULL` clause. `trigger` is only a filter on that
+        //   scan, so the `edited_at` bound is what ends the walk: without it, a path that
+        //   also carries non-schedule traffic is read to the end of its range whenever it
+        //   holds fewer than the sampled number of scheduled runs. Nothing writes
+        //   `edited_at` after the insert, so no run of the schedule can predate it.
         "SELECT
-            schedule.path, schedule.enabled, schedule.schedule, schedule.timezone,
+            schedule.path, schedule.schedule, schedule.timezone,
             schedule.cron_version, t.jobs, p.push_times FROM schedule,
             LATERAL(SELECT ARRAY(
                 SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
@@ -1144,10 +1160,12 @@ async fn list_schedule_with_jobs(
             LATERAL(SELECT ARRAY(
                 SELECT created_at
                 FROM v2_job
-                WHERE trigger_kind = 'schedule'
+                WHERE schedule.enabled
+                    AND trigger_kind = 'schedule'
                     AND trigger = schedule.path
                     AND v2_job.workspace_id = $1
                     AND parent_job IS NULL AND runnable_path = schedule.script_path
+                    AND created_at > schedule.edited_at
                 ORDER BY created_at DESC
                 LIMIT $5
             ) AS push_times) p
@@ -1170,7 +1188,7 @@ async fn list_schedule_with_jobs(
     // cron's own history below.
     let mut drifting: Vec<(String, DateTime<Utc>)> = Vec::new();
     for r in rows.into_iter().filter(|r| allowed(&r.path)) {
-        let sample = r.push_times.filter(|_| r.enabled).unwrap_or_default();
+        let sample = r.push_times.unwrap_or_default();
         let interval_drift =
             detect_interval_drift(&sample, &r.schedule, r.cron_version.as_deref(), &r.timezone);
         if interval_drift.is_some() {
@@ -1265,16 +1283,21 @@ async fn fetch_interval_drift(
         return Ok(None);
     }
     // Query plan: `(workspace_id, runnable_path, created_at DESC)` index, hence the
-    // `parent_job IS NULL` clause.
+    // `parent_job IS NULL` clause. `trigger` is only a filter on that scan, so the
+    // `edited_at` bound is what ends the walk on a path that also carries
+    // non-schedule traffic. Nothing writes `edited_at` after the insert, so no run
+    // of the schedule can predate it.
     let push_times = sqlx::query_scalar!(
         "SELECT created_at FROM v2_job
         WHERE workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
             AND parent_job IS NULL AND runnable_path = $3
+            AND created_at > $4
         ORDER BY created_at DESC
-        LIMIT $4",
+        LIMIT $5",
         w_id,
         &schedule.path,
         &schedule.script_path,
+        schedule.edited_at,
         DRIFT_SAMPLE_SIZE
     )
     .fetch_all(db)
@@ -1932,6 +1955,23 @@ mod tests {
         assert_eq!(
             detect_interval_drift(&push_times, "*/20 * * * * *", Some("v2"), "UTC"),
             Some(IntervalDrift { effective_s: 60, configured_s: 20 })
+        );
+    }
+
+    /// Slot gaps under this cron run 5 minutes inside the working day and 16
+    /// hours across the night, and the schedule keeps up with all of them. The
+    /// long gaps are the cron's own, so none of them is drift.
+    #[test]
+    fn stays_quiet_on_the_long_gaps_an_irregular_cron_leaves() {
+        let push_times = [
+            at("2024-01-02T09:00:01Z"),
+            at("2024-01-01T17:00:01Z"),
+            at("2024-01-01T16:55:01Z"),
+            at("2024-01-01T16:50:01Z"),
+        ];
+        assert_eq!(
+            detect_interval_drift(&push_times, "0 */5 9-17 * * 1-5", Some("v2"), "UTC"),
+            None
         );
     }
 

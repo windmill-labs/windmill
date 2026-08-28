@@ -485,8 +485,8 @@
 														interval_drift.effective_s * 1000
 													)} instead of every {msToReadableTime(
 														interval_drift.configured_s * 1000
-													)}: each of the last runs was still going when its next slot came round,
-													so the run after it started at a later slot.
+													)}: each of the last runs was queued too late for the slot that would have
+													kept the cadence.
 												</div>
 											{/snippet}
 										</Popover>
