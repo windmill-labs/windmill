@@ -94,7 +94,7 @@ describe("untrackedSecretBearingDeletions", () => {
             "f/test/erp_access.staging.resource.yaml",
           ]),
         },
-        (p) => p.replace(/\.(variable|resource)\./, ".staging.$1."),
+        (p) => p.replace(/\.staging\.(variable|resource)\./, ".$1."),
       ),
     ).toEqual([]);
   });
@@ -106,6 +106,17 @@ describe("untrackedSecretBearingDeletions", () => {
         paths: new Set(),
       }).map((c) => c.path),
     ).toEqual([VAR, RES]);
+  });
+
+  test("a companion file the push is not deleting still vouches", () => {
+    // Only the content file goes; `f/test/conf.resource.yaml` stays on disk, so it
+    // is not a candidate — but it is the history that proves the repo owned `f/test/conf`.
+    expect(
+      untrackedSecretBearingDeletions(
+        [{ name: "deleted", path: "f/test/conf.resource.file.ini" }],
+        { kind: "known", paths: new Set(["f/test/conf.resource.yaml"]) },
+      ),
+    ).toEqual([]);
   });
 
   test("an object with any file in history is not reported as never tracked", () => {

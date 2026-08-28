@@ -3246,36 +3246,33 @@ function secretBearingObjectPath(p: string): string {
  * Judged per server-side object, not per file, because that is what the backend
  * deletes: a file resource is two files for one resource, and `DELETE /variables/delete`
  * takes the resource at the same path down with it. An object with any file in history
- * was tracked, so reporting it as never-tracked would be false.
+ * was tracked, so reporting it as never-tracked would be false — including when that
+ * file is a companion the push is not deleting (a file resource whose `.resource.yaml`
+ * stays while its content file goes), which is why the tracked set is built from the
+ * whole history rather than from the deletions being judged.
  */
 export function untrackedSecretBearingDeletions<
   T extends { name: string; path: string },
 >(
   changes: T[],
   recorded: RecordedPaths,
-  // A `specificItems` item is committed under its workspace-specific name
-  // (`y.staging.variable.yaml`) while `elementsToMap` collapses it to the base
-  // path the changeset carries, so the history is searched under both names. Miss
-  // this and an object the user did commit reads as never tracked.
-  workspaceSpecificPath?: (p: string) => string | undefined,
+  // History holds a `specificItems` item under its workspace-specific name
+  // (`y.staging.variable.yaml`) while `elementsToMap` collapses it to the base path
+  // the changeset carries. Normalizing history to base paths is what lets the two
+  // meet; without it an object the user did commit reads as never tracked.
+  toBasePath?: (p: string) => string,
 ): T[] {
   const candidates = changes.filter(
     (c) => c.name === "deleted" && secretBearingObjectKind(c.path) !== undefined,
   );
   if (recorded.kind !== "known") return candidates;
-  const recordedKeys = new Set(Array.from(recorded.paths, secretBearingKey));
-  const isRecorded = (p: string) => {
-    const wsPath = workspaceSpecificPath?.(p);
-    return (
-      recordedKeys.has(secretBearingKey(p)) ||
-      (wsPath !== undefined && recordedKeys.has(secretBearingKey(wsPath)))
-    );
-  };
-  const trackedObjects = new Set(
-    candidates
-      .filter((c) => isRecorded(c.path))
-      .map((c) => secretBearingObjectPath(c.path)),
-  );
+  const trackedObjects = new Set<string>();
+  for (const recordedPath of recorded.paths) {
+    const base = toBasePath ? toBasePath(recordedPath) : recordedPath;
+    if (secretBearingObjectKind(base) !== undefined) {
+      trackedObjects.add(secretBearingObjectPath(base));
+    }
+  }
   return candidates.filter(
     (c) => !trackedObjects.has(secretBearingObjectPath(c.path)),
   );
@@ -5235,7 +5232,7 @@ export async function push(
   const untrackedSecretDeletions = opts.jsonOutput
     ? []
     : untrackedSecretBearingDeletions(changes, recordedSecretPaths, (p) =>
-        getWorkspaceSpecificPath(p, specificItems, wsNameForFiles),
+        wsNameForFiles ? fromWorkspaceSpecificPath(p, wsNameForFiles) : p,
       );
 
   // Shared UI (the ui/ folder) is pushed out-of-band via pushSharedUi on apply
@@ -5479,10 +5476,19 @@ export async function push(
         folderDefaultAnnotations,
       );
       if (untrackedSecretDeletions.length > 0) {
-        // Listed by path, not counted: a push can delete a tracked and a
-        // never-tracked resource together, and a bare "1 resource" names neither.
-        const paths = untrackedSecretDeletions
-          .map((c) => `  - ${c.path.replaceAll(SEP, "/")}`)
+        // Named, not counted: a push can delete a tracked and a never-tracked
+        // resource together, and a bare "1 resource" identifies neither. One line
+        // per server-side object, since that is the unit being deleted — a file
+        // resource's two files are one deletion, not two.
+        const paths = Array.from(
+          new Map(
+            untrackedSecretDeletions.map((c) => [
+              secretBearingObjectPath(c.path),
+              `  - ${secretBearingObjectKind(c.path)} ${secretBearingObjectPath(c.path)}`,
+            ]),
+          ).values(),
+        )
+          .sort()
           .join("\n");
         log.warn(
           colors.yellow(
