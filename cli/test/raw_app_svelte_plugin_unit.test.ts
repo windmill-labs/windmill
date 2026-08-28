@@ -1,8 +1,5 @@
 /**
- * `lib.svelte.ts` / `lib.svelte.js` modules are plain modules that may use
- * runes. They need `svelte.compileModule`; without it esbuild happily bundles
- * `$state(...)` as an ordinary call and the app dies at runtime with
- * "ReferenceError: $state is not defined".
+ * The svelte esbuild plugin, driven through `createBundle`.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -59,6 +56,12 @@ afterAll(() => {
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
+/**
+ * `lib.svelte.ts` / `lib.svelte.js` modules are plain modules that may use
+ * runes. They need `svelte.compileModule`; without it esbuild happily bundles
+ * `$state(...)` as an ordinary call and the app dies at runtime with
+ * "ReferenceError: $state is not defined".
+ */
 describe("svelte plugin: .svelte.ts modules", () => {
   test("compiles runes in a TypeScript rune module and the bundle runs", async () => {
     writeApp({
@@ -114,5 +117,38 @@ bump();
     expect(bareRuneCalls(js)).toEqual([]);
     new Function(js)();
     expect((globalThis as any).__counterResult).toBe(2);
+  });
+});
+
+/**
+ * Svelte's default `css: "external"` hands a component's <style> back on a
+ * field the plugin never emits, so the markup keeps its `svelte-<hash>` class
+ * while the rule matching it disappears — no build error, just an app that
+ * renders unstyled from the CLI and styled in the editor.
+ */
+describe("svelte plugin: component styles", () => {
+  test("a <style> block reaches the bundle under the class its markup carries", async () => {
+    writeApp({
+      "Styled.svelte": `<main>
+  <h1>Hello</h1>
+</main>
+
+<style>
+  h1 {
+    font-size: 1.5rem;
+  }
+</style>
+`,
+      "styles_entry.ts": `import Styled from './Styled.svelte';
+export default Styled;
+`,
+    });
+
+    const js = await bundle("styles_entry.ts");
+
+    const scopeClass = js.match(/<h1 class="(svelte-[a-z0-9]+)"/)?.[1];
+    expect(scopeClass).toBeDefined();
+    expect(js).toContain(`h1.${scopeClass}`);
+    expect(js).toContain("font-size");
   });
 });

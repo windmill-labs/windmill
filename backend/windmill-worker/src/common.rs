@@ -1640,6 +1640,7 @@ pub(crate) async fn get_workspace_s3_resource_path(
             )
         }
         Some(LargeFileStorage::FilesystemStorage(fs)) => {
+            windmill_common::workspaces::ensure_filesystem_storage_allowed()?;
             return Ok(Some(
                 windmill_object_store::ObjectStoreResource::Filesystem(
                     windmill_object_store::FilesystemSettings { root_path: fs.root_path.clone() },
