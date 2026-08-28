@@ -57,12 +57,9 @@
 		last && size === 'xs' ? 'sm:pr-3' : '',
 
 		numeric ? 'text-right' : '',
-		// `w-0` makes the column shrink to its buttons rather than take the leftover width;
-		// `text-right` then places inline content and `ml-auto` a block-level child, which a
-		// button wrapper is. Pinned to the right edge so the buttons stay reachable when a
-		// wide table scrolls horizontally; the background must be opaque for the cells
-		// sliding under it to be occluded, and `wm-cell-pinned` below repaints the row's
-		// own tint over it so it still reads as part of its row.
+		// `w-0` shrinks the column to its buttons instead of taking the leftover width, and
+		// the pin keeps them reachable while a wide table scrolls. The background must stay
+		// opaque for the cells passing under it to be occluded — see `wm-cell-pinned` below.
 		actions ? 'w-0 text-right [&>*]:ml-auto sticky right-0 wm-cell-pinned' : '',
 		actions ? (head ? 'bg-surface-secondary' : 'bg-surface') : '',
 		sticky ? `!p-0 sticky ${first ? 'left-0' : 'right-0'}` : 'px-2 py-2',
@@ -84,14 +81,10 @@
 </svelte:element>
 
 <style>
-	/* A row's hover tint is set on the `tr`, which a `position: sticky` cell paints over
-	   rather than inheriting. The token carries its own alpha, so adopting it directly would
-	   make the cell translucent and stop it occluding what scrolls under: the tint goes on a
-	   layer over the opaque colour instead, which composites to the same result.
-	   That layer is a pseudo-element rather than a `background-image`, because the row fades
-	   its tint in and `background-image` is not animatable — a gradient toggled on and off
-	   would snap while the rest of the row faded. `opacity` animates, on the row's own
-	   150ms curve, so the two stay in step. */
+	/* A sticky cell paints over its row's hover tint rather than inheriting it, and the tint
+	   token carries alpha — adopting it would make the cell translucent and stop it
+	   occluding. So it is layered over the opaque colour. A pseudo-element, not a
+	   `background-image`: that is not animatable, and the row fades its tint on this curve. */
 	.wm-cell-pinned {
 		isolation: isolate;
 	}
@@ -112,10 +105,9 @@
 		opacity: 1;
 	}
 
-	/* The seam marks that content is passing under the pinned column, so it is drawn only
-	   while the table overflows — DataTable measures that. It has to be a shadow rather than
-	   a border: under `border-collapse: collapse` a cell's borders belong to the table and
-	   scroll away with it, while a shadow is painted by the cell and stays on its edge. */
+	/* Drawn only while the table overflows (DataTable measures it), since the seam marks that
+	   content is passing under. A shadow, not a border: under `border-collapse: collapse` a
+	   cell's borders belong to the table and scroll away with it. */
 	:global(.wm-table-x-overflow) .wm-cell-pinned {
 		box-shadow: -1px 0 0 0 rgb(var(--color-border-light));
 	}
