@@ -96,10 +96,10 @@
      scrollIntoView leaves the Run button uncovered. -->
 <div
 	bind:this={cardNode}
-	class="scroll-mb-8 rounded-md border border-border-light bg-surface p-3"
+	class="scroll-mb-8 flex flex-col divide-y rounded-md border border-border-light bg-surface"
 	data-chat-keyboard-scope="run-args-form"
 >
-	<div class="flex items-start gap-2">
+	<div class="flex items-start gap-2 p-3">
 		<Play class="h-4 w-4 shrink-0 text-accent" />
 		<div class="min-w-0 flex-1">
 			<p class="truncate text-xs font-semibold text-emphasis">
@@ -113,8 +113,9 @@
 
 	<!-- Only the fields scroll. A script with many arguments would otherwise grow a card
 	     taller than the pane, pushing the Run button and the lines naming what the form
-	     dropped — a secret it opened empty among them — below the fold. -->
-	<div class="mt-3 max-h-[min(28rem,50vh)] overflow-y-auto">
+	     dropped — a secret it opened empty among them — below the fold. The dividers come
+	     from the card, as in DrawerContent, so they bleed to its edges. -->
+	<div class="max-h-[min(28rem,50vh)] overflow-y-auto p-3" style="scrollbar-gutter: stable;">
 		{#if hasArgs}
 			<!-- The one thing here that runs before Run: a `dynselect-`/`dynmultiselect-`
 			argument makes DynamicInput execute that entrypoint on mount to fill its options —
@@ -137,55 +138,59 @@
 		{/if}
 	</div>
 
-	{#if runForm.droppedKeys?.length}
-		<p class="mt-2 text-2xs text-secondary">
-			Not an input of this script, so it will not be sent:
-			<span class="font-mono">{runForm.droppedKeys.join(', ')}</span>
-		</p>
-	{/if}
-	{#if runForm.unshowableKeys?.length}
-		<p class="mt-2 text-2xs text-secondary">
-			Sent in a shape this form has no field for, so it opened empty:
-			<span class="font-mono">{runForm.unshowableKeys.join(', ')}</span>
-		</p>
-	{/if}
-	{#if runForm.resetKeys?.length}
-		<p class="mt-2 text-2xs text-secondary">
-			Disabled by this script, so it will run with its default:
-			<span class="font-mono">{runForm.resetKeys.join(', ')}</span>
-		</p>
-	{/if}
-	{#if runForm.strippedKeys?.length}
-		<p class="mt-2 text-2xs text-secondary">
-			A secret or a file, so it opened empty for you to fill in:
-			<span class="font-mono">{runForm.strippedKeys.join(', ')}</span>
-		</p>
-	{/if}
-	{#if planMode}
-		<p class="mt-2 text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
-	{/if}
+	<!-- One region with the actions, not its own: these lines report on the run the button
+	     below launches, and a rule between them would read as separating two subjects. -->
+	<div class="flex flex-col gap-2 p-3">
+		{#if runForm.droppedKeys?.length}
+			<p class="text-2xs text-secondary">
+				Not an input of this script, so it will not be sent:
+				<span class="font-mono">{runForm.droppedKeys.join(', ')}</span>
+			</p>
+		{/if}
+		{#if runForm.unshowableKeys?.length}
+			<p class="text-2xs text-secondary">
+				Sent in a shape this form has no field for, so it opened empty:
+				<span class="font-mono">{runForm.unshowableKeys.join(', ')}</span>
+			</p>
+		{/if}
+		{#if runForm.resetKeys?.length}
+			<p class="text-2xs text-secondary">
+				Disabled by this script, so it will run with its default:
+				<span class="font-mono">{runForm.resetKeys.join(', ')}</span>
+			</p>
+		{/if}
+		{#if runForm.strippedKeys?.length}
+			<p class="text-2xs text-secondary">
+				A secret or a file, so it opened empty for you to fill in:
+				<span class="font-mono">{runForm.strippedKeys.join(', ')}</span>
+			</p>
+		{/if}
+		{#if planMode}
+			<p class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
+		{/if}
 
-	<!-- Both buttons rest while a submit is in flight: the ephemeral variables exist by
-	     then, so cancelling would settle the call as declined on a run that is already
-	     starting. Marked as the one part of the form Escape still stops the turn from. -->
-	<div class="mt-3 flex items-center gap-2" data-run-form-actions>
-		<Button
-			variant="accent"
-			unifiedSize="sm"
-			startIcon={{ icon: Play }}
-			disabled={!isValid || submitting || planMode}
-			onClick={run}
-		>
-			Run
-		</Button>
-		<Button
-			variant="default"
-			unifiedSize="sm"
-			startIcon={{ icon: X }}
-			disabled={submitting}
-			onClick={() => aiChatManager.handleRunFormCancel(toolCallId)}
-		>
-			Cancel
-		</Button>
+		<!-- Both buttons rest while a submit is in flight: the ephemeral variables exist by
+		     then, so cancelling would settle the call as declined on a run that is already
+		     starting. Marked as the one part of the form Escape still stops the turn from. -->
+		<div class="flex items-center gap-2" data-run-form-actions>
+			<Button
+				variant="accent"
+				unifiedSize="sm"
+				startIcon={{ icon: Play }}
+				disabled={!isValid || submitting || planMode}
+				onClick={run}
+			>
+				Run
+			</Button>
+			<Button
+				variant="default"
+				unifiedSize="sm"
+				startIcon={{ icon: X }}
+				disabled={submitting}
+				onClick={() => aiChatManager.handleRunFormCancel(toolCallId)}
+			>
+				Cancel
+			</Button>
+		</div>
 	</div>
 </div>
