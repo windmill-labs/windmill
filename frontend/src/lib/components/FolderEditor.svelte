@@ -224,11 +224,17 @@
 			})
 			reloadHistory++
 		} catch (e) {
-			folderNotFound = true
-			// The folder can be created from here, so the editor still opens on an
-			// empty draft rather than a dead end.
-			can_write = true
-			setDraft(emptyDraft())
+			// Only a folder that is genuinely absent may replace the draft — it can be created
+			// from here, so the editor opens on an empty one rather than a dead end. Any other
+			// failure (network, 5xx) must leave the draft alone: overwriting it here would
+			// discard the user's edits and clear `unsaved` with them.
+			if (e?.status === 404) {
+				folderNotFound = true
+				can_write = true
+				setDraft(emptyDraft())
+			} else {
+				sendUserToast(e?.body ?? String(e), true)
+			}
 		} finally {
 			loaded = true
 		}
@@ -371,7 +377,11 @@
 	 * `owners`/`extra_perms` wholesale in the same call as the settings, but it only
 	 * logs a single "update owners"/"update acl" entry, so the permission history
 	 * would stop naming who was granted what. The diff itself is in `folderDraft.ts`. */
-	async function applyPermissionChanges(next: FolderDraft['perms'], prev: FolderDraft['perms']) {
+	async function applyPermissionChanges(
+		next: FolderDraft['perms'],
+		prev: FolderDraft['perms'],
+		onApplied: () => void
+	) {
 		const workspace = targetWorkspace
 		for (const call of folderPermissionDiff(prev, next)) {
 			switch (call.kind) {
@@ -413,6 +423,7 @@
 					])
 					break
 			}
+			onApplied()
 		}
 	}
 
@@ -420,7 +431,9 @@
 		const next = $state.snapshot(draft) as FolderDraft
 		const prev = baseline as FolderDraft
 		// Captured before the write: an edit-branch save reloads, which clears `folderNotFound`.
+		// `committed` tracks whether any request landed, which decides what a failure means.
 		const created = isNew
+		let committed = false
 		try {
 			if (created) {
 				await FolderService.createFolder({
@@ -450,18 +463,19 @@
 				}
 				if (Object.keys(requestBody).length > 0) {
 					await FolderService.updateFolder({ workspace: targetWorkspace, name, requestBody })
+					committed = true
 				}
-				await applyPermissionChanges(next.perms, prev.perms)
+				await applyPermissionChanges(next.perms, prev.perms, () => (committed = true))
 				await loadFolder()
 				sendUserToast('Folder updated')
 			}
 			return { name, created }
 		} catch (e) {
 			sendUserToast(e.body ?? String(e), true)
-			// The calls are sequential, so a rejection can land with earlier ones committed.
-			// Reload rather than keep the draft: the members table would otherwise show roles
-			// the server never accepted, and `baseline` would call them saved.
-			if (!created) await loadFolder()
+			// The calls are sequential, so a rejection can land with earlier ones committed: only
+			// then is the draft out of step with the server and worth replacing. A failure with
+			// nothing committed leaves it alone — the server never saw it, so it stays retryable.
+			if (!created && committed) await loadFolder()
 			return undefined
 		}
 	}
