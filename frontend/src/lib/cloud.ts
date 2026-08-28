@@ -6,6 +6,12 @@ export function isCloudHosted(): boolean {
 	// may be missing or a stub with no `location`. Same defensive shape as
 	// `isChromiumBrowser`.
 	if (!BROWSER) return false
+	// Dev only: the cloud-specific UI (quotas, plan upgrade, the pre-approved trial offer)
+	// is otherwise unreachable from localhost. `localStorage.cloudHostedOverride = '1'` opts
+	// a browser in against a backend started with CLOUD_HOSTED.
+	if (import.meta.env.DEV && globalThis.window?.localStorage?.getItem('cloudHostedOverride') === '1') {
+		return true
+	}
 	return globalThis.window?.location?.hostname == 'app.windmill.dev'
 }
 
