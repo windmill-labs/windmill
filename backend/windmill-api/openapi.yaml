@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.796.0
+  version: 1.799.0
   title: Windmill API
 
   contact:
@@ -3787,6 +3787,38 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /w/{workspace}/workspaces/billable_seats:
+    get:
+      summary: get the billable seats of the workspace the plan is billed on
+      operationId: getBillableSeats
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+
+      responses:
+        "200":
+          description: billable seats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  developers:
+                    type: integer
+                    description: >-
+                      Omitted when the seats counted are another workspace's, as they are for a
+                      fork resolving to its billing root.
+                  operators:
+                    type: integer
+                    description: >-
+                      Omitted when the seats counted are another workspace's, as they are for a
+                      fork resolving to its billing root.
+                  seats:
+                    type: integer
+                required:
+                  - seats
 
   /w/{workspace}/workspaces/premium_info:
     get:
@@ -13468,6 +13500,10 @@ paths:
                   type: array
                   items:
                     $ref: "#/components/schemas/S3Object"
+                expiry_secs:
+                  type: integer
+                  format: int64
+                  description: how long the signature stays valid, in seconds. Defaults to 43200 (12h) and is clamped server-side to [60, 604800] (1 minute to 7 days).
               required:
                 - s3_objects
       responses:
@@ -25283,6 +25319,68 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/hub/projects/{slug}/withdraw:
+    post:
+      summary: take a hub project submission back out of review
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body. Everything pushed for the
+        submission is kept, so it can be fixed and submitted again.
+      operationId: withdrawHubProject
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/hub/projects/{slug}/discard_update:
+    post:
+      summary: discard the pending update to a published hub project
+      description: |
+        Requires the caller to be a workspace admin. Forwards the request to the
+        configured Hub scoped to the `{workspace}:{folder}` source and returns
+        the Hub's status code and raw response body. The published project is
+        left untouched.
+      operationId: discardHubProjectUpdate
+      tags:
+        - hubPublish
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: slug
+          in: path
+          required: true
+          description: hub project slug (3-50 chars, lowercase alphanumeric and hyphens, no leading/trailing hyphen)
+          schema:
+            type: string
+            minLength: 3
+            maxLength: 50
+            pattern: "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+        - $ref: "#/components/parameters/HubPublishFolder"
+      responses:
+        "200":
+          description: raw Hub response body (status code is passed through from the Hub)
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/hub/project:
     get:
       summary: get the hub project linked to a workspace folder
@@ -27924,7 +28022,10 @@ components:
           type: string
         args:
           $ref: "#/components/schemas/ScriptArgs"
-        result: {}
+        result:
+          description: |
+            For large results, this may be the placeholder string 'WINDMILL_TOO_BIG'.
+            Use the completed job result endpoint to retrieve the full result.
         logs:
           type: string
         deleted:
@@ -30204,7 +30305,9 @@ components:
           description: "Origins allowed to call this route cross-origin, matched against the request's Origin header (ignoring case) and echoed back on a match. When set, the list governs both the preflight and the response, overriding any Access-Control-Allow-Origin the runnable returns via wm_headers. Use ['*'] to opt out of any restriction, including the http_route_default_allowed_origins instance setting. When null, the instance setting applies, or Access-Control-Allow-Origin: * if it is unset."
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30299,7 +30402,9 @@ components:
           description: "Origins allowed to call this route cross-origin, matched against the request's Origin header (ignoring case) and echoed back on a match. When set, the list governs both the preflight and the response, overriding any Access-Control-Allow-Origin the runnable returns via wm_headers. Use ['*'] to opt out of any restriction, including the http_route_default_allowed_origins instance setting. When null, the instance setting applies, or Access-Control-Allow-Origin: * if it is unset."
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30401,7 +30506,9 @@ components:
           description: "Origins allowed to call this route cross-origin, matched against the request's Origin header (ignoring case) and echoed back on a match. When set, the list governs both the preflight and the response, overriding any Access-Control-Allow-Origin the runnable returns via wm_headers. Use ['*'] to opt out of any restriction, including the http_route_default_allowed_origins instance setting. When null, the instance setting applies, or Access-Control-Allow-Origin: * if it is unset."
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30593,7 +30700,9 @@ components:
           description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
@@ -30658,7 +30767,9 @@ components:
           description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
@@ -30734,7 +30845,9 @@ components:
           description: Optional periodic heartbeat message configuration
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           description: Arguments to pass to the error handler
           $ref: "#/components/schemas/ScriptArgs"
@@ -30862,7 +30975,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30913,7 +31028,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -30977,7 +31094,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31060,7 +31179,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31101,7 +31222,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31155,7 +31278,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31553,7 +31678,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31655,7 +31782,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31711,7 +31840,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31839,7 +31970,9 @@ components:
           description: Timestamp of last server heartbeat (internal)
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31879,7 +32012,9 @@ components:
           description: Configuration for creating/managing the publication (tables, operations)
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -31931,7 +32066,9 @@ components:
           description: Configuration for creating/managing the publication (tables, operations)
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -32008,7 +32145,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -32072,7 +32211,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -32147,7 +32288,9 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -32210,7 +32353,9 @@ components:
           description: Last error message if the trigger failed
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -32258,7 +32403,9 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler
@@ -32317,7 +32464,9 @@ components:
           description: True if script_path points to a flow, false if it points to a script
         error_handler_path:
           type: string
-          description: Path to a script or flow to run when the triggered job fails
+          description: Path to a script to run when the triggered job fails. A bare
+            path, without the script/ or flow/ prefix a schedule error handler takes;
+            it cannot be a flow.
         error_handler_args:
           $ref: "#/components/schemas/ScriptArgs"
           description: Arguments to pass to the error handler

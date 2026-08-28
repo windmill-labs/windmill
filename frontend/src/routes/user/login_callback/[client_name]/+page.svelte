@@ -64,7 +64,10 @@
 				try {
 					const globalUserInfo = await UserService.globalWhoami()
 					if (globalUserInfo.first_time_user) {
-						goto('/user/onboarding')
+						// `rd` rides along: someone arriving from a shared hub project signs up with a
+						// destination already in hand, and dropping it here strands them in an empty
+						// workspace with no sign of what they came to import.
+						goto(`/user/onboarding${rd ? `?rd=${encodeURIComponent(rd)}` : ''}`)
 						return
 					}
 				} catch (err) {

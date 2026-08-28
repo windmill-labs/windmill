@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
@@ -29,8 +30,11 @@ lazy_static::lazy_static! {
     pub static ref HTTP_ROUTERS_CACHE: RwLock<RoutersCache> = RwLock::new(RoutersCache {
         routers: HashMap::new(),
         version: 0,
+        invalidations: 0,
     });
 }
+
+static HTTP_ROUTERS_INVALIDATIONS: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct TriggerRoute {
@@ -59,6 +63,10 @@ pub struct TriggerRoute {
 pub struct RoutersCache {
     pub routers: HashMap<HttpMethod, matchit::Router<TriggerRoute>>,
     pub version: i64,
+    /// `HTTP_ROUTERS_INVALIDATIONS` as of the moment these rows were read. A rebuild that
+    /// started before an invalidation publishes a count behind the current one, which is what
+    /// stops it from passing its own stale rows off as covering that invalidation.
+    invalidations: u64,
 }
 
 #[derive(Serialize, Deserialize, sqlx::Type, Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -275,12 +283,24 @@ pub fn validate_authentication_method(
     }
 }
 
-pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, RoutersCache>)> {
+/// `force` rebuilds unconditionally. `nextval` on `http_trigger_version_seq` runs inside the
+/// writing transaction and sequences are non-transactional, so another session can cache the
+/// bumped version against still-uncommitted rows, after which every version-gated refresh is a
+/// no-op. Force when reacting to a bump that could have been observed before its own rows were.
+pub async fn refresh_routers(
+    db: &DB,
+    force: bool,
+) -> Result<(bool, RwLockReadGuard<'_, RoutersCache>)> {
+    let invalidations = HTTP_ROUTERS_INVALIDATIONS.load(Ordering::Relaxed);
     let version = sqlx::query_scalar!("SELECT last_value FROM http_trigger_version_seq",)
         .fetch_one(db)
         .await?;
     let routers_cache = HTTP_ROUTERS_CACHE.read().await;
-    if routers_cache.version == 0 || version > routers_cache.version {
+    if force
+        || routers_cache.version == 0
+        || version > routers_cache.version
+        || invalidations != routers_cache.invalidations
+    {
         drop(routers_cache);
         let mut routers = HashMap::new();
 
@@ -360,7 +380,7 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
         }
 
         let mut routers_cache = HTTP_ROUTERS_CACHE.write().await;
-        *routers_cache = RoutersCache { routers, version };
+        *routers_cache = RoutersCache { routers, version, invalidations };
 
         Ok((true, routers_cache.downgrade()))
     } else {
@@ -369,11 +389,19 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
     }
 }
 
+/// Record that the cache no longer covers everything committed, so the next refresh rebuilds
+/// whatever the version says. The routes already loaded keep being served in the meantime. Use
+/// after a forced refresh fails: its change is inside the cached version, so nothing else would
+/// retry it.
+pub fn invalidate_routers() {
+    HTTP_ROUTERS_INVALIDATIONS.fetch_add(1, Ordering::Relaxed);
+}
+
 pub async fn refresh_routers_loop(
     db: &DB,
     mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) -> () {
-    match refresh_routers(db).await {
+    match refresh_routers(db, false).await {
         Ok(_) => {
             tracing::info!("Loaded HTTP routers");
         }
@@ -389,7 +417,7 @@ pub async fn refresh_routers_loop(
                     break;
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_secs(60)) => {
-                    match refresh_routers(&db).await {
+                    match refresh_routers(&db, false).await {
                         Ok((true, _)) => {
                             tracing::info!("Refreshed HTTP routers");
                         }

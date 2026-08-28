@@ -235,7 +235,11 @@ async fn clearing_one_version_leaves_the_others(db: Pool<Postgres>) {
     // this is where two versions coexist: it pins the batched edge insert
     // against a real database as well as the version scoping.
     assert_eq!(edges_for(&db, 1).await, 0, "the cleared version's edges go");
-    assert_eq!(edges_for(&db, 2).await, 1, "the other version keeps its own");
+    assert_eq!(
+        edges_for(&db, 2).await,
+        1,
+        "the other version keeps its own"
+    );
 }
 
 /// The routes that hard-delete a path clear no graph rows: they delete the
@@ -363,7 +367,11 @@ async fn only_the_newest_deploys_keep_their_graph(db: Pool<Postgres>) {
     // The newest is always among them: losing the live version's graph would
     // empty the page of every run of it.
     assert_eq!(nodes_for(&db, over, DEPLOYED_GRAPH).await, 1);
-    assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0, "the oldest is reclaimed");
+    assert_eq!(
+        nodes_for(&db, 1, DEPLOYED_GRAPH).await,
+        0,
+        "the oldest is reclaimed"
+    );
 }
 
 /// The third provenance: a `parse` of the EDITOR's buffer, which names no
@@ -480,17 +488,27 @@ async fn a_version_clear_spares_editor_graphs_and_a_path_clear_does_not(db: Pool
     replace_dbt_editor_graph(&mut tx, WS, PATH, job, ME, &manifest(&["a"]), "root")
         .await
         .unwrap();
-    clear_dbt_manifest_version(&mut tx, WS, PATH, 1).await.unwrap();
+    clear_dbt_manifest_version(&mut tx, WS, PATH, 1)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
 
     assert_eq!(nodes_for(&db, 1, DEPLOYED_GRAPH).await, 0);
-    assert_eq!(editor_nodes(&db, job).await, 1, "the buffer's graph survives");
+    assert_eq!(
+        editor_nodes(&db, job).await,
+        1,
+        "the buffer's graph survives"
+    );
 
     let mut tx = db.begin().await.unwrap();
     clear_dbt_editor_graphs(&mut tx, WS, PATH).await.unwrap();
     tx.commit().await.unwrap();
 
-    assert_eq!(editor_nodes(&db, job).await, 0, "retiring the path takes it");
+    assert_eq!(
+        editor_nodes(&db, job).await,
+        0,
+        "retiring the path takes it"
+    );
 }
 
 /// A preview names its own PATH and needs only `jobs:run`, so a bound over the

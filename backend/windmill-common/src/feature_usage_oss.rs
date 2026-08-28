@@ -8,12 +8,7 @@
 use sqlx::{Pool, Postgres};
 
 /// No action is recordable in the public build.
-pub fn is_recordable_event(
-    _feature: &str,
-    _kind: &str,
-    _key: &str,
-    _entity_id: &str,
-) -> bool {
+pub fn is_recordable_event(_feature: &str, _kind: &str, _key: &str, _entity_id: &str) -> bool {
     false
 }
 

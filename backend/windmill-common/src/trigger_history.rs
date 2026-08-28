@@ -513,8 +513,10 @@ mod tests {
     /// failure the trigger had before it.
     #[test]
     fn diff_keeps_only_what_changed() {
-        let before = json!({"schedule": "0 0 * * *", "enabled": true, "edited_at": "a", "error": "boom"});
-        let after = json!({"schedule": "0 1 * * *", "enabled": true, "edited_at": "b", "error": null});
+        let before =
+            json!({"schedule": "0 0 * * *", "enabled": true, "edited_at": "a", "error": "boom"});
+        let after =
+            json!({"schedule": "0 1 * * *", "enabled": true, "edited_at": "b", "error": null});
         assert_eq!(
             summarize_changes(Some(&before), Some(&after)),
             Some(json!({"schedule": {"old": "0 0 * * *", "new": "0 1 * * *"}}))

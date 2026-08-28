@@ -28,8 +28,7 @@
 #[cfg(all(feature = "private", feature = "enterprise"))]
 mod tests {
     use windmill_common::secret_backend::{
-        test_aws_sm_connection, AwsSecretsManagerBackend, AwsSecretsManagerSettings,
-        SecretBackend,
+        test_aws_sm_connection, AwsSecretsManagerBackend, AwsSecretsManagerSettings, SecretBackend,
     };
 
     fn should_run_aws_sm_tests() -> bool {
@@ -81,10 +80,16 @@ mod tests {
             .set_secret("test-ws", "u/admin/my_secret", "super-secret-value")
             .await
             .unwrap();
-        let value = backend.get_secret("test-ws", "u/admin/my_secret").await.unwrap();
+        let value = backend
+            .get_secret("test-ws", "u/admin/my_secret")
+            .await
+            .unwrap();
         assert_eq!(value, "super-secret-value");
 
-        backend.delete_secret("test-ws", "u/admin/my_secret").await.unwrap();
+        backend
+            .delete_secret("test-ws", "u/admin/my_secret")
+            .await
+            .unwrap();
         println!("  ✓ Create + Get + Delete roundtrip passed");
     }
 

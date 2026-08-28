@@ -199,6 +199,7 @@ async fn handle_build_binary_job(
                 worker_name,
                 base_internal_url,
                 occupancy_metrics,
+                script_data.modules.as_ref(),
             )
             .await?
         }
@@ -214,6 +215,7 @@ async fn handle_build_binary_job(
                 worker_name,
                 base_internal_url,
                 occupancy_metrics,
+                script_data.modules.as_ref(),
             )
             .await?
         }
@@ -235,6 +237,7 @@ async fn handle_build_binary_job(
                 worker_name,
                 base_internal_url,
                 occupancy_metrics,
+                script_data.modules.as_ref(),
             )
             .await?
         }
@@ -3155,7 +3158,11 @@ async fn capture_dependency_job(
             )
             .await?
             {
-                if !wd_exist {
+                // Nothing here writes the module files, so a bundle built now resolves a
+                // multi-file script's relative imports remotely rather than from its
+                // modules; caching that under a key naming them would serve the wrong
+                // code to every run. Leave it to the first run instead.
+                if !wd_exist && modules.map_or(true, |m| m.is_empty()) {
                     crate::bun_executor::prebundle_bun_script(
                         job_raw_code,
                         &lock,
@@ -3169,6 +3176,7 @@ async fn capture_dependency_job(
                         &token,
                         &mut Some(occupancy_metrics),
                         temp_script_refs,
+                        modules,
                     )
                     .await?;
                 }

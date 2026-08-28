@@ -286,13 +286,24 @@ async fn test_jobs_authed_reachability(db: Pool<Postgres>) -> anyhow::Result<()>
         "GET /jobs/result_by_id",
     );
 
+    // Sent the way the generated client sends it. A handler whose `Path` tuple has drifted from
+    // the route is rejected by axum before it runs, which surfaces as a routing error rather
+    // than the handler's own answer, so reaching the handler is what this pins.
     let resp = authed(client().post(format!("{base}/restart/f/{fake}")))
+        .json(&json!({ "step_id": "a" }))
         .send()
         .await?;
-    assert_route_reachable(
-        resp.status().as_u16(),
-        &resp.text().await?,
-        "POST /jobs/restart/f",
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_route_reachable(status, &body, "POST /jobs/restart/f");
+    assert!(
+        !body.contains("path arguments"),
+        "POST /jobs/restart/f never reached its handler: {status} {body}",
+    );
+    #[cfg(not(feature = "enterprise"))]
+    assert!(
+        body.contains("only available in enterprise version"),
+        "POST /jobs/restart/f must report the enterprise gate outside EE: {status} {body}",
     );
 
     let resp = authed(client().post(format!("{base}/run/workflow_as_code/{fake}/main")))

@@ -190,6 +190,8 @@ pub async fn create_dataset(
     }
     tx.commit().await?;
 
+    windmill_common::feature_usage::log_feature_usage("ai_agent_eval", "dataset_created", "");
+
     Ok(format!("Created eval dataset {}", payload.path))
 }
 

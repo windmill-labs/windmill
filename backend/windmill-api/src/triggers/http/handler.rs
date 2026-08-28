@@ -114,7 +114,7 @@ async fn resolve_cors_route(
 
     let routers_cache = if routers_cache.routers.is_empty() {
         drop(routers_cache);
-        match refresh_routers(db).await {
+        match refresh_routers(db, false).await {
             Ok((_, routers_cache)) => routers_cache,
             Err(err) => {
                 tracing::error!("Could not load HTTP routers to resolve CORS: {err:#}");
@@ -284,7 +284,9 @@ async fn get_http_route_trigger(
 
     let routers_cache = if routers_cache.routers.is_empty() {
         tracing::warn!("HTTP routers are not loaded, loading from db");
-        let (_, routers_cache) = refresh_routers(db).await?;
+        // refresh_routers takes the write lock, so holding this read guard across it deadlocks.
+        drop(routers_cache);
+        let (_, routers_cache) = refresh_routers(db, false).await?;
         routers_cache
     } else {
         routers_cache

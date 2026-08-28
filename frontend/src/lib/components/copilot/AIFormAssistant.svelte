@@ -5,6 +5,7 @@
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { AIBtnClasses } from './chat/AIButtonStyle'
 	import { workspaceStore } from '$lib/stores'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	interface Props {
 		onEditInstructions: () => void
@@ -15,7 +16,16 @@
 
 	const { onEditInstructions, instructions, runnableType, path }: Props = $props()
 
+	// Anonymous counter for this card being acted on, keyed by what it sits above. The two
+	// branches share one counter: they are the same intent, and which of them is on screen
+	// follows the user's session gate rather than a choice made here. `beforeOpen` is the
+	// hand-off's only per-click hook, and it runs before anything can turn the click away.
+	function logAsked() {
+		logFeatureUsage('run_form', 'ai_fill', { key: runnableType })
+	}
+
 	async function fillFormWithAI() {
+		logAsked()
 		aiChatManager.openChat()
 		aiChatManager.askAi(`Analyze the ${runnableType} form on this page and fill the inputs for me`)
 	}
@@ -29,6 +39,7 @@
 			? {
 					target: { kind: runnableType, path } as const,
 					workspaceId: $workspaceStore ?? undefined,
+					beforeOpen: logAsked,
 					seedPrompt:
 						`Run the deployed ${runnableType} \`${path}\` for me. Pick sensible inputs, ` +
 						`tell me what you chose, then run it.` +
