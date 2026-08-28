@@ -3186,6 +3186,11 @@ export function secretBearingObjectKind(
   p: string,
 ): "variable" | "resource" | undefined {
   if (isFilesetResource(p)) return undefined;
+  // The apply loop `continue`s past a `.lock` deletion before reaching the switch,
+  // so counting one would announce a deletion the push never performs. A raw-app or
+  // dbt `.lock`, the two that loop does not skip, classifies as its bundle's own kind
+  // long before the file-resource check, so a plain suffix test is enough here.
+  if (p.endsWith(".lock")) return undefined;
   let typ: string;
   try {
     typ = getTypeStrFromPath(p);

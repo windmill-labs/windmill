@@ -34,6 +34,10 @@ describe("secretBearingObjectKind", () => {
       "f/test/data.fileset/edge/inner.resource.yaml",
       "f/test/bar.script.yaml",
       "f/test/foo.flow/flow.yaml",
+      // The apply loop skips a `.lock` deletion outright, so counting one would
+      // announce a deletion that never happens. Reachable for a resource type whose
+      // format_extension is literally `lock`.
+      "f/test/conf.resource.file.lock",
     ]) {
       expect(secretBearingObjectKind(p)).toBeUndefined();
     }
