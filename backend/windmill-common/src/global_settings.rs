@@ -352,10 +352,11 @@ pub fn parse_allowed_origins_setting(
                     HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
                 ))),
             })
-            .collect::<crate::error::Result<Vec<_>>>()?
-            .into_iter()
-            .filter(|origin| !origin.is_empty())
-            .collect(),
+            // Not filtered for empties, unlike the string form: there a
+            // trailing separator naturally yields an empty token, whereas an
+            // empty array entry is something the caller wrote and validation
+            // should reject rather than silently drop.
+            .collect::<crate::error::Result<Vec<_>>>()?,
         Some(_) => {
             return Err(crate::error::Error::BadRequest(format!(
                 "{} expected to be a comma-separated string or an array of strings",

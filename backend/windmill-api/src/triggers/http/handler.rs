@@ -255,9 +255,12 @@ async fn conditional_cors_middleware(
         }
         // Whether this path is restricted could not be determined, and
         // `route_job` may still have served a restricted route behind this
-        // middleware. Emitting the permissive default would hand that response
-        // to any origin, so emit nothing at all.
-        CorsDecision::Unavailable => {}
+        // middleware. Emitting nothing is not enough: the runnable may have set
+        // its own `Access-Control-Allow-Origin` through `wm_headers`, and
+        // leaving that in place would hand the response to whatever it names.
+        CorsDecision::Unavailable => {
+            headers.remove(http::header::ACCESS_CONTROL_ALLOW_ORIGIN);
+        }
         CorsDecision::Unrestricted => {
             if !not_insert_origin {
                 headers.insert(

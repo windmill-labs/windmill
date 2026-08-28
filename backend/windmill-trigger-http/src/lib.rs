@@ -745,6 +745,20 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_allowed_origins_setting_rejects_empty_array_entries() {
+        use windmill_common::global_settings::parse_allowed_origins_setting;
+        // A trailing separator in the string form is a typing artifact and is
+        // dropped; an empty array entry is something the caller wrote, so it
+        // must reach validation rather than be filtered away into an empty
+        // (and therefore unrestricted) default.
+        assert!(parse_allowed_origins_setting(Some(&serde_json::json!("https://a.com,"))).is_ok());
+        assert!(parse_allowed_origins_setting(Some(&serde_json::json!([""]))).is_err());
+        assert!(
+            parse_allowed_origins_setting(Some(&serde_json::json!(["https://a.com", ""]))).is_err()
+        );
+    }
+
+    #[test]
     fn test_validate_allowed_origins_bounds_the_list() {
         // An allowlist is scanned on every request to a restricted route, the
         // unauthenticated preflight included, so its size is a cost anyone can
