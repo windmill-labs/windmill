@@ -24,6 +24,14 @@ lazy_static::lazy_static! {
         .ok()
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
+    /// A Google Cloud project can have explicit prompt caching turned off (by request to
+    /// Cloud support), and Vertex then rejects any request carrying cache breakpoints.
+    /// Such a project needs this to run Anthropic agent steps at all.
+    pub static ref DISABLE_ANTHROPIC_PROMPT_CACHING: bool =
+        std::env::var("DISABLE_ANTHROPIC_PROMPT_CACHING")
+            .ok()
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
 }
 
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";

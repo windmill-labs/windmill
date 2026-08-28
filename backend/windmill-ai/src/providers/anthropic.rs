@@ -1,7 +1,7 @@
 use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_google::parse_data_url,
-    ai_providers::{AIPlatform, AIProvider},
+    ai_providers::{AIPlatform, AIProvider, DISABLE_ANTHROPIC_PROMPT_CACHING},
     image_handler::prepare_messages_for_api,
     proxy::{
         add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
@@ -632,11 +632,13 @@ impl AnthropicQueryBuilder {
             }
         }
 
+        let caching = !*DISABLE_ANTHROPIC_PROMPT_CACHING;
+
         let system = collect_system_prompt(&prepared_messages, args.system_prompt).map(|text| {
             vec![AnthropicSystemContent {
                 r#type: "text".to_string(),
                 text,
-                cache_control: Some(CacheControl::ephemeral()),
+                cache_control: caching.then(CacheControl::ephemeral),
             }]
         });
 
@@ -661,23 +663,27 @@ impl AnthropicQueryBuilder {
         let max_tokens = Some(args.max_tokens.unwrap_or(64000));
 
         // Apply cache_control on the last custom tool
-        if let Some(ref mut tools_vec) = tools_option {
-            if let Some(AnthropicTool::Custom(ref mut custom)) = tools_vec.last_mut() {
-                custom.cache_control = Some(CacheControl::ephemeral());
+        if caching {
+            if let Some(ref mut tools_vec) = tools_option {
+                if let Some(AnthropicTool::Custom(ref mut custom)) = tools_vec.last_mut() {
+                    custom.cache_control = Some(CacheControl::ephemeral());
+                }
             }
         }
 
         // Apply cache_control on the last content block of the last message
-        if let Some(last_msg) = anthropic_messages.last_mut() {
-            if let Some(last_block) = last_msg.content.last_mut() {
-                match last_block {
-                    AnthropicRequestContent::Text { cache_control, .. } => {
-                        *cache_control = Some(CacheControl::ephemeral());
+        if caching {
+            if let Some(last_msg) = anthropic_messages.last_mut() {
+                if let Some(last_block) = last_msg.content.last_mut() {
+                    match last_block {
+                        AnthropicRequestContent::Text { cache_control, .. } => {
+                            *cache_control = Some(CacheControl::ephemeral());
+                        }
+                        AnthropicRequestContent::ToolResult { cache_control, .. } => {
+                            *cache_control = Some(CacheControl::ephemeral());
+                        }
+                        _ => {}
                     }
-                    AnthropicRequestContent::ToolResult { cache_control, .. } => {
-                        *cache_control = Some(CacheControl::ephemeral());
-                    }
-                    _ => {}
                 }
             }
         }
@@ -968,8 +974,8 @@ mod tests {
             let request: serde_json::Value = serde_json::from_str(&body).unwrap();
 
             assert_eq!(request["system"][0]["cache_control"], ephemeral);
-            let tools = request["tools"].as_array().unwrap();
-            assert_eq!(tools.last().unwrap()["cache_control"], ephemeral);
+            let sent_tools = request["tools"].as_array().unwrap();
+            assert_eq!(sent_tools.last().unwrap()["cache_control"], ephemeral);
             let sent = request["messages"].as_array().unwrap();
             let content = sent.last().unwrap()["content"].as_array().unwrap();
             assert_eq!(content.last().unwrap()["cache_control"], ephemeral);
