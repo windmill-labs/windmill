@@ -39,12 +39,6 @@ use {
     windmill_object_store::build_object_store_client,
 };
 
-/// The route a CORS decision is about, resolved before the request is consumed.
-struct CorsRoute {
-    allowed_origins: Option<Vec<String>>,
-    http_method: HttpMethod,
-}
-
 /// Which router a request's CORS decision must be looked up in.
 ///
 /// A preflight names the method it is asking about in
@@ -90,14 +84,6 @@ fn cors_lookup_path(raw_path: &str) -> Option<String> {
     // trailing ones, before a single `/` is prefixed back on.
     let stripped = decoded.strip_prefix('/').unwrap_or(&decoded);
     Some(format!("/{}", stripped.trim_end_matches('/')))
-}
-
-enum CorsRouteLookup {
-    /// The routers were readable: `Some` when a trigger matched the request.
-    Resolved(Option<CorsRoute>),
-    /// The routers could not be loaded, so whether this path is restricted is
-    /// unknown.
-    Unavailable,
 }
 
 /// What the middleware should stamp, decided while the routers guard is held.
