@@ -20,7 +20,7 @@
 		type ResourceType
 	} from '$lib/gen'
 	import { emptyString, truncateRev, urlize } from '$lib/utils'
-	import oauthConnectRegistry from '$oauth_connect_registry'
+	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
 	import { createEventDispatcher, onDestroy, tick, untrack } from 'svelte'
 	import Path from './Path.svelte'
 	import { Button, RadioCard, Skeleton } from './common'
@@ -52,6 +52,15 @@
 		manual?: boolean
 		express?: boolean
 		workspace?: string
+		/**
+		 * Fill an existing resource instead of creating one. The path is fixed to it and the
+		 * "already exists" guard becomes an update, so a caller holding a resource that is
+		 * already there — the import wizard's empty stubs — can connect into it rather than
+		 * making the user delete it first and retype the path.
+		 *
+		 * Opt-in: without it this flow still refuses to write over anything.
+		 */
+		fillPath?: string
 	}
 
 	let {
@@ -61,7 +70,8 @@
 		disabled = $bindable(false),
 		manual = $bindable(true),
 		express = false,
-		workspace = undefined
+		workspace = undefined,
+		fillPath = undefined
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
@@ -98,10 +108,6 @@
 		return connectsInfo[key]?.has_shared_credentials ?? false
 	}
 
-	const SANDBOX_SUFFIX = '_sandbox'
-	function stripSandboxSuffix(name: string): string {
-		return name.endsWith(SANDBOX_SUFFIX) ? name.slice(0, -SANDBOX_SUFFIX.length) : name
-	}
 	// `resourceType` is always the canonical type (e.g. `docusign`) so resource
 	// rows are uniform. `connectClient` carries the suffixed OAuth client name
 	// (e.g. `docusign_sandbox`) used to look up credentials/URLs at runtime
@@ -195,16 +201,16 @@
 	let resourceTypeInfo: ResourceType | undefined = $state(undefined)
 	let resourceTypeNotFound = $state(false)
 
+	// Both resolve `_sandbox` clients to their parent entry (e.g. salesforce_sandbox ->
+	// salesforce) so sandbox connections see the same metadata. Shared with callers that
+	// decide whether to open this dialog at all, so the two cannot disagree.
 	function registryEntry(): any {
-		const reg = oauthConnectRegistry as Record<string, any>
-		// Resolve `_sandbox` clients to their parent registry entry (e.g.
-		// salesforce_sandbox -> salesforce) so sandbox connections see CC metadata.
-		return reg[stripSandboxSuffix(connectClient)] ?? reg[stripSandboxSuffix(resourceType)]
+		return registryEntryFor(connectClient, resourceType)
 	}
 
 	/** The static registry declares this provider supports client credentials */
 	function registryCcCapable(): boolean {
-		return registryEntry()?.grant_types?.includes('client_credentials') ?? false
+		return registryCcCapableFor(connectClient, resourceType)
 	}
 
 	/** Instance-name metadata for providers whose token URL is instance-templated
@@ -289,11 +295,7 @@
 
 	/** Static registry declares client-credentials support for `key`. */
 	function isCcCapable(key: string): boolean {
-		return (
-			(oauthConnectRegistry as Record<string, any>)[stripSandboxSuffix(key)]?.grant_types?.includes(
-				'client_credentials'
-			) ?? false
-		)
+		return registryCcCapableFor(key)
 	}
 
 	/** Step-1 "Others" selection: CC-capable resource types open the client-
@@ -553,8 +555,9 @@
 			valueToken = data.res
 			responseExtra = data.extra ?? {}
 			step = 4
-			if (express) {
-				path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+			// `fillPath` decides the path as surely as express does, so neither stops here.
+			if (fillPath || express) {
+				path = fillPath ?? `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
 				next()
 			}
 		}
@@ -689,8 +692,8 @@
 						grant_type: 'client_credentials' // Mark this token as client_credentials
 					}
 					step = 4
-					if (express) {
-						path = `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+					if (fillPath || express) {
+						path = fillPath ?? `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
 						next()
 					}
 				} catch (error) {
@@ -749,7 +752,41 @@
 				path
 			})
 
-			if (exists) {
+			// Filling one names its path up front; anything else reaching an occupied path got
+			// there by the user typing it, which is the case worth refusing.
+			//
+			// The type is checked here and not only by the caller: `fillPath` says "write into
+			// this path", and a path says nothing about what lives at it. A workspace resource
+			// of another type sitting where the project wanted one of ours would otherwise have
+			// its value replaced with credentials for a different provider, while keeping its
+			// own type — destroying a working resource that has nothing to do with the import.
+			const filling = exists && !!fillPath && path === fillPath
+			if (filling) {
+				// Fails closed. Only a read that succeeds and answers with exactly this type
+				// permits the write — a failed read, a missing type, or any other type all
+				// refuse. Letting "could not tell" through is how the overwrite this guard
+				// exists to stop would happen anyway, on the one occasion the check was needed
+				// and could not run.
+				let occupantType: string | undefined
+				try {
+					occupantType = (
+						await ResourceService.getResource({ workspace: effectiveWorkspace, path })
+					)?.resource_type
+				} catch (e: any) {
+					throw Error(
+						`Could not read what is already at ${path} (${e?.body ?? e?.message ?? e}), ` +
+							`so it will not be written over. Try again.`
+					)
+				}
+				if (occupantType !== resourceType) {
+					throw Error(
+						`Resource at path ${path} is ${
+							occupantType ? `a ${occupantType} resource` : 'of an unknown type'
+						}, not ${resourceType}. Move or rename it, then import again.`
+					)
+				}
+			}
+			if (exists && !filling) {
 				throw Error(`Resource at path ${path} already exists. Delete it or pick another path`)
 			}
 
@@ -760,8 +797,7 @@
 			// the user entered in `ccInstance` (raw, possibly a full host); the shared
 			// path carries it (already normalized) in the connect entry's extra_params.
 			// Prefer the user-entered one so the saved resource matches the exchange.
-			const connectTemplate = (oauthConnectRegistry as Record<string, any>)[resourceType]
-				?.connect_config_template
+			const connectTemplate = registryEntryFor(resourceType)?.connect_config_template
 			if (connectTemplate?.resource_mapping) {
 				const instanceKey = connectTemplate.extra_params_key ?? 'instance'
 				let instanceValue = extra_params.find(([key, _]) => key === instanceKey)?.[1] ?? ''
@@ -895,17 +931,27 @@
 				}
 			}
 
-			await ResourceService.createResource({
-				workspace: effectiveWorkspace,
-				requestBody: {
-					resource_type: resourceType,
+			if (filling) {
+				// The stub the import made carries no description, so this is the one chance to
+				// give it one; its resource_type and path are already what we want.
+				await ResourceService.updateResource({
+					workspace: effectiveWorkspace,
 					path,
-					value: resourceValue,
-					description,
-					labels,
-					ws_specific: wsSpecific
-				}
-			})
+					requestBody: { value: resourceValue, description }
+				})
+			} else {
+				await ResourceService.createResource({
+					workspace: effectiveWorkspace,
+					requestBody: {
+						resource_type: resourceType,
+						path,
+						value: resourceValue,
+						description,
+						labels,
+						ws_specific: wsSpecific
+					}
+				})
+			}
 			dispatch('refresh', path)
 			dispatch('close')
 			sendUserToast(
@@ -1395,7 +1441,13 @@
 								{/if}
 							</div>
 						{:else}
-							<div class="flex flex-col gap-2 mb-2">
+							<!-- role=radiogroup: the cards below carry `role="radio"`, which a screen
+							     reader can only place ("2 of 2") inside a named group. -->
+							<div
+								class="flex flex-col gap-2 mb-2"
+								role="radiogroup"
+								aria-label="How to authenticate"
+							>
 								<RadioCard
 									label={`Sign in through ${resourceType}`}
 									description="Opens a browser window to log in and authorize. Connects as you."

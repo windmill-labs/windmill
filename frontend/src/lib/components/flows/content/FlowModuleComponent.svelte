@@ -1208,6 +1208,7 @@
 														: undefined}
 													helperScript={retrieveDynCodeAndLang(flowModule.value)}
 													chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
+													workspace={opWs}
 												/>
 												{#if agentLinked}
 													<!-- Linked agent: the resource's tools with their inputs rebindable to this
