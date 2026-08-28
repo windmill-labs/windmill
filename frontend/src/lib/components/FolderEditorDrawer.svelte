@@ -25,9 +25,8 @@
 	let saving = $state(false)
 	let confirmDiscardOpen = $state(false)
 	let discarding = $state(false)
-	let editor:
-		| { save: () => Promise<{ name: string; created: boolean } | undefined> }
-		| undefined = $state()
+	let editor: { save: () => Promise<{ name: string; created: boolean } | undefined> } | undefined =
+		$state()
 	// Bumped per open so the editor reloads its draft from the folder it is now
 	// pointed at. Keying on `name` instead would remount on every keystroke of the
 	// name field in `new` mode.
@@ -107,16 +106,22 @@
 		title={mode === 'new' ? 'Create folder' : `Folder ${name}`}
 		on:close={requestClose}
 	>
-		{#key instance}
-			<FolderEditor
-				bind:this={editor}
-				bind:name
-				{mode}
-				{workspace}
-				onCanSaveChange={(v) => (canSave = v)}
-				onUnsavedChange={(v) => (unsaved = v)}
-			/>
-		{/key}
+		<!-- `save()` snapshots the draft and then awaits several requests. An edit landing in
+		     that window would not be in the snapshot, and the drawer closes on success — so
+		     it would be lost without ever being offered as unsaved. `inert` keeps the form
+		     from taking one. -->
+		<div inert={saving} class={saving ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+			{#key instance}
+				<FolderEditor
+					bind:this={editor}
+					bind:name
+					{mode}
+					{workspace}
+					onCanSaveChange={(v) => (canSave = v)}
+					onUnsavedChange={(v) => (unsaved = v)}
+				/>
+			{/key}
+		</div>
 		{#snippet actions()}
 			<Button
 				variant="accent"
