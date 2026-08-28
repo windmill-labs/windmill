@@ -11,7 +11,11 @@
 <script lang="ts">
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
 	import { ChevronLeft, ChevronRight } from 'lucide-svelte'
-	import { getOverlayHost, overlayHostActive } from '$lib/components/common/overlayHost.svelte'
+	import {
+		getOverlayHost,
+		overlayHostActive,
+		setTopmostSurface
+	} from '$lib/components/common/overlayHost.svelte'
 
 	const bubble = createBubbler()
 	import { createEventDispatcher, untrack } from 'svelte'
@@ -90,6 +94,10 @@
 	// and positioned against it, so the dialog covers that pane rather than the whole app.
 	// Both halves are required — `absolute` resolves against the nearest positioned DOM
 	// ancestor, which without the portal is whatever box the caller happens to sit in.
+	// So content in the body can tell a key meant for this dialog from one meant for whatever has
+	// been opened over it. Read lazily: `disposable` is bound after this runs.
+	setTopmostSurface(() => disposable?.isTopmost() ?? true)
+
 	const overlayHost = getOverlayHost()
 	const hostEl = $derived(overlayHost?.el())
 	const posClass = $derived(hostEl ? 'absolute' : 'fixed')

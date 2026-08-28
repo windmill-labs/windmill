@@ -8,6 +8,8 @@
 </script>
 
 <script lang="ts">
+	import { overlayHostActive, topmostSurface } from '$lib/components/common/overlayHost.svelte'
+
 	let {
 		pages,
 		current,
@@ -56,6 +58,13 @@
 
 	let box: HTMLDivElement | undefined = $state()
 
+	// A window listener answers keys aimed anywhere, so it has to ask two questions the DOM cannot:
+	// is my host the visible one — session preview tabs stay mounted when hidden — and is my surface
+	// still the one on top, rather than under a drawer or a dialog opened since.
+	const hostActive = overlayHostActive()
+	const onTop = topmostSurface()
+	const listening = () => hostActive() && onTop()
+
 	/** Whether the keyboard is ours to answer.
 	 *
 	 *  Deliberately not "focus is inside the pages". Navigating leaves focus wherever the page that
@@ -70,7 +79,7 @@
 	}
 
 	function onKeydown(event: KeyboardEvent) {
-		if (!onNavigate || event.metaKey || event.ctrlKey || event.altKey) return
+		if (!onNavigate || !listening() || event.metaKey || event.ctrlKey || event.altKey) return
 		if (!ownsKeyboard(event.target)) return
 		const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
 		if (step === 0) return

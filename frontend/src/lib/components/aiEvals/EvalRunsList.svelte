@@ -8,6 +8,7 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { Button } from '$lib/components/common'
 	import { Bot, ChevronRight, Code2, Loader2, Plus } from 'lucide-svelte'
+	import { overlayHostActive, topmostSurface } from '$lib/components/common/overlayHost.svelte'
 	import type { EvalDataset, EvalExperiment, ExperimentScore } from '$lib/gen'
 	import { datasetSummary, experimentName, formatScore, subjectLabel } from './evalUtils'
 
@@ -45,31 +46,45 @@
 		onNew: () => void
 	} = $props()
 
-	/** The highlighted row, or -1 for none. One state for both the pointer and the keyboard, as a
-	 *  melt menu does it: hovering a row moves the highlight to it, so the arrows carry on from
-	 *  wherever the pointer left off instead of running a second, invisible cursor of their own.
-	 *  It says where the highlight is, not what is chosen — a run is not opened until Enter. */
-	let cursor = $state(-1)
+	/** The highlighted run, by id. One state for both the pointer and the keyboard, as a melt menu
+	 *  does it: hovering a row moves the highlight to it, so the arrows carry on from wherever the
+	 *  pointer left off instead of running a second, invisible cursor of their own. It says where
+	 *  the highlight is, not what is chosen — a run is not opened until Enter.
+	 *
+	 *  By id and not by index: the list is newest-first and the poll prepends to it, so an index
+	 *  would quietly come to mean a different run and Enter would open the wrong one. */
+	let cursorId = $state<string | undefined>(undefined)
+	let cursor = $derived(
+		cursorId === undefined ? -1 : experiments.findIndex((e) => e.id === cursorId)
+	)
 	let body: HTMLTableSectionElement | undefined = $state()
 
-	// A cursor left on a row that is no longer there — a run pruned, or the list filtered — would
-	// open the wrong run on the next Enter.
+	// A window listener answers keys aimed anywhere, so it has to ask two questions the DOM cannot:
+	// is my host the visible one — session preview tabs stay mounted when hidden — and is my surface
+	// still the one on top, rather than under a drawer or a dialog opened since.
+	const hostActive = overlayHostActive()
+	const onTop = topmostSurface()
+	const listening = () => hostActive() && onTop()
+
+	// A highlight on a run that has since gone, and the highlight itself when the list is not the
+	// page on screen.
 	$effect(() => {
-		if (!active || cursor >= experiments.length) cursor = -1
+		if (!active || (cursorId !== undefined && cursor < 0)) cursorId = undefined
 	})
 
 	function move(by: number) {
 		if (experiments.length === 0) return
-		const next = cursor < 0 ? (by > 0 ? 0 : experiments.length - 1) : cursor + by
-		cursor = Math.max(0, Math.min(experiments.length - 1, next))
+		const from = cursor < 0 ? (by > 0 ? -1 : experiments.length) : cursor
+		const at = Math.max(0, Math.min(experiments.length - 1, from + by))
+		cursorId = experiments[at]?.id
 		// `nearest`, so arrowing through a long list scrolls by a row rather than jumping the table.
 		requestAnimationFrame(() =>
-			body?.querySelectorAll('tr')[cursor]?.scrollIntoView({ block: 'nearest' })
+			body?.querySelectorAll('tr')[at]?.scrollIntoView({ block: 'nearest' })
 		)
 	}
 
 	function onKeydown(event: KeyboardEvent) {
-		if (!active || event.metaKey || event.ctrlKey || event.altKey) return
+		if (!active || !listening() || event.metaKey || event.ctrlKey || event.altKey) return
 		const el = event.target as HTMLElement | null
 		if (el?.closest?.('input, textarea, select, [contenteditable="true"], [role="listbox"]')) return
 		if (event.key === 'ArrowDown') {
@@ -78,7 +93,7 @@
 		} else if (event.key === 'ArrowUp') {
 			event.preventDefault()
 			move(-1)
-		} else if (event.key === 'Enter' && cursor >= 0 && experiments[cursor]) {
+		} else if (event.key === 'Enter' && experiments[cursor]) {
 			event.preventDefault()
 			onOpen(experiments[cursor])
 		}
@@ -115,14 +130,13 @@
 	</Head>
 	<tbody class="divide-y" bind:this={body}>
 		{#each experiments as experiment, i (experiment.id)}
-			<!-- `group` so the chevron in the last cell can answer this row's hover. -->
-			<!-- No `hoverable`: its own hover tint would be a second highlight competing with this
-			     one. The pointer moves the highlight instead, and `selected` draws it. -->
+			<!-- No `hoverable`: its own hover tint would be a second highlight competing with this one.
+			     The pointer moves the highlight instead, and `selected` draws it. -->
 			<Row
 				selected={i === cursor}
 				class="cursor-pointer"
 				on:click={() => onOpen(experiment)}
-				on:hover={(e) => e.detail && (cursor = i)}
+				on:hover={(e) => e.detail && (cursorId = experiment.id)}
 			>
 				<Cell first>
 					<div class="flex flex-col min-w-0">
