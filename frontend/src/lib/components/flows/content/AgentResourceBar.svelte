@@ -26,7 +26,6 @@
 		clearLinkedAgentTools,
 		linkedToolsScope
 	} from '../linkedAgentToolsStore.svelte'
-	import { getAgentEdit, getAgentEditingPath, setAgentEditingPath } from '../agentEditStore.svelte'
 	import { claimLinkedToolsFetch } from '../flowState'
 	import type { AgentTool as AgentToolStrict } from '../agentToolUtils'
 	import { resource } from 'runed'
@@ -60,12 +59,6 @@
 	let pathError = $state('')
 	let description = $state('')
 	let saving = $state(false)
-	// The edit session of a step forked from a saved agent: the path "Save changes" upserts back
-	// to, and the baselines the edits are judged against. Lives in an external store so it
-	// survives this component unmounting — another node selected, the step's tab switched — keyed
-	// by the forked `tools` identity so a stale entry can't resurface (see agentEditStore).
-	let editing = $derived(getAgentEdit(tools))
-	let editingPath = $derived(editing?.path)
 
 	type LinkedInfo = {
 		// What this result was fetched for. runed's resource neither aborts nor tags a superseded
@@ -132,7 +125,7 @@
 	let providerPath = $derived(linkedInfo?.providerPath)
 	let providerOk = $derived(linkedInfo?.providerOk ?? true)
 	/** The agent the card is about: the one this step links to, or the one being edited. */
-	let cardPath = $derived(agent ?? editingPath)
+	let cardPath = $derived(agent)
 	// Bumped on every write to the resource, so a save that leaves the card on the same agent still
 	// refetches the version it just minted.
 	let writes = $state(0)
@@ -197,7 +190,7 @@
 	let showDetail = $state(false)
 
 	function openSave() {
-		newPath = editingPath ?? ''
+		newPath = ''
 		pathError = ''
 		description = ''
 		saveDrawer?.openDrawer()
@@ -254,12 +247,10 @@
 		// every brain transform and the tools. Comparing the saved config instead would miss a
 		// non-static brain edit, which the resource cannot hold yet linking still strips.
 		const savedSnapshot = discardedOnLinkSnapshot()
-		// If the edit session ends or changes while the requests below are in flight (Cancel, undo,
-		// session-draft sync, a different agent opened for editing), the resource is still written but
-		// the step must not be relinked/cleared. Pinning the path — not merely "some edit is active" —
-		// is what distinguishes this session from a replacement one.
+		// If the step is replaced while the requests below are in flight (undo, a session-draft sync),
+		// the resource is still written but the step must not be relinked and emptied. The tools array
+		// this save started from is what identifies it.
 		const forkMarker = tools
-		const savingEditPath = getAgentEditingPath(forkMarker)
 		const exists = await ResourceService.existsResource({ workspace: ws!, path })
 		if (exists) {
 			// The drawer's path check is debounced, so a fast save can reach here with an unrelated
@@ -289,14 +280,7 @@
 		// The write minted a version, and nothing else the fetch keys on has to change for it to be
 		// the one the card should now be naming.
 		writes++
-		// Editing: a content-preserving refresh may have re-anchored the marker onto a clone of
-		// `tools`, which is still this session; a cleared or different path is not. Saving a
-		// standalone step has no marker to track, so only the fork's own array identifies it.
-		const sameSession =
-			savingEditPath === undefined
-				? tools === forkMarker
-				: getAgentEditingPath(tools) === savingEditPath
-		if (!sameSession) {
+		if (tools !== forkMarker) {
 			// The resource is written either way; say so, or the drawer just closes with no outcome.
 			sendUserToast(
 				`Saved ${path}, but the step changed while saving, so it was not linked to the agent`,
@@ -314,9 +298,6 @@
 			return false
 		}
 		agent = path
-		// Clear the edit entry while `tools` is still the fork's marker, before it's reassigned.
-		setAgentEditingPath(tools, undefined)
-		setAgentEditingPath(forkMarker, undefined)
 		// The brain + tools now live in the resource; a linked step keeps only the flow-local inputs.
 		tools = []
 		inputTransforms = flowLocalInputs(inputTransforms)
@@ -329,7 +310,7 @@
 		}
 		saving = true
 		try {
-			const updating = newPath === editingPath
+			const updating = false
 			const linked = await persist(newPath, description)
 			saveDrawer?.closeDrawer()
 			if (linked) {
@@ -395,7 +376,6 @@
 		try {
 			const fork = await forkFromResource(true)
 			if (fork) {
-				setAgentEditingPath(tools, undefined)
 				sendUserToast('Forked agent. Its configuration was copied into this step')
 			} else {
 				sendUserToast('The step changed while loading the agent, so nothing was unlinked', true)
