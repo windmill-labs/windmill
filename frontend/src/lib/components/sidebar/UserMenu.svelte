@@ -96,7 +96,7 @@
 						<KeyRound size={16} />
 						<span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500"></span>
 					</span>
-					Finish setting up your account
+					Finish account setup
 				</MenuItem>
 			{/if}
 			<MenuItem href={USER_SETTINGS_HASH} class={itemClass} {item}>
