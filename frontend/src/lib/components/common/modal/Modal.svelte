@@ -94,10 +94,6 @@
 	// and positioned against it, so the dialog covers that pane rather than the whole app.
 	// Both halves are required — `absolute` resolves against the nearest positioned DOM
 	// ancestor, which without the portal is whatever box the caller happens to sit in.
-	// So content in the body can tell a key meant for this dialog from one meant for whatever has
-	// been opened over it. Read lazily: `disposable` is bound after this runs.
-	setTopmostSurface(() => disposable?.isTopmost() ?? true)
-
 	const overlayHost = getOverlayHost()
 	const hostEl = $derived(overlayHost?.el())
 	const posClass = $derived(hostEl ? 'absolute' : 'fixed')
@@ -116,6 +112,10 @@
 	// when it's actually open — when chat is closed there's nothing at z-index
 	// 1200 to stack above.
 	const minZIndex = $derived(minZIndexProp ?? (chatState.size > 0 ? zIndexes.aiChat + 1 : 0))
+
+	// So content in the body can tell a key meant for this dialog from one meant for whatever was
+	// opened over it. Read lazily: `disposable` is bound after this runs.
+	setTopmostSurface(() => disposable?.isTopmost() ?? true)
 
 	// Both `bind:open` and this $effect are needed: bind:open syncs the
 	// boolean, while the effect calls openDrawer/closeDrawer to register

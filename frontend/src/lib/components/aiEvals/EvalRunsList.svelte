@@ -94,6 +94,9 @@
 			event.preventDefault()
 			move(-1)
 		} else if (event.key === 'Enter' && experiments[cursor]) {
+			// Enter belongs to whatever is focused if that thing does something with it. A highlighted
+			// row is not a reason to swallow the press on `New evaluation` or a row's dataset button.
+			if (el?.closest?.('button, a[href], [role="button"], summary')) return
 			event.preventDefault()
 			onOpen(experiments[cursor])
 		}
