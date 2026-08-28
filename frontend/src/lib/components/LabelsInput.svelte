@@ -99,8 +99,15 @@
 				addLabel() // either "Create new" selected or free text
 			}
 		} else if (e.key === 'Escape') {
+			// Escape cancels the label, and nothing else. Left to bubble it also reaches
+			// whatever encloses us — a drawer or dialog closes on it, and one guarding on
+			// unsaved changes reads `pending` before this clears it, so it prompts to
+			// discard work this key just discarded.
+			e.preventDefault()
+			e.stopPropagation()
 			inputValue = ''
 			adding = false
+			onPendingChange?.('')
 		} else if (e.key === 'ArrowDown') {
 			e.preventDefault()
 			const maxIdx = suggestions.length + (showCreateNew ? 1 : 0) - 1
