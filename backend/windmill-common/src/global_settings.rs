@@ -263,16 +263,32 @@ pub fn allows_any_origin(allowed_origins: &[String]) -> bool {
     allowed_origins.iter().any(|allowed| allowed == "*")
 }
 
-/// Reject allowlist entries that cannot be compared, or that must not be allowed.
+/// An allowlist is scanned on every request to a restricted route, including
+/// the unauthenticated preflight, so its size is a request cost anyone can
+/// trigger.
+pub const MAX_ALLOWED_ORIGINS: usize = 100;
+pub const MAX_ALLOWED_ORIGIN_LEN: usize = 256;
+
+/// Reject allowlist entries that cannot be compared, stored, or safely allowed.
 ///
 /// The stored string is only ever an operand: `match_origin` echoes the
 /// request's own `Origin` back, never this value, so a malformed entry matches
-/// nothing and fails closed. That leaves the one entry where being permissive
-/// has a consequence rather than just being dead config: `null` is what every
-/// sandboxed iframe sends, so allowing it would grant access to any page that
-/// can open one. Shapes that merely cannot match are the editor's business to
-/// warn about, not this function's to refuse.
+/// nothing and fails closed. Shapes that merely cannot match are the editor's
+/// business to warn about, not this function's to refuse. What is left are the
+/// three cases where permissiveness costs something: `null` is what every
+/// sandboxed iframe sends, so allowing it would admit any page that can open
+/// one; a comma cannot survive the editor's comma-separated field, which would
+/// silently split one entry into two and widen the list; and an unbounded list
+/// makes every preflight pay for it.
 pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Result<()> {
+    if allowed_origins.len() > MAX_ALLOWED_ORIGINS {
+        return Err(crate::error::Error::BadRequest(format!(
+            "At most {} allowed origins, got {}.",
+            MAX_ALLOWED_ORIGINS,
+            allowed_origins.len()
+        )));
+    }
+
     for origin in allowed_origins {
         if origin == "*" {
             continue;
@@ -285,6 +301,17 @@ pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Res
             ))
         };
 
+        if origin.is_empty() {
+            return Err(invalid("must not be empty"));
+        }
+        if origin.len() > MAX_ALLOWED_ORIGIN_LEN {
+            return Err(invalid("is longer than any origin a browser sends"));
+        }
+        // The editor edits the whole list as one comma-separated field, so an
+        // entry carrying a comma comes back as two and widens the list.
+        if origin.contains(',') {
+            return Err(invalid("must not contain a comma, which separates entries"));
+        }
         if origin.eq_ignore_ascii_case("null") {
             return Err(invalid(
                 "'null' is what a sandboxed iframe sends, so allowing it would allow any page that can open one",

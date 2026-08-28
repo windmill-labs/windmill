@@ -25,6 +25,7 @@ use std::{collections::HashMap, sync::Arc};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
+    global_settings::HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS,
     jobs::JobTriggerKind,
     triggers::{TriggerKind, TriggerMetadata},
     utils::{not_found_if_none, StripPath},
@@ -99,17 +100,33 @@ enum CorsRouteLookup {
     Unavailable,
 }
 
-/// Resolve the trigger a request targets, for CORS purposes only.
+/// What the middleware should stamp, decided while the routers guard is held.
+///
+/// Deliberately small and owned: the allowlist itself never leaves the guard,
+/// so a large one is scanned in place instead of being copied per request onto
+/// a path an unauthenticated preflight can reach.
+enum CorsDecision {
+    /// No allowlist applies, so the permissive default stands.
+    Unrestricted,
+    /// An allowlist applies. `allow_origin` is the value to echo, present only
+    /// when the request's own `Origin` is on the list.
+    Restricted { route_method: Option<HttpMethod>, allow_origin: Option<http::HeaderValue> },
+    /// The routers could not be read, so nothing is known about this path.
+    Unavailable,
+}
+
+/// Decide the CORS answer for a request, from the routers cache.
 ///
 /// Loads the routers when the cache is cold, the way `get_http_route_trigger`
 /// does. Without that, a failed startup load would leave the middleware
-/// resolving nothing while `route_job` refreshes and serves a restricted route
+/// deciding nothing while `route_job` refreshes and serves a restricted route
 /// behind it, and the response would carry the permissive default.
-async fn resolve_cors_route(
+async fn resolve_cors_decision(
     db: &DB,
     http_method: HttpMethod,
     requested_path: &str,
-) -> CorsRouteLookup {
+    origin: Option<&http::HeaderValue>,
+) -> CorsDecision {
     let routers_cache = HTTP_ROUTERS_CACHE.read().await;
 
     let routers_cache = if routers_cache.routers.is_empty() {
@@ -118,7 +135,7 @@ async fn resolve_cors_route(
             Ok((_, routers_cache)) => routers_cache,
             Err(err) => {
                 tracing::error!("Could not load HTTP routers to resolve CORS: {err:#}");
-                return CorsRouteLookup::Unavailable;
+                return CorsDecision::Unavailable;
             }
         }
     } else {
@@ -126,13 +143,22 @@ async fn resolve_cors_route(
     };
 
     let Some(router) = routers_cache.routers.get(&http_method) else {
-        return CorsRouteLookup::Unavailable;
+        return CorsDecision::Unavailable;
     };
 
-    CorsRouteLookup::Resolved(router.at(requested_path).ok().map(|trigger| CorsRoute {
-        allowed_origins: trigger.value.allowed_origins.clone(),
-        http_method,
-    }))
+    let route = router.at(requested_path).ok();
+    let route_allowed_origins = route
+        .as_ref()
+        .and_then(|trigger| trigger.value.allowed_origins.as_deref());
+
+    let instance_default = HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load();
+    match effective_allowed_origins(route_allowed_origins, instance_default.as_slice()) {
+        None => CorsDecision::Unrestricted,
+        Some(allowed_origins) => CorsDecision::Restricted {
+            route_method: route.map(|_| http_method),
+            allow_origin: match_origin(allowed_origins, origin),
+        },
+    }
 }
 
 async fn conditional_cors_middleware(
@@ -141,18 +167,22 @@ async fn conditional_cors_middleware(
     next: axum::middleware::Next,
 ) -> Response {
     let origin = req.headers().get(http::header::ORIGIN).cloned();
-    // Resolved before `next.run` consumes the request. `&Request` is not `Send`
-    // (`Body` is not `Sync`), so the lookup takes owned pieces rather than a
-    // borrow of the request itself.
+    // Owned before `next.run` consumes the request. `&Request` is not `Send`
+    // (`Body` is not `Sync`), so nothing borrowed from it can cross the await.
     let lookup = cors_lookup_method(&req).zip(cors_lookup_path(req.uri().path()));
-    let route = match lookup {
-        Some((method, path)) => resolve_cors_route(&db, method, &path).await,
-        // Nothing to look up: not a preflight, not a method any route can be
-        // registered under, or a path that does not decode.
-        None => CorsRouteLookup::Resolved(None),
-    };
 
     let mut response = next.run(req).await;
+
+    // Decided after the handler, so the policy stamped here is never older than
+    // the one the handler resolved: a route made stricter while the request was
+    // in flight is answered with the stricter list, not the snapshot it started
+    // with. Reading the cache once, here, is what keeps the two from diverging.
+    let decision = match lookup {
+        Some((method, path)) => resolve_cors_decision(&db, method, &path, origin.as_ref()).await,
+        // Nothing to look up: not a preflight, not a method any route can be
+        // registered under, or a path that does not decode.
+        None => CorsDecision::Unrestricted,
+    };
 
     let headers = response.headers_mut();
 
@@ -178,50 +208,41 @@ async fn conditional_cors_middleware(
         }
     }
 
-    let resolved = match &route {
-        CorsRouteLookup::Resolved(resolved) => resolved.as_ref(),
+    match &decision {
+        CorsDecision::Restricted { allow_origin, .. } => {
+            // A configured allowlist decides, overriding any `wm_headers` value
+            // the runnable set. The preflight is answered before any code runs,
+            // so config is the only thing it can consult; letting the response
+            // widen what the preflight advertised would make the two disagree
+            // and leave the allowlist bounding nothing. A route escapes a
+            // stricter instance default — `wm_headers` included — by setting
+            // its own list to `*`.
+            match allow_origin {
+                Some(value) => {
+                    headers.insert(http::header::ACCESS_CONTROL_ALLOW_ORIGIN, value.clone())
+                }
+                // No match: omit the header entirely so the browser blocks the
+                // read, and drop any value the runnable set.
+                None => headers.remove(http::header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            };
+            // Appended, not inserted: the answer now depends on the request's
+            // Origin, and a shared cache that ignores it would hand one
+            // origin's response to another.
+            headers.append(http::header::VARY, http::HeaderValue::from_static("origin"));
+        }
         // Whether this path is restricted could not be determined, and
-        // `route_job` may still load the routers and serve a restricted route
-        // behind this middleware. Emitting the permissive default here would
-        // hand that response to any origin, so emit nothing at all.
-        CorsRouteLookup::Unavailable => None,
-    };
-
-    // The route's own list, or the instance-wide default when it has none.
-    // `None` means neither is configured, or one of them opted out with `*`.
-    // Nothing is applied when the routers were unreadable: the instance default
-    // is not necessarily what the route this request lands on would have used.
-    let allowed_origins = match &route {
-        CorsRouteLookup::Unavailable => None,
-        CorsRouteLookup::Resolved(resolved) => effective_allowed_origins(
-            resolved
-                .as_ref()
-                .and_then(|route| route.allowed_origins.as_ref()),
-        ),
-    };
-
-    if let Some(allowed_origins) = allowed_origins.as_ref() {
-        // A configured allowlist decides, overriding any `wm_headers` value the
-        // runnable set. The preflight is answered before any code runs, so
-        // config is the only thing it can consult; letting the response widen
-        // what the preflight advertised would make the two disagree and leave
-        // the allowlist bounding nothing. A route escapes a stricter instance
-        // default — `wm_headers` included — by setting its own list to `*`.
-        match match_origin(allowed_origins, origin.as_ref()) {
-            Some(value) => headers.insert(http::header::ACCESS_CONTROL_ALLOW_ORIGIN, value),
-            // No match: omit the header entirely so the browser blocks the
-            // read, and drop any value the runnable set.
-            None => headers.remove(http::header::ACCESS_CONTROL_ALLOW_ORIGIN),
-        };
-        // Appended, not inserted: the answer now depends on the request's
-        // Origin, and a shared cache that ignores it would hand one origin's
-        // response to another.
-        headers.append(http::header::VARY, http::HeaderValue::from_static("origin"));
-    } else if !not_insert_origin && !matches!(route, CorsRouteLookup::Unavailable) {
-        headers.insert(
-            http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
-            http::HeaderValue::from_static("*"),
-        );
+        // `route_job` may still have served a restricted route behind this
+        // middleware. Emitting the permissive default would hand that response
+        // to any origin, so emit nothing at all.
+        CorsDecision::Unavailable => {}
+        CorsDecision::Unrestricted => {
+            if !not_insert_origin {
+                headers.insert(
+                    http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+                    http::HeaderValue::from_static("*"),
+                );
+            }
+        }
     }
 
     if !not_insert_methods {
@@ -229,10 +250,13 @@ async fn conditional_cors_middleware(
         // overstates it — but only routes under an allowlist get the narrower
         // answer. An unrestricted route must respond exactly as it did before
         // this existed.
-        let restricted_route = resolved.filter(|_| allowed_origins.is_some());
+        let restricted_method = match &decision {
+            CorsDecision::Restricted { route_method, .. } => *route_method,
+            _ => None,
+        };
         headers.insert(
             http::header::ACCESS_CONTROL_ALLOW_METHODS,
-            http::HeaderValue::from_static(match restricted_route.map(|route| route.http_method) {
+            http::HeaderValue::from_static(match restricted_method {
                 Some(HttpMethod::Get) => "GET, OPTIONS",
                 Some(HttpMethod::Post) => "POST, OPTIONS",
                 Some(HttpMethod::Put) => "PUT, OPTIONS",

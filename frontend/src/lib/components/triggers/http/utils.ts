@@ -32,7 +32,28 @@ export function allowedOriginRejection(origin: string): string | undefined {
 		return `'null' is what a sandboxed iframe sends, so it would allow any page that can open one`
 	if (!/^[\x21-\x7e]+$/.test(origin))
 		return `'${origin}' must contain only visible ASCII, with no whitespace`
+	if (origin.length > MAX_ALLOWED_ORIGIN_LEN)
+		return `'${origin.slice(0, 40)}…' is longer than any origin a browser sends`
 	return undefined
+}
+
+/** Kept in step with `MAX_ALLOWED_ORIGIN{,S}` in windmill-common. */
+export const MAX_ALLOWED_ORIGINS = 100
+export const MAX_ALLOWED_ORIGIN_LEN = 256
+
+/**
+ * The first entry the API would refuse, if any. Derived from the stored list
+ * rather than the field, so it stays correct while the editor is on another tab
+ * and the field is not mounted. An empty list is not an error here: it is the
+ * deny-every-origin state the backend accepts.
+ *
+ * A comma never reaches this: it is the field's separator, so an entry cannot
+ * carry one in the first place.
+ */
+export function allowedOriginsError(allowed_origins: string[] | undefined): string | undefined {
+	if (allowed_origins !== undefined && allowed_origins.length > MAX_ALLOWED_ORIGINS)
+		return `At most ${MAX_ALLOWED_ORIGINS} origins, got ${allowed_origins.length}`
+	return allowed_origins?.map(allowedOriginRejection).find((message) => message !== undefined)
 }
 
 /**
@@ -52,16 +73,6 @@ export function allowedOriginWarning(origin: string): string | undefined {
 		return `'${origin}' should be scheme://host[:port], with no path, query or fragment`
 	if (rest.includes('@')) return `'${origin}' should not contain userinfo`
 	return undefined
-}
-
-/**
- * The first entry the API would refuse, if any. Derived from the stored list
- * rather than the field, so it stays correct while the editor is on another tab
- * and the field is not mounted. An empty list is not an error here: it is the
- * deny-every-origin state the backend accepts.
- */
-export function allowedOriginsError(allowed_origins: string[] | undefined): string | undefined {
-	return allowed_origins?.map(allowedOriginRejection).find((message) => message !== undefined)
 }
 
 /**

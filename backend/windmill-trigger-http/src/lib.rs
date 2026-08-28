@@ -8,9 +8,7 @@ use tokio::sync::{RwLock, RwLockReadGuard};
 use windmill_common::{
     error::{Error, Result},
     flows::Retry,
-    global_settings::{
-        allows_any_origin, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS, HTTP_ROUTE_WORKSPACED_ROUTE,
-    },
+    global_settings::{allows_any_origin, HTTP_ROUTE_WORKSPACED_ROUTE},
     utils::ExpiringCacheEntry,
     worker::CLOUD_HOSTED,
     DB,
@@ -229,20 +227,19 @@ pub struct RouteExists {
 ///
 /// A list containing `*` is treated as no restriction, which is how a route opts
 /// out of a stricter instance default.
-pub fn effective_allowed_origins(
-    route_allowed_origins: Option<&Vec<String>>,
-) -> Option<Vec<String>> {
+pub fn effective_allowed_origins<'a>(
+    route_allowed_origins: Option<&'a [String]>,
+    instance_default: &'a [String],
+) -> Option<&'a [String]> {
     match route_allowed_origins {
         // `*` is the opt-out, including out of a stricter instance default.
         Some(list) if allows_any_origin(list) => None,
         // Any other stored list restricts, an empty one included: it allows no
         // origin at all. Falling back to the default here would make `[]` more
         // permissive than `NULL`, which is the wrong direction to fail in.
-        Some(list) => Some(list.clone()),
-        None => {
-            let default = HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load().as_ref().clone();
-            (!default.is_empty() && !allows_any_origin(&default)).then_some(default)
-        }
+        Some(list) => Some(list),
+        None => (!instance_default.is_empty() && !allows_any_origin(instance_default))
+            .then_some(instance_default),
     }
 }
 
@@ -438,7 +435,9 @@ pub struct HttpTrigger;
 mod tests {
     use super::*;
     // Not used by the lib itself, only exercised here.
-    use windmill_common::global_settings::validate_allowed_origins;
+    use windmill_common::global_settings::{
+        validate_allowed_origins, MAX_ALLOWED_ORIGINS, MAX_ALLOWED_ORIGIN_LEN,
+    };
 
     #[test]
     fn test_request_type_backward_compatibility() {
@@ -683,25 +682,39 @@ mod tests {
         ]));
         assert!(!allows_any_origin(&["https://a.com".to_string()]));
         assert_eq!(
-            effective_allowed_origins(Some(&vec!["*".to_string()])),
+            effective_allowed_origins(Some(&["*".to_string()]), &[]),
             None
         );
     }
 
     #[test]
     fn test_effective_allowed_origins_prefers_the_route() {
-        let route = vec!["https://a.com".to_string()];
+        let route = ["https://a.com".to_string()];
+        let default = ["https://default.com".to_string()];
         assert_eq!(
-            effective_allowed_origins(Some(&route)),
-            Some(vec!["https://a.com".to_string()])
+            effective_allowed_origins(Some(&route), &default),
+            Some(&route[..])
+        );
+        // No route list: the instance default applies.
+        assert_eq!(
+            effective_allowed_origins(None, &default),
+            Some(&default[..])
         );
         // No route list and no instance default: nothing is restricted, so the
         // historical permissive behaviour is kept.
-        assert_eq!(effective_allowed_origins(None), None);
+        assert_eq!(effective_allowed_origins(None, &[]), None);
+        // A route opting out with `*` escapes a stricter instance default.
+        assert_eq!(
+            effective_allowed_origins(Some(&["*".to_string()]), &default),
+            None
+        );
         // An empty route list is a restriction that matches nothing, distinct
         // from `NULL` which inherits the instance default. It must never come
         // back as `None`, which the middleware reads as "any origin".
-        assert_eq!(effective_allowed_origins(Some(&vec![])), Some(vec![]));
+        assert_eq!(
+            effective_allowed_origins(Some(&[]), &default),
+            Some(&[][..])
+        );
         assert_eq!(match_origin(&[], Some(&origin("https://a.com"))), None);
     }
 
@@ -732,6 +745,18 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_allowed_origins_bounds_the_list() {
+        // An allowlist is scanned on every request to a restricted route, the
+        // unauthenticated preflight included, so its size is a cost anyone can
+        // trigger.
+        let too_many = vec!["https://a.com".to_string(); MAX_ALLOWED_ORIGINS + 1];
+        assert!(validate_allowed_origins(&too_many).is_err());
+        assert!(validate_allowed_origins(&too_many[..MAX_ALLOWED_ORIGINS]).is_ok());
+        let too_long = format!("https://{}.com", "a".repeat(MAX_ALLOWED_ORIGIN_LEN));
+        assert!(validate_allowed_origins(&[too_long]).is_err());
+    }
+
+    #[test]
     fn test_validate_allowed_origins_rejects_null_and_uncomparable() {
         for invalid in [
             // Every sandboxed iframe sends `Origin: null`, so allowing it would
@@ -741,6 +766,10 @@ mod tests {
             "https://a b.com",
             "https://app.example.com ",
             "https://exämple.com",
+            // The editor edits the list as one comma-separated field, so an
+            // entry carrying a comma would come back as two and widen the list.
+            "https://a.com,https://b.com",
+            "",
         ] {
             assert!(
                 validate_allowed_origins(&[invalid.to_string()]).is_err(),
