@@ -98,7 +98,14 @@ export function noteDriverAlive(sessionId: string, planMode: boolean): void {
  *  the truthful position rather than merely the convenient one. */
 export function noteRemoteTurnEnded(sessionId: string): void {
 	if (runPosition(sessionId).state !== 'watching') return
-	positions.set(sessionId, canCompleteCatchUp() ? { state: 'catchingUp' } : { state: 'idle' })
+	// Deleted rather than set to idle: a missing entry already reads as idle, and
+	// the tab this branch exists for has no runtime, so nothing in it would ever
+	// call clearRunPosition to take the entry back out again.
+	if (!canCompleteCatchUp()) {
+		positions.delete(sessionId)
+		return
+	}
+	positions.set(sessionId, { state: 'catchingUp' })
 }
 
 /** The re-read finished: this tab's transcript and history are one conversation

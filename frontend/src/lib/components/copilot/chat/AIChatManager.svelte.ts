@@ -1801,10 +1801,16 @@ export class AIChatManager {
 			// fall back on — the raw-app inline prompt would lose what the user
 			// typed outright. Not `restoreToInput`, whose no-composer fallback is
 			// the very queue being refused.
-			const restored = this.aiChatInput?.prependText(text, images, files) === true
-			if (restored) this.#restoreDomContext(context, true)
+			const composer = this.aiChatInput
+			if (composer) {
+				// `prependText` answers "did this land on top of a draft already being
+				// written", not "did it land at all" — it always restores. Its return
+				// is what tells #restoreDomContext whether to keep the existing chips
+				// as well as the restored ones.
+				this.#restoreDomContext(context, composer.prependText(text, images, files))
+			}
 			sendUserToast(
-				restored
+				composer
 					? 'This session is running in another tab. Your prompt is waiting in the composer.'
 					: 'This session is running in another tab. Try again when it finishes.',
 				true
