@@ -91,7 +91,7 @@
 		</div>
 		<div class="py-1">
 			{#if pendingSetup}
-				<MenuItem onClick={() => (setupOpen = true)} class={itemClass} {item}>
+				<MenuItem onClick={() => setTimeout(() => (setupOpen = true), 50)} class={itemClass} {item}>
 					<span class="relative">
 						<KeyRound size={16} />
 						<span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-blue-500"></span>

@@ -254,7 +254,9 @@
 								displayName: 'Finish account setup',
 								icon: KeyRound,
 								iconColor: '#3b82f6',
-								action: () => (setupOpen = true)
+								// The dropdown closes on this click; the modal opens once it is gone so its own
+								// buttons don't compete with the menu's outside-click handling.
+								action: () => setTimeout(() => (setupOpen = true), 50)
 							}
 						]
 					: []),
