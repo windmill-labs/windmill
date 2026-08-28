@@ -24,9 +24,11 @@ lazy_static::lazy_static! {
         .ok()
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
-    /// A Google Cloud project can have explicit prompt caching turned off (by request to
-    /// Cloud support), and Vertex then rejects any request carrying cache breakpoints.
-    /// Such a project needs this to run Anthropic agent steps at all.
+    /// Drops the cache breakpoints from agent-step requests on every Anthropic platform,
+    /// not just the one that motivates it: a Google Cloud project can have explicit prompt
+    /// caching turned off (by request to Cloud support), and Vertex then rejects any request
+    /// carrying breakpoints. An instance that sets this to unblock such a project also gives
+    /// up caching on its direct-Anthropic and Foundry resources.
     pub static ref DISABLE_ANTHROPIC_PROMPT_CACHING: bool =
         std::env::var("DISABLE_ANTHROPIC_PROMPT_CACHING")
             .ok()
