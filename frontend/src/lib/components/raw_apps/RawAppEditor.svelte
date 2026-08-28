@@ -806,9 +806,12 @@
 				suppressTimer = undefined
 			}, 500)
 			const doc = untrack(() => iframeDocument)
-			if (doc) {
+			if (doc !== undefined && files[doc] !== undefined) {
 				setFilesAndSelectInIframe(files, doc)
 			} else {
+				// Deleted or renamed away since we last told the iframe to open it;
+				// asking for a path that no longer exists errors in VS Code.
+				iframeDocument = undefined
 				setFilesInIframe(files)
 			}
 		}

@@ -125,11 +125,7 @@
 								isSelected={selectedRunnable === id}
 								isEditing={editingId === id}
 								onSelect={() => onSelect?.(id)}
-								onDelete={() => {
-									// The editor's stale-tab cleanup closes the tab, which clears
-									// the selection.
-									delete runnables[id]
-								}}
+								onDelete={() => delete runnables[id]}
 								onRename={(newId) => renameRunnable(id, newId)}
 								onRequestEdit={() => (editingId = id)}
 								onCancelEdit={() => (editingId = undefined)}

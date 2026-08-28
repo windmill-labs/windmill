@@ -173,8 +173,13 @@
 
 		files = nfiles
 		pathToEdit = undefined
-		// A renamed or newly created folder isn't selectable, so it stays unselected.
-		if (!isFolder) onSelectPath?.(newPath)
+		if (!isFolder) {
+			onSelectPath?.(newPath)
+		} else if (selectedPath?.startsWith(oldPath)) {
+			// A folder isn't selectable, but the selected file moved with it — follow
+			// it to its new path, or the caller keeps editing a key that's now gone.
+			onSelectPath?.(newPath + selectedPath.slice(oldPath.length))
+		}
 	}
 
 	function handleDelete(path: string) {
