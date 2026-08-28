@@ -36,6 +36,33 @@ describe('withoutHeavyPayloads', () => {
 		expect((stripped[0] as any).content).toBe('look at this')
 	})
 
+	// A tool's output is the one payload with no ceiling at all — a query result
+	// or job logs ride the running turn's tail, which is re-cloned and re-sent
+	// several times a second until the turn ends.
+	it('drops a tool result and its logs, keeping the card that frames them', () => {
+		const messages = [
+			{
+				role: 'tool',
+				tool_call_id: 'tc-1',
+				content: 'Ran the query',
+				toolName: 'run_script',
+				parameters: { path: 'f/demo/q' },
+				result: { rows: Array.from({ length: 5000 }, (_, i) => ({ i, blob: 'x'.repeat(200) })) },
+				logs: 'y'.repeat(100_000)
+			}
+		] as unknown as DisplayMessage[]
+
+		const stripped = withoutHeavyPayloads(messages)
+
+		expect(JSON.stringify(stripped).length).toBeLessThan(500)
+		expect((stripped[0] as any).result).toBeUndefined()
+		expect((stripped[0] as any).logs).toBeUndefined()
+		// The card is still rendered from these while the output is in flight.
+		expect((stripped[0] as any).toolName).toBe('run_script')
+		expect((stripped[0] as any).parameters).toEqual({ path: 'f/demo/q' })
+		expect((stripped[0] as any).content).toBe('Ran the query')
+	})
+
 	it('passes through a message with nothing heavy in it', () => {
 		const messages = [{ role: 'assistant', content: 'plain reply' }] as unknown as DisplayMessage[]
 		expect(withoutHeavyPayloads(messages)[0]).toBe(messages[0])

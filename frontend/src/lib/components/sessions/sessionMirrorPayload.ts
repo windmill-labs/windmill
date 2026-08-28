@@ -24,6 +24,13 @@ const BLANKED_ITEM_FIELDS = [
  *  about to appear. */
 const DROPPED_LIST_FIELDS = ['images'] as const
 
+/** Dropped whole, and unbounded in a way the others are not: a tool's result or
+ *  logs can be a whole query result or job output, and a frame re-clones and
+ *  re-broadcasts the running turn's tail several times a second. A watching tab
+ *  shows the tool card without its output until the turn-end re-read supplies
+ *  it, which is the same trade the images above make. */
+const DROPPED_FIELDS = ['result', 'logs'] as const
+
 /** Emptied outright; guarded at the render site, so it renders nothing. */
 const BLANKED_FIELDS = ['imageUrl'] as const
 
@@ -31,6 +38,7 @@ function isHeavy(message: DisplayMessage): boolean {
 	const m = message as Record<string, any>
 	return (
 		DROPPED_LIST_FIELDS.some((f) => m[f]?.length) ||
+		DROPPED_FIELDS.some((f) => m[f] !== undefined) ||
 		BLANKED_ITEM_FIELDS.some(([f]) => m[f]?.length) ||
 		BLANKED_FIELDS.some((f) => m[f])
 	)
@@ -42,6 +50,7 @@ export function withoutHeavyPayloads(messages: DisplayMessage[]): DisplayMessage
 		if (!isHeavy(message)) return message
 		const stripped: Record<string, any> = { ...message }
 		for (const f of DROPPED_LIST_FIELDS) delete stripped[f]
+		for (const f of DROPPED_FIELDS) delete stripped[f]
 		for (const [f, item] of BLANKED_ITEM_FIELDS) {
 			if (stripped[f]?.length) stripped[f] = stripped[f].map((v: any) => ({ ...v, [item]: '' }))
 		}

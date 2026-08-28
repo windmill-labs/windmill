@@ -1093,9 +1093,16 @@ export class AIChatManager {
 		this.#autoResuming = true
 		try {
 			const count = this.pendingJobNotes.length
-			this.instructions =
+			const note =
 				count === 1 ? 'A background job just finished.' : `${count} background jobs just finished.`
-			await this.sendRequest({ synthetic: true })
+			this.instructions = note
+			const accepted = await this.sendRequest({ synthetic: true })
+			// Only sendRequestImpl clears these, and a refusal returns before it —
+			// leaving them set, which this method's own guard above reads as "the
+			// user is mid-compose" and never resumes again. Cleared only while they
+			// are still the note put there: a send that won the lock meanwhile owns
+			// the field, and blanking it would take the user's message mid-turn.
+			if (accepted === false && this.instructions === note) this.instructions = ''
 		} catch (e) {
 			console.error('Auto-resume after background job failed', e)
 		} finally {
@@ -1949,25 +1956,19 @@ export class AIChatManager {
 		// a Retry that is refused charges them against the conversation's budget
 		// for the lifetime of the manager.
 		this.#releaseOutgoingReservation(options.resendReservationKey)
-		// A synthetic send carries none of the user's text, but the auto-resume set
-		// `this.instructions` before calling it and only sendRequestImpl clears
-		// them. Its own arming check bails while they are non-empty, so leaving
-		// them here disarms every later auto-resume for this session.
-		if (options.synthetic) {
-			this.instructions = ''
-			return
-		}
-		if (options.queued) return
+		// A synthetic send carries none of the user's text; its caller owns the
+		// instructions it set and unwinds them itself.
+		if (options.synthetic || options.queued) return
 		const restored = this.aiChatInput?.restoreInstructions(
 			options.instructions ?? '',
 			options.pastes ?? [],
 			options.images ?? [],
 			options.files ?? []
 		)
-		// No composer mounted (a programmatic send): park it on the queue so it is
-		// still the user's to send rather than silently gone. The queue holds plain
-		// text, so the pastes are expanded into it — parked as bare tokens they
-		// would point at blobs nothing holds any more.
+		// No composer mounted, or one that declined the restore: park it on the
+		// queue so it is still the user's to send rather than silently gone. The
+		// queue holds plain text, so the pastes are expanded into it — parked as
+		// bare tokens they would point at blobs nothing holds any more.
 		if (restored !== true && options.instructions) {
 			this.restoreToInput(
 				expanded(chatDraft(options.instructions, options.pastes ?? [])),
