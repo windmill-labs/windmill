@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT created_at\n        FROM trigger_history\n        WHERE workspace_id = $1 AND trigger_kind = $2 AND path = $3\n            AND (changes ?| array['schedule', 'timezone', 'cron_version', 'dynamic_skip']\n                OR changes -> 'truncated_fields'\n                    ?| array['schedule', 'timezone', 'cron_version', 'dynamic_skip'])\n        ORDER BY id DESC\n        LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0600e0d5cf4aa29b287ce57cf379cc84f7281371b2cccbe2bb59437f645a559c"
+}

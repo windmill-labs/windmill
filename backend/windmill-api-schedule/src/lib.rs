@@ -1090,6 +1090,10 @@ fn detect_interval_drift(
 /// after the insert. The trigger history can, and is only read once a sample
 /// has already come out as drifting.
 ///
+/// `dynamic_skip` counts as such a change even though it leaves the arithmetic
+/// alone: it moves the tick from completion-time to start-time, which is what
+/// the reader tells the user their drift is made of.
+///
 /// Compare strictly against it: the edit queues a tick of its own in the same
 /// transaction, so that first run under the new expression carries the very
 /// timestamp recorded here.
@@ -1103,8 +1107,9 @@ async fn cron_changed_at(db: &DB, w_id: &str, path: &str) -> Result<Option<DateT
         "SELECT created_at
         FROM trigger_history
         WHERE workspace_id = $1 AND trigger_kind = $2 AND path = $3
-            AND (changes ?| array['schedule', 'timezone', 'cron_version']
-                OR changes -> 'truncated_fields' ?| array['schedule', 'timezone', 'cron_version'])
+            AND (changes ?| array['schedule', 'timezone', 'cron_version', 'dynamic_skip']
+                OR changes -> 'truncated_fields'
+                    ?| array['schedule', 'timezone', 'cron_version', 'dynamic_skip'])
         ORDER BY id DESC
         LIMIT 1",
         w_id,
