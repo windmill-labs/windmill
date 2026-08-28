@@ -8,10 +8,12 @@
 	import type { FlowEditorContext, FlowInputEditorState, FlowPanelDetachContext } from '../types'
 	import type { PropPickerContext, FlowPropPickerConfig } from '$lib/components/prop_picker'
 	import { initFlowState, type FlowState } from '../flowState'
+	import { insertAgentTool } from '../flowStateUtils.svelte'
 	import { initHistory } from '$lib/history.svelte'
 	import { StepsInputArgs } from '../stepsInputArgs.svelte'
 	import { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
+	import { Splitpanes, Pane } from 'svelte-splitpanes'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
@@ -223,6 +225,21 @@
 	let testIsLoading = $state(false)
 	let scriptProgress = $state(undefined)
 
+	// Adding a tool goes straight into it: the editor has no graph to show the new node on, so the
+	// tool it just created is the only place the click can land.
+	async function addTool(detail: { kind: string; script?: any; flow?: any; inlineScript?: any }) {
+		if (!agentValue) return
+		const id = await insertAgentTool(
+			flowStore,
+			flowStateStore,
+			agentValue,
+			detail,
+			workspace,
+			!enableAi
+		)
+		if (id) onSelectTool?.(id)
+	}
+
 	export function deploy(): Promise<boolean> {
 		return draft.deploy().then((ok) => {
 			if (ok) onSaved?.(draft.state?.path ?? path)
@@ -242,70 +259,84 @@
 {#if draft.loading}
 	<div class="h-full flex items-center justify-center text-xs text-tertiary">Loading agent...</div>
 {:else if agentModule && agentValue}
-	{#if tool}
-		<div class="h-full min-h-0 flex flex-col">
-			<AgentToolWrapper
-				bind:tool={() => tools[toolIndex], (v) => (tools[toolIndex] = v)}
-				parentModule={agentModule as FlowModule}
-				{enableAi}
-				forceTestTab={{ [tool.id]: true }}
-				siblingToolNames={tools.filter((t) => t.id !== tool?.id).map((t) => t.summary ?? '')}
-			/>
-		</div>
-	{:else}
-		<div class="h-full min-h-0 flex flex-row">
-			<div class="w-2/3 min-w-0 flex flex-col min-h-0 border-r border-light">
-				<div class="flex-1 min-h-0 overflow-auto">
-					<PropPickerWrapper
-						pickableProperties={stepPropPicker?.pickableProperties}
-						noPadding
-						sidePane
-					>
-						<AiAgentStepInputs
-							class="px-4 pb-8"
-							{schema}
-							filter={brainFilter}
-							previousModuleId={undefined}
-							pickableProperties={stepPropPicker?.pickableProperties}
-							extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
-							{enableAi}
-							{workspace}
-							staticOnly
-							visibilityKey={`agent:${path}`}
-							{tools}
-							onSelectTool={(id) => onSelectTool?.(id)}
-							onAddTool={undefined}
-							bind:args={
-								() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
-								(v) => agentValue && (agentValue.input_transforms = v)
-							}
-						/>
-					</PropPickerWrapper>
-				</div>
-			</div>
-			<div class="wm-agent-lab w-1/3 min-w-0 flex flex-col min-h-0">
-				<ModulePreview
-					mod={agentModule as FlowModule}
-					schema={flowLocalAgentSchema(schema)}
-					pickableProperties={stepPropPicker?.pickableProperties}
-					bind:testJob
-					bind:testIsLoading
-					bind:scriptProgress
+	<!-- Named and positioned so the tool picker's popover can portal here: the `#flow-editor` it
+	     otherwise targets is behind this dialog, and does not exist at all on the resources page. -->
+	<div id="agent-editor" class="relative h-full min-h-0">
+		{#if tool}
+			<div class="h-full min-h-0 flex flex-col">
+				<AgentToolWrapper
+					bind:tool={() => tools[toolIndex], (v) => (tools[toolIndex] = v)}
+					parentModule={agentModule as FlowModule}
+					{enableAi}
+					forceTestTab={{ [tool.id]: true }}
+					siblingToolNames={tools.filter((t) => t.id !== tool?.id).map((t) => t.summary ?? '')}
 				/>
-				<div class="flex-1 min-h-0">
-					<ModulePreviewResultViewer
-						lang="deno"
-						editor={undefined}
-						diffEditor={undefined}
-						mod={agentModule as FlowModule}
-						{testJob}
-						{testIsLoading}
-						{scriptProgress}
-						disableMock
-						disableHistory
-					/>
+			</div>
+		{:else}
+			<div class="h-full min-h-0 flex flex-row">
+				<div class="w-2/3 min-w-0 flex flex-col min-h-0 border-r border-light">
+					<div class="flex-1 min-h-0 overflow-auto">
+						<PropPickerWrapper
+							pickableProperties={stepPropPicker?.pickableProperties}
+							noPadding
+							sidePane
+						>
+							<AiAgentStepInputs
+								class="px-4 pb-8"
+								{schema}
+								filter={brainFilter}
+								previousModuleId={undefined}
+								pickableProperties={stepPropPicker?.pickableProperties}
+								extraLib={stepPropPicker?.extraLib ?? 'missing extraLib'}
+								{enableAi}
+								{workspace}
+								staticOnly
+								visibilityKey={`agent:${path}`}
+								{tools}
+								onSelectTool={(id) => onSelectTool?.(id)}
+								onAddTool={addTool}
+								toolPickerPortal="#agent-editor"
+								bind:args={
+									() => (agentValue?.input_transforms ?? {}) as Record<string, InputTransform>,
+									(v) => agentValue && (agentValue.input_transforms = v)
+								}
+							/>
+						</PropPickerWrapper>
+					</div>
+				</div>
+				<!-- Laid out as the step panel's own test tab is, so running an agent here and running
+				     it from a flow step look like the same thing. Wrapped: Splitpanes sizes itself to
+				     its container, so a width on it is ignored. -->
+				<div class="w-1/3 min-w-0">
+					<Splitpanes horizontal class="h-full">
+						<Pane size={40} minSize={15}>
+							<div class="h-full overflow-auto">
+								<ModulePreview
+									mod={agentModule as FlowModule}
+									schema={flowLocalAgentSchema(schema)}
+									pickableProperties={stepPropPicker?.pickableProperties}
+									bind:testJob
+									bind:testIsLoading
+									bind:scriptProgress
+								/>
+							</div>
+						</Pane>
+						<Pane size={60} minSize={20}>
+							<ModulePreviewResultViewer
+								lang="deno"
+								editor={undefined}
+								diffEditor={undefined}
+								mod={agentModule as FlowModule}
+								{testJob}
+								{testIsLoading}
+								{scriptProgress}
+								disableMock
+								disableHistory
+							/>
+						</Pane>
+					</Splitpanes>
 				</div>
 			</div>
-		</div>
-	{/if}
+		{/if}
+	</div>
 {/if}

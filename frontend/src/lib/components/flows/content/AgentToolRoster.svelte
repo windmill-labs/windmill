@@ -15,17 +15,20 @@
 		/** Adds a tool. Without it the empty state only says where to add one. */
 		onAddTool?: (detail: { kind: string; script?: any; flow?: any; inlineScript?: any }) => void
 		emptyMessage?: string
+		/** Where the picker's popover belongs, when the roster is not inside the flow editor. */
+		pickerPortal?: string
 	}
 
 	let {
 		tools = [],
 		onSelectTool = undefined,
 		onAddTool = undefined,
-		emptyMessage = 'No tools yet. Add one from the agent on the flow graph.'
+		emptyMessage = 'No tools yet. Add one from the agent on the flow graph.',
+		pickerPortal = '#flow-editor'
 	}: Props = $props()
 
 	let funcDesc = $state('')
-	const pickerPortal = overlayPortalTarget('#flow-editor')
+	const portalTarget = overlayPortalTarget(() => pickerPortal)
 
 	function toolKind(tool: AgentTool): string | undefined {
 		const value = tool.value as Record<string, any>
@@ -51,7 +54,7 @@
 
 {#snippet addToolButton()}
 	<Popover
-		portal={pickerPortal()}
+		portal={portalTarget()}
 		contentClasses="p-2 max-w-full h-[400px] bg-surface"
 		class="inline-block"
 		usePointerDownOutside

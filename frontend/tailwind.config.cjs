@@ -8,17 +8,13 @@ const rawTokens = require('./src/lib/assets/tokens/tokens.json')
 // `github-dark` is a hand-authored variant kept out of the Figma-generated
 // tokens.json (a re-export would drop it); merge it in before the rgb pass.
 rawTokens.tokens['github-dark'] = require('./src/lib/assets/tokens/githubDark.json')
-// Same idea for `agent-lab`: the warm-graphite ground the agent editor's test console sits on,
-// deliberately unlike the app's own cold dark, so the console reads as a place of its own.
-rawTokens.tokens['agent-lab'] = require('./src/lib/assets/tokens/agentLab.json')
 const figmaTokens = makeRgb(rawTokens)
 const { darkModeName, lightModeName } = require('./src/lib/assets/tokens/colorTokensConfig')
 
 const tokens = {
 	dark: figmaTokens.tokens[darkModeName],
 	light: figmaTokens.tokens[lightModeName],
-	githubDark: figmaTokens.tokens['github-dark'],
-	agentLab: figmaTokens.tokens['agent-lab']
+	githubDark: figmaTokens.tokens['github-dark']
 }
 const primitives = figmaTokens.primitives.light
 
@@ -821,24 +817,7 @@ const config = {
 					backgroundColor: 'rgb(var(--color-surface-secondary) / 30%) !important'
 				}
 			})
-			// Scoped to one subtree rather than the document: redefining the same custom properties
-			// on a wrapper re-themes everything inside it, and nothing outside.
-			let agentLabColorVariables = Object.fromEntries([
-				...Object.entries(tokens.agentLab).map(([key, value]) => [`--color-${key}`, value]),
-				...Object.entries(tokens.light).map(([key, value]) => [`--color-${key}-inverse`, value])
-			])
 			addComponents({
-				'.wm-agent-lab': {
-					...agentLabColorVariables,
-					backgroundColor: `rgb(${tokens.agentLab['surface-primary']})`,
-					color: `rgb(${tokens.agentLab['text-primary']})`,
-
-					// Monaco popup chrome, which reads the same variables the app sets on <html>.
-					'--vscode-editorSuggestWidget-background': '#171513',
-					'--vscode-editorHoverWidget-foreground': '#e6e2db',
-					'--vscode-editorHoverWidget-border': '#332e29',
-					'--vscode-editorHoverWidget-statusBarBackground': '#171513'
-				},
 				'.table-custom': {
 					'& th': {
 						paddingTop: theme('spacing.2'),

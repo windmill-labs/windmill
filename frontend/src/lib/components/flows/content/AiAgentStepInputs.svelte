@@ -72,9 +72,10 @@
 		staticOnly?: boolean
 		onSelectTool?: (toolId: string) => void
 		/** Adds a tool to this agent. Without it the roster is read-only, as it is for a linked
-		 *  agent and inside the agent editor, where the graph is not on screen to receive the new
-		 *  step's selection. */
+		 *  agent, whose tools belong to the agent rather than to the step. */
 		onAddTool?: (detail: { kind: string; script?: any; flow?: any; inlineScript?: any }) => void
+		/** Where the tool picker's popover belongs, for a surface that is not the flow editor. */
+		toolPickerPortal?: string
 	}
 
 	let {
@@ -99,7 +100,8 @@
 		tools = [],
 		staticOnly = false,
 		onSelectTool = undefined,
-		onAddTool = undefined
+		onAddTool = undefined,
+		toolPickerPortal = undefined
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $workspaceStore)
@@ -333,7 +335,12 @@
 						{#each rows as spec (spec.key)}
 							<ResizeTransitionWrapper innerClass="w-full" vertical>
 								{#if spec.virtual}
-									<AgentToolRoster {tools} {onSelectTool} {onAddTool} />
+									<AgentToolRoster
+										{tools}
+										{onSelectTool}
+										{onAddTool}
+										pickerPortal={toolPickerPortal}
+									/>
 								{:else}
 									<InputTransformForm
 										{previousModuleId}
