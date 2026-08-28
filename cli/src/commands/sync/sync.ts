@@ -3193,13 +3193,9 @@ const SECRET_BEARING_PATHSPECS = [
 /**
  * The kind of secret-bearing object whose deletion this path is, if it is one.
  *
- * Variables and resources are the two kinds `sync push` deletes outright: a script is
- * archived and restorable whenever, while `DELETE /variables/delete` and
- * `DELETE /resources/delete` leave only the workspace trash, which keeps a deleted
- * item for three days (`migrations/20260326000000_trashbin.up.sql`). Classified with
- * the push's own `getTypeStrFromPath` so this agrees with the switch that does the
- * deleting; a fileset child is excluded ahead of it because it can be any file, an
- * `inner.resource.yaml` included, and its deletion re-pushes the parent resource
+ * Classified with the push's own `getTypeStrFromPath`, so this agrees with the switch
+ * that does the deleting. A fileset child is excluded ahead of it: it can be any file,
+ * `inner.resource.yaml` included, and deleting one re-pushes the parent resource
  * rather than deleting anything.
  */
 export function secretBearingObjectKind(
@@ -3234,36 +3230,26 @@ function secretBearingObjectPath(p: string): string {
 /**
  * The `deleted` changes for variables and resources this branch has never tracked.
  *
- * A remote variable or resource with no local file is equally a deletion being deployed
- * and one that was never in the repo to begin with — provisioned on the instance, or
- * created at runtime by a script (a cursor, a counter, a last-processed marker). The
- * push deploys both, but only the first is something the repository ever owned, and
- * what this branch has committed is the durable evidence that tells them apart (see
- * `gitRecordedPaths`): a recorded path was genuinely tracked; a path missing from a
- * `known` set is one this branch has never had. `unknown` history is not evidence of
- * anything, so every candidate comes back and the caller hedges the wording instead.
+ * A remote object with no local file is equally a deletion being deployed and one that
+ * was never in the repo — provisioned on the instance, or written by a script at
+ * runtime. Committed history is the only thing that tells them apart; `unknown` history
+ * proves nothing either way, so every candidate comes back and the caller hedges.
  *
- * Judged per server-side object, not per file, because that is what the backend
- * deletes: a file resource's `.resource.yaml` and content file are one resource, and
- * either of them in history proves the repository owned it — including a companion the
- * push is not deleting, which is why the tracked set is built from the whole history
- * rather than from the deletions being judged.
- *
- * Kind is part of that identity. A variable and a resource can share a path and are
- * still two objects: `DELETE /variables/delete` drops the same-path resource
- * unconditionally, `DELETE /resources/delete` drops only the variables its value
- * references. That cascade is a reason to report both, not to let history for one
- * vouch for the other.
+ * Identity is kind plus object path, which is what the backend deletes. A file
+ * resource's two files share it, so either in history vouches for the object —
+ * including a companion this push is not deleting, hence a tracked set built from the
+ * whole history rather than from the deletions being judged. A variable and a resource
+ * at one path do not share it: deleting either can take the other, which is a reason to
+ * report both, not to let history for one vouch for the other.
  */
 export function untrackedSecretBearingDeletions<
   T extends { name: string; path: string },
 >(
   changes: T[],
   recorded: RecordedPaths,
-  // History holds a `specificItems` item under its workspace-specific name
-  // (`y.staging.variable.yaml`) while `elementsToMap` collapses it to the base path
-  // the changeset carries. Normalizing history to base paths is what lets the two
-  // meet; without it an object the user did commit reads as never tracked.
+  // History holds a `specificItems` item under its workspace-specific name while the
+  // changeset carries the base path; without normalizing the two an object the user
+  // did commit reads as never tracked.
   toBasePath?: (p: string) => string,
 ): T[] {
   const candidates = changes.filter(
@@ -5218,17 +5204,14 @@ export async function push(
     ambiguousMigrationsResolved = true;
   }
 
-  // `sync push` deletes a variable or resource that has no local file, but an
-  // object the repository has never tracked was provisioned outside it (by hand,
-  // or by a script at runtime) rather than deleted from it. The push still deploys
-  // the deletion — that is what the repo-is-the-mirror contract means, and a
-  // shallow clone could not tell the two apart anyway — but it says so first, so
-  // the change list a user confirms names the risk instead of hiding it.
+  // A deletion of something the repository never tracked still deploys — the repo is
+  // the mirror, and a shallow clone could not tell it apart anyway — but the change
+  // list names it first, so what a user confirms states the risk instead of hiding it.
   const secretDeletionCandidates = changes.filter(
     (c) => c.name === "deleted" && secretBearingObjectKind(c.path) !== undefined,
   );
-  // Both notices go through `log`, which `--json-output` silences, so the history
-  // walk would be a second of `git log` for output nobody reads.
+  // `--json-output` silences both notices, so the history walk would be a second of
+  // `git log` for output nobody reads.
   const recordedSecretPaths: RecordedPaths =
     secretDeletionCandidates.length > 0 && !opts.jsonOutput
       ? gitRecordedPaths(SECRET_BEARING_PATHSPECS)
@@ -5488,10 +5471,7 @@ export async function push(
       if (untrackedSecretDeletions.length > 0) {
         // Named, not counted: a push can delete a tracked and a never-tracked
         // resource together, and a bare "1 resource" identifies neither. One line
-        // per server-side object, since that is the unit being deleted — a file
-        // resource's two files are one deletion, not two.
-        // Keyed by kind as well as path: a variable and a resource at one path are
-        // judged together (deleting either takes both) but are two objects to name.
+        // per object, so a file resource's two files read as the one deletion.
         const paths = Array.from(
           new Set(
             untrackedSecretDeletions.map(
