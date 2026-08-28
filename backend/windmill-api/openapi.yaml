@@ -17036,27 +17036,6 @@ paths:
                   - $ref: "#/components/schemas/Schedule"
                   - $ref: "#/components/schemas/UserDraftOverlay"
 
-  /w/{workspace}/schedules/interval_drift/{path}:
-    get:
-      summary: get how far a schedule's runs have drifted from its cron
-      operationId: getScheduleIntervalDrift
-      tags:
-        - schedule
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/Path"
-      responses:
-        "200":
-          description: >-
-            The measurement, or null when the schedule is keeping up, is
-            disabled, is configured to skip runs, or has not run often enough
-            under its current cron to tell
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ScheduleIntervalDrift"
-                nullable: true
-
   /w/{workspace}/schedules/exists/{path}:
     get:
       summary: does schedule exists
@@ -29792,33 +29771,17 @@ components:
                   - id
                   - success
                   - duration_ms
-
-    ScheduleIntervalDrift:
-      type: object
-      description: >-
-        How often the schedule's runs are actually landing, present only while
-        the last runs have consistently missed their next slot and the schedule
-        is therefore running less often than its cron asks for.
-      properties:
-        effective_s:
-          type: integer
-          description: >-
-            Observed seconds between two consecutive runs, taken from the pair
-            that drifted least, so that a sample spanning a pause reports the
-            cadence rather than the pause
-        configured_s:
-          type: integer
-          description: Seconds the cron expression puts between those same two slots
-        queues_next_run_at_start:
-          type: boolean
-          description: >-
-            True when the schedule queues its next run as the previous one
-            starts (a flow, or a script with a skip handler), which means its
-            runs are starting late rather than overrunning
-      required:
-        - effective_s
-        - configured_s
-        - queues_next_run_at_start
+            interval_s:
+              type: integer
+              description: >-
+                Shortest gap the cron expression asks for, in seconds. A run
+                that outlasts it pushes the next one to a later slot.
+            queues_next_run_at_start:
+              type: boolean
+              description: >-
+                True when the schedule queues its next run as the previous one
+                starts (a flow, or a script with a skip handler), so a long run
+                does not push the following one out
 
     ErrorHandler:
       type: string

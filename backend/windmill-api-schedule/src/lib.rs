@@ -127,7 +127,6 @@ pub fn workspaced_service() -> Router {
         .route("/list", get(list_schedule))
         .route("/list_with_jobs", get(list_schedule_with_jobs))
         .route("/get/{*path}", get(get_schedule))
-        .route("/interval_drift/{*path}", get(get_interval_drift))
         .route("/exists/{*path}", get(exists_schedule))
         .route("/create", post(create_schedule))
         .route("/update/{*path}", post(edit_schedule))
@@ -1001,136 +1000,35 @@ async fn list_schedule(
 pub struct ScheduleWJobs {
     pub path: String,
     pub jobs: Option<Vec<serde_json::Value>>,
-}
-
-/// How often a schedule's runs are actually landing, reported only while that
-/// is consistently slower than its cron asks for. A run still going when its
-/// next slot comes round moves the run after it to a later slot, and nothing
-/// else on the schedule records that its cadence changed.
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct IntervalDrift {
-    pub effective_s: i64,
-    pub configured_s: i64,
-}
-
-/// What the reader needs on top of the numbers: which way out to offer. A flow
-/// already queues its next run when the previous one starts, so its runs are
-/// starting late rather than overrunning. Answered from the deployed row, so the
-/// editor never has to derive it from the form a draft may be sitting in.
-#[derive(Serialize, Deserialize, Debug)]
-pub struct IntervalDriftReport {
-    #[serde(flatten)]
-    pub drift: IntervalDrift,
+    /// Shortest gap the cron asks for, so a caller can tell whether the runs it
+    /// was handed are outlasting it. `None` when the expression cannot be read.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval_s: Option<i64>,
+    /// A flow, or a script with a skip handler (pushed as a single step flow),
+    /// queues its next run as the previous one starts, so a long run does not
+    /// push the following one out the way it does for a plain script.
     pub queues_next_run_at_start: bool,
 }
 
-/// Consecutive slots a schedule has to miss before we call it drift: one slow
-/// run is not a change of cadence.
-const DRIFT_MIN_MISSED_SLOTS: usize = 3;
+/// Occurrences to look ahead over when sizing the interval.
+const INTERVAL_SAMPLE_SLOTS: usize = 5;
 
-/// Runs to read back per schedule: one more than the slots to compare, since
-/// each comparison spans a pair.
-const DRIFT_SAMPLE_SIZE: i64 = DRIFT_MIN_MISSED_SLOTS as i64 + 1;
-
-/// Root jobs of the runnable the sample may walk before giving up. There is no
-/// index on `trigger`, so the sample rides the one on `runnable_path` and finds
-/// the schedule's own runs by filter: a runnable that is also busy outside this
-/// schedule would otherwise be read back as far as its fourth scheduled run,
-/// which for a slow schedule on a busy script is unbounded. This covers that
-/// case with room to spare, and is affordable because the sample is only taken
-/// when someone opens one schedule, never once per row of a listing.
-const DRIFT_SCAN_BUDGET: i64 = 2000;
-
-/// `push_times` are the moments the last runs were queued, newest first. The
-/// pusher anchors `find_next` on exactly that moment, so recomputing from it
-/// recovers each run's slot, which the queue row no longer holds once the run
-/// has completed.
-///
-/// Not every push follows the cadence: enabling, editing and re-arming each
-/// queue one against the wall clock, and a push made while the schedule is
-/// paused anchors on `paused_until` rather than on its own timestamp. Holding
-/// out for a whole run of missed slots is what keeps one of those from reading
-/// as a change of cadence.
-fn detect_interval_drift(
-    push_times: &[DateTime<Utc>],
+/// The *shortest* gap, not the average: under an irregular expression a run can
+/// outlast the tight gaps while still fitting inside the mean, and it is the
+/// tight ones it will skip.
+fn configured_interval_s(
     schedule: &str,
     cron_version: Option<&str>,
     timezone: &str,
-) -> Option<IntervalDrift> {
-    if push_times.len() <= DRIFT_MIN_MISSED_SLOTS {
-        return None;
-    }
+) -> Option<i64> {
     let tz = chrono_tz::Tz::from_str(timezone).ok()?;
     let cron = ScheduleType::from_str(schedule, cron_version, false).ok()?;
-    let next_slot = |after: &DateTime<Utc>| {
-        cron.find_next_opt(&after.with_timezone(&tz))
-            .map(|slot| slot.with_timezone(&Utc))
-    };
-
-    // The two intervals are reported from the pair with the least drift in the
-    // sample, and always from the same pair so they stay comparable. A sample
-    // reaching over a pause, or over a stretch with the schedule turned off,
-    // carries one enormous gap; the mildest pair is the one still describing
-    // how the schedule runs when it is running.
-    let mut mildest: Option<IntervalDrift> = None;
-    for pair in push_times[..=DRIFT_MIN_MISSED_SLOTS].windows(2) {
-        let previous = next_slot(&pair[1])?;
-        let ran_at = next_slot(&pair[0])?;
-        let kept_cadence = next_slot(&previous)?;
-        if ran_at <= kept_cadence {
-            return None;
-        }
-        let pair_drift = IntervalDrift {
-            effective_s: (ran_at - previous).num_seconds(),
-            configured_s: (kept_cadence - previous).num_seconds(),
-        };
-        if mildest
-            .as_ref()
-            .is_none_or(|mildest| pair_drift.effective_s < mildest.effective_s)
-        {
-            mildest = Some(pair_drift);
-        }
-    }
-    mildest
-}
-
-/// When this schedule's cron expression last changed, if it ever has.
-///
-/// Runs queued under a previous expression measure as drift against the one
-/// that replaced it, so a sample reaching back past the change has to be
-/// dropped. `schedule.edited_at` cannot draw that line: nothing updates it
-/// after the insert. The trigger history can, and is only read once a sample
-/// has already come out as drifting.
-///
-/// `dynamic_skip` counts as such a change even though it leaves the arithmetic
-/// alone: it moves the tick from completion-time to start-time, which is what
-/// the reader tells the user their drift is made of.
-///
-/// Compare strictly against it: the edit queues a tick of its own in the same
-/// transaction, so that first run under the new expression carries the very
-/// timestamp recorded here.
-///
-/// Reads on the privileged pool, which the caller has earned with an RLS read
-/// of the schedule row itself.
-async fn cron_changed_at(db: &DB, w_id: &str, path: &str) -> Result<Option<DateTime<Utc>>> {
-    let changed_at = sqlx::query_scalar!(
-        // An entry too large to record field by field keeps only the names, so both
-        // shapes have to be asked.
-        "SELECT created_at
-        FROM trigger_history
-        WHERE workspace_id = $1 AND trigger_kind = $2 AND path = $3
-            AND (changes ?| array['schedule', 'timezone', 'cron_version', 'dynamic_skip']
-                OR changes -> 'truncated_fields'
-                    ?| array['schedule', 'timezone', 'cron_version', 'dynamic_skip'])
-        ORDER BY id DESC
-        LIMIT 1",
-        w_id,
-        SCHEDULE_TRIGGER_KIND,
-        path
-    )
-    .fetch_optional(db)
-    .await?;
-    Ok(changed_at)
+    let slots = cron.upcoming(tz, INTERVAL_SAMPLE_SLOTS).ok()?;
+    slots
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]).num_seconds())
+        .min()
+        .filter(|gap| *gap > 0)
 }
 
 async fn list_schedule_with_jobs(
@@ -1141,13 +1039,23 @@ async fn list_schedule_with_jobs(
 ) -> JsonResult<Vec<ScheduleWJobs>> {
     let mut tx = user_db.begin(&authed).await?;
     let (per_page, offset) = paginate(pagination);
-    let rows = sqlx::query_as!(ScheduleWJobs,
+    struct ScheduleWJobsRow {
+        path: String,
+        jobs: Option<Vec<serde_json::Value>>,
+        schedule: String,
+        timezone: String,
+        cron_version: Option<String>,
+        is_flow: bool,
+        dynamic_skip: Option<String>,
+    }
+    let rows = sqlx::query_as!(ScheduleWJobsRow,
         // Query plan:
         // - use of the `ix_completed_job_workspace_id_started_at_new_2` index first, then;
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
         // - both `workspace_id = $1` checks are required to hit both indexes.
         "SELECT
-            schedule.path, t.jobs FROM schedule,
+            schedule.path, schedule.schedule, schedule.timezone, schedule.cron_version,
+            schedule.is_flow, schedule.dynamic_skip, t.jobs FROM schedule,
             LATERAL(SELECT ARRAY(
                 SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
                 FROM v2_job_completed c JOIN v2_job j USING (id)
@@ -1173,7 +1081,19 @@ async fn list_schedule_with_jobs(
     tx.commit().await?;
     let allowed = build_scope_path_predicate(&authed, "schedules", "read");
     Ok(Json(
-        rows.into_iter().filter(|r| allowed(&r.path)).collect(),
+        rows.into_iter()
+            .filter(|r| allowed(&r.path))
+            .map(|r| ScheduleWJobs {
+                interval_s: configured_interval_s(
+                    &r.schedule,
+                    r.cron_version.as_deref(),
+                    &r.timezone,
+                ),
+                queues_next_run_at_start: r.is_flow || r.dynamic_skip.is_some(),
+                path: r.path,
+                jobs: r.jobs,
+            })
+            .collect(),
     ))
 }
 
@@ -1212,90 +1132,6 @@ async fn get_schedule(
     )
     .await?;
     Ok(Json(overlay))
-}
-
-/// Measured, not configured: kept off `get_schedule`, whose response is the
-/// schedule's configuration and is diffed for deploys and read by exporters that
-/// fan out over every schedule in a workspace.
-async fn get_interval_drift(
-    authed: ApiAuthed,
-    Extension(user_db): Extension<UserDB>,
-    Extension(db): Extension<DB>,
-    Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<Option<IntervalDriftReport>> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("schedules:read:{}", path))?;
-    let mut tx = user_db.begin(&authed).await?;
-    let schedule = windmill_queue::schedule::get_schedule_opt(&mut *tx, &w_id, path).await?;
-    tx.commit().await?;
-    let schedule = not_found_if_none(schedule, "Schedule", path)?;
-    let report = fetch_interval_drift(&db, &w_id, &schedule)
-        .await?
-        .map(|drift| IntervalDriftReport {
-            drift,
-            queues_next_run_at_start: schedule.is_flow || schedule.dynamic_skip.is_some(),
-        });
-    Ok(Json(report))
-}
-
-async fn fetch_interval_drift(
-    db: &DB,
-    w_id: &str,
-    schedule: &Schedule,
-) -> Result<Option<IntervalDrift>> {
-    // A schedule that is off is not running behind, it is not running. Nor is one
-    // told to skip: a skip handler and `no_flow_overlap` both exist to drop runs, so
-    // for those two the cadence the cron asks for was never the promise.
-    // `no_flow_overlap` is only consulted by the flow runtime, so on a plain script
-    // schedule it is inert and must not suppress anything.
-    if !schedule.enabled
-        || (schedule.is_flow && schedule.no_flow_overlap)
-        || schedule.dynamic_skip.is_some()
-    {
-        return Ok(None);
-    }
-    // Query plan: `(workspace_id, runnable_path, created_at DESC)` index, hence the
-    // `parent_job IS NULL` clause, with the walk capped by DRIFT_SCAN_BUDGET. The
-    // `edited_at` bound is not that cap: it drops the runs of whatever schedule last
-    // held this path, which carry the same `trigger`. Nothing writes `edited_at` after
-    // the insert, so no run of this schedule can predate it.
-    let push_times = sqlx::query_scalar!(
-        "SELECT created_at FROM (
-            SELECT created_at, trigger, trigger_kind
-            FROM v2_job
-            WHERE workspace_id = $1
-                AND parent_job IS NULL AND runnable_path = $3
-                AND created_at > $4
-            ORDER BY created_at DESC
-            LIMIT $6
-        ) recent
-        WHERE trigger_kind = 'schedule' AND trigger = $2
-        ORDER BY created_at DESC
-        LIMIT $5",
-        w_id,
-        &schedule.path,
-        &schedule.script_path,
-        schedule.edited_at,
-        DRIFT_SAMPLE_SIZE,
-        DRIFT_SCAN_BUDGET
-    )
-    .fetch_all(db)
-    .await?;
-    let drift = detect_interval_drift(
-        &push_times,
-        &schedule.schedule,
-        schedule.cron_version.as_deref(),
-        &schedule.timezone,
-    );
-    if drift.is_some() {
-        if let Some(oldest) = push_times.last() {
-            let changed_at = cron_changed_at(db, w_id, &schedule.path).await?;
-            if changed_at.is_some_and(|changed_at| *oldest < changed_at) {
-                return Ok(None);
-            }
-        }
-    }
-    Ok(drift)
 }
 
 async fn exists_schedule(
@@ -1911,80 +1747,3 @@ pub struct SetEnabled {
 //     pub from: DateTime<Utc>,
 //     pub to: Option<DateTime<Utc>>,
 // }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn at(ts: &str) -> DateTime<Utc> {
-        DateTime::parse_from_rfc3339(ts)
-            .unwrap()
-            .with_timezone(&Utc)
-    }
-
-    /// A 50s run on a 20s cron is queued again only once the next two slots
-    /// have gone by, so the cadence settles at 60s and stays there.
-    #[test]
-    fn reports_the_cadence_a_slow_run_settles_into() {
-        let push_times = [
-            at("2024-01-01T00:03:10Z"),
-            at("2024-01-01T00:02:10Z"),
-            at("2024-01-01T00:01:10Z"),
-            at("2024-01-01T00:00:10Z"),
-        ];
-        assert_eq!(
-            detect_interval_drift(&push_times, "*/20 * * * * *", Some("v2"), "UTC"),
-            Some(IntervalDrift { effective_s: 60, configured_s: 20 })
-        );
-    }
-
-    /// Twice a day, so consecutive runs sit 8 hours apart and then 16. Every
-    /// run here landed on the slot after its predecessor's, the overnight one
-    /// included: a gap the cron itself asks for is not drift.
-    #[test]
-    fn stays_quiet_on_the_long_gaps_an_irregular_cron_leaves() {
-        let push_times = [
-            at("2024-01-02T17:00:05Z"),
-            at("2024-01-02T09:00:05Z"),
-            at("2024-01-01T17:00:05Z"),
-            at("2024-01-01T09:00:05Z"),
-        ];
-        assert_eq!(
-            detect_interval_drift(&push_times, "0 0 9,17 * * *", Some("v2"), "UTC"),
-            None
-        );
-    }
-
-    /// The schedule spent most of this window turned off. The gap that leaves
-    /// is not the cadence, so the interval reported is the one the runs on
-    /// either side of it settled into.
-    #[test]
-    fn reports_past_the_gap_a_pause_leaves() {
-        let push_times = [
-            at("2024-01-01T04:01:10Z"),
-            at("2024-01-01T04:00:10Z"),
-            at("2024-01-01T00:01:10Z"),
-            at("2024-01-01T00:00:10Z"),
-        ];
-        assert_eq!(
-            detect_interval_drift(&push_times, "*/20 * * * * *", Some("v2"), "UTC"),
-            Some(IntervalDrift { effective_s: 60, configured_s: 20 })
-        );
-    }
-
-    /// One run overrunning its slot is not a change of cadence: the two runs
-    /// before it kept up.
-    #[test]
-    fn stays_quiet_when_only_the_last_run_overran() {
-        let push_times = [
-            at("2024-01-01T00:01:50Z"),
-            at("2024-01-01T00:00:50Z"),
-            at("2024-01-01T00:00:30Z"),
-            at("2024-01-01T00:00:10Z"),
-        ];
-        assert_eq!(
-            detect_interval_drift(&push_times, "*/20 * * * * *", Some("v2"), "UTC"),
-            None
-        );
-    }
-}
