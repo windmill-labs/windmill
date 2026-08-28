@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eval_experiment e\n                SET subject = jsonb_set(e.subject, '{path}', to_jsonb($1::text))\n              WHERE e.workspace_id = $2\n                AND e.subject->>'path' = $3\n                AND EXISTS (SELECT 1 FROM resource r\n                             WHERE r.workspace_id = $2 AND r.path = $1\n                               AND r.resource_type = 'ai_agent')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e5e16c5c73c8b31484e17465ea1c3870f1d09d468baaa8d434497025ec4e351"
+}
