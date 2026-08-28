@@ -55,15 +55,23 @@ describe("gitRecordedDatatableMigrationPaths", () => {
     }
   });
 
-  test("records a path with a non-ASCII byte unquoted", () => {
-    // core.quotePath would return "migrations/datatable/dt/1_caf\303\251.up.sql",
-    // which matches no path the caller holds and reads as never recorded.
-    const rel = commitMigration("20260101000000_café.up.sql");
+  test("records paths git would otherwise C-quote", () => {
+    // Non-ASCII is what `core.quotePath=false` covers; `"` and `\` stay quoted under
+    // it and need `-z`. All three read as never recorded when quoted.
+    const rels = [
+      commitMigration("20260101000000_café.up.sql"),
+      commitMigration('20260101000001_a"b.up.sql'),
+      commitMigration("20260101000002_a\\b.up.sql"),
+    ];
     const r = gitRecordedDatatableMigrationPaths();
     expect(r.kind).toBe("known");
-    if (r.kind === "known") expect(r.paths.has(rel)).toBe(true);
+    if (r.kind === "known") {
+      for (const rel of rels) expect(r.paths.has(rel)).toBe(true);
+    }
   });
 
+  // Guards the `-z` parser, not the pre-existing behaviour: the split moved from
+  // newline to NUL, and a deletion still has to leave the path listed.
   test("a committed migration stays recorded after its deletion is committed", () => {
     const rel = commitMigration("20260101000000_a.up.sql");
     fs.rmSync(path.join(dir, rel));

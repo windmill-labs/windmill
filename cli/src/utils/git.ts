@@ -170,20 +170,12 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
     };
   }
 
-  // `core.quotePath` (on by default) C-quotes any path with a non-ASCII byte, which
-  // matches nothing the caller holds and reads as "never tracked".
+  // `-z`, not `core.quotePath=false`: that setting only stops git C-quoting non-ASCII
+  // bytes, leaving a path holding `"`, `\` or a control character quoted and matching
+  // nothing the caller holds. `-z` emits every path raw, NUL-separated.
   const r = spawnSync(
     "git",
-    [
-      "-c",
-      "core.quotePath=false",
-      "log",
-      "HEAD",
-      "--format=",
-      "--name-only",
-      "--",
-      "migrations/datatable",
-    ],
+    ["log", "HEAD", "--format=", "--name-only", "-z", "--", "migrations/datatable"],
     { encoding: "utf8", stdio: "pipe", maxBuffer: 64 * 1024 * 1024 },
   );
   if ((r.status ?? 1) !== 0) {
@@ -195,7 +187,7 @@ export function gitRecordedDatatableMigrationPaths(): RecordedMigrationPaths {
     };
   }
   const paths = new Set<string>();
-  for (const line of (r.stdout ?? "").split("\n")) {
+  for (const line of (r.stdout ?? "").split("\0")) {
     const p = line.trim();
     if (p.length === 0) continue;
     if (prefix.length > 0) {
