@@ -6,7 +6,15 @@
 		type WorkspaceDeployUISettings,
 		WorkspaceService
 	} from '$lib/gen'
-	import { canWrite, displayDate, getLocalSetting, storeLocalSetting } from '$lib/utils'
+	import {
+		canWrite,
+		displayDate,
+		getLocalSetting,
+		msToReadableTime,
+		msToReadableTimeShort,
+		storeLocalSetting
+	} from '$lib/utils'
+	import { runsOutlastingInterval } from '$lib/components/schedules/scheduleDrift'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { base } from '$app/paths'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
@@ -21,6 +29,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { userStore, workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import {
+		AlertTriangle,
 		Calendar,
 		Circle,
 		Copy,
@@ -410,13 +419,19 @@
 				{/if}
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, jobs, interval_s, queues_next_run_at_start, paused_until, labels, inherited_labels, draft_only, is_draft } (path)}
 						{@const hasDraft =
 							getLocalDraftHint($workspaceStore, 'trigger_schedule', path) ?? is_draft}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const avg_s = jobs
 							? jobs.reduce((acc, x) => acc + x.duration_ms, 0) / jobs.length
 							: undefined}
+						{@const outlastingMs = runsOutlastingInterval({
+							queues_next_run_at_start,
+							enabled,
+							interval_s,
+							jobs
+						})}
 
 						<div
 							class="bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -637,6 +652,18 @@
 									</div>
 								{:else}
 									<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
+										{#if outlastingMs}
+											<Popover notClickable>
+												<AlertTriangle size={14} class="text-yellow-600" />
+												{#snippet text()}
+													<div>
+														Runs have been taking about {msToReadableTimeShort(outlastingMs, 0)}, longer
+														than the {msToReadableTime(interval_s! * 1000)} between scheduled events, so
+														this schedule is running less often than its cron asks for.
+													</div>
+												{/snippet}
+											</Popover>
+										{/if}
 										{#if avg_s}
 											<div class="pl-2 text-secondary text-xs"
 												>Avg: {(avg_s / 1000).toFixed(2)}s</div
