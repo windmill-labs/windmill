@@ -1556,7 +1556,15 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 	}
 	if (path === '/api/integrations/hub/list') {
 		const apps = [...new Set(BENCHMARK_HUB_SCRIPTS.map((script) => script.app))].sort()
-		return Response.json(apps.map((name) => ({ name })))
+		// Only the integrations lifted whole from the content repo have a meta.json, so
+		// the flag separates them from the rest here the way it does on the hub, where
+		// 18 of ~216 qualify.
+		const documented = new Set(
+			REAL_HUB_INTEGRATIONS.filter((integration) => integration.meta).map(
+				(integration) => integration.app
+			)
+		)
+		return Response.json(apps.map((name) => ({ name, documented: documented.has(name) })))
 	}
 	if (path.startsWith('/api/scripts/hub/get_full/')) {
 		const script = getBenchmarkHubScript(path)

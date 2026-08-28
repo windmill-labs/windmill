@@ -8613,6 +8613,13 @@ paths:
                   properties:
                     name:
                       type: string
+                    documented:
+                      description: >-
+                        whether the integration carries hand-written provider
+                        knowledge, so a caller can tell before spending a call on
+                        /integrations/hub/{app}/meta. Absent on a hub predating the
+                        flag.
+                      type: boolean
                   required:
                     - name
 

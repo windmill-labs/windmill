@@ -1969,6 +1969,60 @@ describe('createSearchHubScriptsTool', () => {
 
 		expect(JSON.parse(raw).suggested_integrations).toEqual(['s3'])
 	})
+
+	// Only about one hub integration in twelve carries authored provider knowledge,
+	// and a search result is where the model first sees a slug — so the mark has to
+	// ride along, or every get_hub_integration call is a coin flip.
+	it('marks the integrations get_hub_integration has knowledge for', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async () => [
+				hit(1, 'confluence', 'Create page'),
+				hit(2, 'notion', 'Create page')
+			])
+		})
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [
+				{ name: 'Confluence', documented: true },
+				{ name: 'notion', documented: false }
+			])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'create a wiki page' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		const results = JSON.parse(raw).results
+		// the hub's slugs are case-sensitive, so the two casings are one integration
+		expect(results.find((r: any) => r.integration === 'confluence').documented).toBe(true)
+		expect(results.find((r: any) => r.integration === 'notion').documented).toBeUndefined()
+	})
+
+	// A hub predating the flag sends no `documented` at all; reading that as "yes"
+	// would send the model after notes that are not coming.
+	it('claims no knowledge when the hub does not report any', async () => {
+		const { ScriptService, IntegrationService } = await import('$lib/gen')
+		Object.assign(ScriptService, {
+			queryHubScripts: vi.fn(async () => [hit(1, 'confluence', 'Create page')])
+		})
+		Object.assign(IntegrationService, {
+			listHubIntegrations: vi.fn(async () => [{ name: 'confluence' }])
+		})
+
+		const { createSearchHubScriptsTool, clearHubIntegrationsCache } = await import('./shared')
+		clearHubIntegrationsCache()
+		const raw = await createSearchHubScriptsTool().fn({
+			args: { query: 'create a wiki page' },
+			toolId: 't1',
+			toolCallbacks: { setToolStatus: vi.fn() }
+		} as any)
+
+		expect(JSON.parse(raw).results[0].documented).toBeUndefined()
+	})
 })
 
 describe('getHubIntegrationTool', () => {
