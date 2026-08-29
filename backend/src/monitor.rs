@@ -70,11 +70,11 @@ use windmill_common::{
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
         SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
-        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
-        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WORKSPACE_MAX_QUEUED_JOBS_SETTING,
+        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
+        UV_PYTHON_INSTALL_MIRROR_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WORKSPACE_MAX_QUEUED_JOBS_SETTING,
     },
     indexer::load_indexer_config,
     jobs::delete_jobs,
@@ -97,10 +97,10 @@ use windmill_common::{
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED,
     CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
-    HUB_BASE_URL, JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES,
-    JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
-    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
-    SERVICE_LOG_RETENTION_SECS, STORE_AUDIT_LOGS_S3,
+    DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL, JOB_RETENTION_SECS,
+    JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED,
+    METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED,
+    OTEL_TRACING_ENABLED, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -474,6 +474,19 @@ pub async fn initial_load(
         "HUB_API_SECRET",
         |v: Option<String>| async move { HUB_API_SECRET.store(std::sync::Arc::new(v)) },
     );
+
+    // Outside the `server_mode` guard below: every mode reads this. A worker registers its
+    // rotated log files against the cutoff, and a dedicated indexer trims the search index to a
+    // window derived from it — neither is a server.
+    pass.setting(SERVICE_LOG_RETENTION_SECS_SETTING, true, |v| async move {
+        windmill_common::set_service_log_retention_secs(parse_setting_value::<i64>(
+            v,
+            SERVICE_LOG_RETENTION_SECS_SETTING,
+            "SERVICE_LOG_RETENTION_SECS",
+            DEFAULT_SERVICE_LOG_RETENTION_SECS,
+            |x| x,
+        ))
+    });
 
     if server_mode {
         pass.setting(RETENTION_PERIOD_SECS_SETTING, true, |v| async move {
@@ -1380,8 +1393,8 @@ async fn send_log_files_to_object_store(
     files: Vec<(NaiveDateTime, String)>,
 ) {
     let _guard = SENDING_LOG_FILES.lock().await;
-    let retention_cutoff =
-        Utc::now().naive_utc() - chrono::Duration::seconds(SERVICE_LOG_RETENTION_SECS);
+    let retention_cutoff = Utc::now().naive_utc()
+        - chrono::Duration::seconds(windmill_common::service_log_retention_secs());
     for (ts, file_name) in files {
         if last_log_file_sent().is_some_and(|last| last >= ts) {
             continue;
@@ -1661,6 +1674,13 @@ pub async fn trim_resource_versions(db: &DB) -> () {
     }
 }
 
+/// Matches the batch the settings-page cleanup uses for the same table.
+const SERVICE_LOG_DELETE_BATCH: i64 = 2_000;
+/// Batches per pass. `monitor_db` runs under a 600s timeout that cancels every maintenance
+/// future in the same `join!` and reports a critical error, so a large backlog has to drain
+/// across ticks rather than inside one, the way the neighbouring sweeps already do.
+const SERVICE_LOG_DELETE_MAX_BATCHES: usize = 10;
+
 pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
@@ -1743,23 +1763,48 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
     }
 
-    match sqlx::query_as!(
-        LogFile,
-        "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval RETURNING file_path, hostname",
-        SERVICE_LOG_RETENTION_SECS,
-    )
-    .fetch_all(db)
-    .await
-    {
-        Ok(log_files_to_delete) => {
+    // Batched: every process rotates a log file a minute, so lowering the retention makes one
+    // ordinary setting change expire millions of rows at once. An unbounded `DELETE ...
+    // RETURNING` would materialize all of them, and their deletion futures, in this one tick.
+    for _ in 0..SERVICE_LOG_DELETE_MAX_BATCHES {
+        let batch = sqlx::query_as!(
+            LogFile,
+            "DELETE FROM log_file WHERE (hostname, log_ts) IN (
+                 SELECT hostname, log_ts FROM log_file
+                 WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval
+                 LIMIT $2
+             ) RETURNING file_path, hostname",
+            windmill_common::service_log_retention_secs(),
+            SERVICE_LOG_DELETE_BATCH,
+        )
+        .fetch_all(db)
+        .await;
+
+        match batch {
+            Ok(log_files_to_delete) => {
+                if log_files_to_delete.is_empty() {
+                    break;
+                }
+                let n = log_files_to_delete.len();
                 let paths = log_files_to_delete
                     .iter()
                     .map(|f| format!("{}/{}", f.hostname, f.file_path))
                     .collect();
-                delete_log_files_from_disk_and_store(paths, &*TMP_WINDMILL_LOGS_SERVICE, windmill_common::tracing_init::LOGS_SERVICE).await;
-
+                delete_log_files_from_disk_and_store(
+                    paths,
+                    &*TMP_WINDMILL_LOGS_SERVICE,
+                    windmill_common::tracing_init::LOGS_SERVICE,
+                )
+                .await;
+                if (n as i64) < SERVICE_LOG_DELETE_BATCH {
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error deleting log file: {:?}", e);
+                break;
+            }
         }
-        Err(e) => tracing::error!("Error deleting log file: {:?}", e),
     }
 
     let audit_retention_days = audit_log_retention_days().await;
@@ -2863,6 +2908,21 @@ pub async fn reload_retention_period_setting(conn: &Connection) {
     {
         Ok(v) => JOB_RETENTION_SECS.store(v, Ordering::Relaxed),
         Err(e) => tracing::error!("Error reloading retention period: {:?}", e),
+    }
+}
+
+pub async fn reload_service_log_retention_secs_setting(conn: &Connection) {
+    match load_setting_value::<i64>(
+        conn,
+        SERVICE_LOG_RETENTION_SECS_SETTING,
+        "SERVICE_LOG_RETENTION_SECS",
+        DEFAULT_SERVICE_LOG_RETENTION_SECS,
+        |x| x,
+    )
+    .await
+    {
+        Ok(v) => windmill_common::set_service_log_retention_secs(v),
+        Err(e) => tracing::error!("Error reloading service log retention period: {:?}", e),
     }
 }
 
