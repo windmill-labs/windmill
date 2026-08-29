@@ -108,7 +108,10 @@ async fn get_log_file_from_store(
     // The store is partitioned by day and mode, neither of which the path
     // carries. `log_file` names both, and its primary key starts with hostname.
     let file = sqlx::query!(
-        "SELECT mode::text AS mode, log_ts FROM log_file WHERE hostname = $1 AND file_path = $2 ORDER BY log_ts DESC LIMIT 1",
+        // `mode!` because the column is NOT NULL and only the cast makes sqlx
+        // think otherwise; a silent default would look up a `mode=` partition
+        // that matches nothing and read as a missing file.
+        "SELECT mode::text AS \"mode!\", log_ts FROM log_file WHERE hostname = $1 AND file_path = $2 ORDER BY log_ts DESC LIMIT 1",
         hostname,
         file_name
     )
@@ -134,11 +137,7 @@ async fn get_log_file_from_store(
     }
 
     let text = windmill_indexer::service_logs_store_ee::read_log_file(
-        store,
-        file.mode.as_deref().unwrap_or_default(),
-        hostname,
-        file_name,
-        &known_ts,
+        store, &file.mode, hostname, file_name, &known_ts,
     )
     .await
     .map_err(|e| Error::internal_err(format!("Error reading the service log store: {e}")))?
