@@ -1143,6 +1143,32 @@
 				description="Configure default timeouts and retention policies for job execution."
 				link="https://www.windmill.dev/docs/advanced/instance_settings#jobs"
 			/>
+		{:else if category == 'Service logs'}
+			<SettingsPageHeader
+				title="Service logs"
+				description="The logs of the Windmill processes themselves — servers, workers and the indexer. Job logs are covered by the job retention period under Jobs."
+			/>
+			{#if !$values['object_store_cache_config']}
+				<div class="pb-4">
+					<Alert type="info" title="Log files stay on local disk" size="xs">
+						Instance object storage is not configured, so every server and worker keeps its log
+						files on its own disk. This page lists what each host wrote, but can only open the
+						files belonging to the replica serving the request — another host's are listed and
+						not readable — and a host's files go with it when it is replaced. Retention below
+						still governs the entries in the database and the files on disk.
+					</Alert>
+				</div>
+			{:else if $values['monitor_logs_on_s3'] === false}
+				<div class="pb-4">
+					<Alert type="warning" title="Retention does not reach the object storage copies" size="xs">
+						Log files are uploaded to instance object storage, but <b
+							>Delete logs from s3 periodically</b
+						>
+						is off under Object Storage, so expiring a log removes its database entry and the file
+						on disk while the uploaded copy is kept indefinitely.
+					</Alert>
+				</div>
+			{/if}
 		{:else if category == 'Object Storage'}
 			<SettingsPageHeader
 				title="Object Storage"
