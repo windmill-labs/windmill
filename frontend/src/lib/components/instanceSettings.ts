@@ -289,11 +289,12 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Service log retention in secs',
 			key: 'service_log_retention_secs',
 			description:
-				'How long service logs stay available: the raw files in object storage, the columnar store that service log search reads, and the per-host match counts. Defaults to 14 days.',
+				'How long service logs are kept, in the database and — when instance object storage is configured — in object storage, along with how far back service log search reaches. Defaults to 14 days. Unlike the job retention period above, there is no keep-forever setting: leave it empty for the default.',
 			fieldType: 'seconds',
-			placeholder: '1209600',
 			storage: 'setting',
-			cloudonly: false
+			cloudonly: false,
+			error: 'Service log retention must be at least 1 second — leave it empty for the default',
+			isValid: (value: any) => value == undefined || (typeof value === 'number' && value > 0)
 		},
 		{
 			label: 'Per-workspace retention overrides',

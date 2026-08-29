@@ -156,14 +156,41 @@ pub fn get_indexer_rates_from_env() -> TantivyIndexerSettings {
 mod tests {
     use super::*;
 
+    // One test rather than several: both halves read the same process-wide retention, and the
+    // clamp half has to store into it, which parallel tests would race.
     #[test]
-    fn index_window_treats_zero_as_full_retention_and_clamps_to_it() {
-        let retention = crate::service_log_retention_secs();
+    fn retention_rejects_unusable_values_and_the_index_window_clamps_to_it() {
+        use crate::{
+            service_log_retention_secs, DEFAULT_SERVICE_LOG_RETENTION_SECS,
+            SERVICE_LOG_RETENTION_SECS,
+        };
+        use std::sync::atomic::Ordering;
+
+        let set = |v: i64| SERVICE_LOG_RETENTION_SECS.store(v, Ordering::Relaxed);
+
+        // Every cutoff is `now - retention`, so honouring a non-positive value would put it at
+        // or after `now` and expire the whole of the service logs on the next sweep. `0` is
+        // both what an operator types by analogy with job retention and what the settings UI
+        // writes into a field that was merely focused.
+        for unusable in [0, -1, i64::MIN, i64::MAX] {
+            set(unusable);
+            assert_eq!(
+                service_log_retention_secs(),
+                DEFAULT_SERVICE_LOG_RETENTION_SECS,
+                "{unusable} must fall back to the default, not become the window"
+            );
+        }
+
+        set(60 * 60 * 24 * 3);
+        let retention = service_log_retention_secs();
+        assert_eq!(retention, 60 * 60 * 24 * 3);
         // `0` disables the extra shrinking rather than lifting the ceiling — the trap that
         // makes an unset setting look unbounded.
         assert_eq!(service_log_index_window_secs(0), retention);
         // Retention is the ceiling: the index cannot reach lines whose `log_file` row is gone.
         assert_eq!(service_log_index_window_secs(retention * 2), retention);
         assert_eq!(service_log_index_window_secs(60), 60);
+
+        set(DEFAULT_SERVICE_LOG_RETENTION_SECS);
     }
 }

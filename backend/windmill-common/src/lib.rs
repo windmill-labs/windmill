@@ -150,14 +150,30 @@ pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const DEFAULT_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 
+/// Beyond this `chrono::Duration::seconds` panics, so a larger window would abort the sweep
+/// that reads it rather than keep logs for longer.
+const MAX_SERVICE_LOG_RETENTION_SECS: i64 = i64::MAX / 1_000;
+
 /// How long a service log line stays retrievable, in seconds.
 ///
 /// This is the outer bound on everything service-log: the `log_file` rows, the raw files in
 /// object storage, the columnar store queried by retrieval, and — through
 /// [`indexer::service_log_index_window_secs`] — the search index. Read it through this
 /// function rather than the atomic so every caller goes through the same door.
+///
+/// Every one of those cutoffs is `now - retention`, so a non-positive value puts the cutoff at
+/// or after `now` and the next sweep reads the entire service log history as expired, deleting
+/// the rows and their object-storage files irreversibly. Unlike job retention there is no
+/// "keep forever" spelling here — service logs always have a window — so an unusable value
+/// falls back to the default rather than being honoured. This is the floor for a `0` typed by
+/// analogy with job retention, and for the `0` the settings UI writes into an untouched field.
 pub fn service_log_retention_secs() -> i64 {
-    SERVICE_LOG_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
+    let configured = SERVICE_LOG_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
+    if (1..=MAX_SERVICE_LOG_RETENTION_SECS).contains(&configured) {
+        configured
+    } else {
+        DEFAULT_SERVICE_LOG_RETENTION_SECS
+    }
 }
 
 /// Canonical form of a base URL, used as one of the inputs to the offline-license
