@@ -1220,24 +1220,35 @@ async fn sleep_until_next_minute_start_plus_one_s() {
 }
 
 use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
+
+/// The two highest names, and nothing about the order they arrive in.
+///
+/// `read_dir` promises no order, and a directory that hands its entries back
+/// newest-first leaves a single-pass "is this the new highest" comparison with
+/// no runner-up at all — which is the file the uploader ships, so nothing ever
+/// reached object storage on such a host.
+fn two_highest(names: Vec<String>) -> (Option<String>, Option<String>) {
+    let (mut highest, mut second) = (None::<String>, None::<String>);
+    for name in names {
+        if highest.as_deref().is_none_or(|h| name.as_str() > h) {
+            second = highest.replace(name);
+        } else if second.as_deref().is_none_or(|s| name.as_str() > s) {
+            second = Some(name);
+        }
+    }
+    (highest, second)
+}
 async fn find_two_highest_files(hostname: &str) -> (Option<String>, Option<String>) {
     let log_dir = format!("{}/{}/", *TMP_WINDMILL_LOGS_SERVICE, hostname);
     let rd_dir = tokio::fs::read_dir(log_dir).await;
     if let Ok(mut log_files) = rd_dir {
-        let mut highest_file: Option<String> = None;
-        let mut second_highest_file: Option<String> = None;
+        let mut names = Vec::new();
         while let Ok(Some(file)) = log_files.next_entry().await {
-            let file_name = file
-                .file_name()
-                .to_str()
-                .map(|x| x.to_string())
-                .unwrap_or_default();
-            if file_name > highest_file.clone().unwrap_or_default() {
-                second_highest_file = highest_file;
-                highest_file = Some(file_name);
+            if let Some(name) = file.file_name().to_str() {
+                names.push(name.to_string());
             }
         }
-        (highest_file, second_highest_file)
+        two_highest(names)
     } else {
         tracing::error!(
             "Error reading log files: {}, {:#?}",
@@ -6750,6 +6761,48 @@ mod retention_overrides_tests {
             .map(|i| (format!("ws_{i}"), json!(3600)))
             .collect();
         assert!(parse_retention_overrides(over_cap).is_err());
+    }
+}
+
+#[cfg(test)]
+mod two_highest_tests {
+    use super::two_highest;
+
+    fn names(v: &[&str]) -> Vec<String> {
+        v.iter().map(|x| x.to_string()).collect()
+    }
+
+    /// The uploader ships the runner-up — the newest file that has stopped being
+    /// written to — so a directory listing that arrives newest-first must still
+    /// produce one.
+    #[test]
+    fn finds_the_runner_up_whatever_order_the_directory_gives() {
+        let ascending = names(&[
+            "h.log.2026-08-29-08-19",
+            "h.log.2026-08-29-08-20",
+            "h.log.2026-08-29-08-21",
+        ]);
+        let mut descending = ascending.clone();
+        descending.reverse();
+
+        for order in [ascending, descending] {
+            assert_eq!(
+                two_highest(order),
+                (
+                    Some("h.log.2026-08-29-08-21".to_string()),
+                    Some("h.log.2026-08-29-08-20".to_string())
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn a_lone_file_has_no_runner_up() {
+        assert_eq!(
+            two_highest(names(&["h.log.2026-08-29-08-19"])),
+            (Some("h.log.2026-08-29-08-19".to_string()), None)
+        );
+        assert_eq!(two_highest(vec![]), (None, None));
     }
 }
 

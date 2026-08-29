@@ -88,6 +88,52 @@ async fn list_files(
     Ok(Json(rows))
 }
 
+/// Rebuild one source log file from the columnar store.
+///
+/// Not the original bytes: the store holds a line's fields rather than its text,
+/// so the JSON is re-serialized here and key order and whitespace are this
+/// writer's. Everything a reader can see survives — the drawer this feeds
+/// renders a prettified view of each line either way, and a line that was never
+/// JSON comes back exactly as it was written.
+#[cfg(all(feature = "tantivy", feature = "private"))]
+async fn get_log_file_from_store(
+    db: &DB,
+    store: &windmill_indexer::service_logs_store_ee::Store,
+    path: &str,
+) -> windmill_common::error::Result<Response> {
+    let (hostname, file_name) = path
+        .split_once('/')
+        .ok_or_else(|| Error::BadRequest("Invalid path".to_string()))?;
+
+    // The store is partitioned by day and mode, neither of which the path
+    // carries. `log_file` names both, and its primary key starts with hostname.
+    let file = sqlx::query!(
+        "SELECT mode::text AS mode, log_ts FROM log_file WHERE hostname = $1 AND file_path = $2 ORDER BY log_ts DESC LIMIT 1",
+        hostname,
+        file_name
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("File {path} not found")))?;
+
+    let lines = windmill_indexer::service_logs_store_ee::read_log_file(
+        store,
+        file.mode.as_deref().unwrap_or_default(),
+        hostname,
+        file_name,
+        chrono::DateTime::from_naive_utc_and_offset(file.log_ts, chrono::Utc),
+    )
+    .await
+    .map_err(|e| Error::internal_err(format!("Error reading the service log store: {e}")))?;
+
+    if lines.is_empty() {
+        return Err(Error::NotFound(format!("File {path} not found")));
+    }
+    Ok(content_plain(Body::from(
+        windmill_indexer::service_logs_store_ee::render_log_file(&lines),
+    )))
+}
+
 async fn get_log_file(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -104,27 +150,30 @@ async fn get_log_file(
     let s3_client = windmill_object_store::get_object_store().await;
     #[cfg(feature = "parquet")]
     if let Some(s3_client) = s3_client {
-        let path = format!("{}{}", windmill_common::tracing_init::LOGS_SERVICE, path);
-        let file = s3_client
+        use windmill_object_store::object_store_reexports::ObjectStoreError;
+
+        // The raw file, for as long as it is there. It outlives its ingestion by
+        // one indexer pass at most, so this covers the most recent minutes of a
+        // host's logs byte for byte; everything older is rebuilt from the store.
+        let object_path = format!("{}{}", windmill_common::tracing_init::LOGS_SERVICE, path);
+        match s3_client
             .get(&windmill_object_store::object_store_reexports::Path::from(
-                path,
+                object_path,
             ))
-            .await;
-        match file {
-            Ok(file) => {
-                let bytes = file.bytes().await;
-                match bytes {
-                    Ok(bytes) => {
-                        return Ok(content_plain(Body::from(bytes::Bytes::from(bytes))));
-                    }
-                    Err(e) => {
-                        return Err(Error::internal_err(format!(
-                            "Error pulling the bytes: {}",
-                            e
-                        )));
-                    }
+            .await
+        {
+            Ok(file) => match file.bytes().await {
+                Ok(bytes) => {
+                    return Ok(content_plain(Body::from(bytes::Bytes::from(bytes))));
                 }
-            }
+                Err(e) => {
+                    return Err(Error::internal_err(format!(
+                        "Error pulling the bytes: {}",
+                        e
+                    )));
+                }
+            },
+            Err(ObjectStoreError::NotFound { .. }) => {}
             Err(e) => {
                 return Err(Error::internal_err(format!(
                     "Error fetching the file: {}",
@@ -132,6 +181,11 @@ async fn get_log_file(
                 )));
             }
         }
+
+        #[cfg(all(feature = "tantivy", feature = "private"))]
+        return get_log_file_from_store(&db, &s3_client, &path).await;
+        #[cfg(not(all(feature = "tantivy", feature = "private")))]
+        return Err(Error::NotFound(format!("File {path} not found")));
     }
     let full_path = format!("{}{}", *TMP_WINDMILL_LOGS_SERVICE, path);
     // SECURITY (defense in depth): refuse to read through a symlink so a planted
