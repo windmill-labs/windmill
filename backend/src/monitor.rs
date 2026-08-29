@@ -1303,8 +1303,12 @@ pub fn send_logs_to_object_store(conn: &Connection, hostname: &str, mode: &Mode)
     });
 }
 
-pub async fn send_current_log_file_to_object_store(conn: &Connection, hostname: &str, mode: &Mode) {
-    tracing::info!("Sending current log file to object store");
+pub async fn flush_pending_log_files_to_object_store(
+    conn: &Connection,
+    hostname: &str,
+    mode: &Mode,
+) {
+    tracing::info!("Sending pending log files to object store");
     let worker_group = get_worker_group(&mode);
     // Nothing rotates after this, so the file still being appended to is registered
     // here, along with any rotated one the loop had not reached yet. Bounded like the
@@ -1333,16 +1337,17 @@ fn last_log_file_sent() -> Option<NaiveDateTime> {
     LAST_LOG_FILE_SENT.lock().ok().and_then(|ts| *ts)
 }
 
-/// Resume from what this host already registered, so that files a previous run
-/// left behind — killed before the shutdown flush could reach them — are picked
-/// up on the next tick instead of staying unsearchable, and the ones already in
-/// `log_file` are not re-sent.
+/// Resume from what this host already registered, so a previous run's leftovers reach
+/// the object store rather than being dropped. Their line counts come out zero, this
+/// run having counted none of them, which only flattens their bars in the UI.
 ///
-/// The newest registered minute is deliberately left out of the watermark: the
-/// shutdown flush registers the file that was still open, and the appender reopens
-/// that same minute in append mode, so a restart inside it would otherwise strand
-/// everything written after the flush. Sending it again is idempotent — the upsert
-/// adds only the lines this run counted for that minute.
+/// The newest registered minute is left out on purpose: the shutdown flush registers
+/// the file that was still open and the appender reopens that minute in append mode,
+/// so a restart inside it would otherwise strand everything written afterwards.
+///
+/// A row rewritten this way restores the object and sums the counters, but whether the
+/// indexers read it again depends on their single `log_ts >` cursor, which is not
+/// per-hostname: a minute at or below it stays out of search until it is re-indexed.
 async fn init_last_log_file_sent(conn: &Connection, hostname: &str) {
     let Some(db) = conn.as_sql() else {
         return;
