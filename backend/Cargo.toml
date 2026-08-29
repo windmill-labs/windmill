@@ -700,7 +700,7 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 triomphe = "^0"
 pin-project-lite = "^0"
 
-tantivy = { git="https://github.com/windmill-labs/tantivy", rev="33fafac9d0b69627e589fa4fbb3de252dd466dd7" }
+tantivy = { git="https://github.com/windmill-labs/tantivy", rev="ea3b818c7b93db0c2b5db4f5e7ffef38f339060a" }
 
 backon = "1.3.0"
 

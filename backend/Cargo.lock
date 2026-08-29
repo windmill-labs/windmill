@@ -8777,7 +8777,7 @@ checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
 [[package]]
 name = "ownedbytes"
 version = "0.9.0"
-source = "git+https://github.com/windmill-labs/tantivy?rev=33fafac9d0b69627e589fa4fbb3de252dd466dd7#33fafac9d0b69627e589fa4fbb3de252dd466dd7"
+source = "git+https://github.com/windmill-labs/tantivy?rev=ea3b818c7b93db0c2b5db4f5e7ffef38f339060a#ea3b818c7b93db0c2b5db4f5e7ffef38f339060a"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -12719,7 +12719,7 @@ checksum = "7b2093cf4c8eb1e67749a6762251bc9cd836b6fc171623bd0a9d324d37af2417"
 [[package]]
 name = "tantivy"
 version = "0.27.0"
-source = "git+https://github.com/windmill-labs/tantivy?rev=33fafac9d0b69627e589fa4fbb3de252dd466dd7#33fafac9d0b69627e589fa4fbb3de252dd466dd7"
+source = "git+https://github.com/windmill-labs/tantivy?rev=ea3b818c7b93db0c2b5db4f5e7ffef38f339060a#ea3b818c7b93db0c2b5db4f5e7ffef38f339060a"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -12772,7 +12772,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.10.0"
-source = "git+https://github.com/windmill-labs/tantivy?rev=33fafac9d0b69627e589fa4fbb3de252dd466dd7#33fafac9d0b69627e589fa4fbb3de252dd466dd7"
+source = "git+https://github.com/windmill-labs/tantivy?rev=ea3b818c7b93db0c2b5db4f5e7ffef38f339060a#ea3b818c7b93db0c2b5db4f5e7ffef38f339060a"
 dependencies = [
  "bitpacking",
 ]
@@ -12780,7 +12780,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.7.0"
-source = "git+https://github.com/windmill-labs/tantivy?rev=33fafac9d0b69627e589fa4fbb3de252dd466dd7#33fafac9d0b69627e589fa4fbb3de252dd466dd7"
+source = "git+https://github.com/windmill-labs/tantivy?rev=ea3b818c7b93db0c2b5db4f5e7ffef38f339060a#ea3b818c7b93db0c2b5db4f5e7ffef38f339060a"
 dependencies = [
  "downcast-rs",
  "fastdivide",
@@ -12795,7 +12795,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.11.0"
-source = "git+https://github.com/windmill-labs/tantivy?rev=33fafac9d0b69627e589fa4fbb3de252dd466dd7#33fafac9d0b69627e589fa4fbb3de252dd466dd7"
+source = "git+https://github.com/windmill-labs/tantivy?rev=ea3b818c7b93db0c2b5db4f5e7ffef38f339060a#ea3b818c7b93db0c2b5db4f5e7ffef38f339060a"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -12818,7 +12818,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.26.0"
-source = "git+https://github.com/windmill-labs/tantivy?rev=33fafac9d0b69627e589fa4fbb3de252dd466dd7#33fafac9d0b69627e589fa4fbb3de252dd466dd7"
+source = "git+https://github.com/windmill-labs/tantivy?rev=ea3b818c7b93db0c2b5db4f5e7ffef38f339060a#ea3b818c7b93db0c2b5db4f5e7ffef38f339060a"
 dependencies = [
  "fnv",
  "nom",
@@ -12830,7 +12830,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.7.0"
-source = "git+https://github.com/windmill-labs/tantivy?rev=33fafac9d0b69627e589fa4fbb3de252dd466dd7#33fafac9d0b69627e589fa4fbb3de252dd466dd7"
+source = "git+https://github.com/windmill-labs/tantivy?rev=ea3b818c7b93db0c2b5db4f5e7ffef38f339060a#ea3b818c7b93db0c2b5db4f5e7ffef38f339060a"
 dependencies = [
  "futures-util",
  "itertools 0.14.0",
@@ -12843,7 +12843,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.7.0"
-source = "git+https://github.com/windmill-labs/tantivy?rev=33fafac9d0b69627e589fa4fbb3de252dd466dd7#33fafac9d0b69627e589fa4fbb3de252dd466dd7"
+source = "git+https://github.com/windmill-labs/tantivy?rev=ea3b818c7b93db0c2b5db4f5e7ffef38f339060a#ea3b818c7b93db0c2b5db4f5e7ffef38f339060a"
 dependencies = [
  "murmurhash32",
  "tantivy-common",
@@ -12852,7 +12852,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.7.0"
-source = "git+https://github.com/windmill-labs/tantivy?rev=33fafac9d0b69627e589fa4fbb3de252dd466dd7#33fafac9d0b69627e589fa4fbb3de252dd466dd7"
+source = "git+https://github.com/windmill-labs/tantivy?rev=ea3b818c7b93db0c2b5db4f5e7ffef38f339060a#ea3b818c7b93db0c2b5db4f5e7ffef38f339060a"
 dependencies = [
  "serde",
 ]
