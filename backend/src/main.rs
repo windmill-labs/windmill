@@ -14,7 +14,7 @@ use monitor::{
     reload_nuget_config_setting, reload_powershell_repo_pat_setting,
     reload_powershell_repo_url_setting, reload_ruby_repos_setting,
     reload_timeout_wait_result_setting, reload_workspace_registries_setting,
-    send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
+    flush_pending_log_files_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::{Pool, Postgres};
@@ -1662,7 +1662,7 @@ Windmill Community Edition {GIT_VERSION}
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
-    send_current_log_file_to_object_store(&conn, &hostname, &mode).await;
+    flush_pending_log_files_to_object_store(&conn, &hostname, &mode).await;
 
     if let Some(db) = conn.as_sql() {
         tracing::info!("Exiting connection pool");
