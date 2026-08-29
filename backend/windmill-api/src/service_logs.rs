@@ -119,9 +119,11 @@ async fn get_log_file_from_store(
     .await?
     .ok_or_else(|| Error::NotFound(format!("File {path} not found")))?;
 
-    // `log_ts` is the file's own minute for a rotated file, but the shutdown
-    // flush stamps the current time while shipping a file that may be older. The
-    // name always carries the minute the file covers, so both are handed over.
+    // A row registered by this version carries the minute in the file's own name,
+    // so the two agree and the second is redundant. One written before the
+    // uploader derived `log_ts` from the name carries a wall clock instead, and
+    // those outlive an upgrade by the retention period — which is also what makes
+    // the `ORDER BY` above worth having. The name is authoritative, so both go.
     let mut known_ts = vec![chrono::DateTime::from_naive_utc_and_offset(
         file.log_ts,
         chrono::Utc,
