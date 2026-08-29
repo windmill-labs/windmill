@@ -253,38 +253,49 @@
 		try {
 			let res = ''
 			log.split('\n').forEach((line) => {
+				// A file can hold both formats: the ones written before the layer
+				// switched to JSON, and panics or subprocess output that was never
+				// JSON to begin with. Those lines pass through as they are rather
+				// than being dropped, which would render the file blank.
+				let obj: any = undefined
 				if (line.startsWith('{') && line.endsWith('}')) {
-					let obj = JSON.parse(line)
-					if (typeof obj == 'object') {
-						let nl = ''
-						if (obj['timestamp']) {
-							nl += obj['timestamp'] + ' '
-						}
-						if (obj['level']) {
-							let lvl = obj['level']
-							if (lvl == 'ERROR') {
-								nl += '\x1b[31mERROR\x1b[0m '
-							} else if (lvl == 'INFO') {
-								nl += '\x1b[32mINFO\x1b[0m '
-							} else {
-								nl += obj['level'] + ' '
-							}
-						}
-						if (obj['message']) {
-							nl += obj['message'] + ' '
-						}
-						delete obj['timestamp']
-						delete obj['level']
-						delete obj['message']
-						Object.keys(obj).forEach((key) => {
-							nl +=
-								key +
-								'=' +
-								(typeof obj[key] == 'object' ? JSON.stringify(obj[key]) : obj[key]) +
-								' '
-						})
-						res += nl + '\n'
+					try {
+						obj = JSON.parse(line)
+					} catch {
+						obj = undefined
 					}
+				}
+				if (obj === null || typeof obj !== 'object') {
+					res += line + '\n'
+				} else {
+					let nl = ''
+					if (obj['timestamp']) {
+						nl += obj['timestamp'] + ' '
+					}
+					if (obj['level']) {
+						let lvl = obj['level']
+						if (lvl == 'ERROR') {
+							nl += '\x1b[31mERROR\x1b[0m '
+						} else if (lvl == 'INFO') {
+							nl += '\x1b[32mINFO\x1b[0m '
+						} else {
+							nl += obj['level'] + ' '
+						}
+					}
+					if (obj['message']) {
+						nl += obj['message'] + ' '
+					}
+					delete obj['timestamp']
+					delete obj['level']
+					delete obj['message']
+					Object.keys(obj).forEach((key) => {
+						nl +=
+							key +
+							'=' +
+							(typeof obj[key] == 'object' ? JSON.stringify(obj[key]) : obj[key]) +
+							' '
+					})
+					res += nl + '\n'
 				}
 			})
 

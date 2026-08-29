@@ -34260,6 +34260,7 @@ components:
         target:
           description: the tracing target that emitted the line
           type: string
+          nullable: true
         message:
           type: string
         file_path:
