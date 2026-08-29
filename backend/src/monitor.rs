@@ -1392,8 +1392,8 @@ async fn send_log_files_to_object_store(
     files: Vec<(NaiveDateTime, String)>,
 ) {
     let _guard = SENDING_LOG_FILES.lock().await;
-    let retention_cutoff =
-        Utc::now().naive_utc() - chrono::Duration::seconds(SERVICE_LOG_RETENTION_SECS);
+    let retention_cutoff = Utc::now().naive_utc()
+        - chrono::Duration::seconds(windmill_common::service_log_retention_secs());
     for (ts, file_name) in files {
         if last_log_file_sent().is_some_and(|last| last >= ts) {
             continue;
