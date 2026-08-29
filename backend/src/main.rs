@@ -1262,7 +1262,9 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(all(feature = "tantivy", feature = "parquet"))]
         let log_indexer_f = {
             let log_indexer_rx = killpill_rx.resubscribe();
-            let log_index_writer2 = log_index_writer.clone();
+            // Moved, not cloned: sealing a chunk takes sole ownership of its
+            // tantivy writer, which a second live handle would silently prevent.
+            let log_index_writer2 = log_index_writer;
             async {
                 if let Some(db) = conn.as_sql() {
                     if let Some(log_index_writer) = log_index_writer2 {
