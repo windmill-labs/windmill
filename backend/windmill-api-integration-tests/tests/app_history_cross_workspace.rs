@@ -63,14 +63,18 @@ async fn update_history(
     Ok((status, resp.text().await?))
 }
 
-async fn history(port: u16, workspace: &str, path: &str) -> anyhow::Result<serde_json::Value> {
-    Ok(authed(client().get(format!(
+/// Deserializes into a `Vec` rather than a bare `Value` so the negative assertions
+/// cannot pass on an error body: indexing a JSON object with `[0]` yields `Null`.
+async fn history(port: u16, workspace: &str, path: &str) -> anyhow::Result<Vec<serde_json::Value>> {
+    let resp = authed(client().get(format!(
         "http://localhost:{port}/api/w/{workspace}/apps/history/p/{path}"
     )))
     .send()
-    .await?
-    .json()
-    .await?)
+    .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, 200, "history of {path} in {workspace}: {body}");
+    Ok(serde_json::from_str(&body)?)
 }
 
 #[sqlx::test(
@@ -136,8 +140,14 @@ async fn test_app_history_is_workspace_scoped(db: Pool<Postgres>) -> anyhow::Res
     .execute(&db)
     .await?;
 
+    let victim_history = history(port, "test-workspace", victim_path).await?;
     assert_eq!(
-        history(port, "test-workspace", victim_path).await?[0]["deployment_msg"],
+        victim_history.len(),
+        1,
+        "the injected row must not add a history entry: {victim_history:?}"
+    );
+    assert_eq!(
+        victim_history[0]["deployment_msg"],
         serde_json::Value::Null,
         "another workspace's deployment metadata must not surface"
     );
