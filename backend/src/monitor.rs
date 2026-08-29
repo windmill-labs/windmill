@@ -1221,41 +1221,59 @@ async fn sleep_until_next_minute_start_plus_one_s() {
 
 use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
 
-/// The two highest names, whatever order they arrive in.
-///
-/// `read_dir` promises no order, and the runner-up — the newest name that is no
-/// longer being written to — is the one the uploader ships, so it has to survive
-/// a listing that arrives newest-first.
-fn two_highest(names: Vec<String>) -> (Option<String>, Option<String>) {
-    let (mut highest, mut second) = (None::<String>, None::<String>);
-    for name in names {
-        if highest.as_deref().is_none_or(|h| name.as_str() > h) {
-            second = highest.replace(name);
-        } else if second.as_deref().is_none_or(|s| name.as_str() > s) {
-            second = Some(name);
-        }
-    }
-    (highest, second)
+/// The minutely rolling appender names each file `<hostname>.log.<%Y-%m-%d-%H-%M>`;
+/// anything else in the directory is not a rotated log file.
+fn parse_log_file_ts(file_name: &str) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(
+        file_name.rsplit('.').next()?,
+        windmill_common::tracing_init::LOG_TIMESTAMP_FMT,
+    )
+    .ok()
 }
-async fn find_two_highest_files(hostname: &str) -> (Option<String>, Option<String>) {
+
+/// Oldest first. Readdir order is filesystem-dependent — tmpfs hands back the
+/// newest entry first, ext4 hashes the names — so the listing has to be sorted
+/// before anything picks a file out of it.
+fn sorted_log_files(file_names: impl Iterator<Item = String>) -> Vec<(NaiveDateTime, String)> {
+    let mut files = file_names
+        .filter_map(|name| parse_log_file_ts(&name).map(|ts| (ts, name)))
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
+/// Every log file but the newest one: that one is still being appended to, every
+/// older one is final.
+fn rotated_log_files(file_names: impl Iterator<Item = String>) -> Vec<(NaiveDateTime, String)> {
+    let mut files = sorted_log_files(file_names);
+    files.pop();
+    files
+}
+
+async fn read_log_file_names(hostname: &str) -> Vec<String> {
     let log_dir = format!("{}/{}/", *TMP_WINDMILL_LOGS_SERVICE, hostname);
-    let rd_dir = tokio::fs::read_dir(log_dir).await;
-    if let Ok(mut log_files) = rd_dir {
-        let mut names = Vec::new();
-        while let Ok(Some(file)) = log_files.next_entry().await {
-            if let Some(name) = file.file_name().to_str() {
-                names.push(name.to_string());
-            }
+    let mut rd_dir = match tokio::fs::read_dir(&log_dir).await {
+        Ok(rd_dir) => rd_dir,
+        Err(e) => {
+            tracing::error!("Error reading log files: {}, {:#?}", log_dir, e);
+            return vec![];
         }
-        two_highest(names)
-    } else {
-        tracing::error!(
-            "Error reading log files: {}, {:#?}",
-            *TMP_WINDMILL_LOGS_SERVICE,
-            rd_dir.unwrap_err()
-        );
-        (None, None)
+    };
+    let mut file_names = vec![];
+    while let Ok(Some(file)) = rd_dir.next_entry().await {
+        if let Some(file_name) = file.file_name().to_str() {
+            file_names.push(file_name.to_string());
+        }
     }
+    file_names
+}
+
+async fn list_log_files(hostname: &str) -> Vec<(NaiveDateTime, String)> {
+    sorted_log_files(read_log_file_names(hostname).await.into_iter())
+}
+
+async fn list_rotated_log_files(hostname: &str) -> Vec<(NaiveDateTime, String)> {
+    rotated_log_files(read_log_file_names(hostname).await.into_iter())
 }
 
 fn get_worker_group(mode: &Mode) -> Option<String> {
@@ -1275,133 +1293,187 @@ pub fn send_logs_to_object_store(conn: &Connection, hostname: &str, mode: &Mode)
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        init_last_log_file_sent(&conn, &hostname).await;
         sleep_until_next_minute_start_plus_one_s().await;
         loop {
             interval.tick().await;
-            let (_, snd_highest_file) = find_two_highest_files(&hostname).await;
-            send_log_file_to_object_store(
-                &hostname,
-                &mode,
-                &worker_group,
-                &conn,
-                snd_highest_file,
-                false,
-            )
-            .await;
+            let files = list_rotated_log_files(&hostname).await;
+            send_log_files_to_object_store(&hostname, &mode, &worker_group, &conn, files).await;
         }
     });
 }
 
-pub async fn send_current_log_file_to_object_store(conn: &Connection, hostname: &str, mode: &Mode) {
-    tracing::info!("Sending current log file to object store");
-    let (highest_file, _) = find_two_highest_files(hostname).await;
+pub async fn flush_pending_log_files_to_object_store(
+    conn: &Connection,
+    hostname: &str,
+    mode: &Mode,
+) {
+    tracing::info!("Sending pending log files to object store");
     let worker_group = get_worker_group(&mode);
-    send_log_file_to_object_store(hostname, mode, &worker_group, conn, highest_file, true).await;
-}
-
-fn get_now_and_str() -> (NaiveDateTime, String) {
-    let ts = Utc::now().naive_utc();
-    (
-        ts,
-        ts.format(windmill_common::tracing_init::LOG_TIMESTAMP_FMT)
-            .to_string(),
-    )
+    // Nothing rotates after this, so the file still being appended to is registered
+    // here, along with any rotated one the loop had not reached yet. Bounded like the
+    // pool close that follows: a backlog against a slow object store would otherwise
+    // hold the process past its termination grace period. Whatever is left over is
+    // registered by the next run's catch-up.
+    let flush = async {
+        let files = list_log_files(hostname).await;
+        send_log_files_to_object_store(hostname, mode, &worker_group, conn, files).await;
+    };
+    if timeout(Duration::from_secs(15), flush).await.is_err() {
+        tracing::warn!("Could not send all pending log files in time (15s). Exiting anyway.");
+    }
 }
 
 lazy_static::lazy_static! {
     static ref LAST_LOG_FILE_SENT: Arc<Mutex<Option<NaiveDateTime>>> = Arc::new(Mutex::new(None));
+    /// Serializes the periodic uploader against the shutdown flush. The uploader is a
+    /// detached task that keeps ticking while the flush runs and both walk the same
+    /// files, so without this both can clear the watermark for one file and count its
+    /// lines twice through the additive upsert.
+    static ref SENDING_LOG_FILES: tokio::sync::Mutex<()> = tokio::sync::Mutex::new(());
 }
 
+fn last_log_file_sent() -> Option<NaiveDateTime> {
+    LAST_LOG_FILE_SENT.lock().ok().and_then(|ts| *ts)
+}
+
+/// Resume from what this host already registered, so a previous run's leftovers reach
+/// the object store rather than being dropped. Their line counts come out zero, this
+/// run having counted none of them, which only flattens their bars in the UI.
+///
+/// The newest registered minute is left out on purpose: the shutdown flush registers
+/// the file that was still open and the appender reopens that minute in append mode,
+/// so a restart inside it would otherwise strand everything written afterwards.
+///
+/// A row rewritten this way restores the object and sums the counters, but whether the
+/// indexers read it again depends on their single `log_ts >` cursor, which is not
+/// per-hostname: a minute at or below it stays out of search until it is re-indexed.
+async fn init_last_log_file_sent(conn: &Connection, hostname: &str) {
+    let Some(db) = conn.as_sql() else {
+        return;
+    };
+    match sqlx::query_scalar!(
+        "SELECT max(log_ts) FROM log_file
+         WHERE hostname = $1 AND log_ts < (SELECT max(log_ts) FROM log_file WHERE hostname = $1)",
+        hostname
+    )
+    .fetch_one(db)
+    .await
+    {
+        Ok(Some(ts)) => {
+            if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                last_log_file_sent.replace(ts);
+            }) {
+                tracing::error!("Error initializing last log file sent: {:?}", e);
+            }
+        }
+        Ok(None) => {}
+        Err(e) => tracing::error!("Error loading last log file sent: {:?}", e),
+    }
+}
+
+async fn send_log_files_to_object_store(
+    hostname: &str,
+    mode: &Mode,
+    worker_group: &Option<String>,
+    conn: &Connection,
+    files: Vec<(NaiveDateTime, String)>,
+) {
+    let _guard = SENDING_LOG_FILES.lock().await;
+    let retention_cutoff =
+        Utc::now().naive_utc() - chrono::Duration::seconds(SERVICE_LOG_RETENTION_SECS);
+    for (ts, file_name) in files {
+        if last_log_file_sent().is_some_and(|last| last >= ts) {
+            continue;
+        }
+        // A run coming back from a long outage still finds its predecessor's files on
+        // disk. Registering one past the retention cutoff inserts a row
+        // `delete_expired_items` drops on its next pass, once the indexers have already
+        // paid to parse it.
+        if ts < retention_cutoff {
+            continue;
+        }
+        // Stop at the first failure rather than moving on: both indexers walk
+        // `log_file` with a `log_ts > watermark` cursor, so a row that lands after
+        // a newer one is never picked up.
+        if !send_log_file_to_object_store(hostname, mode, worker_group, conn, &file_name, ts).await
+        {
+            break;
+        }
+    }
+}
+
+/// Returns whether the file ended up registered in `log_file`.
 async fn send_log_file_to_object_store(
     hostname: &str,
     mode: &Mode,
     worker_group: &Option<String>,
     conn: &Connection,
-    snd_highest_file: Option<String>,
-    use_now: bool,
-) {
-    if let Some(highest_file) = snd_highest_file {
-        //parse datetime frome file xxxx.yyyy-MM-dd-HH-mm
-        let (ts, ts_str) = if use_now {
-            get_now_and_str()
-        } else {
-            highest_file
-                .split(".")
-                .last()
-                .and_then(|x| {
-                    NaiveDateTime::parse_from_str(
-                        x,
-                        windmill_common::tracing_init::LOG_TIMESTAMP_FMT,
-                    )
-                    .ok()
-                    .map(|y| (y, x.to_string()))
-                })
-                .unwrap_or_else(get_now_and_str)
-        };
+    file_name: &str,
+    ts: NaiveDateTime,
+) -> bool {
+    #[cfg(feature = "parquet")]
+    if let Some(s3_client) = windmill_object_store::get_object_store().await {
+        let path = std::path::Path::new(&*TMP_WINDMILL_LOGS_SERVICE)
+            .join(hostname)
+            .join(file_name);
 
-        let exists = LAST_LOG_FILE_SENT.lock().map(|last_log_file_sent| {
-            last_log_file_sent
-                .map(|last_log_file_sent| last_log_file_sent >= ts)
-                .unwrap_or(false)
-        });
-
-        if exists.unwrap_or(false) {
-            return;
-        }
-
-        #[cfg(feature = "parquet")]
-        let s3_client = windmill_object_store::get_object_store().await;
-        #[cfg(feature = "parquet")]
-        if let Some(s3_client) = s3_client {
-            let path = std::path::Path::new(&*TMP_WINDMILL_LOGS_SERVICE)
-                .join(hostname)
-                .join(&highest_file);
-
-            //read file as byte stream
-            let bytes = tokio::fs::read(&path).await;
-            if let Err(e) = bytes {
+        //read file as byte stream
+        let bytes = match tokio::fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
                 tracing::error!("Error reading log file: {:?}", e);
-                return;
+                return false;
             }
-            let path = windmill_object_store::object_store_reexports::Path::from_url_path(format!(
-                "{}{hostname}/{highest_file}",
-                windmill_common::tracing_init::LOGS_SERVICE
-            ));
-            if let Err(e) = path {
+        };
+        let path = windmill_object_store::object_store_reexports::Path::from_url_path(format!(
+            "{}{hostname}/{file_name}",
+            windmill_common::tracing_init::LOGS_SERVICE
+        ));
+        let path = match path {
+            Ok(path) => path,
+            Err(e) => {
                 tracing::error!("Error creating log file path: {:?}", e);
-                return;
+                return false;
             }
-            if let Err(e) = s3_client.put(&path.unwrap(), bytes.unwrap().into()).await {
-                tracing::error!("Error sending logs to object store: {:?}", e);
-            }
+        };
+        if let Err(e) = s3_client.put(&path, bytes.into()).await {
+            tracing::error!("Error sending logs to object store: {:?}", e);
+            return false;
         }
+    }
 
-        let (ok_lines, err_lines) = read_log_counters(ts_str);
+    let ts_str = ts
+        .format(windmill_common::tracing_init::LOG_TIMESTAMP_FMT)
+        .to_string();
+    let (ok_lines, err_lines) = read_log_counters(ts_str);
 
-        if let Some(db) = conn.as_sql() {
-            match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
-             VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
-                hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, true)
-                .execute(db)).await {
-                Ok(Ok(_)) => {
-                    if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
-                        last_log_file_sent.replace(ts);
-                    }) {
-                        tracing::error!("Error updating last log file sent: {:?}", e);
-                    }
-                    tracing::info!("Log file sent: {}", highest_file);
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("Error inserting log file: {:?}", e);
-                }
-                Err(e) => {
-                    tracing::error!("Error inserting log file, timeout elapsed: {:?}", e);
-                }
+    let Some(db) = conn.as_sql() else {
+        // not sending log file to object store in agent mode
+        return false;
+    };
+
+    match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
+     VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
+        hostname, mode.to_string(), worker_group.clone(), ts, file_name, ok_lines as i64, err_lines as i64, true)
+        .execute(db)).await {
+        Ok(Ok(_)) => {
+            if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                last_log_file_sent.replace(ts);
+            }) {
+                tracing::error!("Error updating last log file sent: {:?}", e);
             }
-        } else {
-            // tracing::warn!("Not sending log file to object store in agent mode");
-            ()
+            tracing::info!("Log file sent: {}", file_name);
+            true
+        }
+        Ok(Err(e)) => {
+            tracing::error!("Error inserting log file: {:?}", e);
+            false
+        }
+        Err(e) => {
+            tracing::error!("Error inserting log file, timeout elapsed: {:?}", e);
+            false
         }
     }
 }
@@ -6764,48 +6836,6 @@ mod retention_overrides_tests {
 }
 
 #[cfg(test)]
-mod two_highest_tests {
-    use super::two_highest;
-
-    fn names(v: &[&str]) -> Vec<String> {
-        v.iter().map(|x| x.to_string()).collect()
-    }
-
-    /// The uploader ships the runner-up — the newest file that has stopped being
-    /// written to — so a directory listing that arrives newest-first must still
-    /// produce one.
-    #[test]
-    fn finds_the_runner_up_whatever_order_the_directory_gives() {
-        let ascending = names(&[
-            "h.log.2026-08-29-08-19",
-            "h.log.2026-08-29-08-20",
-            "h.log.2026-08-29-08-21",
-        ]);
-        let mut descending = ascending.clone();
-        descending.reverse();
-
-        for order in [ascending, descending] {
-            assert_eq!(
-                two_highest(order),
-                (
-                    Some("h.log.2026-08-29-08-21".to_string()),
-                    Some("h.log.2026-08-29-08-20".to_string())
-                )
-            );
-        }
-    }
-
-    #[test]
-    fn a_lone_file_has_no_runner_up() {
-        assert_eq!(
-            two_highest(names(&["h.log.2026-08-29-08-19"])),
-            (Some("h.log.2026-08-29-08-19".to_string()), None)
-        );
-        assert_eq!(two_highest(vec![]), (None, None));
-    }
-}
-
-#[cfg(test)]
 mod strike_unarmed_tests {
     use super::strike_unarmed;
     use std::collections::{HashMap, HashSet};
@@ -6881,5 +6911,56 @@ mod zombie_worker_memory_pct_tests {
             zombie_worker_memory_pct(Some(500), Some(500), Some(0)),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod log_file_listing_tests {
+    use super::{rotated_log_files, sorted_log_files};
+
+    fn names(files: Vec<(chrono::NaiveDateTime, String)>) -> Vec<String> {
+        files.into_iter().map(|(_, n)| n).collect()
+    }
+
+    /// A directory read newest-entry-first is what tmpfs actually hands back.
+    #[test]
+    fn orders_by_minute_whatever_order_readdir_used() {
+        let newest_first = [
+            "h.log.2026-08-29-06-49",
+            "h.log.2026-08-29-06-46",
+            "h.log.2026-08-29-06-48",
+            "h.log.2026-08-29-06-47",
+        ];
+        assert_eq!(
+            names(sorted_log_files(newest_first.iter().map(|x| x.to_string()))),
+            vec![
+                "h.log.2026-08-29-06-46",
+                "h.log.2026-08-29-06-47",
+                "h.log.2026-08-29-06-48",
+                "h.log.2026-08-29-06-49",
+            ]
+        );
+        assert_eq!(
+            names(rotated_log_files(
+                newest_first.iter().map(|x| x.to_string())
+            )),
+            vec![
+                "h.log.2026-08-29-06-46",
+                "h.log.2026-08-29-06-47",
+                "h.log.2026-08-29-06-48",
+            ]
+        );
+    }
+
+    #[test]
+    fn drops_names_that_are_not_rotated_log_files() {
+        let files = sorted_log_files(
+            ["h.log", "not-a-log-file", "h.log.2026-08-29-06-46"]
+                .iter()
+                .map(|x| x.to_string()),
+        );
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].1, "h.log.2026-08-29-06-46");
+        assert_eq!(files[0].0.to_string(), "2026-08-29 06:46:00");
     }
 }
