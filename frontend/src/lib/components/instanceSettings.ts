@@ -286,20 +286,6 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: false
 		},
 		{
-			label: 'Service log retention in secs',
-			key: 'service_log_retention_secs',
-			description:
-				'How long service logs are kept, in the database and — when instance object storage is configured — in object storage, along with how far back service log search reaches. Defaults to 14 days. Unlike the job retention period above, there is no keep-forever setting: leave it empty for the default.',
-			fieldType: 'seconds',
-			storage: 'setting',
-			cloudonly: false,
-			error:
-				'Service log retention must be between 1 second and 100 years — leave it empty for the default',
-			isValid: (value: any) =>
-				value == undefined ||
-				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
-		},
-		{
 			label: 'Per-workspace retention overrides',
 			key: 'retention_period_secs_overrides',
 			description:
@@ -996,6 +982,23 @@ export const settings: Record<string, Setting[]> = {
 			triggersRestart: true
 		}
 	],
+	'Service logs': [
+		{
+			label: 'Retention in secs',
+			key: 'service_log_retention_secs',
+			description:
+				'How long the logs of the Windmill processes themselves are kept: the rows in the database, the rotated files in instance object storage when it is configured, and how far back service log search reaches. Defaults to 14 days. There is no keep-forever setting here — leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			error:
+				'Service log retention must be between 1 second and 100 years — leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
+		}
+	],
+
 	Indexer: [
 		{
 			label: '',
@@ -1188,6 +1191,12 @@ export const instanceSettingsNavigationGroups = [
 				isEE: true
 			},
 			{
+				id: 'service_logs',
+				label: 'Service logs',
+				aiId: 'instance-settings-service-logs',
+				aiDescription: 'Service log retention settings'
+			},
+			{
 				id: 'indexer',
 				label: 'Indexer',
 				aiId: 'instance-settings-indexer',
@@ -1270,6 +1279,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	webhooks: 'Webhooks',
 	otel_prom: 'OTEL/Prom',
 	indexer: 'Indexer',
+	service_logs: 'Service logs',
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
@@ -1305,6 +1315,7 @@ export const categoryToTabMap: Record<string, string> = {
 	Webhooks: 'webhooks',
 	'OTEL/Prom': 'otel_prom',
 	Indexer: 'indexer',
+	'Service logs': 'service_logs',
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',
