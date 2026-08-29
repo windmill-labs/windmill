@@ -1264,10 +1264,10 @@ Windmill Community Edition {GIT_VERSION}
             let log_indexer_rx = killpill_rx.resubscribe();
             // Moved, not cloned: sealing a chunk takes sole ownership of its
             // tantivy writer, which a second live handle would silently prevent.
-            let log_index_writer2 = log_index_writer;
+            let moved_log_index_writer = log_index_writer;
             async {
                 if let Some(db) = conn.as_sql() {
-                    if let Some(log_index_writer) = log_index_writer2 {
+                    if let Some(log_index_writer) = moved_log_index_writer {
                         windmill_indexer::service_logs_oss::run_indexer(
                             db.clone(),
                             log_index_writer,
