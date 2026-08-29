@@ -380,6 +380,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                         "",
                         &mut None,
                         &None,
+                        None,
                     )
                     .await
                     {
