@@ -1158,14 +1158,14 @@
 						still governs the entries in the database and the files on disk.
 					</Alert>
 				</div>
-			{:else if $values['monitor_logs_on_s3'] === false}
+			{:else if !$enterpriseLicense}
 				<div class="pb-4">
-					<Alert type="warning" title="Retention does not reach the object storage copies" size="xs">
-						Log files are uploaded to instance object storage, but <b
-							>Delete logs from s3 periodically</b
-						>
-						is off under Object Storage, so expiring a log removes its database entry and the file
-						on disk while the uploaded copy is kept indefinitely.
+					<Alert type="info" title="Raw log files accumulate without the indexer" size="xs">
+						Log files are uploaded to instance object storage, and the indexer that would ingest
+						them into the columnar store and delete each one afterwards is an enterprise
+						feature. Retention below expires the database entries and the local files; the
+						uploaded copies are only removed when <b>Delete logs from s3 periodically</b> is on
+						under Object Storage.
 					</Alert>
 				</div>
 			{/if}
