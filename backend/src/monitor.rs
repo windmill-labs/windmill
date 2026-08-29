@@ -70,11 +70,11 @@ use windmill_common::{
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
         SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
-        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
-        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WORKSPACE_MAX_QUEUED_JOBS_SETTING,
+        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
+        UV_PYTHON_INSTALL_MIRROR_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WORKSPACE_MAX_QUEUED_JOBS_SETTING,
     },
     indexer::load_indexer_config,
     jobs::delete_jobs,
@@ -97,10 +97,10 @@ use windmill_common::{
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED,
     CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
-    HUB_BASE_URL, JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES,
-    JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
-    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
-    SERVICE_LOG_RETENTION_SECS, STORE_AUDIT_LOGS_S3,
+    DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL, JOB_RETENTION_SECS,
+    JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED,
+    METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED,
+    OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -474,6 +474,21 @@ pub async fn initial_load(
         "HUB_API_SECRET",
         |v: Option<String>| async move { HUB_API_SECRET.store(std::sync::Arc::new(v)) },
     );
+
+    // Outside the `server_mode` guard below: a dedicated indexer keeps the search index trimmed
+    // to a window derived from this value, and it is not a server.
+    pass.setting(SERVICE_LOG_RETENTION_SECS_SETTING, true, |v| async move {
+        SERVICE_LOG_RETENTION_SECS.store(
+            parse_setting_value::<i64>(
+                v,
+                SERVICE_LOG_RETENTION_SECS_SETTING,
+                "SERVICE_LOG_RETENTION_SECS",
+                DEFAULT_SERVICE_LOG_RETENTION_SECS,
+                |x| x,
+            ),
+            Ordering::Relaxed,
+        )
+    });
 
     if server_mode {
         pass.setting(RETENTION_PERIOD_SECS_SETTING, true, |v| async move {
@@ -1664,7 +1679,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
     match sqlx::query_as!(
         LogFile,
         "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval RETURNING file_path, hostname",
-        SERVICE_LOG_RETENTION_SECS,
+        windmill_common::service_log_retention_secs(),
     )
     .fetch_all(db)
     .await
@@ -2781,6 +2796,21 @@ pub async fn reload_retention_period_setting(conn: &Connection) {
     {
         Ok(v) => JOB_RETENTION_SECS.store(v, Ordering::Relaxed),
         Err(e) => tracing::error!("Error reloading retention period: {:?}", e),
+    }
+}
+
+pub async fn reload_service_log_retention_secs_setting(conn: &Connection) {
+    match load_setting_value::<i64>(
+        conn,
+        SERVICE_LOG_RETENTION_SECS_SETTING,
+        "SERVICE_LOG_RETENTION_SECS",
+        DEFAULT_SERVICE_LOG_RETENTION_SECS,
+        |x| x,
+    )
+    .await
+    {
+        Ok(v) => SERVICE_LOG_RETENTION_SECS.store(v, Ordering::Relaxed),
+        Err(e) => tracing::error!("Error reloading service log retention period: {:?}", e),
     }
 }
 

@@ -94,6 +94,21 @@ pub async fn load_indexer_config(db: &DB) -> error::Result<TantivyIndexerSetting
     })
 }
 
+/// How far back the service log index reaches, in seconds.
+///
+/// [`crate::service_log_retention_secs`] is the ceiling: past it a line's `log_file` row is
+/// deleted and can no longer be indexed. `max_index_time_window_secs` of `0` means "do not
+/// shrink below that ceiling", not "unbounded" — both sites that trim and populate the index
+/// derive the window here so the two cannot disagree about it.
+pub fn service_log_index_window_secs(max_index_time_window_secs: i64) -> i64 {
+    let retention = crate::service_log_retention_secs();
+    if max_index_time_window_secs > 0 {
+        std::cmp::min(max_index_time_window_secs, retention)
+    } else {
+        retention
+    }
+}
+
 pub fn get_env_var(env_var: &str) -> Option<u64> {
     match std::env::var(env_var).map(|x| x.parse()) {
         Ok(Ok(i)) => Some(i),
@@ -135,4 +150,20 @@ pub fn get_indexer_rates_from_env() -> TantivyIndexerSettings {
     }
 
     settings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn index_window_treats_zero_as_full_retention_and_clamps_to_it() {
+        let retention = crate::service_log_retention_secs();
+        // `0` disables the extra shrinking rather than lifting the ceiling — the trap that
+        // makes an unset setting look unbounded.
+        assert_eq!(service_log_index_window_secs(0), retention);
+        // Retention is the ceiling: the index cannot reach lines whose `log_file` row is gone.
+        assert_eq!(service_log_index_window_secs(retention * 2), retention);
+        assert_eq!(service_log_index_window_secs(60), 60);
+    }
 }

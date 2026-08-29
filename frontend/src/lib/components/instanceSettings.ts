@@ -286,6 +286,16 @@ export const settings: Record<string, Setting[]> = {
 			cloudonly: false
 		},
 		{
+			label: 'Service log retention in secs',
+			key: 'service_log_retention_secs',
+			description:
+				'How long service logs stay available: the raw files in object storage, the columnar store that service log search reads, and the per-host match counts. Defaults to 14 days.',
+			fieldType: 'seconds',
+			placeholder: '1209600',
+			storage: 'setting',
+			cloudonly: false
+		},
+		{
 			label: 'Per-workspace retention overrides',
 			key: 'retention_period_secs_overrides',
 			description:

@@ -61,8 +61,9 @@ use windmill_common::{
         SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
         SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
+        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
+        UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
         WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
@@ -143,7 +144,8 @@ use crate::monitor::{
     reload_pip_index_url_setting, reload_retention_period_setting,
     reload_sandbox_image_cache_max_setting, reload_sandbox_image_default_registry_setting,
     reload_sandbox_image_max_size_setting, reload_sandbox_image_pull_policy_setting,
-    reload_sandbox_registry_auth_setting, reload_scim_token_setting, reload_smtp_config,
+    reload_sandbox_registry_auth_setting, reload_scim_token_setting,
+    reload_service_log_retention_secs_setting, reload_smtp_config,
     reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
     reload_uv_index_strategy_setting, reload_uv_python_install_mirror_setting,
     reload_worker_config, MonitorIteration,
@@ -1953,6 +1955,9 @@ async fn process_notify_event(
                 }
                 TIMEOUT_WAIT_RESULT_SETTING => reload_timeout_wait_result_setting(conn).await,
                 RETENTION_PERIOD_SECS_SETTING => reload_retention_period_setting(conn).await,
+                SERVICE_LOG_RETENTION_SECS_SETTING => {
+                    reload_service_log_retention_secs_setting(conn).await
+                }
                 RETENTION_PERIOD_SECS_OVERRIDES_SETTING => {
                     if let Err(e) = load_retention_period_overrides(db).await {
                         tracing::error!("Error loading per-workspace retention overrides: {e:#}");
