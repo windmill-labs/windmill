@@ -719,7 +719,7 @@
 						<div class="flex flex-col min-w-full w-fit">
 							<!-- Keyed: LogSnippetViewer renders its html once at creation, so an
 										 index-reused instance would keep the previous search's line. -->
-							{#each logs.hits ?? [] as hit (`${hit.file_path}:${hit.line_no}`)}
+							{#each logs.hits ?? [] as hit, i (`${i}:${hit.file_path}:${hit.line_no}`)}
 								<LogSnippetViewer
 									content={renderHit(hit)}
 									highlighted={[]}

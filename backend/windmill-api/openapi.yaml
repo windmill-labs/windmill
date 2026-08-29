@@ -23890,7 +23890,7 @@ paths:
                     items:
                       type: string
                   hits:
-                    description: log files that matched the query
+                    description: the log lines that matched the query, newest first
                     type: array
                     items:
                       $ref: "#/components/schemas/LogSearchHit"
