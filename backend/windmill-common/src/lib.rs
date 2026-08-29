@@ -158,17 +158,26 @@ const MAX_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 365 * 100;
 /// Apply a configured service log retention, in seconds.
 ///
 /// The only way into [`SERVICE_LOG_RETENTION_SECS`], so an unusable value can never reach a
-/// cutoff. Every service-log cutoff is `now - retention`: a non-positive value puts it at or
-/// after `now`, and the next sweep reads the entire history as expired and deletes the rows
-/// and their object-storage files irreversibly. Unlike job retention there is no "keep forever"
-/// spelling here, so `0` — what an operator types by analogy with it, and what the settings UI
-/// writes into a field that was merely focused — falls back to the default instead.
+/// cutoff. The two unusable directions are not the same mistake and must not share a landing
+/// point: too large still says "keep these for a very long time", so it is capped and the
+/// intent survives, whereas falling back would delete logs the operator meant to keep. A
+/// non-positive value has no such reading — every cutoff is `now - retention`, so it lands at
+/// or after `now` and the next sweep expires the entire history, rows and object-storage files
+/// alike. Unlike job retention there is no "keep forever" spelling here, so `0` — what an
+/// operator types by analogy with it, and what the settings UI writes into a field that was
+/// merely focused — falls back to the default.
 pub fn set_service_log_retention_secs(configured: i64) {
-    let effective = if (1..=MAX_SERVICE_LOG_RETENTION_SECS).contains(&configured) {
+    let effective = if configured > MAX_SERVICE_LOG_RETENTION_SECS {
+        tracing::warn!(
+            "service log retention of {configured}s exceeds the maximum of \
+             {MAX_SERVICE_LOG_RETENTION_SECS}s, capping it there"
+        );
+        MAX_SERVICE_LOG_RETENTION_SECS
+    } else if configured >= 1 {
         configured
     } else {
         tracing::warn!(
-            "service log retention of {configured}s is outside 1..={MAX_SERVICE_LOG_RETENTION_SECS}, \
+            "service log retention of {configured}s would expire every service log, \
              falling back to the default of {DEFAULT_SERVICE_LOG_RETENTION_SECS}s"
         );
         DEFAULT_SERVICE_LOG_RETENTION_SECS

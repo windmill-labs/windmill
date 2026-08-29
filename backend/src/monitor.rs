@@ -1593,6 +1593,10 @@ pub async fn trim_resource_versions(db: &DB) -> () {
 
 /// Matches the batch the settings-page cleanup uses for the same table.
 const SERVICE_LOG_DELETE_BATCH: i64 = 2_000;
+/// Batches per pass. `monitor_db` runs under a 600s timeout that cancels every maintenance
+/// future in the same `join!` and reports a critical error, so a large backlog has to drain
+/// across ticks rather than inside one, the way the neighbouring sweeps already do.
+const SERVICE_LOG_DELETE_MAX_BATCHES: usize = 10;
 
 pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
@@ -1679,7 +1683,7 @@ pub async fn delete_expired_items(db: &DB) -> () {
     // Batched: every process rotates a log file a minute, so lowering the retention makes one
     // ordinary setting change expire millions of rows at once. An unbounded `DELETE ...
     // RETURNING` would materialize all of them, and their deletion futures, in this one tick.
-    loop {
+    for _ in 0..SERVICE_LOG_DELETE_MAX_BATCHES {
         let batch = sqlx::query_as!(
             LogFile,
             "DELETE FROM log_file WHERE (hostname, log_ts) IN (

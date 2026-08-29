@@ -165,9 +165,16 @@ mod tests {
             DEFAULT_SERVICE_LOG_RETENTION_SECS,
         };
 
-        // See `set_service_log_retention_secs` for why none of these may become the window.
-        let unusable = [0, -1, i64::MIN, i64::MAX, 60 * 60 * 24 * 365 * 101];
-        let rejected: Vec<i64> = unusable
+        // See `set_service_log_retention_secs` for why the two unusable directions land apart:
+        // too large keeps the intent by capping, non-positive cannot and falls back.
+        let rejected: Vec<i64> = [0, -1, i64::MIN]
+            .iter()
+            .map(|v| {
+                set_service_log_retention_secs(*v);
+                service_log_retention_secs()
+            })
+            .collect();
+        let capped: Vec<i64> = [i64::MAX, 60 * 60 * 24 * 365 * 101]
             .iter()
             .map(|v| {
                 set_service_log_retention_secs(*v);
@@ -189,8 +196,13 @@ mod tests {
 
         assert_eq!(
             rejected,
-            vec![DEFAULT_SERVICE_LOG_RETENTION_SECS; unusable.len()],
-            "unusable values must fall back to the default: {unusable:?}"
+            vec![DEFAULT_SERVICE_LOG_RETENTION_SECS; 3],
+            "a value that would expire everything must fall back to the default"
+        );
+        assert_eq!(
+            capped,
+            vec![60 * 60 * 24 * 365 * 100; 2],
+            "an oversized value must cap, not shorten retention to the default"
         );
         assert_eq!(retention, 60 * 60 * 24 * 3);
         assert_eq!(windows, [retention, retention, 60]);

@@ -293,8 +293,11 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'seconds',
 			storage: 'setting',
 			cloudonly: false,
-			error: 'Service log retention must be at least 1 second — leave it empty for the default',
-			isValid: (value: any) => value == undefined || (typeof value === 'number' && value > 0)
+			error:
+				'Service log retention must be between 1 second and 100 years — leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
 		},
 		{
 			label: 'Per-workspace retention overrides',
