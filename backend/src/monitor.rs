@@ -475,8 +475,9 @@ pub async fn initial_load(
         |v: Option<String>| async move { HUB_API_SECRET.store(std::sync::Arc::new(v)) },
     );
 
-    // Outside the `server_mode` guard below: a dedicated indexer keeps the search index trimmed
-    // to a window derived from this value, and it is not a server.
+    // Outside the `server_mode` guard below: every mode reads this. A worker registers its
+    // rotated log files against the cutoff, and a dedicated indexer trims the search index to a
+    // window derived from it — neither is a server.
     pass.setting(SERVICE_LOG_RETENTION_SECS_SETTING, true, |v| async move {
         windmill_common::set_service_log_retention_secs(parse_setting_value::<i64>(
             v,
