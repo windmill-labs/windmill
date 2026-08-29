@@ -116,22 +116,35 @@ async fn get_log_file_from_store(
     .await?
     .ok_or_else(|| Error::NotFound(format!("File {path} not found")))?;
 
-    let lines = windmill_indexer::service_logs_store_ee::read_log_file(
+    // `log_ts` is the file's own minute for a rotated file, but the shutdown
+    // flush stamps the current time while shipping a file that may be older. The
+    // name always carries the minute the file covers, so both are handed over.
+    let mut known_ts = vec![chrono::DateTime::from_naive_utc_and_offset(
+        file.log_ts,
+        chrono::Utc,
+    )];
+    if let Some(named) = file_name.rsplit('.').next().and_then(|s| {
+        chrono::NaiveDateTime::parse_from_str(s, windmill_common::tracing_init::LOG_TIMESTAMP_FMT)
+            .ok()
+    }) {
+        known_ts.push(chrono::DateTime::from_naive_utc_and_offset(
+            named,
+            chrono::Utc,
+        ));
+    }
+
+    let text = windmill_indexer::service_logs_store_ee::read_log_file(
         store,
         file.mode.as_deref().unwrap_or_default(),
         hostname,
         file_name,
-        chrono::DateTime::from_naive_utc_and_offset(file.log_ts, chrono::Utc),
+        &known_ts,
     )
     .await
-    .map_err(|e| Error::internal_err(format!("Error reading the service log store: {e}")))?;
+    .map_err(|e| Error::internal_err(format!("Error reading the service log store: {e}")))?
+    .ok_or_else(|| Error::NotFound(format!("File {path} not found")))?;
 
-    if lines.is_empty() {
-        return Err(Error::NotFound(format!("File {path} not found")));
-    }
-    Ok(content_plain(Body::from(
-        windmill_indexer::service_logs_store_ee::render_log_file(&lines),
-    )))
+    Ok(content_plain(Body::from(text)))
 }
 
 async fn get_log_file(

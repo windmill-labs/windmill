@@ -1221,12 +1221,11 @@ async fn sleep_until_next_minute_start_plus_one_s() {
 
 use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
 
-/// The two highest names, and nothing about the order they arrive in.
+/// The two highest names, whatever order they arrive in.
 ///
-/// `read_dir` promises no order, and a directory that hands its entries back
-/// newest-first leaves a single-pass "is this the new highest" comparison with
-/// no runner-up at all — which is the file the uploader ships, so nothing ever
-/// reached object storage on such a host.
+/// `read_dir` promises no order, and the runner-up — the newest name that is no
+/// longer being written to — is the one the uploader ships, so it has to survive
+/// a listing that arrives newest-first.
 fn two_highest(names: Vec<String>) -> (Option<String>, Option<String>) {
     let (mut highest, mut second) = (None::<String>, None::<String>);
     for name in names {
