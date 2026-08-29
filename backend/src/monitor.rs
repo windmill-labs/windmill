@@ -100,7 +100,7 @@ use windmill_common::{
     DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL, JOB_RETENTION_SECS,
     JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED,
     METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED,
-    OTEL_TRACING_ENABLED, SERVICE_LOG_RETENTION_SECS, STORE_AUDIT_LOGS_S3,
+    OTEL_TRACING_ENABLED, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -478,16 +478,13 @@ pub async fn initial_load(
     // Outside the `server_mode` guard below: a dedicated indexer keeps the search index trimmed
     // to a window derived from this value, and it is not a server.
     pass.setting(SERVICE_LOG_RETENTION_SECS_SETTING, true, |v| async move {
-        SERVICE_LOG_RETENTION_SECS.store(
-            parse_setting_value::<i64>(
-                v,
-                SERVICE_LOG_RETENTION_SECS_SETTING,
-                "SERVICE_LOG_RETENTION_SECS",
-                DEFAULT_SERVICE_LOG_RETENTION_SECS,
-                |x| x,
-            ),
-            Ordering::Relaxed,
-        )
+        windmill_common::set_service_log_retention_secs(parse_setting_value::<i64>(
+            v,
+            SERVICE_LOG_RETENTION_SECS_SETTING,
+            "SERVICE_LOG_RETENTION_SECS",
+            DEFAULT_SERVICE_LOG_RETENTION_SECS,
+            |x| x,
+        ))
     });
 
     if server_mode {
@@ -1594,6 +1591,9 @@ pub async fn trim_resource_versions(db: &DB) -> () {
     }
 }
 
+/// Matches the batch the settings-page cleanup uses for the same table.
+const SERVICE_LOG_DELETE_BATCH: i64 = 2_000;
+
 pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
@@ -1676,23 +1676,48 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
     }
 
-    match sqlx::query_as!(
-        LogFile,
-        "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval RETURNING file_path, hostname",
-        windmill_common::service_log_retention_secs(),
-    )
-    .fetch_all(db)
-    .await
-    {
-        Ok(log_files_to_delete) => {
+    // Batched: every process rotates a log file a minute, so lowering the retention makes one
+    // ordinary setting change expire millions of rows at once. An unbounded `DELETE ...
+    // RETURNING` would materialize all of them, and their deletion futures, in this one tick.
+    loop {
+        let batch = sqlx::query_as!(
+            LogFile,
+            "DELETE FROM log_file WHERE (hostname, log_ts) IN (
+                 SELECT hostname, log_ts FROM log_file
+                 WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval
+                 LIMIT $2
+             ) RETURNING file_path, hostname",
+            windmill_common::service_log_retention_secs(),
+            SERVICE_LOG_DELETE_BATCH,
+        )
+        .fetch_all(db)
+        .await;
+
+        match batch {
+            Ok(log_files_to_delete) => {
+                if log_files_to_delete.is_empty() {
+                    break;
+                }
+                let n = log_files_to_delete.len();
                 let paths = log_files_to_delete
                     .iter()
                     .map(|f| format!("{}/{}", f.hostname, f.file_path))
                     .collect();
-                delete_log_files_from_disk_and_store(paths, &*TMP_WINDMILL_LOGS_SERVICE, windmill_common::tracing_init::LOGS_SERVICE).await;
-
+                delete_log_files_from_disk_and_store(
+                    paths,
+                    &*TMP_WINDMILL_LOGS_SERVICE,
+                    windmill_common::tracing_init::LOGS_SERVICE,
+                )
+                .await;
+                if (n as i64) < SERVICE_LOG_DELETE_BATCH {
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error deleting log file: {:?}", e);
+                break;
+            }
         }
-        Err(e) => tracing::error!("Error deleting log file: {:?}", e),
     }
 
     let audit_retention_days = audit_log_retention_days().await;
@@ -2809,7 +2834,7 @@ pub async fn reload_service_log_retention_secs_setting(conn: &Connection) {
     )
     .await
     {
-        Ok(v) => SERVICE_LOG_RETENTION_SECS.store(v, Ordering::Relaxed),
+        Ok(v) => windmill_common::set_service_log_retention_secs(v),
         Err(e) => tracing::error!("Error reloading service log retention period: {:?}", e),
     }
 }

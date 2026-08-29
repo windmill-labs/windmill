@@ -150,30 +150,39 @@ pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const DEFAULT_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 
-/// Beyond this `chrono::Duration::seconds` panics, so a larger window would abort the sweep
-/// that reads it rather than keep logs for longer.
-const MAX_SERVICE_LOG_RETENTION_SECS: i64 = i64::MAX / 1_000;
+/// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
+/// than an `i64`: `DateTime` subtraction panics past year 262143, and the `(<n> s)::interval`
+/// the cleanup queries build overflows Postgres' microsecond field.
+const MAX_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 365 * 100;
+
+/// Apply a configured service log retention, in seconds.
+///
+/// The only way into [`SERVICE_LOG_RETENTION_SECS`], so an unusable value can never reach a
+/// cutoff. Every service-log cutoff is `now - retention`: a non-positive value puts it at or
+/// after `now`, and the next sweep reads the entire history as expired and deletes the rows
+/// and their object-storage files irreversibly. Unlike job retention there is no "keep forever"
+/// spelling here, so `0` — what an operator types by analogy with it, and what the settings UI
+/// writes into a field that was merely focused — falls back to the default instead.
+pub fn set_service_log_retention_secs(configured: i64) {
+    let effective = if (1..=MAX_SERVICE_LOG_RETENTION_SECS).contains(&configured) {
+        configured
+    } else {
+        tracing::warn!(
+            "service log retention of {configured}s is outside 1..={MAX_SERVICE_LOG_RETENTION_SECS}, \
+             falling back to the default of {DEFAULT_SERVICE_LOG_RETENTION_SECS}s"
+        );
+        DEFAULT_SERVICE_LOG_RETENTION_SECS
+    };
+    SERVICE_LOG_RETENTION_SECS.store(effective, std::sync::atomic::Ordering::Relaxed);
+}
 
 /// How long a service log line stays retrievable, in seconds.
 ///
-/// This is the outer bound on everything service-log: the `log_file` rows, the raw files in
-/// object storage, the columnar store queried by retrieval, and — through
-/// [`indexer::service_log_index_window_secs`] — the search index. Read it through this
-/// function rather than the atomic so every caller goes through the same door.
-///
-/// Every one of those cutoffs is `now - retention`, so a non-positive value puts the cutoff at
-/// or after `now` and the next sweep reads the entire service log history as expired, deleting
-/// the rows and their object-storage files irreversibly. Unlike job retention there is no
-/// "keep forever" spelling here — service logs always have a window — so an unusable value
-/// falls back to the default rather than being honoured. This is the floor for a `0` typed by
-/// analogy with job retention, and for the `0` the settings UI writes into an untouched field.
+/// The outer bound on everything service-log: the `log_file` rows, the raw files in object
+/// storage, the columnar store queried by retrieval, and — through
+/// [`indexer::service_log_index_window_secs`] — the search index.
 pub fn service_log_retention_secs() -> i64 {
-    let configured = SERVICE_LOG_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
-    if (1..=MAX_SERVICE_LOG_RETENTION_SECS).contains(&configured) {
-        configured
-    } else {
-        DEFAULT_SERVICE_LOG_RETENTION_SECS
-    }
+    SERVICE_LOG_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// Canonical form of a base URL, used as one of the inputs to the offline-license
@@ -401,8 +410,10 @@ lazy_static::lazy_static! {
     /// workspace configured before its override could be read.
     pub static ref JOB_RETENTION_SECS_OVERRIDES_LOADED: AtomicBool = AtomicBool::new(false);
     pub static ref AUDIT_LOG_RETENTION_DAYS: AtomicI64 = AtomicI64::new(0);
-    /// Read it with [`service_log_retention_secs`], which every call site uses.
-    pub static ref SERVICE_LOG_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_SERVICE_LOG_RETENTION_SECS);
+    /// Private on purpose: [`set_service_log_retention_secs`] is the only writer, so a value that
+    /// would expire every service log cannot reach a cutoff. Read it with
+    /// [`service_log_retention_secs`].
+    static ref SERVICE_LOG_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_SERVICE_LOG_RETENTION_SECS);
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 

@@ -156,41 +156,43 @@ pub fn get_indexer_rates_from_env() -> TantivyIndexerSettings {
 mod tests {
     use super::*;
 
-    // One test rather than several: both halves read the same process-wide retention, and the
-    // clamp half has to store into it, which parallel tests would race.
+    // One test rather than several: both halves share the process-wide retention, and the
+    // setter half writes it, which parallel tests would race.
     #[test]
     fn retention_rejects_unusable_values_and_the_index_window_clamps_to_it() {
         use crate::{
-            service_log_retention_secs, DEFAULT_SERVICE_LOG_RETENTION_SECS,
-            SERVICE_LOG_RETENTION_SECS,
+            service_log_retention_secs, set_service_log_retention_secs,
+            DEFAULT_SERVICE_LOG_RETENTION_SECS,
         };
-        use std::sync::atomic::Ordering;
 
-        let set = |v: i64| SERVICE_LOG_RETENTION_SECS.store(v, Ordering::Relaxed);
+        // See `set_service_log_retention_secs` for why none of these may become the window.
+        let unusable = [0, -1, i64::MIN, i64::MAX, 60 * 60 * 24 * 365 * 101];
+        let rejected: Vec<i64> = unusable
+            .iter()
+            .map(|v| {
+                set_service_log_retention_secs(*v);
+                service_log_retention_secs()
+            })
+            .collect();
 
-        // Every cutoff is `now - retention`, so honouring a non-positive value would put it at
-        // or after `now` and expire the whole of the service logs on the next sweep. `0` is
-        // both what an operator types by analogy with job retention and what the settings UI
-        // writes into a field that was merely focused.
-        for unusable in [0, -1, i64::MIN, i64::MAX] {
-            set(unusable);
-            assert_eq!(
-                service_log_retention_secs(),
-                DEFAULT_SERVICE_LOG_RETENTION_SECS,
-                "{unusable} must fall back to the default, not become the window"
-            );
-        }
-
-        set(60 * 60 * 24 * 3);
+        set_service_log_retention_secs(60 * 60 * 24 * 3);
         let retention = service_log_retention_secs();
-        assert_eq!(retention, 60 * 60 * 24 * 3);
-        // `0` disables the extra shrinking rather than lifting the ceiling — the trap that
-        // makes an unset setting look unbounded.
-        assert_eq!(service_log_index_window_secs(0), retention);
-        // Retention is the ceiling: the index cannot reach lines whose `log_file` row is gone.
-        assert_eq!(service_log_index_window_secs(retention * 2), retention);
-        assert_eq!(service_log_index_window_secs(60), 60);
+        let windows = [
+            // `0` disables the extra shrinking rather than lifting the ceiling — the trap that
+            // makes an unset setting look unbounded.
+            service_log_index_window_secs(0),
+            // Retention is the ceiling: the index cannot reach lines whose `log_file` row is gone.
+            service_log_index_window_secs(retention * 2),
+            service_log_index_window_secs(60),
+        ];
+        set_service_log_retention_secs(DEFAULT_SERVICE_LOG_RETENTION_SECS);
 
-        set(DEFAULT_SERVICE_LOG_RETENTION_SECS);
+        assert_eq!(
+            rejected,
+            vec![DEFAULT_SERVICE_LOG_RETENTION_SECS; unusable.len()],
+            "unusable values must fall back to the default: {unusable:?}"
+        );
+        assert_eq!(retention, 60 * 60 * 24 * 3);
+        assert_eq!(windows, [retention, retention, 60]);
     }
 }
