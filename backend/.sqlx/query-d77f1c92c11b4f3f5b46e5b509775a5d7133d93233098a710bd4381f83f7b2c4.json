@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT hostname, log_ts FROM log_file WHERE indexed_at = '-infinity'\n             ORDER BY log_ts ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "hostname",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "log_ts",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "d77f1c92c11b4f3f5b46e5b509775a5d7133d93233098a710bd4381f83f7b2c4"
+}

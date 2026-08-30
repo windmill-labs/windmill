@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                        hostname,\n                        mode::text,\n                        worker_group,\n                        log_ts,\n                        file_path,\n                        ok_lines,\n                        err_lines,\n                        json_fmt\n                    FROM log_file\n                    WHERE log_ts > $1\n                    ORDER BY log_ts ASC LIMIT $2",
+  "query": "SELECT\n                            l.hostname,\n                            l.mode::text,\n                            l.worker_group,\n                            l.log_ts,\n                            l.file_path,\n                            l.ok_lines,\n                            l.err_lines,\n                            l.json_fmt\n                        FROM log_file l\n                        JOIN unnest($1::text[], $2::timestamp[]) AS c(hostname, log_ts)\n                          ON l.hostname = c.hostname AND l.log_ts = c.log_ts\n                        ORDER BY l.log_ts ASC",
   "describe": {
     "columns": [
       {
@@ -46,8 +46,8 @@
     ],
     "parameters": {
       "Left": [
-        "Timestamp",
-        "Int8"
+        "TextArray",
+        "TimestampArray"
       ]
     },
     "nullable": [
@@ -61,5 +61,5 @@
       true
     ]
   },
-  "hash": "b5c839baab25c4dcdd503d380cf7a886242277cd50555f20b2e22e13942d2a3a"
+  "hash": "81251bbc7a3ea397e6292972a367364618dd683ee3368590c225f99b230a4e08"
 }
