@@ -1352,16 +1352,15 @@ fn last_log_file_sent() -> Option<NaiveDateTime> {
 
 /// Resume from what this host already registered, so a previous run's leftovers reach
 /// the object store rather than being dropped. Their line counts come out zero, this
-/// run having counted none of them, so they draw no bar and — since `list_files`
-/// selects on `err_lines > 0` — never appear under the errors-only filter either.
+/// run having counted none of them, which only flattens their bars in the UI.
 ///
 /// The newest registered minute is left out on purpose: the shutdown flush registers
 /// the file that was still open and the appender reopens that minute in append mode,
 /// so a restart inside it would otherwise strand everything written afterwards.
 ///
-/// A row rewritten this way restores the object and sums the counters, but keeps its
-/// `indexed_at`, so the indexers do not offer it again: the lines it gained stay out
-/// of search. Re-reading it would re-index the ones they already hold.
+/// A row rewritten this way restores the object and sums the counters, but whether the
+/// indexers read it again depends on their single `log_ts >` cursor, which is not
+/// per-hostname: a minute at or below it stays out of search until it is re-indexed.
 async fn init_last_log_file_sent(conn: &Connection, hostname: &str) {
     let Some(db) = conn.as_sql() else {
         return;
@@ -1407,10 +1406,10 @@ async fn send_log_files_to_object_store(
         if ts < retention_cutoff {
             continue;
         }
-        // Stop at the first failure rather than moving on, so a host's files are
-        // registered in order. The indexers do not depend on that — every row is
-        // offered until it is marked — but a gap here delays the rest of a host's
-        // backlog behind whatever failed.
+        // Stop at the first failure rather than moving on, so a file is never
+        // registered before an older one that has not made it to the store yet.
+        // The indexers do not depend on that ordering — every row is offered until
+        // it is marked — but a gap here would still be visible while it lasts.
         if !send_log_file_to_object_store(hostname, mode, worker_group, conn, &file_name, ts).await
         {
             break;

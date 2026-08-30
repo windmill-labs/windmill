@@ -24,7 +24,3 @@ CREATE INDEX index_log_file_pending ON log_file (log_ts) WHERE indexed_at IS NUL
 -- Reached once per pass while pre-migration rows survive, and never again after they age out.
 CREATE INDEX index_log_file_premigration ON log_file (log_ts) WHERE indexed_at = 'epoch';
 
--- Rows a pass has published to the store but not yet confirmed. Normally empty — it holds a
--- batch only while a pass is inside its checkpoint — but the pass that follows an interrupted
--- one reads it before deciding anything else.
-CREATE INDEX index_log_file_claimed ON log_file (log_ts) WHERE indexed_at = '-infinity';
