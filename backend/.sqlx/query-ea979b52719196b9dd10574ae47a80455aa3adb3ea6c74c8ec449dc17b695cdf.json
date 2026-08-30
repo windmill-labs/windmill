@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH moved AS (\n                         UPDATE log_file SET indexed_at = NULL\n                         WHERE indexed_at = 'epoch' AND log_ts > $1 RETURNING 1)\n                     SELECT count(*) AS \"n!\" FROM moved",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ea979b52719196b9dd10574ae47a80455aa3adb3ea6c74c8ec449dc17b695cdf"
+}
