@@ -24,3 +24,8 @@ CREATE INDEX index_log_file_pending ON log_file (log_ts) WHERE indexed_at IS NUL
 -- Reached once per pass while pre-migration rows survive, and never again after they age out.
 CREATE INDEX index_log_file_premigration ON log_file (log_ts) WHERE indexed_at = 'epoch';
 
+-- A rebuild takes rows out of the queue by the file it just read out of the store, which is
+-- the one lookup that arrives without a `log_ts`: the primary key is `(hostname, log_ts)`, so
+-- nothing else covers it and each batch would scan every outstanding row instead.
+CREATE INDEX index_log_file_pending_path ON log_file (hostname, file_path) WHERE indexed_at IS NULL;
+
