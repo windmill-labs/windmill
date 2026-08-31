@@ -2433,6 +2433,9 @@ async fn get_datatable_schema(
             FROM pg_namespace
             WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
               AND nspname NOT LIKE 'pg_%'
+              -- Only what this connection's role can reach: a schema it cannot
+              -- enter would list no tables and read as an empty one.
+              AND has_schema_privilege(oid, 'USAGE, CREATE')
             ORDER BY nspname
             "#,
             &[],
@@ -2524,6 +2527,9 @@ async fn get_datatable_tables(
             FROM pg_namespace
             WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
               AND nspname NOT LIKE 'pg_%'
+              -- Only what this connection's role can reach: a schema it cannot
+              -- enter would list no tables and read as an empty one.
+              AND has_schema_privilege(oid, 'USAGE, CREATE')
             ORDER BY nspname
             "#,
             &[],

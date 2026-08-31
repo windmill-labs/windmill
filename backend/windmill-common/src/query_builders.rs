@@ -2598,7 +2598,10 @@ WHERE table_catalog = current_database()",
                 )
             } else {
                 (
-                    "\nWHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped\n    AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'".to_string(),
+                    // pg_catalog is readable by everyone, so without the
+                    // privilege check this lists tables of schemas the
+                    // connection's role cannot even enter.
+                    "\nWHERE c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped\n    AND ns.nspname != 'pg_catalog' AND ns.nspname != 'information_schema'\n    AND has_schema_privilege(ns.oid, 'USAGE, CREATE')".to_string(),
                     ",\n    ns.nspname AS schema_name,\n    c.relname AS table_name".to_string(),
                     "\nJOIN pg_catalog.pg_class c ON a.attrelid = c.oid\nJOIN pg_catalog.pg_namespace ns ON c.relnamespace = ns.oid".to_string(),
                     "ns.nspname, c.relname, a.attnum".to_string(),
@@ -4468,6 +4471,9 @@ mod tests {
         assert!(sql.contains("schema_name"));
         assert!(sql.contains("table_name"));
         assert!(sql.contains("c.relkind = 'r'"));
+        // Listing every table must not reach into schemas the connection's role
+        // cannot enter: pg_catalog itself is readable by everyone.
+        assert!(sql.contains("has_schema_privilege(ns.oid, 'USAGE, CREATE')"));
     }
 
     #[test]
