@@ -34,7 +34,8 @@
 		workspace,
 		datatable,
 		disabled = false,
-		hideTrigger = false
+		hideTrigger = false,
+		onSaved
 	}: {
 		workspace: string
 		datatable: string
@@ -42,6 +43,9 @@
 		/** Mount the drawer without its button, so a caller can drive it via `open()`
 		 * (the database manager opens it from the tree's row menu). */
 		hideTrigger?: boolean
+		/** Called once the roles have actually changed, so a caller showing them
+		 * (the manager's role picker) can read them again. */
+		onSaved?: () => void
 	} = $props()
 
 	// Matches every workspace member, unlike the `all` group whose membership is
@@ -214,6 +218,7 @@
 			sendUserToast('Data table permissions saved')
 			preview = undefined
 			await load()
+			onSaved?.()
 		} catch (e) {
 			sendUserToast(e?.body ?? e?.message ?? String(e), true)
 		} finally {

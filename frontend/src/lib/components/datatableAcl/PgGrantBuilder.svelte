@@ -58,7 +58,6 @@
 			bind:value={privileges}
 			items={available.map((p) => ({ value: p, label: p }))}
 			placeholder="privileges"
-			size="xs"
 			{disabled}
 			class="min-w-56"
 		/>
