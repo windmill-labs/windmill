@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH requeued AS (\n                     UPDATE log_file SET indexed_at = NULL\n                     WHERE indexed_at IS NOT NULL AND log_ts > $1 RETURNING 1)\n                 SELECT count(*) AS \"n!\" FROM requeued",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "n!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamp"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "95db059bd7e17fcce2468f106c3f5ca0405dccd4cb04a63abce560ae49b76655"
+}

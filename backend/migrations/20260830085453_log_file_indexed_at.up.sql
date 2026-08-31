@@ -10,22 +10,18 @@
 -- the rows, so it is recorded on them.
 ALTER TABLE log_file ADD COLUMN indexed_at TIMESTAMPTZ;
 
--- Rows that already existed are the ingest's own history. Marked with a sentinel rather than
--- `now()` so the first pass can tell them from rows it has ingested itself: it knows the
--- watermark the old cursor had reached, and returns the ones above it to the queue. Doing that
--- here instead would need the watermark, which lives in object storage.
-UPDATE log_file SET indexed_at = 'epoch' WHERE indexed_at IS NULL;
+-- Rows that already existed are the ingest's own history: everything at or below the cursor it
+-- had reached was read, and the indexer puts the rest back on the queue on its first pass, which
+-- is the only place the cursor's position is known. Recorded as done rather than left outstanding
+-- so a 14-day window is not re-read on upgrade, when the raw files it would need are long deleted.
+UPDATE log_file SET indexed_at = now() WHERE indexed_at IS NULL;
 
 -- The work queue, and the only index the ingest query needs: outstanding rows are a small
 -- fraction of the table, so this stays proportional to what is left to do rather than to the
 -- retention window.
 CREATE INDEX index_log_file_pending ON log_file (log_ts) WHERE indexed_at IS NULL;
 
--- Reached once per pass while pre-migration rows survive, and never again after they age out.
-CREATE INDEX index_log_file_premigration ON log_file (log_ts) WHERE indexed_at = 'epoch';
-
 -- A rebuild takes rows out of the queue by the file it just read out of the store, which is
 -- the one lookup that arrives without a `log_ts`: the primary key is `(hostname, log_ts)`, so
 -- nothing else covers it and each batch would scan every outstanding row instead.
 CREATE INDEX index_log_file_pending_path ON log_file (hostname, file_path) WHERE indexed_at IS NULL;
-
