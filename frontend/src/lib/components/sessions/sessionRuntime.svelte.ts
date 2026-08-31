@@ -111,6 +111,7 @@ import {
 	onDriverLost,
 	withSessionRunLock
 } from './sessionRunOwner.svelte'
+import { createLatestWins } from './latestWins'
 
 // Per-kind load state for a session's editor target. Pure state container the
 // load methods write into; the editor-target gate reads it to decide between
@@ -1102,12 +1103,28 @@ function applyRunStatus(msg: RunStatusMsg): void {
 	m.loadingLabel = msg.blockedOnUser ? 'Waiting for your answer in the other tab' : msg.loadingLabel
 }
 
+/** Serialized per session, newest-wins: two turn-ends close together would
+ *  otherwise run two concurrent re-reads, and the slower one (an image-heavy
+ *  loadPastChat) can finish after a newer catch-up adopted a later chat —
+ *  putting the conversation the driver already left back on screen and,
+ *  through onChatRotated, back into the shared record. */
+const catchUps = createLatestWins()
+
+function queueCatchUp(sessionId: string, chatId: string, attempt = 0): void {
+	catchUps.run(sessionId, (superseded) => applyTurnEnd(sessionId, chatId, attempt, superseded))
+}
+
 /** A run finished in another tab. Nothing of it crossed the channel but its
  *  status, so re-read the record the driver just saved for everything else —
  *  the rendered transcript, the API-format history, context usage, the edits
  *  mask, background jobs — leaving this tab able to take the conversation
  *  over. */
-async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Promise<void> {
+async function applyTurnEnd(
+	sessionId: string,
+	chatId: string,
+	attempt: number,
+	superseded: () => boolean
+): Promise<void> {
 	if (isDriving(sessionId)) return
 	let caughtUp = false
 	try {
@@ -1132,6 +1149,11 @@ async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Pro
 			return
 		}
 		const found = await m.historyManager.reloadChat(id)
+		// A newer turn-end queued behind this catch-up while the read was in
+		// flight. The writes below would restore the chat the driver already left,
+		// only for that newer catch-up to redo them — and it settles the caught-up
+		// gate too, so leave it held here.
+		if (superseded()) return
 		if (found === 'unavailable') {
 			// The store is unreadable *right now*, which says nothing about the
 			// conversation — so this tab still holds the one from before the run.
@@ -1189,7 +1211,7 @@ function scheduleCatchUpRetry(sessionId: string, chatId: string, attempt: number
 			// Only still owed if nothing else has moved the position on: a new turn
 			// starting, or the session going away, both settle this on their own.
 			if (!isCatchingUp(sessionId)) return
-			void applyTurnEnd(sessionId, chatId, attempt + 1)
+			queueCatchUp(sessionId, chatId, attempt + 1)
 		}, delay)
 	)
 }
@@ -1213,7 +1235,7 @@ function applyCancelRequest(sessionId: string, runId: string): void {
 registerSyncHandlers({
 	onRunStatus: applyRunStatus,
 	onCancelRequest: applyCancelRequest,
-	onTurnEnd: (sessionId, chatId) => void applyTurnEnd(sessionId, chatId),
+	onTurnEnd: (sessionId, chatId) => queueCatchUp(sessionId, chatId),
 	// A session deleted in another tab takes its runtime with it, so an open
 	// chat for it stops streaming and releases its editors.
 	onSessionDelete: (id) => disposeRuntime(id),
@@ -1227,7 +1249,7 @@ registerSyncHandlers({
 // A driving tab that closed mid-turn sends no turn-end. Its watchers land here
 // instead, and take the same path: stop showing the run, re-read whatever the
 // store holds, and become able to send again.
-onDriverLost((sessionId) => void applyTurnEnd(sessionId, ''))
+onDriverLost((sessionId) => queueCatchUp(sessionId, ''))
 
 export function getOrCreateRuntime(session: Session): SessionRuntime {
 	let runtime = runtimes.get(session.id)
