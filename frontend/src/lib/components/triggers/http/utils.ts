@@ -27,13 +27,18 @@ export function parseAllowedOrigins(raw: string): string[] {
  * risk. `null` is the exception, since it is what every sandboxed iframe sends.
  */
 export function allowedOriginRejection(origin: string): string | undefined {
+	// Same order as `validate_allowed_origins`, so the same entry draws the same
+	// message on both sides rather than only the same verdict.
 	if (origin === '*') return undefined
+	if (origin === '') return 'An origin must not be empty'
+	if (origin.length > MAX_ALLOWED_ORIGIN_LEN)
+		return `'${origin.slice(0, 40)}…' is longer than any origin a browser sends`
+	if (origin.includes(','))
+		return `'${origin}' must not contain a comma, which separates entries`
 	if (origin.toLowerCase() === 'null')
 		return `'null' is what a sandboxed iframe sends, so it would allow any page that can open one`
 	if (!/^[\x21-\x7e]+$/.test(origin))
 		return `'${origin}' must contain only visible ASCII, with no whitespace`
-	if (origin.length > MAX_ALLOWED_ORIGIN_LEN)
-		return `'${origin.slice(0, 40)}…' is longer than any origin a browser sends`
 	return undefined
 }
 
@@ -76,13 +81,36 @@ export function allowedOriginWarning(origin: string): string | undefined {
 	// purpose: browsers send origins this cannot anticipate, `chrome-extension`
 	// and IPv6 literals among them, and a warning that cries wolf on a working
 	// origin is worse than one that stays quiet.
-	const port = rest.startsWith('[')
-		? rest.slice(rest.indexOf(']') + 1).replace(/^:/, '')
-		: rest.split(':')[1]
 	if (rest.startsWith(':')) return `'${origin}' has no host`
-	if (port !== undefined && port !== '' && !(/^[0-9]{1,5}$/.test(port) && Number(port) <= 65535))
+	const portStart = rest.startsWith('[') ? rest.indexOf(']') + 1 : rest.indexOf(':')
+	// A trailing colon is a port, an empty one — distinct from having none.
+	const port = portStart > 0 && rest[portStart] === ':' ? rest.slice(portStart + 1) : undefined
+	if (port !== undefined && !(/^[0-9]{1,5}$/.test(port) && Number(port) <= 65535))
 		return `'${origin}' has a port no browser can send`
 	return undefined
+}
+
+/**
+ * What the settings API would refuse, mirroring `parse_allowed_origins_setting`
+ * in windmill-common.
+ *
+ * Distinct from reading the setting for display: that drops entries it cannot
+ * use, while this has to report them, or a shape only the YAML editor can
+ * produce would pass here and come back as a 400 on save.
+ */
+export function allowedOriginsSettingError(setting: unknown): string | undefined {
+	let origins: string[]
+	if (setting == null || typeof setting === 'string') {
+		origins = parseAllowedOrigins(typeof setting === 'string' ? setting : '')
+	} else if (Array.isArray(setting)) {
+		if (setting.some((entry) => typeof entry !== 'string')) return 'Entries must be strings'
+		// Not filtered for empties, unlike the comma-separated form, where a
+		// trailing separator is a typing artifact rather than an entry.
+		origins = setting.map((entry) => (entry as string).trim())
+	} else {
+		return 'Expected a comma-separated string or a list of strings'
+	}
+	return allowedOriginsError(origins)
 }
 
 /**

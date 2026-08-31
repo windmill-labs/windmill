@@ -192,7 +192,10 @@ async fn conditional_cors_middleware(
     let origin = req.headers().get(http::header::ORIGIN).cloned();
     // Owned before `next.run` consumes the request. `&Request` is not `Send`
     // (`Body` is not `Sync`), so nothing borrowed from it can cross the await.
-    let lookup = cors_lookup_method(&req).zip(cors_lookup_path(req.uri().path()));
+    // The URI is carried rather than the decoded path: cloning it is a refcount
+    // bump, while decoding allocates, and only the fallback below ever needs it.
+    let lookup_method = cors_lookup_method(&req);
+    let uri = req.uri().clone();
 
     let resolved = ResolvedCorsPolicy::default();
     req.extensions_mut().insert(resolved.clone());
@@ -208,7 +211,7 @@ async fn conditional_cors_middleware(
         // that failed before reaching the publish, authentication included. No
         // runnable produced this body, so reading the cache cannot contradict
         // anything.
-        None => match lookup {
+        None => match lookup_method.zip(cors_lookup_path(uri.path())) {
             Some((method, path)) => {
                 resolve_cors_decision(&db, method, &path, origin.as_ref()).await
             }

@@ -1,5 +1,5 @@
 import type { ButtonType } from './common/button/model'
-import { allowedOriginsError, parseAllowedOriginsSetting } from './triggers/http/utils'
+import { allowedOriginsSettingError } from './triggers/http/utils'
 import { z } from 'zod'
 import { writable } from 'svelte/store'
 
@@ -275,8 +275,7 @@ export const settings: Record<string, Setting[]> = {
 				'Each origin must be visible ASCII with no comma, and there can be at most 100 of them. null is not allowed, since every sandboxed iframe sends it.',
 			// The same check the API applies, so a value it would refuse cannot be
 			// saved here and then silently drop to no restriction at the next boot.
-			isValid: (value: string | undefined) =>
-				allowedOriginsError(parseAllowedOriginsSetting(value)) === undefined,
+			isValid: (value: unknown) => allowedOriginsSettingError(value) === undefined,
 			ee_only: '',
 			hideInQuickSetup: true
 		},
