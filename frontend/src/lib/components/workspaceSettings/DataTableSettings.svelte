@@ -51,12 +51,10 @@
 </script>
 
 <script lang="ts">
-	import { History, KeyRound, Plus, PlugZap } from 'lucide-svelte'
+	import { History, KeyRound, Plus, PlugZap, Trash2 } from 'lucide-svelte'
 	import DropdownV2 from '../DropdownV2.svelte'
 
 	import Button from '../common/button/Button.svelte'
-
-	import CloseButton from '../common/CloseButton.svelte'
 
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
@@ -428,22 +426,6 @@
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
 						/>
-						<DropdownV2
-							disabled={!!dirtyMap[dataTable.name]}
-							items={() => [
-								{
-									displayName: 'Migrations',
-									icon: History,
-									action: () => migrationsButtons[dataTable.name]?.open()
-								},
-								{
-									displayName: 'Permissions',
-									icon: KeyRound,
-									action: () => permissionsButtons[dataTable.name]?.openPermissions()
-								}
-							]}
-							btnId={'datatable-settings-actions-' + onlyAlphaNumAndUnderscore(dataTable.name)}
-						/>
 						<Button
 							size="xs"
 							color="light"
@@ -477,7 +459,32 @@
 					</div>
 				</Cell>
 				<Cell class="w-12">
-					<CloseButton small on:close={() => removeDataTable(dataTableIndex)} />
+					<DropdownV2
+						items={() => [
+							{
+								displayName: 'Migrations',
+								icon: History,
+								// Both act on the saved data table, which unsaved edits are not.
+								disabled: !!dirtyMap[dataTable.name],
+								tooltip: 'Save the settings first',
+								action: () => migrationsButtons[dataTable.name]?.open()
+							},
+							{
+								displayName: 'Permissions',
+								icon: KeyRound,
+								disabled: !!dirtyMap[dataTable.name],
+								tooltip: 'Save the settings first',
+								action: () => permissionsButtons[dataTable.name]?.openPermissions()
+							},
+							{
+								displayName: 'Remove',
+								icon: Trash2,
+								type: 'delete',
+								action: () => removeDataTable(dataTableIndex)
+							}
+						]}
+						btnId={'datatable-settings-actions-' + onlyAlphaNumAndUnderscore(dataTable.name)}
+					/>
 				</Cell>
 			</Row>
 		{/each}
