@@ -7,6 +7,7 @@
 		AlertTriangle,
 		ArrowDown,
 		AtSign,
+		BookOpen,
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
@@ -35,6 +36,7 @@
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import McpConnections from './McpConnections.svelte'
+	import SkillsPicker from './SkillsPicker.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -206,6 +208,7 @@
 
 	let aiChatInput: AIChatInput | undefined = $state()
 	let mcpConnections: McpConnections | undefined = $state()
+	let skillsPicker: SkillsPicker | undefined = $state()
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 
@@ -953,12 +956,22 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 											linkFolder()
 										}
 									},
+									...(aiChatManager.mode === AIMode.GLOBAL && skillsPicker
+										? [
+												{
+													displayName: 'Skills',
+													icon: BookOpen,
+													separatorTop: true,
+													submenuItems: await skillsPicker.menuItems(() => (plusMenuOpen = false))
+												}
+											]
+										: []),
 									...(aiChatManager.mode === AIMode.GLOBAL && mcpConnections
 										? [
 												{
 													displayName: 'MCP connections',
 													icon: Plug,
-													separatorTop: true,
+													separatorTop: !skillsPicker,
 													submenuItems: await mcpConnections.menuItems(() => (plusMenuOpen = false))
 												}
 											]
@@ -1103,6 +1116,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						<ContextUsageIndicator />
 						<AIChatModelSettings />
 						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<SkillsPicker bind:this={skillsPicker} />
 							<McpConnections bind:this={mcpConnections} />
 						{/if}
 

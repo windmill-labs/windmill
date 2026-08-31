@@ -17,8 +17,7 @@ import {
 	ScriptService,
 	SqsTriggerService,
 	VariableService,
-	WebsocketTriggerService,
-	WorkspaceService
+	WebsocketTriggerService
 } from '$lib/gen'
 import { createTwoFilesPatch } from 'diff'
 import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
@@ -83,6 +82,9 @@ import {
 } from '../flow/inlineScriptsUtils'
 import { searchNpmPackagesTool } from '../script/core'
 import type { McpServer } from './mcpTools'
+import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { enabledSkillPaths } from '../skills/enabledSkills'
+import { listSkillResources, readSkillBody, skillNameFromPath } from '../skills/skillResources'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
@@ -1362,9 +1364,9 @@ Data Tables:
 			? `
 
 Skills:
-- Skills are reusable instruction sets curated for this workspace, each covering a specific kind of task. The available skills are listed below by name and description.
-- When a user's request matches a skill's description, call read_skill with its exact name to load the full instructions BEFORE acting, then follow them.
-${skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')}`
+- Skills are reusable instruction sets the user selected for this chat, each covering a specific kind of task. The available skills are listed below by resource path and description.
+- When a user's request matches a skill's description, call read_skill with its exact path to load the full instructions BEFORE acting, then follow them.
+${skills.map((s) => `- ${s.path}: ${s.description}`).join('\n')}`
 			: ''
 	}${
 		mcpServers.length > 0
@@ -2253,7 +2255,9 @@ function getInstructions(
 	}
 }
 
-export type AiSkillListItem = { name: string; description: string }
+/** A skill the user turned on, as the prompt and the `/` picker see it. `path`
+ * is the `ai_skill` resource and the model-facing id; `name` is its basename. */
+export type AiSkillListItem = { path: string; name: string; description: string }
 
 /** Live session facts appended to the GLOBAL system prompt for session chats.
  * Provided by the session runtime as a resolver (copilot must not import the
@@ -2316,15 +2320,32 @@ export function getSessionContextPromptSection(ctx: SessionPromptContext): strin
 	return lines.join('\n')
 }
 
-/** `/` picker entry: a workspace skill or a built-in session action. The kind
- * drives the picker's category grouping; entries without one are ungrouped. */
-export type ChatCommandItem = AiSkillListItem & { kind?: 'action' | 'skill' }
+/** `/` picker entry: a selected skill or a built-in session action. The kind
+ * drives the picker's category grouping; entries without one are ungrouped.
+ * Only skills carry a `path` — built-in actions run locally and have no resource. */
+export type ChatCommandItem = {
+	name: string
+	description: string
+	path?: string
+	kind?: 'action' | 'skill'
+}
 
-/** Fetch the workspace's AI skills (name + description) for the global system prompt. */
+/**
+ * The skills this user turned on in this workspace, for the global system prompt.
+ * A readable `ai_skill` resource is only a candidate — enabling one is a personal
+ * choice, since each enabled skill spends context on every turn.
+ */
 export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillListItem[]> {
 	if (!workspace) return []
 	try {
-		return await WorkspaceService.listAiSkills({ workspace })
+		const enabled = new Set(enabledSkillPaths(workspace))
+		if (enabled.size === 0) return []
+		// Filtered against what is actually readable now, so a skill that was
+		// deleted or whose folder access was revoked drops out instead of being
+		// advertised to the model as something read_skill can load.
+		return (await listSkillResources(workspace))
+			.filter((s) => enabled.has(s.path))
+			.map(({ path, name, description }) => ({ path, name, description }))
 	} catch (e) {
 		console.error('Failed to load AI skills', e)
 		return []
@@ -2332,32 +2353,36 @@ export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillLis
 }
 
 const readSkillSchema = z.object({
-	name: z
+	path: z
 		.string()
-		.describe('The exact skill name as listed in the Skills section of the system prompt.')
+		.describe('The exact skill resource path as listed in the Skills section of the system prompt.')
 })
 
 export const readSkillTool: Tool<{}> = {
 	def: createToolDef(
 		readSkillSchema,
 		'read_skill',
-		'Load the full instructions for a workspace AI skill by name. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
+		'Load the full instructions for a selected AI skill by resource path. Skills are listed in the system prompt under "Skills"; call this before acting on a task a skill covers, then follow its instructions.'
 	),
 	planModeSafe: true,
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const parsed = readSkillSchema.parse(args)
-		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${parsed.name}"...` })
+		const name = skillNameFromPath(parsed.path)
+		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${name}"...` })
 		try {
-			const skill = await WorkspaceService.getAiSkill({ workspace, name: parsed.name })
-			toolCallbacks.setToolStatus(toolId, { content: `Read skill "${parsed.name}"` })
-			return `Skill: ${skill.name}\nDescription: ${skill.description}\n\nInstructions:\n${skill.instructions}`
+			const instructions = await readSkillBody(workspace, parsed.path)
+			toolCallbacks.setToolStatus(toolId, { content: `Read skill "${name}"` })
+			// Whether a selected skill is actually reached for. No key: the path is
+			// workspace-authored text.
+			logFeatureUsage('ai_session', 'skill_read', { workspace })
+			return `Skill: ${parsed.path}\n\nInstructions:\n${instructions}`
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Error reading skill "${parsed.name}"`,
+				content: `Error reading skill "${name}"`,
 				error: msg
 			})
-			return `Failed to read skill "${parsed.name}": ${msg}. Check the name against the Skills list in the system prompt.`
+			return `Failed to read skill "${parsed.path}": ${msg}. Check the path against the Skills list in the system prompt.`
 		}
 	}
 }

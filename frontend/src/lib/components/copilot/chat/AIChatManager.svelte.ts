@@ -1134,9 +1134,10 @@ export class AIChatManager {
 		}
 	}
 
-	// Workspace AI skills (name + description) advertised in the GLOBAL system
-	// prompt and surfaced as slash commands in session chat. Loaded
-	// asynchronously when entering GLOBAL mode; the system message is rebuilt
+	// The `ai_skill` resources this user turned on for the operating workspace,
+	// advertised in the GLOBAL system prompt and surfaced as slash commands in
+	// session chat. Loaded asynchronously when entering GLOBAL mode and again
+	// whenever the picker changes the selection; the system message is rebuilt
 	// once they resolve.
 	globalSkills = $state<AiSkillListItem[]>([])
 	private globalSkillsRefreshId = 0
@@ -1172,9 +1173,10 @@ export class AIChatManager {
 	]
 
 	// Built-ins followed by workspace skills, with any skill whose name collides
-	// with a built-in dropped: the picker keys leaves by name, so a duplicate
-	// would break its keyed list and ambiguous-resolve nav. Built-ins win — they
-	// already shadow same-named skills at execution (the submit interception).
+	// with a built-in dropped. Built-ins win — they already shadow same-named
+	// skills at execution (the submit interception), so listing both would offer
+	// a row that cannot run. Two skills may still share a name; the picker keys
+	// those by path and the submit path declines to guess between them.
 	sessionCommands: ChatCommandItem[] = $derived([
 		...this.sessionBuiltinCommands,
 		...this.globalSkills
@@ -2200,16 +2202,21 @@ export class AIChatManager {
 		if (!this.isSessionChat || this.mode !== AIMode.GLOBAL || !instructions.startsWith('/')) {
 			return instructions
 		}
-		const match = /^\/([a-z0-9-]+)(?:\s+([\s\S]*))?$/.exec(instructions)
+		// `[\w-]+` rather than the stricter SKILL.md name syntax: the command names a
+		// resource path's last segment, and resource paths admit `_` and uppercase.
+		const match = /^\/([\w-]+)(?:\s+([\s\S]*))?$/.exec(instructions)
 		if (!match) {
 			return instructions
 		}
-		const skill = this.globalSkills.find((s) => s.name === match[1])
-		if (!skill) {
+		// Two folders can each hold a skill of this name, and picking one of them
+		// would silently apply instructions the user did not choose.
+		const matches = this.globalSkills.filter((s) => s.name === match[1])
+		if (matches.length !== 1) {
 			return instructions
 		}
 		const rest = match[2]?.trim()
-		return rest ? `Use the "${skill.name}" skill. ${rest}` : `Use the "${skill.name}" skill.`
+		const use = `Use the skill at "${matches[0].path}".`
+		return rest ? `${use} ${rest}` : use
 	}
 
 	canApplyCode = $derived(this.allowedModes.script && this.mode === AIMode.SCRIPT)

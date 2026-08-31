@@ -69,7 +69,6 @@ mod ai;
 #[cfg(feature = "private")]
 mod ai_free_tier_ee;
 mod ai_free_tier_oss;
-mod ai_skills;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
@@ -713,7 +712,6 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/ai", ai::workspaced_service())
-                        .nest("/ai_skills", ai_skills::workspaced_service())
                         .nest("/npm_proxy", windmill_api_npm_proxy::workspaced_service())
                         .nest(
                             "/path_autocomplete",

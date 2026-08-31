@@ -1,0 +1,108 @@
+import { ResourceService } from '$lib/gen'
+import { canWrite } from '$lib/utils'
+import type { UserExt } from '$lib/stores'
+
+/**
+ * Skills are resources of this type: a file resource (`format_extension = 'md'`)
+ * whose `value.content` is the SKILL.md body, whose description column is what the
+ * assistant reads when deciding the skill applies, and whose path names it.
+ */
+export const SKILLS_RESOURCE_TYPE = 'ai_skill'
+
+/** A skill as the picker and the system prompt see it — never the body, which
+ * `read_skill` fetches only once the model commits to using the skill. */
+export type SkillResource = {
+	path: string
+	/** Path basename: what the `/` command and the picker row show. */
+	name: string
+	description: string
+	editedAt?: string
+	canWrite: boolean
+}
+
+/** The `/`-command and display name for a skill. Paths are `[ufg]/x/y…`, so the
+ * last segment is always present. */
+export function skillNameFromPath(path: string): string {
+	return path.split('/').pop() ?? path
+}
+
+/** Basenames carried by more than one of these skills. Two folders can each hold
+ * a `deploy`, and then the name alone no longer says which one — the picker shows
+ * the path for these, and the `/` command refuses to guess. */
+export function ambiguousSkillNames(skills: readonly { name: string }[]): Set<string> {
+	const seen = new Map<string, number>()
+	for (const s of skills) seen.set(s.name, (seen.get(s.name) ?? 0) + 1)
+	return new Set([...seen].filter(([, n]) => n > 1).map(([name]) => name))
+}
+
+/** Every skill resource readable in the workspace. The cap matches the resource
+ * picker's: past it the list stops being something a person can choose from.
+ *
+ * `user` decides which rows the drawer offers to edit rather than only view; pass
+ * the account the workspace is being browsed as. Ownership is mostly implicit in
+ * the path (`u/<me>/…`, a folder the user owns), which is why this goes through
+ * the shared `canWrite` rather than reading `extra_perms` alone. */
+export async function listSkillResources(
+	workspace: string,
+	user?: UserExt
+): Promise<SkillResource[]> {
+	if (!workspace) return []
+	const resources = await ResourceService.listResource({
+		workspace,
+		resourceType: SKILLS_RESOURCE_TYPE,
+		perPage: 100
+	})
+	return resources.map((r) => ({
+		path: r.path,
+		name: skillNameFromPath(r.path),
+		description: r.description ?? '',
+		editedAt: r.edited_at,
+		canWrite: canWrite(r.path, r.extra_perms ?? {}, user)
+	}))
+}
+
+/** The SKILL.md body of one skill. */
+export async function readSkillBody(workspace: string, path: string): Promise<string> {
+	const value = (await ResourceService.getResourceValue({ workspace, path })) as
+		| { content?: unknown }
+		| undefined
+	return typeof value?.content === 'string' ? value.content : ''
+}
+
+export async function saveSkillResource(
+	workspace: string,
+	path: string,
+	description: string,
+	instructions: string,
+	{ overwrite = false }: { overwrite?: boolean } = {}
+): Promise<void> {
+	await ResourceService.createResource({
+		workspace,
+		updateIfExists: overwrite,
+		requestBody: {
+			path,
+			description,
+			value: { content: instructions },
+			resource_type: SKILLS_RESOURCE_TYPE
+		}
+	})
+}
+
+/** Save an edit to an existing skill, moving it when the path changed. */
+export async function updateSkillResource(
+	workspace: string,
+	currentPath: string,
+	path: string,
+	description: string,
+	instructions: string
+): Promise<void> {
+	await ResourceService.updateResource({
+		workspace,
+		path: currentPath,
+		requestBody: { path, description, value: { content: instructions } }
+	})
+}
+
+export async function deleteSkillResource(workspace: string, path: string): Promise<void> {
+	await ResourceService.deleteResource({ workspace, path })
+}

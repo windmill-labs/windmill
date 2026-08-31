@@ -33,7 +33,7 @@ const mocks = vi.hoisted(() => ({
 	getAnthropicClient: vi.fn(),
 	getNonStreamingCompletion: vi.fn(),
 	runChatLoop: vi.fn(),
-	listAiSkills: vi.fn(),
+	listResource: vi.fn(),
 	getJob: vi.fn(),
 	whoami: vi.fn(),
 	workspace: 'test_workspace' as string | undefined,
@@ -49,8 +49,9 @@ vi.mock('monaco-editor', () => ({
 vi.mock('$lib/utils/featureUsage', () => ({ logFeatureUsage: vi.fn() }))
 
 vi.mock('$lib/gen', () => ({
-	WorkspaceService: {
-		listAiSkills: mocks.listAiSkills
+	WorkspaceService: {},
+	ResourceService: {
+		listResource: mocks.listResource
 	},
 	ScriptService: {},
 	FlowService: {},
@@ -169,7 +170,7 @@ beforeEach(() => {
 	mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
 	mocks.getOpenaiClient.mockReturnValue({})
 	mocks.getAnthropicClient.mockReturnValue({})
-	mocks.listAiSkills.mockResolvedValue([])
+	mocks.listResource.mockResolvedValue([])
 	mocks.workspace = 'test_workspace'
 	mocks.runChatLoop.mockResolvedValue({
 		addedMessages: [],
@@ -330,17 +331,29 @@ describe('AIChatManager global skills', () => {
 		mocks.tryGetCurrentModel.mockReturnValue(model)
 	})
 
+	// Only selected skills reach the prompt, and the selection is keyed by
+	// workspace and account (see skills/enabledSkills.ts).
+	function selectSkills(workspace: string, ...paths: string[]) {
+		const stored = JSON.parse(localStorage.getItem('wm_skills_enabled') ?? '{}')
+		stored[`${workspace}:${TEST_EMAIL}`] = paths
+		localStorage.setItem('wm_skills_enabled', JSON.stringify(stored))
+	}
+
 	it('loads skills after beforeSend commits the session workspace', async () => {
-		let resolveParentSkills: ((skills: { name: string; description: string }[]) => void) | undefined
-		const parentSkills = new Promise<{ name: string; description: string }[]>((resolve) => {
+		let resolveParentSkills: ((skills: unknown[]) => void) | undefined
+		const parentSkills = new Promise<unknown[]>((resolve) => {
 			resolveParentSkills = resolve
 		})
 		mocks.workspace = 'parent'
-		mocks.listAiSkills.mockImplementation(({ workspace }: { workspace: string }) => {
+		selectSkills('parent', 'f/skills/parent-skill')
+		selectSkills('child', 'f/skills/child-skill')
+		mocks.listResource.mockImplementation(({ workspace }: { workspace: string }) => {
 			if (workspace === 'parent') {
 				return parentSkills
 			}
-			return Promise.resolve([{ name: 'child-skill', description: 'child workspace skill' }])
+			return Promise.resolve([
+				{ path: 'f/skills/child-skill', description: 'child workspace skill' }
+			])
 		})
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			expect(config.workspace).toBe('child')
@@ -362,22 +375,45 @@ describe('AIChatManager global skills', () => {
 		}
 
 		await manager.sendRequest({ instructions: 'first', mode: AIMode.GLOBAL })
-		resolveParentSkills?.([{ name: 'parent-skill', description: 'parent workspace skill' }])
+		resolveParentSkills?.([
+			{ path: 'f/skills/parent-skill', description: 'parent workspace skill' }
+		])
 		await Promise.resolve()
 
-		expect(mocks.listAiSkills).toHaveBeenCalledWith({ workspace: 'parent' })
-		expect(mocks.listAiSkills).toHaveBeenCalledWith({ workspace: 'child' })
+		expect(mocks.listResource).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: 'parent', resourceType: 'ai_skill' })
+		)
+		expect(mocks.listResource).toHaveBeenCalledWith(
+			expect.objectContaining({ workspace: 'child', resourceType: 'ai_skill' })
+		)
 		expect(manager.systemMessage.content).toContain('child-skill')
 		expect(manager.systemMessage.content).not.toContain('parent-skill')
 	})
 
-	it('expands a leading slash skill command for the model while preserving the displayed text', async () => {
-		mocks.listAiSkills.mockResolvedValue([
-			{ name: 'review-code', description: 'review code for bugs' }
+	it('leaves a readable but unselected skill out of the prompt', async () => {
+		mocks.listResource.mockResolvedValue([
+			{ path: 'f/skills/selected', description: 'the one turned on' },
+			{ path: 'f/skills/unselected', description: 'readable but never turned on' }
 		])
+		selectSkills('test_workspace', 'f/skills/selected')
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		await manager.refreshGlobalSkills('test_workspace')
+		await manager.changeMode(AIMode.GLOBAL)
+
+		expect(manager.systemMessage.content).toContain('f/skills/selected')
+		expect(manager.systemMessage.content).not.toContain('f/skills/unselected')
+	})
+
+	it('expands a leading slash skill command for the model while preserving the displayed text', async () => {
+		mocks.listResource.mockResolvedValue([
+			{ path: 'u/admin/review-code', description: 'review code for bugs' }
+		])
+		selectSkills('test_workspace', 'u/admin/review-code')
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			const userMessage = config.messages[config.messages.length - 1]
-			expect(userMessage.content).toContain('Use the "review-code" skill. find bugs')
+			expect(userMessage.content).toContain('Use the skill at "u/admin/review-code". find bugs')
 			expect(userMessage.content).not.toContain('/review-code find bugs')
 			const message = { role: 'assistant' as const, content: 'done' }
 			config.addedMessages?.push(message)
@@ -404,7 +440,7 @@ describe('AIChatManager global prompt identity', () => {
 		localStorage.clear()
 		mocks.getCurrentModel.mockReturnValue(model)
 		mocks.tryGetCurrentModel.mockReturnValue(model)
-		mocks.listAiSkills.mockResolvedValue([])
+		mocks.listResource.mockResolvedValue([])
 	})
 
 	afterEach(() => {
@@ -2923,8 +2959,8 @@ describe('AIChatManager manual compaction', () => {
 		vi.clearAllMocks()
 		mocks.getCurrentModel.mockReturnValue(model)
 		mocks.tryGetCurrentModel.mockReturnValue(model)
-		// changeMode(GLOBAL) refreshes workspace skills; keep it a no-op here.
-		mocks.listAiSkills.mockResolvedValue([])
+		// changeMode(GLOBAL) refreshes the selected skills; keep it a no-op here.
+		mocks.listResource.mockResolvedValue([])
 	})
 
 	function seedExchange(manager: AIChatManager) {
@@ -3139,15 +3175,19 @@ describe('AIChatManager manual compaction', () => {
 		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
 	})
 
-	it('shadows a workspace skill that collides with a built-in command', () => {
+	it('shadows a selected skill that collides with a built-in command', () => {
 		const manager = new AIChatManager()
 		manager.globalSkills = [
-			{ name: 'compact', description: 'a workspace skill that happens to be named compact' },
-			{ name: 'review-code', description: 'review code for bugs' }
+			{
+				path: 'u/admin/compact',
+				name: 'compact',
+				description: 'a skill that happens to be named compact'
+			},
+			{ path: 'u/admin/review-code', name: 'review-code', description: 'review code for bugs' }
 		]
 
-		// Built-ins come first and the colliding skill is dropped, so the picker
-		// never renders two leaves with the same `skill:compact` key.
+		// Built-ins come first and the colliding skill is dropped: the built-in
+		// wins at execution too, so listing both would offer a row that cannot run.
 		const names = manager.sessionCommands.map((c) => c.name)
 		expect(names).toEqual(['compact', 'clear', 'review-code'])
 		expect(manager.sessionCommands[0].description).toBe(
