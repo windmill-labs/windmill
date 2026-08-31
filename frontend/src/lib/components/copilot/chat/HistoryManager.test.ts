@@ -782,3 +782,43 @@ describe('HistoryManager modified-items mask persistence', () => {
 		expect(hm.getModifiedItems(id)).toBeUndefined()
 	})
 })
+
+describe('HistoryManager.reloadChat', () => {
+	it('picks up another tab’s write, and tells an empty chat from an unreadable store', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		await hm.saveChat(
+			[{ role: 'user', content: 'before the other tab ran' }] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+
+		// The other tab's turn, written straight to the store this one shares.
+		const db = await openDB('copilot-chat-history::admin@test')
+		const row = (await db.get('chats' as never, chatId)) as any
+		row.displayMessages = [{ role: 'user', content: 'written by the driving tab' }]
+		await db.put('chats' as never, row)
+		db.close()
+
+		expect(await hm.reloadChat(chatId)).toBe('loaded')
+		const chat = await hm.loadPastChat(chatId)
+		expect((chat?.displayMessages[0] as any).content).toBe('written by the driving tab')
+
+		// A chat the store does not hold. Distinct from 'unavailable' below, and the
+		// catch-up acts on it: 'missing' adopts the rotated empty chat and releases
+		// the tab, so conflating the two would release it on a read that failed.
+		expect(await hm.reloadChat('no-such-chat')).toBe('missing')
+	})
+
+	it('reports a store it cannot open as unavailable, never as missing', async () => {
+		;(globalThis as any).indexedDB = {
+			open: () => {
+				throw new Error('blocked')
+			}
+		}
+		const hm = new HistoryManager()
+		await hm.init()
+
+		expect(await hm.reloadChat(hm.getCurrentChatId())).toBe('unavailable')
+	})
+})
