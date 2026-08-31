@@ -136,12 +136,13 @@ impl ResolvedCorsPolicy {
     }
 }
 
-/// Decide the CORS answer for a request, from the routers cache.
+/// Decide the CORS answer from the routers cache, for a request no handler
+/// published a verdict for: a preflight, an unknown path, or a failure before
+/// the trigger lookup.
 ///
 /// Loads the routers when the cache is cold, the way `get_http_route_trigger`
-/// does. Without that, a failed startup load would leave the middleware
-/// deciding nothing while `route_job` refreshes and serves a restricted route
-/// behind it, and the response would carry the permissive default.
+/// does, so a preflight is answered from the same view of the routes as the
+/// request that follows it.
 async fn resolve_cors_decision(
     db: &DB,
     http_method: HttpMethod,
@@ -261,11 +262,10 @@ async fn conditional_cors_middleware(
             // origin's response to another.
             headers.append(http::header::VARY, http::HeaderValue::from_static("origin"));
         }
-        // Whether this path is restricted could not be determined, and
-        // `route_job` may still have served a restricted route behind this
-        // middleware. Emitting nothing is not enough: the runnable may have set
-        // its own `Access-Control-Allow-Origin` through `wm_headers`, and
-        // leaving that in place would hand the response to whatever it names.
+        // The routers could not be read, so nothing is known about this path;
+        // only a preflight or an unresolved request reaches here. Answering a
+        // preflight permissively would let a disallowed origin go on to invoke
+        // a runnable whose purpose may be a side effect.
         CorsDecision::Unavailable => {
             headers.remove(http::header::ACCESS_CONTROL_ALLOW_ORIGIN);
         }
