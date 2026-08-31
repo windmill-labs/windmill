@@ -49,11 +49,12 @@ export const MAX_ALLOWED_ORIGIN_LEN = 256
 /**
  * The first entry the API would refuse, if any. Derived from the stored list
  * rather than the field, so it stays correct while the editor is on another tab
- * and the field is not mounted. An empty list is not an error here: it is the
- * deny-every-origin state the backend accepts.
+ * and the field is not mounted. An empty list is not an error: it resolves as an
+ * unset one, so there is nothing in it to refuse.
  *
- * A comma never reaches this: it is the field's separator, so an entry cannot
- * carry one in the first place.
+ * A comma-bearing entry does reach this, through the settings path where a list
+ * can be given as an array. It cannot arrive from the origins field, which
+ * splits on commas before this ever sees it.
  */
 export function allowedOriginsError(allowed_origins: string[] | undefined): string | undefined {
 	if (allowed_origins !== undefined && allowed_origins.length > MAX_ALLOWED_ORIGINS)

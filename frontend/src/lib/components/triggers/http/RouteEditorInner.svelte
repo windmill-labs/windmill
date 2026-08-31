@@ -124,7 +124,7 @@
 	// Derived from the stored list, not reported by the field: the field only
 	// exists on the request-options tab, so an error owned by it would keep Save
 	// disabled from a screen that cannot show why. An empty list is not an error
-	// at all, it is the deny-every-origin state, so only what the API refuses
+	// either, since it resolves as an unset one, so only what the API refuses
 	// blocks the save.
 	const originsError = $derived(allowedOriginsError(allowed_origins))
 	// Fetched once here rather than in RouteCorsOption so the Advanced badge can
