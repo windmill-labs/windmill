@@ -2165,7 +2165,9 @@ async fn test_datatable_connection(
 ) -> JsonResult<DataTableConnectionCheck> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let db_resource = get_datatable_resource_as_admin(&db, &authed, &w_id, &datatable_name).await?;
+    // The data table's own connection, not whichever role the caller resolves to:
+    // this reports what the data table itself can do, and the page is admin-only.
+    let db_resource = get_datatable_resource_from_db_unchecked(&db, &w_id, &datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
     let (client, connection) = pg_db.connect(Some(&db)).await?;
