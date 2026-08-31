@@ -80,30 +80,32 @@
 
 	function onKeydown(event: KeyboardEvent) {
 		if (!onNavigate || !listening() || event.metaKey || event.ctrlKey || event.altKey) return
+		// Recorded for every key, not just the two below: a page change can come from a key this
+		// component never handles — Enter on a highlighted row, handled by the page itself.
+		keyboardFromInside = !!box?.contains(document.activeElement)
 		if (!ownsKeyboard(event.target)) return
 		const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
 		if (step === 0) return
 		const next = pages[index + step]
 		if (!next) return
 		event.preventDefault()
-		// Asked before navigating: `inert` lands on the page being left and takes focus with it.
-		restoreFocus = !!box?.contains(document.activeElement)
 		onNavigate(next.key)
 	}
 
-	/** Whether the arriving page should take focus: set by a keypress that had focus inside the
-	 *  pages, so a key aimed at the dialog's own chrome leaves focus where it was. Plain state, not
-	 *  `$state`: the effect below is keyed on the page, and reading this must not key it too. */
-	let restoreFocus = false
+	/** Whether the last interaction was a key pressed with focus inside the pages — the one case
+	 *  where the arriving page should take focus. A key aimed at the dialog's own chrome, and any
+	 *  pointer, leave focus where the user put it. Plain state, not `$state`: the effect below is
+	 *  keyed on the page, and reading this must not key it too. */
+	let keyboardFromInside = false
 
 	/** Focus follows the page, or a keyboard user is dropped out of the dialog on the first step:
-	 *  `inert` on the page being left resets focus to the body. Deferred a frame and unconditional,
-	 *  because that reset lands *after* this effect runs — testing `activeElement` here reads the
-	 *  element the user is about to lose and does nothing. */
+	 *  `inert` on the page being left resets focus to the body. The question is asked before
+	 *  navigating and acted on after, because that reset lands *after* this effect runs — testing
+	 *  `activeElement` here reads the element the user is about to lose and does nothing. */
 	$effect(() => {
 		current
-		if (!restoreFocus) return
-		restoreFocus = false
+		if (!keyboardFromInside) return
+		keyboardFromInside = false
 		const frame = requestAnimationFrame(() => {
 			box?.querySelector<HTMLElement>('.paged-content-page:not(.is-hidden)')?.focus({
 				preventScroll: true
@@ -127,7 +129,7 @@
 
 <!-- The clipper. `overflow` clips descendants and not an element's own transform, so the box that
      hides a page off the side can never be the page that travels. -->
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onpointerdown={() => (keyboardFromInside = false)} />
 
 <div bind:this={box} class="relative overflow-hidden {c}">
 	{#each pages as page, i (page.key)}
