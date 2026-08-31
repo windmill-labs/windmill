@@ -46,10 +46,10 @@
 
 	// Whether the copilot config has actually loaded for the current workspace.
 	let configLoaded = $derived($copilotWorkspace === $workspaceStore)
-	// No usable model (no provider configured, or AI disabled): the chat is shown but
-	// non-interactive, and hovering reveals a prompt to configure AI in the settings.
-	// Gate the overlay on `configLoaded` so the initial (unloaded) state doesn't flash it
-	// while a provider is in fact configured.
+	// No usable model (no provider configured, or AI disabled): the composer is blurred and an
+	// overlay explains why and links to the fix. Static, not hover-gated, so keyboard and touch
+	// users see it too. Gate on `configLoaded` so the initial (unloaded) state doesn't flash the
+	// overlay while a provider is in fact configured.
 	let disabled = $derived(configLoaded && !$copilotInfo.enabled)
 	// Submission is stricter than the overlay: block it until the config is loaded AND
 	// enabled. Submitting during the unknown-config window hands the prompt to a session
@@ -57,11 +57,9 @@
 	// workspace that never happens and the prompt is silently lost.
 	let canSend = $derived(configLoaded && $copilotInfo.enabled)
 
-	// Applied to the AI-specific parts only (title, input, example tags). The CLI/MCP and
-	// Hub buttons are unrelated to AI and must stay sharp and clickable on hover.
-	let blurClass = $derived(
-		disabled ? 'transition-[filter] group-hover:blur-sm pointer-events-none select-none' : ''
-	)
+	// Applied to the AI-specific parts only (title, input, example tags) when disabled. The
+	// CLI/MCP and Hub buttons are unrelated to AI and stay sharp and clickable.
+	let blurClass = $derived(disabled ? 'blur-sm pointer-events-none select-none' : '')
 
 	// Disabled because the user spent their free Windmill AI grant, not because AI was never
 	// set up — the two look identical otherwise, and the "configure AI" copy would be a lie.
@@ -174,7 +172,7 @@
 				{/each}
 			</div>
 
-			<!-- Not AI-related: kept out of the blurred subtree and above the hover overlay so
+			<!-- Not AI-related: kept out of the blurred subtree and above the disabled overlay so
 			     it stays sharp and clickable while the chat is disabled. -->
 			<div class="relative z-20 flex flex-row items-center gap-1">
 				<Button
@@ -203,7 +201,7 @@
 		</div>
 		{#if disabled}
 			<div
-				class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/70 opacity-0 transition-opacity pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto"
+				class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/70"
 			>
 				<p class="text-sm text-secondary">
 					{#if $aiUserDisabled}
