@@ -1,3 +1,4 @@
+import type { ChatViewHost } from './chatViewHost'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { JobService, type CompletedJob } from '$lib/gen'
 import type { FlowOptions, ScriptOptions } from './ContextManager.svelte'
@@ -102,11 +103,7 @@ import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import { closeInterruptedToolBatch, runChatLoop, truncateToToolPairedPrefix } from './chatLoop'
 import { sanitizeToolCallArguments } from './toolCallArguments'
-import {
-	billedTokens,
-	normalizeContextUsage,
-	type ChatTokenUsage
-} from './tokenUsage'
+import { billedTokens, normalizeContextUsage, type ChatTokenUsage } from './tokenUsage'
 import { logAiUsage } from '$lib/utils/aiUsageReporter'
 import type { ReviewChangesOpts } from './monaco-adapter'
 import {
@@ -407,9 +404,13 @@ function planModeHostFor(m: AIChatManager): PlanModeHost {
 	}
 }
 
-export class AIChatManager {
+export class AIChatManager implements ChatViewHost {
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
+	// The copilot owns its model choice and its own transcript, so both chat
+	// affordances apply here. See ChatViewHost for hosts where they don't.
+	supportsModelSettings = true
+	supportsMessageEditing = true
 	/** Files the user attached to the current GLOBAL-mode conversation. */
 	attachedFiles = new AttachedFilesStore()
 	/** Markdown artifacts the copilot created for the current session. */

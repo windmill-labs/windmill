@@ -21,9 +21,9 @@
 	} from './planMode'
 	import { Button } from '$lib/components/common'
 	import { markdownProse } from '$lib/components/markdownProse'
-	import { getAiChatManager } from './aiChatManagerContext'
+	import { getChatViewHost } from './chatViewHost'
 
-	const aiChatManager = getAiChatManager()
+	const chatHost = getChatViewHost()
 	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -61,7 +61,7 @@
 	const planLabel = $derived((planState && planCopy?.[planState]) ?? '')
 	const planDoc = $derived(
 		message.planArtifactId
-			? aiChatManager.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
+			? chatHost.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
 			: undefined
 	)
 	// The version this card wrote, not the document's current one, since later proposals move it on.
@@ -187,7 +187,7 @@
 					title="Open this plan in the side panel: {planDoc.name}"
 					startIcon={{ icon: FileText, classes: PLAN_MODE_TEXT_COLOR }}
 					endIcon={{ icon: PanelRight }}
-					on:click={() => aiChatManager.openArtifact?.(planDoc.id, planDoc.name, planCardVersion)}
+					on:click={() => chatHost.openArtifact?.(planDoc.id, planDoc.name, planCardVersion)}
 				>
 					<span class="font-main">Plan</span>
 				</Button>
