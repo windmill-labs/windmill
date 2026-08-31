@@ -735,6 +735,17 @@ struct McpPreprocessorEvent<'a> {
     tool_name: &'a str,
 }
 
+/// Headers that authenticate the connection itself. Withheld from a runnable
+/// unless `?include_header=` names one — see [`preprocessor_headers`] for why
+/// "unasked" is the line rather than "never".
+const CREDENTIAL_HEADERS: &[&str] = &["authorization", "cookie", "proxy-authorization"];
+
+fn is_credential_header(name: &str) -> bool {
+    CREDENTIAL_HEADERS
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(name))
+}
+
 /// Headers the proxy hop owns on the internal request, so an allowlisted name
 /// that collides with one cannot ride along.
 ///
@@ -813,14 +824,18 @@ fn allowed_headers(
     selected
 }
 
-/// Every header a preprocessor may see, exactly as an HTTP trigger's does
-/// (`http_trigger_args.rs`, `build_headers(.., include_all_headers = true)`).
+/// Every header a preprocessor may see, following an HTTP trigger's
+/// `build_headers(.., include_all_headers = true)` — minus the credentials that
+/// authenticate the connection, unless the operator named one in
+/// `?include_header=`.
 ///
-/// `Authorization` and `Cookie` are included, and that is deliberate parity, not
-/// an oversight: the webhook route is authenticated too, and
-/// `?include_header=authorization` there already binds the caller's Windmill
-/// token to a script parameter. Singling MCP out would make it the one
-/// entrypoint whose preprocessor sees a different request than the others.
+/// The rule is that a credential travels only when it is asked for by name.
+/// Webhooks forward one on request too (`?include_header=authorization` binds
+/// the caller's token), so naming it keeps that parity; what MCP cannot copy is
+/// forwarding it *unasked*. On a webhook the caller chooses which script runs,
+/// while here the model does — so an unconditional forward would hand the
+/// caller's Windmill token to whichever workspace script the model routes to,
+/// including one chosen by prompt injection.
 ///
 /// A repeated *allowlisted* header is dropped, so an identity the operator
 /// designated does not resolve differently depending on whether the runnable
@@ -840,6 +855,9 @@ fn preprocessor_headers(
         let allowlisted = include_headers
             .iter()
             .any(|entry| entry.header_name.eq_ignore_ascii_case(name));
+        if is_credential_header(name) && !allowlisted {
+            return false;
+        }
         !allowlisted || headers.get_all(name.as_str()).iter().count() <= 1
     });
     selected
@@ -965,33 +983,34 @@ mod tests {
         headers
     }
 
-    /// MCP forwards what the other entrypoints forward, credentials included: a
-    /// webhook called with `?include_header=authorization` already binds the
-    /// caller's Windmill token to a parameter, and an HTTP trigger's
-    /// preprocessor already receives every header. Carving MCP out would make it
-    /// the one entrypoint that answers a request differently.
-    ///
-    /// Pinned because it reads like an oversight to anyone meeting it fresh, and
-    /// the tempting "fix" is to reintroduce a deny list.
+    /// A credential travels only when the operator names it. Naming one keeps
+    /// webhook parity (`?include_header=authorization` binds the caller's token
+    /// there too); what MCP cannot copy is forwarding it unasked, because here
+    /// the *model* picks which script runs.
     #[test]
-    fn credentials_are_forwarded_on_both_arms_as_other_entrypoints_do() {
+    fn a_credential_header_travels_only_when_named() {
         let headers = header_map(&[
             ("authorization", "Bearer caller-token"),
             ("cookie", "session=secret"),
             ("x-user-id", "alice@corp.example"),
         ]);
 
-        let bound = allowed_headers(
-            &headers,
-            &McpIncludeHeaders::parse("authorization, x-user-id").unwrap(),
-        );
+        // Unasked: withheld from the preprocessor, while everything else reaches it.
+        let unasked = preprocessor_headers(&headers, &McpIncludeHeaders::default());
+        assert!(!unasked.contains_key("authorization"));
+        assert!(!unasked.contains_key("cookie"));
+        assert!(unasked.contains_key("x-user-id"));
+
+        // Named: bound as a parameter and present in the event.
+        let include = McpIncludeHeaders::parse("authorization, x-user-id").unwrap();
+        let bound = allowed_headers(&headers, &include);
         assert_eq!(bound["authorization"].get(), "\"Bearer caller-token\"");
         assert_eq!(bound["x_user_id"].get(), "\"alice@corp.example\"");
 
-        let event = preprocessor_headers(&headers, &McpIncludeHeaders::default());
-        assert!(event.contains_key("authorization"));
-        assert!(event.contains_key("cookie"));
-        assert!(event.contains_key("x-user-id"));
+        let asked = preprocessor_headers(&headers, &include);
+        assert!(asked.contains_key("authorization"));
+        // Still withheld: naming one credential does not release the others.
+        assert!(!asked.contains_key("cookie"));
     }
 
     /// Run-by-path proxies over a second HTTP hop that carries a route-scoped JWT

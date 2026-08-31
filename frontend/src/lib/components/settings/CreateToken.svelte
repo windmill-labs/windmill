@@ -280,7 +280,8 @@
 								original header name, under <code>event.headers</code> for a v2 preprocessor and
 								<code>wm_trigger.mcp.headers</code> for a v1 one. Running a script by path binds them
 								the same way; preview and schedule tools drop the names instead, since a scheduled run
-								has no request to read them from.
+								has no request to read them from. Authentication headers reach a runnable only if you
+								name one here.
 							{/snippet}
 						</Tooltip></span
 					>
