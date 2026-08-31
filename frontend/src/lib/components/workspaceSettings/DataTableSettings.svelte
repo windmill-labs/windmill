@@ -51,7 +51,8 @@
 </script>
 
 <script lang="ts">
-	import { Plus, PlugZap } from 'lucide-svelte'
+	import { History, KeyRound, Plus, PlugZap } from 'lucide-svelte'
+	import DropdownV2 from '../DropdownV2.svelte'
 
 	import Button from '../common/button/Button.svelte'
 
@@ -89,7 +90,7 @@
 	import DataTableMigrationsButton from './DataTableMigrationsButton.svelte'
 	import DataTablePermissionsButton from './DataTablePermissionsButton.svelte'
 	import { deepEqual } from 'fast-equals'
-	import { clone } from '$lib/utils'
+	import { clone, onlyAlphaNumAndUnderscore } from '$lib/utils'
 	import SettingsFooter from './SettingsFooter.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import MissingWorkerTagAlert from '../jobs/MissingWorkerTagAlert.svelte'
@@ -254,6 +255,10 @@
 	}
 
 	let confirmationModal = createAsyncConfirmationModal()
+	// The two components mount their own modal and drawer; the row menu drives them.
+	let migrationsButtons = $state<Record<string, DataTableMigrationsButton | undefined>>({})
+	let permissionsButtons = $state<Record<string, DataTablePermissionsButton | undefined>>({})
+
 	let dirtyMap = $derived.by(() => {
 		const map: Record<string, boolean> = {}
 		for (let i = 0; i < tempSettings.dataTables.length; i++) {
@@ -412,14 +417,32 @@
 				<Cell class="whitespace-nowrap">
 					<div class="flex gap-2">
 						<DataTableMigrationsButton
+							bind:this={migrationsButtons[dataTable.name]}
+							hideTrigger
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
-							disabled={!!dirtyMap[dataTable.name]}
 						/>
 						<DataTablePermissionsButton
+							bind:this={permissionsButtons[dataTable.name]}
+							hideTrigger
 							workspace={$workspaceStore ?? ''}
 							datatable={dataTable.name}
+						/>
+						<DropdownV2
 							disabled={!!dirtyMap[dataTable.name]}
+							items={() => [
+								{
+									displayName: 'Migrations',
+									icon: History,
+									action: () => migrationsButtons[dataTable.name]?.open()
+								},
+								{
+									displayName: 'Permissions',
+									icon: KeyRound,
+									action: () => permissionsButtons[dataTable.name]?.openPermissions()
+								}
+							]}
+							btnId={'datatable-settings-actions-' + onlyAlphaNumAndUnderscore(dataTable.name)}
 						/>
 						<Button
 							size="xs"
