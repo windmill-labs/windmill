@@ -13,8 +13,7 @@ use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
 use windmill_mcp::server::{
-    runnable_args_carrier, BackendResult, EndpointTool, ErrorData, McpBackend, McpIncludeHeaders,
-    McpRequest, PathFilter, RunnableArgsCarrier,
+    BackendResult, EndpointTool, ErrorData, McpBackend, McpIncludeHeaders, McpRequest, PathFilter,
 };
 
 use crate::auth::AuthCache;
@@ -302,35 +301,17 @@ impl McpBackend for WindmillBackend {
             &endpoint_tool.query_params_schema,
             &endpoint_tool.query_field_renames,
         );
-        let mut full_url = format!(
+        let full_url = format!(
             "{}/api{}{}",
             self.base_internal_url, path_template, query_string
         );
 
-        // Run-by-path proxies to the webhook run route, which binds request
-        // headers itself. Naming the allowlisted ones there hands that route the
-        // same job the runnable's own tool does directly -- including the
-        // preprocessor event shape -- rather than duplicating it on this path.
-        // The model's own copies of these names were dropped upstream, so what
-        // arrives is the request's value or nothing.
-        let forwarded = match runnable_args_carrier(endpoint_tool.name.as_ref()) {
-            Some(RunnableArgsCarrier::WebhookBody) => {
-                forwardable_headers(request.headers, request.include_headers)
-            }
-            _ => Vec::new(),
-        };
-        if !forwarded.is_empty() {
-            let names = forwarded
-                .iter()
-                .map(|(name, _)| name.as_str())
-                .collect::<Vec<_>>()
-                .join(",");
-            full_url.push(if query_string.is_empty() { '?' } else { '&' });
-            full_url.push_str(&format!(
-                "include_header={}",
-                urlencoding::encode(&names)
-            ));
-        }
+        // The proxied call is a second HTTP hop, so the caller's headers are not
+        // on the request the run route sees unless they are copied onto it.
+        // Without this a preprocessor reached through run-by-path — the only way
+        // multi-workspace mode reaches a runnable — would see the proxy's own
+        // request instead of the caller's.
+        let forwarded = forwardable_headers(request.headers, request.include_headers);
 
         // Prepare request body
         let body_json = build_request_body(endpoint_tool, args_map)?;
@@ -474,7 +455,7 @@ pub async fn extract_include_headers(
         }
     };
 
-    if !include_headers.is_empty() {
+    if !include_headers.0.is_empty() {
         request.extensions_mut().insert(include_headers);
     }
     next.run(request).await

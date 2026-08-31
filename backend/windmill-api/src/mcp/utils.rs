@@ -756,119 +756,56 @@ fn is_credential_header(name: &str) -> bool {
 /// which builds arguments directly instead of over a second HTTP hop.
 const PROXY_OWNED_HEADERS: &[&str] = &["authorization", "content-type", "content-length", "host"];
 
-/// The allowlisted headers that can ride the proxied webhook call.
+/// The caller's headers that can ride the proxied webhook call.
 ///
-/// The proxied route implements `?include_header=` itself, so forwarding the
-/// real headers and naming them there gets the binding — and, for a runnable with
-/// a preprocessor, the event shaping — from the same code a direct webhook call
-/// would use.
+/// Run-by-path reaches a runnable over a second HTTP hop, so the caller's
+/// headers are not on the request the proxied route sees unless they are copied
+/// onto it. Copying them is what lets a preprocessor invoked that way — the only
+/// way multi-workspace mode reaches a runnable at all — see the same request the
+/// direct path shows it.
 pub fn forwardable_headers(
     headers: &http::HeaderMap,
     include_headers: &McpIncludeHeaders,
 ) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for entry in include_headers.iter() {
-        if PROXY_OWNED_HEADERS.contains(&entry.header_name.as_str()) {
-            continue;
-        }
-        let mut values = headers.get_all(&entry.header_name).iter();
-        let Some(value) = values.next() else {
-            continue;
-        };
-        // Same attributability rule as the direct path: a repeated header has no
-        // value that can be credited to the caller rather than to a hop.
-        if values.next().is_some() {
-            continue;
-        }
-        let Ok(value) = value.to_str() else {
-            continue;
-        };
-        out.push((entry.header_name.clone(), value.to_string()));
-    }
-    out
+    headers
+        .iter()
+        .filter_map(|(name, value)| {
+            let name = name.as_str();
+            if PROXY_OWNED_HEADERS.contains(&name) {
+                return None;
+            }
+            if is_credential_header(name) && !include_headers.names(name) {
+                return None;
+            }
+            value.to_str().ok().map(|v| (name.to_string(), v.to_string()))
+        })
+        .collect()
 }
 
-/// The request headers this connection allows a runnable to bind as parameters.
-///
-/// Deliberately not `build_headers`: that unions its whitelist with the
-/// instance-wide `INCLUDE_HEADERS`, and an MCP tool schema must not start
-/// omitting parameters because an admin configured a header for webhooks.
-/// `HeaderMap` lookup is case-insensitive, so the exact name matches however the
-/// client cased it — and an `x_user_id` alias, being a different header, does not.
-fn allowed_headers(
-    headers: &http::HeaderMap,
-    include_headers: &McpIncludeHeaders,
-) -> HashMap<String, Box<serde_json::value::RawValue>> {
-    let mut selected = HashMap::new();
-    for entry in include_headers.iter() {
-        let mut values = headers.get_all(&entry.header_name).iter();
-        let Some(value) = values.next() else {
-            continue;
-        };
-        // Sent more than once, the value is no longer attributable: a gateway
-        // that appends its own copy leaves the caller's in front, and picking
-        // either would forward a value the caller chose. Drop it and let the
-        // parameter fall to its default rather than guess.
-        if values.next().is_some() {
-            tracing::warn!(
-                "MCP request carried '{}' more than once; not forwarding it",
-                entry.header_name
-            );
-            continue;
-        }
-        selected.insert(
-            entry.param_name.clone(),
-            to_raw_value(&value.to_str().unwrap_or("")),
-        );
-    }
-    selected
-}
 
-/// Every header a preprocessor may see, following an HTTP trigger's
-/// `build_headers(.., include_all_headers = true)` — minus the credentials that
-/// authenticate the connection, unless the operator named one in
-/// `?include_header=`.
+/// Every header a preprocessor may see — the whole request, minus the
+/// credentials that authenticate the connection unless `?include_header=` names
+/// one.
 ///
-/// The rule is that a credential travels only when it is asked for by name.
-/// Webhooks forward one on request too (`?include_header=authorization` binds
-/// the caller's token), so naming it keeps that parity; what MCP cannot copy is
-/// forwarding it *unasked*. On a webhook the caller chooses which script runs,
-/// while here the model does — so an unconditional forward would hand the
-/// caller's Windmill token to whichever workspace script the model routes to,
-/// including one chosen by prompt injection.
-///
-/// A repeated *allowlisted* header is dropped, so an identity the operator
-/// designated does not resolve differently depending on whether the runnable
-/// happens to have a preprocessor. The drop stops there: repetition is
-/// unremarkable for list-valued fields like `X-Forwarded-For` and `Via`, which
-/// are precisely the ones a preprocessor reads, and dropping those would blind
-/// it on every multi-hop request.
+/// Webhooks forward a credential on request too, so naming one keeps that
+/// parity; what MCP cannot copy is forwarding it *unasked*. On a webhook the
+/// caller chooses which script runs, while here the model does, so an
+/// unconditional forward would hand the caller's Windmill token to whichever
+/// workspace script the model routes to — including one chosen by prompt
+/// injection.
 fn preprocessor_headers(
     headers: &http::HeaderMap,
     include_headers: &McpIncludeHeaders,
 ) -> HashMap<String, Box<serde_json::value::RawValue>> {
     let mut selected = build_headers(headers, None, true);
-    selected.retain(|name, _| {
-        // Matched on the exact allowlisted name, not the normalised parameter:
-        // `x-user-id` and `x_user_id` are distinct headers, and only the one the
-        // operator named carries the attributability rule.
-        let allowlisted = include_headers
-            .iter()
-            .any(|entry| entry.header_name.eq_ignore_ascii_case(name));
-        if is_credential_header(name) && !allowlisted {
-            return false;
-        }
-        !allowlisted || headers.get_all(name.as_str()).iter().count() <= 1
-    });
+    selected.retain(|name, _| !is_credential_header(name) || include_headers.names(name));
     selected
 }
 
 /// Build the job arguments for a script or flow run as an MCP tool.
 ///
-/// Shaped by the runnable's own format, the way every other entrypoint does it:
-/// a runnable with no preprocessor binds allowlisted headers as ordinary
-/// parameters, and one with a preprocessor receives the whole request as an
-/// event instead.
+/// Shaped by the runnable's own format: a preprocessor receives the request as
+/// an event, and a runnable without one receives only what the model sent.
 pub async fn prepare_push_args(
     db: &DB,
     w_id: &str,
@@ -898,24 +835,16 @@ pub async fn prepare_push_args(
     let runnable_format = get_runnable_format(runnable_id, w_id, db, &TriggerKind::Webhook).await?;
 
     Ok(match runnable_format {
+        // Without a preprocessor there is nowhere for a header to go that the
+        // model does not also write: its arguments *are* the runnable's
+        // parameters, so a header bound to one of them would be a value the model
+        // could set. The request is reachable through a preprocessor, where it
+        // arrives in a key of the event the model never fills.
         RunnableFormat { has_preprocessor: false, .. } => {
-            let extra = allowed_headers(request.headers, request.include_headers);
-            if !extra.is_empty() {
-                log_feature_usage("mcp", "header_passthrough", "arg");
-            }
-            windmill_queue::PushArgsOwned {
-                args: main_args,
-                extra: (!extra.is_empty()).then_some(extra),
-            }
+            windmill_queue::PushArgsOwned { args: main_args, extra: None }
         }
         RunnableFormat { has_preprocessor: true, version } => {
-            // Broader than the allowlist — this is what makes headers outside it
-            // reachable at all — but not the connection's credentials unless one
-            // was asked for by name. See `preprocessor_headers`.
             let headers = preprocessor_headers(request.headers, request.include_headers);
-            // Counted on delivery rather than on the allowlist being set: this
-            // route needs no allowlist, so gating it on one would record nothing
-            // for the operators who only ever use a preprocessor.
             log_feature_usage("mcp", "header_passthrough", "preprocessor");
             match version {
                 RunnableFormatVersion::V2 => {
@@ -1001,12 +930,8 @@ mod tests {
         assert!(!unasked.contains_key("cookie"));
         assert!(unasked.contains_key("x-user-id"));
 
-        // Named: bound as a parameter and present in the event.
-        let include = McpIncludeHeaders::parse("authorization, x-user-id").unwrap();
-        let bound = allowed_headers(&headers, &include);
-        assert_eq!(bound["authorization"].get(), "\"Bearer caller-token\"");
-        assert_eq!(bound["x_user_id"].get(), "\"alice@corp.example\"");
-
+        // Named: present in the event.
+        let include = McpIncludeHeaders::parse("authorization").unwrap();
         let asked = preprocessor_headers(&headers, &include);
         assert!(asked.contains_key("authorization"));
         // Still withheld: naming one credential does not release the others.
@@ -1038,52 +963,15 @@ mod tests {
     /// A header sent twice has no attributable value: a gateway that appends its
     /// own copy leaves the caller's in front, so forwarding either would hand the
     /// runnable something the caller chose.
-    #[test]
-    fn a_repeated_header_is_not_forwarded() {
-        let mut headers = http::HeaderMap::new();
-        headers.append(
-            http::HeaderName::from_static("x-user-id"),
-            http::HeaderValue::from_static("attacker@evil.test"),
-        );
-        headers.append(
-            http::HeaderName::from_static("x-user-id"),
-            http::HeaderValue::from_static("alice@corp.example"),
-        );
-
-        let selected = allowed_headers(&headers, &McpIncludeHeaders::parse("x-user-id").unwrap());
-
-        assert!(selected.is_empty());
-    }
-
+    
     /// Both arms answer a repeated *allowlisted* header the same way, so one
     /// request does not resolve differently depending on whether the runnable has
     /// a preprocessor — while a repeated list-valued field, which is ordinary on
     /// any multi-hop request, still reaches the preprocessor.
-    #[test]
-    fn a_repeated_header_is_dropped_from_the_preprocessor_event_only_when_allowlisted() {
-        let mut headers = http::HeaderMap::new();
-        for value in ["attacker@evil.test", "alice@corp.example"] {
-            headers.append(
-                http::HeaderName::from_static("x-user-id"),
-                http::HeaderValue::from_str(value).unwrap(),
-            );
-        }
-        for value in ["203.0.113.7", "198.51.100.4"] {
-            headers.append(
-                http::HeaderName::from_static("x-forwarded-for"),
-                http::HeaderValue::from_str(value).unwrap(),
-            );
-        }
-
-        let selected =
-            preprocessor_headers(&headers, &McpIncludeHeaders::parse("x-user-id").unwrap());
-
-        assert!(!selected.contains_key("x-user-id"));
-        assert!(selected.contains_key("x-forwarded-for"));
-    }
-
-    /// An entry that can never match a header would also never be stripped from a
-    /// tool schema, so it must be reported rather than half-honoured.
+    
+    /// An entry that can never match a header must be reported rather than
+    /// silently ignored: an operator who mistyped it would otherwise believe a
+    /// credential was being forwarded when it was not.
     #[test]
     fn a_malformed_allowlist_entry_is_rejected() {
         assert!(McpIncludeHeaders::parse("x-user-id;x-tenant").is_err());
@@ -1092,15 +980,7 @@ mod tests {
     }
 
     /// The alias an exact-name lookup exists to reject.
-    #[test]
-    fn an_underscore_alias_does_not_feed_an_allowlisted_parameter() {
-        let headers = header_map(&[("x_user_id", "attacker@evil.test")]);
-
-        let selected = allowed_headers(&headers, &McpIncludeHeaders::parse("x-user-id").unwrap());
-
-        assert!(selected.is_empty());
-    }
-
+    
     #[test]
     fn proxy_jwt_unscoped_caller_keeps_none() {
         // No scopes, or filter-tags-only, is treated as unscoped -> unscoped JWT.
@@ -1243,111 +1123,8 @@ mod tests {
             .unwrap_or_else(|| panic!("{name} must be a generated endpoint tool"))
     }
 
-    /// Whether a tool hands a runnable an argument map the model composes: either a
-    /// declared `args` object, or a free-form body forwarded verbatim.
-    ///
-    /// Both are checked independently rather than as an either/or, so a schema
-    /// carrying declared properties *and* `additionalProperties` — the plausible
-    /// shape of a future `runScriptByHash` — is not classified as harmless.
-    fn carries_runnable_args(tool: &EndpointTool) -> bool {
-        let Some(schema) = tool.body_schema.as_ref() else {
-            return false;
-        };
-        let declares_args = schema
-            .get("properties")
-            .and_then(|p| p.as_object())
-            .is_some_and(|props| props.contains_key("args"));
-        let forwards_body = schema
-            .get("additionalProperties")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        declares_args || forwards_body
-    }
 
-    /// A tool added to the catalogue that hands a runnable model-composed
-    /// arguments, but that `runnable_args_carrier` does not classify, is a second
-    /// door to the identity guarantee: nothing strips the model's copy of a
-    /// transport-owned name from its arguments. The classification and the
-    /// catalogue are edited in different crates; this is where they meet.
-    #[test]
-    fn every_runnable_executing_tool_is_classified() {
-        let unclassified: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()
-            .into_iter()
-            .filter(|t| {
-                (t.path.contains("/jobs/run") || t.path.contains("/schedules/"))
-                    && carries_runnable_args(t)
-                    && windmill_mcp::server::runnable_args_carrier(&t.name).is_none()
-            })
-            .map(|t| t.name.to_string())
-            .collect();
-        assert!(
-            unclassified.is_empty(),
-            "tools handing a runnable model-composed arguments but unclassified by runnable_args_carrier: {unclassified:?}"
-        );
-    }
 
-    /// Classification alone is not the guarantee — the strip has to reach every
-    /// argument map a classified tool carries. A schedule carries four, and the
-    /// three `on_*_extra_args` were open after the strip first learned to descend
-    /// into `args` alone.
-    ///
-    /// Driven off what the catalogue *says* a field is, not off the same
-    /// `additionalProperties` flag the strip reads: comparing the strip to a copy
-    /// of itself would pass no matter what either did. A field described as
-    /// runnable arguments but declared some other way fails here.
-    #[test]
-    fn the_strip_reaches_every_argument_map_the_catalogue_describes() {
-        const RUNNABLE_ARGS: &str = "arguments to pass to the script or flow";
-        let mut unreached: Vec<String> = Vec::new();
-
-        for tool in crate::mcp::auto_generated_endpoints::all_tools() {
-            if windmill_mcp::server::runnable_args_carrier(&tool.name).is_none() {
-                continue;
-            }
-            let reached = windmill_mcp::server::free_form_arg_map_keys(&tool.body_schema);
-
-            // A tool classified `WebhookBody` carries its runnable's arguments in
-            // the body root, and the strip only reaches those when the schema says
-            // the body is free-form. Asserted here because such a tool declares no
-            // `properties` and would otherwise fall straight through this loop.
-            if windmill_mcp::server::runnable_args_carrier(&tool.name)
-                == Some(windmill_mcp::server::RunnableArgsCarrier::WebhookBody)
-            {
-                assert_eq!(
-                    tool.body_schema
-                        .as_ref()
-                        .and_then(|s| s.get("additionalProperties"))
-                        .and_then(serde_json::Value::as_bool),
-                    Some(true),
-                    "{}: classified as carrying a runnable's arguments in the body, but its schema is not free-form",
-                    tool.name
-                );
-            }
-
-            let Some(props) = tool
-                .body_schema
-                .as_ref()
-                .and_then(|s| s.get("properties"))
-                .and_then(|p| p.as_object())
-            else {
-                continue;
-            };
-            for (key, spec) in props {
-                let describes_runnable_args = spec
-                    .get("description")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|d| d.contains(RUNNABLE_ARGS));
-                if describes_runnable_args && !reached.contains(key) {
-                    unreached.push(format!("{}.{}", tool.name, key));
-                }
-            }
-        }
-
-        assert!(
-            unreached.is_empty(),
-            "fields the catalogue describes as runnable arguments that the strip does not reach: {unreached:?}"
-        );
-    }
 
     /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does
     /// not name, falls through to no policy — which is no path confinement at all, so

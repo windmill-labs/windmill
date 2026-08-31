@@ -271,30 +271,30 @@
 
 				<div>
 					<span class="block mb-1 text-emphasis text-xs font-semibold"
-						>Forward request headers <span class="text-xs text-primary">(optional)</span>
+						>Forward authentication headers <span class="text-xs text-primary">(optional)</span>
 						<Tooltip>
 							{#snippet text()}
-								A script or flow without a preprocessor receives each header as a parameter of the
-								same name (<code>X-User-Id</code> becomes <code>x_user_id</code>), hidden from the
-								tool schema so the model cannot set it. With a preprocessor they arrive keyed by the
-								original header name, under <code>event.headers</code> for a v2 preprocessor and
-								<code>wm_trigger.mcp.headers</code> for a v1 one. An authentication header is
-								included only if you name it here.
+								A script or flow with a preprocessor already receives every request header, keyed by
+								the original name, under <code>event.headers</code> for a v2 preprocessor and
+								<code>wm_trigger.mcp.headers</code> for a v1 one. Nothing needs configuring for
+								that.
 								<br /><br />
-								Preview and schedule tools drop these names instead of binding them, since a scheduled
-								run has no request to read them from. Running a script by path goes through Windmill's
-								webhook route, so a preprocessor there receives a webhook event rather than an MCP one,
-								and a named <code>Authorization</code> header is not forwarded to it.
+								Authentication headers are the exception: <code>Authorization</code>,
+								<code>Cookie</code> and <code>Proxy-Authorization</code> are withheld unless you
+								name one here, because on MCP they carry the caller's own Windmill credential.
+								Running a script by path goes through Windmill's webhook route, so a preprocessor
+								there receives a webhook event rather than an MCP one, and a named
+								<code>Authorization</code> is not forwarded to it.
 							{/snippet}
 						</Tooltip></span
 					>
 					<TextInput
-						inputProps={{ type: 'text', placeholder: 'x-user-id, x-tenant' }}
+						inputProps={{ type: 'text', placeholder: 'authorization' }}
 						bind:value={includeHeaders}
 						class="w-full"
 					/>
 					<p class="mt-1 text-xs text-tertiary">
-						Header names your MCP client sends, comma separated.
+						Comma separated. Leave empty unless a runnable needs the caller's credential.
 					</p>
 				</div>
 			{/if}

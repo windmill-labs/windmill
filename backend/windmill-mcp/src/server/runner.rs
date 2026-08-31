@@ -414,203 +414,18 @@ fn authorize_endpoint_call(
     Ok(())
 }
 
-/// Map the model's arguments back to the runnable's own parameter names, dropping
-/// any the request fills itself.
-///
-/// Those names are absent from the published tool schema, so a value under one
-/// was invented by the model rather than passed to it — honouring it would let
-/// prompt injection forge the very identity the header exists to establish.
-fn transform_call_args(
-    args: Value,
-    item_schema: &Option<SchemaType>,
-    include_headers: &McpIncludeHeaders,
-) -> Value {
+/// Map the model's argument keys back to the runnable's original parameter names.
+fn transform_call_args(args: Value, item_schema: &Option<SchemaType>) -> Value {
     let Value::Object(map) = args else {
         return args;
     };
     let mut args_hash = HashMap::new();
     for (k, v) in map {
-        // Refused under either spelling the schema strip can hide a parameter by:
-        // the published key it removed, and the original key that names the
-        // parameter. The two diverge for a punctuated header name, and a key the
-        // model cannot see must not be one it can set.
-        if include_headers.owns_published_key(&k) {
-            continue;
-        }
-        let original_key = reverse_transform_key(&k, item_schema);
-        if include_headers.owns_param(&original_key) {
-            continue;
-        }
-        args_hash.insert(original_key, v);
+        args_hash.insert(reverse_transform_key(&k, item_schema), v);
     }
     Value::Object(args_hash.into_iter().collect())
 }
 
-/// Where an endpoint tool carries the arguments some runnable will eventually
-/// receive, and therefore how a header-forwarding connection has to treat it.
-///
-/// These are the second doors to a runnable whose own tool hides the
-/// transport-owned parameters. Left alone, a model that cannot set `x_user_id` on
-/// `hdr_plain` could set it by asking `runScriptByPath` to run `hdr_plain`
-/// instead, which would defeat the whole guarantee.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RunnableArgsCarrier {
-    /// The request body *is* the argument map, and the proxied route is the
-    /// webhook run route, which implements `?include_header=` itself. Forwarding
-    /// the real headers there reuses that machinery, preprocessor shaping
-    /// included, rather than reimplementing it on this path.
-    ///
-    /// Injection matters most here rather than least: multi-workspace mode runs
-    /// scripts and flows *only* through these two tools, so a connection that
-    /// forwarded headers everywhere except run-by-path would not carry an
-    /// identity through the gateway at all.
-    ///
-    /// The seam it leaves: a runnable with a preprocessor sees `kind: "webhook"`
-    /// and no `tool_name`, because the proxied route builds the event and that
-    /// route is a webhook. The headers themselves arrive intact, which is what
-    /// the identity rests on; a preprocessor branching on `kind` has to accept
-    /// `"webhook"` for this path.
-    WebhookBody,
-    /// The argument map is nested under `args`, on a route with no header
-    /// support of its own. The names are stripped so the model cannot forge one;
-    /// nothing is injected.
-    NestedArgs,
-}
-
-/// How this endpoint tool reaches a runnable's arguments, or `None` if it never
-/// does.
-///
-/// Named rather than derived from [`EndpointPathPolicy`]: `Unconfinable` covers
-/// both "executes arbitrary code" and "affects a script without a checkable
-/// path", so deriving from it would also catch `deleteScriptByHash`, which runs
-/// nothing. A new tool that belongs here is caught by the catalogue guard in
-/// `mcp::utils`' tests rather than by widening the match.
-pub fn runnable_args_carrier(endpoint_name: &str) -> Option<RunnableArgsCarrier> {
-    match endpoint_name {
-        "runScriptByPath" | "runFlowByPath" => Some(RunnableArgsCarrier::WebhookBody),
-        // Preview can name a deployed `script_hash`, so its `args` must not carry
-        // a forged name. Nothing is injected: preview also accepts inline
-        // `content`, and handing a trusted identity to code the model just wrote
-        // would put the value in the model's hands for the sake of a debugging
-        // affordance.
-        "runScriptPreviewAndWaitResult" => Some(RunnableArgsCarrier::NestedArgs),
-        // A schedule fires with no inbound request, so there is nothing to inject
-        // at fire time. Freezing this call's value would make every future run
-        // claim the identity of whoever created the schedule.
-        "createSchedule" | "updateSchedule" => Some(RunnableArgsCarrier::NestedArgs),
-        _ => None,
-    }
-}
-
-/// Drop the transport-owned names from the parts of an endpoint tool's arguments
-/// that reach a runnable, leaving the endpoint's own controls alone.
-///
-/// Two places carry runnable parameters. A free-form body — run-by-path — *is*
-/// the argument map, so its extra keys are stripped. A structured body carries
-/// them one level down, and a schedule carries four such maps, not one: its own
-/// `args`, and the `on_failure_` / `on_recovery_` / `on_success_extra_args`
-/// handed to whatever runnable `on_failure` names. Reaching only `args` would
-/// leave a forged identity to be delivered through a handler instead.
-///
-/// What must survive is everything the endpoint itself consumes: path segments,
-/// query parameters and declared body fields. Those are the tool's controls, not
-/// a runnable's inputs, and an allowlist that happens to collide with one —
-/// `?include_header=path` — must not delete the target of the call.
-///
-/// `workspace_id` is a control in multi-workspace mode only, which is why
-/// `multi_workspace` is a parameter rather than an assumption. There it selects
-/// the workspace, is read for routing after this runs, and is removed before the
-/// body is built, so it never reaches a runnable. In single-workspace mode the
-/// workspace comes from the URL and `workspace_id` is just another model-supplied
-/// key the free-form body forwards — exempting it there would let the model set a
-/// transport-owned parameter of that name.
-///
-/// Which keys are which is read off the tool's own schemas rather than listed
-/// here, so a catalogue that grows another argument-bearing field is covered
-/// without a matching edit in this crate.
-fn strip_transport_owned_endpoint_args(
-    args: &mut Value,
-    tool: &EndpointTool,
-    include_headers: &McpIncludeHeaders,
-    multi_workspace: bool,
-) {
-    if include_headers.is_empty() {
-        return;
-    }
-    let Value::Object(map) = args else {
-        return;
-    };
-
-    if body_is_free_form(&tool.body_schema) {
-        let controls = endpoint_control_keys(tool, multi_workspace);
-        map.retain(|key, _| controls.contains(key) || !include_headers.owns_param(key));
-    }
-
-    for key in free_form_arg_map_keys(&tool.body_schema) {
-        if let Some(Value::Object(nested)) = map.get_mut(&key) {
-            nested.retain(|k, _| !include_headers.owns_param(k));
-        }
-    }
-}
-
-/// Whether the tool's body is forwarded to a runnable wholesale, rather than
-/// being a structured payload of the endpoint's own fields.
-fn body_is_free_form(body_schema: &Option<Value>) -> bool {
-    body_schema
-        .as_ref()
-        .and_then(|schema| schema.get("additionalProperties"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-}
-
-/// The argument names the endpoint consumes itself: path parameters, query
-/// parameters, declared body fields, and — in multi-workspace mode only — the
-/// synthetic `workspace_id` that routes the call.
-fn endpoint_control_keys(tool: &EndpointTool, multi_workspace: bool) -> HashSet<String> {
-    let mut keys = HashSet::new();
-    if multi_workspace {
-        keys.insert("workspace_id".to_string());
-    }
-    for schema in [
-        &tool.path_params_schema,
-        &tool.query_params_schema,
-        &tool.body_schema,
-    ] {
-        if let Some(props) = schema
-            .as_ref()
-            .and_then(|s| s.get("properties"))
-            .and_then(Value::as_object)
-        {
-            keys.extend(props.keys().cloned());
-        }
-    }
-    keys
-}
-
-/// The properties of `body_schema` that are free-form maps forwarded to a
-/// runnable, identified by `additionalProperties: true`.
-///
-/// A structured object (`retry`, say) declares `properties` and is not one of
-/// these: its keys are the endpoint's own, not a runnable's parameters, and
-/// stripping them would corrupt an unrelated payload.
-pub fn free_form_arg_map_keys(body_schema: &Option<Value>) -> Vec<String> {
-    let Some(props) = body_schema
-        .as_ref()
-        .and_then(|schema| schema.get("properties"))
-        .and_then(Value::as_object)
-    else {
-        return Vec::new();
-    };
-    props
-        .iter()
-        .filter(|(_, spec)| {
-            spec.get("additionalProperties")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        })
-        .map(|(key, _)| key.clone())
-        .collect()
-}
 
 fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
     candidates
@@ -648,7 +463,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let McpContext { auth, mode, include_headers, .. } = Self::extract_context(&context)?;
+        let McpContext { auth, mode, .. } = Self::extract_context(&context)?;
 
         // Parse MCP scopes to determine what to expose
         let scopes = auth.scopes().unwrap_or(&[]);
@@ -659,13 +474,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
         match mode {
             McpMode::Single(workspace_id) => {
-                self.list_tools_single(
-                    &auth,
-                    &workspace_id,
-                    &scope_config,
-                    read_only,
-                    &include_headers,
-                )
+                self.list_tools_single(&auth, &workspace_id, &scope_config, read_only)
                 .await
             }
             // Multi-workspace: expose the generic endpoint tools (each taking an
@@ -767,7 +576,6 @@ impl<B: McpBackend> Runner<B> {
         workspace_id: &str,
         scope_config: &crate::common::scope::McpScopeConfig,
         read_only: bool,
-        include_headers: &McpIncludeHeaders,
     ) -> Result<ListToolsResult, ErrorData> {
         let favorites_only = scope_config.favorites;
 
@@ -854,9 +662,7 @@ impl<B: McpBackend> Runner<B> {
                     script,
                     self.backend.as_ref(),
                     &resources_cache,
-                    &resource_types,
-                    include_headers,
-                ));
+                    &resource_types));
             }
 
             for flow in &filtered_flows {
@@ -864,9 +670,7 @@ impl<B: McpBackend> Runner<B> {
                     flow,
                     self.backend.as_ref(),
                     &resources_cache,
-                    &resource_types,
-                    include_headers,
-                ));
+                    &resource_types));
             }
 
             for hub_script in &hub_scripts {
@@ -874,9 +678,7 @@ impl<B: McpBackend> Runner<B> {
                     hub_script,
                     self.backend.as_ref(),
                     &resources_cache,
-                    &resource_types,
-                    include_headers,
-                ));
+                    &resource_types));
             }
         }
 
@@ -918,12 +720,6 @@ impl<B: McpBackend> Runner<B> {
                 // Authorize against the token's MCP scopes and read-only flag,
                 // including the run-by-path path check (shared with multi mode).
                 let mut args = args;
-                strip_transport_owned_endpoint_args(
-                    &mut args,
-                    endpoint_tool,
-                    request.include_headers,
-                    false,
-                );
                 authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
                 // This is an endpoint tool, call via backend. The backend's own error
@@ -1028,7 +824,7 @@ impl<B: McpBackend> Runner<B> {
                 .map_err(|e| ErrorData::internal_error(e.message, None))?
         };
 
-        let transformed_args = transform_call_args(args, &item_schema, request.include_headers);
+        let transformed_args = transform_call_args(args, &item_schema);
 
         let script_or_flow_path = if is_hub {
             format!("hub/{}", path)
@@ -1144,7 +940,6 @@ impl<B: McpBackend> Runner<B> {
         // checked against the script/flow scope for that path — the endpoint
         // scope alone would let a granular token run items outside its allowed
         // paths.
-        strip_transport_owned_endpoint_args(&mut args, endpoint_tool, request.include_headers, true);
         authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
         // Workspace-scoped endpoints need an explicit target workspace and a
@@ -1205,181 +1000,6 @@ mod tests {
     use serde_json::json;
     use std::borrow::Cow;
 
-    /// The other half of the guarantee `strip_transport_owned_params` starts: the
-    /// name is hidden from the schema, and a model that guesses it anyway is
-    /// ignored rather than believed.
-    #[test]
-    fn a_model_cannot_supply_a_header_fed_argument() {
-        let args = transform_call_args(
-            json!({"ticket_id": "T-1", "x_user_id": "attacker@evil.test"}),
-            &None,
-            &McpIncludeHeaders::parse("x-user-id").unwrap(),
-        );
-
-        assert_eq!(args, json!({"ticket_id": "T-1"}));
-    }
-
-    #[test]
-    fn arguments_pass_through_untouched_without_an_allowlist() {
-        let args = transform_call_args(
-            json!({"ticket_id": "T-1", "x_user_id": "someone"}),
-            &None,
-            &McpIncludeHeaders::default(),
-        );
-
-        assert_eq!(args, json!({"ticket_id": "T-1", "x_user_id": "someone"}));
-    }
-
-    fn endpoint_tool_with(
-        name: &'static str,
-        path_params: Option<Value>,
-        body: Option<Value>,
-    ) -> EndpointTool {
-        EndpointTool {
-            name: Cow::Borrowed(name),
-            description: Cow::Borrowed(""),
-            instructions: Cow::Borrowed(""),
-            path: Cow::Borrowed("/w/{workspace}/jobs/run/p/{path}"),
-            method: Cow::Borrowed("POST"),
-            path_params_schema: path_params,
-            query_params_schema: None,
-            body_schema: body,
-            query_field_renames: None,
-            body_field_renames: None,
-        }
-    }
-
-    /// The model's copy of a transport-owned name is dropped wherever an endpoint
-    /// tool can carry it: at the top level of a free-form body, where run-by-path
-    /// puts a script's arguments, and inside every free-form map a structured body
-    /// declares. A schedule carries four of those — its own `args` plus the three
-    /// `on_*_extra_args` handed to its handlers — and reaching only `args` would
-    /// still let a forged identity be delivered through `on_failure`.
-    #[test]
-    fn endpoint_arguments_cannot_carry_a_header_fed_name() {
-        let include = McpIncludeHeaders::parse("x-user-id").unwrap();
-        let arg_map = || json!({"type": "object", "additionalProperties": true});
-
-        let run_by_path = endpoint_tool_with(
-            "runScriptByPath",
-            Some(json!({"type": "object", "properties": {"path": {"type": "string"}}})),
-            Some(json!({"type": "object", "additionalProperties": true})),
-        );
-        let mut flat = json!({"path": "u/admin/whoami", "x_user_id": "attacker@evil.test"});
-        strip_transport_owned_endpoint_args(&mut flat, &run_by_path, &include, false);
-        assert_eq!(flat, json!({"path": "u/admin/whoami"}));
-
-        let schedule = endpoint_tool_with(
-            "createSchedule",
-            None,
-            Some(json!({
-                "type": "object",
-                "properties": {
-                    "script_path": {"type": "string"},
-                    "args": arg_map(),
-                    "on_failure_extra_args": arg_map(),
-                    "on_recovery_extra_args": arg_map(),
-                    "on_success_extra_args": arg_map(),
-                    // Structured, so its keys belong to the endpoint and must survive.
-                    "retry": {"type": "object", "properties": {"constant": {"type": "object"}}},
-                }
-            })),
-        );
-        let mut nested = json!({
-            "script_path": "u/admin/whoami",
-            "args": {"ticket_id": "T-1", "x_user_id": "attacker@evil.test"},
-            "on_failure_extra_args": {"x_user_id": "attacker@evil.test"},
-            "on_recovery_extra_args": {"x_user_id": "attacker@evil.test"},
-            "on_success_extra_args": {"x_user_id": "attacker@evil.test"},
-            "retry": {"constant": {"seconds": 5}}
-        });
-        strip_transport_owned_endpoint_args(&mut nested, &schedule, &include, false);
-        assert_eq!(nested["args"], json!({"ticket_id": "T-1"}));
-        assert_eq!(nested["on_failure_extra_args"], json!({}));
-        assert_eq!(nested["on_recovery_extra_args"], json!({}));
-        assert_eq!(nested["on_success_extra_args"], json!({}));
-        assert_eq!(nested["retry"], json!({"constant": {"seconds": 5}}));
-    }
-
-    /// An allowlist that collides with an argument the *endpoint* consumes must
-    /// not delete the target of the call: `path` addresses the runnable, and
-    /// stripping it would break every call on the connection rather than protect
-    /// it.
-    ///
-    /// `workspace_id` is a control only in multi-workspace mode. In
-    /// single-workspace mode the workspace comes from the URL, so a
-    /// model-supplied `workspace_id` is an ordinary argument the free-form body
-    /// forwards — and must be refused like any other transport-owned name.
-    #[test]
-    fn an_endpoint_control_survives_the_strip_only_where_it_is_one() {
-        let run_by_path = endpoint_tool_with(
-            "runScriptByPath",
-            Some(json!({"type": "object", "properties": {"path": {"type": "string"}}})),
-            Some(json!({"type": "object", "additionalProperties": true})),
-        );
-
-        let mut args = json!({"path": "u/admin/whoami", "ticket_id": "T-1"});
-        strip_transport_owned_endpoint_args(
-            &mut args,
-            &run_by_path,
-            &McpIncludeHeaders::parse("path").unwrap(),
-            false,
-        );
-        assert_eq!(args["path"], json!("u/admin/whoami"));
-
-        let include_ws = McpIncludeHeaders::parse("workspace-id").unwrap();
-
-        // Multi-workspace: still needed to route, and removed after routing.
-        let mut routed = json!({"workspace_id": "prod", "path": "u/admin/whoami"});
-        strip_transport_owned_endpoint_args(&mut routed, &run_by_path, &include_ws, true);
-        assert_eq!(routed["workspace_id"], json!("prod"));
-
-        // Single-workspace: nothing routes on it, so a forged one is just an
-        // argument the runnable would receive.
-        let mut forged = json!({"workspace_id": "attacker", "path": "u/admin/whoami"});
-        strip_transport_owned_endpoint_args(&mut forged, &run_by_path, &include_ws, false);
-        assert_eq!(forged, json!({"path": "u/admin/whoami"}));
-    }
-
-    /// Every second door to a runnable is classified, and by how it carries the
-    /// arguments rather than by name: run-by-path proxies to the webhook route
-    /// that binds headers itself, while preview and the schedule endpoints nest
-    /// theirs under `args` on routes that do not.
-    #[test]
-    fn every_runnable_executing_endpoint_is_classified() {
-        for name in ["runScriptByPath", "runFlowByPath"] {
-            assert_eq!(
-                runnable_args_carrier(name),
-                Some(RunnableArgsCarrier::WebhookBody),
-                "{name}"
-            );
-        }
-        for name in [
-            "runScriptPreviewAndWaitResult",
-            "createSchedule",
-            "updateSchedule",
-        ] {
-            assert_eq!(
-                runnable_args_carrier(name),
-                Some(RunnableArgsCarrier::NestedArgs),
-                "{name}"
-            );
-        }
-        // `deleteScriptByHash` is the boundary case: it shares the policy variant
-        // that means "affects a script without a checkable path", but runs
-        // nothing, so it carries no runnable arguments at all.
-        for name in [
-            "listJobs",
-            "getScriptByPath",
-            "createVariable",
-            "getJob",
-            "deleteScriptByHash",
-            "deleteSchedule",
-        ] {
-            assert_eq!(runnable_args_carrier(name), None, "{name}");
-        }
-    }
-
     /// The parse runs ahead of authentication, so its cost is reachable by anyone
     /// who can open a connection. An oversized allowlist has to be refused before
     /// the work, not absorbed.
@@ -1398,43 +1018,8 @@ mod tests {
         assert_eq!(McpIncludeHeaders::parse(realistic).unwrap().0.len(), 3);
     }
 
-    /// A punctuated header name publishes under a key the transformation
-    /// collapses (`$user` -> `user`). The schema strip hides that key, so the
-    /// argument strip must refuse it too — otherwise a parameter invisible to the
-    /// model would still be one it could set.
-    #[test]
-    fn a_key_hidden_from_the_schema_is_also_refused_from_arguments() {
-        let include = McpIncludeHeaders::parse("$user").unwrap();
-        assert!(include.owns_published_key("user"));
 
-        let args = transform_call_args(json!({"user": "attacker@evil.test"}), &None, &include);
 
-        assert_eq!(args, json!({}));
-    }
-
-    /// An allowlisted `x-user-id` must not also accept the distinct header
-    /// `x_user_id`: a caller could otherwise supply the alias to stand in for the
-    /// one a trusted proxy injected.
-    #[test]
-    fn an_underscore_alias_is_a_different_header() {
-        let include = McpIncludeHeaders::parse("x-user-id").unwrap();
-
-        assert_eq!(include.0.len(), 1);
-        assert_eq!(include.0[0].header_name, "x-user-id");
-        assert_eq!(include.0[0].param_name, "x_user_id");
-        // The parameter is still transport-owned under its normalised name.
-        assert!(include.owns_param("x_user_id"));
-    }
-
-    /// Two spellings of one parameter collapse to a single entry, so which header
-    /// feeds it cannot depend on iteration order.
-    #[test]
-    fn aliases_naming_one_parameter_resolve_to_the_first() {
-        let include = McpIncludeHeaders::parse("x-user-id, x_user_id").unwrap();
-
-        assert_eq!(include.0.len(), 1);
-        assert_eq!(include.0[0].header_name, "x-user-id");
-    }
 
     fn cfg(scopes: &[&str]) -> McpScopeConfig {
         parse_mcp_scopes(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()

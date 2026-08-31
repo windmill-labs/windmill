@@ -27,56 +27,37 @@ pub struct MultiWorkspaceMcp;
 #[derive(Clone, Debug)]
 pub struct McpToken(pub String);
 
-/// One entry of the `?include_header=` allowlist: the exact HTTP header to read,
-/// and the runnable parameter that carries its value.
+/// The headers named by `?include_header=` on the MCP connection URL.
 ///
-/// The two are kept apart deliberately. Matching an inbound header by its
-/// *normalised* name would make `x-user-id` and the distinct, equally valid
-/// header `x_user_id` interchangeable, so a caller could supply the alias to
-/// stand in for one a trusted proxy injected — and which of the two won would
-/// depend on header iteration order.
-#[derive(Clone, Debug)]
-pub struct McpIncludeHeader {
-    /// Lowercased HTTP header name, compared verbatim against the request.
-    pub header_name: String,
-    /// The runnable parameter fed from it (`x-user-id` -> `x_user_id`).
-    pub param_name: String,
-}
-
-/// The request headers a tool call is allowed to forward into the script or flow
-/// it runs, from `?include_header=` on the MCP connection URL.
+/// Only credential headers are withheld from a runnable's preprocessor by
+/// default, so this list exists to name one of those back in — an operator who
+/// genuinely wants the caller's token in `event.headers` writes
+/// `?include_header=authorization`. Naming anything else is harmless and does
+/// nothing: every other header already reaches the preprocessor.
 ///
-/// The parameter names are transport-owned for the life of the connection: they
-/// are removed from every published tool schema and dropped from model-supplied
-/// arguments, so a value reaching a runnable under one of them came from the
-/// request and not from the model. That is the whole point of the feature — an
-/// identity the model can set is an identity prompt injection can forge.
+/// The list is fixed by whoever configures the MCP client, out of reach of the
+/// model driving the session.
 #[derive(Clone, Debug, Default)]
-pub struct McpIncludeHeaders(pub Vec<McpIncludeHeader>);
+pub struct McpIncludeHeaders(pub Vec<String>);
 
-/// Ceilings on `?include_header=`, generous next to any real allowlist — which
-/// names a handful of headers — and small enough that parsing one stays trivial
-/// work. See [`McpIncludeHeaders::parse`] for why that matters.
+/// Ceilings on `?include_header=`, generous next to any real list — which names
+/// a header or two — and small enough that parsing one stays trivial work. See
+/// [`McpIncludeHeaders::parse`] for why that matters.
 const MAX_INCLUDE_HEADER_LEN: usize = 1024;
 const MAX_INCLUDE_HEADER_ENTRIES: usize = 32;
 
 impl McpIncludeHeaders {
     /// Parse the comma-separated `?include_header=` value.
     ///
-    /// Two entries that differ only in `-` versus `_` name the same parameter;
-    /// the first wins, so the mapping stays one-to-one and a runnable cannot be
-    /// fed from whichever of them happened to be visited last.
     /// Rejects an entry that is not a valid HTTP header name rather than keeping
-    /// it: one that can never match a header would also never be stripped from a
-    /// tool schema, leaving the parameter model-settable on a connection the
-    /// operator believes is locked down. `x-user-id;x-tenant`, or a space where a
-    /// comma belongs, is a typo worth reporting, not worth half-honouring.
+    /// it: one that can never match a header is a typo worth reporting, not worth
+    /// half-honouring, and silently ignoring it would leave an operator believing
+    /// a credential was being forwarded when it was not.
     ///
     /// Both ceilings are load-bearing, not cosmetic: the middleware that calls
     /// this sits outside the auth extractor, so an unauthenticated request
     /// reaches it, and a query string is otherwise bounded only by the server's
-    /// request-head limit. With the entry count capped, the linear scan below
-    /// costs at most [`MAX_INCLUDE_HEADER_ENTRIES`] comparisons per entry.
+    /// request-head limit.
     pub fn parse(value: &str) -> Result<Self, String> {
         if value.len() > MAX_INCLUDE_HEADER_LEN {
             return Err(format!(
@@ -84,63 +65,34 @@ impl McpIncludeHeaders {
                 MAX_INCLUDE_HEADER_LEN
             ));
         }
-        let mut entries: Vec<McpIncludeHeader> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
         for name in value.split(',') {
-            let header_name = name.trim().to_lowercase();
-            if header_name.is_empty() {
+            let name = name.trim().to_lowercase();
+            if name.is_empty() {
                 continue;
             }
-            if !is_valid_header_name(&header_name) {
-                return Err(format!("'{}' is not a valid header name", header_name));
+            if !is_valid_header_name(&name) {
+                return Err(format!("'{}' is not a valid header name", name));
             }
-            let param_name = normalize_header_name(&header_name);
-            if entries.iter().any(|e| e.param_name == param_name) {
+            if names.contains(&name) {
                 continue;
             }
-            if entries.len() >= MAX_INCLUDE_HEADER_ENTRIES {
+            if names.len() >= MAX_INCLUDE_HEADER_ENTRIES {
                 return Err(format!(
                     "include_header is limited to {} headers",
                     MAX_INCLUDE_HEADER_ENTRIES
                 ));
             }
-            entries.push(McpIncludeHeader { header_name, param_name });
+            names.push(name);
         }
-        Ok(Self(entries))
+        Ok(Self(names))
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+    /// Whether the operator named this header. Compared case-insensitively
+    /// because a `HeaderMap` key may arrive in any casing.
+    pub fn names(&self, header: &str) -> bool {
+        self.0.iter().any(|n| n.eq_ignore_ascii_case(header))
     }
-
-    /// Whether `name` is a runnable parameter this connection fills from the
-    /// request, and so must never be taken from the model.
-    pub fn owns_param(&self, name: &str) -> bool {
-        self.0.iter().any(|entry| entry.param_name == name)
-    }
-
-    /// Whether `key` is the *published* spelling of a parameter this connection
-    /// fills from the request. It differs from [`Self::owns_param`] only when a
-    /// header name carries punctuation that MCP's key transformation drops
-    /// (`$user` publishes as `user`).
-    ///
-    /// Both the schema strip and the argument strip consult this, so a parameter
-    /// hidden from the model can never be settable by it under the other
-    /// spelling — the two halves agree by construction rather than by matching
-    /// each other's arithmetic.
-    pub fn owns_published_key(&self, key: &str) -> bool {
-        self.0
-            .iter()
-            .any(|entry| super::transform::apply_key_transformation(&entry.param_name) == key)
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &McpIncludeHeader> {
-        self.0.iter()
-    }
-}
-
-/// Render a header name as the runnable parameter that carries it.
-pub fn normalize_header_name(name: &str) -> String {
-    name.to_lowercase().replace('-', "_")
 }
 
 /// The RFC 9110 token set a field name may draw from. Spelled out here rather
