@@ -34063,6 +34063,14 @@ components:
               type: string
         error:
           type: string
+        creatable_schemas:
+          type: array
+          description: the schemas the caller's role may create tables in
+          items:
+            type: string
+        can_create_schema:
+          type: boolean
+          description: whether that role may create schemas in the database
         usable_roles:
           type: array
           description: roles the caller may run this data table as, empty when it has no permissions

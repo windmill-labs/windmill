@@ -2104,6 +2104,13 @@ struct DataTableTables {
     datatable_name: String,
     /// Hierarchical metadata: schema_name -> table_names
     schemas: TableListMap,
+    /// The schemas the connection's role may create tables in — a subset of
+    /// `schemas`, since reaching one says nothing about writing to it.
+    #[serde(default)]
+    creatable_schemas: Vec<String>,
+    /// Whether that role may create schemas in the database at all.
+    #[serde(default)]
+    can_create_schema: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     /// The roles the caller may run this data table as. Empty when it has no
@@ -2289,12 +2296,20 @@ async fn list_datatable_tables(
             .remove(&datatable_name)
             .unwrap_or_else(|| (vec![], ADMIN_DATATABLE_ROLE.to_string()));
         let tables = match get_datatable_tables(&db, &authed, &w_id, &datatable_name).await {
-            Ok(schemas) => {
-                DataTableTables { datatable_name, schemas, error: None, usable_roles, default_role }
-            }
+            Ok(contents) => DataTableTables {
+                datatable_name,
+                schemas: contents.tables,
+                creatable_schemas: contents.creatable_schemas,
+                can_create_schema: contents.can_create_schema,
+                error: None,
+                usable_roles,
+                default_role,
+            },
             Err(e) => DataTableTables {
                 datatable_name,
                 schemas: HashMap::new(),
+                creatable_schemas: vec![],
+                can_create_schema: false,
                 error: Some(e.to_string()),
                 usable_roles,
                 default_role,
@@ -2505,12 +2520,19 @@ async fn get_datatable_schema(
     Ok(schema_map)
 }
 
+/// What exists in a data table, and what its role may add to it.
+struct DataTableContents {
+    tables: TableListMap,
+    creatable_schemas: Vec<String>,
+    can_create_schema: bool,
+}
+
 async fn get_datatable_tables(
     db: &DB,
     authed: &ApiAuthed,
     w_id: &str,
     datatable_name: &str,
-) -> Result<TableListMap> {
+) -> Result<DataTableContents> {
     let db_resource = get_datatable_resource_as_admin(db, authed, w_id, datatable_name).await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
@@ -2525,7 +2547,8 @@ async fn get_datatable_tables(
     let schema_rows = client
         .query(
             r#"
-            SELECT nspname::text AS schema_name
+            SELECT nspname::text AS schema_name,
+                   has_schema_privilege(oid, 'CREATE') AS can_create
             FROM pg_namespace
             WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
               AND nspname NOT LIKE 'pg_%'
@@ -2542,14 +2565,32 @@ async fn get_datatable_tables(
         })?;
 
     let mut table_map: TableListMap = HashMap::new();
+    let mut creatable_schemas: Vec<String> = Vec::new();
     let schema_names: Vec<String> = schema_rows
         .iter()
         .map(|row| {
             let name: String = row.get(0);
             table_map.entry(name.clone()).or_default();
+            if row.get::<_, bool>(1) {
+                creatable_schemas.push(name.clone());
+            }
             name
         })
         .collect();
+
+    let can_create_schema: bool = client
+        .query_one(
+            "SELECT has_database_privilege(current_database(), 'CREATE')",
+            &[],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the database privileges: {}",
+                pg_error_message(&e)
+            ))
+        })?
+        .get(0);
 
     let rows = client
         .query(
@@ -2575,7 +2616,7 @@ async fn get_datatable_tables(
         table_map.entry(table_schema).or_default().push(table_name);
     }
 
-    Ok(table_map)
+    Ok(DataTableContents { tables: table_map, creatable_schemas, can_create_schema })
 }
 
 async fn get_datatable_table_columns(

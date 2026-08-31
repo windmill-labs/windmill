@@ -220,6 +220,23 @@
 		return datatableTree?.find((d) => d.datatable_name === datatable)?.error
 	}
 
+	/** Whether the role this connection uses may create a table in that schema,
+	 * or a schema at all. A plain database reports nothing, and there the buttons
+	 * stay: hiding them on no information would be worse than a refusal. */
+	function canCreateTableIn(datatable: string | undefined, schemaKey: string): boolean {
+		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
+		if (!entry?.creatable_schemas) return true
+		// A schema created since the snapshot is not in it yet; the role just made
+		// it, so it can write to it.
+		if (!(schemaKey in entry.schemas)) return true
+		return entry.creatable_schemas.includes(schemaKey)
+	}
+
+	function canCreateSchemaIn(datatable: string | undefined): boolean {
+		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
+		return entry === undefined || !!entry.can_create_schema
+	}
+
 	/** The role a data table row is reached through, and what it can be switched
 	 * to. Absent where naming the role says nothing: a data table without
 	 * permissions, or one whose single usable role is already the implicit
@@ -737,17 +754,19 @@
 									</div>
 								</button>
 							{/each}
-							<button
-								class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
-									tableIndent}
-								onclick={() => startCreateTable(root.datatable, sc.schemaKey)}
-							>
-								<Plus class="shrink-0" size={14} />
-								<span class="text-xs">New table</span>
-							</button>
+							{#if canCreateTableIn(root.datatable, sc.schemaKey)}
+								<button
+									class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
+										tableIndent}
+									onclick={() => startCreateTable(root.datatable, sc.schemaKey)}
+								>
+									<Plus class="shrink-0" size={14} />
+									<span class="text-xs">New table</span>
+								</button>
+							{/if}
 						{/if}
 					{/each}
-					{#if dbSupportsSchemas && search.trim() === ''}
+					{#if dbSupportsSchemas && search.trim() === '' && canCreateSchemaIn(root.datatable)}
 						<button
 							class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
 								(root.datatable !== undefined ? 'pl-7' : 'pl-3')}
