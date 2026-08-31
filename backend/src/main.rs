@@ -14,7 +14,7 @@ use monitor::{
     reload_nuget_config_setting, reload_powershell_repo_pat_setting,
     reload_powershell_repo_url_setting, reload_ruby_repos_setting,
     reload_timeout_wait_result_setting, reload_workspace_registries_setting,
-    send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
+    flush_pending_log_files_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::{Pool, Postgres};
@@ -61,8 +61,9 @@ use windmill_common::{
         SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
         SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
+        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
+        UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
         WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
@@ -143,7 +144,8 @@ use crate::monitor::{
     reload_pip_index_url_setting, reload_retention_period_setting,
     reload_sandbox_image_cache_max_setting, reload_sandbox_image_default_registry_setting,
     reload_sandbox_image_max_size_setting, reload_sandbox_image_pull_policy_setting,
-    reload_sandbox_registry_auth_setting, reload_scim_token_setting, reload_smtp_config,
+    reload_sandbox_registry_auth_setting, reload_scim_token_setting,
+    reload_service_log_retention_secs_setting, reload_smtp_config,
     reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
     reload_uv_index_strategy_setting, reload_uv_python_install_mirror_setting,
     reload_worker_config, MonitorIteration,
@@ -380,6 +382,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                         "",
                         &mut None,
                         &None,
+                        None,
                     )
                     .await
                     {
@@ -1261,10 +1264,12 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(all(feature = "tantivy", feature = "parquet"))]
         let log_indexer_f = {
             let log_indexer_rx = killpill_rx.resubscribe();
-            let log_index_writer2 = log_index_writer.clone();
+            // Moved, not cloned: sealing a chunk takes sole ownership of its
+            // tantivy writer, which a second live handle would silently prevent.
+            let moved_log_index_writer = log_index_writer;
             async {
                 if let Some(db) = conn.as_sql() {
-                    if let Some(log_index_writer) = log_index_writer2 {
+                    if let Some(log_index_writer) = moved_log_index_writer {
                         windmill_indexer::service_logs_oss::run_indexer(
                             db.clone(),
                             log_index_writer,
@@ -1434,21 +1439,30 @@ Windmill Community Edition {GIT_VERSION}
                                     // Poll for new events from notify_event table
                                     match windmill_common::notify_events::poll_notify_events(&db, last_event_id).await {
                                         Ok(events) => {
+                                            let mut http_trigger_change_handled = false;
                                             for event in events {
                                                 if !*windmill_common::QUIET_LOGS {
                                                     tracing::info!("Processing notify event: channel={}, payload={}", event.channel, event.payload);
                                                 }
-                                                process_notify_event(
-                                                    &event.channel,
-                                                    &event.payload,
-                                                    &db,
-                                                    &conn,
-                                                    &tx,
-                                                    server_mode,
-                                                    worker_mode,
-                                                    #[cfg(feature = "parquet")]
-                                                    disable_s3_store,
-                                                ).await;
+                                                let is_http_trigger_change = event.channel == "notify_http_trigger_change";
+                                                // Every changed http_trigger row emits its own event and each one forces
+                                                // a full router rebuild, but the batch's first successful rebuild already
+                                                // read every row the batch committed. A failed rebuild leaves the flag
+                                                // clear so the next event in the batch retries it.
+                                                if !(is_http_trigger_change && http_trigger_change_handled) {
+                                                    let handled = process_notify_event(
+                                                        &event.channel,
+                                                        &event.payload,
+                                                        &db,
+                                                        &conn,
+                                                        &tx,
+                                                        server_mode,
+                                                        worker_mode,
+                                                        #[cfg(feature = "parquet")]
+                                                        disable_s3_store,
+                                                    ).await;
+                                                    http_trigger_change_handled |= is_http_trigger_change && handled;
+                                                }
                                                 last_event_id = last_event_id.max(event.id);
                                             }
                                         }
@@ -1652,7 +1666,7 @@ Windmill Community Edition {GIT_VERSION}
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
-    send_current_log_file_to_object_store(&conn, &hostname, &mode).await;
+    flush_pending_log_files_to_object_store(&conn, &hostname, &mode).await;
 
     if let Some(db) = conn.as_sql() {
         tracing::info!("Exiting connection pool");
@@ -1670,6 +1684,9 @@ Windmill Community Edition {GIT_VERSION}
 
 /// Process a single notify event from the polling-based event system.
 /// This replaces the old PgListener notification handling.
+///
+/// Returns `false` when the event still needs handling. Only the HTTP router rebuild reports
+/// that, because the poll loop coalesces those events and must not swallow the retry.
 #[allow(unused_variables)]
 async fn process_notify_event(
     channel: &str,
@@ -1680,7 +1697,7 @@ async fn process_notify_event(
     server_mode: bool,
     worker_mode: bool,
     #[cfg(feature = "parquet")] disable_s3_store: bool,
-) {
+) -> bool {
     match channel {
         "notify_config_change" => {
             if payload == "server" && server_mode {
@@ -1825,17 +1842,14 @@ async fn process_notify_event(
         #[cfg(feature = "http_trigger")]
         "notify_http_trigger_change" => {
             tracing::info!("HTTP trigger change detected: {}", payload);
-            match windmill_api::triggers::http::refresh_routers(db).await {
-                Ok((true, _)) => {
+            match windmill_api::triggers::http::refresh_routers(db, true).await {
+                Ok(_) => {
                     tracing::info!("Refreshed HTTP routers (trigger change)");
-                }
-                Ok((false, _)) => {
-                    tracing::warn!(
-                        "Should have refreshed HTTP routers (trigger change) but did not"
-                    );
                 }
                 Err(err) => {
                     tracing::error!("Error refreshing HTTP routers (trigger change): {err:#}");
+                    windmill_api::triggers::http::invalidate_routers();
+                    return false;
                 }
             };
         }
@@ -1943,6 +1957,9 @@ async fn process_notify_event(
                 }
                 TIMEOUT_WAIT_RESULT_SETTING => reload_timeout_wait_result_setting(conn).await,
                 RETENTION_PERIOD_SECS_SETTING => reload_retention_period_setting(conn).await,
+                SERVICE_LOG_RETENTION_SECS_SETTING => {
+                    reload_service_log_retention_secs_setting(conn).await
+                }
                 RETENTION_PERIOD_SECS_OVERRIDES_SETTING => {
                     if let Err(e) = load_retention_period_overrides(db).await {
                         tracing::error!("Error loading per-workspace retention overrides: {e:#}");
@@ -2059,7 +2076,7 @@ async fn process_notify_event(
                         tracing::error!(error = %e, "Could not reload http route workspaced route setting");
                     }
                     #[cfg(feature = "http_trigger")]
-                    match windmill_api::triggers::http::refresh_routers(db).await {
+                    match windmill_api::triggers::http::refresh_routers(db, false).await {
                         Ok((true, _)) => {
                             tracing::info!(
                                 "Refreshed HTTP routers (http workspaced route setting change)"
@@ -2179,6 +2196,7 @@ async fn process_notify_event(
             tracing::warn!("Unknown notification channel: {}", channel);
         }
     }
+    true
 }
 
 fn display_config(envs: &[&str]) {

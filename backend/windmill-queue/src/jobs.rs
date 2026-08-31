@@ -4671,6 +4671,12 @@ pub async fn check_debouncing_within_limits(
     }
 }
 
+/// Whether the tag's queue name is computed from the job's arguments, so that a caller holding
+/// arguments it could not build knows the tag cannot be built either.
+pub fn tag_reads_args(tag: &str) -> bool {
+    RE_ARG_TAG.is_match(tag)
+}
+
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
     // Save this value to avoid parsing twice
     let workspaced = x.as_str().replace("$workspace", workspace_id).to_string();

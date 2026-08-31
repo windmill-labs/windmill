@@ -125,12 +125,15 @@ export class StepsInputArgs {
 	initializeFromSchema(
 		mod: FlowModule,
 		schema: { properties?: Record<string, any> },
-		pickableProperties: PickableProperties | undefined
+		pickableProperties: PickableProperties | undefined,
+		// Off for the reactive re-evaluations that follow every flow edit; on for an explicit
+		// run, where a failing expression would otherwise become `undefined` unseen.
+		showError: boolean = false
 	) {
 		const args = Object.fromEntries(
 			Object.keys(schema.properties ?? {}).map((k) => [
 				k,
-				evalValue(k, mod, pickableProperties, false)
+				evalValue(k, mod, pickableProperties, showError)
 			])
 		)
 
@@ -158,14 +161,16 @@ export class StepsInputArgs {
 		id: string,
 		flowState: FlowState | undefined,
 		flow: OpenFlow | undefined,
-		previewArgs: Record<string, any> | undefined
+		previewArgs: Record<string, any> | undefined,
+		showError: boolean = false
 	) {
 		if (id === 'failure' && flow && flow.value.failure_module && flowState) {
 			const picker = getFailureStepPropPicker(flowState, flow, previewArgs)
 			this.initializeFromSchema(
 				flow.value.failure_module,
 				flowState['failure']?.schema ?? {},
-				picker.pickableProperties
+				picker.pickableProperties,
+				showError
 			)
 			return
 		}
@@ -193,7 +198,12 @@ export class StepsInputArgs {
 			false
 		)
 		const pickableProperties = stepPropPicker.pickableProperties
-		this.initializeFromSchema(modules[0], flowState[id]?.schema ?? {}, pickableProperties)
+		this.initializeFromSchema(
+			modules[0],
+			flowState[id]?.schema ?? {},
+			pickableProperties,
+			showError
+		)
 	}
 
 	removeExtraKey(moduleId: string, keys: string[]) {

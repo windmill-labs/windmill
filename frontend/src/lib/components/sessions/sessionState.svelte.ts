@@ -21,6 +21,7 @@ import {
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { workspaceRootId } from './sessionScope.svelte'
+import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
@@ -348,8 +349,8 @@ export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	if ((s.draftPrompt ?? '') === text) return
 	// Keep `transient` (means "in-memory only") set until the flush persists the
 	// draft, so hydrateSessions preserves it across a reconcile inside this window;
-	// isReusableBlank, not `transient`, is what stops createSession reusing a typed
-	// draft. Only the IndexedDB write is debounced.
+	// isDiscardableDraft, not `transient`, is what stops createSession reusing a
+	// typed draft. Only the IndexedDB write is debounced.
 	s.draftPrompt = text
 	clearTimeout(draftPromptFlushHandles.get(sessionId))
 	draftPromptFlushHandles.set(
@@ -855,12 +856,30 @@ export function requestComposerFocus(): void {
 	composerFocusRequest.nonce++
 }
 
-// An untouched in-memory blank that `+` may reuse/discard. `draftPrompt ===
-// undefined` (never edited), not falsiness: a draft typed then erased to '' still
-// has a pending flush and is a real session, so it must survive both. Every other
+// An untouched in-memory blank that `+` may reuse and createSession may silently
+// drop. `draftPrompt === undefined` (never edited), not falsiness: a draft typed
+// then erased to '' still has a pending flush and is a real session. Every other
 // touch clears `transient` synchronously, so only the draft prompt needs checking.
-function isReusableBlank(s: Session): boolean {
+function isDiscardableDraft(s: Session): boolean {
 	return !!s.transient && s.draftPrompt === undefined
+}
+
+// Somewhere empty to put the user, for a URL naming a session this browser
+// doesn't hold. Only `transient` makes "empty" trustworthy: chat seeding and
+// attached-file persistence both key off `!transient` and leave every field
+// below untouched, so a persisted session can hold a conversation regardless.
+export function findEmptyLandingSession(): Session | undefined {
+	return sessionState.sessions.find(
+		(s) =>
+			!!s.transient &&
+			!s.archived &&
+			!s.workspace_id &&
+			// Falsiness, not `=== undefined`: we only navigate into the session, so a
+			// draft erased back to '' is still an empty composer to land on.
+			!s.draftPrompt?.trim() &&
+			!s.pending_fork &&
+			sessionInCurrentFamily(s)
+	)
 }
 
 export function createSession(): Session {
@@ -869,16 +888,20 @@ export function createSession(): Session {
 	// in parallel, one touch at a time. A cross-family leftover blank is dropped
 	// instead of reused (reusing it would act on that family).
 	const reusable = sessionState.sessions.find(
-		(s) => isReusableBlank(s) && sessionInCurrentFamily(s)
+		(s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)
 	)
 	if (reusable) {
 		sessionState.currentSessionId = reusable.id
+		// The blank recovery just landed on is exactly what this reuses, so `+`
+		// would otherwise hand back a session still carrying the recovery notice:
+		// asking for a new session must not be answered with "we couldn't find it".
+		clearSessionRecovered(reusable.id)
 		// Reusing an already-active draft doesn't change currentSessionId, so ask
 		// the composer to focus explicitly — the caller still navigates/redirects.
 		requestComposerFocus()
 		return reusable
 	}
-	sessionState.sessions = sessionState.sessions.filter((s) => !isReusableBlank(s))
+	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
 	const existingNumbers = sessionState.sessions
 		.map((s) => /^session-(\d+)$/.exec(s.name)?.[1])
 		.map((n) => (n ? parseInt(n, 10) : 0))
@@ -1192,6 +1215,24 @@ export function setSessionArchived(id: string, archived: boolean) {
 		delete s.archivedByWorkspace
 	}
 	persistTouched(s)
+}
+
+// A counter rather than a flag: an inner teardown finishing must not reopen the
+// gate while an outer one is still running. Released in a finally, so a delete
+// that throws can't wedge it shut.
+let openSessionTeardowns = $state(0)
+
+export function isTearingDownOpenSession(): boolean {
+	return openSessionTeardowns > 0
+}
+
+export async function withOpenSessionTeardown<T>(run: () => Promise<T>): Promise<T> {
+	openSessionTeardowns++
+	try {
+		return await run()
+	} finally {
+		openSessionTeardowns--
+	}
 }
 
 export function deleteSession(id: string) {

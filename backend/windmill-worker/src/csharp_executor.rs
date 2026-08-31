@@ -13,7 +13,7 @@ use itertools::Itertools;
 #[cfg(feature = "csharp")]
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 #[cfg(feature = "csharp")]
-use windmill_common::{utils::calculate_hash, worker::write_file};
+use windmill_common::worker::write_file;
 
 #[cfg(feature = "csharp")]
 use crate::global_cache::save_cache;
@@ -72,13 +72,21 @@ const CSHARP_OBJECT_STORE_PREFIX: &str =
 /// Cache key of a C# build. The run path and the deploy-time prebuild must derive it the
 /// same way or the prebuilt binary is never found and gets rebuilt on first run.
 #[cfg(feature = "csharp")]
-async fn csharp_cache_key(code: &str, requirements_o: Option<&str>, w_id: &str) -> String {
-    let mut hash = calculate_hash(&format!(
+async fn csharp_cache_key(
+    code: &str,
+    requirements_o: Option<&str>,
+    w_id: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    // The SDK project globs every `.cs` under the job dir, so companion modules are
+    // compiled into the binary this key names and have to be part of it.
+    let base = format!(
         "{}{}{}",
         code,
         requirements_o.unwrap_or(""),
         DOTNET_TARGET_FRAMEWORK.as_str()
-    ));
+    );
+    let mut hash = crate::worker::artifact_cache_name(base, modules);
     hash.push_str(&crate::workspace_registry_cache_suffix(w_id).await);
     hash
 }
@@ -487,10 +495,11 @@ pub async fn prebuild_csharp_binary(
     worker_name: &str,
     base_internal_url: &str,
     occupancy_metrics: &mut OccupancyMetrics,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> error::Result<Option<String>> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
-    let hash = csharp_cache_key(code, Some(lock), &job.workspace_id).await;
+    let hash = csharp_cache_key(code, Some(lock), &job.workspace_id, modules).await;
     let remote_path = format!("{CSHARP_OBJECT_STORE_PREFIX}{hash}");
     if crate::global_cache::exists_in_object_store(&remote_path).await {
         return Ok(None);
@@ -549,6 +558,7 @@ pub async fn handle_csharp_job(
     _worker_name: &str,
     _envs: HashMap<String, String>,
     _occupancy_metrics: &mut OccupancyMetrics,
+    _modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<Box<RawValue>, Error> {
     Err(anyhow!("C# is not available because the feature is not enabled").into())
 }
@@ -568,6 +578,7 @@ pub async fn handle_csharp_job(
     worker_name: &str,
     envs: HashMap<String, String>,
     occupancy_metrics: &mut OccupancyMetrics,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<Box<RawValue>, Error> {
     check_executor_binary_exists("dotnet", DOTNET_PATH.as_str(), "C#")?;
 
@@ -575,6 +586,7 @@ pub async fn handle_csharp_job(
         inner_content,
         requirements_o.map(|x| x.as_str()),
         &job.workspace_id,
+        modules,
     )
     .await;
     let bin_path = format!("{}/{hash}", *CSHARP_CACHE_DIR);
