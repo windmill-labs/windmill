@@ -588,6 +588,14 @@ export type RunFormDisplay = {
 	started?: boolean
 }
 
+/** What a run form is being filled with while it waits. Held by the chat manager, not by
+ * the form, so the chat card and the preview pane edit one draft rather than two copies.
+ * The schema rides along because SchemaForm binds and reorders it. */
+export type RunFormDraft = {
+	args: Record<string, any>
+	schema: Record<string, any>
+}
+
 /** One page hit from a provider-side web search (OpenAI sources carry no title). */
 export type WebSearchSource = {
 	url: string

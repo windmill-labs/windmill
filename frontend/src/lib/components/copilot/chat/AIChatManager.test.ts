@@ -4052,8 +4052,11 @@ describe('AIChatManager background job completion', () => {
 		// A user cancel isn't a result to shape or a completion to announce.
 		expect(manager.pendingJobNotes).toHaveLength(0)
 		expect(manager.backgroundJobs[0]?.status).toBe('canceled')
+		// The raw result, not the shaping this job's resultFormat would have applied — and no
+		// `error`, which is what keeps the card off the failure styling.
 		expect(applyToolStatus).toHaveBeenCalledWith('tc-1', {
 			content: 'Background job canceled',
+			result: expect.stringContaining('"n": 1'),
 			logs: expect.anything(),
 			isLoading: false
 		})

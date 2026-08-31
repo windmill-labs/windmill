@@ -5,6 +5,7 @@
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import { displayDate, msToReadableTime } from '$lib/utils'
 	import JobArgs from '$lib/components/JobArgs.svelte'
+	import { base } from '$lib/base'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import RunArgsFormDisplay from './RunArgsFormDisplay.svelte'
 	import ToolContentDisplay from './ToolContentDisplay.svelte'
@@ -139,6 +140,54 @@
 		running ? [logLineCount > 0 ? `${logLineCount} lines` : '', worker] : [worker, startedAt]
 	)
 	const footer = $derived(footerParts.filter(Boolean).join(' · '))
+
+	// What the preview button opens changes with the card: the form while the call is still
+	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
+	// the button is not drawn at all — a form has nowhere to go outside a session, and a
+	// call cancelled before Run never became a run.
+	const previewTarget = $derived(
+		pending
+			? aiChatManager.openRunForm
+				? ('form' as const)
+				: undefined
+			: chatJob
+				? ('run' as const)
+				: undefined
+	)
+	// True while the panel holds this call, form or run: read through the resolver so this
+	// tracks the tab list, not the pane's mounted tab.
+	const inPreview = $derived(
+		aiChatManager.isCallInPreview?.({
+			toolCallId: message.tool_call_id,
+			jobId: chatJob?.jobId
+		}) ?? false
+	)
+	const previewTitle = $derived(
+		previewTarget === 'form'
+			? 'Open this form in the preview panel'
+			: aiChatManager.openRunInPreview
+				? 'Open this run in the preview panel'
+				: 'Open this run in a new tab'
+	)
+
+	function openPreview() {
+		const label = runForm.summary || runForm.path
+		if (previewTarget === 'form') {
+			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
+			return
+		}
+		if (!chatJob) return
+		// Outside a session there is no panel, so the run opens where the jobs tray sends it.
+		if (aiChatManager.openRunInPreview) {
+			aiChatManager.openRunInPreview({ jobId: chatJob.jobId, workspace: chatJob.workspace, label })
+		} else {
+			window.open(
+				`${base}/run/${chatJob.jobId}?workspace=${chatJob.workspace}`,
+				'_blank',
+				'noreferrer'
+			)
+		}
+	}
 </script>
 
 <!-- scroll-mb clears the chat's sticky "Waiting for your input" chip so the mount
@@ -158,11 +207,13 @@
 				<p class="truncate font-mono text-2xs text-secondary">{runForm.path}</p>
 			{/if}
 		</div>
-		{#if !pending}
+		{#if !pending || previewTarget}
 			<div class="flex shrink-0 items-center gap-1">
 				<!-- Status and time read as one thing: the colour and the dot say how it went, the
 				     number says how long it took, and while it runs that number is still moving. -->
-				{#if running}
+				{#if pending}
+					<!-- Nothing to report yet, and nothing to read as JSON either. -->
+				{:else if running}
 					<span
 						class="inline-flex items-center gap-1.5 whitespace-nowrap text-2xs font-medium text-blue-600 dark:text-blue-400"
 					>
@@ -200,33 +251,49 @@
 						{duration || 'Done'}
 					</span>
 				{/if}
-				<!-- One button, not a pair: pressed means the raw JSON of the whole call, the
-				     shape every other tool card in the chat is read in. -->
-				<Button
-					iconOnly
-					variant="default"
-					unifiedSize="sm"
-					btnClasses="h-[23px] min-h-[23px] w-[23px] p-0"
-					selected={jsonView}
-					title="Show this call as raw JSON"
-					startIcon={{ icon: Braces }}
-					onClick={() => (jsonView = !jsonView)}
-				/>
-				<!-- Drawn, not wired: opening the run in the side panel is its own change. -->
-				<Button
-					iconOnly
-					variant="default"
-					unifiedSize="sm"
-					btnClasses="h-[23px] min-h-[23px] w-[23px] p-0"
-					disabled
-					title="Open this run in the preview pane"
-					startIcon={{ icon: PanelRight }}
-				/>
+				{#if !pending && !inPreview}
+					<!-- One button, not a pair: pressed means the raw JSON of the whole call, the
+					     shape every other tool card in the chat is read in. Gone while the panel
+					     holds the call: there is no body here for it to switch. -->
+					<Button
+						iconOnly
+						variant="default"
+						unifiedSize="sm"
+						btnClasses="h-[23px] min-h-[23px] w-[23px] p-0"
+						selected={jsonView}
+						title="Show this call as raw JSON"
+						startIcon={{ icon: Braces }}
+						onClick={() => (jsonView = !jsonView)}
+					/>
+				{/if}
+				{#if previewTarget}
+					<!-- One control for the whole call: the form on its way in, the run on its way
+					     out. Not a toggle — pressing it again focuses the tab it already opened. -->
+					<Button
+						iconOnly
+						variant="default"
+						unifiedSize="sm"
+						btnClasses="h-[23px] min-h-[23px] w-[23px] p-0"
+						title={previewTitle}
+						startIcon={{ icon: PanelRight }}
+						onClick={openPreview}
+					/>
+				{/if}
 			</div>
 		{/if}
 	</div>
 
-	{#if pending}
+	{#if inPreview}
+		<!-- The panel is showing this call, so the card does not show it twice; closing that
+		     tab brings the body back. For the form that is a requirement rather than a
+		     preference: two mounted copies would be two views binding the one draft, each
+		     reordering the schema SchemaForm edits in place. -->
+		<div class="border-t border-border-light px-3 py-2 text-2xs leading-4 text-hint">
+			{pending
+				? 'The parameters are open in the preview panel.'
+				: 'This run is open in the preview panel.'}
+		</div>
+	{:else if pending}
 		<RunArgsFormDisplay toolCallId={message.tool_call_id} {runForm} />
 	{:else}
 		<!-- One fixed-height region holding the strip and the body, so the card is the same

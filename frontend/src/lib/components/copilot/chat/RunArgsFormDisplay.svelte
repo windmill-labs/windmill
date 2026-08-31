@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount, tick } from 'svelte'
+	import { onMount, tick, untrack } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	import { Play, X } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
@@ -18,23 +19,26 @@
 	interface Props {
 		toolCallId: string
 		runForm: RunFormDisplay
+		/** `card` caps its own height inside the chat transcript; `pane` fills the preview
+		 * tab it was opened into and lets the fields take the whole height. */
+		layout?: 'card' | 'pane'
 	}
 
-	let { toolCallId, runForm }: Props = $props()
+	let { toolCallId, runForm, layout = 'card' }: Props = $props()
 
 	// The chat's workspace, not the globally-active one: a session may be acting on a
 	// fork, and that is where the job runs — so the pickers and the ephemeral secret
 	// variables have to resolve there too.
 	const workspace = $derived(aiChatManager.operatingWorkspace)
 
-	// Deep copies, not spreads: these come off displayMessages ($state), whose nested values
-	// are proxies $state() hands back untouched. SchemaForm edits both in place — and binds
-	// the schema, reordering it on mount — so a shallow copy would write every keystroke, a
-	// nested password included, straight into the persisted transcript.
-	let args = $state($state.snapshot(runForm.args ?? {}) as Record<string, any>)
-	let schema = $state($state.snapshot(runForm.schema ?? {}) as Record<string, any>)
+	// The manager's draft, not a copy of its own: this form is mounted either in the chat
+	// card or in the preview pane, and moving between the two has to keep what was typed.
+	// It is also where the deep copy off displayMessages happens — see runFormDraft.
+	// untrack: taken once, on purpose. The message is replaced on every patch to the card,
+	// and re-seeding from a later copy of it would throw away what has been typed.
+	const draft = untrack(() => aiChatManager.runFormDraft(toolCallId, runForm))
 
-	const properties = $derived(schema?.properties ?? {})
+	const properties = $derived(draft.schema?.properties ?? {})
 	const hasArgs = $derived(Object.keys(properties).length > 0)
 
 	let isValid = $state(true)
@@ -75,13 +79,13 @@
 		// run: what the card showed is otherwise what runs. Re-filtering it here would delete
 		// the user's own typing between Run and the job — a free-form field the form gave a
 		// JSON editor to holds keys no schema names, and they are still theirs.
-		const { args: enforced, resetKeys } = enforceDisabledDefaults(args ?? {}, schema)
+		const { args: enforced, resetKeys } = enforceDisabledDefaults(draft.args ?? {}, draft.schema)
 		if (resetKeys.length > 0) {
 			sendUserToast(resetKeysToast(resetKeys))
 		}
 		let processed: Record<string, any>
 		try {
-			processed = await processSecretArgs(enforced, schema as any, workspace)
+			processed = await processSecretArgs(enforced, draft.schema as any, workspace)
 		} catch (e) {
 			submitting = false
 			sendUserToast('Failed to process sensitive args: ' + e, true)
@@ -97,10 +101,14 @@
 </script>
 
 <!-- The card's heading and its chrome belong to RunScriptCard, which renders this form
-     as one phase of the same card. Only this phase carries the keyboard scope: the
-     marker is looked up across the whole chat, so a settled card still holding it would
-     stop Escape from ever cancelling a turn again. -->
-<div bind:this={cardNode} class="flex flex-col" data-chat-keyboard-scope="run-args-form">
+     as one phase of the same card. The keyboard-scope marker says a form owns the keys
+     here, so a list's own shortcuts stand down (ItemsList's SKIP_SELECTOR) — it belongs
+     on this phase only, which is why a settled card drops it with the form. -->
+<div
+	bind:this={cardNode}
+	class={twMerge('flex flex-col', layout === 'pane' ? 'h-full min-h-0' : '')}
+	data-chat-keyboard-scope="run-args-form"
+>
 	<!-- Only the fields scroll. A script with many arguments would otherwise grow a card
 	     taller than the pane, pushing the Run button and the lines naming what the form
 	     dropped — a secret it opened empty among them — below the fold. `both-edges` reserves
@@ -108,7 +116,10 @@
 	<div
 		use:fadeContainer
 		onscroll={measureFades}
-		class="max-h-[min(28rem,50vh)] overflow-y-auto px-3"
+		class={twMerge(
+			'overflow-y-auto px-3',
+			layout === 'pane' ? 'min-h-0 flex-1' : 'max-h-[min(28rem,50vh)]'
+		)}
 		style="scrollbar-gutter: stable both-edges;"
 	>
 		<!-- Fades what scrolls under the heading and over the actions instead of cutting it, as
@@ -128,7 +139,7 @@
 			a real job on the deployed script, carrying the other args as proposed, and Cancel
 			does not undo it. Everything else waits for the user; keep it that way. -->
 				<SchemaForm
-					bind:schema
+					bind:schema={draft.schema}
 					helperScript={planMode
 						? undefined
 						: { source: 'deployed', path: runForm.path, runnable_kind: 'script' }}
@@ -137,7 +148,7 @@
 					prettifyHeader
 					lightHeader
 					bind:isValid
-					bind:args
+					bind:args={draft.args}
 				/>
 			{:else}
 				<p class="text-xs text-secondary">This script takes no arguments.</p>
