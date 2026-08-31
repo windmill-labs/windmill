@@ -115,7 +115,14 @@ impl CorsDecision {
     fn stricter(self, other: Self) -> Self {
         use CorsDecision::*;
         match (self, other) {
-            (Unavailable, _) | (_, Unavailable) => Unavailable,
+            // A read that could not see the routers knows nothing, so it defers
+            // to one that could: a transient load failure on either side must
+            // not discard a real verdict. Only when neither read saw them is
+            // the answer genuinely unknown — and then the handler could not
+            // resolve the trigger either, so the response is an error rather
+            // than a runnable's output.
+            (Unavailable, Unavailable) => Unavailable,
+            (Unavailable, known) | (known, Unavailable) => known,
             (
                 Restricted { route_method, allow_origin },
                 Restricted { allow_origin: also_allowed, .. },
