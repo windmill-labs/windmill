@@ -26,10 +26,9 @@ use crate::jobs::{
 
 use super::auto_generated_endpoints::all_tools;
 use super::utils::{
-    build_query_string, build_request_body, create_http_request, delivers_request_to_runnable,
-    forwardable_headers, get_hub_script_schema, get_item_schema, get_items, get_resources,
-    get_resources_types, get_scripts_from_hub, parse_response_body, prepare_push_args,
-    substitute_path_params,
+    build_query_string, build_request_body, create_http_request, get_hub_script_schema,
+    get_item_schema, get_items, get_resources, get_resources_types, get_scripts_from_hub,
+    headers_for_proxied_run, parse_response_body, prepare_push_args, substitute_path_params,
 };
 
 use std::sync::Arc;
@@ -314,18 +313,16 @@ impl McpBackend for WindmillBackend {
         // Without this a preprocessor reached through run-by-path — the only way
         // multi-workspace mode reaches a runnable — would see the proxy's own
         // request instead of the caller's.
-        let forwarded = if delivers_request_to_runnable(endpoint_tool) {
-            let forwarded = forwardable_headers(request.headers, request.include_headers);
-            if !forwarded.is_empty() {
-                // Counted here as well as in `prepare_push_args`: this is the only
-                // route multi-workspace mode has to a runnable, so leaving it out
-                // would record nothing at all for gateway connections.
-                log_feature_usage("mcp", "header_passthrough", "proxy");
-            }
-            forwarded
-        } else {
-            Vec::new()
-        };
+        let forwarded =
+            headers_for_proxied_run(&self.db, workspace_id, endpoint_tool, args_map, request).await;
+        if !forwarded.is_empty() {
+            // Counted here as well as in `prepare_push_args`: this is the only
+            // route multi-workspace mode has to a runnable, so leaving it out
+            // would record nothing at all for gateway connections. Both keys count
+            // a delivery, not a call — this arm only forwards when the target has
+            // a preprocessor to receive it.
+            log_feature_usage("mcp", "header_passthrough", "proxy");
+        }
 
         // Prepare request body
         let body_json = build_request_body(endpoint_tool, args_map)?;

@@ -772,7 +772,7 @@ const PROXY_OWNED_HEADERS: &[&str] = &[
 ];
 
 /// Whether this endpoint tool hands the proxied request to a runnable, and so
-/// needs the caller's headers copied onto it.
+/// could need the caller's headers copied onto it.
 ///
 /// Derived from the catalogue's own path rather than a list of names: the two
 /// run routes are the only ones whose request becomes a runnable's event. Preview
@@ -780,6 +780,47 @@ const PROXY_OWNED_HEADERS: &[&str] = &[
 /// preprocessor, so a forwarded header would have nowhere to arrive.
 pub fn delivers_request_to_runnable(tool: &EndpointTool) -> bool {
     tool.path.contains("/jobs/run/")
+}
+
+/// The caller's headers to copy onto a proxied run, or nothing.
+///
+/// Gated on the *target* having a preprocessor, not just on the route being a run
+/// route. The proxied webhook path binds headers as ordinary parameters when the
+/// runnable has no preprocessor — `build_headers`' no-preprocessor branch unions
+/// the instance-wide `INCLUDE_HEADERS` — so forwarding unconditionally would put
+/// a header into a `main` argument on an instance that configured one for
+/// webhooks. That is both the parameter binding this design exists to avoid and
+/// an inheritance MCP deliberately does not take.
+pub async fn headers_for_proxied_run(
+    db: &DB,
+    w_id: &str,
+    tool: &EndpointTool,
+    args: &serde_json::Map<String, Value>,
+    request: &McpRequest<'_>,
+) -> Vec<(String, String)> {
+    if !delivers_request_to_runnable(tool) {
+        return Vec::new();
+    }
+    let Some(path) = args.get("path").and_then(Value::as_str) else {
+        return Vec::new();
+    };
+    let runnable_id = if tool.path.contains("/jobs/run/f/") {
+        RunnableId::from_flow_path(path)
+    } else {
+        RunnableId::from_script_path(path)
+    };
+    match get_runnable_format(runnable_id, w_id, db, &TriggerKind::Webhook).await {
+        Ok(RunnableFormat { has_preprocessor: true, .. }) => {
+            forwardable_headers(request.headers, request.include_headers)
+        }
+        Ok(_) => Vec::new(),
+        Err(err) => {
+            // Fail closed: an unknown format is not a reason to hand a runnable
+            // headers it may bind as parameters.
+            tracing::warn!("MCP could not resolve the format of '{path}': {err}");
+            Vec::new()
+        }
+    }
 }
 
 /// The caller's headers that can ride the proxied webhook call.
@@ -992,7 +1033,7 @@ mod tests {
     /// The hop describes its own body, so the caller's framing headers must not
     /// be copied onto it — a `content-length` from the caller's request would
     /// describe the wrong body, and hop-by-hop fields are per-connection by
-    /// definition. Only relevant since forwarding stopped being allowlist-driven.
+    /// definition.
     #[test]
     fn the_proxy_hop_never_forwards_this_connections_framing() {
         let headers = header_map(&[
@@ -1161,6 +1202,21 @@ mod tests {
             .into_iter()
             .find(|t| t.name.as_ref() == name)
             .unwrap_or_else(|| panic!("{name} must be a generated endpoint tool"))
+    }
+
+    /// `delivers_request_to_runnable` keys on a path substring, so a catalogue
+    /// that renames the run routes would silently stop forwarding rather than
+    /// fail — and the only symptom would be a preprocessor quietly losing the
+    /// caller's headers. Pinned to the exact pair it must match.
+    #[test]
+    fn exactly_the_run_routes_deliver_the_request_to_a_runnable() {
+        let matched: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()
+            .into_iter()
+            .filter(delivers_request_to_runnable)
+            .map(|t| t.name.to_string())
+            .collect();
+
+        assert_eq!(matched, vec!["runScriptByPath", "runFlowByPath"]);
     }
 
     /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does
