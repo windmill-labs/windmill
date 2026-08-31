@@ -30,9 +30,11 @@ use windmill_audit::ActionKind;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::utils::{rd_string, require_admin};
+use windmill_common::ensure_instance_db_grant_options;
 use windmill_common::workspaces::{
     can_use_datatable_role, datatable_pg_role_name, get_datatable_resource_from_db_unchecked,
-    DataTable, DataTablePermissions, DataTableRole, DATATABLE_TENANT_WILDCARD, ADMIN_DATATABLE_ROLE,
+    DataTable, DataTableCatalogResourceType, DataTablePermissions, DataTableRole,
+    ADMIN_DATATABLE_ROLE, DATATABLE_TENANT_WILDCARD,
 };
 use windmill_common::{PgDatabase, DB};
 
@@ -603,6 +605,36 @@ pub(crate) async fn read_datatable(
         .map_err(|e| Error::internal_err(format!("Invalid data table config: {e}")))
 }
 
+/// Make sure `custom_instance_user` can pass its privileges on, for a data table
+/// on an instance database.
+///
+/// Handing privileges to the roles this feature creates means granting them, and
+/// a privilege held without `WITH GRANT OPTION` cannot be granted on — Postgres
+/// answers such a statement with a warning and no effect. Databases provisioned
+/// before those options were part of the grants still hold them plain, and only
+/// the instance's own Postgres user, which owns them, can add the options.
+///
+/// Idempotent, and a no-op for a data table on a user-provided resource, where
+/// Windmill does not own the Postgres user. Never fatal: the caller's own work
+/// is what the admin asked for, and it may well not need any of this.
+pub(crate) async fn ensure_instance_db_can_delegate(db: &DB, w_id: &str, datatable_name: &str) {
+    let Ok(datatable) = read_datatable(db, w_id, datatable_name).await else {
+        return;
+    };
+    if datatable.database.resource_type != DataTableCatalogResourceType::Instance {
+        return;
+    }
+    if let Err(e) =
+        ensure_instance_db_grant_options(db, &datatable.database.resource_path).await
+    {
+        tracing::warn!(
+            "Could not refresh the grant options of instance database '{}': {}. Continuing.",
+            datatable.database.resource_path,
+            e
+        );
+    }
+}
+
 /// Connect to the data table's own database as `admin` and report the identity
 /// the plan has to be built against: the database name, the role that owns the
 /// existing objects, and the roles that actually exist in the cluster.
@@ -877,6 +909,10 @@ async fn set_datatable_permissions(
     Json(req): Json<SetDatatablePermissions>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // The roles about to be created are handed privileges by this connection,
+    // which cannot pass on what it holds without the grant option.
+    ensure_instance_db_can_delegate(&db, &w_id, &datatable_name).await;
 
     // The plan is rebuilt here rather than trusted from the preview: the client
     // never gets to choose what runs against the database.

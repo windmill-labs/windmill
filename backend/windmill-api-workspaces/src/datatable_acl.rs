@@ -797,6 +797,11 @@ async fn apply_datatable_acl(
     Json(req): Json<AclChangeRequest>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Granting is passing a privilege on, which this connection cannot do for a
+    // privilege it holds without the grant option.
+    crate::datatable_permissions::ensure_instance_db_can_delegate(&db, &w_id, &datatable_name).await;
+
     let (mut client, plan, dbname) = build_acl_plan(&db, &w_id, &datatable_name, &req).await?;
 
     // One transaction: a half-applied ownership transfer leaves objects of one
