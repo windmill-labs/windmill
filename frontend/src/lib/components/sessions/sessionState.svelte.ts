@@ -447,10 +447,16 @@ export function __resetDeletedSessionIdsForTesting(): void {
 // The one way to remove a session's record. Tombstones BEFORE awaiting the delete so a
 // putSession racing this transaction cannot commit its write behind it — a direct
 // db.delete elsewhere would silently reopen that window.
-async function deleteSessionRow(db: IDBPDatabase<SessionSchema>, id: string): Promise<void> {
+async function deleteSessionRow(
+	db: IDBPDatabase<SessionSchema>,
+	id: string,
+	// Off when this tab is only mirroring another's delete: the other tabs already
+	// know, and answering them would have them answer back without end.
+	announce = true
+): Promise<void> {
 	deletedSessionIds.add(id)
 	await db.delete('sessions', id)
-	broadcastSessionDelete(id)
+	if (announce) broadcastSessionDelete(id)
 }
 
 // The one way to write a session's record, and the other half of the invariant above:
@@ -505,12 +511,12 @@ export async function putSession(s: Session): Promise<void> {
 	}
 }
 
-export async function deleteSessionRecord(id: string): Promise<void> {
+export async function deleteSessionRecord(id: string, announce = true): Promise<void> {
 	if (!BROWSER) return
 	const db = await sessionsDb.whenReady()
 	if (!db) return
 	try {
-		await deleteSessionRow(db, id)
+		await deleteSessionRow(db, id, announce)
 	} catch (e) {
 		console.error('Failed to delete session record', e)
 	}
@@ -629,8 +635,9 @@ function applyRemoteSessionDelete(id: string): void {
 	if (sessionState.currentSessionId === id) sessionState.currentSessionId = undefined
 	// The tombstone stops writes that have not started; one already past that check
 	// can still land after the other tab's delete committed, leaving the row behind
-	// to reappear on reload. Removing it again here collects that straggler.
-	void deleteSessionRecord(id)
+	// to reappear on reload. Removing it again here collects that straggler, silently
+	// — this delete is a mirror, and announcing it would echo back.
+	void deleteSessionRecord(id, false)
 }
 
 registerSyncHandlers({

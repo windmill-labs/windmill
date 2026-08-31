@@ -550,15 +550,11 @@
 		return pending?.action === 'question' ? pending.toolCallId : undefined
 	})
 
-	// The composer is locked for as long as another tab's run is in flight: this
-	// tab still shows the transcript from before that run, and a turn sent from
-	// it would reach the model as a conversation the driver has already moved
-	// past. It unlocks on its own once the re-read that follows the turn lands.
-	//
-	// No exception for a run parked on a question. Only the driving tab holds the
-	// question and the resolver waiting on it; a card that looks parked here is a
-	// restored one whose resolver left with the old page, and answering it would
-	// deliver to nobody.
+	// Locked while another tab's run is in flight: this tab still shows the
+	// pre-run transcript, so a turn sent here would reach the model as a
+	// conversation the driver has moved past. No exception for a run parked on a
+	// question — only the driving tab holds the resolver, so answering the card
+	// shown here would deliver to nobody.
 	const composerLocked = $derived(aiChatManager.runHeldElsewhere)
 
 	// The prompt the other tab's run is working on, drawn beside the indicator so

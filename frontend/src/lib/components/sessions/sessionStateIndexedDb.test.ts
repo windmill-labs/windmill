@@ -23,6 +23,14 @@ vi.mock('../copilot/chat/artifacts/artifactsDB', async (orig) => ({
 	deleteArtifactsForSession: deleteArtifactsForSessionMock
 }))
 
+// Capture what the row funnels announce to the other tabs, so a delete that is
+// itself the echo of another tab's delete can be shown not to answer back.
+const { deleteBroadcasts } = vi.hoisted(() => ({ deleteBroadcasts: [] as string[] }))
+vi.mock('./sessionSync.svelte', async (orig) => ({
+	...(await orig<typeof import('./sessionSync.svelte')>()),
+	broadcastSessionDelete: (id: string) => void deleteBroadcasts.push(id)
+}))
+
 // sessionState imports WorkspaceService; these tests don't touch the network.
 vi.mock('$lib/gen', async (orig) => {
 	const actual = await orig<typeof import('$lib/gen')>()
@@ -268,6 +276,23 @@ describe('sessionState IndexedDB persistence', () => {
 
 		await rehydrate(user)
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['keep']))
+	})
+
+	// A mirrored delete that announced itself would be mirrored straight back, and
+	// the two tabs would trade the same message and transaction without end.
+	it('removes a mirrored delete without announcing it', async () => {
+		const user = freshUser()
+		await login(user)
+		await putSession(session({ id: 'mirrored', createdAt: 1 }))
+
+		deleteBroadcasts.length = 0
+		await deleteSessionRecord('mirrored', false)
+		expect(deleteBroadcasts).toEqual([])
+
+		// Still genuinely removed — silence is not a no-op, it is what collects the
+		// row a write racing the other tab's delete left behind.
+		await rehydrate(user)
+		await vi.waitFor(() => expect(sessionState.sessions).toEqual([]))
 	})
 
 	it('isolates sessions between users', async () => {

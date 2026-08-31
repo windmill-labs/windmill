@@ -187,21 +187,13 @@ export async function withSessionRunLock<T>(
 	}
 }
 
-/** What exclusion amounts to with no lock to take: refuse while another tab's
- *  run is visibly on screen, and otherwise go.
+/** What exclusion amounts to with no lock to take: refuse while another tab's run
+ *  is visibly on screen, and otherwise go.
  *
- *  This is deliberately not mutual exclusion, and cannot be made into it. A
- *  driver whose timers have been throttled in a hidden tab goes silent long
- *  before its turn ends, so it is reaped as dead and a send from here can
- *  start a second turn against the same chat id. Nothing over the channel fixes
- *  that: a probe distinguishes a throttled tab from a closed one, but not a
- *  frozen tab from a closed one, and the browser freezes hidden tabs on much the
- *  same schedule as it throttles them.
- *
- *  Accepted rather than solved, because the only origins that land here are
- *  served over plain HTTP and are not localhost — a shape used for local testing
- *  rather than for running Windmill. Every HTTPS deployment, and localhost, is a
- *  secure context and takes the real lock above. */
+ *  Not mutual exclusion, and cannot be made into it — a throttled hidden driver
+ *  goes silent before its turn ends and is reaped as dead, and no probe tells a
+ *  frozen tab from a closed one. Accepted because only plain-HTTP non-localhost
+ *  origins land here; every real deployment takes the lock above. */
 async function bestEffort<T>(sessionId: string, body: () => Promise<T>): Promise<T | 'busy'> {
 	return await drive(sessionId, body)
 }

@@ -245,10 +245,7 @@ describe('AIChatManager cross-tab run guard', () => {
 		expect(manager.queuedMessage).toBe('follow up')
 	})
 
-	// Whether a rival tab owns the session is settled by the lock inside the guard,
-	// not by the heartbeat a send reads on the way in — two tabs sending at once
-	// both pass that check. So the rewind has to sit behind the guard: refused in
-	// front of it, the loser would keep a transcript truncated for a turn it never ran.
+	// Pins `sendRequest`'s `rewind` contract from the caller's side.
 	it('leaves both histories intact when the guard refuses a retry', async () => {
 		const manager = new AIChatManager()
 		manager.isSessionChat = true

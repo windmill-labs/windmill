@@ -1030,13 +1030,10 @@ function runPromptEcho(messages: DisplayMessage[], from: number): string | undef
 
 /** The prompt each running turn is working on, pinned for the life of the run.
  *
- *  Not read fresh each tick, and searched only past where the transcript stood
- *  when the run began. The first status goes out the moment the guard is
- *  entered, which is before the send has appended the user message, so the
- *  transcript still ends with the PREVIOUS turn's prompt then — echoing whatever
- *  is last would show a watching tab that one and then swap it for the real one.
- *  By position rather than by text, so sending the same prompt twice running
- *  still echoes the second one. */
+ *  Searched only past where the transcript stood at guard entry: the first status
+ *  goes out before the send appends the user message, so reading whatever is last
+ *  would echo the PREVIOUS turn's prompt and then swap it. By position, not text,
+ *  so the same prompt sent twice running still echoes the second one. */
 const runPrompts = new Map<string, { from: number; prompt?: string }>()
 
 function currentRunPrompt(sessionId: string, messages: DisplayMessage[]): string | undefined {
