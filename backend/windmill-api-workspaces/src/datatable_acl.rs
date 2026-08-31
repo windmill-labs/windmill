@@ -508,7 +508,14 @@ async fn get_datatable_acl(
     let owner_row = match &target {
         AclTarget::Schema { schema } => client
             .query_opt(
-                "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = $1",
+                // `public` is owned by `pg_database_owner`, a placeholder role
+                // whose membership is whoever owns the database — naming it back
+                // would say nothing, so resolve it to that owner.
+                "SELECT pg_get_userbyid(
+                     CASE WHEN n.nspowner = (SELECT oid FROM pg_roles WHERE rolname = 'pg_database_owner')
+                          THEN (SELECT d.datdba FROM pg_database d WHERE d.datname = current_database())
+                          ELSE n.nspowner END)
+                 FROM pg_namespace n WHERE n.nspname = $1",
                 &[schema],
             )
             .await
