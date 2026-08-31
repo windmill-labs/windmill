@@ -3,6 +3,7 @@
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import FolderEditor from './FolderEditor.svelte'
 	import { Save } from 'lucide-svelte'
+	import { sendUserToast } from '$lib/toast'
 
 	let {
 		offset = 0,
@@ -12,7 +13,7 @@
 	}: {
 		offset?: number
 		disableChatOffset?: boolean
-		onSaved?: (name: string, created: boolean) => void
+		onSaved?: (name: string, created: boolean) => void | Promise<void>
 		/** Edit a folder of this workspace rather than the active one. */
 		workspace?: string
 	} = $props()
@@ -69,7 +70,11 @@
 			// not to exist is created from an `initEdit` drawer.
 			const saved = await editor?.save()
 			if (saved) {
-				onSaved?.(saved.name, saved.created)
+				// Callers reload a list here, and an async one's rejection would go unhandled.
+				// The write has already landed, so report it and close either way.
+				void Promise.resolve(onSaved?.(saved.name, saved.created)).catch((e) =>
+					sendUserToast(e?.body ?? String(e), true)
+				)
 				// The editor reloads its baseline after saving, but that lands a tick
 				// later; close on our own authority rather than racing it.
 				discarding = true
