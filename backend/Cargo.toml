@@ -477,10 +477,10 @@ rust-embed = { version = "^6", features = ["interpolate-folder-path"] }
 mime_guess = "^2"
 hex = "^0"
 sql-builder = "^3"
-# Pinned: `^0` floats to 0.6, which moved `password_hash::SaltString`, put
-# `rand_core` behind a feature and changed `hash_password`'s signature —
-# users_ee.rs is written against 0.5 and does not compile otherwise.
-argon2 = "0.5"
+# Minor-pinned rather than the `^0` used elsewhere in this file: argon2's 0.x
+# minors are API-breaking (0.6 moved `SaltString` into `phc`, put `rand_core`
+# behind a feature and changed `hash_password`), so a float breaks the build.
+argon2 = "0.6"
 quick_cache = "^0"
 rand = "=0.9.0"
 rand_core = { version = "^0", features = ["std"] }
