@@ -31,6 +31,7 @@
 	import { base } from '$lib/base'
 	import AIChatModelSettings from '../copilot/chat/AIChatModelSettings.svelte'
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
+	import { USER_SETTINGS_HASH } from '../sidebar/settings'
 
 	let value = $state('')
 	let placeholder = $state('')
@@ -212,9 +213,18 @@
 						No AI provider is configured
 					{/if}
 				</p>
-				<!-- No workspace-config button when the user disabled AI in their account: the fix is
-				     in account settings (a modal, no route), and "Configure AI" would be misleading. -->
-				{#if !$aiUserDisabled}
+				{#if $aiUserDisabled}
+					<!-- The fix lives in account settings (a hash-opened drawer, not a route), so link
+					     the hash the sidebar's Account menu uses rather than the workspace AI settings. -->
+					<Button
+						unifiedSize="sm"
+						variant="accent"
+						startIcon={{ icon: Settings }}
+						href={USER_SETTINGS_HASH}
+					>
+						Open account settings
+					</Button>
+				{:else}
 					<Button
 						unifiedSize="sm"
 						variant="accent"
