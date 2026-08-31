@@ -86,16 +86,25 @@
 		const next = pages[index + step]
 		if (!next) return
 		event.preventDefault()
+		// Asked before navigating: `inert` lands on the page being left and takes focus with it.
+		restoreFocus = !!box?.contains(document.activeElement)
 		onNavigate(next.key)
 	}
 
-	/** Focus follows the page. `inert` resets focus to the body when it lands on the page the user
-	 *  was in, so without this a keyboard user is dropped out of the dialog on the first step. The
-	 *  check is deferred because that reset happens after the attribute, not with it. */
+	/** Whether the arriving page should take focus: set by a keypress that had focus inside the
+	 *  pages, so a key aimed at the dialog's own chrome leaves focus where it was. Plain state, not
+	 *  `$state`: the effect below is keyed on the page, and reading this must not key it too. */
+	let restoreFocus = false
+
+	/** Focus follows the page, or a keyboard user is dropped out of the dialog on the first step:
+	 *  `inert` on the page being left resets focus to the body. Deferred a frame and unconditional,
+	 *  because that reset lands *after* this effect runs — testing `activeElement` here reads the
+	 *  element the user is about to lose and does nothing. */
 	$effect(() => {
 		current
+		if (!restoreFocus) return
+		restoreFocus = false
 		const frame = requestAnimationFrame(() => {
-			if (document.activeElement !== document.body) return
 			box?.querySelector<HTMLElement>('.paged-content-page:not(.is-hidden)')?.focus({
 				preventScroll: true
 			})
