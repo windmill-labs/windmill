@@ -559,6 +559,16 @@
 						<ChevronDownIcon class={rowChevronClass(dtOpen)} size={14} />
 						<DatabaseIcon class="shrink-0" size={14} />
 						<span class="truncate text-ellipsis text-left text-xs">{root.datatable}</span>
+						{#if root.datatable === currentDatatable}
+							<!-- Several data tables are listed, but only one is the one being
+							     queried; the tree would otherwise not say which. -->
+							<span
+								class="shrink-0 rounded-md px-1.5 py-0.5 text-2xs bg-surface-sunken text-secondary"
+								title="The data table this manager is connected to"
+							>
+								current
+							</span>
+						{/if}
 						{#if roleInfo}
 							{@const dt = root.datatable}
 							<DatatableRoleBadge
