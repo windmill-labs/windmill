@@ -16,6 +16,7 @@ import {
 	collectExportVarPaths,
 	extractTriggerConfigResourceRefs,
 	extractVarRefsFromValue,
+	isRequiredResource,
 	type ProjectExport,
 	type FetchedItem,
 	type ItemRef
@@ -865,5 +866,16 @@ describe('flow_env and preprocessor_module', () => {
 		expect(out.preprocessor_module.value.path).toBe('f/proj/preproc')
 		expect(out.flow_env.SLACK).toBe('$res:f/proj/slack')
 		expect(out.flow_env.PLAIN).toBe('not-a-ref')
+	})
+})
+
+describe('isRequiredResource', () => {
+	// Projects published before the Hub stored the flag carry no `required` key.
+	// Reading that as "not required" would silently stop asking for credentials
+	// every one of them genuinely needs.
+	it('treats an absent flag as required', () => {
+		expect(isRequiredResource({ path: 'f/p/db', resource_type: 'postgresql' })).toBe(true)
+		expect(isRequiredResource({ path: 'f/p/db', required: true })).toBe(true)
+		expect(isRequiredResource({ path: 'f/p/postgresql', required: false })).toBe(false)
 	})
 })
