@@ -10,6 +10,7 @@
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
+	import Tooltip from '../meltComponents/Tooltip.svelte'
 
 	interface Props {
 		showMcpMode?: boolean
@@ -276,7 +277,18 @@
 				{#if !isAllWorkspaces}
 					<div>
 						<span class="block mb-1 text-emphasis text-xs font-semibold"
-							>Forward request headers <span class="text-xs text-primary">(optional)</span></span
+							>Forward request headers <span class="text-xs text-primary">(optional)</span>
+							<Tooltip>
+								{#snippet text()}
+									A script or flow without a preprocessor receives each header as a parameter of the
+									same name (<code>X-User-Id</code> becomes <code>x_user_id</code>), hidden from the
+									tool schema so the model cannot set it. With a preprocessor they arrive keyed by
+									the original header name, under <code>event.headers</code> for a v2 preprocessor
+									and <code>wm_trigger.mcp.headers</code> for a v1 one. Authentication headers are never
+									forwarded. Tools that run a runnable by path, preview or schedule are withdrawn while
+									this is set, since the model chooses their arguments.
+								{/snippet}
+							</Tooltip></span
 						>
 						<TextInput
 							inputProps={{ type: 'text', placeholder: 'x-user-id, x-tenant' }}
@@ -284,16 +296,7 @@
 							class="w-full"
 						/>
 						<p class="mt-1 text-xs text-tertiary">
-							Header names your MCP client sends, comma separated. A script or flow without a
-							preprocessor receives each as a parameter of the same name (<code>X-User-Id</code>
-							becomes <code>x_user_id</code>), hidden from the tool schema so the model cannot set
-							it. With a preprocessor they arrive keyed by the original header name, under
-							<code>event.headers</code> for a v2 preprocessor and
-							<code>wm_trigger.mcp.headers</code> for a v1 one.
-						</p>
-						<p class="mt-1 text-xs text-tertiary">
-							Authentication headers stay out of both. Tools that run a runnable by path, preview,
-							or schedule are withdrawn while this is set, since the model chooses their arguments.
+							Header names your MCP client sends, comma separated.
 						</p>
 					</div>
 				{/if}
