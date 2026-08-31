@@ -2,8 +2,12 @@ import type { AclGrant, AclTarget } from '$lib/gen'
 
 /** Privileges Postgres accepts per kind of object. Mirrors the whitelist the
  * backend validates against — a privilege missing here just cannot be built. */
-/** `CREATE` on a database is the right to create schemas in it. */
-export const DATABASE_PRIVILEGES = ['CONNECT', 'CREATE', 'TEMPORARY']
+/** `CREATE` on a database is the right to create schemas in it. `CONNECT` is
+ * not offered: every role a data table creates is granted it at creation, so
+ * building that statement by hand would only ever restate what is already true.
+ * The backend still accepts it, so a CONNECT grant read off the catalog can be
+ * revoked. */
+export const DATABASE_PRIVILEGES = ['CREATE', 'TEMPORARY']
 export const SCHEMA_PRIVILEGES = ['USAGE', 'CREATE']
 export const TABLE_PRIVILEGES = [
 	'SELECT',
