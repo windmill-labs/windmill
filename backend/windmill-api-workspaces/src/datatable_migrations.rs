@@ -1190,32 +1190,23 @@ async fn delete_datatable_migration(
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name, timestamp)): Path<(String, String, i64)>,
 ) -> Result<String> {
-    // Hold the run-serialization lock across the applied-check and the delete: a
-    // run snapshots a migration's SQL before recording its version, so an
-    // unserialized delete could race it and leave `_wm_migrations` pointing at a
-    // definition that no longer exists (breaking rollback and hiding the applied
-    // version). Held until the handler returns. Fail closed if we can't verify.
-    let unreachable = |e| {
-        Error::internal_err(format!(
-            "Cannot verify whether migration {} on data table '{}' has already been applied \
-             (its database is unreachable: {}). Refusing to delete it; retry once the database \
-             is reachable.",
-            timestamp, datatable_name, e
-        ))
-    };
+    // Hold the run-serialization lock across the delete: a run snapshots a
+    // migration's SQL before recording its version, so an unserialized delete
+    // could race it and record a version whose definition is already gone.
+    // Held until the handler returns.
+    //
+    // Deleting one that has already run is allowed: it leaves `_wm_migrations`
+    // naming a definition that no longer exists, so it can no longer be
+    // reverted — which is what the caller is warned about before asking.
     let lock_client = lock_datatable_migration_runs(&db, &w_id, &datatable_name)
         .await
-        .map_err(unreachable)?;
-    let applied = read_applied_versions_on_client(&lock_client, &datatable_name)
-        .await
-        .map_err(unreachable)?;
-    if applied.contains(&timestamp) {
-        return Err(Error::BadRequest(format!(
-            "Migration {} on data table '{}' has already been applied and cannot be deleted. \
-             Revert it first.",
-            timestamp, datatable_name
-        )));
-    }
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Cannot delete migration {} on data table '{}': its database is unreachable \
+                 ({}). Retry once the database is reachable.",
+                timestamp, datatable_name, e
+            ))
+        })?;
 
     let deleted_name = sqlx::query_scalar!(
         "DELETE FROM datatable_migrations \
