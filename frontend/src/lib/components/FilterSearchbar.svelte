@@ -298,6 +298,9 @@
 		class?: string
 		placeholder?: string
 		autofocus?: boolean
+		// Applied as the id of the underlying editable, so a parent can focus it or recognise its
+		// key events by id (the searchbar is a contenteditable, not an <input>).
+		inputId?: string
 		// Free-text mode: while the input holds only free text (no specific filter tag is
 		// being edited and no non-default filter is set), suppress the suggestions dropdown
 		// so it behaves like a plain search box. This frees the arrow keys for the
@@ -317,7 +320,8 @@
 		placeholder = 'Filter...',
 		autofocus,
 		hideDropdownOnFreeText = false,
-		onDropdownVisibleChange
+		onDropdownVisibleChange,
+		inputId
 	}: Props<SchemaT> = $props()
 
 	let _value = new DebouncedTempValue(
@@ -684,6 +688,7 @@
 >
 	<TaggedTextInput
 		bind:this={taggedTextInput}
+		id={inputId}
 		bind:value={asText.val}
 		{tags}
 		highlights={[
@@ -700,7 +705,19 @@
 			inputSizeClasses.md
 		)}
 		{placeholder}
-		onKeyDown={() => (open = true)}
+		onKeyDown={(e) => {
+			// In free-text mode the searchbar coexists with a list that owns Arrow/Enter, so opening
+			// the dropdown on a bare navigation key would steal them from an empty box. Typing, click,
+			// or an already-open dropdown still open/keep it. Other searchbars keep opening on any key.
+			if (
+				!hideDropdownOnFreeText ||
+				!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape', 'Tab'].includes(
+					e.key
+				)
+			) {
+				open = true
+			}
+		}}
 		{autofocus}
 	/>
 	{#if asText.val}

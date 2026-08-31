@@ -8,6 +8,7 @@
 		onTextSegmentAtCursorChange,
 		onKeyDown,
 		autofocus,
+		id,
 		class: className = ''
 	}: {
 		tags: { regex: RegExp; id: string; onClear?: () => void }[]
@@ -18,6 +19,7 @@
 		onTextSegmentAtCursorChange?: (segment: { text: string; start: number; end: number }) => void
 		onKeyDown?: (e: KeyboardEvent) => void
 		autofocus?: boolean
+		id?: string
 		class?: string
 	} = $props()
 
@@ -509,6 +511,7 @@
 <!-- svelte-ignore a11y_autofocus -->
 <div
 	bind:this={contentEditableDiv}
+	{id}
 	contenteditable="true"
 	oninput={handleInput}
 	onpaste={handlePaste}

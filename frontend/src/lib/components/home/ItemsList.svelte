@@ -1323,6 +1323,26 @@
 		selectedIndex = previousNbDisplayed
 	}
 
+	// The searchbar is a contenteditable, not an <input>, so it can't be matched by SKIP_SELECTOR
+	// and has no `.value`/`.selectionEnd`. It owns the arrows only while its suggestion dropdown is
+	// open (free-text mode passes them through to the list); track that so nav stands down then.
+	let searchbarDropdownOpen = $state(false)
+
+	// Caret position inside the searchbar's contenteditable, via the Selection API — the equivalent
+	// of an <input>'s selectionStart/End the list navigation used before the searchbar swap.
+	function searchCaret(el: HTMLElement): { atStart: boolean; atEnd: boolean; empty: boolean } {
+		const text = el.textContent ?? ''
+		const sel = window.getSelection()
+		if (!sel || sel.rangeCount === 0)
+			return { atStart: true, atEnd: true, empty: text.length === 0 }
+		const range = sel.getRangeAt(0)
+		const pre = range.cloneRange()
+		pre.selectNodeContents(el)
+		pre.setEnd(range.endContainer, range.endOffset)
+		const caret = pre.toString().length
+		return { atStart: caret === 0, atEnd: caret >= text.length, empty: text.length === 0 }
+	}
+
 	// Elements that own the keyboard themselves (menus, dialogs, comboboxes): the
 	// list's own shortcuts stand down while one of them has focus.
 	const SKIP_SELECTOR =
@@ -1443,6 +1463,8 @@
 				tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
 			const isOurSearch = target.id === 'home-search-input'
 			if (isEditable && !isOurSearch) return
+			// While the searchbar's suggestion dropdown is open it owns the arrows/Enter itself.
+			if (isOurSearch && searchbarDropdownOpen) return
 			if (target.closest(skipSelector)) return
 		}
 		const active = document.activeElement as HTMLElement | null
@@ -1452,8 +1474,8 @@
 		// Guard: if cursor is in the middle of typed search text, let the cursor move.
 		if (e.key === 'ArrowRight') {
 			if (target?.id === 'home-search-input') {
-				const inp = target as HTMLInputElement
-				if (inp.value.length > 0 && inp.selectionEnd !== inp.value.length) return
+				const c = searchCaret(target)
+				if (!c.empty && !c.atEnd) return
 			}
 			if (selectedIndex < 0 || selectedIndex >= displayedItems.length) return
 			const buttons = getSelectedRowActionButtons()
@@ -1466,8 +1488,8 @@
 		// ArrowLeft from search input with cursor at start: no-op (let default handle).
 		if (e.key === 'ArrowLeft') {
 			if (target?.id === 'home-search-input') {
-				const inp = target as HTMLInputElement
-				if (inp.value.length > 0 && inp.selectionStart !== 0) return
+				const c = searchCaret(target)
+				if (!c.empty && !c.atStart) return
 			}
 			return
 		}
@@ -1709,6 +1731,8 @@
 					presets={contentActive ? [] : searchPresets}
 					autofocus
 					hideDropdownOnFreeText
+					inputId="home-search-input"
+					onDropdownVisibleChange={(v) => (searchbarDropdownOpen = v)}
 				/>
 			</div>
 			<!-- Same gate the old create actions used: hidden from operators and in workspaces
