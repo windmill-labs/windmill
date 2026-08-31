@@ -2004,6 +2004,11 @@ struct CachedResourceType {
     #[allow(dead_code)]
     app: String,
     description: Option<String>,
+    /// File extension for a type whose value is one file rather than a set of
+    /// fields, which is what makes the resource editor a file editor. Absent from
+    /// hubs predating the column, hence the default.
+    #[serde(default)]
+    format_extension: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -2013,6 +2018,8 @@ struct HubResourceTypeRaw {
     schema: Option<String>,
     app: String,
     description: Option<String>,
+    #[serde(default)]
+    format_extension: Option<String>,
 }
 
 async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType>> {
@@ -2054,6 +2061,7 @@ async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType
                 schema,
                 app: rt.app,
                 description: rt.description,
+                format_extension: rt.format_extension,
             })
         })
         .collect())
@@ -2107,10 +2115,11 @@ async fn sync_cached_resource_types(
 
     for rt in &resource_types {
         let exists: Option<bool> = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3)",
+            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3 AND format_extension IS NOT DISTINCT FROM $4)",
             &rt.name,
             rt.schema.as_ref(),
             rt.description.as_deref(),
+            rt.format_extension.as_deref(),
         )
         .fetch_one(&db)
         .await?;
@@ -2120,13 +2129,15 @@ async fn sync_cached_resource_types(
         }
 
         sqlx::query!(
-            "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at)
-             VALUES ('admins', $1, $2, $3, now())
+            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, edited_at)
+             VALUES ('admins', $1, $2, $3, $4, now())
              ON CONFLICT (workspace_id, name) DO UPDATE
-             SET schema = EXCLUDED.schema, description = EXCLUDED.description, edited_at = now()",
+             SET schema = EXCLUDED.schema, description = EXCLUDED.description,
+                 format_extension = EXCLUDED.format_extension, edited_at = now()",
             &rt.name,
             rt.schema.as_ref(),
             rt.description.as_deref(),
+            rt.format_extension.as_deref(),
         )
         .execute(&db)
         .await?;
