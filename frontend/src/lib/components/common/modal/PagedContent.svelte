@@ -110,23 +110,25 @@
 		}
 	})
 
-	/** Focus follows the page, or a keyboard user is dropped out of the dialog on the first step:
-	 *  `inert` on the page being left resets focus to the body. Focus is only taken when it was
-	 *  already in the pages — a key aimed at the dialog's own chrome leaves it where it was. */
+	/** Focus follows the page, or a keyboard user is dropped out of the dialog: `inert` on the page
+	 *  being left resets focus to the body, and so does the trail's back button, which is removed
+	 *  as the level it returns from closes. Focus is taken when it was in the pages, or when it has
+	 *  ended up nowhere — never off a control the user is actually on, such as dialog chrome that
+	 *  outlives the navigation. */
+	let previous = current
 	$effect(() => {
-		current
-		if (!focusInside) return
-		// The browser runs its own fixup for the page that just became inert, and it lands after
-		// this one often enough to matter — Escape stepping back a level loses focus to the body
-		// every time on a single pass. So claim focus, then take it back from the body for a
-		// couple of frames until it stays. Only ever from the body: focus the user has moved
-		// somewhere real is left where they put it.
+		const next = current
+		if (next === previous) return
+		const wasInside = focusInside
+		previous = next
+		// Claimed over a few frames rather than one: the browser runs its own fixup for the page
+		// that just became inert, and it lands after this on some paths.
 		let tries = 3
 		let frame = 0
 		const claim = () => {
 			const page = box?.querySelector<HTMLElement>('.paged-content-page:not(.is-hidden)')
 			if (!page) return
-			if (tries === 3 || document.activeElement === document.body) {
+			if ((wasInside && tries === 3) || document.activeElement === document.body) {
 				page.focus({ preventScroll: true })
 			}
 			if (--tries > 0) frame = requestAnimationFrame(claim)
