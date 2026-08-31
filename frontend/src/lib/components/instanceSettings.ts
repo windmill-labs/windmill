@@ -999,6 +999,23 @@ export const settings: Record<string, Setting[]> = {
 			triggersRestart: true
 		}
 	],
+	'Service logs': [
+		{
+			label: 'Retention in secs',
+			key: 'service_log_retention_secs',
+			description:
+				'How long a service log is kept, across every copy of it: the entry in the database, the file on the disk of the process that wrote it, and — once instance object storage is configured and the indexer has ingested it — its line in the columnar store that search and the log viewer read. Search reaches back at most this far, and less when the indexer time window under Indexer is shorter. Defaults to 14 days. There is no keep-forever setting here — leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			error:
+				'Service log retention must be between 1 second and 100 years — leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
+		}
+	],
+
 	Indexer: [
 		{
 			label: '',
@@ -1191,6 +1208,12 @@ export const instanceSettingsNavigationGroups = [
 				isEE: true
 			},
 			{
+				id: 'service_logs',
+				label: 'Service logs',
+				aiId: 'instance-settings-service-logs',
+				aiDescription: 'Service log retention settings'
+			},
+			{
 				id: 'indexer',
 				label: 'Indexer',
 				aiId: 'instance-settings-indexer',
@@ -1273,6 +1296,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	webhooks: 'Webhooks',
 	otel_prom: 'OTEL/Prom',
 	indexer: 'Indexer',
+	service_logs: 'Service logs',
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
@@ -1308,6 +1332,7 @@ export const categoryToTabMap: Record<string, string> = {
 	Webhooks: 'webhooks',
 	'OTEL/Prom': 'otel_prom',
 	Indexer: 'indexer',
+	'Service logs': 'service_logs',
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',

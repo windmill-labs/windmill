@@ -15,6 +15,7 @@ pub const OAUTH_SETTING: &str = "oauths";
 pub const AI_CONFIG_SETTING: &str = "ai_config";
 pub const RETENTION_PERIOD_SECS_SETTING: &str = "retention_period_secs";
 pub const RETENTION_PERIOD_SECS_OVERRIDES_SETTING: &str = "retention_period_secs_overrides";
+pub const SERVICE_LOG_RETENTION_SECS_SETTING: &str = "service_log_retention_secs";
 /// Upper bound on how many per-workspace retention overrides may be configured. The periodic monitor
 /// sweeps each override workspace in its own transaction every pass, so this keeps a pass bounded
 /// (and the feature is a targeted escape hatch for a handful of special workspaces, not a bulk knob).

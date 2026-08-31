@@ -70,18 +70,17 @@ use windmill_common::{
         RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
         SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
-        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
-        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WORKSPACE_MAX_QUEUED_JOBS_SETTING,
+        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING,
+        UV_PYTHON_INSTALL_MIRROR_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WORKSPACE_MAX_QUEUED_JOBS_SETTING,
     },
     indexer::load_indexer_config,
     jobs::delete_jobs,
     jwt::JWT_SECRET,
     oauth2::REQUIRE_PREEXISTING_USER_FOR_OAUTH,
     server::load_smtp_config,
-    tracing_init::JSON_FMT,
     users::truncate_token,
     utils::{empty_as_none, now_from_db, report_critical_error, Mode, HUB_API_SECRET},
     worker::{
@@ -98,10 +97,10 @@ use windmill_common::{
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED,
     CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART, CRITICAL_ERROR_CHANNELS, DB, DEFAULT_HUB_BASE_URL,
-    HUB_BASE_URL, JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES,
-    JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED, METRICS_ENABLED,
-    MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED, OTEL_TRACING_ENABLED,
-    SERVICE_LOG_RETENTION_SECS, STORE_AUDIT_LOGS_S3,
+    DEFAULT_SERVICE_LOG_RETENTION_SECS, HUB_BASE_URL, JOB_RETENTION_SECS,
+    JOB_RETENTION_SECS_OVERRIDES, JOB_RETENTION_SECS_OVERRIDES_LOADED, METRICS_DEBUG_ENABLED,
+    METRICS_ENABLED, MONITOR_LOGS_ON_OBJECT_STORE, OTEL_LOGS_ENABLED, OTEL_METRICS_ENABLED,
+    OTEL_TRACING_ENABLED, STORE_AUDIT_LOGS_S3,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -488,6 +487,19 @@ pub async fn initial_load(
         "HUB_API_SECRET",
         |v: Option<String>| async move { HUB_API_SECRET.store(std::sync::Arc::new(v)) },
     );
+
+    // Outside the `server_mode` guard below: every mode reads this. A worker registers its
+    // rotated log files against the cutoff, and a dedicated indexer trims the search index to a
+    // window derived from it — neither is a server.
+    pass.setting(SERVICE_LOG_RETENTION_SECS_SETTING, true, |v| async move {
+        windmill_common::set_service_log_retention_secs(parse_setting_value::<i64>(
+            v,
+            SERVICE_LOG_RETENTION_SECS_SETTING,
+            "SERVICE_LOG_RETENTION_SECS",
+            DEFAULT_SERVICE_LOG_RETENTION_SECS,
+            |x| x,
+        ))
+    });
 
     if server_mode {
         pass.setting(RETENTION_PERIOD_SECS_SETTING, true, |v| async move {
@@ -1234,32 +1246,60 @@ async fn sleep_until_next_minute_start_plus_one_s() {
 }
 
 use windmill_common::tracing_init::TMP_WINDMILL_LOGS_SERVICE;
-async fn find_two_highest_files(hostname: &str) -> (Option<String>, Option<String>) {
+
+/// The minutely rolling appender names each file `<hostname>.log.<%Y-%m-%d-%H-%M>`;
+/// anything else in the directory is not a rotated log file.
+fn parse_log_file_ts(file_name: &str) -> Option<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(
+        file_name.rsplit('.').next()?,
+        windmill_common::tracing_init::LOG_TIMESTAMP_FMT,
+    )
+    .ok()
+}
+
+/// Oldest first. Readdir order is filesystem-dependent — tmpfs hands back the
+/// newest entry first, ext4 hashes the names — so the listing has to be sorted
+/// before anything picks a file out of it.
+fn sorted_log_files(file_names: impl Iterator<Item = String>) -> Vec<(NaiveDateTime, String)> {
+    let mut files = file_names
+        .filter_map(|name| parse_log_file_ts(&name).map(|ts| (ts, name)))
+        .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
+/// Every log file but the newest one: that one is still being appended to, every
+/// older one is final.
+fn rotated_log_files(file_names: impl Iterator<Item = String>) -> Vec<(NaiveDateTime, String)> {
+    let mut files = sorted_log_files(file_names);
+    files.pop();
+    files
+}
+
+async fn read_log_file_names(hostname: &str) -> Vec<String> {
     let log_dir = format!("{}/{}/", *TMP_WINDMILL_LOGS_SERVICE, hostname);
-    let rd_dir = tokio::fs::read_dir(log_dir).await;
-    if let Ok(mut log_files) = rd_dir {
-        let mut highest_file: Option<String> = None;
-        let mut second_highest_file: Option<String> = None;
-        while let Ok(Some(file)) = log_files.next_entry().await {
-            let file_name = file
-                .file_name()
-                .to_str()
-                .map(|x| x.to_string())
-                .unwrap_or_default();
-            if file_name > highest_file.clone().unwrap_or_default() {
-                second_highest_file = highest_file;
-                highest_file = Some(file_name);
-            }
+    let mut rd_dir = match tokio::fs::read_dir(&log_dir).await {
+        Ok(rd_dir) => rd_dir,
+        Err(e) => {
+            tracing::error!("Error reading log files: {}, {:#?}", log_dir, e);
+            return vec![];
         }
-        (highest_file, second_highest_file)
-    } else {
-        tracing::error!(
-            "Error reading log files: {}, {:#?}",
-            *TMP_WINDMILL_LOGS_SERVICE,
-            rd_dir.unwrap_err()
-        );
-        (None, None)
+    };
+    let mut file_names = vec![];
+    while let Ok(Some(file)) = rd_dir.next_entry().await {
+        if let Some(file_name) = file.file_name().to_str() {
+            file_names.push(file_name.to_string());
+        }
     }
+    file_names
+}
+
+async fn list_log_files(hostname: &str) -> Vec<(NaiveDateTime, String)> {
+    sorted_log_files(read_log_file_names(hostname).await.into_iter())
+}
+
+async fn list_rotated_log_files(hostname: &str) -> Vec<(NaiveDateTime, String)> {
+    rotated_log_files(read_log_file_names(hostname).await.into_iter())
 }
 
 fn get_worker_group(mode: &Mode) -> Option<String> {
@@ -1279,133 +1319,188 @@ pub fn send_logs_to_object_store(conn: &Connection, hostname: &str, mode: &Mode)
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(10));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        init_last_log_file_sent(&conn, &hostname).await;
         sleep_until_next_minute_start_plus_one_s().await;
         loop {
             interval.tick().await;
-            let (_, snd_highest_file) = find_two_highest_files(&hostname).await;
-            send_log_file_to_object_store(
-                &hostname,
-                &mode,
-                &worker_group,
-                &conn,
-                snd_highest_file,
-                false,
-            )
-            .await;
+            let files = list_rotated_log_files(&hostname).await;
+            send_log_files_to_object_store(&hostname, &mode, &worker_group, &conn, files).await;
         }
     });
 }
 
-pub async fn send_current_log_file_to_object_store(conn: &Connection, hostname: &str, mode: &Mode) {
-    tracing::info!("Sending current log file to object store");
-    let (highest_file, _) = find_two_highest_files(hostname).await;
+pub async fn flush_pending_log_files_to_object_store(
+    conn: &Connection,
+    hostname: &str,
+    mode: &Mode,
+) {
+    tracing::info!("Sending pending log files to object store");
     let worker_group = get_worker_group(&mode);
-    send_log_file_to_object_store(hostname, mode, &worker_group, conn, highest_file, true).await;
-}
-
-fn get_now_and_str() -> (NaiveDateTime, String) {
-    let ts = Utc::now().naive_utc();
-    (
-        ts,
-        ts.format(windmill_common::tracing_init::LOG_TIMESTAMP_FMT)
-            .to_string(),
-    )
+    // Nothing rotates after this, so the file still being appended to is registered
+    // here, along with any rotated one the loop had not reached yet. Bounded like the
+    // pool close that follows: a backlog against a slow object store would otherwise
+    // hold the process past its termination grace period. Whatever is left over is
+    // registered by the next run's catch-up.
+    let flush = async {
+        let files = list_log_files(hostname).await;
+        send_log_files_to_object_store(hostname, mode, &worker_group, conn, files).await;
+    };
+    if timeout(Duration::from_secs(15), flush).await.is_err() {
+        tracing::warn!("Could not send all pending log files in time (15s). Exiting anyway.");
+    }
 }
 
 lazy_static::lazy_static! {
     static ref LAST_LOG_FILE_SENT: Arc<Mutex<Option<NaiveDateTime>>> = Arc::new(Mutex::new(None));
+    /// Serializes the periodic uploader against the shutdown flush. The uploader is a
+    /// detached task that keeps ticking while the flush runs and both walk the same
+    /// files, so without this both can clear the watermark for one file and count its
+    /// lines twice through the additive upsert.
+    static ref SENDING_LOG_FILES: tokio::sync::Mutex<()> = tokio::sync::Mutex::new(());
 }
 
+fn last_log_file_sent() -> Option<NaiveDateTime> {
+    LAST_LOG_FILE_SENT.lock().ok().and_then(|ts| *ts)
+}
+
+/// Resume from what this host already registered, so a previous run's leftovers reach
+/// the object store rather than being dropped. Their line counts come out zero, this
+/// run having counted none of them, which only flattens their bars in the UI.
+///
+/// The newest registered minute is left out on purpose: the shutdown flush registers
+/// the file that was still open and the appender reopens that minute in append mode,
+/// so a restart inside it would otherwise strand everything written afterwards.
+///
+/// A row rewritten this way restores the object and sums the counters, but it keeps the
+/// `indexed_at` it already had, so one the indexers have taken is not offered again and
+/// the lines added by the rewrite stay out of search.
+async fn init_last_log_file_sent(conn: &Connection, hostname: &str) {
+    let Some(db) = conn.as_sql() else {
+        return;
+    };
+    match sqlx::query_scalar!(
+        "SELECT max(log_ts) FROM log_file
+         WHERE hostname = $1 AND log_ts < (SELECT max(log_ts) FROM log_file WHERE hostname = $1)",
+        hostname
+    )
+    .fetch_one(db)
+    .await
+    {
+        Ok(Some(ts)) => {
+            if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                last_log_file_sent.replace(ts);
+            }) {
+                tracing::error!("Error initializing last log file sent: {:?}", e);
+            }
+        }
+        Ok(None) => {}
+        Err(e) => tracing::error!("Error loading last log file sent: {:?}", e),
+    }
+}
+
+async fn send_log_files_to_object_store(
+    hostname: &str,
+    mode: &Mode,
+    worker_group: &Option<String>,
+    conn: &Connection,
+    files: Vec<(NaiveDateTime, String)>,
+) {
+    let _guard = SENDING_LOG_FILES.lock().await;
+    let retention_cutoff = Utc::now().naive_utc()
+        - chrono::Duration::seconds(windmill_common::service_log_retention_secs());
+    for (ts, file_name) in files {
+        if last_log_file_sent().is_some_and(|last| last >= ts) {
+            continue;
+        }
+        // A run coming back from a long outage still finds its predecessor's files on
+        // disk. Registering one past the retention cutoff inserts a row
+        // `delete_expired_items` drops on its next pass, once the indexers have already
+        // paid to parse it.
+        if ts < retention_cutoff {
+            continue;
+        }
+        // Stop at the first failure rather than moving on, so a file is never
+        // registered before an older one that has not made it to the store yet.
+        // The indexers do not depend on that ordering — every row is offered until
+        // it is marked — but a gap here would still be visible while it lasts.
+        if !send_log_file_to_object_store(hostname, mode, worker_group, conn, &file_name, ts).await
+        {
+            break;
+        }
+    }
+}
+
+/// Returns whether the file ended up registered in `log_file`.
 async fn send_log_file_to_object_store(
     hostname: &str,
     mode: &Mode,
     worker_group: &Option<String>,
     conn: &Connection,
-    snd_highest_file: Option<String>,
-    use_now: bool,
-) {
-    if let Some(highest_file) = snd_highest_file {
-        //parse datetime frome file xxxx.yyyy-MM-dd-HH-mm
-        let (ts, ts_str) = if use_now {
-            get_now_and_str()
-        } else {
-            highest_file
-                .split(".")
-                .last()
-                .and_then(|x| {
-                    NaiveDateTime::parse_from_str(
-                        x,
-                        windmill_common::tracing_init::LOG_TIMESTAMP_FMT,
-                    )
-                    .ok()
-                    .map(|y| (y, x.to_string()))
-                })
-                .unwrap_or_else(get_now_and_str)
-        };
+    file_name: &str,
+    ts: NaiveDateTime,
+) -> bool {
+    #[cfg(feature = "parquet")]
+    if let Some(s3_client) = windmill_object_store::get_object_store().await {
+        let path = std::path::Path::new(&*TMP_WINDMILL_LOGS_SERVICE)
+            .join(hostname)
+            .join(file_name);
 
-        let exists = LAST_LOG_FILE_SENT.lock().map(|last_log_file_sent| {
-            last_log_file_sent
-                .map(|last_log_file_sent| last_log_file_sent >= ts)
-                .unwrap_or(false)
-        });
-
-        if exists.unwrap_or(false) {
-            return;
-        }
-
-        #[cfg(feature = "parquet")]
-        let s3_client = windmill_object_store::get_object_store().await;
-        #[cfg(feature = "parquet")]
-        if let Some(s3_client) = s3_client {
-            let path = std::path::Path::new(&*TMP_WINDMILL_LOGS_SERVICE)
-                .join(hostname)
-                .join(&highest_file);
-
-            //read file as byte stream
-            let bytes = tokio::fs::read(&path).await;
-            if let Err(e) = bytes {
+        //read file as byte stream
+        let bytes = match tokio::fs::read(&path).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
                 tracing::error!("Error reading log file: {:?}", e);
-                return;
+                return false;
             }
-            let path = windmill_object_store::object_store_reexports::Path::from_url_path(format!(
-                "{}{hostname}/{highest_file}",
-                windmill_common::tracing_init::LOGS_SERVICE
-            ));
-            if let Err(e) = path {
+        };
+        let path = windmill_object_store::object_store_reexports::Path::from_url_path(format!(
+            "{}{hostname}/{file_name}",
+            windmill_common::tracing_init::LOGS_SERVICE
+        ));
+        let path = match path {
+            Ok(path) => path,
+            Err(e) => {
                 tracing::error!("Error creating log file path: {:?}", e);
-                return;
+                return false;
             }
-            if let Err(e) = s3_client.put(&path.unwrap(), bytes.unwrap().into()).await {
-                tracing::error!("Error sending logs to object store: {:?}", e);
-            }
+        };
+        if let Err(e) = s3_client.put(&path, bytes.into()).await {
+            tracing::error!("Error sending logs to object store: {:?}", e);
+            return false;
         }
+    }
 
-        let (ok_lines, err_lines) = read_log_counters(ts_str);
+    let ts_str = ts
+        .format(windmill_common::tracing_init::LOG_TIMESTAMP_FMT)
+        .to_string();
+    let (ok_lines, err_lines) = read_log_counters(ts_str);
 
-        if let Some(db) = conn.as_sql() {
-            match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
-             VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
-                hostname, mode.to_string(), worker_group.clone(), ts, highest_file, ok_lines as i64, err_lines as i64, *JSON_FMT)
-                .execute(db)).await {
-                Ok(Ok(_)) => {
-                    if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
-                        last_log_file_sent.replace(ts);
-                    }) {
-                        tracing::error!("Error updating last log file sent: {:?}", e);
-                    }
-                    tracing::info!("Log file sent: {}", highest_file);
-                }
-                Ok(Err(e)) => {
-                    tracing::error!("Error inserting log file: {:?}", e);
-                }
-                Err(e) => {
-                    tracing::error!("Error inserting log file, timeout elapsed: {:?}", e);
-                }
+    let Some(db) = conn.as_sql() else {
+        // not sending log file to object store in agent mode
+        return false;
+    };
+
+    match timeout(Duration::from_secs(10), sqlx::query!("INSERT INTO log_file (hostname, mode, worker_group, log_ts, file_path, ok_lines, err_lines, json_fmt)
+     VALUES ($1, $2::text::LOG_MODE, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (hostname, log_ts) DO UPDATE SET ok_lines = log_file.ok_lines + $6, err_lines = log_file.err_lines + $7",
+        hostname, mode.to_string(), worker_group.clone(), ts, file_name, ok_lines as i64, err_lines as i64, true)
+        .execute(db)).await {
+        Ok(Ok(_)) => {
+            if let Err(e) = LAST_LOG_FILE_SENT.lock().map(|mut last_log_file_sent| {
+                last_log_file_sent.replace(ts);
+            }) {
+                tracing::error!("Error updating last log file sent: {:?}", e);
             }
-        } else {
-            // tracing::warn!("Not sending log file to object store in agent mode");
-            ()
+            tracing::info!("Log file sent: {}", file_name);
+            true
+        }
+        Ok(Err(e)) => {
+            tracing::error!("Error inserting log file: {:?}", e);
+            false
+        }
+        Err(e) => {
+            tracing::error!("Error inserting log file, timeout elapsed: {:?}", e);
+            false
         }
     }
 }
@@ -1593,6 +1688,13 @@ pub async fn trim_resource_versions(db: &DB) -> () {
     }
 }
 
+/// Matches the batch the settings-page cleanup uses for the same table.
+const SERVICE_LOG_DELETE_BATCH: i64 = 2_000;
+/// Batches per pass. `monitor_db` runs under a 600s timeout that cancels every maintenance
+/// future in the same `join!` and reports a critical error, so a large backlog has to drain
+/// across ticks rather than inside one, the way the neighbouring sweeps already do.
+const SERVICE_LOG_DELETE_MAX_BATCHES: usize = 10;
+
 pub async fn delete_expired_items(db: &DB) -> () {
     let expired_tokens_r = sqlx::query_as!(
         TokenRow,
@@ -1675,23 +1777,48 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting cache resource {}", e.to_string()),
     }
 
-    match sqlx::query_as!(
-        LogFile,
-        "DELETE FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval RETURNING file_path, hostname",
-        SERVICE_LOG_RETENTION_SECS,
-    )
-    .fetch_all(db)
-    .await
-    {
-        Ok(log_files_to_delete) => {
+    // Batched: every process rotates a log file a minute, so lowering the retention makes one
+    // ordinary setting change expire millions of rows at once. An unbounded `DELETE ...
+    // RETURNING` would materialize all of them, and their deletion futures, in this one tick.
+    for _ in 0..SERVICE_LOG_DELETE_MAX_BATCHES {
+        let batch = sqlx::query_as!(
+            LogFile,
+            "DELETE FROM log_file WHERE (hostname, log_ts) IN (
+                 SELECT hostname, log_ts FROM log_file
+                 WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval
+                 LIMIT $2
+             ) RETURNING file_path, hostname",
+            windmill_common::service_log_retention_secs(),
+            SERVICE_LOG_DELETE_BATCH,
+        )
+        .fetch_all(db)
+        .await;
+
+        match batch {
+            Ok(log_files_to_delete) => {
+                if log_files_to_delete.is_empty() {
+                    break;
+                }
+                let n = log_files_to_delete.len();
                 let paths = log_files_to_delete
                     .iter()
                     .map(|f| format!("{}/{}", f.hostname, f.file_path))
                     .collect();
-                delete_log_files_from_disk_and_store(paths, &*TMP_WINDMILL_LOGS_SERVICE, windmill_common::tracing_init::LOGS_SERVICE).await;
-
+                delete_log_files_from_disk_and_store(
+                    paths,
+                    &*TMP_WINDMILL_LOGS_SERVICE,
+                    windmill_common::tracing_init::LOGS_SERVICE,
+                )
+                .await;
+                if (n as i64) < SERVICE_LOG_DELETE_BATCH {
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::error!("Error deleting log file: {:?}", e);
+                break;
+            }
         }
-        Err(e) => tracing::error!("Error deleting log file: {:?}", e),
     }
 
     let audit_retention_days = audit_log_retention_days().await;
@@ -2795,6 +2922,21 @@ pub async fn reload_retention_period_setting(conn: &Connection) {
     {
         Ok(v) => JOB_RETENTION_SECS.store(v, Ordering::Relaxed),
         Err(e) => tracing::error!("Error reloading retention period: {:?}", e),
+    }
+}
+
+pub async fn reload_service_log_retention_secs_setting(conn: &Connection) {
+    match load_setting_value::<i64>(
+        conn,
+        SERVICE_LOG_RETENTION_SECS_SETTING,
+        "SERVICE_LOG_RETENTION_SECS",
+        DEFAULT_SERVICE_LOG_RETENTION_SECS,
+        |x| x,
+    )
+    .await
+    {
+        Ok(v) => windmill_common::set_service_log_retention_secs(v),
+        Err(e) => tracing::error!("Error reloading service log retention period: {:?}", e),
     }
 }
 
@@ -6871,5 +7013,56 @@ mod zombie_worker_memory_pct_tests {
             zombie_worker_memory_pct(Some(500), Some(500), Some(0)),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod log_file_listing_tests {
+    use super::{rotated_log_files, sorted_log_files};
+
+    fn names(files: Vec<(chrono::NaiveDateTime, String)>) -> Vec<String> {
+        files.into_iter().map(|(_, n)| n).collect()
+    }
+
+    /// A directory read newest-entry-first is what tmpfs actually hands back.
+    #[test]
+    fn orders_by_minute_whatever_order_readdir_used() {
+        let newest_first = [
+            "h.log.2026-08-29-06-49",
+            "h.log.2026-08-29-06-46",
+            "h.log.2026-08-29-06-48",
+            "h.log.2026-08-29-06-47",
+        ];
+        assert_eq!(
+            names(sorted_log_files(newest_first.iter().map(|x| x.to_string()))),
+            vec![
+                "h.log.2026-08-29-06-46",
+                "h.log.2026-08-29-06-47",
+                "h.log.2026-08-29-06-48",
+                "h.log.2026-08-29-06-49",
+            ]
+        );
+        assert_eq!(
+            names(rotated_log_files(
+                newest_first.iter().map(|x| x.to_string())
+            )),
+            vec![
+                "h.log.2026-08-29-06-46",
+                "h.log.2026-08-29-06-47",
+                "h.log.2026-08-29-06-48",
+            ]
+        );
+    }
+
+    #[test]
+    fn drops_names_that_are_not_rotated_log_files() {
+        let files = sorted_log_files(
+            ["h.log", "not-a-log-file", "h.log.2026-08-29-06-46"]
+                .iter()
+                .map(|x| x.to_string()),
+        );
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].1, "h.log.2026-08-29-06-46");
+        assert_eq!(files[0].0.to_string(), "2026-08-29 06:46:00");
     }
 }
