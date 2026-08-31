@@ -10,7 +10,7 @@ function initWebSocket() {
         wsReadyResolve = resolve
     })
 
-    ws = new WebSocket('ws://localhost:${port}')
+    ws = new WebSocket('ws://' + window.location.host)
 
     ws.onopen = () => {
         console.log('[wmill] WebSocket connected')
