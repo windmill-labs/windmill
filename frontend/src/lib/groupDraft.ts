@@ -44,8 +44,18 @@ function flagsOf(role: GroupRole | undefined): { belongs: boolean; manages: bool
 
 /** The calls that turn `prev` into `next`. Members whose role is unchanged produce none, and
  *  a member dropped from `next` is treated as holding neither flag — which is what removing
- *  one means. */
-export function groupMemberDiff(prev: GroupMember[], next: GroupMember[]): GroupMemberCall[] {
+ *  one means.
+ *
+ *  `caller` is the user who will send these. Give it whenever one is known: the write entry
+ *  is what the backend authorizes every one of these calls against (`require_is_owner` reads
+ *  `extra_perms['u/<caller>']`, skipped only for workspace admins), so revoking the caller's
+ *  own goes last. Sent in row order it lands first, and the rest of the save then 403s —
+ *  handing admin to a colleague would demote you and never promote them. */
+export function groupMemberDiff(
+	prev: GroupMember[],
+	next: GroupMember[],
+	caller?: string
+): GroupMemberCall[] {
 	const previousRole = new Map(prev.map((p) => [p.member_name, p.role]))
 	const calls: GroupMemberCall[] = []
 
@@ -76,5 +86,7 @@ export function groupMemberDiff(prev: GroupMember[], next: GroupMember[]): Group
 		transition(member.member_name, member.role, undefined)
 	}
 
-	return calls
+	const revokesCaller = (call: GroupMemberCall) =>
+		call.kind === 'removeAcl' && call.username === caller
+	return [...calls.filter((c) => !revokesCaller(c)), ...calls.filter(revokesCaller)]
 }

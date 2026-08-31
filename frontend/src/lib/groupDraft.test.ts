@@ -71,6 +71,22 @@ describe('groupMemberDiff', () => {
 	it('sends nothing for an unchanged member', () => {
 		expect(groupMemberDiff(baseline().members, baseline().members)).toEqual([])
 	})
+
+	// The caller's own write entry is what the backend authorizes every one of these calls
+	// against, so revoking it first would 403 the rest: handing admin over would demote the
+	// caller and never promote the replacement.
+	it('revokes the caller last so the rest of the save stays authorized', () => {
+		const prev = [{ member_name: 'admin', role: 'admin' as GroupRole }]
+		const next = [
+			{ member_name: 'admin', role: 'member' as GroupRole },
+			{ member_name: 'bob', role: 'admin' as GroupRole }
+		]
+		expect(groupMemberDiff(prev, next, 'admin')).toEqual([
+			{ kind: 'addUser', username: 'bob' },
+			{ kind: 'setAcl', username: 'bob' },
+			{ kind: 'removeAcl', username: 'admin' }
+		])
+	})
 })
 
 describe('isGroupDraftDirty', () => {

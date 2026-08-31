@@ -193,8 +193,8 @@
 		}
 	}
 
-	// Guarded on `isNew`, not `mode`: once the group exists the name is fixed, and the list
-	// it is checked against now contains it.
+	// Guarded on `isNew`, not `mode`: once the group exists the name is frozen, so there is
+	// nothing left to validate.
 	const nameError = $derived(
 		!isNew
 			? ''
@@ -245,7 +245,7 @@
 		onApplied: () => void
 	) {
 		const workspace = $workspaceStore ?? ''
-		for (const call of groupMemberDiff(prev, next)) {
+		for (const call of groupMemberDiff(prev, next, $userStore?.username)) {
 			switch (call.kind) {
 				case 'addUser':
 					await GroupService.addUserToGroup({
