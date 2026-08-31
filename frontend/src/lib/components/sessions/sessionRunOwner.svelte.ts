@@ -167,6 +167,11 @@ export async function withSessionRunLock<T>(
 				// tab holds it, which is exactly the "refuse, don't stack up turns"
 				// behavior we want.
 				if (!lock) return 'busy' as const
+				// Re-checked here because the grant is a turn of the event loop away
+				// from the check above, and the driver's turn-end is both what frees
+				// the lock and what lands the status making this tab a watcher — so
+				// the one grant we must refuse is the one that arrives this way.
+				if (runHeldElsewhere(sessionId)) return 'busy' as const
 				entered = true
 				return await drive(sessionId, body)
 			}

@@ -529,9 +529,7 @@ describe('adoptRemoteRow', () => {
 			archived: true,
 			archivedByWorkspace: true
 		} as Session
-		// The other tab unarchived: this file clears a field by deleting it, so the
-		// row simply lacks the key. Assigning over the held object would keep the
-		// stale flag, and this tab's next write would put it back in the store.
+		// The other tab unarchived, so the row simply lacks the key.
 		const row = { id: 's1', name: 's1', createdAt: 1 } as Session
 
 		adoptRemoteRow(held, row)
@@ -564,6 +562,23 @@ describe('adoptRemoteRow', () => {
 		expect(held.previewTabs?.[0].loc).toBe('/u2')
 		expect(held.previewTabs?.[0].friendlyLabel).toBe('My script')
 		expect(held.previewTabs?.[0].friendlyPath).toBe('f/a/b')
+	})
+
+	it('keeps a draft still inside its debounce window', () => {
+		// The pending flush writes this same object, so adopting the row's older
+		// text would persist it over what the user is still typing.
+		vi.useFakeTimers()
+		const held = session({ id: 'draft-race', name: 'draft-race', transient: true })
+		sessionState.sessions.push(held)
+		try {
+			setSessionDraftPrompt('draft-race', 'half-typed')
+			adoptRemoteRow(held, { id: 'draft-race', name: 'draft-race', createdAt: 0 } as Session)
+			expect(held.draftPrompt).toBe('half-typed')
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'draft-race')
+		}
 	})
 })
 

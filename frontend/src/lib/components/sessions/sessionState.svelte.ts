@@ -517,11 +517,20 @@ async function applyRemoteSessionPut(id: string): Promise<void> {
 	const token = ++remoteReadSeq
 	remoteReads.set(id, token)
 	const db = await sessionsDb.whenReady()
-	if (!db) return
+	// Only the newest token is cleared on the way out: an older read that lost the
+	// race must leave the winner's token standing.
+	const releaseToken = () => {
+		if (remoteReads.get(id) === token) remoteReads.delete(id)
+	}
+	if (!db) {
+		releaseToken()
+		return
+	}
 	let row: Session | undefined
 	try {
 		row = await db.get('sessions', id)
 	} catch (e) {
+		releaseToken()
 		console.error('Failed to read a session another tab wrote', e)
 		return
 	}
@@ -557,16 +566,18 @@ async function applyRemoteSessionPut(id: string): Promise<void> {
  *  the other tab, a seen-watermark bump included. */
 export function adoptRemoteRow(held: Session, row: Session): void {
 	const stamped = new Map((held.previewTabs ?? []).map((t) => [t.id, t]))
-	// Keys the row no longer carries are removed, not left standing. This file
-	// clears a field by deleting it — see `applyLifecyclePatch`, and the delete of
-	// `archived` an unarchive performs — and `putSessionRow` stores a snapshot, so
-	// a dropped key is how "this is no longer set" arrives. Assigning over the
-	// held object alone keeps the stale value, and this tab's next write to the
-	// record puts it back into the store, undoing what the other tab did.
+	// A draft inside its debounce window is newer than anything the store can
+	// hold, and the pending flush writes this same object, so taking the row's
+	// older text here would end up persisted over what the user is still typing.
+	const pendingDraft = draftPromptFlushHandles.has(held.id) ? held.draftPrompt : undefined
+	// This file clears a field by deleting it and `putSessionRow` stores a
+	// snapshot, so a key the row lacks is how "no longer set" arrives. Assigning
+	// alone keeps the stale value, which this tab's next write puts back.
 	for (const k of Object.keys(held)) {
 		if (!(k in row)) delete (held as Record<string, unknown>)[k]
 	}
 	Object.assign(held, row)
+	if (pendingDraft !== undefined) held.draftPrompt = pendingDraft
 	if (row.previewTabs) {
 		held.previewTabs = row.previewTabs.map((t) => {
 			const live = stamped.get(t.id)

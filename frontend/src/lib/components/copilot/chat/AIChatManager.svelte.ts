@@ -3990,6 +3990,15 @@ export class AIChatManager {
 			throw new Error('No user message found at the specified index')
 		}
 
+		// Refused here rather than at the send below, which is reached only after the
+		// truncation has already rewound this tab's transcript: the driver's turn-end
+		// re-read would put it back, but until then the watcher sits on a conversation
+		// that lost its tail for a resend that never ran.
+		if (this.runHeldElsewhere) {
+			sendUserToast('This session is running in another tab. Retry once it finishes.', true)
+			return
+		}
+
 		// Resolve the API restart point BEFORE reserving bytes or truncating: a
 		// stale index must fail while nothing has been mutated, or the transcript
 		// would be left truncated with the reservation leaked. A negative index
