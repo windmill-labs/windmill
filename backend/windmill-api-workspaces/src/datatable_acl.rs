@@ -29,9 +29,11 @@ use windmill_api_auth::ApiAuthed;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
-use windmill_common::utils::require_admin;
-use windmill_common::workspaces::ADMIN_DATATABLE_ROLE;
-use windmill_common::DB;
+use windmill_common::workspaces::{
+    can_use_datatable_role, get_datatable_resource_from_db,
+    get_datatable_resource_from_db_unchecked, DatatableAccess, ADMIN_DATATABLE_ROLE,
+};
+use windmill_common::{PgDatabase, DB};
 
 use crate::datatable_permissions::{connect_as_admin, quote_ident, read_datatable};
 
@@ -97,12 +99,14 @@ pub struct AclTargetQuery {
     kind: String,
     schema: Option<String>,
     table: Option<String>,
+    /// The role to read as, when it is not the caller's default one.
+    role: Option<String>,
 }
 
 impl TryFrom<AclTargetQuery> for AclTarget {
     type Error = Error;
     fn try_from(q: AclTargetQuery) -> Result<Self> {
-        match (q.kind.as_str(), q.schema, q.table) {
+        match (q.kind.as_str(), q.schema.clone(), q.table.clone()) {
             ("database", _, _) => Ok(AclTarget::Database),
             ("schema", Some(schema), _) => Ok(AclTarget::Schema { schema }),
             ("table", Some(schema), Some(table)) => Ok(AclTarget::Table { schema, table }),
@@ -222,6 +226,9 @@ pub enum AclChange {
 pub struct AclChangeRequest {
     pub target: AclTarget,
     pub change: AclChange,
+    /// The role to act as, when it is not the caller's default one.
+    #[serde(default)]
+    pub role: Option<String>,
 }
 
 /// An object inside a schema, named the way `REVOKE ... ON <keyword>` needs it.
@@ -253,8 +260,17 @@ pub struct DatatableAclInfo {
     /// Windmill role name when the owner is one of the data table's roles, else
     /// the raw Postgres role.
     pub owner: String,
-    /// The data table's roles, in the order the config has them.
+    /// The data table's roles, in the order the config has them. All of them:
+    /// the list is not private, only what each may reach.
     pub roles: Vec<String>,
+    /// The subset the caller may themselves run as. Handing an object to a role
+    /// outside this list gives it away.
+    pub usable_roles: Vec<String>,
+    /// Whether the role this connection is on may change the target at all —
+    /// Postgres asks for membership of the owning role.
+    pub can_manage: bool,
+    /// The Windmill role this connection is on.
+    pub current_role: String,
     /// Whether the server is Postgres 17 or later, which added the `MAINTAIN`
     /// table privilege.
     pub supports_maintain: bool,
@@ -267,6 +283,97 @@ pub struct DatatableAclInfo {
 pub struct AclPlan {
     pub statements: Vec<String>,
     pub warnings: Vec<String>,
+}
+
+/// The data table's own connection, which is what `admin` resolves to. Read from
+/// the resource rather than from a connection: the caller may well not be able to
+/// open one as that role.
+async fn admin_pg_role(db: &DB, w_id: &str, datatable_name: &str) -> Result<String> {
+    let resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+    let pg: PgDatabase = serde_json::from_value(resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
+    pg.user
+        .ok_or_else(|| Error::internal_err("The data table's connection names no user".to_string()))
+}
+
+/// What the caller reaches the data table as. Postgres is what decides whether
+/// that role may change an owner or hand out a privilege, so the connection is
+/// theirs — not the data table's admin one.
+struct CallerConnection {
+    dbname: String,
+    /// The Postgres role this connection authenticated as.
+    current_user: String,
+}
+
+async fn connect_as_caller(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    datatable_name: &str,
+    role: Option<&str>,
+) -> Result<(tokio_postgres::Client, CallerConnection)> {
+    let resource = get_datatable_resource_from_db(
+        db,
+        w_id,
+        datatable_name,
+        role,
+        DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
+    let pg_db: PgDatabase = serde_json::from_value(resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {e}")))?;
+    let dbname = pg_db.dbname.clone();
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable ACL connection error: {}", e);
+        }
+    });
+    let current_user: String = client
+        .query_one("SELECT current_user", &[])
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the connection identity: {}",
+                pg_error_message(&e)
+            ))
+        })?
+        .get(0);
+    Ok((client, CallerConnection { dbname, current_user }))
+}
+
+/// Whether the connection's role is a member of the target's owner, which is
+/// what "may change its access" means here.
+async fn can_manage_target(client: &tokio_postgres::Client, target: &AclTarget) -> Result<bool> {
+    let row = match target {
+        AclTarget::Database => client
+            .query_opt(
+                "SELECT pg_has_role(datdba, 'USAGE') FROM pg_database WHERE datname = current_database()",
+                &[],
+            )
+            .await,
+        AclTarget::Schema { schema } => client
+            .query_opt(
+                "SELECT pg_has_role(nspowner, 'USAGE') FROM pg_namespace WHERE nspname = $1",
+                &[schema],
+            )
+            .await,
+        AclTarget::Table { schema, table } => client
+            .query_opt(
+                "SELECT pg_has_role(c.relowner, 'USAGE')
+                 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = $1 AND c.relname = $2",
+                &[schema, table],
+            )
+            .await,
+    }
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Failed to read ownership: {}",
+            pg_error_message(&e)
+        ))
+    })?;
+    Ok(row.map(|r| r.get::<_, bool>(0)).unwrap_or(false))
 }
 
 /// Windmill role name -> Postgres role name, for the roles of one data table.
@@ -551,15 +658,23 @@ async fn get_datatable_acl(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Query(query): Query<AclTargetQuery>,
 ) -> JsonResult<DatatableAclInfo> {
-    require_admin(authed.is_admin, &authed.username)?;
+    let role = query.role.clone();
     let target: AclTarget = query.try_into()?;
-    let (client, conn) = connect_as_admin(&db, &w_id, &datatable_name).await?;
-    let roles = role_map(&db, &w_id, &datatable_name, &conn.admin_pg_role).await?;
+    let (client, conn) = connect_as_caller(&db, &authed, &w_id, &datatable_name, role.as_deref())
+        .await?;
+    let roles = role_map(
+        &db,
+        &w_id,
+        &datatable_name,
+        &admin_pg_role(&db, &w_id, &datatable_name).await?,
+    )
+    .await?;
 
     let owner_row = match &target {
         AclTarget::Database => client
             .query_opt(
-                "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()",
+                "SELECT pg_get_userbyid(datdba), pg_has_role(datdba, 'USAGE')
+                 FROM pg_database WHERE datname = current_database()",
                 &[],
             )
             .await
@@ -571,11 +686,12 @@ async fn get_datatable_acl(
                 // `public` is owned by `pg_database_owner`, a placeholder role
                 // whose membership is whoever owns the database — naming it back
                 // would say nothing, so resolve it to that owner.
-                "SELECT pg_get_userbyid(
-                     CASE WHEN n.nspowner = (SELECT oid FROM pg_roles WHERE rolname = 'pg_database_owner')
-                          THEN (SELECT d.datdba FROM pg_database d WHERE d.datname = current_database())
-                          ELSE n.nspowner END)
-                 FROM pg_namespace n WHERE n.nspname = $1",
+                "SELECT pg_get_userbyid(owner), pg_has_role(owner, 'USAGE') FROM (
+                     SELECT CASE WHEN n.nspowner = (SELECT oid FROM pg_roles WHERE rolname = 'pg_database_owner')
+                                 THEN (SELECT d.datdba FROM pg_database d WHERE d.datname = current_database())
+                                 ELSE n.nspowner END AS owner
+                     FROM pg_namespace n WHERE n.nspname = $1
+                 ) o",
                 &[schema],
             )
             .await
@@ -587,7 +703,7 @@ async fn get_datatable_acl(
             })?,
         AclTarget::Table { schema, table } => client
             .query_opt(
-                "SELECT pg_get_userbyid(c.relowner)
+                "SELECT pg_get_userbyid(c.relowner), pg_has_role(c.relowner, 'USAGE')
                  FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
                  WHERE n.nspname = $1 AND c.relname = $2",
                 &[schema, table],
@@ -600,9 +716,13 @@ async fn get_datatable_acl(
                 ))
             })?,
     };
-    let owner: String = owner_row
-        .ok_or_else(|| Error::NotFound(format!("{} not found", target.label(&conn.dbname))))?
-        .get(0);
+    let owner_row =
+        owner_row.ok_or_else(|| Error::NotFound(format!("{} not found", target.label(&conn.dbname))))?;
+    let owner: String = owner_row.get(0);
+    // Membership in the owning role is what Postgres asks for before an ALTER
+    // ... OWNER or a GRANT on something you do not own; `admin` holds every role
+    // this feature creates, so it passes everywhere.
+    let can_manage: bool = owner_row.get(1);
 
     let mut grants = read_grants(&client, &target, &roles).await?;
     grants.sort_by(|a, b| {
@@ -630,9 +750,26 @@ async fn get_datatable_acl(
         })?
         .get(0);
 
+    // Every role is named, since the list is not what is private — what each of
+    // them may reach is.
+    let authed_ref = authed.to_authed_ref();
+    let datatable = read_datatable(&db, &w_id, &datatable_name).await?;
+    let usable_roles: Vec<String> = match datatable.permissions.filter(|p| p.enabled) {
+        Some(p) => p
+            .roles
+            .iter()
+            .filter(|(_, role)| can_use_datatable_role(role, &authed_ref))
+            .map(|(name, _)| name.clone())
+            .collect(),
+        None => vec![ADMIN_DATATABLE_ROLE.to_string()],
+    };
+
     Ok(Json(DatatableAclInfo {
         owner: windmill_role_of(&roles, &owner),
         roles: roles.keys().cloned().collect(),
+        usable_roles,
+        can_manage,
+        current_role: windmill_role_of(&roles, &conn.current_user),
         supports_maintain,
         dbname: conn.dbname,
         grants,
@@ -756,12 +893,30 @@ fn grant_read_error(e: tokio_postgres::Error) -> Error {
 
 async fn build_acl_plan(
     db: &DB,
+    authed: &ApiAuthed,
     w_id: &str,
     datatable_name: &str,
     req: &AclChangeRequest,
 ) -> Result<(tokio_postgres::Client, AclPlan, String)> {
-    let (client, conn) = connect_as_admin(db, w_id, datatable_name).await?;
-    let roles = role_map(db, w_id, datatable_name, &conn.admin_pg_role).await?;
+    let (client, conn) =
+        connect_as_caller(db, authed, w_id, datatable_name, req.role.as_deref()).await?;
+    // What the caller's own role may change. Postgres cannot enforce the rule we
+    // want on its own — handing an object to a role you are not a member of is
+    // refused outright, and granting on one you own needs the grant option — so
+    // this is the check, and the statements run as the data table's admin below.
+    if !can_manage_target(&client, &req.target).await? {
+        return Err(Error::NotAuthorized(format!(
+            "{} is owned by a role you are not a member of",
+            req.target.label(&conn.dbname)
+        )));
+    }
+    let roles = role_map(
+        db,
+        w_id,
+        datatable_name,
+        &admin_pg_role(db, w_id, datatable_name).await?,
+    )
+    .await?;
     let role_name = match &req.change {
         AclChange::SetOwner { role } => role,
         AclChange::Grant { role, .. } | AclChange::Revoke { role, .. } => role,
@@ -786,7 +941,9 @@ async fn build_acl_plan(
         &other_pg_roles,
         &existing_objects,
     )?;
-    Ok((client, plan, conn.dbname))
+    drop(client);
+    let (admin_client, _) = connect_as_admin(db, w_id, datatable_name).await?;
+    Ok((admin_client, plan, conn.dbname))
 }
 
 async fn plan_datatable_acl(
@@ -795,8 +952,8 @@ async fn plan_datatable_acl(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(req): Json<AclChangeRequest>,
 ) -> JsonResult<AclPlan> {
-    require_admin(authed.is_admin, &authed.username)?;
-    let (_client, plan, _dbname) = build_acl_plan(&db, &w_id, &datatable_name, &req).await?;
+    let (_client, plan, _dbname) =
+        build_acl_plan(&db, &authed, &w_id, &datatable_name, &req).await?;
     Ok(Json(plan))
 }
 
@@ -806,13 +963,12 @@ async fn apply_datatable_acl(
     Path((w_id, datatable_name)): Path<(String, String)>,
     Json(req): Json<AclChangeRequest>,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-
     // Granting is passing a privilege on, which this connection cannot do for a
     // privilege it holds without the grant option.
     crate::datatable_permissions::ensure_instance_db_can_delegate(&db, &w_id, &datatable_name).await;
 
-    let (mut client, plan, dbname) = build_acl_plan(&db, &w_id, &datatable_name, &req).await?;
+    let (mut client, plan, dbname) =
+        build_acl_plan(&db, &authed, &w_id, &datatable_name, &req).await?;
 
     // One transaction: a half-applied ownership transfer leaves objects of one
     // schema owned by two different roles.

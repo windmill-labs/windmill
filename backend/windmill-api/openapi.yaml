@@ -5300,6 +5300,12 @@ paths:
           required: false
           schema:
             type: string
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+          description: read as this role rather than the caller's default one
       responses:
         "200":
           description: owner and grants
@@ -34178,6 +34184,9 @@ components:
           $ref: "#/components/schemas/AclTarget"
         change:
           $ref: "#/components/schemas/AclChange"
+        role:
+          type: string
+          description: act as this role rather than the caller's default one
 
     AclObject:
       type: object
@@ -34207,14 +34216,27 @@ components:
 
     DatatableAclInfo:
       type: object
-      required: [owner, roles, grants, supports_maintain, dbname]
+      required:
+        [owner, roles, usable_roles, grants, supports_maintain, dbname, can_manage, current_role]
       properties:
         owner:
           type: string
         roles:
           type: array
+          description: every role of the data table; the list is not private, only what each may reach
           items:
             type: string
+        usable_roles:
+          type: array
+          description: the roles the caller may themselves run as
+          items:
+            type: string
+        can_manage:
+          type: boolean
+          description: whether the caller's role may change this target at all
+        current_role:
+          type: string
+          description: the role the caller is connected as
         supports_maintain:
           type: boolean
           description: whether the server is Postgres 17+, which added the MAINTAIN table privilege
@@ -34249,6 +34271,16 @@ components:
         can_create_schema:
           type: boolean
           description: whether that role may create schemas in the database
+        manageable_schemas:
+          type: array
+          description: the schemas whose access that role may change
+          items:
+            type: string
+        manageable_tables:
+          type: array
+          description: the tables whose access that role may change, as schema.table
+          items:
+            type: string
         usable_roles:
           type: array
           description: roles the caller may run this data table as, empty when it has no permissions

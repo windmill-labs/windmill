@@ -2171,6 +2171,13 @@ struct DataTableTables {
     /// Whether that role may create schemas in the database at all.
     #[serde(default)]
     can_create_schema: bool,
+    /// The schemas whose owner this role is a member of, and the tables, as
+    /// `schema.table`. Only those can have their access changed, so the rest do
+    /// not offer it.
+    #[serde(default)]
+    manageable_schemas: Vec<String>,
+    #[serde(default)]
+    manageable_tables: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     /// The roles the caller may run this data table as. Empty when it has no
@@ -2378,6 +2385,8 @@ async fn list_datatable_tables(
                 schemas: contents.tables,
                 creatable_schemas: contents.creatable_schemas,
                 can_create_schema: contents.can_create_schema,
+                manageable_schemas: contents.manageable_schemas,
+                manageable_tables: contents.manageable_tables,
                 error: None,
                 usable_roles,
                 default_role,
@@ -2387,6 +2396,8 @@ async fn list_datatable_tables(
                 schemas: HashMap::new(),
                 creatable_schemas: vec![],
                 can_create_schema: false,
+                manageable_schemas: vec![],
+                manageable_tables: vec![],
                 error: Some(e.to_string()),
                 usable_roles,
                 default_role,
@@ -2602,6 +2613,8 @@ struct DataTableContents {
     tables: TableListMap,
     creatable_schemas: Vec<String>,
     can_create_schema: bool,
+    manageable_schemas: Vec<String>,
+    manageable_tables: Vec<String>,
 }
 
 async fn get_datatable_tables(
@@ -2633,7 +2646,8 @@ async fn get_datatable_tables(
         .query(
             r#"
             SELECT nspname::text AS schema_name,
-                   has_schema_privilege(oid, 'CREATE') AS can_create
+                   has_schema_privilege(oid, 'CREATE') AS can_create,
+                   pg_has_role(nspowner, 'USAGE') AS can_manage
             FROM pg_namespace
             WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
               AND nspname NOT LIKE 'pg_%'
@@ -2651,6 +2665,7 @@ async fn get_datatable_tables(
 
     let mut table_map: TableListMap = HashMap::new();
     let mut creatable_schemas: Vec<String> = Vec::new();
+    let mut manageable_schemas: Vec<String> = Vec::new();
     let schema_names: Vec<String> = schema_rows
         .iter()
         .map(|row| {
@@ -2658,6 +2673,9 @@ async fn get_datatable_tables(
             table_map.entry(name.clone()).or_default();
             if row.get::<_, bool>(1) {
                 creatable_schemas.push(name.clone());
+            }
+            if row.get::<_, bool>(2) {
+                manageable_schemas.push(name.clone());
             }
             name
         })
@@ -2701,7 +2719,33 @@ async fn get_datatable_tables(
         table_map.entry(table_schema).or_default().push(table_name);
     }
 
-    Ok(DataTableContents { tables: table_map, creatable_schemas, can_create_schema })
+    // Ownership of a table is its own: a schema you own can hold one you do not.
+    let manageable_tables = client
+        .query(
+            "SELECT n.nspname || '.' || c.relname
+             FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+             WHERE n.nspname = ANY($1) AND c.relkind = ANY(ARRAY['r','p','v','m','f']::\"char\"[])
+               AND pg_has_role(c.relowner, 'USAGE')",
+            &[&schema_names],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read table ownership: {}",
+                pg_error_message(&e)
+            ))
+        })?
+        .into_iter()
+        .map(|row| row.get::<_, String>(0))
+        .collect();
+
+    Ok(DataTableContents {
+        tables: table_map,
+        creatable_schemas,
+        can_create_schema,
+        manageable_schemas,
+        manageable_tables,
+    })
 }
 
 async fn get_datatable_table_columns(

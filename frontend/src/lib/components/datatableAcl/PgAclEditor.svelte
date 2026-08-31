@@ -19,10 +19,13 @@
 		workspace,
 		datatable,
 		target,
+		role,
 		showOwner = true
 	}: {
 		workspace: string
 		datatable: string
+		/** Read and act as this role rather than the caller's default one. */
+		role?: string
 		/** Off where ownership is not the caller's to move — a data table's whole
 		 * database, which Windmill owns. */
 		showOwner?: boolean
@@ -32,14 +35,15 @@
 	} = $props()
 
 	const acl = resource(
-		() => [workspace, datatable, JSON.stringify(target)] as const,
+		() => [workspace, datatable, JSON.stringify(target), role] as const,
 		async ([ws, dt]) =>
 			await WorkspaceService.getDatatableAcl({
 				workspace: ws,
 				datatableName: dt,
 				kind: target.kind,
 				schema: target.schema,
-				table: target.kind === 'table' ? target.table : undefined
+				table: target.kind === 'table' ? target.table : undefined,
+				role
 			})
 	)
 
@@ -52,8 +56,6 @@
 	/** A revoke listed per object takes them all: say where one of them is
 	 * managed on its own. */
 	const pendingCoversObjects = $derived((pending?.change.objects?.length ?? 0) > 1)
-	let planning = $state(false)
-	let applying = $state(false)
 
 	async function confirm(change: AclChange, title: string) {
 		planning = true
@@ -61,7 +63,7 @@
 			const plan = await WorkspaceService.planDatatableAcl({
 				workspace,
 				datatableName: datatable,
-				requestBody: { target, change }
+				requestBody: { target, change, role }
 			})
 			pending = { change, statements: plan.statements, warnings: plan.warnings, title }
 		} catch (e) {
@@ -78,7 +80,7 @@
 			await WorkspaceService.applyDatatableAcl({
 				workspace,
 				datatableName: datatable,
-				requestBody: { target, change: pending.change }
+				requestBody: { target, change: pending.change, role }
 			})
 			sendUserToast(pending.title)
 			pending = undefined
@@ -93,6 +95,16 @@
 	const info: DatatableAclInfo | undefined = $derived(acl.current)
 	const roleItems = $derived((info?.roles ?? []).map((r) => ({ value: r, label: r })))
 	const grantRows = $derived(groupGrants(info?.grants ?? []))
+
+	/** Handing it to a role the caller cannot run as: after this they can no
+	 * longer change it back. */
+	const pendingGivesItAway = $derived(
+		pending?.change.type === 'set_owner' &&
+			!!pending.change.role &&
+			!(info?.usable_roles ?? []).includes(pending.change.role)
+	)
+	let planning = $state(false)
+	let applying = $state(false)
 </script>
 
 {#if acl.error}
@@ -148,9 +160,9 @@
 			<PgGrantBuilder
 				{target}
 				roles={info.roles}
+				disabled={planning || applying || !info.can_manage}
 				supportsMaintain={info.supports_maintain}
 				dbname={info.dbname}
-				disabled={planning || applying}
 				onAdd={({ role, privileges, scope }) =>
 					confirm(
 						{ type: 'grant', role, privileges, scope },
@@ -222,7 +234,13 @@
 		onConfirmed={apply}
 		onCanceled={() => (pending = undefined)}
 	>
-		<div class="flex flex-col gap-3">
+		<div class="flex flex-col gap-3 min-w-0">
+			{#if pendingGivesItAway}
+				<Alert type="warning" title="You will lose access to this" size="xs">
+					<span class="font-mono">{pending?.change.role}</span> is not a role you can run as, so once
+					it owns this you can no longer change its access — only a member of that role can hand it back.
+				</Alert>
+			{/if}
 			{#if pendingCoversObjects}
 				<Alert type="info" title="This covers every listed object" size="xs">
 					Permissions on a single table are managed in that table's own permissions drawer.
@@ -234,8 +252,7 @@
 			<span class="text-sm text-secondary">
 				The following runs against <span class="font-mono">{datatable}</span> in a single transaction:
 			</span>
-			<pre
-				class="whitespace-pre-wrap overflow-y-auto text-xs bg-surface-secondary p-3 rounded select-all max-h-80"
+			<pre class="overflow-auto text-xs bg-surface-secondary p-3 rounded select-all max-h-80"
 				>{(pending?.statements ?? []).join('\n')}</pre
 			>
 		</div>

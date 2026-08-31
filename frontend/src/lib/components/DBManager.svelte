@@ -234,6 +234,16 @@
 		return entry.creatable_schemas.includes(schemaKey)
 	}
 
+	/** Whether the connected role may change access on an object: Postgres asks
+	 * for membership of its owner, so for the rest the entry is not offered. */
+	function canManage(datatable: string | undefined, schemaKey: string, table?: string): boolean {
+		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
+		if (!entry?.manageable_schemas) return true
+		return table === undefined
+			? entry.manageable_schemas.includes(schemaKey)
+			: (entry.manageable_tables ?? []).includes(`${schemaKey}.${table}`)
+	}
+
 	function canCreateSchemaIn(datatable: string | undefined): boolean {
 		const entry = datatableTree?.find((d) => d.datatable_name === datatable)
 		return entry === undefined || !!entry.can_create_schema
@@ -607,7 +617,7 @@
 </script>
 
 <Splitpanes>
-	<Pane size={24} class="relative flex flex-col">
+	<Pane size={28} class="relative flex flex-col">
 		<div class="mx-3 mt-3 flex flex-col gap-2">
 			<TextInput bind:value={search} inputProps={{ placeholder: 'Search table or schema...' }} />
 		</div>
@@ -729,15 +739,19 @@
 										<DropdownV2
 											enableFlyTransition
 											items={() => [
-												{
-													displayName: 'Permissions',
-													icon: KeyRoundIcon,
-													action: () =>
-														(aclDrawer = {
-															datatable: root.datatable,
-															target: { kind: 'schema', schema: sc.schemaKey }
-														})
-												},
+												...(canManage(root.datatable, sc.schemaKey)
+													? [
+															{
+																displayName: 'Permissions',
+																icon: KeyRoundIcon,
+																action: () =>
+																	(aclDrawer = {
+																		datatable: root.datatable,
+																		target: { kind: 'schema', schema: sc.schemaKey }
+																	})
+															}
+														]
+													: []),
 												{
 													displayName: 'Rename schema',
 													icon: EditIcon,
@@ -811,19 +825,23 @@
 												<DropdownV2
 													enableFlyTransition
 													items={() => [
-														{
-															displayName: 'Permissions',
-															icon: KeyRoundIcon,
-															action: () =>
-																(aclDrawer = {
-																	datatable: root.datatable,
-																	target: {
-																		kind: 'table',
-																		schema: sc.schemaKey,
-																		table: tableKey
+														...(canManage(root.datatable, sc.schemaKey, tableKey)
+															? [
+																	{
+																		displayName: 'Permissions',
+																		icon: KeyRoundIcon,
+																		action: () =>
+																			(aclDrawer = {
+																				datatable: root.datatable,
+																				target: {
+																					kind: 'table',
+																					schema: sc.schemaKey,
+																					table: tableKey
+																				}
+																			})
 																	}
-																})
-														},
+																]
+															: []),
 														{
 															displayName: 'Delete table',
 															icon: Trash2Icon,
@@ -914,7 +932,7 @@
 			{#if aclDrawer && workspace}
 				{@const dt = aclDrawer.datatable ?? currentDatatable}
 				{#if dt}
-					<PgAclEditor {workspace} datatable={dt} target={aclDrawer.target} />
+					<PgAclEditor {workspace} datatable={dt} target={aclDrawer.target} role={currentRole} />
 				{/if}
 			{/if}
 		</DrawerContent>
