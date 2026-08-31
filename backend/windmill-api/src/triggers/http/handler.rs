@@ -102,6 +102,18 @@ enum CorsDecision {
     Unavailable,
 }
 
+/// Whether a route actually serves a static website, rather than merely saying
+/// it does.
+///
+/// `is_static_website` is a caller-set flag that validation ties to nothing: a
+/// route can carry it while having no assets configured and a `script_path`
+/// that `route_job` runs regardless. Keying the exemption off the flag alone
+/// would let one boolean disable a route's allowlist and hand its runnable back
+/// the `wm_headers` escape hatch, so the assets have to be there too.
+fn serves_a_static_website(trigger: &TriggerRoute) -> bool {
+    trigger.is_static_website && trigger.static_asset_config.is_some()
+}
+
 /// A static website is never subject to an allowlist, its own included. It has
 /// no authentication of its own — the editor does not offer any — so it hands
 /// out public files that any non-browser client can already fetch, and
@@ -129,7 +141,7 @@ impl ResolvedCorsPolicy {
     /// Record what the trigger being served allows. Called once, where the
     /// route is resolved, so the answer cannot drift from the response.
     fn publish(&self, trigger: &TriggerRoute, method: Option<HttpMethod>, headers: &HeaderMap) {
-        let decision = if trigger.is_static_website {
+        let decision = if serves_a_static_website(trigger) {
             CorsDecision::Unrestricted
         } else {
             let instance_default = HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load();
@@ -188,7 +200,7 @@ async fn resolve_cors_decision(
     let route = router.at(requested_path).ok();
     if route
         .as_ref()
-        .is_some_and(|trigger| trigger.value.is_static_website)
+        .is_some_and(|trigger| serves_a_static_website(trigger.value))
     {
         return CorsDecision::Unrestricted;
     }
