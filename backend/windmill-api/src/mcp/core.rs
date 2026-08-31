@@ -13,7 +13,8 @@ use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
 use windmill_mcp::server::{
-    BackendResult, EndpointTool, ErrorData, McpBackend, McpIncludeHeaders, McpRequest, PathFilter,
+    runnable_args_carrier, BackendResult, EndpointTool, ErrorData, McpBackend, McpIncludeHeaders,
+    McpRequest, PathFilter, RunnableArgsCarrier,
 };
 
 use crate::auth::AuthCache;
@@ -24,9 +25,9 @@ use crate::jobs::{
 
 use super::auto_generated_endpoints::all_tools;
 use super::utils::{
-    build_query_string, build_request_body, create_http_request, get_hub_script_schema,
-    get_item_schema, get_items, get_resources, get_resources_types, get_scripts_from_hub,
-    parse_response_body, prepare_push_args, substitute_path_params,
+    build_query_string, build_request_body, create_http_request, forwardable_headers,
+    get_hub_script_schema, get_item_schema, get_items, get_resources, get_resources_types,
+    get_scripts_from_hub, parse_response_body, prepare_push_args, substitute_path_params,
 };
 
 use std::sync::Arc;
@@ -277,6 +278,7 @@ impl McpBackend for WindmillBackend {
         workspace_id: &str,
         endpoint_tool: &EndpointTool,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
         let args_map = match &args {
             Value::Object(map) => map,
@@ -300,10 +302,35 @@ impl McpBackend for WindmillBackend {
             &endpoint_tool.query_params_schema,
             &endpoint_tool.query_field_renames,
         );
-        let full_url = format!(
+        let mut full_url = format!(
             "{}/api{}{}",
             self.base_internal_url, path_template, query_string
         );
+
+        // Run-by-path proxies to the webhook run route, which binds request
+        // headers itself. Naming the allowlisted ones there hands that route the
+        // same job the runnable's own tool does directly -- including the
+        // preprocessor event shape -- rather than duplicating it on this path.
+        // The model's own copies of these names were dropped upstream, so what
+        // arrives is the request's value or nothing.
+        let forwarded = match runnable_args_carrier(endpoint_tool.name.as_ref()) {
+            Some(RunnableArgsCarrier::WebhookBody) => {
+                forwardable_headers(request.headers, request.include_headers)
+            }
+            _ => Vec::new(),
+        };
+        if !forwarded.is_empty() {
+            let names = forwarded
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>()
+                .join(",");
+            full_url.push(if query_string.is_empty() { '?' } else { '&' });
+            full_url.push_str(&format!(
+                "include_header={}",
+                urlencoding::encode(&names)
+            ));
+        }
 
         // Prepare request body
         let body_json = build_request_body(endpoint_tool, args_map)?;
@@ -315,6 +342,7 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             auth,
             body_json,
+            &forwarded,
         )
         .await?;
 

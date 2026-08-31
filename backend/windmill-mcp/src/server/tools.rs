@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::common::schema::{convert_schema_to_schema_type, make_schema_compatible};
-use crate::common::transform::{apply_key_transformation, transform_hub_path, transform_path};
+use crate::common::transform::{transform_hub_path, transform_path};
 use crate::common::types::{
     FlowInfo, HubScriptInfo, McpIncludeHeaders, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
     ToolableItem,

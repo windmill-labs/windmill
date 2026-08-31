@@ -188,6 +188,7 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         workspace_id: &str,
         endpoint_tool: &EndpointTool,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> BackendResult<Value>;
 
     // ─────────────────────────────────────────────────────────────────

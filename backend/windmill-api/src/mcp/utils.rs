@@ -649,12 +649,17 @@ fn selects_endpoint_tool(caller_scopes: &[String], tool: &str) -> bool {
 }
 
 /// Create HTTP request with authentication
+/// `forwarded` carries headers copied verbatim from the MCP request. Only the
+/// proxied webhook run route sends any: naming them there lets that route's own
+/// `?include_header=` handling do the binding, preprocessor shaping included,
+/// instead of this path reimplementing it.
 pub async fn create_http_request(
     method: &str,
     url: &str,
     workspace_id: &str,
     api_authed: &ApiAuthed,
     body_json: Option<Value>,
+    forwarded: &[(String, String)],
 ) -> BackendResult<reqwest::Response> {
     let client = &HTTP_CLIENT;
     let mut request_builder = match method {
@@ -696,6 +701,13 @@ pub async fn create_http_request(
     .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
 
+    // Never before the Authorization header above: the proxy JWT is scoped to
+    // this route, and letting a forwarded name overwrite it would hand the
+    // proxied call whatever credential the caller sent instead.
+    for (name, value) in forwarded {
+        request_builder = request_builder.header(name, value);
+    }
+
     // Add body if present
     if let Some(body) = body_json {
         request_builder = request_builder
@@ -724,18 +736,46 @@ struct McpPreprocessorEvent<'a> {
     tool_name: &'a str,
 }
 
-/// Headers that authenticate the MCP connection itself, never forwarded to a
-/// runnable by either delivery path.
+/// Headers the proxy hop owns on the internal request, so an allowlisted name
+/// that collides with one cannot ride along.
 ///
-/// Unlike an HTTP trigger — where `Authorization` is whatever the caller's own
-/// integration sent — on MCP it is the Windmill credential of the person driving
-/// the session, and the runnable belongs to someone else. Handing it over would
-/// let a script keep and replay a caller's token, so the allowlist cannot opt in
-/// to these and the preprocessor event does not carry them.
-const NEVER_FORWARDED_HEADERS: &[&str] = &["authorization", "cookie", "proxy_authorization"];
+/// `authorization` is the one that matters: the proxied call carries a
+/// route-scoped JWT this server mints, so forwarding the caller's header would
+/// either duplicate it or bind the *proxy's own* credential to a runnable
+/// parameter. Nothing is lost that the runnable's own tool does not still offer,
+/// which builds arguments directly instead of over a second HTTP hop.
+const PROXY_OWNED_HEADERS: &[&str] = &["authorization", "content-type", "content-length", "host"];
 
-fn is_never_forwarded(normalized_name: &str) -> bool {
-    NEVER_FORWARDED_HEADERS.contains(&normalized_name)
+/// The allowlisted headers that can ride the proxied webhook call.
+///
+/// The proxied route implements `?include_header=` itself, so forwarding the
+/// real headers and naming them there gets the binding — and, for a runnable with
+/// a preprocessor, the event shaping — from the same code a direct webhook call
+/// would use.
+pub fn forwardable_headers(
+    headers: &http::HeaderMap,
+    include_headers: &McpIncludeHeaders,
+) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for entry in include_headers.iter() {
+        if PROXY_OWNED_HEADERS.contains(&entry.header_name.as_str()) {
+            continue;
+        }
+        let mut values = headers.get_all(&entry.header_name).iter();
+        let Some(value) = values.next() else {
+            continue;
+        };
+        // Same attributability rule as the direct path: a repeated header has no
+        // value that can be credited to the caller rather than to a hop.
+        if values.next().is_some() {
+            continue;
+        }
+        let Ok(value) = value.to_str() else {
+            continue;
+        };
+        out.push((entry.header_name.clone(), value.to_string()));
+    }
+    out
 }
 
 /// The request headers this connection allows a runnable to bind as parameters.
@@ -751,9 +791,6 @@ fn allowed_headers(
 ) -> HashMap<String, Box<serde_json::value::RawValue>> {
     let mut selected = HashMap::new();
     for entry in include_headers.iter() {
-        if is_never_forwarded(&entry.param_name) {
-            continue;
-        }
         let mut values = headers.get_all(&entry.header_name).iter();
         let Some(value) = values.next() else {
             continue;
@@ -777,16 +814,21 @@ fn allowed_headers(
     selected
 }
 
-/// Every header a preprocessor may see: broader than the allowlist, since the
-/// preprocessor is the runnable author's own code, but still without the
-/// credentials that authenticate the connection.
+/// Every header a preprocessor may see, exactly as an HTTP trigger's does
+/// (`http_trigger_args.rs`, `build_headers(.., include_all_headers = true)`).
 ///
-/// A repeated *allowlisted* header is dropped here as it is on the parameter
-/// arm, so an identity the operator designated does not resolve differently
-/// depending on whether the runnable happens to have a preprocessor. The drop
-/// stops there: repetition is unremarkable for list-valued fields like
-/// `X-Forwarded-For` and `Via`, which are precisely the ones a preprocessor
-/// reads, and dropping those would blind it on every multi-hop request.
+/// `Authorization` and `Cookie` are included, and that is deliberate parity, not
+/// an oversight: the webhook route is authenticated too, and
+/// `?include_header=authorization` there already binds the caller's Windmill
+/// token to a script parameter. Singling MCP out would make it the one
+/// entrypoint whose preprocessor sees a different request than the others.
+///
+/// A repeated *allowlisted* header is dropped, so an identity the operator
+/// designated does not resolve differently depending on whether the runnable
+/// happens to have a preprocessor. The drop stops there: repetition is
+/// unremarkable for list-valued fields like `X-Forwarded-For` and `Via`, which
+/// are precisely the ones a preprocessor reads, and dropping those would blind
+/// it on every multi-hop request.
 fn preprocessor_headers(
     headers: &http::HeaderMap,
     include_headers: &McpIncludeHeaders,
@@ -794,9 +836,8 @@ fn preprocessor_headers(
     let mut selected = build_headers(headers, None, true);
     selected.retain(|name, _| {
         let normalized = normalize_header_name(name);
-        !is_never_forwarded(&normalized)
-            && (!include_headers.owns_param(&normalized)
-                || headers.get_all(name.as_str()).iter().count() <= 1)
+        !include_headers.owns_param(&normalized)
+            || headers.get_all(name.as_str()).iter().count() <= 1
     });
     selected
 }
@@ -921,44 +962,55 @@ mod tests {
         headers
     }
 
-    /// The credential that authenticates the MCP connection belongs to the
-    /// caller, not to the runnable's author -- naming it in the allowlist must
-    /// not hand it over, or a script could keep and replay a caller's token.
+    /// MCP forwards what the other entrypoints forward, credentials included: a
+    /// webhook called with `?include_header=authorization` already binds the
+    /// caller's Windmill token to a parameter, and an HTTP trigger's
+    /// preprocessor already receives every header. Carving MCP out would make it
+    /// the one entrypoint that answers a request differently.
+    ///
+    /// Pinned because it reads like an oversight to anyone meeting it fresh, and
+    /// the tempting "fix" is to reintroduce a deny list.
     #[test]
-    fn an_allowlisted_credential_header_is_still_refused() {
+    fn credentials_are_forwarded_on_both_arms_as_other_entrypoints_do() {
         let headers = header_map(&[
-            ("authorization", "Bearer secret-token"),
+            ("authorization", "Bearer caller-token"),
             ("cookie", "session=secret"),
             ("x-user-id", "alice@corp.example"),
         ]);
 
-        let selected = allowed_headers(
+        let bound = allowed_headers(
             &headers,
-            &McpIncludeHeaders::parse("authorization, cookie, x-user-id").unwrap(),
+            &McpIncludeHeaders::parse("authorization, x-user-id").unwrap(),
         );
+        assert_eq!(bound["authorization"].get(), "\"Bearer caller-token\"");
+        assert_eq!(bound["x_user_id"].get(), "\"alice@corp.example\"");
 
-        assert_eq!(selected.len(), 1);
-        assert_eq!(selected["x_user_id"].get(), "\"alice@corp.example\"");
+        let event = preprocessor_headers(&headers, &McpIncludeHeaders::default());
+        assert!(event.contains_key("authorization"));
+        assert!(event.contains_key("cookie"));
+        assert!(event.contains_key("x-user-id"));
     }
 
-    /// Same boundary on the other delivery path: a preprocessor sees more than
-    /// the allowlist, but never the connection's credentials.
+    /// Run-by-path proxies over a second HTTP hop that carries a route-scoped JWT
+    /// this server mints. An allowlisted `authorization` must not ride along:
+    /// appending it would leave the proxied route reading one of two credentials,
+    /// and the one it binds to a runnable parameter would be Windmill's own.
     #[test]
-    fn a_preprocessor_never_sees_the_connection_credentials() {
+    fn the_proxy_hop_never_forwards_its_own_credential_header() {
         let headers = header_map(&[
-            ("authorization", "Bearer secret-token"),
-            ("cookie", "session=secret"),
+            ("authorization", "Bearer caller-token"),
             ("x-user-id", "alice@corp.example"),
-            ("user-agent", "some-client/1.0"),
         ]);
 
-        let selected = preprocessor_headers(&headers, &McpIncludeHeaders::default());
+        let forwarded = forwardable_headers(
+            &headers,
+            &McpIncludeHeaders::parse("authorization, x-user-id").unwrap(),
+        );
 
-        assert!(!selected.contains_key("authorization"));
-        assert!(!selected.contains_key("cookie"));
-        // Everything outside the credential set still reaches it.
-        assert!(selected.contains_key("x-user-id"));
-        assert!(selected.contains_key("user-agent"));
+        assert_eq!(
+            forwarded,
+            vec![("x-user-id".to_string(), "alice@corp.example".to_string())]
+        );
     }
 
     /// A header sent twice has no attributable value: a gateway that appends its
@@ -1191,23 +1243,24 @@ mod tests {
     }
 
     /// A tool added to the catalogue that hands a runnable model-composed
-    /// arguments, but is not withdrawn on a header-forwarding connection, is a
-    /// second door to the identity guarantee. The withdrawal set and the
+    /// arguments, but that `runnable_args_carrier` does not classify, is a second
+    /// door to the identity guarantee: nothing strips the model's copy of a
+    /// transport-owned name from its arguments. The classification and the
     /// catalogue are edited in different crates; this is where they meet.
     #[test]
-    fn every_runnable_executing_tool_is_withdrawn_when_headers_are_forwarded() {
-        let unwithdrawn: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()
+    fn every_runnable_executing_tool_is_classified() {
+        let unclassified: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()
             .into_iter()
             .filter(|t| {
                 (t.path.contains("/jobs/run") || t.path.contains("/schedules/"))
                     && carries_runnable_args(t)
-                    && !windmill_mcp::server::executes_runnable_with_model_args(&t.name)
+                    && windmill_mcp::server::runnable_args_carrier(&t.name).is_none()
             })
             .map(|t| t.name.to_string())
             .collect();
         assert!(
-            unwithdrawn.is_empty(),
-            "tools handing a runnable model-composed arguments but not withdrawn on a header-forwarding connection: {unwithdrawn:?}"
+            unclassified.is_empty(),
+            "tools handing a runnable model-composed arguments but unclassified by runnable_args_carrier: {unclassified:?}"
         );
     }
 
@@ -1688,7 +1741,7 @@ mod tests {
         });
 
         let url = format!("http://{addr}/");
-        create_http_request("GET", &url, "test-workspace", caller, None)
+        create_http_request("GET", &url, "test-workspace", caller, None, &[])
             .await
             .expect("proxied request should succeed");
 

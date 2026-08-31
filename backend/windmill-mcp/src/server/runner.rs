@@ -446,45 +446,67 @@ fn transform_call_args(
     Value::Object(args_hash.into_iter().collect())
 }
 
-/// Endpoint tools that make some runnable execute with arguments the model
-/// supplies, whether now or on a schedule.
+/// Where an endpoint tool carries the arguments some runnable will eventually
+/// receive, and therefore how a header-forwarding connection has to treat it.
 ///
-/// Each is a second door to a runnable whose own tool hides the transport-owned
-/// parameters: run-by-path and preview forward an argument map verbatim (preview
-/// can name a deployed `script_hash`), and the schedule endpoints persist one to
-/// be used at fire time. Their argument maps are nested or free-form, so there is
-/// no schema to strip — the tool itself has to go.
-const RUNNABLE_EXECUTING_ENDPOINTS: &[&str] = &[
-    "runScriptByPath",
-    "runFlowByPath",
-    "runScriptPreviewAndWaitResult",
-    "createSchedule",
-    "updateSchedule",
-];
+/// These are the second doors to a runnable whose own tool hides the
+/// transport-owned parameters. Left alone, a model that cannot set `x_user_id` on
+/// `hdr_plain` could set it by asking `runScriptByPath` to run `hdr_plain`
+/// instead, which would defeat the whole guarantee.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunnableArgsCarrier {
+    /// The request body *is* the argument map, and the proxied route is the
+    /// webhook run route, which implements `?include_header=` itself. Forwarding
+    /// the real headers there reuses that machinery, preprocessor shaping
+    /// included, rather than reimplementing it on this path.
+    WebhookBody,
+    /// The argument map is nested under `args`, on a route with no header
+    /// support of its own. The names are stripped so the model cannot forge one;
+    /// nothing is injected.
+    NestedArgs,
+}
 
-/// Whether this endpoint tool can run a runnable with model-supplied arguments,
-/// and so cannot offer the guarantee a header-forwarding connection promises.
+/// How this endpoint tool reaches a runnable's arguments, or `None` if it never
+/// does.
 ///
 /// Named rather than derived from [`EndpointPathPolicy`]: `Unconfinable` covers
 /// both "executes arbitrary code" and "affects a script without a checkable
-/// path", so deriving from it would also withdraw `deleteScriptByHash`, which
-/// runs nothing. A new tool that belongs here is caught by the catalogue guard in
+/// path", so deriving from it would also catch `deleteScriptByHash`, which runs
+/// nothing. A new tool that belongs here is caught by the catalogue guard in
 /// `mcp::utils`' tests rather than by widening the match.
-pub fn executes_runnable_with_model_args(endpoint_name: &str) -> bool {
-    RUNNABLE_EXECUTING_ENDPOINTS.contains(&endpoint_name)
+pub fn runnable_args_carrier(endpoint_name: &str) -> Option<RunnableArgsCarrier> {
+    match endpoint_name {
+        "runScriptByPath" | "runFlowByPath" => Some(RunnableArgsCarrier::WebhookBody),
+        // Preview can name a deployed `script_hash`, so its `args` must not carry
+        // a forged name. Nothing is injected: preview also accepts inline
+        // `content`, and handing a trusted identity to code the model just wrote
+        // would put the value in the model's hands for the sake of a debugging
+        // affordance.
+        "runScriptPreviewAndWaitResult" => Some(RunnableArgsCarrier::NestedArgs),
+        // A schedule fires with no inbound request, so there is nothing to inject
+        // at fire time. Freezing this call's value would make every future run
+        // claim the identity of whoever created the schedule.
+        "createSchedule" | "updateSchedule" => Some(RunnableArgsCarrier::NestedArgs),
+        _ => None,
+    }
 }
 
-/// Drop the transport-owned names from an endpoint tool's arguments.
+/// Drop the transport-owned names from an endpoint tool's arguments, at the top
+/// level and inside a nested `args` map.
 ///
-/// Defence in depth behind the withdrawal above: the tools that forward an
-/// argument map to a runnable are refused outright, so what reaches here is an
-/// endpoint that should never have carried one of these names in the first place.
+/// The nested reach is what the schedule and preview endpoints need: their
+/// argument map is one level down, so a top-level-only strip would leave a forged
+/// `x_user_id` sitting inside `args` untouched.
 fn strip_transport_owned_endpoint_args(args: &mut Value, include_headers: &McpIncludeHeaders) {
     if include_headers.is_empty() {
         return;
     }
-    if let Value::Object(map) = args {
-        map.retain(|key, _| !include_headers.owns_param(key));
+    let Value::Object(map) = args else {
+        return;
+    };
+    map.retain(|key, _| !include_headers.owns_param(key));
+    if let Some(Value::Object(nested)) = map.get_mut("args") {
+        nested.retain(|key, _| !include_headers.owns_param(key));
     }
 }
 
@@ -550,7 +572,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             // every workspace would overload the tool list; callers run them via
             // runScriptByPath / runFlowByPath with a workspace_id instead.
             McpMode::Multi(_) => {
-                Ok(self.list_tools_multi(&scope_config, read_only, &include_headers))
+                Ok(self.list_tools_multi(&scope_config, read_only))
             }
         }
     }
@@ -770,13 +792,6 @@ impl<B: McpBackend> Runner<B> {
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
                 continue;
             }
-            // Withdrawn while headers are being forwarded -- see call_tool_single.
-            if executes_runnable_with_model_args(endpoint_tool.name.as_ref())
-                && !include_headers.is_empty()
-            {
-                continue;
-            }
-
             tools.push(endpoint_tool_to_mcp_tool(&endpoint_tool));
         }
 
@@ -800,23 +815,6 @@ impl<B: McpBackend> Runner<B> {
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in &endpoint_tools {
             if endpoint_tool.name.as_ref() == name.as_ref() {
-                // A connection that forwards headers reaches its runnables only
-                // through their own tools, where the value is injected and the
-                // model cannot name it. Run-by-path takes an arbitrary path and
-                // forwards arbitrary arguments, so it has no such guarantee to
-                // offer -- withdraw it rather than serve a weaker one alongside.
-                if executes_runnable_with_model_args(endpoint_tool.name.as_ref())
-                    && !request.include_headers.is_empty()
-                {
-                    return Err(ErrorData::invalid_params(
-                        format!(
-                            "Tool '{}' is unavailable on a connection that forwards request headers. Call the script's or flow's own tool instead.",
-                            name
-                        ),
-                        None,
-                    ));
-                }
-
                 // Authorize against the token's MCP scopes and read-only flag,
                 // including the run-by-path path check (shared with multi mode).
                 let mut args = args;
@@ -828,7 +826,7 @@ impl<B: McpBackend> Runner<B> {
                 // arguments the endpoint rejected.
                 let result = self
                     .backend
-                    .call_endpoint(auth, workspace_id, endpoint_tool, args)
+                    .call_endpoint(auth, workspace_id, endpoint_tool, args, request)
                     .await?;
 
                 return Ok(CallToolResult::success(vec![ContentBlock::text(
@@ -976,7 +974,6 @@ impl<B: McpBackend> Runner<B> {
         &self,
         scope_config: &crate::common::scope::McpScopeConfig,
         read_only: bool,
-        include_headers: &McpIncludeHeaders,
     ) -> ListToolsResult {
         let mut tools = vec![list_workspaces_tool()];
 
@@ -988,13 +985,6 @@ impl<B: McpBackend> Runner<B> {
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
                 continue;
             }
-            // Withdrawn while headers are being forwarded — see call_tool_single.
-            if executes_runnable_with_model_args(endpoint_tool.name.as_ref())
-                && !include_headers.is_empty()
-            {
-                continue;
-            }
-
             tools.push(endpoint_tool_to_mcp_tool_multi(&endpoint_tool));
         }
 
@@ -1042,19 +1032,6 @@ impl<B: McpBackend> Runner<B> {
                     None,
                 )
             })?;
-
-        // Withdrawn while headers are being forwarded — see call_tool_single.
-        if executes_runnable_with_model_args(endpoint_tool.name.as_ref())
-            && !request.include_headers.is_empty()
-        {
-            return Err(ErrorData::invalid_params(
-                format!(
-                    "Tool '{}' is unavailable on a connection that forwards request headers.",
-                    name
-                ),
-                None,
-            ));
-        }
 
         // Authorize the tool against the token's MCP scopes and read-only flag
         // (shared with single-workspace mode). Run-by-path endpoints
@@ -1105,7 +1082,7 @@ impl<B: McpBackend> Runner<B> {
 
         let result = self
             .backend
-            .call_endpoint(&resolved_auth, &workspace_id, endpoint_tool, args)
+            .call_endpoint(&resolved_auth, &workspace_id, endpoint_tool, args, request)
             .await?;
 
         Ok(CallToolResult::success(vec![ContentBlock::text(
@@ -1148,40 +1125,54 @@ mod tests {
         assert_eq!(args, json!({"ticket_id": "T-1", "x_user_id": "someone"}));
     }
 
-    /// Withdrawal takes the tools that hand a runnable a model-composed argument
-    /// map off the connection; this strip is the layer under it, covering every
-    /// endpoint tool that stays. It is what keeps the guarantee from resting on
-    /// the withdrawal list alone, so a tool that grows an argument map later
-    /// cannot quietly carry a transport-owned name into a runnable.
+    /// The model's copy of a transport-owned name is dropped wherever an endpoint
+    /// tool can carry it: at the top level, where run-by-path puts a script's
+    /// arguments, and one level down under `args`, where preview and the schedule
+    /// endpoints put theirs. A top-level-only strip would leave the nested one.
     #[test]
     fn endpoint_arguments_cannot_carry_a_header_fed_name() {
-        let mut args = json!({"path": "u/admin/whoami", "x_user_id": "attacker@evil.test"});
+        let include = McpIncludeHeaders::parse("x-user-id").unwrap();
 
-        strip_transport_owned_endpoint_args(
-            &mut args,
-            &McpIncludeHeaders::parse("x-user-id").unwrap(),
-        );
+        let mut flat = json!({"path": "u/admin/whoami", "x_user_id": "attacker@evil.test"});
+        strip_transport_owned_endpoint_args(&mut flat, &include);
+        assert_eq!(flat, json!({"path": "u/admin/whoami"}));
 
-        assert_eq!(args, json!({"path": "u/admin/whoami"}));
+        let mut nested = json!({
+            "schedule": "0 0 * * *",
+            "script_path": "u/admin/whoami",
+            "args": {"ticket_id": "T-1", "x_user_id": "attacker@evil.test"}
+        });
+        strip_transport_owned_endpoint_args(&mut nested, &include);
+        assert_eq!(nested["args"], json!({"ticket_id": "T-1"}));
     }
 
-    /// Every second door to a runnable is withdrawn on such a connection. Each of
-    /// these takes a nested or free-form argument map — preview can even name a
-    /// deployed `script_hash` — so stripping the top level would not reach them.
+    /// Every second door to a runnable is classified, and by how it carries the
+    /// arguments rather than by name: run-by-path proxies to the webhook route
+    /// that binds headers itself, while preview and the schedule endpoints nest
+    /// theirs under `args` on routes that do not.
     #[test]
-    fn every_runnable_executing_endpoint_is_recognised_for_withdrawal() {
+    fn every_runnable_executing_endpoint_is_classified() {
+        for name in ["runScriptByPath", "runFlowByPath"] {
+            assert_eq!(
+                runnable_args_carrier(name),
+                Some(RunnableArgsCarrier::WebhookBody),
+                "{name}"
+            );
+        }
         for name in [
-            "runScriptByPath",
-            "runFlowByPath",
             "runScriptPreviewAndWaitResult",
             "createSchedule",
             "updateSchedule",
         ] {
-            assert!(executes_runnable_with_model_args(name), "{name}");
+            assert_eq!(
+                runnable_args_carrier(name),
+                Some(RunnableArgsCarrier::NestedArgs),
+                "{name}"
+            );
         }
         // `deleteScriptByHash` is the boundary case: it shares the policy variant
         // that means "affects a script without a checkable path", but runs
-        // nothing, so it must keep working on a header-forwarding connection.
+        // nothing, so it carries no runnable arguments at all.
         for name in [
             "listJobs",
             "getScriptByPath",
@@ -1190,7 +1181,7 @@ mod tests {
             "deleteScriptByHash",
             "deleteSchedule",
         ] {
-            assert!(!executes_runnable_with_model_args(name), "{name}");
+            assert_eq!(runnable_args_carrier(name), None, "{name}");
         }
     }
 

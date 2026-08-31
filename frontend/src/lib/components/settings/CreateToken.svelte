@@ -284,9 +284,9 @@
 									same name (<code>X-User-Id</code> becomes <code>x_user_id</code>), hidden from the
 									tool schema so the model cannot set it. With a preprocessor they arrive keyed by
 									the original header name, under <code>event.headers</code> for a v2 preprocessor
-									and <code>wm_trigger.mcp.headers</code> for a v1 one. Authentication headers are never
-									forwarded. Tools that run a runnable by path, preview or schedule are withdrawn while
-									this is set, since the model chooses their arguments.
+									and <code>wm_trigger.mcp.headers</code> for a v1 one. Running a script by path binds
+									them the same way; preview and schedule tools drop the names instead, since a scheduled
+									run has no request to read them from.
 								{/snippet}
 							</Tooltip></span
 						>
