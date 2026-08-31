@@ -100,27 +100,26 @@
 			]
 		},
 		archived: { type: 'boolean' as const, label: 'Only archived' },
-		...($userStore && !$userStore.operator
-			? {
-					include_library: {
-						type: 'boolean' as const,
-						label: 'Include library scripts',
-						// On by default, so selecting it means "turn it off" — keep the picker.
-						default: true
-					}
-				}
-			: {}),
-		...(filterUserFoldersType
-			? {
-					only_user_folders: {
-						type: 'boolean' as const,
-						label:
-							filterUserFoldersType === 'only f/*'
-								? 'Only f/*'
-								: `Only u/${$userStore?.username} and f/*`
-					}
-				}
-			: {})
+		// include_library and only_user_folders are role-dependent, but their KEYS stay in the schema
+		// unconditionally and toggle `hidden` instead: Home survives workspace switches and
+		// useUrlSyncedFilterInstance snapshots the key set once, so a key that first appeared after a
+		// role change would show in the searchbar yet never reach the URL. Keeping every key present
+		// lets the sync cover them from the start; the searchbar skips the hidden ones.
+		include_library: {
+			type: 'boolean' as const,
+			label: 'Include library scripts',
+			// On by default, so selecting it means "turn it off" — keep the picker.
+			default: true,
+			hidden: !($userStore && !$userStore.operator)
+		},
+		only_user_folders: {
+			type: 'boolean' as const,
+			label:
+				filterUserFoldersType === 'only f/*'
+					? 'Only f/*'
+					: `Only u/${$userStore?.username} and f/*`,
+			hidden: !filterUserFoldersType
+		}
 	} satisfies FilterSchemaRec)
 
 	// Legacy Home links stored free-text in `search`, owner scope in `filter`, and could carry

@@ -32,7 +32,7 @@
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
 	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 
 	type Tab = 'hub' | 'workspace'
 
@@ -265,12 +265,9 @@
 	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
 		<!-- The home composer starts a session, which lives behind the same dev gate as the
 		     global AI chat; without it, /sessions renders only its gate message and the queued
-		     prompt is silently dropped. Hide the entry point until the gate opens.  -->
-		{#if isGlobalAiEnabled()}
-			<div
-				class="flex flex-row flex-wrap justify-between items-center gap-3 pb-2 my-4 mr-2 min-h-16"
-			>
-			</div>
+		     prompt is silently dropped. Operators are refused by /sessions, so hide the entry
+		     point from them too (prefersSessionHandoff), not just until the gate opens. -->
+		{#if prefersSessionHandoff($userStore?.operator)}
 			<div class="w-full mb-16 mt-2">
 				<HomeAIChat />
 			</div>

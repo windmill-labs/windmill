@@ -130,7 +130,7 @@
 
 <div class="w-full flex justify-center">
 	<div class="max-w-[40rem] grow relative group">
-		<div class={blurClass}>
+		<div class={blurClass} inert={disabled}>
 			<div class="flex items-center justify-center gap-2 mb-4">
 				<p class="text-center font-regular text-3xl">Build with AI</p>
 				<Badge color="blue" small>Beta</Badge>
@@ -160,7 +160,7 @@
 		</div>
 
 		<div class="flex items-center justify-between gap-2">
-			<div class="flex flex-row flex-wrap items-center gap-1.5 {blurClass}">
+			<div class="flex flex-row flex-wrap items-center gap-1.5 {blurClass}" inert={disabled}>
 				{#each homeAIExamples as example (example.label)}
 					<Button
 						variant="default"
