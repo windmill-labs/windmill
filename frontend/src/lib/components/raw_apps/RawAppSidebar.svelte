@@ -24,6 +24,7 @@
 		files: Record<string, string>
 		modules?: Modules
 		onSelectRunnable?: (key: string) => void
+		onDeleteRunnable?: (key: string) => void
 		onSelectPath?: (path: string) => void
 		/** Read-only; the editor switches selection through `onSelectPath`. */
 		selectedDocument: string | undefined
@@ -47,6 +48,7 @@
 		files = $bindable({}),
 		modules,
 		onSelectRunnable,
+		onDeleteRunnable,
 		onSelectPath,
 		selectedDocument,
 		historyManager,
@@ -96,8 +98,8 @@
 	{#snippet action()}
 		<div class="flex gap-1">
 			<Button
-				onClick={() => fileExplorer?.handleAddRootFile()}
-				title="Add file to root"
+				onClick={() => fileExplorer?.handleAddFileBesideSelection()}
+				title="New file beside the selected one"
 				unifiedSize="xs"
 				variant="subtle"
 				btnClasses="px-1 gap-0.5"
@@ -106,8 +108,8 @@
 				<File size={12} />
 			</Button>
 			<Button
-				onClick={() => fileExplorer?.handleAddRootFolder()}
-				title="Add folder to root"
+				onClick={() => fileExplorer?.handleAddFolderBesideSelection()}
+				title="New folder beside the selected file"
 				unifiedSize="xs"
 				variant="subtle"
 				btnClasses="px-1 gap-0.5"
@@ -139,7 +141,12 @@
 <RawAppModules {modules} />
 
 <div class="py-4"></div>
-<RawAppInlineScriptPanelList {selectedRunnable} {runnables} onSelect={onSelectRunnable} />
+<RawAppInlineScriptPanelList
+	{selectedRunnable}
+	{runnables}
+	onSelect={onSelectRunnable}
+	onDelete={onDeleteRunnable}
+/>
 
 <div class="py-4"></div>
 <RawAppDataTableList

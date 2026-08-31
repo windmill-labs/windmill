@@ -564,6 +564,14 @@
 		select(selectionOfTab(id), opts)
 	}
 
+	// Closing the tab moves the selection off the runnable in the same tick. The
+	// stale-tab effect would get there too, but a frame later — long enough for
+	// the pane to render "No runnable at id …".
+	function deleteRunnable(key: string) {
+		delete runnables[key]
+		closeTab(runnableTabId(key))
+	}
+
 	// Ask the UI Builder iframe to open a document. `populateFiles` replays
 	// `iframeDocument` on iframe load, so record it even when the iframe isn't
 	// ready yet (the postMessage is then skipped).
@@ -2341,6 +2349,7 @@
 						}
 						onSelectPath={handleSelectPath}
 						onSelectRunnable={(key) => select({ kind: 'runnable', key })}
+						onDeleteRunnable={deleteRunnable}
 						{selectedRunnable}
 						{selectedDocument}
 						dataTableRefs={dataTableRefsObjects}

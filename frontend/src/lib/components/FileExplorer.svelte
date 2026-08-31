@@ -98,7 +98,7 @@
 
 	// New entries land beside the selected file; with nothing selected, at the
 	// root. To create inside another folder, use that folder row's own menu.
-	export function handleAddRootFile() {
+	export function handleAddFileBesideSelection() {
 		const basePath = parentFolderOfSelection() + 'newfile.txt'
 		const newPath = getUniquePath(basePath)
 		pendingNewFilePath = newPath
@@ -113,7 +113,7 @@
 		pathToEdit = newPath
 	}
 
-	export function handleAddRootFolder() {
+	export function handleAddFolderBesideSelection() {
 		const basePath = parentFolderOfSelection() + 'newfolder/'
 		const newPath = getUniquePath(basePath)
 		pendingNewFilePath = newPath
@@ -154,9 +154,7 @@
 				}
 				// Also rename in emptyFolders
 				emptyFolders = emptyFolders.map((f) =>
-					f === oldPath || f.startsWith(oldPath)
-						? newPath + f.substring(oldPath.length)
-						: f
+					f === oldPath || f.startsWith(oldPath) ? newPath + f.substring(oldPath.length) : f
 				)
 			}
 		} else {
@@ -211,7 +209,7 @@
 		<span class="text-xs font-semibold text-emphasis">Files</span>
 		<div class="flex gap-1">
 			<Button
-				onClick={handleAddRootFile}
+				onClick={handleAddFileBesideSelection}
 				title="Add file"
 				unifiedSize="xs"
 				variant="subtle"
@@ -221,7 +219,7 @@
 				<File size={12} />
 			</Button>
 			<Button
-				onClick={handleAddRootFolder}
+				onClick={handleAddFolderBesideSelection}
 				title="Add folder"
 				unifiedSize="xs"
 				variant="subtle"
@@ -243,8 +241,7 @@
 				: ''}"
 		>
 			<FolderOpen size={12} class="flex-shrink-0 text-secondary" />
-			<span
-				class="truncate text-primary font-normal {selectedPath === '/' ? 'text-accent' : ''}"
+			<span class="truncate text-primary font-normal {selectedPath === '/' ? 'text-accent' : ''}"
 				>/</span
 			>
 		</button>
