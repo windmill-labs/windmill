@@ -17,8 +17,9 @@
 		selectedRunnable: string | undefined
 		runnables: Record<string, Runnable>
 		onSelect?: (id: string) => void
-		/** The editor deletes and moves the selection off it in one tick. */
-		onDelete?: (id: string) => void
+		/** The editor deletes and moves the selection off it in one tick. Required:
+		 * the row's Delete does nothing without it. */
+		onDelete: (id: string) => void
 	}
 
 	let { selectedRunnable, runnables, onSelect, onDelete }: Props = $props()
@@ -127,7 +128,7 @@
 								isSelected={selectedRunnable === id}
 								isEditing={editingId === id}
 								onSelect={() => onSelect?.(id)}
-								onDelete={() => onDelete?.(id)}
+								onDelete={() => onDelete(id)}
 								onRename={(newId) => renameRunnable(id, newId)}
 								onRequestEdit={() => (editingId = id)}
 								onCancelEdit={() => (editingId = undefined)}

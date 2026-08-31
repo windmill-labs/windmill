@@ -24,7 +24,7 @@
 		files: Record<string, string>
 		modules?: Modules
 		onSelectRunnable?: (key: string) => void
-		onDeleteRunnable?: (key: string) => void
+		onDeleteRunnable: (key: string) => void
 		onSelectPath?: (path: string) => void
 		/** Read-only; the editor switches selection through `onSelectPath`. */
 		selectedDocument: string | undefined
