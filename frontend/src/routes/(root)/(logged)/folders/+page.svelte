@@ -47,7 +47,9 @@
 
 	function onFolderSaved(name: string, created: boolean) {
 		if (created) $userStore?.folders.push(name)
-		loadFolders()
+		// Returned, not fired: the drawer reports a failed reload, and it can only see one
+		// through the promise this hands back.
+		return loadFolders()
 	}
 
 	$effect(() => {
@@ -163,10 +165,7 @@
 							{/each}
 						{:else}
 							{#each folders as { name, extra_perms, owners, canWrite, summary, labels } (name)}
-								<Row
-									hoverable
-									on:click={() => folderEditorDrawer?.initEdit(name)}
-								>
+								<Row hoverable on:click={() => folderEditorDrawer?.initEdit(name)}>
 									<Cell first>
 										<span class="text-emphasis text-xs font-semibold">{name}</span>
 										{#if summary}
