@@ -7,10 +7,13 @@
 		type InstanceGroup
 	} from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { onMount, tick, untrack } from 'svelte'
 	import { Button } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
-	import TableCustom from './TableCustom.svelte'
+	import DataTable from './table/DataTable.svelte'
+	import Head from './table/Head.svelte'
+	import Row from './table/Row.svelte'
+	import Cell from './table/Cell.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -19,42 +22,100 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
-	import { Trash } from 'lucide-svelte'
+	import { Plus, Trash } from 'lucide-svelte'
 	import PermissionHistory from './PermissionHistory.svelte'
 	import Alert from './common/alert/Alert.svelte'
+	import InputError from './InputError.svelte'
+	import Popover from './meltComponents/Popover.svelte'
+	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
+	import {
+		groupMemberDiff,
+		isGroupDraftDirty,
+		type GroupDraft,
+		type GroupRole
+	} from '$lib/groupDraft'
 
-	interface Props {
-		name: string
+	const ROLE_TOOLTIPS = {
+		member:
+			'A Member of a group can see everything the group can see, write to everything the group can write, and generally act on behalf of the group',
+		manager:
+			'A manager of a group can manage the group, adding and removing users and change their roles. Being a manager does not make you a member',
+		admin:
+			'An admin of a group is a member of a group that can also add and remove members to the group, or make them admin.'
 	}
 
-	let { name }: Props = $props()
-	let can_write = $state(false)
+	const MEMBERS_EXPLAINER =
+		'A member is a user with a role on this group. Members act on behalf of the group and see everything it can see; admins can additionally add and remove members.'
 
-	type Role = 'member' | 'manager' | 'admin'
+	// Edits mutate `draft` only; `save()` is the sole writer to the backend, and `baseline` is
+	// what the group held when it was loaded, so comparing the two gives both the dirty state
+	// and the member calls to replay. Both live in `groupDraft.ts`, with tests.
+	interface Props {
+		/** In `new` mode this is the name being typed, hence bindable. */
+		name: string
+		mode?: 'edit' | 'new'
+		/** Drives the parent drawer's Save button, which lives above this component. */
+		onCanSaveChange?: (canSave: boolean) => void
+		/** Drives the parent drawer's discard confirmation on close. Unlike `canSave` this
+		 * stays true for edits that cannot be saved yet (a name already taken) — closing
+		 * would still throw them away. */
+		onUnsavedChange?: (unsaved: boolean) => void
+	}
+
+	let { name = $bindable(), mode = 'edit', onCanSaveChange, onUnsavedChange }: Props = $props()
+
+	const restricted = $derived(
+		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
+	)
+
+	let can_write = $state(false)
 	let group: Group | undefined
 	let instance_group: InstanceGroup | undefined = $state()
-	let members: { member_name: string; role: Role }[] | undefined = $state(undefined)
-	let usernames: string[] | undefined = $state([])
-	let username: string = $state('')
-	let summary = $state('')
+	let usernames: string[] = $state([])
+	let groupNames: string[] = $state([])
+	let loaded = $state(false)
+	let reloadHistory = $state(0)
+	let nameInput: TextInput | undefined = $state(undefined)
 
-	const dispatch = createEventDispatcher()
+	let baseline: GroupDraft | undefined = $state(undefined)
+	let draft: GroupDraft = $state(emptyDraft())
+
+	let memberToAdd: string = $state('')
+	let newMemberRole: GroupRole = $state('member')
+
+	// `create_group` puts the caller in the group and gives them the write entry, so a save
+	// on this branch has already happened once the request lands: a retry after a later
+	// member call fails must take the edit path or it recreates a group that now exists.
+	let alreadyCreated = $state(false)
+	const isNew = $derived(mode === 'new' && !alreadyCreated)
+
+	function emptyDraft(): GroupDraft {
+		return {
+			summary: '',
+			// The backend makes the creator an admin whatever we send, so the table shows that
+			// from the start rather than after the first reload.
+			members: $userStore ? [{ member_name: $userStore.username, role: 'admin' as GroupRole }] : []
+		}
+	}
+
+	function setDraft(value: GroupDraft) {
+		baseline = structuredClone(value)
+		draft = structuredClone(value)
+	}
+
+	/** Fills a picker or a validation list. The editor is usable before these land, so they
+	 *  run alongside the group read — but a rejection has to be reported: unhandled, it
+	 *  leaves the list silently empty and duplicate names stop being caught. */
+	function loadAside(load: () => Promise<void>): void {
+		load().catch((e) => sendUserToast(e?.body ?? String(e), true))
+	}
 
 	async function loadUsernames(): Promise<void> {
 		usernames = await UserService.listUsernames({ workspace: $workspaceStore! })
 	}
 
-	async function load() {
-		return Promise.all([loadGroup(), loadInstanceGroup(), loadUsernames()])
-	}
-
-	async function addToGroup() {
-		await GroupService.addUserToGroup({
-			workspace: $workspaceStore ?? '',
-			name,
-			requestBody: { username }
-		})
-		loadGroup()
+	async function loadGroupNames(): Promise<void> {
+		groupNames = (await GroupService.listGroupNames({ workspace: $workspaceStore! })) ?? []
 	}
 
 	async function loadInstanceGroup(): Promise<void> {
@@ -65,55 +126,211 @@
 		}
 	}
 
-	async function loadGroup(): Promise<void> {
-		try {
-			group = await GroupService.getGroup({ workspace: $workspaceStore!, name })
-			can_write = canWrite(name!, group.extra_perms ?? {}, $userStore)
-			members = Array.from(
-				new Set(
-					Object.entries(group?.extra_perms ?? {})
-						.filter(([k, v]) => k.startsWith('u/') && v)
-						.map(([k, _]) => k.split('/')[1])
-						.concat(group?.members ?? [])
-				)
-			).map((x) => {
-				return {
-					member_name: x,
-					role: getRole(x)
-				}
-			})
-			summary = group.summary ?? ''
-			reloadHistory++
-		} catch (e) {
-			can_write = false
-			members = []
-			summary = ''
-			group = {
-				name
-			}
+	async function load() {
+		loadAside(loadUsernames)
+		if (isNew) {
+			loadAside(loadGroupNames)
+			can_write = true
+			setDraft(emptyDraft())
+			loaded = true
+		} else {
+			loadAside(loadInstanceGroup)
+			await loadGroup()
 		}
 	}
 
-	function getRole(x: string): Role {
-		const writer = 'u/' + x in (group?.extra_perms ?? {}) && (group?.extra_perms ?? {})['u/' + x]
-		const member = group?.members?.includes(x)
+	/** `baselineOnly` re-reads the group without touching the draft: after a save that
+	 *  committed some of its calls and then failed, the baseline must become what the server
+	 *  actually holds while the draft stays the user's intent — the applied changes then stop
+	 *  counting as dirty, and the ones still missing stay dirty and retryable. */
+	async function loadGroup(opts?: { baselineOnly?: boolean }): Promise<void> {
+		const apply = (value: GroupDraft) =>
+			opts?.baselineOnly ? (baseline = structuredClone(value)) : setDraft(value)
+		try {
+			group = await GroupService.getGroup({ workspace: $workspaceStore!, name })
+			can_write = canWrite(name, group.extra_perms ?? {}, $userStore)
+			apply({
+				summary: group.summary ?? '',
+				members: Array.from(
+					new Set(
+						Object.entries(group?.extra_perms ?? {})
+							.filter(([k, v]) => k.startsWith('u/') && v)
+							.map(([k, _]) => k.split('/')[1])
+							.concat(group?.members ?? [])
+					)
+				).map((x) => ({ member_name: x, role: getRole(x) }))
+			})
+			reloadHistory++
+		} catch (e) {
+			// The draft must survive a failed read: overwriting it here would discard the
+			// user's edits and clear `unsaved` with them.
+			sendUserToast(e?.body ?? String(e), true)
+			can_write = false
+		} finally {
+			loaded = true
+		}
+	}
 
-		if (writer && member) {
+	function getRole(x: string): GroupRole {
+		const manages = 'u/' + x in (group?.extra_perms ?? {}) && (group?.extra_perms ?? {})['u/' + x]
+		const belongs = group?.members?.includes(x)
+
+		if (manages && belongs) {
 			return 'admin'
-		} else if (writer) {
+		} else if (manages) {
 			return 'manager'
 		} else {
 			return 'member'
 		}
 	}
+
+	const nameError = $derived(
+		mode !== 'new'
+			? ''
+			: !name
+				? ''
+				: groupNames.includes(name)
+					? 'A group with this name already exists'
+					: ''
+	)
+
+	const dirty = $derived(isGroupDraftDirty(draft, baseline))
+	// A typed name is progress too, even before any other field is touched.
+	const unsaved = $derived(dirty || (mode === 'new' && !!name))
+
+	$effect(() => {
+		onCanSaveChange?.(isNew ? loaded && !!name && !nameError && !restricted : can_write && dirty)
+	})
+
+	$effect(() => {
+		onUnsavedChange?.(unsaved)
+	})
+
+	// `create_group` folds the caller into the group as an admin whatever the payload says, so
+	// on create their own row is fixed: offering to demote or remove it would be a change the
+	// backend silently discards.
+	function isFixedCreatorRow(member: string): boolean {
+		return isNew && member === $userStore?.username
+	}
+
+	function addMember(close: () => void) {
+		if (!draft.members.some((m) => m.member_name === memberToAdd)) {
+			draft.members.push({ member_name: memberToAdd, role: newMemberRole })
+		}
+		memberToAdd = ''
+		close()
+	}
+
+	/** Replays the member rows the user changed. `updateGroup` writes the summary only, so
+	 * membership goes through the endpoints that name who was added or promoted — which is
+	 * what the permission history reads back. The diff itself is in `groupDraft.ts`. */
+	async function applyMemberChanges(
+		next: GroupDraft['members'],
+		prev: GroupDraft['members'],
+		onApplied: () => void
+	) {
+		const workspace = $workspaceStore ?? ''
+		for (const call of groupMemberDiff(prev, next)) {
+			switch (call.kind) {
+				case 'addUser':
+					await GroupService.addUserToGroup({
+						workspace,
+						name,
+						requestBody: { username: call.username }
+					})
+					break
+				case 'removeUser':
+					await GroupService.removeUserToGroup({
+						workspace,
+						name,
+						requestBody: { username: call.username }
+					})
+					break
+				case 'setAcl':
+					await GranularAclService.addGranularAcls({
+						workspace,
+						path: name,
+						kind: 'group_',
+						requestBody: { owner: 'u/' + call.username, write: true }
+					})
+					break
+				case 'removeAcl':
+					await GranularAclService.removeGranularAcls({
+						workspace,
+						path: name,
+						kind: 'group_',
+						requestBody: { owner: 'u/' + call.username }
+					})
+					break
+			}
+			onApplied()
+		}
+	}
+
+	export async function save(): Promise<{ name: string; created: boolean } | undefined> {
+		const next = $state.snapshot(draft) as GroupDraft
+		const prev = baseline as GroupDraft
+		const created = isNew
+		// Tracks whether any request landed, which decides what a failure means.
+		let committed = false
+		try {
+			if (created) {
+				await GroupService.createGroup({
+					workspace: $workspaceStore ?? '',
+					requestBody: { name, summary: next.summary }
+				})
+				alreadyCreated = true
+				committed = true
+				// The members the caller added, on top of the admin row `create_group` wrote.
+				await applyMemberChanges(next.members, emptyDraft().members, () => {})
+				sendUserToast(`Group ${name} created`)
+			} else {
+				if (next.summary !== prev.summary) {
+					await GroupService.updateGroup({
+						workspace: $workspaceStore ?? '',
+						name,
+						requestBody: { summary: next.summary }
+					})
+					committed = true
+				}
+				await applyMemberChanges(next.members, prev.members, () => (committed = true))
+				await loadGroup()
+				sendUserToast('Group updated')
+			}
+			return { name, created }
+		} catch (e) {
+			sendUserToast(e.body ?? String(e), true)
+			// The calls are sequential, so a rejection can land with earlier ones committed. Move
+			// the baseline to what the server now holds and keep the draft: what was applied
+			// stops being dirty, what was not stays dirty, and a retry re-sends only that.
+			// `isNew` is read after the create, so a group that now exists reconciles too.
+			if (!isNew && committed) await loadGroup({ baselineOnly: true })
+			return undefined
+		}
+	}
+
+	// The stores are read only to wait until they are populated, and the load runs once: this
+	// editor holds an unsaved draft, and the layout re-`set`s `$userStore` periodically — a
+	// second `load()` would overwrite the draft with the server's state and lose the edits
+	// silently, `unsaved` included. The drawer remounts this component per opening.
+	let loadStarted = false
 	$effect.pre(() => {
+		if (loadStarted) return
 		if ($workspaceStore && $userStore) {
+			loadStarted = true
 			untrack(() => {
 				load()
 			})
 		}
 	})
-	let reloadHistory = $state(0)
+
+	onMount(async () => {
+		if (mode !== 'new') return
+		// The editor is remounted per drawer opening, so mount is the moment the create form
+		// appears; the input only exists after the first render.
+		await tick()
+		nameInput?.focus()
+	})
 </script>
 
 <div class="flex flex-col gap-6">
@@ -124,206 +341,213 @@
 			permission, deployed items will be reassigned to the deploying user.
 		</Alert>
 	{/if}
-	<Label label="Summary" for="summary">
-		<div class="flex flex-row gap-2">
+
+	{#if mode === 'new'}
+		<Label label="Group name">
 			<TextInput
-				inputProps={{ placeholder: 'Short summary to be displayed when listed', id: 'summary' }}
-				bind:value={summary}
+				bind:this={nameInput}
+				bind:value={name}
+				error={!!nameError}
 				size="md"
+				inputProps={{ placeholder: 'group_name' }}
 			/>
-			<Button
-				unifiedSize="md"
-				variant="accent"
-				on:click={async () => {
-					await GroupService.updateGroup({
-						workspace: $workspaceStore ?? '',
-						name,
-						requestBody: { summary }
-					})
-					dispatch('update')
-					sendUserToast('Group summary updated')
-					loadGroup()
-				}}>Save</Button
-			>
-		</div>
+			<InputError error={nameError} />
+		</Label>
+	{/if}
+
+	<Label label="Summary" for="summary">
+		<TextInput
+			inputProps={{
+				placeholder: 'Short summary to be displayed when listed',
+				id: 'summary',
+				disabled: !can_write
+			}}
+			bind:value={draft.summary}
+			size="md"
+		/>
 	</Label>
 
-	<Label label={`Members (${members?.length ?? 0})`}>
-		{#if can_write}
-			<div class="flex items-start gap-1">
-				<Select items={safeSelectItems(usernames)} bind:value={username} size="md" class="grow" />
-				<Button variant="accent" color="blue" unifiedSize="md" on:click={addToGroup}>
-					Add member
-				</Button>
-			</div>
-		{/if}
-		{#if members}
-			<TableCustom>
-				{#snippet headerRow()}
-					<tr>
-						<th>user</th>
-						<th></th>
-						<th></th>
-					</tr>
-				{/snippet}
-				{#snippet body()}
-					<tbody>
-						{#each members ?? [] as { member_name, role }}<tr>
-								<td>{member_name}</td>
-								<td>
-									{#if can_write}
+	<Label label={`Members (${draft.members.length})`} tooltip={MEMBERS_EXPLAINER}>
+		{#snippet action()}
+			{#if can_write && !restricted}
+				<Popover
+					placement="bottom-end"
+					onClose={() => {
+						memberToAdd = ''
+						newMemberRole = 'member'
+					}}
+				>
+					{#snippet trigger()}
+						<Button
+							variant="default"
+							unifiedSize="sm"
+							nonCaptureEvent={true}
+							startIcon={{ icon: Plus }}
+						>
+							Add member
+						</Button>
+					{/snippet}
+					{#snippet content({ close })}
+						<div class="flex flex-col w-72 p-4 gap-4">
+							<span class="text-sm leading-6 font-semibold">Add a member</span>
+							<Label label="User">
+								<Select
+									items={safeSelectItems(
+										usernames.filter((x) => !draft.members.some((m) => m.member_name === x))
+									)}
+									bind:value={memberToAdd}
+									size="sm"
+									class="grow min-w-0"
+								/>
+							</Label>
+							<Label label="Role">
+								<ToggleButtonGroup bind:selected={newMemberRole}>
+									{#snippet children({ item })}
+										<ToggleButton
+											value="member"
+											label="Member"
+											tooltip={ROLE_TOOLTIPS.member}
+											{item}
+											size="sm"
+										/>
+										<ToggleButton
+											value="admin"
+											label="Admin"
+											tooltip={ROLE_TOOLTIPS.admin}
+											{item}
+											size="sm"
+										/>
+									{/snippet}
+								</ToggleButtonGroup>
+							</Label>
+							<Button
+								variant="accent"
+								unifiedSize="sm"
+								disabled={memberToAdd == ''}
+								onClick={() => addMember(close)}
+							>
+								Add
+							</Button>
+						</div>
+					{/snippet}
+				</Popover>
+			{/if}
+		{/snippet}
+		<div class="flex flex-col gap-2">
+			{#if can_write && restricted}
+				<Alert type="info" title="Sharing disabled">{DEMO_RESTRICTION_HINT}</Alert>
+			{/if}
+
+			{#if loaded}
+				<DataTable size="sm">
+					<Head>
+						<tr>
+							<Cell head first class="text-secondary">Name</Cell>
+							<Cell head class="text-secondary">Role</Cell>
+							<Cell head last actions class="text-secondary">Actions</Cell>
+						</tr>
+					</Head>
+					<tbody class="divide-y">
+						{#each draft.members as member, idx (member.member_name)}
+							<Row>
+								<Cell first>
+									<span class="text-emphasis font-medium">{member.member_name}</span>
+								</Cell>
+								<Cell>
+									{#if can_write && !restricted}
 										<div>
 											<ToggleButtonGroup
-												selected={role}
-												on:selected={async (e) => {
-													const role = e.detail
-													// const wasInGroup = (group?.members ?? []).includes(group)
-													// const inAcl = (
-													// 	group?.extra_perms ? Object.keys(group?.extra_perms) : []
-													// ).includes(group)
-													if (role == 'member') {
-														await GroupService.addUserToGroup({
-															workspace: $workspaceStore ?? '',
-															name,
-															requestBody: {
-																username: member_name
-															}
-														})
-														await GranularAclService.removeGranularAcls({
-															workspace: $workspaceStore ?? '',
-															path: name,
-															kind: 'group_',
-															requestBody: {
-																owner: 'u/' + member_name
-															}
-														})
-													} else if (role == 'manager') {
-														await GroupService.removeUserToGroup({
-															workspace: $workspaceStore ?? '',
-															name,
-															requestBody: {
-																username: member_name
-															}
-														})
-														await GranularAclService.addGranularAcls({
-															workspace: $workspaceStore ?? '',
-															path: name,
-															kind: 'group_',
-															requestBody: {
-																owner: 'u/' + member_name,
-																write: true
-															}
-														})
-													} else if (role == 'admin') {
-														await GroupService.addUserToGroup({
-															workspace: $workspaceStore ?? '',
-															name,
-															requestBody: {
-																username: member_name
-															}
-														})
-														await GranularAclService.addGranularAcls({
-															workspace: $workspaceStore ?? '',
-															path: name,
-															kind: 'group_',
-															requestBody: {
-																owner: 'u/' + member_name,
-																write: true
-															}
-														})
-													}
-													loadGroup()
+												disabled={isFixedCreatorRow(member.member_name)}
+												selected={member.role}
+												on:selected={(e) => {
+													draft.members[idx].role = e.detail
 												}}
 											>
 												{#snippet children({ item })}
 													<ToggleButton
 														value="member"
-														small
 														label="Member"
-														tooltip="A Member of a group can see everything the group can see, write to everything the group can write, and generally act on behalf of the group"
+														tooltip={ROLE_TOOLTIPS.member}
 														{item}
+														size="sm"
 													/>
 													<ToggleButton
 														value="admin"
-														small
 														label="Admin"
-														tooltip="An admin of a group is a member of a group that can also add and remove members to the group, or make them admin."
+														tooltip={ROLE_TOOLTIPS.admin}
 														{item}
+														size="sm"
 													/>
-													{#if role === 'manager'}
+													<!-- Manager is a state the UI can leave but not enter: it is a
+													     write entry without membership, which only older grants hold. -->
+													{#if member.role === 'manager'}
 														<ToggleButton
 															value="manager"
-															small
 															label="Manager"
-															tooltip="A manager of a group can manage the group, adding and removing users and
-													change their roles. Being a manager does not make you a member"
+															tooltip={ROLE_TOOLTIPS.manager}
 															{item}
+															size="sm"
 														/>
 													{/if}
 												{/snippet}
 											</ToggleButtonGroup>
 										</div>
 									{:else}
-										{role}
-									{/if}</td
-								>
-								<td class="flex justify-end">
-									{#if can_write}
-										<Button
-											variant="subtle"
-											destructive
-											unifiedSize="md"
-											startIcon={{ icon: Trash }}
-											iconOnly
-											onclick={async () => {
-												await GroupService.removeUserToGroup({
-													workspace: $workspaceStore ?? '',
-													name,
-													requestBody: { username: member_name }
-												})
-												await GranularAclService.removeGranularAcls({
-													workspace: $workspaceStore ?? '',
-													path: name,
-													kind: 'group_',
-													requestBody: {
-														owner: 'u/' + member_name
-													}
-												})
-												loadGroup()
-											}}
-										/>
-									{/if}</td
-								>
-							</tr>{/each}
+										{member.role}
+									{/if}
+								</Cell>
+								<Cell last actions>
+									<div class="flex items-center justify-end">
+										{#if can_write && !isFixedCreatorRow(member.member_name)}
+											<Button
+												variant="subtle"
+												destructive
+												unifiedSize="sm"
+												startIcon={{ icon: Trash }}
+												iconOnly
+												onclick={() => {
+													draft.members = draft.members.filter(
+														(m) => m.member_name !== member.member_name
+													)
+												}}
+											/>
+										{:else if isFixedCreatorRow(member.member_name)}
+											<span class="text-2xs text-hint">admin as the creator</span>
+										{/if}
+									</div>
+								</Cell>
+							</Row>
+						{/each}
 					</tbody>
-				{/snippet}
-			</TableCustom>
-
-			{#if instance_group?.emails}
-				<h2 class="mt-6 text-emphasis text-xs font-semibold">Members from the instance group</h2>
-				<TableCustom>
-					{#snippet headerRow()}
-						<tr>
-							<th>user</th>
-						</tr>
-					{/snippet}
-					{#snippet body()}
-						<tbody>
-							{#each instance_group?.emails ?? [] as email}<tr>
-									<td>{email}</td>
-								</tr>{/each}
-						</tbody>
-					{/snippet}
-				</TableCustom>
+				</DataTable>
+			{:else}
+				<div class="flex flex-col">
+					{#each new Array(6) as _}
+						<Skeleton layout={[[2], 0.7]} />
+					{/each}
+				</div>
 			{/if}
-		{:else}
-			<div class="flex flex-col">
-				{#each new Array(6) as _}
-					<Skeleton layout={[[2], 0.7]} />
-				{/each}
-			</div>
-		{/if}
+		</div>
 	</Label>
+
+	{#if instance_group?.emails}
+		<Label label="Members from the instance group">
+			<DataTable size="sm">
+				<Head>
+					<tr>
+						<Cell head first last class="text-secondary">Email</Cell>
+					</tr>
+				</Head>
+				<tbody class="divide-y">
+					{#each instance_group?.emails ?? [] as email}
+						<Row>
+							<Cell first last>{email}</Cell>
+						</Row>
+					{/each}
+				</tbody>
+			</DataTable>
+		</Label>
+	{/if}
 
 	{#if reloadHistory > 0}
 		{#key reloadHistory}

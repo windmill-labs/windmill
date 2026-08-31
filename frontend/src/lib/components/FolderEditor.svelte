@@ -14,9 +14,9 @@
 	import Row from './table/Row.svelte'
 	import Cell from './table/Cell.svelte'
 	import { DEMO_RESTRICTION_HINT, isDemoWorkspaceRestricted } from '$lib/cloud'
-	import { Alert, Button, Drawer, DrawerContent } from './common'
+	import { Alert, Button } from './common'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
-	import GroupEditor from './GroupEditor.svelte'
+	import GroupEditorDrawer from './GroupEditorDrawer.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { ArrowDown, ArrowUp, Eye, Plus, Trash } from 'lucide-svelte'
@@ -134,8 +134,8 @@
 	let folderNames: string[] = $state([])
 	let ownerItem: string = $state('')
 
-	let newGroup: Drawer | undefined = $state(undefined)
-	let viewGroup: Drawer | undefined = $state(undefined)
+	let groupEditorDrawer: GroupEditorDrawer | undefined = $state(undefined)
+	let addMemberPopover: Popover | undefined = $state(undefined)
 	let nameInput: TextInput | undefined = $state(undefined)
 
 	let baseline: FolderDraft | undefined = $state(undefined)
@@ -334,10 +334,23 @@
 	}
 
 	let ownerKind: 'user' | 'group' = $state('user')
-	let groupCreated: string | undefined = $state(undefined)
-	let newGroupName: string = $state('')
-	let viewGroupName: string = $state('')
 	let newMemberRole: Role = $state('viewer')
+
+	/** Editing a group is a detour from adding a member: the picker is reopened on that group
+	 *  so the interrupted job can be finished, instead of leaving the user to reopen the form
+	 *  and find the group again. */
+	async function onGroupSaved(groupName: string) {
+		// The group has to be in `groups` before the picker reopens, or the value set below
+		// has no matching item to show.
+		try {
+			await loadGroups()
+		} catch (e) {
+			sendUserToast(e?.body ?? String(e), true)
+		}
+		ownerKind = 'group'
+		ownerItem = groupName
+		addMemberPopover?.open()
+	}
 
 	// Guarded on `mode`, not `isNew`: the name field is rendered only in `new` mode, so on the
 	// not-found branch there is no input to annotate and no name the user could correct.
@@ -382,16 +395,6 @@
 	$effect(() => {
 		onUnsavedChange?.(unsaved)
 	})
-
-	async function addGroup() {
-		await GroupService.createGroup({
-			workspace: targetWorkspace,
-			requestBody: { name: newGroupName }
-		})
-		groupCreated = newGroupName
-		loadGroups()
-		ownerItem = newGroupName
-	}
 
 	/** Replays the permission rows the user changed. `updateFolder` could write
 	 * `owners`/`extra_perms` wholesale in the same call as the settings, but it only
@@ -540,42 +543,7 @@
 	})
 </script>
 
-<Drawer bind:this={newGroup}>
-	<DrawerContent
-		title="New Group"
-		on:close={() => {
-			newGroup?.closeDrawer()
-			groupCreated = undefined
-		}}
-	>
-		{#if !groupCreated}
-			<div class="flex flex-row items-center gap-2">
-				<TextInput
-					bind:value={newGroupName}
-					size="md"
-					inputProps={{ placeholder: 'New group name' }}
-				/>
-				<Button
-					variant="accent"
-					unifiedSize="md"
-					startIcon={{ icon: Plus }}
-					disabled={!newGroupName}
-					on:click={addGroup}
-				>
-					New&nbsp;group
-				</Button>
-			</div>
-		{:else}
-			<GroupEditor name={groupCreated} />
-		{/if}
-	</DrawerContent>
-</Drawer>
-
-<Drawer bind:this={viewGroup}>
-	<DrawerContent title="Group {viewGroupName}" on:close={viewGroup.closeDrawer}>
-		<GroupEditor name={viewGroupName} />
-	</DrawerContent>
-</Drawer>
+<GroupEditorDrawer bind:this={groupEditorDrawer} onSaved={onGroupSaved} />
 
 <div class="flex flex-col gap-6">
 	{#if mode === 'new'}
@@ -631,6 +599,7 @@
 		{#snippet action()}
 			{#if can_write && !restricted}
 				<Popover
+					bind:this={addMemberPopover}
 					placement="bottom-end"
 					onClose={() => {
 						ownerItem = ''
@@ -690,10 +659,9 @@
 														wrapperClasses="-mr-2 pl-1 -my-2"
 														btnClasses="hover:bg-surface-tertiary"
 														onClick={() => {
-															viewGroupName = item.value ?? ''
-															viewGroup?.openDrawer()
 															closeSelect()
 															close()
+															groupEditorDrawer?.initEdit(item.value ?? '')
 														}}
 														startIcon={{ icon: Eye }}
 														iconOnly
@@ -711,7 +679,7 @@
 														onClick={() => {
 															closeSelect()
 															close()
-															newGroup?.openDrawer()
+															groupEditorDrawer?.initNew()
 														}}
 													>
 														New group
