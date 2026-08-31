@@ -35,13 +35,13 @@
 <Row
 	href="{base}/apps_raw/get/{app.path}"
 	kind="raw_app"
+	{keyboardSelected}
 	{marked}
 	path={app.path}
 	summary={app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	canFavorite={true}
 	{depth}
-	{keyboardSelected}
 >
 	{#snippet badges()}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />

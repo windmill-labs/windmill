@@ -51,20 +51,26 @@
 				aiChatManager.scriptEditorOptions?.lang &&
 				!SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang))
 	)
+	// A spent free grant is not an unconfigured workspace: AIChatDisplay already shows an
+	// in-thread banner naming the real cause and linking to the key settings, so the generic
+	// "enable Windmill AI" line would both duplicate it and misstate why the chat is off.
+	const freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
 	const disabledMessage = $derived(
 		forceDisabled
 			? forceDisabledMessage
-			: !hasCopilot
-				? $aiUserDisabled
-					? 'Windmill AI is disabled in your account settings'
-					: isAdmin
-						? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
-						: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
-				: aiChatManager.mode === AIMode.SCRIPT &&
-					  aiChatManager.scriptEditorOptions?.lang &&
-					  !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang)
-					? `Windmill AI does not support the ${aiChatManager.scriptEditorOptions.lang} language yet.`
-					: ''
+			: freeTierExhausted
+				? ''
+				: !hasCopilot
+					? $aiUserDisabled
+						? 'Windmill AI is disabled in your account settings'
+						: isAdmin
+							? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
+							: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
+					: aiChatManager.mode === AIMode.SCRIPT &&
+						  aiChatManager.scriptEditorOptions?.lang &&
+						  !SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(aiChatManager.scriptEditorOptions.lang)
+						? `Windmill AI does not support the ${aiChatManager.scriptEditorOptions.lang} language yet.`
+						: ''
 	)
 
 	const suggestions = [

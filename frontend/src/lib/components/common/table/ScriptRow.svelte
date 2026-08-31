@@ -147,6 +147,7 @@
 		? `${base}/scripts/edit/${script.path}`
 		: `${base}/scripts/get/${script.hash}?workspace=${$workspaceStore}`}
 	kind="script"
+	{keyboardSelected}
 	{marked}
 	path={script.draft_path ?? script.path}
 	summary={script.is_draft
@@ -156,7 +157,6 @@
 	workspaceId={$workspaceStore ?? ''}
 	canFavorite={!script.draft_only}
 	{depth}
-	{keyboardSelected}
 	{rowSelection}
 >
 	{#snippet badges()}
@@ -187,7 +187,9 @@
 				<Badge small color="yellow" baseClass="border">CI test</Badge>
 			</Popover>
 		{/if}
-		{#if script.kind !== 'script'}
+		<!-- Guard on a non-empty kind: a draft-only script can carry an empty `kind`, which
+		     still isn't 'script' and would render an empty blue badge. -->
+		{#if script.kind && script.kind !== 'script'}
 			<Badge color="blue" baseClass="border"
 				>{script.kind === 'failure' ? 'Error handler' : capitalize(script.kind)}</Badge
 			>
