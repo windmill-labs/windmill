@@ -963,17 +963,30 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 		return true
 	}
 
+	// Init is asynchronous and the session can go away underneath it — a delete in
+	// another tab disposes the runtime, and disposal is the only thing that can
+	// happen between these awaits that this function must not write through. So
+	// every await is followed by a liveness check, and the writes below only ever
+	// run for a runtime this tab still holds. `setSessionChatId` is the sharpest
+	// of them: it would put back a record the user just removed.
+	const alive = () => runtimes.get(session.id) === runtime
+
 	await manager.historyManager.init()
+	if (!alive()) return
 	manager.historyManager.setSessionId(session.id)
 	// Restore linked files persisted for this session (live handles re-grant on send;
 	// snapshots restore directly). Non-transient sessions persist immediately.
 	await manager.attachedFiles.restore(session.id, !session.transient)
+	if (!alive()) return
 	await ensureChatIdsSeeded(manager.historyManager)
+	if (!alive()) return
 
 	if (session.chatId) {
 		manager.historyManager.setCurrentChatId(session.chatId)
 		await manager.historyManager.tagChatWithSession(session.chatId, session.id)
+		if (!alive()) return
 		await manager.loadPastChat(session.chatId)
+		if (!alive()) return
 		// loadPastChat only seeds the mask when the chat exists in history; a chatId
 		// pointing at a chat not yet persisted (no turn saved) would leave it
 		// undefined, and the Edits surface would then show every workspace draft.
