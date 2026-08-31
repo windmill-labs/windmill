@@ -3195,19 +3195,17 @@ function removesDbtDescriptor(change: Change): boolean {
  * checkout or an item authored in the UI all read as deletions here.
  *
  * A dbt descriptor the remote no longer names counts too, but only on a pull,
- * where applying it removes a local file. A push removes nothing: the descriptor
- * is a script's content, so an empty one updates the remote script in place.
+ * where applying it removes a local file — `added` as much as `edited`, since a
+ * stateful pull compares `.wmill` and absence from that map says nothing about
+ * the working tree the apply loop deletes from. A push removes nothing: the
+ * descriptor is a script's content, so an empty one updates the script in place.
  */
 export function dropDeletions(
   changes: Change[],
   keptOn: "local" | "remote",
 ): void {
   const isDeletion = (c: Change) =>
-    c.name === "deleted" ||
-    // Only an edit can take a descriptor away: `added` means the map this pull
-    // compared against held none at that path, so there is no known content to
-    // keep.
-    (keptOn === "local" && c.name === "edited" && removesDbtDescriptor(c));
+    c.name === "deleted" || (keptOn === "local" && removesDbtDescriptor(c));
   const deletions = changes.filter(isDeletion);
   if (deletions.length === 0) return;
   const kept = changes.filter((c) => !isDeletion(c));

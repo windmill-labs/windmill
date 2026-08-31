@@ -301,20 +301,35 @@ describe("a dbt project without a descriptor", () => {
 // keep — the descriptor's warehouse and run arguments with it.
 describe("--keep-deleted and a descriptor the remote no longer names", () => {
   const DESCRIPTOR = "f/analytics/analytics__dbt/wm_dbt.yaml";
-  const changeset = () =>
+  const emptied = {
+    name: "edited",
+    path: DESCRIPTOR,
+    before: "warehouse: wh\n",
+    after: "",
+  };
+  const unknownToTheMap = { name: "added", path: DESCRIPTOR, content: "" };
+  const changeset = (descriptor: unknown) =>
     [
-      { name: "edited", path: DESCRIPTOR, before: "warehouse: wh\n", after: "" },
+      descriptor,
       { name: "edited", path: "f/other/script.ts", before: "a", after: "b" },
     ] as Parameters<typeof dropDeletions>[0];
 
   test("survives a pull", () => {
-    const changes = changeset();
+    const changes = changeset(emptied);
+    dropDeletions(changes, "local");
+    expect(changes.map((c) => c.path)).toEqual(["f/other/script.ts"]);
+  });
+
+  // A stateful pull compares `.wmill`, so a descriptor missing from the compared
+  // map can still be a working-tree file holding real settings.
+  test("survives a pull that compared a map without it", () => {
+    const changes = changeset(unknownToTheMap);
     dropDeletions(changes, "local");
     expect(changes.map((c) => c.path)).toEqual(["f/other/script.ts"]);
   });
 
   test("is still pushed, deleting no remote item", () => {
-    const changes = changeset();
+    const changes = changeset(emptied);
     dropDeletions(changes, "remote");
     expect(changes.map((c) => c.path)).toEqual([
       DESCRIPTOR,
