@@ -547,6 +547,26 @@
 	// deliver to nobody.
 	const composerLocked = $derived(aiChatManager.runHeldElsewhere)
 
+	// The prompt the other tab's run is working on, drawn beside the indicator so
+	// a watching tab says what is running and not only that something is. Nothing
+	// of that turn reaches this tab's transcript until it ends, so without this
+	// the spinner has no subject.
+	//
+	// Suppressed once the transcript already carries the message: a tab that
+	// mounted after the driver's opening save reads it from the store, and the
+	// echo beside it would be the same text drawn twice. The echo is a prefix of
+	// what the driver holds (it is truncated at the source), which is what makes
+	// `startsWith` the right test.
+	const remoteUserEcho = $derived.by(() => {
+		const echo = aiChatManager.remoteUserMessage
+		if (!echo || !aiChatManager.runHeldElsewhere) return undefined
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].role !== 'user') continue
+			return messages[i].content.trim().startsWith(echo) ? undefined : echo
+		}
+		return echo
+	})
+
 	// Get app context for display when in APP mode
 	const appContext = $derived.by((): SelectedContext | undefined => {
 		if (aiChatManager.mode !== AIMode.APP || !aiChatManager.appAiChatHelpers) {
@@ -699,8 +719,42 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			</div>
 		</div>
 	{/if}
+	<!-- The prompt of a run this tab is only watching. Styled as the user bubble it
+	     stands in for, so the transcript reads the same once the real one lands. -->
+	{#snippet remoteUserEchoBubble(trailingSpace: string)}
+		{#if remoteUserEcho}
+			<div class={twMerge('text-sm py-1 px-2', trailingSpace)}>
+				<div
+					class="text-xs px-3 py-2 w-fit max-w-[min(32rem,100%)] bg-surface-accent-selected text-accent rounded-lg break-words whitespace-pre-wrap"
+					>{remoteUserEcho}</div
+				>
+			</div>
+		{/if}
+	{/snippet}
+
 	{#if messages.length === 0}
-		{#if emptyHint}
+		{#if aiChatManager.runHeldElsewhere}
+			<!-- The run indicator below rides the transcript, and a tab that opened
+			     before the driver's first save has no transcript to put it on: the
+			     conversation arrives only when the turn ends. Without this the
+			     session reads as idle for the whole turn. Laid out as the message
+			     column so the echoed prompt sits where its real bubble will. -->
+			<div class="flex-1 min-h-0 overflow-y-auto pt-2">
+				<div
+					class={wideLayout
+						? 'w-full max-w-3xl mx-auto px-7 flex flex-col'
+						: 'w-full max-w-2xl mx-auto px-3 flex flex-col'}
+				>
+					{@render remoteUserEchoBubble('mb-2')}
+					<div class="self-start ml-2">
+						<ChatTypingIndicator
+							loading
+							label={aiChatManager.loadingLabel ?? 'Running in another tab'}
+						/>
+					</div>
+				</div>
+			</div>
+		{:else if emptyHint}
 			{@render emptyHint()}
 		{:else}
 			<span class="text-2xs text-gray-500 dark:text-gray-400 text-center px-2 my-2"
@@ -723,15 +777,22 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						: 'w-full max-w-2xl mx-auto px-3 flex flex-col pb-2'}
 					bind:clientHeight={height}
 				>
+					<!-- `isLast` reserves the trailing space the sticky indicator is pulled
+					     up over. The echoed prompt below is what the indicator sits on when
+					     it is showing, so it takes that role and the real last message keeps
+					     normal spacing. -->
 					{#each messages as message, messageIndex (messageIndex)}
 						<AIChatMessage
 							{message}
 							{messageIndex}
 							{availableContext}
 							bind:editingMessageIndex
-							isLast={messageIndex === messages.length - 1}
+							isLast={messageIndex === messages.length - 1 && !remoteUserEcho}
 						/>
 					{/each}
+					<!-- Same trailing space the last message reserves: the indicator below
+					     is sticky and pulled up over it, so a bubble without it is covered. -->
+					{@render remoteUserEchoBubble('mb-12')}
 					{#if showTypingIndicator}
 						<div
 							class={twMerge(

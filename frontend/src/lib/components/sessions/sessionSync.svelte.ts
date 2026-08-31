@@ -63,6 +63,15 @@ type RunStatusMsg = {
 	 *  says where to answer it rather than implying work is in progress. */
 	blockedOnUser: boolean
 	loadingLabel: string | undefined
+	/** The prompt the driver's turn is running on, shown beside the indicator so a
+	 *  watching tab says what is being worked on rather than only that something
+	 *  is. Display-only: the receiver renders it and never files it into a
+	 *  transcript, so it cannot reach the shared record.
+	 *
+	 *  Truncated at the source. Every other field here is a scalar whose size the
+	 *  wire format fixes; this is the one field a user sets the length of, and the
+	 *  bound is what keeps that true of the message as a whole. */
+	userMessage: string | undefined
 	/** The driver's plan-mode posture. The only autonomy state worth carrying:
 	 *  every other one is a stored preference each tab keeps its own copy of,
 	 *  while plan mode is never persisted and so exists nowhere but the driving

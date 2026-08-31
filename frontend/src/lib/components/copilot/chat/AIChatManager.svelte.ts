@@ -30,6 +30,7 @@ import {
 	backgroundJobCompletionNote,
 	deriveChatJobStatus,
 	pendingToolImagesMessage,
+	pendingUserAction,
 	trimJob
 } from './shared'
 import type {
@@ -589,6 +590,12 @@ export class AIChatManager {
 	// before the request goes out. Takes precedence over the compacting/thinking
 	// labels while set; the hook clears it back to undefined when done.
 	loadingLabel = $state<string | undefined>(undefined)
+	// The prompt a turn running in another tab is working on, for display beside
+	// the indicator while this tab has no transcript of that turn. Never filed
+	// into `displayMessages` and never saved: the record is the driving tab's
+	// until its turn ends, and this is only what to draw in the meantime. The
+	// runtime clears it as part of the catch-up that brings in the real message.
+	remoteUserMessage = $state<string | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	// Set by AI sessions. Enables the session-only preview tools and gates plan mode, which
 	// needs the preview pane; the global side-panel chat leaves it false. Reactive because
@@ -3267,6 +3274,14 @@ export class AIChatManager {
 			// the poll exactly when nobody is watching. `pending` reads it without
 			// disturbing the animation.
 			const streaming = this.currentReply + this.replyReveal.pending
+			// Parked on the user, so nothing is advancing to preserve — and a
+			// snapshot taken here would store the question closed as interrupted,
+			// which is what it means only if this tab died. Another tab that opens
+			// the session meanwhile reads that as a failed call while the run is in
+			// fact waiting. The checkpoint before this one still holds everything
+			// the turn did up to the question, and the question itself does not
+			// survive a reload either way: its resolver goes with the page.
+			if (pendingUserAction(this.displayMessages)) return
 			// Write only when the turn advanced, so a parked confirmation costs
 			// nothing and the rate follows steps taken rather than time.
 			const shape = `${collectedMessages.length}:${this.displayMessages.length}:${streaming.length}`

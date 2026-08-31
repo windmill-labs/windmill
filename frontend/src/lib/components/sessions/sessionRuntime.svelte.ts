@@ -1011,6 +1011,42 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 // ticks and is not reaped as a closed tab.
 const statusTimers = new Map<string, ReturnType<typeof setInterval>>()
 
+/** Longest prompt echoed to the other tabs. Enough for the prompts people
+ *  actually type, and a hard ceiling on the one field of the status message
+ *  whose length a user controls. */
+const RUN_PROMPT_ECHO_MAX = 2000
+
+/** The prompt this run is working on: the last thing the user said, searching no
+ *  further back than `from`. Read off the driver's rendered transcript rather
+ *  than the request, so it is the same text the driving tab has on screen. */
+function runPromptEcho(messages: DisplayMessage[], from: number): string | undefined {
+	for (let i = messages.length - 1; i >= from; i--) {
+		if (messages[i].role !== 'user') continue
+		const text = messages[i].content.trim()
+		// An attachment-only send has no text to echo; the indicator stands alone.
+		return text ? text.slice(0, RUN_PROMPT_ECHO_MAX) : undefined
+	}
+	return undefined
+}
+
+/** The prompt each running turn is working on, pinned for the life of the run.
+ *
+ *  Not read fresh each tick, and searched only past where the transcript stood
+ *  when the run began. The first status goes out the moment the guard is
+ *  entered, which is before the send has appended the user message, so the
+ *  transcript still ends with the PREVIOUS turn's prompt then — echoing whatever
+ *  is last would show a watching tab that one and then swap it for the real one.
+ *  By position rather than by text, so sending the same prompt twice running
+ *  still echoes the second one. */
+const runPrompts = new Map<string, { from: number; prompt?: string }>()
+
+function currentRunPrompt(sessionId: string, messages: DisplayMessage[]): string | undefined {
+	const entry = runPrompts.get(sessionId)
+	if (!entry) return undefined
+	if (entry.prompt === undefined) entry.prompt = runPromptEcho(messages, entry.from)
+	return entry.prompt
+}
+
 function postRunStatus(sessionId: string): void {
 	const runtime = runtimes.get(sessionId)
 	if (!runtime) return
@@ -1024,12 +1060,18 @@ function postRunStatus(sessionId: string): void {
 		compacting: m.compacting,
 		blockedOnUser: pendingUserAction(m.displayMessages) !== undefined,
 		loadingLabel: m.loadingLabel,
+		userMessage: currentRunPrompt(sessionId, m.displayMessages),
 		planModeActive: m.planModeActive
 	})
 }
 
 function startRunStatus(sessionId: string): void {
 	stopRunStatus(sessionId)
+	// Taken before the first post, while the transcript still ends with the turn
+	// this run follows: this run's prompt is whatever lands past that point.
+	runPrompts.set(sessionId, {
+		from: runtimes.get(sessionId)?.manager.displayMessages.length ?? 0
+	})
 	// Posted immediately: this first message is the "a run started here" signal,
 	// which is what locks the other tabs' composers.
 	postRunStatus(sessionId)
@@ -1040,6 +1082,7 @@ function startRunStatus(sessionId: string): void {
 }
 
 function stopRunStatus(sessionId: string): void {
+	runPrompts.delete(sessionId)
 	const timer = statusTimers.get(sessionId)
 	if (!timer) return
 	clearInterval(timer)
@@ -1057,6 +1100,7 @@ function applyRunStatus(msg: RunStatusMsg): void {
 	const m = runtime.manager
 	m.loading = msg.loading
 	m.compacting = msg.compacting
+	m.remoteUserMessage = msg.userMessage
 	m.loadingLabel = msg.blockedOnUser ? 'Waiting for your answer in the other tab' : msg.loadingLabel
 }
 
@@ -1077,10 +1121,12 @@ async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Pro
 		const m = runtime.manager
 		// `loading` has to go first: loadPastChat refuses to run while the manager
 		// looks busy, and this one is the driver's, not a turn of our own. These
-		// three are exactly what applyRunStatus sets.
+		// four are exactly what applyRunStatus sets — the echoed prompt among them,
+		// since the re-read below brings in the real message it stood in for.
 		m.loading = false
 		m.loadingLabel = undefined
 		m.compacting = false
+		m.remoteUserMessage = undefined
 		const id = chatId || m.historyManager.getCurrentChatId()
 		if (!id) {
 			caughtUp = true
