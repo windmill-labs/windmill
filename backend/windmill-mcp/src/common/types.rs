@@ -54,6 +54,12 @@ pub struct McpIncludeHeader {
 #[derive(Clone, Debug, Default)]
 pub struct McpIncludeHeaders(pub Vec<McpIncludeHeader>);
 
+/// Ceilings on `?include_header=`, generous next to any real allowlist — which
+/// names a handful of headers — and small enough that parsing one stays trivial
+/// work. See [`McpIncludeHeaders::parse`] for why that matters.
+const MAX_INCLUDE_HEADER_LEN: usize = 1024;
+const MAX_INCLUDE_HEADER_ENTRIES: usize = 32;
+
 impl McpIncludeHeaders {
     /// Parse the comma-separated `?include_header=` value.
     ///
@@ -65,7 +71,19 @@ impl McpIncludeHeaders {
     /// tool schema, leaving the parameter model-settable on a connection the
     /// operator believes is locked down. `x-user-id;x-tenant`, or a space where a
     /// comma belongs, is a typo worth reporting, not worth half-honouring.
+    ///
+    /// Both ceilings are load-bearing, not cosmetic: the middleware that calls
+    /// this sits outside the auth extractor, so an unauthenticated request
+    /// reaches it, and a query string is otherwise bounded only by the server's
+    /// request-head limit. With the entry count capped, the linear scan below
+    /// costs at most [`MAX_INCLUDE_HEADER_ENTRIES`] comparisons per entry.
     pub fn parse(value: &str) -> Result<Self, String> {
+        if value.len() > MAX_INCLUDE_HEADER_LEN {
+            return Err(format!(
+                "include_header is limited to {} characters",
+                MAX_INCLUDE_HEADER_LEN
+            ));
+        }
         let mut entries: Vec<McpIncludeHeader> = Vec::new();
         for name in value.split(',') {
             let header_name = name.trim().to_lowercase();
@@ -78,6 +96,12 @@ impl McpIncludeHeaders {
             let param_name = normalize_header_name(&header_name);
             if entries.iter().any(|e| e.param_name == param_name) {
                 continue;
+            }
+            if entries.len() >= MAX_INCLUDE_HEADER_ENTRIES {
+                return Err(format!(
+                    "include_header is limited to {} headers",
+                    MAX_INCLUDE_HEADER_ENTRIES
+                ));
             }
             entries.push(McpIncludeHeader { header_name, param_name });
         }
@@ -92,6 +116,21 @@ impl McpIncludeHeaders {
     /// request, and so must never be taken from the model.
     pub fn owns_param(&self, name: &str) -> bool {
         self.0.iter().any(|entry| entry.param_name == name)
+    }
+
+    /// Whether `key` is the *published* spelling of a parameter this connection
+    /// fills from the request. It differs from [`Self::owns_param`] only when a
+    /// header name carries punctuation that MCP's key transformation drops
+    /// (`$user` publishes as `user`).
+    ///
+    /// Both the schema strip and the argument strip consult this, so a parameter
+    /// hidden from the model can never be settable by it under the other
+    /// spelling — the two halves agree by construction rather than by matching
+    /// each other's arithmetic.
+    pub fn owns_published_key(&self, key: &str) -> bool {
+        self.0
+            .iter()
+            .any(|entry| super::transform::apply_key_transformation(&entry.param_name) == key)
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &McpIncludeHeader> {

@@ -781,16 +781,22 @@ fn allowed_headers(
 /// preprocessor is the runnable author's own code, but still without the
 /// credentials that authenticate the connection.
 ///
-/// A repeated header is dropped here as it is on the parameter arm, so one
-/// request does not answer differently depending on whether the runnable happens
-/// to have a preprocessor.
+/// A repeated *allowlisted* header is dropped here as it is on the parameter
+/// arm, so an identity the operator designated does not resolve differently
+/// depending on whether the runnable happens to have a preprocessor. The drop
+/// stops there: repetition is unremarkable for list-valued fields like
+/// `X-Forwarded-For` and `Via`, which are precisely the ones a preprocessor
+/// reads, and dropping those would blind it on every multi-hop request.
 fn preprocessor_headers(
     headers: &http::HeaderMap,
+    include_headers: &McpIncludeHeaders,
 ) -> HashMap<String, Box<serde_json::value::RawValue>> {
     let mut selected = build_headers(headers, None, true);
     selected.retain(|name, _| {
-        !is_never_forwarded(&normalize_header_name(name))
-            && headers.get_all(name.as_str()).iter().count() <= 1
+        let normalized = normalize_header_name(name);
+        !is_never_forwarded(&normalized)
+            && (!include_headers.owns_param(&normalized)
+                || headers.get_all(name.as_str()).iter().count() <= 1)
     });
     selected
 }
@@ -844,7 +850,7 @@ pub async fn prepare_push_args(
             // A preprocessor sees the headers as an HTTP trigger's does: it is
             // code the runnable's own author wrote, and it is what makes headers
             // outside the allowlist reachable at all.
-            let headers = preprocessor_headers(request.headers);
+            let headers = preprocessor_headers(request.headers, request.include_headers);
             // Counted on delivery rather than on the allowlist being set: this
             // route needs no allowlist, so gating it on one would record nothing
             // for the operators who only ever use a preprocessor.
@@ -946,7 +952,7 @@ mod tests {
             ("user-agent", "some-client/1.0"),
         ]);
 
-        let selected = preprocessor_headers(&headers);
+        let selected = preprocessor_headers(&headers, &McpIncludeHeaders::default());
 
         assert!(!selected.contains_key("authorization"));
         assert!(!selected.contains_key("cookie"));
@@ -975,28 +981,31 @@ mod tests {
         assert!(selected.is_empty());
     }
 
-    /// Both arms answer a repeated header the same way, so one request does not
-    /// resolve differently depending on whether the runnable has a preprocessor.
+    /// Both arms answer a repeated *allowlisted* header the same way, so one
+    /// request does not resolve differently depending on whether the runnable has
+    /// a preprocessor — while a repeated list-valued field, which is ordinary on
+    /// any multi-hop request, still reaches the preprocessor.
     #[test]
-    fn a_repeated_header_is_dropped_from_the_preprocessor_event_too() {
+    fn a_repeated_header_is_dropped_from_the_preprocessor_event_only_when_allowlisted() {
         let mut headers = http::HeaderMap::new();
-        headers.append(
-            http::HeaderName::from_static("x-user-id"),
-            http::HeaderValue::from_static("attacker@evil.test"),
-        );
-        headers.append(
-            http::HeaderName::from_static("x-user-id"),
-            http::HeaderValue::from_static("alice@corp.example"),
-        );
-        headers.insert(
-            http::HeaderName::from_static("user-agent"),
-            http::HeaderValue::from_static("some-client/1.0"),
-        );
+        for value in ["attacker@evil.test", "alice@corp.example"] {
+            headers.append(
+                http::HeaderName::from_static("x-user-id"),
+                http::HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        for value in ["203.0.113.7", "198.51.100.4"] {
+            headers.append(
+                http::HeaderName::from_static("x-forwarded-for"),
+                http::HeaderValue::from_str(value).unwrap(),
+            );
+        }
 
-        let selected = preprocessor_headers(&headers);
+        let selected =
+            preprocessor_headers(&headers, &McpIncludeHeaders::parse("x-user-id").unwrap());
 
         assert!(!selected.contains_key("x-user-id"));
-        assert!(selected.contains_key("user-agent"));
+        assert!(selected.contains_key("x-forwarded-for"));
     }
 
     /// An entry that can never match a header would also never be stripped from a

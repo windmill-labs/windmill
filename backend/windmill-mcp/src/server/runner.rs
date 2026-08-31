@@ -430,6 +430,13 @@ fn transform_call_args(
     };
     let mut args_hash = HashMap::new();
     for (k, v) in map {
+        // Refused under either spelling the schema strip can hide a parameter by:
+        // the published key it removed, and the original key that names the
+        // parameter. The two diverge for a punctuated header name, and a key the
+        // model cannot see must not be one it can set.
+        if include_headers.owns_published_key(&k) {
+            continue;
+        }
         let original_key = reverse_transform_key(&k, item_schema);
         if include_headers.owns_param(&original_key) {
             continue;
@@ -1141,11 +1148,13 @@ mod tests {
         assert_eq!(args, json!({"ticket_id": "T-1", "x_user_id": "someone"}));
     }
 
-    /// The forgery guard has to hold on every route that reaches a runnable, not
-    /// just the runnable's own tool: run-by-path forwards the model's remaining
-    /// arguments verbatim, so an unstripped one here would defeat the schema strip.
+    /// Withdrawal takes the tools that hand a runnable a model-composed argument
+    /// map off the connection; this strip is the layer under it, covering every
+    /// endpoint tool that stays. It is what keeps the guarantee from resting on
+    /// the withdrawal list alone, so a tool that grows an argument map later
+    /// cannot quietly carry a transport-owned name into a runnable.
     #[test]
-    fn run_by_path_arguments_cannot_carry_a_header_fed_name() {
+    fn endpoint_arguments_cannot_carry_a_header_fed_name() {
         let mut args = json!({"path": "u/admin/whoami", "x_user_id": "attacker@evil.test"});
 
         strip_transport_owned_endpoint_args(
@@ -1170,9 +1179,51 @@ mod tests {
         ] {
             assert!(executes_runnable_with_model_args(name), "{name}");
         }
-        for name in ["listJobs", "getScriptByPath", "createVariable", "getJob"] {
+        // `deleteScriptByHash` is the boundary case: it shares the policy variant
+        // that means "affects a script without a checkable path", but runs
+        // nothing, so it must keep working on a header-forwarding connection.
+        for name in [
+            "listJobs",
+            "getScriptByPath",
+            "createVariable",
+            "getJob",
+            "deleteScriptByHash",
+            "deleteSchedule",
+        ] {
             assert!(!executes_runnable_with_model_args(name), "{name}");
         }
+    }
+
+    /// The parse runs ahead of authentication, so its cost is reachable by anyone
+    /// who can open a connection. An oversized allowlist has to be refused before
+    /// the work, not absorbed.
+    #[test]
+    fn an_oversized_allowlist_is_refused() {
+        let too_long = format!("x-{}", "a".repeat(1024));
+        assert!(McpIncludeHeaders::parse(&too_long).is_err());
+
+        let too_many = (0..64)
+            .map(|i| format!("x-h{i}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(McpIncludeHeaders::parse(&too_many).is_err());
+
+        let realistic = "x-user-id,x-tenant,x-request-id";
+        assert_eq!(McpIncludeHeaders::parse(realistic).unwrap().0.len(), 3);
+    }
+
+    /// A punctuated header name publishes under a key the transformation
+    /// collapses (`$user` -> `user`). The schema strip hides that key, so the
+    /// argument strip must refuse it too — otherwise a parameter invisible to the
+    /// model would still be one it could set.
+    #[test]
+    fn a_key_hidden_from_the_schema_is_also_refused_from_arguments() {
+        let include = McpIncludeHeaders::parse("$user").unwrap();
+        assert!(include.owns_published_key("user"));
+
+        let args = transform_call_args(json!({"user": "attacker@evil.test"}), &None, &include);
+
+        assert_eq!(args, json!({}));
     }
 
     /// An allowlisted `x-user-id` must not also accept the distinct header

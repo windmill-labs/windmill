@@ -198,11 +198,7 @@ pub fn strip_transport_owned_params(
     // (`$user` -> `user`). Matching the raw parameter name would leave such a
     // property advertised, telling the model to fill an argument that call-time
     // reverse transformation then discards.
-    let owned = |key: &str| {
-        include_headers
-            .iter()
-            .any(|entry| apply_key_transformation(&entry.param_name) == key)
-    };
+    let owned = |key: &str| include_headers.owns_published_key(key);
 
     if let Some(properties) = input_schema
         .get_mut("properties")
