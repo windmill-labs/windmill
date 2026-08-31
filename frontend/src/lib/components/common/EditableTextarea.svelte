@@ -6,10 +6,11 @@ the whole text, wrapped, as a clickable button; clicking swaps to an auto-growin
 `Escape` discards — except under `commitOnInput`, where every keystroke has
 already been propagated and there is nothing left to discard.
 
-Escape is stopped from propagating, which keeps a surrounding `Drawer` open. It does
-*not* keep a surrounding `Modal` open: `Modal` takes Escape on `window` in the capture
-phase, before this ever sees it. Inside a dialog, expect Escape to leave the edit and
-close the dialog together.
+Escape is stopped from propagating, which keeps a surrounding `Drawer` open. A `Modal`
+is the exception: it takes both Enter and Escape on `window` in the capture phase and
+stops them there, so neither reaches this. Inside one, pass `enterConfirms={false}` to
+the `Modal` for Enter to commit here rather than confirm the dialog; Escape stays the
+dialog's either way, so expect it to leave the edit and close the dialog together.
 
 Use it where a cell or a field holds a sentence rather than a label — a prompt, a
 description, an expected answer. For a one-line label, use `EditableInput`.
