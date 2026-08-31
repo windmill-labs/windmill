@@ -724,6 +724,20 @@ struct McpPreprocessorEvent<'a> {
     tool_name: &'a str,
 }
 
+/// Headers that authenticate the MCP connection itself, never forwarded to a
+/// runnable by either delivery path.
+///
+/// Unlike an HTTP trigger — where `Authorization` is whatever the caller's own
+/// integration sent — on MCP it is the Windmill credential of the person driving
+/// the session, and the runnable belongs to someone else. Handing it over would
+/// let a script keep and replay a caller's token, so the allowlist cannot opt in
+/// to these and the preprocessor event does not carry them.
+const NEVER_FORWARDED_HEADERS: &[&str] = &["authorization", "cookie", "proxy_authorization"];
+
+fn is_never_forwarded(normalized_name: &str) -> bool {
+    NEVER_FORWARDED_HEADERS.contains(&normalized_name)
+}
+
 /// The request headers this connection allows a runnable to bind as parameters.
 ///
 /// Deliberately not `build_headers`: that unions its whitelist with the
@@ -741,10 +755,21 @@ fn allowed_headers(
     }
     for (name, value) in headers.iter() {
         let name = normalize_header_name(name.as_str());
-        if include_headers.contains(&name) {
+        if include_headers.contains(&name) && !is_never_forwarded(&name) {
             selected.insert(name, to_raw_value(&value.to_str().unwrap_or("")));
         }
     }
+    selected
+}
+
+/// Every header a preprocessor may see: broader than the allowlist, since the
+/// preprocessor is the runnable author's own code, but still without the
+/// credentials that authenticate the connection.
+fn preprocessor_headers(
+    headers: &http::HeaderMap,
+) -> HashMap<String, Box<serde_json::value::RawValue>> {
+    let mut selected = build_headers(headers, None, true);
+    selected.retain(|name, _| !is_never_forwarded(&normalize_header_name(name)));
     selected
 }
 
@@ -794,10 +819,13 @@ pub async fn prepare_push_args(
             }
         }
         RunnableFormat { has_preprocessor: true, version } => {
-            // A preprocessor sees every header, as it does on an HTTP trigger:
-            // it is code the runnable's own author wrote, and it is what makes
-            // headers outside the allowlist reachable at all.
-            let headers = build_headers(request.headers, None, true);
+            // A preprocessor sees the headers as an HTTP trigger's does: it is
+            // code the runnable's own author wrote, and it is what makes headers
+            // outside the allowlist reachable at all.
+            let headers = preprocessor_headers(request.headers);
+            // Counted on delivery rather than on the allowlist being set: this
+            // route needs no allowlist, so gating it on one would record nothing
+            // for the operators who only ever use a preprocessor.
             log_feature_usage("mcp", "header_passthrough", "preprocessor");
             match version {
                 RunnableFormatVersion::V2 => {

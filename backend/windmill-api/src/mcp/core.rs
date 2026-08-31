@@ -417,9 +417,23 @@ pub async fn extract_include_headers(
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    let include_headers = Query::<McpRequestQuery>::try_from_uri(request.uri())
-        .ok()
-        .and_then(|q| q.0.include_header)
+    // Rejected rather than ignored: silently treating an unparseable value as
+    // "no allowlist" would leave the schemas unstripped and the model's arguments
+    // honoured, turning a typo (a repeated `include_header=`, say) into a
+    // connection that looks configured but enforces nothing.
+    let include_header = match Query::<McpRequestQuery>::try_from_uri(request.uri()) {
+        Ok(query) => query.0.include_header,
+        Err(err) => {
+            use axum::response::IntoResponse;
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                format!("Invalid MCP URL query: {}", err.body_text()),
+            )
+                .into_response();
+        }
+    };
+
+    let include_headers = include_header
         .map(|value| McpIncludeHeaders::parse(&value))
         .unwrap_or_default();
 

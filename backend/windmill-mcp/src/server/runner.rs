@@ -439,6 +439,29 @@ fn transform_call_args(
     Value::Object(args_hash.into_iter().collect())
 }
 
+/// Whether this endpoint tool runs a runnable named by a `path` argument, and so
+/// forwards the model's remaining arguments to it verbatim.
+fn is_run_by_path(endpoint_name: &str) -> bool {
+    matches!(
+        endpoint_path_policy(endpoint_name),
+        Some(EndpointPathPolicy::RunByPath(_))
+    )
+}
+
+/// Drop the transport-owned names from an endpoint tool's arguments.
+///
+/// The run-by-path endpoints forward every unconsumed argument to the runnable
+/// they name, so without this a model denied `x_user_id` on that runnable's own
+/// tool could simply set it here instead.
+fn strip_transport_owned_endpoint_args(args: &mut Value, include_headers: &McpIncludeHeaders) {
+    if include_headers.is_empty() {
+        return;
+    }
+    if let Value::Object(map) = args {
+        map.retain(|key, _| !include_headers.contains(key));
+    }
+}
+
 fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
     candidates
         .into_iter()
@@ -540,8 +563,16 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                 .await
             }
             McpMode::Multi(token) => {
-                self.call_tool_multi(&auth, &token, &scope_config, read_only, request.name, args)
-                    .await
+                self.call_tool_multi(
+                    &auth,
+                    &token,
+                    &scope_config,
+                    read_only,
+                    request.name.clone(),
+                    args,
+                    &mcp_request,
+                )
+                .await
             }
         }?;
         Ok(result.into())
@@ -711,6 +742,10 @@ impl<B: McpBackend> Runner<B> {
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
                 continue;
             }
+            // Withdrawn while headers are being forwarded -- see call_tool_single.
+            if is_run_by_path(endpoint_tool.name.as_ref()) && !include_headers.is_empty() {
+                continue;
+            }
 
             tools.push(endpoint_tool_to_mcp_tool(&endpoint_tool));
         }
@@ -735,9 +770,27 @@ impl<B: McpBackend> Runner<B> {
         let endpoint_tools = self.backend.all_endpoint_tools();
         for endpoint_tool in &endpoint_tools {
             if endpoint_tool.name.as_ref() == name.as_ref() {
+                // A connection that forwards headers reaches its runnables only
+                // through their own tools, where the value is injected and the
+                // model cannot name it. Run-by-path takes an arbitrary path and
+                // forwards arbitrary arguments, so it has no such guarantee to
+                // offer -- withdraw it rather than serve a weaker one alongside.
+                if is_run_by_path(endpoint_tool.name.as_ref())
+                    && !request.include_headers.is_empty()
+                {
+                    return Err(ErrorData::invalid_params(
+                        format!(
+                            "Tool '{}' is unavailable on a connection that forwards request headers. Call the script's or flow's own tool instead.",
+                            name
+                        ),
+                        None,
+                    ));
+                }
+
                 // Authorize against the token's MCP scopes and read-only flag,
                 // including the run-by-path path check (shared with multi mode).
                 let mut args = args;
+                strip_transport_owned_endpoint_args(&mut args, request.include_headers);
                 authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
                 // This is an endpoint tool, call via backend. The backend's own error
@@ -924,6 +977,7 @@ impl<B: McpBackend> Runner<B> {
         read_only: bool,
         name: std::borrow::Cow<'static, str>,
         mut args: Value,
+        request: &McpRequest<'_>,
     ) -> Result<CallToolResult, ErrorData> {
         if name.as_ref() == "list_workspaces" {
             let workspaces = self
@@ -952,12 +1006,24 @@ impl<B: McpBackend> Runner<B> {
                 )
             })?;
 
+        // Withdrawn while headers are being forwarded — see call_tool_single.
+        if is_run_by_path(endpoint_tool.name.as_ref()) && !request.include_headers.is_empty() {
+            return Err(ErrorData::invalid_params(
+                format!(
+                    "Tool '{}' is unavailable on a connection that forwards request headers.",
+                    name
+                ),
+                None,
+            ));
+        }
+
         // Authorize the tool against the token's MCP scopes and read-only flag
         // (shared with single-workspace mode). Run-by-path endpoints
         // (runScriptByPath / runFlowByPath) run an arbitrary `path` and are
         // checked against the script/flow scope for that path — the endpoint
         // scope alone would let a granular token run items outside its allowed
         // paths.
+        strip_transport_owned_endpoint_args(&mut args, request.include_headers);
         authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
         // Workspace-scoped endpoints need an explicit target workspace and a
@@ -1041,6 +1107,28 @@ mod tests {
         );
 
         assert_eq!(args, json!({"ticket_id": "T-1", "x_user_id": "someone"}));
+    }
+
+    /// The forgery guard has to hold on every route that reaches a runnable, not
+    /// just the runnable's own tool: run-by-path forwards the model's remaining
+    /// arguments verbatim, so an unstripped one here would defeat the schema strip.
+    #[test]
+    fn run_by_path_arguments_cannot_carry_a_header_fed_name() {
+        let mut args = json!({"path": "u/admin/whoami", "x_user_id": "attacker@evil.test"});
+
+        strip_transport_owned_endpoint_args(&mut args, &McpIncludeHeaders::parse("x-user-id"));
+
+        assert_eq!(args, json!({"path": "u/admin/whoami"}));
+    }
+
+    /// And the tool itself is withdrawn on such a connection, so a stripped call
+    /// cannot quietly run the script with no identity at all.
+    #[test]
+    fn run_by_path_is_recognised_for_withdrawal() {
+        assert!(is_run_by_path("runScriptByPath"));
+        assert!(is_run_by_path("runFlowByPath"));
+        assert!(!is_run_by_path("listJobs"));
+        assert!(!is_run_by_path("getScriptByPath"));
     }
 
     fn cfg(scopes: &[&str]) -> McpScopeConfig {

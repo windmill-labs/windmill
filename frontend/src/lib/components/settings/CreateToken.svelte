@@ -154,8 +154,13 @@
 	)
 	// Rides the URL rather than the token so the allowlist is fixed by whoever
 	// configures the MCP client, out of reach of the model driving the session.
+	// Gated on the workspace too, not just the input: the gateway path publishes no
+	// per-runnable tools, so a URL carrying this would promise a guarantee that
+	// does not hold there.
 	const mcpIncludeHeaderParam = $derived(
-		includeHeaders.trim() ? `&include_header=${encodeURIComponent(includeHeaders.trim())}` : ''
+		!isAllWorkspaces && includeHeaders.trim()
+			? `&include_header=${encodeURIComponent(includeHeaders.trim())}`
+			: ''
 	)
 
 	$effect(() => {
