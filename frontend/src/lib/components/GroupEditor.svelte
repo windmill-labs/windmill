@@ -282,6 +282,15 @@
 		}
 	}
 
+	async function groupExists(): Promise<boolean> {
+		try {
+			await GroupService.getGroup({ workspace: $workspaceStore!, name })
+			return true
+		} catch {
+			return false
+		}
+	}
+
 	export async function save(): Promise<{ name: string; created: boolean } | undefined> {
 		const next = $state.snapshot(draft) as GroupDraft
 		const prev = baseline as GroupDraft
@@ -315,6 +324,13 @@
 			return { name, created }
 		} catch (e) {
 			sendUserToast(e.body ?? String(e), true)
+			// `create_group` commits its transaction before the git-sync step that can still
+			// fail it, so a rejected create is not proof the group is absent. Ask, or every
+			// retry re-creates it and is refused for the name it just took.
+			if (created && !alreadyCreated && (await groupExists())) {
+				alreadyCreated = true
+				committed = true
+			}
 			// The calls are sequential, so a rejection can land with earlier ones committed. Move
 			// the baseline to what the server now holds and keep the draft: what was applied
 			// stops being dirty, what was not stays dirty, and a retry re-sends only that.

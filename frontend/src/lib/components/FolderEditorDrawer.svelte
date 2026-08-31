@@ -70,11 +70,12 @@
 			// not to exist is created from an `initEdit` drawer.
 			const saved = await editor?.save()
 			if (saved) {
-				// Callers reload a list here, and an async one's rejection would go unhandled.
-				// The write has already landed, so report it and close either way.
-				void Promise.resolve(onSaved?.(saved.name, saved.created)).catch((e) =>
-					sendUserToast(e?.body ?? String(e), true)
-				)
+				// Callers reload a list here. Called from inside the chain, not before it, so a
+				// synchronous throw is caught too — thrown out of `save()` it would skip the
+				// close below and strand the drawer open on a folder that did save.
+				void Promise.resolve()
+					.then(() => onSaved?.(saved.name, saved.created))
+					.catch((e) => sendUserToast(e?.body ?? String(e), true))
 				// The editor reloads its baseline after saving, but that lands a tick
 				// later; close on our own authority rather than racing it.
 				discarding = true
