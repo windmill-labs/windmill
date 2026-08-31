@@ -14,7 +14,6 @@
 		ListChecks,
 		MessageSquare,
 		Pencil,
-		PencilLine,
 		Plus,
 		Rows3,
 		Trash2
@@ -86,15 +85,6 @@
 	// both are reactive so the badge updates without polling.
 	function unreadFor(session: Session): number {
 		return unreadCountFor(session.id, getRuntime(session.id))
-	}
-
-	// Whether the session holds a prompt handed to a send and not yet consumed
-	// (`instructions` carries the send in flight; the composer's typed text is
-	// AIChatInput-local and unreadable here). Read directly rather than via the
-	// derived chat status so the cue survives streaming/needs-confirmation.
-	function hasDraft(session: Session): boolean {
-		const rt = getRuntime(session.id)
-		return !!rt && rt.manager.instructions.trim().length > 0
 	}
 
 	// Sessions share the beta opt-out gate with the global AI chat — when the
@@ -734,7 +724,6 @@
 										{@const isSelected =
 											sessionActive && session.id === sessionState.currentSessionId}
 										{@const unread = unreadFor(session)}
-										{@const draft = hasDraft(session)}
 										<MenuItem
 											class={twMerge(
 												menuItemBase,
@@ -758,19 +747,12 @@
 											>
 												{session.summary ?? 'Untitled session'}
 											</span>
-											{#if draft || unread > 0}
-												<span class="ml-auto shrink-0 inline-flex items-center gap-1">
-													{#if draft}
-														<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
-													{/if}
-													{#if unread > 0}
-														<span
-															class="inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
-															aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
-														>
-															{unread > 9 ? '9+' : unread}
-														</span>
-													{/if}
+											{#if unread > 0}
+												<span
+													class="ml-auto shrink-0 inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
+													aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
+												>
+													{unread > 9 ? '9+' : unread}
 												</span>
 											{/if}
 										</MenuItem>
@@ -952,7 +934,6 @@
 					{@const isSelected = sessionActive && session.id === sessionState.currentSessionId}
 					{@const isEditing = editingId === session.id}
 					{@const unread = unreadFor(session)}
-					{@const draft = hasDraft(session)}
 					{@const isChecked = selectedIds.includes(session.id)}
 					<div
 						class={twMerge(
@@ -1032,19 +1013,12 @@
 									/>
 								{/if}
 								<span class="truncate flex-1">{session.summary ?? 'Untitled session'}</span>
-								{#if draft || unread > 0}
-									<span class="shrink-0 inline-flex items-center gap-1">
-										{#if draft}
-											<PencilLine class="w-3 h-3 text-tertiary" aria-label="Unsent draft" />
-										{/if}
-										{#if unread > 0}
-											<span
-												class="inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
-												aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
-											>
-												{unread > 9 ? '9+' : unread}
-											</span>
-										{/if}
+								{#if unread > 0}
+									<span
+										class="shrink-0 inline-flex items-center justify-center rounded-full bg-surface-accent-primary text-white font-medium leading-none min-w-4 h-4 px-1 text-[10px]"
+										aria-label="{unread} unread message{unread === 1 ? '' : 's'}"
+									>
+										{unread > 9 ? '9+' : unread}
 									</span>
 								{/if}
 							</button>
