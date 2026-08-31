@@ -60,9 +60,18 @@
 		 * stays true for edits that cannot be saved yet (a name already taken) — closing
 		 * would still throw them away. */
 		onUnsavedChange?: (unsaved: boolean) => void
+		/** Turns true once the group exists on the server, which a `new` drawer reaches
+		 * mid-save. The drawer stops calling itself Create from that point. */
+		onExistsChange?: (exists: boolean) => void
 	}
 
-	let { name = $bindable(), mode = 'edit', onCanSaveChange, onUnsavedChange }: Props = $props()
+	let {
+		name = $bindable(),
+		mode = 'edit',
+		onCanSaveChange,
+		onUnsavedChange,
+		onExistsChange
+	}: Props = $props()
 
 	const restricted = $derived(
 		isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
@@ -184,8 +193,10 @@
 		}
 	}
 
+	// Guarded on `isNew`, not `mode`: once the group exists the name is fixed, and the list
+	// it is checked against now contains it.
 	const nameError = $derived(
-		mode !== 'new'
+		!isNew
 			? ''
 			: !name
 				? ''
@@ -204,6 +215,10 @@
 
 	$effect(() => {
 		onUnsavedChange?.(unsaved)
+	})
+
+	$effect(() => {
+		onExistsChange?.(!isNew)
 	})
 
 	// `create_group` folds the caller into the group as an admin whatever the payload says, so
@@ -344,12 +359,16 @@
 
 	{#if mode === 'new'}
 		<Label label="Group name">
+			<!-- Frozen once the group exists: `createGroup` lands before the member calls, so a
+			     save can fail with the group already created under this name. Retyping it would
+			     point the remaining member calls at a different group — one that may not exist,
+			     or worse, one that does. -->
 			<TextInput
 				bind:this={nameInput}
 				bind:value={name}
 				error={!!nameError}
 				size="md"
-				inputProps={{ placeholder: 'group_name' }}
+				inputProps={{ placeholder: 'group_name', disabled: !isNew }}
 			/>
 			<InputError error={nameError} />
 		</Label>

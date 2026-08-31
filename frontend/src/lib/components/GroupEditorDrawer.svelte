@@ -19,6 +19,9 @@
 	let name: string = $state('')
 	let canSave = $state(false)
 	let unsaved = $state(false)
+	// A `new` drawer whose group has been created but whose member calls then failed stays
+	// open on the edit path. Calling it Create there would offer to create what exists.
+	let exists = $state(false)
 	let saving = $state(false)
 	let confirmDiscardOpen = $state(false)
 	let discarding = $state(false)
@@ -33,6 +36,7 @@
 		name = groupName
 		discarding = false
 		confirmDiscardOpen = false
+		exists = nextMode === 'edit'
 		instance++
 		drawer?.openDrawer()
 	}
@@ -96,7 +100,7 @@
 		}
 	}}
 >
-	<DrawerContent title={mode === 'new' ? 'Create group' : `Group ${name}`} on:close={requestClose}>
+	<DrawerContent title={exists ? `Group ${name}` : 'Create group'} on:close={requestClose}>
 		<!-- `save()` snapshots the draft and then awaits several requests. An edit landing in
 		     that window would not be in the snapshot, and the drawer closes on success — so it
 		     would be lost without ever being offered as unsaved. `inert` keeps the form from
@@ -109,6 +113,7 @@
 					{mode}
 					onCanSaveChange={(v) => (canSave = v)}
 					onUnsavedChange={(v) => (unsaved = v)}
+					onExistsChange={(v) => (exists = v)}
 				/>
 			{/key}
 		</div>
@@ -121,7 +126,7 @@
 				loading={saving}
 				on:click={save}
 			>
-				{mode === 'new' ? 'Create' : 'Save'}
+				{exists ? 'Save' : 'Create'}
 			</Button>
 		{/snippet}
 	</DrawerContent>

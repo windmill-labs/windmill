@@ -112,7 +112,7 @@
 					<tr>
 						<Cell head first>Name</Cell>
 						<Cell head>Members</Cell>
-						<Cell head last />
+						<Cell head last actions>Actions</Cell>
 					</tr>
 				</Head>
 				<tbody class="divide-y">
@@ -142,7 +142,7 @@
 								<Cell>
 									<GroupInfo {name} />
 								</Cell>
-								<Cell>
+								<Cell last actions shouldStopPropagation>
 									<Dropdown
 										items={[
 											{
