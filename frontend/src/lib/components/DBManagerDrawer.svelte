@@ -42,15 +42,21 @@
 	// Every data table with its schemas and tables, in one call: this is what the
 	// left pane's tree navigates, so it has to cover the data tables the user is
 	// not currently on, not just the selected one.
-	const datatables = resource<DataTableTables[]>([], async () => {
-		if (!ws) return []
-		try {
-			return await WorkspaceService.listDataTableTables({ workspace: ws })
-		} catch (e) {
-			console.error('Failed to load datatables:', e)
-			return []
-		}
-	})
+	const datatables = resource(
+		// The privileges it reports are the connected role's, so the role picked on
+		// the open data table is part of what is being asked.
+		() => [ws, uriState.selectedDatatable, uriState.selectedRole] as const,
+		async ([workspace, roleFor, role]): Promise<DataTableTables[]> => {
+			if (!workspace) return []
+			try {
+				return await WorkspaceService.listDataTableTables({ workspace, roleFor, role })
+			} catch (e) {
+				console.error('Failed to load datatables:', e)
+				return []
+			}
+		},
+		{ initialValue: [] }
+	)
 
 	// Roles the *caller* may use, so the picker never offers one that would be
 	// refused. Absent/disabled permissions yield no roles and hide the picker.
@@ -194,6 +200,14 @@
 	function refreshManager() {
 		dbManagerContent?.refresh()
 		dbManagerContent?.dbManager()?.dbTable()?.refresh()
+		refreshRoles()
+	}
+
+	/** Re-read what the tree and the role picker show: both are answers about the
+	 * data table's roles, which the permissions drawer can have just changed. */
+	function refreshRoles() {
+		datatables.refetch()
+		usableRoles.refetch()
 	}
 
 	async function handleExportSchema(explicitSource?: string) {
@@ -327,6 +341,7 @@
 		hideTrigger
 		workspace={ws}
 		datatable={actionDatatable}
+		onSaved={refreshRoles}
 	/>
 {/if}
 

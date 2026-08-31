@@ -2282,10 +2282,20 @@ async fn list_datatable_schemas(
     Ok(Json(results))
 }
 
+/// The role the caller is on, and the data table it belongs to. The tree covers
+/// every data table, and a role name means nothing outside the one it was
+/// picked on, so it is named rather than applied to all of them.
+#[derive(Deserialize)]
+struct ListDataTableTablesQuery {
+    role_for: Option<String>,
+    role: Option<String>,
+}
+
 async fn list_datatable_tables(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(query): Query<ListDataTableTablesQuery>,
 ) -> JsonResult<Vec<DataTableTables>> {
     let datatable_names = list_datatable_names(&db, &w_id).await?;
     let mut roles = list_datatable_roles(&db, &authed, &w_id).await?;
@@ -2295,7 +2305,14 @@ async fn list_datatable_tables(
         let (usable_roles, default_role) = roles
             .remove(&datatable_name)
             .unwrap_or_else(|| (vec![], ADMIN_DATATABLE_ROLE.to_string()));
-        let tables = match get_datatable_tables(&db, &authed, &w_id, &datatable_name).await {
+        // Privileges are the connected role's, so the answer for the data table
+        // the caller is on has to be read as the role they picked, not as the
+        // one it defaults to.
+        let role = query
+            .role
+            .as_deref()
+            .filter(|_| query.role_for.as_deref() == Some(datatable_name.as_str()));
+        let tables = match get_datatable_tables(&db, &authed, &w_id, &datatable_name, role).await {
             Ok(contents) => DataTableTables {
                 datatable_name,
                 schemas: contents.tables,
@@ -2532,8 +2549,16 @@ async fn get_datatable_tables(
     authed: &ApiAuthed,
     w_id: &str,
     datatable_name: &str,
+    role: Option<&str>,
 ) -> Result<DataTableContents> {
-    let db_resource = get_datatable_resource_as_admin(db, authed, w_id, datatable_name).await?;
+    let db_resource = get_datatable_resource_from_db(
+        db,
+        w_id,
+        datatable_name,
+        role,
+        DatatableAccess::Authed(authed.to_authed_ref()),
+    )
+    .await?;
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
     let (client, connection) = pg_db.connect(Some(db)).await?;

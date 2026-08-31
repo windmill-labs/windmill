@@ -4865,6 +4865,18 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: role_for
+          in: query
+          required: false
+          schema:
+            type: string
+          description: the data table the `role` below was picked on
+        - name: role
+          in: query
+          required: false
+          schema:
+            type: string
+          description: read that data table's privileges as this role rather than its default
       responses:
         "200":
           description: table metadata of all datatables
