@@ -66,12 +66,22 @@ export function allowedOriginsError(allowed_origins: string[] | undefined): stri
 export function allowedOriginWarning(origin: string): string | undefined {
 	if (origin === '*' || allowedOriginRejection(origin) !== undefined) return undefined
 	const separator = origin.indexOf('://')
-	if (separator < 0) return `'${origin}' has no scheme, such as https://`
+	if (separator <= 0) return `'${origin}' has no scheme, such as https://`
 	const rest = origin.slice(separator + 3)
 	if (rest === '') return `'${origin}' has no host`
 	if (/[/?#]/.test(rest))
 		return `'${origin}' should be scheme://host[:port], with no path, query or fragment`
 	if (rest.includes('@')) return `'${origin}' should not contain userinfo`
+	// Only the port is checked past this point. The host is left alone on
+	// purpose: browsers send origins this cannot anticipate, `chrome-extension`
+	// and IPv6 literals among them, and a warning that cries wolf on a working
+	// origin is worse than one that stays quiet.
+	const port = rest.startsWith('[')
+		? rest.slice(rest.indexOf(']') + 1).replace(/^:/, '')
+		: rest.split(':')[1]
+	if (rest.startsWith(':')) return `'${origin}' has no host`
+	if (port !== undefined && port !== '' && !(/^[0-9]{1,5}$/.test(port) && Number(port) <= 65535))
+		return `'${origin}' has a port no browser can send`
 	return undefined
 }
 
