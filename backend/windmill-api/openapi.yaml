@@ -34001,8 +34001,11 @@ components:
               future_sequences,
               future_functions
             ]
-        object:
-          $ref: "#/components/schemas/AclObject"
+        objects:
+          type: array
+          description: objects inside the target a revoke covers, empty for the target itself
+          items:
+            $ref: "#/components/schemas/AclObject"
 
     AclChangeRequest:
       type: object

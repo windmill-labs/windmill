@@ -95,9 +95,47 @@ export function scopeSql(scope: AclScope, target: AclTarget, dbname?: string): s
 	}
 }
 
-/** How an existing grant reads back: the object it covers, in one phrase. */
-export function grantScopeLabel(grant: AclGrant): string {
+/** One row of the grants table: the same privileges on several objects read as
+ * one line, since granting them per object is what `ON ALL TABLES` does. */
+export type GroupedGrant = {
+	grantee: string
+	privileges: string[]
+	objects: NonNullable<AclGrant['object']>[]
+	future?: string
+}
+
+export function groupGrants(grants: AclGrant[]): GroupedGrant[] {
+	const rows: GroupedGrant[] = []
+	for (const grant of grants) {
+		const existing = grant.object
+			? rows.find(
+					(r) =>
+						r.grantee === grant.grantee &&
+						r.future === grant.future &&
+						r.objects[0]?.kind === grant.object?.kind &&
+						r.privileges.join() === grant.privileges.join()
+				)
+			: undefined
+		if (existing) {
+			existing.objects.push(grant.object!)
+		} else {
+			rows.push({
+				grantee: grant.grantee,
+				privileges: grant.privileges,
+				objects: grant.object ? [grant.object] : [],
+				future: grant.future
+			})
+		}
+	}
+	return rows
+}
+
+/** How a row reads back: what it covers, in one phrase. */
+export function grantScopeLabel(grant: GroupedGrant): string {
 	if (grant.future) return `${grant.future.toLowerCase()} created later`
-	if (grant.object) return `${grant.object.kind.toLowerCase()} ${grant.object.name}`
+	if (grant.objects.length === 1)
+		return `${grant.objects[0].kind.toLowerCase()} ${grant.objects[0].name}`
+	if (grant.objects.length > 1)
+		return `${grant.objects.length} ${grant.objects[0].kind.toLowerCase()}s`
 	return 'itself'
 }

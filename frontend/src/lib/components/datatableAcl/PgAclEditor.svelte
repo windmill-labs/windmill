@@ -13,7 +13,7 @@
 	import Cell from '../table/Cell.svelte'
 	import { Trash2 } from 'lucide-svelte'
 	import PgGrantBuilder from './PgGrantBuilder.svelte'
-	import { grantScopeLabel, type AclScope } from './aclScopes'
+	import { grantScopeLabel, groupGrants, type AclScope } from './aclScopes'
 
 	let {
 		workspace,
@@ -48,6 +48,10 @@
 	let pending = $state<
 		{ change: AclChange; statements: string[]; warnings: string[]; title: string } | undefined
 	>(undefined)
+
+	/** A revoke listed per object takes them all: say where one of them is
+	 * managed on its own. */
+	const pendingCoversObjects = $derived((pending?.change.objects?.length ?? 0) > 1)
 	let planning = $state(false)
 	let applying = $state(false)
 
@@ -88,6 +92,7 @@
 
 	const info: DatatableAclInfo | undefined = $derived(acl.current)
 	const roleItems = $derived((info?.roles ?? []).map((r) => ({ value: r, label: r })))
+	const grantRows = $derived(groupGrants(info?.grants ?? []))
 </script>
 
 {#if acl.error}
@@ -152,7 +157,7 @@
 						`Granted ${privileges.join(', ')} to ${role}`
 					)}
 			/>
-			{#if info.grants.length === 0}
+			{#if grantRows.length === 0}
 				<span class="text-xs text-tertiary">No grants yet.</span>
 			{:else}
 				<DataTable size="xs">
@@ -165,7 +170,9 @@
 						</tr>
 					</Head>
 					<tbody class="divide-y">
-						{#each info.grants as grant (grant.grantee + (grant.object?.name ?? '') + (grant.future ?? ''))}
+						{#each grantRows as grant (grant.grantee + grant.objects
+								.map((o) => o.name)
+								.join() + (grant.future ?? ''))}
 							<Row>
 								<Cell first>{grant.grantee}</Cell>
 								<Cell><span class="font-mono text-2xs">{grant.privileges.join(', ')}</span></Cell>
@@ -189,7 +196,7 @@
 														scope: grant.future
 															? (`future_${grant.future.toLowerCase()}` as AclScope)
 															: 'target',
-														object: grant.object
+														objects: grant.objects
 													},
 													`Revoked ${grant.privileges.join(', ')} from ${grant.grantee}`
 												)}
@@ -216,6 +223,11 @@
 		onCanceled={() => (pending = undefined)}
 	>
 		<div class="flex flex-col gap-3">
+			{#if pendingCoversObjects}
+				<Alert type="info" title="This covers every listed object" size="xs">
+					Permissions on a single table are managed in that table's own permissions drawer.
+				</Alert>
+			{/if}
 			{#each pending?.warnings ?? [] as warning}
 				<Alert type="warning" title="Warning" size="xs">{warning}</Alert>
 			{/each}

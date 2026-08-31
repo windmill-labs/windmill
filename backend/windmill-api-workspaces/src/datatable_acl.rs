@@ -210,10 +210,11 @@ pub enum AclChange {
         role: String,
         privileges: Vec<String>,
         scope: GrantScope,
-        /// One object inside the target. `ON ALL TABLES` grants read back per
-        /// object, so they are revoked per object too.
+        /// Objects inside the target, empty for the target itself. `ON ALL
+        /// TABLES` grants read back per object, so they are revoked per object —
+        /// and the same privileges on several of them are revoked together.
         #[serde(default)]
-        object: Option<AclObject>,
+        objects: Vec<AclObject>,
     },
 }
 
@@ -384,10 +385,13 @@ fn plan_statements(
         AclChange::Grant { privileges, scope, .. }
         | AclChange::Revoke { privileges, scope, .. } => {
             let revoking = matches!(change, AclChange::Revoke { .. });
-            let object = match change {
-                AclChange::Revoke { object, .. } => object.as_ref(),
-                _ => None,
+            let objects: &[AclObject] = match change {
+                AclChange::Revoke { objects, .. } => objects,
+                _ => &[],
             };
+            // Every object of one revoke is the same kind of thing, so the first
+            // decides which privileges are legal for all of them.
+            let object = objects.first();
             // A named object decides which privileges are legal, not the scope:
             // `ON ALL TABLES` grants read back per object and revoke per object.
             let allowed = match object {
@@ -434,16 +438,18 @@ fn plan_statements(
                         privileges, plural, schema, role
                     )
                 }),
-                (_, None) if object.is_some() => {
-                    let object = object.expect("checked");
-                    Some(format!(
-                        "REVOKE {} ON {} {}.{} FROM {}",
-                        privileges,
-                        object_keyword(&object.kind)?,
-                        schema,
-                        quote_ident(&object.name),
-                        role
-                    ))
+                (_, None) if !objects.is_empty() => {
+                    for object in objects {
+                        statements.push(format!(
+                            "REVOKE {} ON {} {}.{} FROM {}",
+                            privileges,
+                            object_keyword(&object.kind)?,
+                            schema,
+                            quote_ident(&object.name),
+                            role
+                        ));
+                    }
+                    None
                 }
                 (_, None) => Some(if revoking {
                     format!(
@@ -958,7 +964,7 @@ mod tests {
                 role: "analyst".to_string(),
                 privileges: vec!["select".to_string()],
                 scope: GrantScope::AllTables,
-                object: None,
+                objects: vec![],
             },
             "dt_probe",
             "wm_analyst_1",
@@ -980,10 +986,10 @@ mod tests {
                 role: "analyst".to_string(),
                 privileges: vec!["SELECT".to_string()],
                 scope: GrantScope::Target,
-                object: Some(AclObject {
+                objects: vec![AclObject {
                     name: "orders".to_string(),
                     kind: "TABLE".to_string(),
-                }),
+                }],
             },
             "dt_probe",
             "wm_analyst_1",
@@ -1045,6 +1051,34 @@ mod tests {
                 Error::BadRequest(_)
             ));
         }
+    }
+
+    #[test]
+    fn several_objects_are_revoked_together() {
+        let plan = plan_statements(
+            &schema(),
+            &AclChange::Revoke {
+                role: "analyst".to_string(),
+                privileges: vec!["SELECT".to_string()],
+                scope: GrantScope::Target,
+                objects: vec![
+                    AclObject { name: "a".to_string(), kind: "TABLE".to_string() },
+                    AclObject { name: "b".to_string(), kind: "TABLE".to_string() },
+                ],
+            },
+            "dt_probe",
+            "wm_analyst_1",
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            plan.statements,
+            [
+                r#"REVOKE SELECT ON TABLE "analytics"."a" FROM "wm_analyst_1""#,
+                r#"REVOKE SELECT ON TABLE "analytics"."b" FROM "wm_analyst_1""#,
+            ]
+        );
     }
 
     #[test]
