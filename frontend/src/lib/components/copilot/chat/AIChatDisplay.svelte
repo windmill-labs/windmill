@@ -934,49 +934,60 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						{#if canAttachFiles}
 							<DropdownV2
-								items={async () => [
-									{
-										displayName: 'Attach file or image',
-										icon: FileText,
-										action: () => {
-											plusMenuOpen = false
-											linkFiles()
-										}
-									},
-									{
-										// A real (live) link needs the File System Access API; without it the
-										// folder is only snapshotted, so call it "Add folder", not "Link folder".
-										displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
-										icon: Folder,
-										tooltip: canUseFsAccess
-											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
-											: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
-										action: () => {
-											plusMenuOpen = false
-											linkFolder()
-										}
-									},
-									...(aiChatManager.mode === AIMode.GLOBAL && skillsPicker
-										? [
-												{
-													displayName: 'Skills',
-													icon: BookOpen,
-													separatorTop: true,
-													submenuItems: await skillsPicker.menuItems(() => (plusMenuOpen = false))
-												}
-											]
-										: []),
-									...(aiChatManager.mode === AIMode.GLOBAL && mcpConnections
-										? [
-												{
-													displayName: 'MCP connections',
-													icon: Plug,
-													separatorTop: !skillsPicker,
-													submenuItems: await mcpConnections.menuItems(() => (plusMenuOpen = false))
-												}
-											]
-										: [])
-								]}
+								items={async () => {
+									// Both submenus fetch on the menu's first open, so they start
+									// together: awaited inline they queue, and the whole menu —
+									// attachments included — waits out two round trips.
+									const closeMenu = () => (plusMenuOpen = false)
+									const inGlobal = aiChatManager.mode === AIMode.GLOBAL
+									const [skillItems, mcpItems] = await Promise.all([
+										inGlobal ? skillsPicker?.menuItems(closeMenu) : undefined,
+										inGlobal ? mcpConnections?.menuItems(closeMenu) : undefined
+									])
+									return [
+										{
+											displayName: 'Attach file or image',
+											icon: FileText,
+											action: () => {
+												plusMenuOpen = false
+												linkFiles()
+											}
+										},
+										{
+											// A real (live) link needs the File System Access API; without it the
+											// folder is only snapshotted, so call it "Add folder", not "Link folder".
+											displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
+											icon: Folder,
+											tooltip: canUseFsAccess
+												? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
+												: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
+											action: () => {
+												plusMenuOpen = false
+												linkFolder()
+											}
+										},
+										...(skillItems
+											? [
+													{
+														displayName: 'Skills',
+														icon: BookOpen,
+														separatorTop: true,
+														submenuItems: skillItems
+													}
+												]
+											: []),
+										...(mcpItems
+											? [
+													{
+														displayName: 'MCP connections',
+														icon: Plug,
+														separatorTop: !skillItems,
+														submenuItems: mcpItems
+													}
+												]
+											: [])
+									]
+								}}
 								placement="bottom-start"
 								fixedHeight={false}
 								closeOnItemClick={false}

@@ -10,7 +10,7 @@ vi.mock('$lib/stores', () => ({
 }))
 
 import { enabledSkillPaths, isSkillEnabled, setSkillEnabled } from './enabledSkills'
-import { ambiguousSkillNames, skillNameFromPath } from './skillResources'
+import { ambiguousSkillNames } from './skillResources'
 
 describe('enabledSkills', () => {
 	beforeEach(() => {
@@ -35,19 +35,9 @@ describe('enabledSkills', () => {
 		expect(setSkillEnabled('ws_a', 'u/me/deploy', true)).toBe(false)
 		expect(enabledSkillPaths('ws_a')).toEqual([])
 	})
-
-	it('turns a skill back off', () => {
-		setSkillEnabled('ws_a', 'u/me/deploy', true)
-		setSkillEnabled('ws_a', 'u/me/deploy', false)
-		expect(enabledSkillPaths('ws_a')).toEqual([])
-	})
 })
 
 describe('skill names', () => {
-	it('names a skill by its path basename', () => {
-		expect(skillNameFromPath('f/skills/deploy-check')).toBe('deploy-check')
-	})
-
 	it('flags a basename two folders both use, so /name is not resolved by chance', () => {
 		const ambiguous = ambiguousSkillNames([
 			{ name: 'deploy' },

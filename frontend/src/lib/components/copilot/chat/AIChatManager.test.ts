@@ -431,6 +431,33 @@ describe('AIChatManager global skills', () => {
 
 		expect(manager.displayMessages[0]?.content).toBe('/review-code find bugs')
 	})
+
+	it('does not expand a slash command two folders both answer to', async () => {
+		mocks.listResource.mockResolvedValue([
+			{ path: 'u/admin/deploy', description: 'personal deploy steps' },
+			{ path: 'f/team/deploy', description: 'the team deploy steps' }
+		])
+		selectSkills('test_workspace', 'u/admin/deploy', 'f/team/deploy')
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			// Picking either one would silently apply instructions the user did not
+			// choose, so the text is left alone for the model to ask about.
+			const userMessage = config.messages[config.messages.length - 1]
+			expect(userMessage.content).toContain('/deploy ship it')
+			expect(userMessage.content).not.toContain('Use the skill at')
+			const message = { role: 'assistant' as const, content: 'done' }
+			config.addedMessages?.push(message)
+			return {
+				addedMessages: [message],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				hitMaxIterations: false
+			}
+		})
+
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+
+		await manager.sendRequest({ instructions: '/deploy ship it', mode: AIMode.GLOBAL })
+	})
 })
 
 describe('AIChatManager global prompt identity', () => {

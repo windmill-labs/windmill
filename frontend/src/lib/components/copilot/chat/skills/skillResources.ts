@@ -61,12 +61,17 @@ export async function listSkillResources(
 	}))
 }
 
-/** The SKILL.md body of one skill. */
+/** The SKILL.md body of one skill. Throws rather than returning `''` when the
+ * resource holds no readable body: an empty string reaches the model as a
+ * successful read of a skill with no instructions, which it would then act on. */
 export async function readSkillBody(workspace: string, path: string): Promise<string> {
 	const value = (await ResourceService.getResourceValue({ workspace, path })) as
 		| { content?: unknown }
 		| undefined
-	return typeof value?.content === 'string' ? value.content : ''
+	if (typeof value?.content !== 'string') {
+		throw new Error(`resource ${path} has no string "content" — is it an ${SKILLS_RESOURCE_TYPE}?`)
+	}
+	return value.content
 }
 
 export async function saveSkillResource(

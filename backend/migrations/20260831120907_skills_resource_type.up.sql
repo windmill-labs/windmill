@@ -25,16 +25,27 @@ SELECT DISTINCT workspace_id, 'skills', 'Skills', ARRAY[]::TEXT[], '{"g/all": fa
 FROM ai_skill
 ON CONFLICT DO NOTHING;
 
+-- `f/skills/<name>` may already be taken by an unrelated resource, and the table
+-- is dropped below, so a skipped row would be gone for good. Those land on a
+-- suffixed path instead: a skill under a surprising name is recoverable, a
+-- silently dropped one is not.
 INSERT INTO resource (workspace_id, path, value, description, resource_type, created_by, edited_at)
 SELECT
-    workspace_id,
-    'f/skills/' || name,
-    jsonb_build_object('content', instructions),
-    description,
+    s.workspace_id,
+    CASE
+        WHEN EXISTS (
+            SELECT 1 FROM resource r
+            WHERE r.workspace_id = s.workspace_id AND r.path = 'f/skills/' || s.name
+        )
+        THEN 'f/skills/' || s.name || '_migrated'
+        ELSE 'f/skills/' || s.name
+    END,
+    jsonb_build_object('content', s.instructions),
+    s.description,
     'ai_skill',
-    edited_by,
-    edited_at
-FROM ai_skill
+    s.edited_by,
+    s.edited_at
+FROM ai_skill s
 ON CONFLICT (workspace_id, path) DO NOTHING;
 
 DROP TABLE ai_skill;

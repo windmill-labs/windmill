@@ -66,6 +66,8 @@
 	// doesn't sweep in unrelated skills.
 	const MAX_SKILL_DEPTH = 3
 	const MAX_SKILLS_PER_IMPORT = 50
+	/** Stands in for the name when only the description and body are being checked. */
+	const VALID_NAME_PLACEHOLDER = 'placeholder'
 	// A new skill opens on this as real, editable text rather than ghost placeholder
 	// text: the format is the point of the sample, and a SKILL.md is easier to adapt
 	// than to recall. `name` seeds the path above until the user edits the path
@@ -115,7 +117,12 @@ What the assistant should do when this skill applies.
 
 	let ambiguous = $derived(ambiguousSkillNames(skills))
 	let parsed = $derived(parseSkillMd(content))
-	let validated = $derived(parseAndValidateSkill(content, parsed.name ?? 'placeholder'))
+	// The Path field is what names the skill, and Path validates it. The frontmatter
+	// `name` only seeds that field and is never persisted, so validating it here
+	// would block saving a skill whose path is legal but whose name is not — resource
+	// paths admit `_` and uppercase, SKILL.md names do not. The folder importer keeps
+	// validating, because there the name really does become the path segment.
+	let validated = $derived(parseAndValidateSkill(content, VALID_NAME_PLACEHOLDER))
 	let contentError = $derived('error' in validated ? validated.error : undefined)
 	// Measured against what the modal opened with, which for a new skill is the
 	// sample. Saving it untouched would store a skill called "my-skill", so an
@@ -125,12 +132,21 @@ What the assistant should do when this skill applies.
 	let canSave = $derived(
 		!saving && !contentError && !!path && !pathError && (contentChanged || pathChanged)
 	)
-	let existingNames = $derived(new Set(skills.map((s) => s.name)))
+	// Keyed by the path the import would write to, not by bare name: a `deploy` that
+	// exists only in someone else's folder is not something this import overwrites,
+	// and offering it as a conflict would ask the user about a collision that isn't.
+	let existingPaths = $derived(new Set(skills.map((s) => s.path)))
+	let importTargets = $derived(
+		(pendingImport ?? ([] as SkillUpload[])).map((s) => ({
+			skill: s,
+			path: `${defaultOwner()}/${s.name}`
+		}))
+	)
 	let pendingConflicts = $derived(
-		(pendingImport ?? ([] as SkillUpload[])).filter((s) => existingNames.has(s.name))
+		importTargets.filter((t) => existingPaths.has(t.path)).map((t) => t.skill)
 	)
 	let pendingNew = $derived(
-		(pendingImport ?? ([] as SkillUpload[])).filter((s) => !existingNames.has(s.name))
+		importTargets.filter((t) => !existingPaths.has(t.path)).map((t) => t.skill)
 	)
 
 	// Rows describe one workspace. A switch while the drawer is open must not leave
@@ -254,8 +270,16 @@ What the assistant should do when this skill applies.
 		await aiChatManager.refreshGlobalSkills(ws)
 	}
 
+	/** Personal folder the folder import writes into. The username is not always a
+	 * legal path segment — a superadmin who is not a member of the workspace gets
+	 * their email back from `whoami` — and `resource.path` is CHECK-constrained, so
+	 * it is narrowed the same way Path.svelte narrows it. */
 	function defaultOwner() {
-		return `u/${$userStore?.username ?? 'user'}`
+		const username = $userStore?.username ?? 'user'
+		const owner = username.includes('@')
+			? username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '')
+			: username
+		return `u/${owner}`
 	}
 
 	function openCreate() {
@@ -433,8 +457,9 @@ What the assistant should do when this skill applies.
 		// Confirm before writing — the import can pull in several skills at once,
 		// and any that collide with existing skills default to overwrite.
 		pendingSkipped = allSkipped
+		const owner = defaultOwner()
 		overwriteChoices = Object.fromEntries(
-			collected.filter((s) => existingNames.has(s.name)).map((s) => [s.name, true])
+			collected.filter((s) => existingPaths.has(`${owner}/${s.name}`)).map((s) => [s.name, true])
 		)
 		pendingImport = collected
 	}
