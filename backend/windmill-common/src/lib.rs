@@ -1397,6 +1397,53 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
     Ok(())
 }
 
+/// What `custom_instance_user` gets on an instance database.
+///
+/// `WITH GRANT OPTION` throughout: data table permissions have Windmill connect
+/// as this role and hand privileges to the Postgres roles it creates, and a
+/// privilege it cannot pass on is one those roles can never receive. The
+/// database and schema `public` are owned by the instance's own Postgres user,
+/// not by this one, so re-granting is the only way it can reach them.
+fn instance_db_grants(dbname: &str) -> String {
+    format!(
+        "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
+         GRANT USAGE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
+         GRANT CREATE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
+         GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
+         ALTER DEFAULT PRIVILEGES IN SCHEMA public
+             GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
+    )
+}
+
+/// Re-apply those grants to an instance database that already exists.
+///
+/// One provisioned before the grant options were added holds the privileges
+/// without them, and only the instance's own Postgres user — the connection
+/// this runs on — can add them: a role cannot give itself a grant option it
+/// does not hold.
+pub async fn ensure_instance_db_grant_options(db: &DB, dbname: &str) -> error::Result<()> {
+    let dbname = dbname.trim();
+    validate_dbname(dbname)?;
+
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    let creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
+    let (client, connection) = creds.connect(Some(db)).await?;
+    let join_handle = tokio::spawn(async move { connection.await });
+
+    let result = client.batch_execute(&instance_db_grants(dbname)).await;
+
+    drop(client);
+    shutdown_pg_connection(join_handle).await?;
+
+    result.map_err(|e| {
+        error::Error::internal_err(format!(
+            "Failed to grant permissions on '{}': {}",
+            dbname,
+            crate::error::pg_error_message(&e)
+        ))
+    })
+}
+
 /// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
 /// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake").
 pub async fn create_custom_instance_database(
@@ -1437,14 +1484,7 @@ pub async fn create_custom_instance_database(
     let join_handle = tokio::spawn(async move { connection.await });
 
     if let Err(e) = client
-        .batch_execute(&format!(
-            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
-             GRANT USAGE ON SCHEMA public TO custom_instance_user;
-             GRANT CREATE ON SCHEMA public TO custom_instance_user;
-             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
-             ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
-        ))
+        .batch_execute(&instance_db_grants(dbname))
         .await
     {
         tracing::warn!(

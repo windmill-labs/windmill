@@ -35,7 +35,10 @@ use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, Debounci
 use windmill_common::scripts::ScriptLang;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::worker::{to_raw_value, SqlAnnotations};
-use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
+use windmill_common::ensure_instance_db_grant_options;
+use windmill_common::workspaces::{
+    get_datatable_resource_from_db_unchecked, DataTableCatalogResourceType,
+};
 use windmill_common::{PgDatabase, DB};
 use windmill_git_sync::{
     handle_deployment_metadata, handle_deployment_metadata_batch, DeployedObject,
@@ -852,6 +855,25 @@ async fn enable_datatable_migrations(
         return Err(Error::NotFound(format!(
             "data table {datatable_name} not found"
         )));
+    }
+
+    // A data table provisioned before instance grants carried `WITH GRANT
+    // OPTION` cannot hand its privileges to the roles the permissions feature
+    // creates. Opting in to migrations is where an admin passes through, so
+    // repair it here; it is a no-op for one that already has them, and only
+    // applies to instance databases, where Windmill owns the Postgres user.
+    if let Ok(datatable) = crate::datatable_permissions::read_datatable(&db, &w_id, &datatable_name).await {
+        if datatable.database.resource_type == DataTableCatalogResourceType::Instance {
+            if let Err(e) =
+                ensure_instance_db_grant_options(&db, &datatable.database.resource_path).await
+            {
+                tracing::warn!(
+                    "Could not refresh the grant options of instance database '{}': {}. Continuing.",
+                    datatable.database.resource_path,
+                    e
+                );
+            }
+        }
     }
 
     audit_log(
