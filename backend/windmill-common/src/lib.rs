@@ -42,7 +42,6 @@ pub mod db;
 mod db_entra_ee;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_iam_ee;
-pub mod db_params;
 pub mod dbt_manifest;
 pub mod deploy_origin;
 #[cfg(feature = "private")]
@@ -148,8 +147,52 @@ pub const DEFAULT_MAX_CONNECTIONS_INDEXER: u32 = 5;
 
 pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
-pub const SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
+pub const DEFAULT_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
+
+/// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
+/// than an `i64`: `DateTime` subtraction panics past year 262143, and the `(<n> s)::interval`
+/// the cleanup queries build overflows Postgres' microsecond field.
+const MAX_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 365 * 100;
+
+/// Apply a configured service log retention, in seconds.
+///
+/// The only way into [`SERVICE_LOG_RETENTION_SECS`], so an unusable value can never reach a
+/// cutoff. The two unusable directions are not the same mistake and must not share a landing
+/// point: too large still says "keep these for a very long time", so it is capped and the
+/// intent survives, whereas falling back would delete logs the operator meant to keep. A
+/// non-positive value has no such reading — every cutoff is `now - retention`, so it lands at
+/// or after `now` and the next sweep expires the entire history, rows and object-storage files
+/// alike. Unlike job retention there is no "keep forever" spelling here, so `0` — what an
+/// operator types by analogy with it, and what the settings UI writes into a field that was
+/// merely focused — falls back to the default.
+pub fn set_service_log_retention_secs(configured: i64) {
+    let effective = if configured > MAX_SERVICE_LOG_RETENTION_SECS {
+        tracing::warn!(
+            "service log retention of {configured}s exceeds the maximum of \
+             {MAX_SERVICE_LOG_RETENTION_SECS}s, capping it there"
+        );
+        MAX_SERVICE_LOG_RETENTION_SECS
+    } else if configured >= 1 {
+        configured
+    } else {
+        tracing::warn!(
+            "service log retention of {configured}s would expire every service log, \
+             falling back to the default of {DEFAULT_SERVICE_LOG_RETENTION_SECS}s"
+        );
+        DEFAULT_SERVICE_LOG_RETENTION_SECS
+    };
+    SERVICE_LOG_RETENTION_SECS.store(effective, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// How long a service log line stays retrievable, in seconds.
+///
+/// The outer bound on everything service-log: the `log_file` rows, the raw files in object
+/// storage, the columnar store queried by retrieval, and — through
+/// [`indexer::service_log_index_window_secs`] — the search index.
+pub fn service_log_retention_secs() -> i64 {
+    SERVICE_LOG_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
+}
 
 /// Canonical form of a base URL, used as one of the inputs to the offline-license
 /// instance hash (`compute_instance_hash`).
@@ -376,6 +419,10 @@ lazy_static::lazy_static! {
     /// workspace configured before its override could be read.
     pub static ref JOB_RETENTION_SECS_OVERRIDES_LOADED: AtomicBool = AtomicBool::new(false);
     pub static ref AUDIT_LOG_RETENTION_DAYS: AtomicI64 = AtomicI64::new(0);
+    /// Private on purpose: [`set_service_log_retention_secs`] is the only writer, so a value that
+    /// would expire every service log cannot reach a cutoff. Read it with
+    /// [`service_log_retention_secs`].
+    static ref SERVICE_LOG_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_SERVICE_LOG_RETENTION_SECS);
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 
@@ -1519,6 +1566,17 @@ pub async fn create_custom_instance_database(
     Ok(())
 }
 
+/// Connection options parsed from a database URL.
+///
+/// The only place a database URL becomes `PgConnectOptions`. Providers that mint the password
+/// themselves override it on these and keep the rest: options assembled field by field instead
+/// would drop every query parameter, `sslmode` and `sslrootcert` above all, leaving the
+/// connection on sqlx's default TLS policy rather than the operator's.
+pub fn base_connect_options(database_url: &str) -> Result<sqlx::postgres::PgConnectOptions, Error> {
+    sqlx::postgres::PgConnectOptions::from_str(database_url)
+        .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e)))
+}
+
 #[derive(Clone)]
 pub enum DatabaseUrl {
     #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -1549,8 +1607,8 @@ impl DatabaseUrl {
     }
 
     /// Get PgConnectOptions for this database URL.
-    /// For token-based auth (IAM RDS, Entra ID), this returns options built directly from the
-    /// token to avoid double-encoding issues with temporary credentials.
+    /// For token-based auth (IAM RDS, Entra ID), this returns options carrying the current
+    /// token, set on the builder to avoid double-encoding temporary credentials.
     /// For static URLs, this parses the URL string.
     pub async fn connect_options(&self) -> Result<sqlx::postgres::PgConnectOptions, Error> {
         match self {
@@ -1564,8 +1622,7 @@ impl DatabaseUrl {
                 let guard = entra_url.read().await;
                 Ok(guard.connect_options())
             }
-            DatabaseUrl::Static(url) => sqlx::postgres::PgConnectOptions::from_str(url)
-                .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e))),
+            DatabaseUrl::Static(url) => base_connect_options(url),
         }
     }
 

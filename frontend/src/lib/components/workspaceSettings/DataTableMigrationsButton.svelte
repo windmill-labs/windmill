@@ -52,6 +52,8 @@
 	let loadError = $state<string | undefined>(undefined)
 	let loading = $state(false)
 	let busy = $state(false)
+	// pg_dump can take a while, so the snapshot gets its own flag to spin its button.
+	let generatingInitial = $state(false)
 
 	// Only workspace admins and super admins can opt a data table in or out.
 	const canManage = $derived(!!$userStore?.is_admin || !!$superadmin)
@@ -285,6 +287,7 @@
 		})
 		if (!confirmed) return
 		busy = true
+		generatingInitial = true
 		try {
 			await WorkspaceService.generateInitialDatatableMigration({
 				workspace,
@@ -296,6 +299,7 @@
 			sendUserToast(`Failed to generate initial migration: ${e?.body ?? e?.message ?? e}`, true)
 		} finally {
 			busy = false
+			generatingInitial = false
 		}
 	}
 
@@ -498,12 +502,13 @@
 			<div class="flex flex-col grow min-h-0 overflow-auto border rounded-md divide-y">
 				{#if migrations.length === 0}
 					<div class="flex flex-col items-center gap-3 p-6 text-sm text-tertiary">
-						<span>No migrations yet</span>
+						<span>{generatingInitial ? 'Snapshotting current schema…' : 'No migrations yet'}</span>
 						<Button
 							variant="subtle"
 							size="xs"
 							startIcon={{ icon: Camera }}
 							disabled={busy}
+							loading={generatingInitial}
 							on:click={generateInitial}
 						>
 							Generate initial migration

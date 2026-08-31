@@ -32,7 +32,7 @@ use windmill_common::tracing_init::{LOGS_SERVICE, TMP_WINDMILL_LOGS_SERVICE};
 use windmill_common::worker::WINDMILL_DIR;
 use windmill_common::{
     DB, INSTANCE_NAME, JOB_RETENTION_SECS, JOB_RETENTION_SECS_OVERRIDES,
-    JOB_RETENTION_SECS_OVERRIDES_LOADED, SERVICE_LOG_RETENTION_SECS,
+    JOB_RETENTION_SECS_OVERRIDES_LOADED,
 };
 
 use windmill_object_store::object_store_reexports::{
@@ -249,7 +249,7 @@ async fn cleanup_service_logs(
     // Count candidates upfront for progress reporting.
     let total: i64 = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM log_file WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval",
-        SERVICE_LOG_RETENTION_SECS,
+        windmill_common::service_log_retention_secs(),
     )
     .fetch_one(db)
     .await?
@@ -274,7 +274,7 @@ async fn cleanup_service_logs(
                  WHERE log_ts <= now() - ($1::bigint::text || ' s')::interval
                  LIMIT $2
              ) RETURNING file_path, hostname",
-            SERVICE_LOG_RETENTION_SECS,
+            windmill_common::service_log_retention_secs(),
             SERVICE_LOG_BATCH,
         )
         .fetch_all(db)
@@ -680,9 +680,10 @@ async fn cleanup_s3_orphans(
 ) -> error::Result<()> {
     let job_retention_secs = JOB_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed);
     let now = Utc::now();
-    // Service logs always have a retention (hardcoded SERVICE_LOG_RETENTION_SECS),
-    // so we scan for service-log orphans regardless of JOB_RETENTION_SECS.
-    let service_cutoff = now - chrono::Duration::seconds(SERVICE_LOG_RETENTION_SECS);
+    // Service logs always have a retention, so we scan for service-log orphans regardless of
+    // JOB_RETENTION_SECS.
+    let service_cutoff =
+        now - chrono::Duration::seconds(windmill_common::service_log_retention_secs());
 
     // Job-log orphans are only considered once past a job's effective retention window. That window
     // is the instance one OR, for an override workspace (EE), its own — and jobs orphan their logs as

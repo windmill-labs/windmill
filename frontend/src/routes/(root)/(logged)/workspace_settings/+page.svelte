@@ -41,7 +41,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
-	import { Slack, Target } from 'lucide-svelte'
+	import { ExternalLink, Slack, Target } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -1472,9 +1472,30 @@
 								<Alert type="info" title="Billing is managed on the parent workspace">
 									This workspace is a fork of <b>{currentWorkspace.parent_workspace_id}</b>. It runs
 									on the parent's plan and its executions count toward the parent's usage and bill,
-									so there is no separate subscription here. Manage billing, seats, and quotas from
-									the parent workspace's settings.
+									so it is never invoiced separately. Manage billing, seats, and quotas from the
+									parent workspace's settings.
 								</Alert>
+								{#if plan}
+									<div class="mt-4">
+										<Alert type="warning" title="This workspace has its own subscription">
+											It is on a paid plan that is billed on its own, so this workspace is paid for
+											twice. Cancel that subscription in the customer portal to keep only
+											<b>{currentWorkspace.parent_workspace_id}</b>'s plan. This workspace keeps
+											running either way, on the parent's plan.
+											{#if customer_id}
+												<div class="mt-3 flex">
+													<Button
+														endIcon={{ icon: ExternalLink }}
+														variant="accent"
+														href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal"
+													>
+														Customer portal
+													</Button>
+												</div>
+											{/if}
+										</Alert>
+									</div>
+								{/if}
 							{:else}
 								<PremiumInfo {customer_id} {plan} />
 							{/if}

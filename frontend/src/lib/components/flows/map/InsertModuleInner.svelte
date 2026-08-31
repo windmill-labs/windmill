@@ -14,6 +14,7 @@
 	import { ResourceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import type { FlowEditorContext } from '../types'
+	import { logReusableAgentUsage } from '../agentTelemetry'
 	import { BotIcon, Loader2, Plus } from 'lucide-svelte'
 
 	const dispatch = createEventDispatcher()
@@ -271,6 +272,7 @@
 						<Button
 							onClick={() => {
 								dispatch('close')
+								logReusableAgentUsage('linked')
 								dispatch('new', { kind: 'aiagent', agentPath: agent.path })
 							}}
 							role="menuitem"
