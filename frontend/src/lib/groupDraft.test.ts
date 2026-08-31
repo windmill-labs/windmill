@@ -72,9 +72,6 @@ describe('groupMemberDiff', () => {
 		expect(groupMemberDiff(baseline().members, baseline().members)).toEqual([])
 	})
 
-	// The caller's own write entry is what the backend authorizes every one of these calls
-	// against, so revoking it first would 403 the rest: handing admin over would demote the
-	// caller and never promote the replacement.
 	it('revokes the caller last so the rest of the save stays authorized', () => {
 		const prev = [{ member_name: 'admin', role: 'admin' as GroupRole }]
 		const next = [

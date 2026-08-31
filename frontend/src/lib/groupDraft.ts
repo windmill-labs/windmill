@@ -46,11 +46,8 @@ function flagsOf(role: GroupRole | undefined): { belongs: boolean; manages: bool
  *  a member dropped from `next` is treated as holding neither flag — which is what removing
  *  one means.
  *
- *  `caller` is the user who will send these. Give it whenever one is known: the write entry
- *  is what the backend authorizes every one of these calls against (`require_is_owner` reads
- *  `extra_perms['u/<caller>']`, skipped only for workspace admins), so revoking the caller's
- *  own goes last. Sent in row order it lands first, and the rest of the save then 403s —
- *  handing admin to a colleague would demote you and never promote them. */
+ *  `require_is_owner` authorizes each of these against `extra_perms['u/<caller>']`, so the
+ *  caller's own revocation goes last: in row order it lands first and the rest 403s. */
 export function groupMemberDiff(
 	prev: GroupMember[],
 	next: GroupMember[],
