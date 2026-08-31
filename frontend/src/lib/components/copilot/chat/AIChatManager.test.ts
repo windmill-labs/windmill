@@ -245,6 +245,34 @@ describe('AIChatManager cross-tab run guard', () => {
 		expect(manager.queuedMessage).toBe('follow up')
 	})
 
+	// Whether a rival tab owns the session is settled by the lock inside the guard,
+	// not by the heartbeat a send reads on the way in — two tabs sending at once
+	// both pass that check. So the rewind has to sit behind the guard: refused in
+	// front of it, the loser would keep a transcript truncated for a turn it never ran.
+	it('leaves both histories intact when the guard refuses a retry', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.displayMessages = [
+			{ role: 'user', content: 'first', index: 0 },
+			{ role: 'assistant', content: 'answer' }
+		] as any
+		manager.messages = [
+			{ role: 'user', content: 'first' },
+			{ role: 'assistant', content: 'answer' }
+		] as any
+		manager.runGuard = async () => 'busy'
+
+		const started = await manager.restartGeneration(0)
+
+		expect(started).toBe(false)
+		expect(mocks.runChatLoop).not.toHaveBeenCalled()
+		expect(manager.displayMessages).toHaveLength(2)
+		expect(manager.messages).toHaveLength(2)
+		// The prompt is handed back rather than lost, so the retry is still the
+		// user's to run once the other tab finishes.
+		expect(manager.instructions).toBe('first')
+	})
+
 	// A turn flushes its queued message by re-entering sendRequest, and the lock
 	// behind the guard is not reentrant: applying it to that nested send would
 	// refuse the queued message as though a rival tab held the session.

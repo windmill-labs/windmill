@@ -2441,8 +2441,12 @@ export class AIChatManager {
 	retryRequest = (messageIndex: number) => {
 		const message = this.displayMessages[messageIndex]
 		if (message && message.role === 'user') {
-			this.restartGeneration(messageIndex)
-			message.error = false
+			// Cleared only once the resend has started. A refusal leaves the message
+			// standing, so clearing it regardless would take away the Retry button
+			// that is the user's only way to run the retry that did not happen.
+			void this.restartGeneration(messageIndex).then((started) => {
+				if (started) message.error = false
+			})
 		} else {
 			throw new Error('No user message found at the specified index')
 		}
@@ -2925,7 +2929,15 @@ export class AIChatManager {
 	 *  spawns itself are recognised as its own rather than as rivals. */
 	#inGuardedRun = false
 
-	sendRequest = async (options: Parameters<typeof this.sendRequestImpl>[0] = {}) => {
+	sendRequest = async (
+		options: NonNullable<Parameters<typeof this.sendRequestImpl>[0]> & {
+			/** Rewind the conversation for a resend. Run once this tab holds the turn,
+			 *  never before: whether another tab owns the session is only settled by
+			 *  the lock inside the guard, so a caller that rewound first would have
+			 *  truncated the transcript for a send the lock then refuses. */
+			rewind?: () => void
+		} = {}
+	) => {
 		// A turn with nowhere to render still streams, spends tokens and applies
 		// tool calls — entirely off-screen. Refuse instead. `sendInlineRequest` is
 		// exempt: the ⌘K widget renders its own composer inside Monaco.
@@ -2952,10 +2964,14 @@ export class AIChatManager {
 			// counts pending sends, so two independent ones racing the pre-flight
 			// would look like recursion and both skip the guard.
 			const guard = this.#inGuardedRun ? undefined : this.runGuard
-			if (!guard) return await this.sendRequestImpl(options)
+			if (!guard) {
+				options.rewind?.()
+				return await this.sendRequestImpl(options)
+			}
 			const outcome = await guard(async () => {
 				this.#inGuardedRun = true
 				try {
+					options.rewind?.()
 					return await this.sendRequestImpl(options)
 				} finally {
 					this.#inGuardedRun = false
@@ -3995,15 +4011,6 @@ export class AIChatManager {
 			throw new Error('No user message found at the specified index')
 		}
 
-		// Refused here rather than at the send below, which is reached only after the
-		// truncation has already rewound this tab's transcript: the driver's turn-end
-		// re-read would put it back, but until then the watcher sits on a conversation
-		// that lost its tail for a resend that never ran.
-		if (this.runHeldElsewhere) {
-			sendUserToast('This session is running in another tab. Retry once it finishes.', true)
-			return
-		}
-
 		// Resolve the API restart point BEFORE reserving bytes or truncating: a
 		// stale index must fail while nothing has been mutated, or the transcript
 		// would be left truncated with the reservation leaked. A negative index
@@ -4033,16 +4040,6 @@ export class AIChatManager {
 			resentFiles.reduce((sum, f) => sum + textByteLength(f.content), 0)
 		)
 
-		// Remove all messages including and after the specified user message
-		this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
-		this.messages = this.messages.slice(0, actualMessageIndex)
-
-		// The last report described the pre-rewind history; clear it. Readers
-		// fall back to estimating the rewound history (contextTokens), so the
-		// compaction trigger stays armed — e.g. for Retry after a context-length
-		// error, which rewinds through here.
-		this.contextUsage = undefined
-
 		// Resend with the message's context, not the live selection. DOM selector
 		// chips (and other context) are one-shot — cleared from the live selection
 		// after the first send — so reading the current selection would lose or swap
@@ -4052,10 +4049,26 @@ export class AIChatManager {
 		// contextElements. `undefined` for modes that don't attach context leaves the
 		// live-selection behavior. An empty array is a deliberate "no context".
 		this.instructions = newContent ?? userMessage.content
-		// Prune the truncated messages' file registrations BEFORE the resend
-		// re-registers its own — the other way around would delete the fresh rows.
-		this.#syncMessageFiles()
-		this.sendRequest({
+		// Everything that rewinds the conversation, deferred to the point the turn is
+		// ours. Doubles as the answer to "did the resend start": it runs exactly when
+		// the send was not refused.
+		let rewound = false
+		const rewind = () => {
+			rewound = true
+			// Remove all messages including and after the specified user message
+			this.displayMessages = this.displayMessages.slice(0, displayMessageIndex)
+			this.messages = this.messages.slice(0, actualMessageIndex)
+			// The last report described the pre-rewind history; clear it. Readers
+			// fall back to estimating the rewound history (contextTokens), so the
+			// compaction trigger stays armed — e.g. for Retry after a context-length
+			// error, which rewinds through here.
+			this.contextUsage = undefined
+			// Prune the truncated messages' file registrations BEFORE the resend
+			// re-registers its own — the other way around would delete the fresh rows.
+			this.#syncMessageFiles()
+		}
+		await this.sendRequest({
+			rewind,
 			pastes: pastes ?? userMessage.pastes,
 			contextOverride: editedContext ?? userMessage.contextElements,
 			contextOverrideOrigin: 'replay',
@@ -4066,6 +4079,7 @@ export class AIChatManager {
 			files: files ?? userMessage.files,
 			resendReservationKey
 		})
+		return rewound
 	}
 
 	fix = () => {

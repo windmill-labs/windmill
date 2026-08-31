@@ -271,12 +271,16 @@ async function reapDeadDrivers(): Promise<void> {
 	const now = Date.now()
 	const stale = [...positions.entries()]
 		.filter(([, p]) => p.state === 'watching' && now - p.lastHeardAt > DRIVER_SILENCE_MS)
-		.map(([id]) => id)
-	for (const id of stale) {
+		.map(([id, p]) => [id, p.state === 'watching' ? p.runId : ''] as const)
+	for (const [id, runId] of stale) {
 		// Re-checked after the await: a status message may have landed while the
 		// query was in flight, and reaping then would tear down a live run.
 		if (await runLockHeld(id)) continue
-		if (!isWatching(id)) continue
+		// By run, not just by session: the silent driver's turn can end and a
+		// successor's begin during that query, and this session would still read as
+		// watching — reaping on that alone releases a run that is very much alive.
+		const p = positions.get(id)
+		if (p?.state !== 'watching' || p.runId !== runId) continue
 		noteRemoteTurnEnded(id)
 		driverLost?.(id)
 	}

@@ -340,6 +340,12 @@ export const sessionState = $state<{
 // Keyed per session: a single shared timer would let a keystroke in one draft
 // cancel a sibling draft's pending flush, dropping that draft's first-touch write.
 const draftPromptFlushHandles = new Map<string, ReturnType<typeof setTimeout>>()
+// Sessions whose typed draft has not reached the store, from the keystroke until
+// its write lands: a row read before that commit still lacks the text, so
+// adopting it would drop what the user typed. Keyed by edit, so an earlier flush
+// settling late cannot clear a newer edit's protection.
+const draftFlushPending = new Map<string, number>()
+let draftFlushSeq = 0
 export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s || s.workspace_id) return
@@ -352,12 +358,16 @@ export function setSessionDraftPrompt(sessionId: string, text: string): void {
 	// isDiscardableDraft, not `transient`, is what stops createSession reusing a
 	// typed draft. Only the IndexedDB write is debounced.
 	s.draftPrompt = text
+	const flush = ++draftFlushSeq
+	draftFlushPending.set(sessionId, flush)
 	clearTimeout(draftPromptFlushHandles.get(sessionId))
 	draftPromptFlushHandles.set(
 		sessionId,
 		setTimeout(() => {
 			draftPromptFlushHandles.delete(sessionId)
-			persistTouched(s)
+			void persistTouched(s).finally(() => {
+				if (draftFlushPending.get(sessionId) === flush) draftFlushPending.delete(sessionId)
+			})
 		}, 400)
 	)
 }
@@ -412,10 +422,10 @@ export function takeSessionAutoSend(sessionId: string): boolean {
 // (transient) pending session to a durable IndexedDB record on first touch.
 // Non-touch writers (runtime chatId seeding, unread watermark) call putSession
 // directly, so an untouched draft stays in memory and vanishes on reload.
-function persistTouched(s: Session): void {
+function persistTouched(s: Session): Promise<void> {
 	if (s.transient) delete s.transient
 	s.lastActivityAt = Date.now()
-	void putSession(s)
+	return putSession(s)
 }
 
 // When the session was last used. Pre-dates-the-field records report their
@@ -465,6 +475,7 @@ async function putSessionRow(db: IDBPDatabase<SessionSchema>, s: Session): Promi
 // opened. In-memory $state is the read surface, so callers fire-and-forget.
 export async function putSession(s: Session): Promise<void> {
 	if (!BROWSER) return
+	localWriteSeq.set(s.id, ++localWrites)
 	if (s.transient) return
 	// A record removed because its workspace is gone had its files and artifacts GC'd with
 	// it, so writing it back resurrects an empty husk. Callers reach here holding a
@@ -481,10 +492,14 @@ export async function putSession(s: Session): Promise<void> {
 		if (all.length > 0 && !all.some((w) => w.id === boundWs)) return
 	}
 	ensureSessionRootId(s)
+	// Snapshotted before the handle is awaited, not after: a row adopted from
+	// another tab inside that gap would otherwise be what this write stores, in
+	// place of the edit it was called for.
+	const row = $state.snapshot(s)
 	const db = await sessionsDb.whenReady()
 	if (!db) return
 	try {
-		await putSessionRow(db, $state.snapshot(s))
+		await putSessionRow(db, row)
 	} catch (e) {
 		console.error('Failed to persist session', e)
 	}
@@ -506,6 +521,11 @@ export async function deleteSessionRecord(id: string): Promise<void> {
 const remoteReads = new Map<string, number>()
 let remoteReadSeq = 0
 
+// Bumped by every local write, so a remote read can tell whether this tab edited
+// the record while that read was in flight.
+const localWriteSeq = new Map<string, number>()
+let localWrites = 0
+
 // Catch up on a record another tab wrote. The notification carries only an id:
 // message delivery and IndexedDB commit are separately ordered, so a shipped
 // copy could be older than what this tab has already committed, and applying it
@@ -516,6 +536,7 @@ async function applyRemoteSessionPut(id: string): Promise<void> {
 	if (deletedSessionIds.has(id)) return
 	const token = ++remoteReadSeq
 	remoteReads.set(id, token)
+	const localAtStart = localWriteSeq.get(id)
 	const db = await sessionsDb.whenReady()
 	// Only the newest token is cleared on the way out: an older read that lost the
 	// race must leave the winner's token standing.
@@ -538,6 +559,11 @@ async function applyRemoteSessionPut(id: string): Promise<void> {
 	// answer, so drop this one rather than race it.
 	if (remoteReads.get(id) !== token) return
 	remoteReads.delete(id)
+	// This tab edited the record while the read was in flight, so what came back
+	// predates that edit. Adopting it would revert the edit on screen and then
+	// write the revert out on this tab's next touch. Dropped rather than merged:
+	// the other tab's change is re-announced by any later write to the record.
+	if (localWriteSeq.get(id) !== localAtStart) return
 	if (!row || deletedSessionIds.has(id)) return
 	const i = sessionState.sessions.findIndex((s) => s.id === id)
 	if (i >= 0) {
@@ -566,10 +592,11 @@ async function applyRemoteSessionPut(id: string): Promise<void> {
  *  the other tab, a seen-watermark bump included. */
 export function adoptRemoteRow(held: Session, row: Session): void {
 	const stamped = new Map((held.previewTabs ?? []).map((t) => [t.id, t]))
-	// A draft inside its debounce window is newer than anything the store can
-	// hold, and the pending flush writes this same object, so taking the row's
-	// older text here would end up persisted over what the user is still typing.
-	const pendingDraft = draftPromptFlushHandles.has(held.id) ? held.draftPrompt : undefined
+	// A draft whose write has not landed is newer than any row. Not restored onto a
+	// row the other tab committed: committing consumes the draft, so putting it
+	// back there would re-send a prompt already sent.
+	const pendingDraft =
+		draftFlushPending.has(held.id) && !row.workspace_id ? held.draftPrompt : undefined
 	// This file clears a field by deleting it and `putSessionRow` stores a
 	// snapshot, so a key the row lacks is how "no longer set" arrives. Assigning
 	// alone keeps the stale value, which this tab's next write puts back.
@@ -600,6 +627,10 @@ function applyRemoteSessionDelete(id: string): void {
 	const i = sessionState.sessions.findIndex((s) => s.id === id)
 	if (i >= 0) sessionState.sessions.splice(i, 1)
 	if (sessionState.currentSessionId === id) sessionState.currentSessionId = undefined
+	// The tombstone stops writes that have not started; one already past that check
+	// can still land after the other tab's delete committed, leaving the row behind
+	// to reappear on reload. Removing it again here collects that straggler.
+	void deleteSessionRecord(id)
 }
 
 registerSyncHandlers({
@@ -1254,6 +1285,7 @@ export function deleteSession(id: string) {
 	// a draft deleted inside the debounce window.
 	clearTimeout(draftPromptFlushHandles.get(id))
 	draftPromptFlushHandles.delete(id)
+	draftFlushPending.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id
