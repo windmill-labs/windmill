@@ -100,11 +100,10 @@
 			]
 		},
 		archived: { type: 'boolean' as const, label: 'Only archived' },
-		// include_library and only_user_folders are role-dependent, but their KEYS stay in the schema
-		// unconditionally and toggle `hidden` instead: Home survives workspace switches and
-		// useUrlSyncedFilterInstance snapshots the key set once, so a key that first appeared after a
-		// role change would show in the searchbar yet never reach the URL. Keeping every key present
-		// lets the sync cover them from the start; the searchbar skips the hidden ones.
+		// include_library and only_user_folders are role-dependent, but their KEYS stay unconditional
+		// (toggling `hidden` instead): useUrlSyncedFilterInstance snapshots the key set once and Home
+		// survives workspace switches, so a key first appearing after a role change would never
+		// URL-sync. The searchbar hides the inactive ones.
 		include_library: {
 			type: 'boolean' as const,
 			label: 'Include library scripts',

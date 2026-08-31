@@ -32,6 +32,7 @@
 	import AIChatModelSettings from '../copilot/chat/AIChatModelSettings.svelte'
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
 	import { USER_SETTINGS_HASH } from '../sidebar/settings'
+	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 
 	let value = $state('')
 	let placeholder = $state('')
@@ -65,6 +66,10 @@
 	// Disabled because the user spent their free Windmill AI grant, not because AI was never
 	// set up — the two look identical otherwise, and the "configure AI" copy would be a lie.
 	let freeTierExhausted = $derived($copilotInfo.freeTier?.exhausted === true)
+
+	// The composer hands off to /sessions, which refuses operators — so hide it from them (the
+	// prompt would be silently dropped) while the AI-independent CLI/MCP row below stays.
+	let showComposer = $derived(prefersSessionHandoff($userStore?.operator))
 
 	let starting = $state(false)
 	async function start() {
@@ -130,51 +135,57 @@
 
 <div class="w-full flex justify-center">
 	<div class="max-w-[40rem] grow relative group">
-		<div class={blurClass} inert={disabled}>
-			<div class="flex items-center justify-center gap-2 mb-4">
-				<p class="text-center font-regular text-3xl">Build with AI</p>
-				<Badge color="blue" small>Beta</Badge>
-			</div>
-			<!-- anchors the send button / model settings to the input, not to the whole
-			     block — the row below would otherwise push them down -->
-			<div class="relative">
-				<TextInput
-					bind:value
-					class="resize-none px-4 py-3 pb-9 shadow-sm border-accent"
-					underlyingInputEl="textarea"
-					inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
-				/>
-				<Button
-					endIcon={starting ? {} : { icon: ArrowUp }}
-					wrapperClasses="absolute right-2 bottom-3.5"
-					variant={value.trim() ? 'accent' : 'subtle'}
-					iconOnly
-					loading={starting}
-					disabled={!value.trim() || starting || !canSend}
-					onclick={start}
-				></Button>
-				<div class="absolute left-3 bottom-4 flex items-center gap-1.5 px-0.5">
-					<AIChatModelSettings />
+		{#if showComposer}
+			<div class={blurClass} inert={disabled}>
+				<div class="flex items-center justify-center gap-2 mb-4">
+					<p class="text-center font-regular text-3xl">Build with AI</p>
+					<Badge color="blue" small>Beta</Badge>
+				</div>
+				<!-- anchors the send button / model settings to the input, not to the whole
+				     block — the row below would otherwise push them down -->
+				<div class="relative">
+					<TextInput
+						bind:value
+						class="resize-none px-4 py-3 pb-9 shadow-sm border-accent"
+						underlyingInputEl="textarea"
+						inputProps={{ rows: 4, placeholder, onkeydown: onKeydown }}
+					/>
+					<Button
+						endIcon={starting ? {} : { icon: ArrowUp }}
+						wrapperClasses="absolute right-2 bottom-3.5"
+						variant={value.trim() ? 'accent' : 'subtle'}
+						iconOnly
+						loading={starting}
+						disabled={!value.trim() || starting || !canSend}
+						onclick={start}
+					></Button>
+					<div class="absolute left-3 bottom-4 flex items-center gap-1.5 px-0.5">
+						<AIChatModelSettings />
+					</div>
 				</div>
 			</div>
-		</div>
+		{/if}
 
 		<div class="flex items-center justify-between gap-2">
-			<div class="flex flex-row flex-wrap items-center gap-1.5 {blurClass}" inert={disabled}>
-				{#each homeAIExamples as example (example.label)}
-					<Button
-						variant="default"
-						unifiedSize="xs"
-						btnClasses="!rounded-full !text-2xs !text-hint"
-						onClick={() => (value = example.prompt)}
-					>
-						{example.label}
-					</Button>
-				{/each}
-			</div>
+			{#if showComposer}
+				<div class="flex flex-row flex-wrap items-center gap-1.5 {blurClass}" inert={disabled}>
+					{#each homeAIExamples as example (example.label)}
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							btnClasses="!rounded-full !text-2xs !text-hint"
+							onClick={() => (value = example.prompt)}
+						>
+							{example.label}
+						</Button>
+					{/each}
+				</div>
+			{:else}
+				<div></div>
+			{/if}
 
-			<!-- Not AI-related: kept out of the blurred subtree and above the disabled overlay so
-			     it stays sharp and clickable while the chat is disabled. -->
+			<!-- Not AI-related, so shown even to operators / when the composer is hidden: kept out of
+			     the blurred subtree and above the disabled overlay so it stays sharp and clickable. -->
 			<div class="relative z-20 flex flex-row items-center gap-1">
 				<Button
 					variant="subtle"
@@ -200,7 +211,7 @@
 				{/if}
 			</div>
 		</div>
-		{#if disabled}
+		{#if showComposer && disabled}
 			<div
 				class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-md bg-surface/70"
 			>
