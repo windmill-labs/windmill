@@ -231,12 +231,12 @@ pub fn effective_allowed_origins<'a>(
     route_allowed_origins: Option<&'a [String]>,
     instance_default: &'a [String],
 ) -> Option<&'a [String]> {
-    match route_allowed_origins {
+    // An empty list is not a configuration. It reads exactly as never having set
+    // one, so such a route still inherits the instance default rather than
+    // skipping it, which is what would make `[]` more permissive than `NULL`.
+    match route_allowed_origins.filter(|list| !list.is_empty()) {
         // `*` is the opt-out, including out of a stricter instance default.
         Some(list) if allows_any_origin(list) => None,
-        // Any other stored list restricts, an empty one included: it allows no
-        // origin at all. Falling back to the default here would make `[]` more
-        // permissive than `NULL`, which is the wrong direction to fail in.
         Some(list) => Some(list),
         None => (!instance_default.is_empty() && !allows_any_origin(instance_default))
             .then_some(instance_default),
@@ -708,14 +708,14 @@ mod tests {
             effective_allowed_origins(Some(&["*".to_string()]), &default),
             None
         );
-        // An empty route list is a restriction that matches nothing, distinct
-        // from `NULL` which inherits the instance default. It must never come
-        // back as `None`, which the middleware reads as "any origin".
+        // An empty route list is not a configuration: it resolves exactly as
+        // `NULL` does, so it inherits the instance default rather than skipping
+        // it and becoming more permissive than an unset one.
         assert_eq!(
             effective_allowed_origins(Some(&[]), &default),
-            Some(&[][..])
+            Some(&default[..])
         );
-        assert_eq!(match_origin(&[], Some(&origin("https://a.com"))), None);
+        assert_eq!(effective_allowed_origins(Some(&[]), &[]), None);
     }
 
     #[test]

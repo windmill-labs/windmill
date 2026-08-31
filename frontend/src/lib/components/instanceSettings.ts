@@ -266,7 +266,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'HTTP route default allowed origins',
 			description:
-				'Origins that HTTP routes allow to call them from a browser when the route sets none of its own. A route overrides this with its own list, and opts out entirely by setting its allowed origins to *. Leave empty to let every route be called from any origin.',
+				'Origins that HTTP routes allow to call them from a browser when the route sets none of its own. A route overrides this with its own list, and opts out entirely by setting its allowed origins to *. Leave unset for no instance-wide default, so every route is callable from any origin unless it restricts itself.',
 			key: 'http_route_default_allowed_origins',
 			fieldType: 'text',
 			placeholder: 'https://app.example.com, https://admin.example.com',

@@ -102,16 +102,17 @@ export function parseAllowedOriginsSetting(setting: unknown): string[] {
 
 /**
  * Whether a route is restricted to specific origins, mirroring
- * `effective_allowed_origins` in windmill-trigger-http: a route with its own
- * list restricts, an empty one included since it then matches no origin at all;
- * only a route without one falls back to the instance default, and `*` in
- * either is the opt-out.
+ * `effective_allowed_origins` in windmill-trigger-http: a route with a non-empty
+ * list of its own restricts, `*` in it is the opt-out, and anything else — an
+ * empty list included, since that is not a configuration — falls back to the
+ * instance default.
  */
 export function isOriginRestricted(
 	allowed_origins: string[] | undefined,
 	instanceDefaultOrigins: string[]
 ): boolean {
-	if (allowed_origins !== undefined) return !allowed_origins.includes('*')
+	if (allowed_origins !== undefined && allowed_origins.length > 0)
+		return !allowed_origins.includes('*')
 	return instanceDefaultOrigins.length > 0 && !instanceDefaultOrigins.includes('*')
 }
 

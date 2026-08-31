@@ -107,16 +107,19 @@
 			error={error !== undefined}
 		/>
 		<!-- One line, per the form guideline's single Input -> Validation/Hint
-			 slot. Red is what the API refuses, yellow is what saves but will
-			 never match, and an empty list is neither: it allows no origin at
-			 all, which is a state a route can legitimately be in. -->
+			 slot. Red is what the API refuses, yellow is what saves but can never
+			 match, and an empty field is neither: it reads as no list at all. -->
 		{#if error}
 			<div class="text-2xs text-red-600 dark:text-red-400">{error}</div>
 		{:else if warning}
 			<div class="text-2xs text-yellow-600 dark:text-yellow-400">{warning}</div>
+		{:else if origins.length === 0 && hasInstanceDefault}
+			<div class="text-2xs text-secondary">
+				Empty, so the instance default still applies: {instanceDefaultOrigins.join(', ')}.
+			</div>
 		{:else if origins.length === 0}
 			<div class="text-2xs text-secondary">
-				Allows no origin. Add one, comma-separated, or * to allow any.
+				Empty, so any origin may call this route. Add one, comma-separated.
 			</div>
 		{:else}
 			<div class="text-2xs text-secondary">Comma-separated. Use * to allow any.</div>
