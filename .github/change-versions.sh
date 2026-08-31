@@ -20,10 +20,11 @@ sed -i -e "/^windmill-api =/s/= .*/= \"\\^$VERSION\"/" ${root_dirpath}/python-cl
 sed -i -e "/^[[:space:]]*ModuleVersion[[:space:]]*=/s/= .*/= '$VERSION'/" ${root_dirpath}/powershell-client/WindmillClient/WindmillClient.psd1
 sed -i -e "/^wmill =/s/= .*/= \">=$VERSION\"/" ${root_dirpath}/lsp/Pipfile
 
-# Every workspace member is named windmill*, so rewriting their entries in place
-# keeps the lockfile consistent with Cargo.toml. Never regenerate it here: a
-# release must not re-resolve third-party dependencies, or a `^0` requirement
-# silently pulls a breaking 0.x bump into the tag that CI then fails to build.
+# Bumps every workspace member in place. Safe only while every `name = "windmill*"`
+# entry here is a member on the shared version: windmill_duckdb_ffi_internal (0.1.0)
+# stays out of the lock only via `exclude` in backend/Cargo.toml.
+# Never regenerate the lock instead — re-resolving lets a `^0` requirement pull a
+# breaking 0.x bump into the release tag.
 sed -i -zE "s/(name = \"windmill[^\"]*\"\nversion = )\"[^\"]*\"/\\1\"$VERSION\"/g" ${root_dirpath}/backend/Cargo.lock
 
 # windmill-parser-wasm is its own workspace (excluded from the backend workspace
