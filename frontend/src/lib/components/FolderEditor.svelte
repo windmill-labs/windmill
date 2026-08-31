@@ -177,13 +177,20 @@
 		folderNames = await FolderService.listFolderNames({ workspace: targetWorkspace })
 	}
 
+	/** Fills a picker or a validation list. The editor is usable before these land, so they
+	 *  run alongside the folder read — but a rejection has to be reported: unhandled, it
+	 *  leaves the list silently empty and duplicate names stop being caught. */
+	function loadAside(load: () => Promise<void>): void {
+		load().catch((e) => sendUserToast(e?.body ?? String(e), true))
+	}
+
 	async function load() {
-		loadUsernames()
-		loadGroups()
+		loadAside(loadUsernames)
+		loadAside(loadGroups)
 		// Before the folder read: `can_write` is computed from this membership.
 		await loadTargetUser()
 		if (mode === 'new') {
-			loadFolderNames()
+			loadAside(loadFolderNames)
 			can_write = true
 			setDraft(emptyDraft())
 			loaded = true
@@ -332,6 +339,8 @@
 	let viewGroupName: string = $state('')
 	let newMemberRole: Role = $state('viewer')
 
+	// Guarded on `mode`, not `isNew`: the name field is rendered only in `new` mode, so on the
+	// not-found branch there is no input to annotate and no name the user could correct.
 	const nameError = $derived(
 		mode !== 'new'
 			? ''
@@ -418,8 +427,12 @@
 						requestBody: { owner: call.owner, write: call.write }
 					})
 					break
-				case 'remove':
-					await Promise.all([
+				case 'remove': {
+					// The two removals are independent, so they run together — but one can land
+					// while the other rejects, and that half still changed the folder. Report it
+					// before rethrowing, or the caller reads the save as never having reached the
+					// server and leaves its baseline behind what the folder now holds.
+					const settled = await Promise.allSettled([
 						FolderService.removeOwnerToFolder({
 							workspace,
 							name,
@@ -432,7 +445,13 @@
 							requestBody: { owner: call.owner }
 						})
 					])
+					const failed = settled.find((r) => r.status === 'rejected')
+					if (failed) {
+						if (settled.some((r) => r.status === 'fulfilled')) onApplied()
+						throw failed.reason
+					}
 					break
+				}
 			}
 			onApplied()
 		}
