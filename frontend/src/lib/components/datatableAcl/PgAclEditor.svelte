@@ -106,9 +106,9 @@
 				<div class="flex flex-col gap-0.5">
 					<span class="text-sm font-semibold text-primary">Owner</span>
 					<span class="text-xs text-secondary">
-						The role that owns {target.kind === 'schema' ? 'the schema' : 'the table'} and everything
-						already in it. Changing it also lets the new owner reach what the other roles create here
-						later.
+						{target.kind === 'schema'
+							? 'The role that owns the schema and everything already in it. Changing it also lets the new owner reach what the other roles create here later.'
+							: 'The role that owns the table. Its owner may always read and write it, and is who ALTER and DROP answer to.'}
 					</span>
 				</div>
 				<Select

@@ -363,8 +363,12 @@ fn plan_statements(
             }
             // Ownership cannot be set ahead of time: an object belongs to
             // whoever creates it. Default privileges are what keeps the owner
-            // in reach of what the other roles create from here on.
-            for other in other_pg_roles {
+            // in reach of what the other roles create from here on — which only
+            // means something for a schema, the thing objects are created in.
+            for other in other_pg_roles
+                .iter()
+                .filter(|_| matches!(target, AclTarget::Schema { .. }))
+            {
                 for plural in ["TABLES", "SEQUENCES", "FUNCTIONS"] {
                     statements.push(format!(
                         "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} GRANT ALL PRIVILEGES ON {} TO {}",
@@ -375,7 +379,7 @@ fn plan_statements(
                     ));
                 }
             }
-            if existing_objects.is_empty() {
+            if existing_objects.is_empty() && matches!(target, AclTarget::Schema { .. }) {
                 warnings.push(format!(
                     "{} holds no objects yet; only the schema itself changes hands.",
                     target.label(dbname)
@@ -1051,6 +1055,26 @@ mod tests {
                 Error::BadRequest(_)
             ));
         }
+    }
+
+    #[test]
+    fn a_tables_owner_change_is_only_that_table() {
+        let plan = plan_statements(
+            &AclTarget::Table { schema: "analytics".to_string(), table: "orders".to_string() },
+            &AclChange::SetOwner { role: "analyst".to_string() },
+            "dt_probe",
+            "wm_analyst_1",
+            &["wm_admin".to_string()],
+            &[],
+        )
+        .unwrap();
+        // Default privileges are about what gets created in a schema, which
+        // changing one table's owner says nothing about.
+        assert_eq!(
+            plan.statements,
+            [r#"ALTER TABLE "analytics"."orders" OWNER TO "wm_analyst_1""#]
+        );
+        assert!(plan.warnings.is_empty());
     }
 
     #[test]

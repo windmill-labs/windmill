@@ -38,7 +38,7 @@
 	import PgAclEditor from './datatableAcl/PgAclEditor.svelte'
 	import { favoriteManager } from './sidebar/FavoriteMenu.svelte'
 	import DatatableRoleBadge from './DatatableRoleBadge.svelte'
-	import type { Asset, DataTableTables } from '$lib/gen'
+	import type { AclTarget, Asset, DataTableTables } from '$lib/gen'
 	import { ADMIN_DATATABLE_ROLE, type DatatableRowAction } from './dbTypes'
 	import TextInput from './text_input/TextInput.svelte'
 	import Checkbox from './common/checkbox/Checkbox.svelte'
@@ -287,8 +287,8 @@
 	// overrides is what lets the current data table and selected schema — which
 	// default to open — actually be folded; a plain "expanded" set could never
 	// close them, since the default would keep winning.
-	// The schema the permissions drawer is open on, if any.
-	let schemaPermissions = $state<{ datatable: string | undefined; schema: string } | undefined>(
+	// What the permissions drawer is open on, if anything: a schema, or a table.
+	let aclDrawer = $state<{ datatable: string | undefined; target: AclTarget } | undefined>(
 		undefined
 	)
 
@@ -536,6 +536,12 @@
 	)
 	let newSchemaName = $state('')
 
+	/** What the drawer is about, for its title. */
+	function aclLabel(target: AclTarget | undefined): string {
+		if (!target) return ''
+		return target.kind === 'table' ? `${target.schema}.${target.table}` : (target.schema ?? '')
+	}
+
 	function closeSchemaDialog() {
 		schemaDialog = undefined
 		newSchemaName = ''
@@ -727,9 +733,9 @@
 													displayName: 'Permissions',
 													icon: KeyRoundIcon,
 													action: () =>
-														(schemaPermissions = {
+														(aclDrawer = {
 															datatable: root.datatable,
-															schema: sc.schemaKey
+															target: { kind: 'schema', schema: sc.schemaKey }
 														})
 												},
 												{
@@ -805,6 +811,19 @@
 												<DropdownV2
 													enableFlyTransition
 													items={() => [
+														{
+															displayName: 'Permissions',
+															icon: KeyRoundIcon,
+															action: () =>
+																(aclDrawer = {
+																	datatable: root.datatable,
+																	target: {
+																		kind: 'table',
+																		schema: sc.schemaKey,
+																		table: tableKey
+																	}
+																})
+														},
 														{
 															displayName: 'Delete table',
 															icon: Trash2Icon,
@@ -886,20 +905,16 @@
 </Splitpanes>
 
 <Portal>
-	<Drawer open={!!schemaPermissions} size="900px" on:close={() => (schemaPermissions = undefined)}>
+	<Drawer open={!!aclDrawer} size="900px" on:close={() => (aclDrawer = undefined)}>
 		<DrawerContent
-			title="Permissions — {schemaPermissions?.schema ?? ''}"
-			on:close={() => (schemaPermissions = undefined)}
-			tooltip="Who owns this schema, and what each role may do in it. Runs against the data table as its admin connection."
+			title="Permissions — {aclLabel(aclDrawer?.target)}"
+			on:close={() => (aclDrawer = undefined)}
+			tooltip="Who owns this, and what each role may do with it. Runs against the data table as its admin connection."
 		>
-			{#if schemaPermissions && workspace}
-				{@const dt = schemaPermissions.datatable ?? currentDatatable}
+			{#if aclDrawer && workspace}
+				{@const dt = aclDrawer.datatable ?? currentDatatable}
 				{#if dt}
-					<PgAclEditor
-						{workspace}
-						datatable={dt}
-						target={{ kind: 'schema', schema: schemaPermissions.schema }}
-					/>
+					<PgAclEditor {workspace} datatable={dt} target={aclDrawer.target} />
 				{/if}
 			{/if}
 		</DrawerContent>
