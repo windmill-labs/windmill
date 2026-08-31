@@ -87,6 +87,6 @@
 		</Button>
 	</div>
 	{#if statement}
-		<pre class="text-2xs text-tertiary whitespace-pre-wrap">{statement}</pre>
+		<pre class="text-2xs text-tertiary overflow-x-auto">{statement}</pre>
 	{/if}
 </div>

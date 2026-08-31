@@ -382,7 +382,7 @@
 		onConfirmed={apply}
 		onCanceled={() => (preview = undefined)}
 	>
-		<div class="flex flex-col gap-3">
+		<div class="flex flex-col gap-3 min-w-0">
 			{#each preview?.warnings ?? [] as warning}
 				<Alert type="warning" title="Warning" size="xs">{warning}</Alert>
 			{/each}
@@ -394,8 +394,7 @@
 				<span class="text-sm text-secondary">
 					The following runs against <span class="font-mono">{datatable}</span> in a single transaction:
 				</span>
-				<pre
-					class="whitespace-pre-wrap overflow-y-auto text-xs bg-surface-secondary p-3 rounded select-all max-h-80"
+				<pre class="overflow-auto text-xs bg-surface-secondary p-3 rounded select-all max-h-80"
 					>{preview.statements.join('\n')}</pre
 				>
 			{/if}

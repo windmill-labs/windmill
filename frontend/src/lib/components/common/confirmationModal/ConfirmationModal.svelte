@@ -175,7 +175,7 @@
 									<Icon class={theme[type].classes.icon} />
 								</div>
 							{/if}
-							<div class={twMerge('ml-0 text-left flex-1 ', showIcon ? 'ml-4' : '')}>
+							<div class={twMerge('ml-0 text-left flex-1 min-w-0', showIcon ? 'ml-4' : '')}>
 								<h3 class="text-lg font-medium text-primary">
 									{title}
 								</h3>
