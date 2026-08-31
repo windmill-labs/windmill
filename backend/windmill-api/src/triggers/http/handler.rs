@@ -102,11 +102,17 @@ enum CorsDecision {
     Unavailable,
 }
 
-/// A route serving static assets is never subject to an allowlist, its own
-/// included. It hands out public files that any non-browser client can already
-/// fetch, so restricting which browsers may read them protects nothing, while
-/// breaking the cross-origin uses that do consult CORS: a webfont, a
-/// `crossorigin` asset, a `fetch`.
+/// A static website is never subject to an allowlist, its own included. It has
+/// no authentication of its own — the editor does not offer any — so it hands
+/// out public files that any non-browser client can already fetch, and
+/// restricting which browsers may read them protects nothing while breaking the
+/// cross-origin uses that do consult CORS: a webfont, a `crossorigin` asset, a
+/// `fetch`.
+///
+/// A single-file static asset is not exempt. That one can carry an
+/// `authentication_method`, so its content need not be public, and an allowlist
+/// is what keeps another origin from reading a response its own credentials
+/// would not have obtained.
 ///
 /// The CORS verdict for a request, published by whoever resolved its trigger.
 ///
@@ -123,7 +129,7 @@ impl ResolvedCorsPolicy {
     /// Record what the trigger being served allows. Called once, where the
     /// route is resolved, so the answer cannot drift from the response.
     fn publish(&self, trigger: &TriggerRoute, method: Option<HttpMethod>, headers: &HeaderMap) {
-        let decision = if trigger.static_asset_config.is_some() {
+        let decision = if trigger.is_static_website {
             CorsDecision::Unrestricted
         } else {
             let instance_default = HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load();
@@ -182,7 +188,7 @@ async fn resolve_cors_decision(
     let route = router.at(requested_path).ok();
     if route
         .as_ref()
-        .is_some_and(|trigger| trigger.value.static_asset_config.is_some())
+        .is_some_and(|trigger| trigger.value.is_static_website)
     {
         return CorsDecision::Unrestricted;
     }

@@ -8396,9 +8396,10 @@ properties:
       including the http_route_default_allowed_origins instance setting. An empty
       list is not a configuration and resolves exactly as null does. When null, the
       instance setting applies, or Access-Control-Allow-Origin: * if it is unset.
-      Ignored on a route serving static assets: those hand out public files, so restricting
-      which browsers may read them protects nothing while breaking cross-origin webfonts
-      and fetches.'
+      Ignored on a static website, which has no authentication of its own and so hands
+      out public files: restricting which browsers may read them protects nothing
+      while breaking cross-origin webfonts and fetches. A single-file static asset
+      is not exempt, since it can carry an authentication_method.'
   error_handler_path:
     type: string
     description: Path to a script to run when the triggered job fails. A bare path,

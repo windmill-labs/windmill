@@ -796,11 +796,7 @@
 								{ name: 'Authentication', active: authentication_method !== 'none' },
 								{
 									name: 'CORS',
-									// Not shown for a static route: the backend exempts those from
-									// the allowlist, so reporting a restriction would be a lie.
-									active:
-										!static_asset_config &&
-										isOriginRestricted(allowed_origins, instanceDefaultOrigins)
+									active: isOriginRestricted(allowed_origins, instanceDefaultOrigins)
 								}
 							]}
 						/>
@@ -1005,20 +1001,13 @@
 										{testingBadge}
 									/>
 
-									<!-- Both static target types are exempt from the allowlist on
-										 the backend, so the control is not offered for either. The
-										 surrounding section is only hidden for a static website,
-										 which would leave a single-file static asset showing a
-										 restriction that is never applied. -->
-									{#if !static_asset_config}
-										<RouteCorsOption
-											bind:allowed_origins
-											error={originsError}
-											{instanceDefaultOrigins}
-											disabled={!can_write}
-											{testingBadge}
-										/>
-									{/if}
+									<RouteCorsOption
+										bind:allowed_origins
+										error={originsError}
+										{instanceDefaultOrigins}
+										disabled={!can_write}
+										{testingBadge}
+									/>
 								</div>
 							{:else}
 								<TriggerRetriesAndErrorHandler
