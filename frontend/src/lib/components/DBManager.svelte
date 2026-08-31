@@ -321,7 +321,7 @@
 	/** A favourite says something about the table, so it stays visible; an empty
 	 * star is just an affordance and waits for the pointer. */
 	const rowStarClass = (path: string) =>
-		'-ml-1 flex shrink-0 transition-opacity ' +
+		'-ml-1 w-1 flex shrink-0 transition-opacity ' +
 		(favoriteManager.isStarred(path, 'asset') ? '' : 'opacity-0 group-hover:opacity-100')
 
 	/** Reveal a node, dropping a stale "closed" that would hide a new selection. */

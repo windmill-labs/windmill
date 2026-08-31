@@ -25,11 +25,11 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<span class="relative flex" use:clickOutside={{ onClickOutside: () => (open = false) }}>
+<span class="relative flex min-w-0" use:clickOutside={{ onClickOutside: () => (open = false) }}>
 	<button
 		bind:this={btnEl}
 		type="button"
-		class="flex items-center gap-0.5 rounded-md pl-2 pr-1 py-0.5 text-2xs whitespace-nowrap
+		class="flex items-center gap-0.5 rounded-md pl-2 pr-1 py-0.5 text-2xs min-w-0
 			bg-surface-sunken text-primary transition-[filter,transform]
 			hover:brightness-95 active:brightness-90 active:scale-[0.97]
 			{open ? 'brightness-95' : ''}"
@@ -39,8 +39,13 @@
 			open = !open
 		}}
 	>
-		{role}
-		<ChevronDown size={11} class="text-secondary transition-transform {open ? 'rotate-180' : ''}" />
+		<!-- A long role name gives way rather than pushing the row's own actions
+		     past its right edge. -->
+		<span class="truncate">{role}</span>
+		<ChevronDown
+			size={11}
+			class="shrink-0 text-secondary transition-transform {open ? 'rotate-180' : ''}"
+		/>
 	</button>
 	<SelectDropdown
 		processedItems={items}
