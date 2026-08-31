@@ -19,6 +19,7 @@
 	} from './previewRouter'
 	import { withMenuHidden } from './sessionMode.svelte'
 	import ArtifactViewer from '../copilot/chat/artifacts/ArtifactViewer.svelte'
+	import RunFormPreviewSlot from './RunFormPreviewSlot.svelte'
 	import { setOverlayHost } from '../common/overlayHost.svelte'
 
 	let {
@@ -325,6 +326,12 @@
 			/>
 		{:else if !runtime?.manager.artifacts.loading}
 			<div class="p-4 text-sm text-tertiary">This artifact is no longer available.</div>
+		{/if}
+	</div>
+{:else if slot.kind === 'runform' && mounted}
+	<div class="absolute inset-0 flex flex-col min-h-0 bg-surface {visibility}" aria-hidden={!active}>
+		{#if runtime}
+			<RunFormPreviewSlot manager={runtime.manager} toolCallId={slot.toolCallId} />
 		{/if}
 	</div>
 {:else if mounted}

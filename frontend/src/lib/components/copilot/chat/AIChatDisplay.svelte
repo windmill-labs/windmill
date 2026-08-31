@@ -225,13 +225,10 @@
 				!active || active === document.body || (panelEl?.contains(active) ?? false)
 			if (!focusOnChat) return
 			// The run form parks the loop on the user, so an Escape while one is open must not
-			// discard what they typed. Which element holds focus is no guide: clicking the
-			// card's heading or its notes moves focus to an ancestor of the card, which the
-			// card's own selector cannot match. Only the action row still stops the turn.
-			if (
-				panelEl?.querySelector('[data-chat-keyboard-scope="run-args-form"]') &&
-				!active?.closest('[data-run-form-actions]')
-			) {
+			// discard what they typed. Asked of the manager rather than of this panel's DOM,
+			// which misses the form the preview panel holds. Which element holds focus is no
+			// guide either: only the action row still stops the turn.
+			if (aiChatManager.hasPendingRunForm && !active?.closest('[data-run-form-actions]')) {
 				return
 			}
 			e.preventDefault()

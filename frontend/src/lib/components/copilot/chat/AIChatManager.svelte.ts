@@ -24,6 +24,7 @@ import {
 	type ToolDisplayMessage,
 	type UserQuestionDisplay,
 	type RunFormDisplay,
+	type RunFormDraft,
 	type ChatJob,
 	type ChatJobInit,
 	type ChatJobStatus,
@@ -505,6 +506,25 @@ export class AIChatManager {
 	 * undefined in the global side-panel chat, where the tray falls back to opening
 	 * the run in a new browser tab. */
 	openRunInPreview?: (a: { jobId: string; workspace: string; label: string }) => void
+	/** Opens a pending run form in the sessions preview pane, on the same tool call the
+	 * chat card holds. Unset outside a session: a chat-bound form has nowhere else to go,
+	 * so the card hides the control rather than offering a tab that cannot run. */
+	openRunForm?: (a: { toolCallId: string; label: string }) => void
+	closeRunForm?: (toolCallId: string) => void
+	/** Hands that tab from the form to the run it just started, in place: the tab keeps its
+	 * position in the strip and stays active if it was. */
+	showRunInPlaceOfForm?: (a: {
+		toolCallId: string
+		jobId: string
+		workspace: string
+		label: string
+	}) => void
+	/** Whether the panel holds this call: its pending form, and with a `jobId`, the run that
+	 * form started. Answered off the session's tab list, so it stays true while the user is on
+	 * another tab, and per call rather than "the open one". Read from a `$derived` — the reader
+	 * subscribes to the tab list through the call. The card collapses on it, which is what keeps
+	 * one form mounted per call and the panel from repeating what the card shows. */
+	isCallInPreview?: (a: { toolCallId: string; jobId?: string }) => boolean
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 	closeArtifact?: (artifactId: string) => void
 	#loading = $state<boolean>(false)
@@ -689,6 +709,10 @@ export class AIChatManager {
 	>()
 	private userQuestionCallbacks = new Map<string, (choices: string[] | undefined) => void>()
 	private runFormCallbacks = new Map<string, (args: Record<string, any> | undefined) => void>()
+	// What a run form is being filled with, held here rather than in the component so the
+	// chat card and the preview pane are two views of one draft: whichever mounts the form
+	// resumes the other's edits, in both directions, with nothing handed over.
+	private runFormDrafts = new Map<string, RunFormDraft>()
 	private appDatatablesRefreshTimeout: ReturnType<typeof setTimeout> | undefined = undefined
 
 	disabledModes: Partial<Record<AIMode, boolean>> = $state({})
@@ -860,6 +884,17 @@ export class AIChatManager {
 			...this.backgroundJobs,
 			{ ...init, createdAt: Date.now(), status: 'queued', detached: false, reported: false }
 		]
+		// The panel was holding this call's form and the call now has a job: the tab follows
+		// the call rather than being left on a form that has already run.
+		// No jobId here on purpose: the question is whether the form is still the tab.
+		if (this.isCallInPreview?.({ toolCallId: init.toolCallId })) {
+			this.showRunInPlaceOfForm?.({
+				toolCallId: init.toolCallId,
+				jobId: init.jobId,
+				workspace: init.workspace,
+				label: init.label
+			})
+		}
 	}
 
 	/** Merge a partial update into a tracked job by id. */
@@ -1821,10 +1856,37 @@ export class AIChatManager {
 		})
 	}
 
+	/**
+	 * The draft a run form edits, created on first mount and shared by every later one.
+	 *
+	 * Deep snapshots, never the message's own values: those are `$state` proxies off
+	 * `displayMessages`, and SchemaForm edits args and schema in place (it reorders the
+	 * schema on mount), so anything shallower writes each keystroke — a nested password
+	 * included — into the persisted transcript.
+	 */
+	runFormDraft = (toolId: string, runForm: RunFormDisplay): RunFormDraft => {
+		const existing = this.runFormDrafts.get(toolId)
+		if (existing) return existing
+		const draft = $state({
+			args: ($state.snapshot(runForm.args) ?? {}) as Record<string, any>,
+			schema: ($state.snapshot(runForm.schema) ?? {}) as Record<string, any>
+		})
+		this.runFormDrafts.set(toolId, draft)
+		return draft
+	}
+
 	markRunFormStarted = (toolId: string) => this.#patchRunForm(toolId, { started: true })
 
 	// A form restored from history has no callback: the loop that opened it is gone.
 	isRunFormPending = (toolId: string): boolean => this.runFormCallbacks.has(toolId)
+
+	/** Whether any form of this chat is still waiting on the user. Asked instead of looking
+	 * the form up in the panel's DOM: when the preview holds it, the card is collapsed and
+	 * the only mounted copy is outside the panel — where a DOM query would miss it and let
+	 * Escape discard what has been typed. */
+	get hasPendingRunForm(): boolean {
+		return this.runFormCallbacks.size > 0
+	}
 
 	/** False when the form is no longer pending, so the caller can say so instead of
 	 * leaving its submit button spinning on a run that will never start. */
@@ -1844,6 +1906,8 @@ export class AIChatManager {
 
 	handleRunFormCancel = (toolId: string) => {
 		const callback = this.runFormCallbacks.get(toolId)
+		this.runFormDrafts.delete(toolId)
+		this.closeRunForm?.(toolId)
 		// Settled here rather than only in the tool's fn, which a form restored from
 		// history no longer has: Cancel is that card's one way out, and while it stays
 		// active the whole session reads as needs-confirmation (getSessionChatStatus
@@ -1868,6 +1932,12 @@ export class AIChatManager {
 	}
 
 	#patchRunForm = (toolId: string, patch: Partial<RunFormDisplay>) => {
+		// A settled form has no more edits to resume, and its draft holds whatever was typed
+		// into it — a minted password included.
+		if (patch.submitted || patch.canceled) this.runFormDrafts.delete(toolId)
+		// Cancelled, so no run follows it into that tab (a submitted one is handed over by
+		// registerJob instead) — take the tab with it rather than leaving a dead form open.
+		if (patch.canceled) this.closeRunForm?.(toolId)
 		this.displayMessages = this.displayMessages.map((message) =>
 			message.role === 'tool' && message.tool_call_id === toolId && message.runForm
 				? { ...message, runForm: settledRunForm({ ...message.runForm, ...patch }) }
@@ -4045,10 +4115,14 @@ export class AIChatManager {
 			resolveQuestion(undefined)
 		}
 		this.userQuestionCallbacks.clear()
-		for (const resolveRunArgs of this.runFormCallbacks.values()) {
+		for (const [toolId, resolveRunArgs] of this.runFormCallbacks) {
 			resolveRunArgs(undefined)
+			// The form settles with the turn, so a preview tab holding it goes too rather
+			// than being left on a form that can no longer run.
+			this.closeRunForm?.(toolId)
 		}
 		this.runFormCallbacks.clear()
+		this.runFormDrafts.clear()
 		const cancelReason = reason ?? USER_CANCEL_REASON
 		console.log('cancelling request:', {
 			reason: cancelReason,
