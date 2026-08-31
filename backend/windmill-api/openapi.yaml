@@ -29485,6 +29485,12 @@ components:
           type: string
         is_fileset:
           type: boolean
+        format_extension:
+          type: string
+          nullable: true
+          description: >-
+            File extension for a type whose value is one file rather than a set
+            of fields. Omit to leave it unchanged; send null to clear it.
 
     TriggerHistoryEntry:
       type: object

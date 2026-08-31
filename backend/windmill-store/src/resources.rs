@@ -130,6 +130,25 @@ pub struct EditResourceType {
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
     pub is_fileset: Option<bool>,
+    /// Doubly optional so an edit can distinguish the two things a plain
+    /// `Option` conflates: an absent field leaves the extension alone, while an
+    /// explicit `null` clears it. A hub pull relies on both — a type that stops
+    /// being a file type has to stop being one locally too.
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub format_extension: Option<Option<String>>,
+}
+
+/// `None` for an absent field, `Some(None)` for an explicit `null`. Spelled with
+/// the std `Result` because this module's `Result` alias fixes the error type.
+fn deserialize_optional_field<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(<Option<String> as serde::Deserialize>::deserialize(
+        deserializer,
+    )?))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -2802,6 +2821,12 @@ async fn update_resource_type(
     }
     if let Some(is_fileset) = ns.is_fileset {
         sqlb.set("is_fileset", if is_fileset { "TRUE" } else { "FALSE" });
+    }
+    if let Some(format_extension) = ns.format_extension {
+        match format_extension {
+            Some(ext) => sqlb.set_str("format_extension", ext),
+            None => sqlb.set("format_extension", "NULL"),
+        };
     }
     sqlb.set_str("edited_at", "now()");
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
