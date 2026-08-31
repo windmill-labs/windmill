@@ -12,7 +12,9 @@ use windmill_mcp::common::transform::transform_property_keys;
 use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, WorkspaceInfo,
 };
-use windmill_mcp::server::{BackendResult, EndpointTool, ErrorData, McpBackend, PathFilter};
+use windmill_mcp::server::{
+    BackendResult, EndpointTool, ErrorData, McpBackend, McpIncludeHeaders, McpRequest, PathFilter,
+};
 
 use crate::auth::AuthCache;
 use crate::db::ApiAuthed;
@@ -38,7 +40,7 @@ use windmill_mcp::server::{
 use windmill_mcp::WorkspaceId;
 
 use axum::{
-    extract::{Extension, Path},
+    extract::{Extension, Path, Query},
     http::Request,
     middleware::Next,
     response::Response,
@@ -48,6 +50,13 @@ use axum::{
 use windmill_common::{auth::hash_token, db::GatewayWorkspaceId, error::JsonResult};
 
 // McpAuth impl for ApiAuthed is in windmill-api-auth (same crate as the type)
+
+/// The MCP connection URL's own query parameters. `token` is consumed by the
+/// auth extractor; only the header allowlist is read here.
+#[derive(serde::Deserialize)]
+struct McpRequestQuery {
+    include_header: Option<String>,
+}
 
 /// Windmill's MCP backend implementation
 #[derive(Clone)]
@@ -214,8 +223,11 @@ impl McpBackend for WindmillBackend {
         workspace_id: &str,
         path: &str,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
-        let push_args = prepare_push_args(args);
+        let push_args = prepare_push_args(&self.db, workspace_id, path, false, args, request)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let result = run_wait_result_script_by_path_internal(
             self.db.clone(),
@@ -238,8 +250,11 @@ impl McpBackend for WindmillBackend {
         workspace_id: &str,
         path: &str,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> BackendResult<Value> {
-        let push_args = prepare_push_args(args);
+        let push_args = prepare_push_args(&self.db, workspace_id, path, true, args, request)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let result = run_wait_result_flow_by_path_internal(
             self.db.clone(),
@@ -388,6 +403,29 @@ pub async fn extract_and_store_workspace_id(
 ) -> Response {
     let workspace_id = params;
     request.extensions_mut().insert(WorkspaceId(workspace_id));
+    next.run(request).await
+}
+
+/// Middleware that records which request headers this connection may hand to the
+/// scripts and flows it runs, from `?include_header=` on the MCP URL.
+///
+/// The allowlist is read off the connection URL rather than an instance setting
+/// because that URL is configured out of band, by whoever wires up the MCP
+/// client: the model driving the session cannot reach it, which is what makes a
+/// header-borne identity worth more than one the model fills in.
+pub async fn extract_include_headers(
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    let include_headers = Query::<McpRequestQuery>::try_from_uri(request.uri())
+        .ok()
+        .and_then(|q| q.0.include_header)
+        .map(|value| McpIncludeHeaders::parse(&value))
+        .unwrap_or_default();
+
+    if !include_headers.is_empty() {
+        request.extensions_mut().insert(include_headers);
+    }
     next.run(request).await
 }
 

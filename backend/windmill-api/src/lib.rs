@@ -551,7 +551,7 @@ pub async fn run_server(
         if server_mode || mcp_mode {
             use mcp::{
                 add_www_authenticate_header, add_www_authenticate_header_gateway,
-                extract_workspace_from_token,
+                extract_include_headers, extract_workspace_from_token,
             };
             let (mcp_router, mcp_cancellation_token) = setup_mcp_server(
                 db.clone(),
@@ -565,6 +565,7 @@ pub async fn run_server(
                 .clone()
                 .route_layer(from_extractor::<ApiAuthed>())
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
+                .layer(axum::middleware::from_fn(extract_include_headers))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
@@ -572,6 +573,7 @@ pub async fn run_server(
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
                 ))
+                .layer(axum::middleware::from_fn(extract_include_headers))
                 .layer(axum::middleware::from_fn(extract_workspace_from_token));
             (
                 workspaced_mcp_router,

@@ -11,15 +11,22 @@ use serde_json::Value;
 use sql_builder::prelude::*;
 use windmill_common::auth::create_jwt_token;
 use windmill_common::db::{Authed, UserDB};
+use windmill_common::error::Error;
+use windmill_common::feature_usage::log_feature_usage;
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
+use windmill_common::triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
+use windmill_mcp::common::types::normalize_header_name;
 use windmill_mcp::server::{
-    non_empty_body_fields, BackendResult, EndpointTool, ErrorData, PathFilter,
+    non_empty_body_fields, BackendResult, EndpointTool, ErrorData, McpIncludeHeaders, McpRequest,
+    PathFilter,
 };
 use windmill_mcp::{HubResponse, HubScriptInfo, ItemSchema, ResourceInfo, ResourceType};
+use windmill_trigger::trigger_helpers::{get_runnable_format, RunnableId};
 
+use crate::args::build_headers;
 use crate::db::ApiAuthed;
 use crate::HTTP_CLIENT;
 
@@ -702,17 +709,125 @@ pub async fn create_http_request(
         .map_err(|e| ErrorData::internal_error(format!("Failed to execute request: {}", e), None))
 }
 
-/// Convert a JSON Value into PushArgsOwned for job execution
-pub fn prepare_push_args(args: Value) -> windmill_queue::PushArgsOwned {
-    if let Value::Object(map) = args {
-        let mut args_hash = HashMap::new();
-        for (k, v) in map {
-            args_hash.insert(k, to_raw_value(&v));
-        }
-        windmill_queue::PushArgsOwned { extra: None, args: args_hash }
-    } else {
-        windmill_queue::PushArgsOwned::default()
+/// The `kind` an MCP-invoked runnable sees on its preprocessor event, alongside
+/// `webhook`, `http` and the trigger kinds.
+const MCP_TRIGGER_KEY: &str = "mcp";
+
+/// A preprocessor's view of the MCP request that ran it. Mirrors the HTTP
+/// trigger event: `body` is what the model sent, everything else describes the
+/// call itself.
+#[derive(serde::Serialize)]
+struct McpPreprocessorEvent<'a> {
+    kind: &'a str,
+    body: Box<serde_json::value::RawValue>,
+    headers: HashMap<String, Box<serde_json::value::RawValue>>,
+    tool_name: &'a str,
+}
+
+/// The request headers this connection allows a runnable to bind as parameters.
+///
+/// Deliberately not `build_headers`: that unions its whitelist with the
+/// instance-wide `INCLUDE_HEADERS`, and an MCP tool schema must not start
+/// omitting parameters because an admin configured a header for webhooks.
+/// Header names arrive lowercased, so normalising each one is enough to match
+/// the allowlist however the client cased it.
+fn allowed_headers(
+    headers: &http::HeaderMap,
+    include_headers: &McpIncludeHeaders,
+) -> HashMap<String, Box<serde_json::value::RawValue>> {
+    let mut selected = HashMap::new();
+    if include_headers.is_empty() {
+        return selected;
     }
+    for (name, value) in headers.iter() {
+        let name = normalize_header_name(name.as_str());
+        if include_headers.contains(&name) {
+            selected.insert(name, to_raw_value(&value.to_str().unwrap_or("")));
+        }
+    }
+    selected
+}
+
+/// Build the job arguments for a script or flow run as an MCP tool.
+///
+/// Shaped by the runnable's own format, the way every other entrypoint does it:
+/// a runnable with no preprocessor binds allowlisted headers as ordinary
+/// parameters, and one with a preprocessor receives the whole request as an
+/// event instead.
+pub async fn prepare_push_args(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    is_flow: bool,
+    args: Value,
+    request: &McpRequest<'_>,
+) -> Result<windmill_queue::PushArgsOwned, Error> {
+    let mut main_args = HashMap::new();
+    if let Value::Object(map) = args {
+        for (k, v) in map {
+            main_args.insert(k, to_raw_value(&v));
+        }
+    }
+
+    let runnable_id = if is_flow {
+        RunnableId::from_flow_path(path)
+    } else {
+        // Resolves a `hub/<version_id>` path to the hub script on its own.
+        RunnableId::from_script_path(path)
+    };
+
+    // MCP is not one of the `TRIGGER_KIND` enum values and does not need to be:
+    // the per-kind arms of the no-preprocessor heuristic are payload-shape
+    // special cases for message triggers, and `Webhook` reaches the same generic
+    // arm MCP wants while sharing that kind's format cache.
+    let runnable_format = get_runnable_format(runnable_id, w_id, db, &TriggerKind::Webhook).await?;
+
+    Ok(match runnable_format {
+        RunnableFormat { has_preprocessor: false, .. } => {
+            let extra = allowed_headers(request.headers, request.include_headers);
+            if !extra.is_empty() {
+                log_feature_usage("mcp", "header_passthrough", "arg");
+            }
+            windmill_queue::PushArgsOwned {
+                args: main_args,
+                extra: (!extra.is_empty()).then_some(extra),
+            }
+        }
+        RunnableFormat { has_preprocessor: true, version } => {
+            // A preprocessor sees every header, as it does on an HTTP trigger:
+            // it is code the runnable's own author wrote, and it is what makes
+            // headers outside the allowlist reachable at all.
+            let headers = build_headers(request.headers, None, true);
+            log_feature_usage("mcp", "header_passthrough", "preprocessor");
+            match version {
+                RunnableFormatVersion::V2 => {
+                    let event = McpPreprocessorEvent {
+                        kind: MCP_TRIGGER_KEY,
+                        body: to_raw_value(&main_args),
+                        headers,
+                        tool_name: request.tool_name,
+                    };
+                    windmill_queue::PushArgsOwned {
+                        args: HashMap::from([("event".to_string(), to_raw_value(&event))]),
+                        extra: None,
+                    }
+                }
+                RunnableFormatVersion::V1 => windmill_queue::PushArgsOwned {
+                    args: main_args,
+                    extra: Some(HashMap::from([(
+                        "wm_trigger".to_string(),
+                        to_raw_value(&serde_json::json!({
+                            "kind": MCP_TRIGGER_KEY,
+                            MCP_TRIGGER_KEY: {
+                                "headers": headers,
+                                "tool_name": request.tool_name,
+                            }
+                        })),
+                    )])),
+                },
+            }
+        }
+    })
 }
 
 /// Parse an HTTP response body into a JSON Value

@@ -1070,8 +1070,9 @@
 						<li
 							>feature usage (counts of which product features are used, including AI provider and
 							model identifiers, the names of public hub scripts used, the languages debug sessions
-							are started for, and the plan tier and quota shown when the execution meter is
-							opened, last 30 days)</li
+							are started for, whether MCP header pass-through reaches a script as a parameter or a
+							preprocessor, and the plan tier and quota shown when the execution meter is opened,
+							last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your
@@ -1123,8 +1124,9 @@
 						<li
 							>feature usage (counts of which product features are used, including AI provider and
 							model identifiers, the names of public hub scripts used, the languages debug sessions
-							are started for, and the plan tier and quota shown when the execution meter is
-							opened, last 30 days)</li
+							are started for, whether MCP header pass-through reaches a script as a parameter or a
+							preprocessor, and the plan tier and quota shown when the execution meter is opened,
+							last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your

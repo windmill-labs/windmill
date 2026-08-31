@@ -52,6 +52,7 @@
 
 	let pickedScopes = $state<string[] | null>(null)
 	let readOnly = $state(false)
+	let includeHeaders = $state('')
 
 	function ensureCurrentWorkspaceIncluded(
 		workspacesList: UserWorkspace[],
@@ -70,6 +71,7 @@
 	function enterMcpMode() {
 		mcpCreationMode = true
 		newTokenExpiration = undefined
+		includeHeaders = ''
 		newTokenWorkspace = defaultNewTokenWorkspace ?? $workspaceStore
 		newToken = undefined
 		newMcpToken = undefined
@@ -85,6 +87,7 @@
 	function exitMcpMode() {
 		mcpCreationMode = false
 		newTokenExpiration = undefined
+		includeHeaders = ''
 		newTokenWorkspace = defaultNewTokenWorkspace
 		newMcpToken = undefined
 		readOnly = false
@@ -148,6 +151,11 @@
 		isAllWorkspaces
 			? `${window.location.origin}/api/mcp/gateway?token=`
 			: `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp?token=`
+	)
+	// Rides the URL rather than the token so the allowlist is fixed by whoever
+	// configures the MCP client, out of reach of the model driving the session.
+	const mcpIncludeHeaderParam = $derived(
+		includeHeaders.trim() ? `&include_header=${encodeURIComponent(includeHeaders.trim())}` : ''
 	)
 
 	$effect(() => {
@@ -259,6 +267,24 @@
 						{/if}
 					</div>
 				{/if}
+
+				{#if !isAllWorkspaces}
+					<div>
+						<span class="block mb-1 text-emphasis text-xs font-semibold"
+							>Forward request headers <span class="text-xs text-primary">(optional)</span></span
+						>
+						<TextInput
+							inputProps={{ type: 'text', placeholder: 'x-user-id, x-tenant' }}
+							bind:value={includeHeaders}
+							class="w-full"
+						/>
+						<p class="mt-1 text-xs text-tertiary">
+							Header names your MCP client sends, comma separated. Each reaches the script as a
+							parameter of the same name (<code>X-User-Id</code> becomes <code>x_user_id</code>) and
+							is hidden from the tool schema, so the model cannot set it.
+						</p>
+					</div>
+				{/if}
 			{/if}
 
 			{#if !mcpOnly}
@@ -320,6 +346,9 @@
 	{/if}
 
 	{#if newMcpToken && displayCreateToken}
-		<TokenDisplay token={newMcpToken} mcpUrl={`${mcpBaseUrl}${newMcpToken}`} />
+		<TokenDisplay
+			token={newMcpToken}
+			mcpUrl={`${mcpBaseUrl}${newMcpToken}${mcpIncludeHeaderParam}`}
+		/>
 	{/if}
 </div>

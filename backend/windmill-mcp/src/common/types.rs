@@ -27,6 +27,47 @@ pub struct MultiWorkspaceMcp;
 #[derive(Clone, Debug)]
 pub struct McpToken(pub String);
 
+/// The request headers a tool call is allowed to forward into the script or flow
+/// it runs, named the way a runnable parameter is (lowercased, `-` → `_`), from
+/// `?include_header=` on the MCP connection URL.
+///
+/// These names are transport-owned for the life of the connection: they are
+/// removed from every published tool schema and dropped from model-supplied
+/// arguments, so a value reaching a runnable under one of them came from the
+/// request and not from the model. That is the whole point of the feature — an
+/// identity the model can set is an identity prompt injection can forge.
+#[derive(Clone, Debug, Default)]
+pub struct McpIncludeHeaders(pub Vec<String>);
+
+impl McpIncludeHeaders {
+    /// Parse the comma-separated `?include_header=` value into runnable-parameter
+    /// names. Mirrors the normalisation webhook headers already get in
+    /// `build_headers`, so `X-User-Id` reaches a script as `x_user_id` whichever
+    /// entrypoint it came through.
+    pub fn parse(value: &str) -> Self {
+        Self(
+            value
+                .split(',')
+                .map(|name| normalize_header_name(name.trim()))
+                .filter(|name| !name.is_empty())
+                .collect(),
+        )
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.0.iter().any(|allowed| allowed == name)
+    }
+}
+
+/// Render a header name as the runnable parameter that carries it.
+pub fn normalize_header_name(name: &str) -> String {
+    name.to_lowercase().replace('-', "_")
+}
+
 /// Summary of a workspace the caller can access, returned by the
 /// `list_workspaces` tool in multi-workspace mode.
 #[derive(Serialize, Debug, Clone)]

@@ -12,7 +12,8 @@ use std::sync::Arc;
 use crate::common::schema::{convert_schema_to_schema_type, make_schema_compatible};
 use crate::common::transform::{transform_hub_path, transform_path};
 use crate::common::types::{
-    FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, ToolableItem,
+    FlowInfo, HubScriptInfo, McpIncludeHeaders, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
+    ToolableItem,
 };
 use crate::server::backend::McpBackend;
 
@@ -178,6 +179,35 @@ fn omission_hint(input_schema: &Map<String, Value>, item_type: &str) -> Option<S
     ))
 }
 
+/// Remove the parameters this connection fills from the request itself, so the
+/// model is never shown one it must not supply.
+///
+/// `required` is dropped alongside `properties`: a name left in `required` for a
+/// property that no longer exists reads to a strict client as an unsatisfiable
+/// tool, and the value is coming from the transport regardless.
+pub fn strip_transport_owned_params(
+    input_schema: &mut Map<String, Value>,
+    include_headers: &McpIncludeHeaders,
+) {
+    if include_headers.is_empty() {
+        return;
+    }
+
+    if let Some(properties) = input_schema
+        .get_mut("properties")
+        .and_then(Value::as_object_mut)
+    {
+        properties.retain(|key, _| !include_headers.contains(key));
+    }
+
+    if let Some(required) = input_schema
+        .get_mut("required")
+        .and_then(Value::as_array_mut)
+    {
+        required.retain(|name| !name.as_str().is_some_and(|n| include_headers.contains(n)));
+    }
+}
+
 /// Create an MCP Tool from a ToolableItem
 ///
 /// The resources_cache should be pre-populated with all resource types
@@ -187,6 +217,7 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     backend: &B,
     resources_cache: &HashMap<String, Vec<ResourceInfo>>,
     resources_types: &[ResourceType],
+    include_headers: &McpIncludeHeaders,
 ) -> Tool {
     let is_hub = item.is_hub();
     let path = item.get_transformed_path();
@@ -211,7 +242,7 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     let schema_obj =
         backend.transform_schema_for_resources(&schema, resources_cache, resources_types);
 
-    let input_schema_map = match serde_json::to_value(schema_obj) {
+    let mut input_schema_map = match serde_json::to_value(schema_obj) {
         Ok(mut value) => {
             make_schema_compatible(&mut value);
             match value {
@@ -234,6 +265,8 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
             serde_json::Map::new()
         }
     };
+
+    strip_transport_owned_params(&mut input_schema_map, include_headers);
 
     if let Some(hint) = omission_hint(&input_schema_map, item_type) {
         description.push_str(&hint);
@@ -281,6 +314,43 @@ mod tests {
         .as_object()
         .unwrap()
         .clone()
+    }
+
+    /// A header-fed parameter must not reach the model at all: shown in the
+    /// schema, a model fills it, and the identity it carries stops being one the
+    /// transport vouched for.
+    #[test]
+    fn transport_owned_params_leave_the_published_schema() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string" },
+                "x_user_id": { "type": "string" },
+            },
+            "required": ["query", "x_user_id"],
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        strip_transport_owned_params(&mut schema, &McpIncludeHeaders::parse("X-User-Id"));
+
+        let properties = schema["properties"].as_object().unwrap();
+        assert!(!properties.contains_key("x_user_id"));
+        assert!(properties.contains_key("query"));
+        // Left in `required`, the name would describe a property that no longer
+        // exists and a strict client would reject the whole tool.
+        assert_eq!(schema["required"], json!(["query"]));
+    }
+
+    #[test]
+    fn a_connection_with_no_allowlist_publishes_the_schema_untouched() {
+        let mut schema = script_schema();
+        let before = schema.clone();
+
+        strip_transport_owned_params(&mut schema, &McpIncludeHeaders::default());
+
+        assert_eq!(schema, before);
     }
 
     #[test]

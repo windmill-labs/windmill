@@ -9,8 +9,11 @@ use crate::common::transform::{
     extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed, parse_tool_prefix,
     reverse_transform, reverse_transform_key,
 };
-use crate::common::types::{McpToken, MultiWorkspaceMcp, ResourceInfo, ToolableItem, WorkspaceId};
-use crate::server::backend::{McpAuth, McpBackend, PathFilter};
+use crate::common::types::{
+    McpIncludeHeaders, McpToken, MultiWorkspaceMcp, ResourceInfo, SchemaType, ToolableItem,
+    WorkspaceId,
+};
+use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
 use crate::server::endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, list_workspaces_tool, EndpointTool,
 };
@@ -101,16 +104,25 @@ enum McpMode {
     Multi(String),
 }
 
+/// Everything a request carries besides its MCP payload.
+struct McpContext<A> {
+    auth: A,
+    mode: McpMode,
+    headers: http::HeaderMap,
+    include_headers: McpIncludeHeaders,
+}
+
 impl<B: McpBackend> Runner<B> {
     /// Create a new Runner with the given backend
     pub fn new(backend: B) -> Self {
         Self { backend: Arc::new(backend) }
     }
 
-    /// Extract authentication and the workspace mode from request context
+    /// Extract authentication, the workspace mode and the HTTP request itself
+    /// from the request context
     fn extract_context(
         context: &RequestContext<RoleServer>,
-    ) -> Result<(B::Auth, McpMode), ErrorData> {
+    ) -> Result<McpContext<B::Auth>, ErrorData> {
         let http_parts = context.extensions.get::<HttpParts>().ok_or_else(|| {
             tracing::error!("http::request::Parts not found");
             ErrorData::internal_error("http::request::Parts not found", None)
@@ -148,7 +160,18 @@ impl<B: McpBackend> Runner<B> {
             McpMode::Single(workspace_id)
         };
 
-        Ok((auth.clone(), mode))
+        let include_headers = http_parts
+            .extensions
+            .get::<McpIncludeHeaders>()
+            .cloned()
+            .unwrap_or_default();
+
+        Ok(McpContext {
+            auth: auth.clone(),
+            mode,
+            headers: http_parts.headers.clone(),
+            include_headers,
+        })
     }
 }
 
@@ -391,6 +414,31 @@ fn authorize_endpoint_call(
     Ok(())
 }
 
+/// Map the model's arguments back to the runnable's own parameter names, dropping
+/// any the request fills itself.
+///
+/// Those names are absent from the published tool schema, so a value under one
+/// was invented by the model rather than passed to it — honouring it would let
+/// prompt injection forge the very identity the header exists to establish.
+fn transform_call_args(
+    args: Value,
+    item_schema: &Option<SchemaType>,
+    include_headers: &McpIncludeHeaders,
+) -> Value {
+    let Value::Object(map) = args else {
+        return args;
+    };
+    let mut args_hash = HashMap::new();
+    for (k, v) in map {
+        let original_key = reverse_transform_key(&k, item_schema);
+        if include_headers.contains(&original_key) {
+            continue;
+        }
+        args_hash.insert(original_key, v);
+    }
+    Value::Object(args_hash.into_iter().collect())
+}
+
 fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
     candidates
         .into_iter()
@@ -427,7 +475,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let (auth, mode) = Self::extract_context(&context)?;
+        let McpContext { auth, mode, include_headers, .. } = Self::extract_context(&context)?;
 
         // Parse MCP scopes to determine what to expose
         let scopes = auth.scopes().unwrap_or(&[]);
@@ -438,8 +486,14 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
         match mode {
             McpMode::Single(workspace_id) => {
-                self.list_tools_single(&auth, &workspace_id, &scope_config, read_only)
-                    .await
+                self.list_tools_single(
+                    &auth,
+                    &workspace_id,
+                    &scope_config,
+                    read_only,
+                    &include_headers,
+                )
+                .await
             }
             // Multi-workspace: expose the generic endpoint tools (each taking an
             // explicit workspace_id) plus list_workspaces. Per-workspace scripts
@@ -455,7 +509,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let (auth, mode) = Self::extract_context(&context)?;
+        let McpContext { auth, mode, headers, include_headers } = Self::extract_context(&context)?;
 
         // Parse MCP scopes for authorization
         let scopes = auth.scopes().unwrap_or(&[]);
@@ -464,6 +518,11 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         let read_only = auth.read_only();
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
+        let mcp_request = McpRequest {
+            headers: &headers,
+            include_headers: &include_headers,
+            tool_name: request.name.as_ref(),
+        };
 
         // Every tool here runs to completion in one round trip: none of them ask the
         // client for input, so the MRTR variants of `CallToolResponse` are never built.
@@ -474,8 +533,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                     &workspace_id,
                     &scope_config,
                     read_only,
-                    request.name,
+                    request.name.clone(),
                     args,
+                    &mcp_request,
                 )
                 .await
             }
@@ -526,6 +586,7 @@ impl<B: McpBackend> Runner<B> {
         workspace_id: &str,
         scope_config: &crate::common::scope::McpScopeConfig,
         read_only: bool,
+        include_headers: &McpIncludeHeaders,
     ) -> Result<ListToolsResult, ErrorData> {
         let favorites_only = scope_config.favorites;
 
@@ -613,6 +674,7 @@ impl<B: McpBackend> Runner<B> {
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
+                    include_headers,
                 ));
             }
 
@@ -622,6 +684,7 @@ impl<B: McpBackend> Runner<B> {
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
+                    include_headers,
                 ));
             }
 
@@ -631,6 +694,7 @@ impl<B: McpBackend> Runner<B> {
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
+                    include_headers,
                 ));
             }
         }
@@ -665,6 +729,7 @@ impl<B: McpBackend> Runner<B> {
         read_only: bool,
         name: std::borrow::Cow<'static, str>,
         args: Value,
+        request: &McpRequest<'_>,
     ) -> Result<CallToolResult, ErrorData> {
         // Check if this is an endpoint tool
         let endpoint_tools = self.backend.all_endpoint_tools();
@@ -777,17 +842,7 @@ impl<B: McpBackend> Runner<B> {
                 .map_err(|e| ErrorData::internal_error(e.message, None))?
         };
 
-        // Transform arguments back to original key names
-        let transformed_args = if let Value::Object(map) = args {
-            let mut args_hash = HashMap::new();
-            for (k, v) in map {
-                let original_key = reverse_transform_key(&k, &item_schema);
-                args_hash.insert(original_key, v);
-            }
-            Value::Object(args_hash.into_iter().collect())
-        } else {
-            args
-        };
+        let transformed_args = transform_call_args(args, &item_schema, request.include_headers);
 
         let script_or_flow_path = if is_hub {
             format!("hub/{}", path)
@@ -798,11 +853,23 @@ impl<B: McpBackend> Runner<B> {
         // Execute script or flow
         let result = if tool_type == "script" {
             self.backend
-                .run_script(auth, workspace_id, &script_or_flow_path, transformed_args)
+                .run_script(
+                    auth,
+                    workspace_id,
+                    &script_or_flow_path,
+                    transformed_args,
+                    request,
+                )
                 .await
         } else {
             self.backend
-                .run_flow(auth, workspace_id, &script_or_flow_path, transformed_args)
+                .run_flow(
+                    auth,
+                    workspace_id,
+                    &script_or_flow_path,
+                    transformed_args,
+                    request,
+                )
                 .await
         };
 
@@ -950,6 +1017,31 @@ mod tests {
     use crate::common::scope::{parse_mcp_scopes, McpScopeConfig};
     use serde_json::json;
     use std::borrow::Cow;
+
+    /// The other half of the guarantee `strip_transport_owned_params` starts: the
+    /// name is hidden from the schema, and a model that guesses it anyway is
+    /// ignored rather than believed.
+    #[test]
+    fn a_model_cannot_supply_a_header_fed_argument() {
+        let args = transform_call_args(
+            json!({"ticket_id": "T-1", "x_user_id": "attacker@evil.test"}),
+            &None,
+            &McpIncludeHeaders::parse("x-user-id"),
+        );
+
+        assert_eq!(args, json!({"ticket_id": "T-1"}));
+    }
+
+    #[test]
+    fn arguments_pass_through_untouched_without_an_allowlist() {
+        let args = transform_call_args(
+            json!({"ticket_id": "T-1", "x_user_id": "someone"}),
+            &None,
+            &McpIncludeHeaders::default(),
+        );
+
+        assert_eq!(args, json!({"ticket_id": "T-1", "x_user_id": "someone"}));
+    }
 
     fn cfg(scopes: &[&str]) -> McpScopeConfig {
         parse_mcp_scopes(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
