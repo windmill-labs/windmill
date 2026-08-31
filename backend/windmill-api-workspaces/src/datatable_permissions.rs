@@ -548,8 +548,12 @@ fn revoke_public_create_statement(pg_rolename: &str) -> PlannedStatement {
 }
 
 fn grant_role_to_admin_statement(pg_rolename: &str, admin_pg_role: &str) -> PlannedStatement {
+    // `WITH SET TRUE` explicitly: reassigning an object to a role requires being
+    // able to SET ROLE to it, and a membership without that option — which is
+    // what Postgres 16 records for a CREATEROLE grantor's implicit self-grant —
+    // leaves admin unable to hand anything to the roles it created.
     PlannedStatement::plain(format!(
-        "GRANT {} TO {};",
+        "GRANT {} TO {} WITH SET TRUE;",
         quote_ident(pg_rolename),
         quote_ident(admin_pg_role)
     ))
@@ -1050,7 +1054,7 @@ mod tests {
         // reassign its objects and drop it later.
         assert_eq!(
             sql(&plan)[1],
-            format!("GRANT \"{pg_role}\" TO \"{ADMIN_PG}\";")
+            format!("GRANT \"{pg_role}\" TO \"{ADMIN_PG}\" WITH SET TRUE;")
         );
         // Created bare: it must not be able to make objects in `public`.
         assert_eq!(
@@ -1145,7 +1149,7 @@ mod tests {
                 // Postgres only lets a role reassign objects it has the privileges
                 // of, and creating a role does not confer those — so the grant has
                 // to be (re-)established before the reassign.
-                format!("GRANT \"{pg_role}\" TO \"{ADMIN_PG}\";"),
+                format!("GRANT \"{pg_role}\" TO \"{ADMIN_PG}\" WITH SET TRUE;"),
                 format!("REASSIGN OWNED BY \"{pg_role}\" TO \"{ADMIN_PG}\";"),
                 format!("DROP OWNED BY \"{pg_role}\";"),
                 format!("DROP ROLE \"{pg_role}\";"),
