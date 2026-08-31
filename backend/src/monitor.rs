@@ -1358,9 +1358,9 @@ fn last_log_file_sent() -> Option<NaiveDateTime> {
 /// the file that was still open and the appender reopens that minute in append mode,
 /// so a restart inside it would otherwise strand everything written afterwards.
 ///
-/// A row rewritten this way restores the object and sums the counters, but whether the
-/// indexers read it again depends on their single `log_ts >` cursor, which is not
-/// per-hostname: a minute at or below it stays out of search until it is re-indexed.
+/// A row rewritten this way restores the object and sums the counters, but it keeps the
+/// `indexed_at` it already had, so one the indexers have taken is not offered again and
+/// the lines added by the rewrite stay out of search.
 async fn init_last_log_file_sent(conn: &Connection, hostname: &str) {
     let Some(db) = conn.as_sql() else {
         return;
@@ -1406,9 +1406,10 @@ async fn send_log_files_to_object_store(
         if ts < retention_cutoff {
             continue;
         }
-        // Stop at the first failure rather than moving on: both indexers walk
-        // `log_file` with a `log_ts > watermark` cursor, so a row that lands after
-        // a newer one is never picked up.
+        // Stop at the first failure rather than moving on, so a file is never
+        // registered before an older one that has not made it to the store yet.
+        // The indexers do not depend on that ordering — every row is offered until
+        // it is marked — but a gap here would still be visible while it lasts.
         if !send_log_file_to_object_store(hostname, mode, worker_group, conn, &file_name, ts).await
         {
             break;
