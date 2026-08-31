@@ -431,7 +431,7 @@ fn transform_call_args(
     let mut args_hash = HashMap::new();
     for (k, v) in map {
         let original_key = reverse_transform_key(&k, item_schema);
-        if include_headers.contains(&original_key) {
+        if include_headers.owns_param(&original_key) {
             continue;
         }
         args_hash.insert(original_key, v);
@@ -439,13 +439,26 @@ fn transform_call_args(
     Value::Object(args_hash.into_iter().collect())
 }
 
-/// Whether this endpoint tool runs a runnable named by a `path` argument, and so
-/// forwards the model's remaining arguments to it verbatim.
-fn is_run_by_path(endpoint_name: &str) -> bool {
-    matches!(
-        endpoint_path_policy(endpoint_name),
-        Some(EndpointPathPolicy::RunByPath(_))
-    )
+/// Endpoint tools that make some runnable execute with arguments the model
+/// supplies, whether now or on a schedule.
+///
+/// Each is a second door to a runnable whose own tool hides the transport-owned
+/// parameters: run-by-path and preview forward an argument map verbatim (preview
+/// can name a deployed `script_hash`), and the schedule endpoints persist one to
+/// be used at fire time. Their argument maps are nested or free-form, so there is
+/// no schema to strip — the tool itself has to go.
+const RUNNABLE_EXECUTING_ENDPOINTS: &[&str] = &[
+    "runScriptByPath",
+    "runFlowByPath",
+    "runScriptPreviewAndWaitResult",
+    "createSchedule",
+    "updateSchedule",
+];
+
+/// Whether this endpoint tool can run a runnable with model-supplied arguments,
+/// and so cannot offer the guarantee a header-forwarding connection promises.
+fn executes_runnable_with_model_args(endpoint_name: &str) -> bool {
+    RUNNABLE_EXECUTING_ENDPOINTS.contains(&endpoint_name)
 }
 
 /// Drop the transport-owned names from an endpoint tool's arguments.
@@ -458,7 +471,7 @@ fn strip_transport_owned_endpoint_args(args: &mut Value, include_headers: &McpIn
         return;
     }
     if let Value::Object(map) = args {
-        map.retain(|key, _| !include_headers.contains(key));
+        map.retain(|key, _| !include_headers.owns_param(key));
     }
 }
 
@@ -523,7 +536,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             // and flows are intentionally not enumerated here — doing so across
             // every workspace would overload the tool list; callers run them via
             // runScriptByPath / runFlowByPath with a workspace_id instead.
-            McpMode::Multi(_) => Ok(self.list_tools_multi(&scope_config, read_only)),
+            McpMode::Multi(_) => {
+                Ok(self.list_tools_multi(&scope_config, read_only, &include_headers))
+            }
         }
     }
 
@@ -743,7 +758,9 @@ impl<B: McpBackend> Runner<B> {
                 continue;
             }
             // Withdrawn while headers are being forwarded -- see call_tool_single.
-            if is_run_by_path(endpoint_tool.name.as_ref()) && !include_headers.is_empty() {
+            if executes_runnable_with_model_args(endpoint_tool.name.as_ref())
+                && !include_headers.is_empty()
+            {
                 continue;
             }
 
@@ -775,7 +792,7 @@ impl<B: McpBackend> Runner<B> {
                 // model cannot name it. Run-by-path takes an arbitrary path and
                 // forwards arbitrary arguments, so it has no such guarantee to
                 // offer -- withdraw it rather than serve a weaker one alongside.
-                if is_run_by_path(endpoint_tool.name.as_ref())
+                if executes_runnable_with_model_args(endpoint_tool.name.as_ref())
                     && !request.include_headers.is_empty()
                 {
                     return Err(ErrorData::invalid_params(
@@ -946,6 +963,7 @@ impl<B: McpBackend> Runner<B> {
         &self,
         scope_config: &crate::common::scope::McpScopeConfig,
         read_only: bool,
+        include_headers: &McpIncludeHeaders,
     ) -> ListToolsResult {
         let mut tools = vec![list_workspaces_tool()];
 
@@ -1007,7 +1025,9 @@ impl<B: McpBackend> Runner<B> {
             })?;
 
         // Withdrawn while headers are being forwarded — see call_tool_single.
-        if is_run_by_path(endpoint_tool.name.as_ref()) && !request.include_headers.is_empty() {
+        if executes_runnable_with_model_args(endpoint_tool.name.as_ref())
+            && !request.include_headers.is_empty()
+        {
             return Err(ErrorData::invalid_params(
                 format!(
                     "Tool '{}' is unavailable on a connection that forwards request headers.",
@@ -1121,14 +1141,47 @@ mod tests {
         assert_eq!(args, json!({"path": "u/admin/whoami"}));
     }
 
-    /// And the tool itself is withdrawn on such a connection, so a stripped call
-    /// cannot quietly run the script with no identity at all.
+    /// Every second door to a runnable is withdrawn on such a connection. Each of
+    /// these takes a nested or free-form argument map — preview can even name a
+    /// deployed `script_hash` — so stripping the top level would not reach them.
     #[test]
-    fn run_by_path_is_recognised_for_withdrawal() {
-        assert!(is_run_by_path("runScriptByPath"));
-        assert!(is_run_by_path("runFlowByPath"));
-        assert!(!is_run_by_path("listJobs"));
-        assert!(!is_run_by_path("getScriptByPath"));
+    fn every_runnable_executing_endpoint_is_recognised_for_withdrawal() {
+        for name in [
+            "runScriptByPath",
+            "runFlowByPath",
+            "runScriptPreviewAndWaitResult",
+            "createSchedule",
+            "updateSchedule",
+        ] {
+            assert!(executes_runnable_with_model_args(name), "{name}");
+        }
+        for name in ["listJobs", "getScriptByPath", "createVariable", "getJob"] {
+            assert!(!executes_runnable_with_model_args(name), "{name}");
+        }
+    }
+
+    /// An allowlisted `x-user-id` must not also accept the distinct header
+    /// `x_user_id`: a caller could otherwise supply the alias to stand in for the
+    /// one a trusted proxy injected.
+    #[test]
+    fn an_underscore_alias_is_a_different_header() {
+        let include = McpIncludeHeaders::parse("x-user-id");
+
+        assert_eq!(include.0.len(), 1);
+        assert_eq!(include.0[0].header_name, "x-user-id");
+        assert_eq!(include.0[0].param_name, "x_user_id");
+        // The parameter is still transport-owned under its normalised name.
+        assert!(include.owns_param("x_user_id"));
+    }
+
+    /// Two spellings of one parameter collapse to a single entry, so which header
+    /// feeds it cannot depend on iteration order.
+    #[test]
+    fn aliases_naming_one_parameter_resolve_to_the_first() {
+        let include = McpIncludeHeaders::parse("x-user-id, x_user_id");
+
+        assert_eq!(include.0.len(), 1);
+        assert_eq!(include.0[0].header_name, "x-user-id");
     }
 
     fn cfg(scopes: &[&str]) -> McpScopeConfig {

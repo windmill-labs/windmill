@@ -27,39 +27,67 @@ pub struct MultiWorkspaceMcp;
 #[derive(Clone, Debug)]
 pub struct McpToken(pub String);
 
-/// The request headers a tool call is allowed to forward into the script or flow
-/// it runs, named the way a runnable parameter is (lowercased, `-` → `_`), from
-/// `?include_header=` on the MCP connection URL.
+/// One entry of the `?include_header=` allowlist: the exact HTTP header to read,
+/// and the runnable parameter that carries its value.
 ///
-/// These names are transport-owned for the life of the connection: they are
-/// removed from every published tool schema and dropped from model-supplied
+/// The two are kept apart deliberately. Matching an inbound header by its
+/// *normalised* name would make `x-user-id` and the distinct, equally valid
+/// header `x_user_id` interchangeable, so a caller could supply the alias to
+/// stand in for one a trusted proxy injected — and which of the two won would
+/// depend on header iteration order.
+#[derive(Clone, Debug)]
+pub struct McpIncludeHeader {
+    /// Lowercased HTTP header name, compared verbatim against the request.
+    pub header_name: String,
+    /// The runnable parameter fed from it (`x-user-id` -> `x_user_id`).
+    pub param_name: String,
+}
+
+/// The request headers a tool call is allowed to forward into the script or flow
+/// it runs, from `?include_header=` on the MCP connection URL.
+///
+/// The parameter names are transport-owned for the life of the connection: they
+/// are removed from every published tool schema and dropped from model-supplied
 /// arguments, so a value reaching a runnable under one of them came from the
 /// request and not from the model. That is the whole point of the feature — an
 /// identity the model can set is an identity prompt injection can forge.
 #[derive(Clone, Debug, Default)]
-pub struct McpIncludeHeaders(pub Vec<String>);
+pub struct McpIncludeHeaders(pub Vec<McpIncludeHeader>);
 
 impl McpIncludeHeaders {
-    /// Parse the comma-separated `?include_header=` value into runnable-parameter
-    /// names. Mirrors the normalisation webhook headers already get in
-    /// `build_headers`, so `X-User-Id` reaches a script as `x_user_id` whichever
-    /// entrypoint it came through.
+    /// Parse the comma-separated `?include_header=` value.
+    ///
+    /// Two entries that differ only in `-` versus `_` name the same parameter;
+    /// the first wins, so the mapping stays one-to-one and a runnable cannot be
+    /// fed from whichever of them happened to be visited last.
     pub fn parse(value: &str) -> Self {
-        Self(
-            value
-                .split(',')
-                .map(|name| normalize_header_name(name.trim()))
-                .filter(|name| !name.is_empty())
-                .collect(),
-        )
+        let mut entries: Vec<McpIncludeHeader> = Vec::new();
+        for name in value.split(',') {
+            let header_name = name.trim().to_lowercase();
+            if header_name.is_empty() {
+                continue;
+            }
+            let param_name = normalize_header_name(&header_name);
+            if entries.iter().any(|e| e.param_name == param_name) {
+                continue;
+            }
+            entries.push(McpIncludeHeader { header_name, param_name });
+        }
+        Self(entries)
     }
 
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    pub fn contains(&self, name: &str) -> bool {
-        self.0.iter().any(|allowed| allowed == name)
+    /// Whether `name` is a runnable parameter this connection fills from the
+    /// request, and so must never be taken from the model.
+    pub fn owns_param(&self, name: &str) -> bool {
+        self.0.iter().any(|entry| entry.param_name == name)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &McpIncludeHeader> {
+        self.0.iter()
     }
 }
 

@@ -750,13 +750,18 @@ fn allowed_headers(
     include_headers: &McpIncludeHeaders,
 ) -> HashMap<String, Box<serde_json::value::RawValue>> {
     let mut selected = HashMap::new();
-    if include_headers.is_empty() {
-        return selected;
-    }
-    for (name, value) in headers.iter() {
-        let name = normalize_header_name(name.as_str());
-        if include_headers.contains(&name) && !is_never_forwarded(&name) {
-            selected.insert(name, to_raw_value(&value.to_str().unwrap_or("")));
+    for entry in include_headers.iter() {
+        if is_never_forwarded(&entry.param_name) {
+            continue;
+        }
+        // Looked up by the exact header name rather than matched against a
+        // normalised one, so an `x_user_id` alias cannot stand in for the
+        // `x-user-id` a trusted proxy set.
+        if let Some(value) = headers.get(&entry.header_name) {
+            selected.insert(
+                entry.param_name.clone(),
+                to_raw_value(&value.to_str().unwrap_or("")),
+            );
         }
     }
     selected
@@ -880,6 +885,67 @@ mod tests {
 
     fn scopes(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn header_map(pairs: &[(&str, &str)]) -> http::HeaderMap {
+        let mut headers = http::HeaderMap::new();
+        for (name, value) in pairs {
+            headers.insert(
+                http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                http::HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        headers
+    }
+
+    /// The credential that authenticates the MCP connection belongs to the
+    /// caller, not to the runnable's author -- naming it in the allowlist must
+    /// not hand it over, or a script could keep and replay a caller's token.
+    #[test]
+    fn an_allowlisted_credential_header_is_still_refused() {
+        let headers = header_map(&[
+            ("authorization", "Bearer secret-token"),
+            ("cookie", "session=secret"),
+            ("x-user-id", "alice@corp.example"),
+        ]);
+
+        let selected = allowed_headers(
+            &headers,
+            &McpIncludeHeaders::parse("authorization, cookie, x-user-id"),
+        );
+
+        assert_eq!(selected.len(), 1);
+        assert_eq!(selected["x_user_id"].get(), "\"alice@corp.example\"");
+    }
+
+    /// Same boundary on the other delivery path: a preprocessor sees more than
+    /// the allowlist, but never the connection's credentials.
+    #[test]
+    fn a_preprocessor_never_sees_the_connection_credentials() {
+        let headers = header_map(&[
+            ("authorization", "Bearer secret-token"),
+            ("cookie", "session=secret"),
+            ("x-user-id", "alice@corp.example"),
+            ("user-agent", "some-client/1.0"),
+        ]);
+
+        let selected = preprocessor_headers(&headers);
+
+        assert!(!selected.contains_key("authorization"));
+        assert!(!selected.contains_key("cookie"));
+        // Everything outside the credential set still reaches it.
+        assert!(selected.contains_key("x-user-id"));
+        assert!(selected.contains_key("user-agent"));
+    }
+
+    /// The alias an exact-name lookup exists to reject.
+    #[test]
+    fn an_underscore_alias_does_not_feed_an_allowlisted_parameter() {
+        let headers = header_map(&[("x_user_id", "attacker@evil.test")]);
+
+        let selected = allowed_headers(&headers, &McpIncludeHeaders::parse("x-user-id"));
+
+        assert!(selected.is_empty());
     }
 
     #[test]

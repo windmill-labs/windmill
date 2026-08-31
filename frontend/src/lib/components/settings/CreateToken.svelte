@@ -284,9 +284,15 @@
 							class="w-full"
 						/>
 						<p class="mt-1 text-xs text-tertiary">
-							Header names your MCP client sends, comma separated. Each reaches the script as a
-							parameter of the same name (<code>X-User-Id</code> becomes <code>x_user_id</code>) and
-							is hidden from the tool schema, so the model cannot set it.
+							Header names your MCP client sends, comma separated. A script or flow without a
+							preprocessor receives each as a parameter of the same name (<code>X-User-Id</code>
+							becomes <code>x_user_id</code>), hidden from the tool schema so the model cannot set
+							it. With a preprocessor, they arrive under <code>event.headers</code> instead, keyed by
+							the original header name.
+						</p>
+						<p class="mt-1 text-xs text-tertiary">
+							Authentication headers stay out of both. Tools that run a runnable by path, preview,
+							or schedule are withdrawn while this is set, since the model chooses their arguments.
 						</p>
 					</div>
 				{/if}

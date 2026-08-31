@@ -197,14 +197,14 @@ pub fn strip_transport_owned_params(
         .get_mut("properties")
         .and_then(Value::as_object_mut)
     {
-        properties.retain(|key, _| !include_headers.contains(key));
+        properties.retain(|key, _| !include_headers.owns_param(key));
     }
 
     if let Some(required) = input_schema
         .get_mut("required")
         .and_then(Value::as_array_mut)
     {
-        required.retain(|name| !name.as_str().is_some_and(|n| include_headers.contains(n)));
+        required.retain(|name| !name.as_str().is_some_and(|n| include_headers.owns_param(n)));
     }
 }
 
