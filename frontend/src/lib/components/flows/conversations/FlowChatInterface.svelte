@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
-	import { MessageCircle, Loader2, Settings2 } from 'lucide-svelte'
-	import ChatMessage from '$lib/components/chat/ChatMessage.svelte'
-	import ChatInput from '$lib/components/chat/ChatInput.svelte'
+	import { Button } from '$lib/components/common'
+	import { Loader2, MessageCircle, Settings2 } from 'lucide-svelte'
 	import { FlowChatManager } from './FlowChatManager.svelte'
+	import { FlowChatViewHost } from './flowChatViewHost.svelte'
+	import AIChatDisplay from '$lib/components/copilot/chat/AIChatDisplay.svelte'
+	import { setChatViewHost } from '$lib/components/copilot/chat/chatViewHost'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { type DynamicInput } from '$lib/utils'
@@ -13,9 +14,16 @@
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
 		path: string
+		wideLayout?: boolean
 	}
 
-	let { manager, deploymentInProgress = false, additionalInputsSchema, path }: Props = $props()
+	let {
+		manager,
+		deploymentInProgress = false,
+		additionalInputsSchema,
+		path,
+		wideLayout = false
+	}: Props = $props()
 
 	// Derive helperScript for dynamic inputs from schema
 	const dynamicInputHelperScript = $derived.by((): DynamicInput.HelperScript | undefined => {
@@ -63,18 +71,23 @@
 		showInputsModal = false
 	}
 
-	function handleSendMessage() {
-		const inputs = additionalInputsSchema
-			? (loadInputsFromStorage() ?? additionalInputsValues)
-			: undefined
-		manager.sendMessage(inputs)
-	}
-
 	function openInputsModal() {
 		const stored = loadInputsFromStorage()
 		if (stored) additionalInputsValues = stored
 		showInputsModal = true
 	}
+
+	const chatHost = new FlowChatViewHost(manager, () =>
+		additionalInputsSchema ? (loadInputsFromStorage() ?? additionalInputsValues) : undefined
+	)
+	setChatViewHost(chatHost)
+
+	// A message typed mid-run is held by the host; send it once the run settles.
+	$effect(() => {
+		if (!chatHost.loading && chatHost.queuedMessage) {
+			chatHost.flushQueuedMessage()
+		}
+	})
 
 	const hasMissingRequired = $derived.by(() => {
 		if (!additionalInputsSchema?.required?.length) return false
@@ -101,83 +114,65 @@
 	</Modal>
 {/if}
 
-<div class="flex flex-col h-full flex-1 min-w-0">
-	<!-- Messages Container -->
-	<div
-		bind:this={manager.messagesContainer}
-		class="flex-1 min-h-0 overflow-y-auto p-4 bg-background"
-		onscroll={manager.handleScroll}
-	>
-		{#if deploymentInProgress}
-			<Alert type="warning" title="Deployment in progress" size="xs" />
-		{/if}
+{#snippet emptyHint()}
+	<div class="flex-1 text-center text-tertiary flex items-center justify-center flex-col">
 		{#if manager.isLoadingMessages}
-			<div class="flex items-center justify-center h-full">
-				<Loader2 size={32} class="animate-spin" />
-			</div>
-		{:else if manager.messages.length === 0}
-			<div class="text-center text-tertiary flex items-center justify-center flex-col h-full">
-				<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
-				<p class="text-lg font-medium">Start a conversation</p>
-				<p class="text-sm">Send a message to run the flow and see the results</p>
-			</div>
+			<Loader2 size={32} class="animate-spin" />
 		{:else}
-			<div class="w-full space-y-4 xl:max-w-7xl mx-auto">
-				{#each manager.messages as message (message.id)}
-					<ChatMessage
-						role={message.message_type}
-						content={message.content}
-						loading={message.loading}
-						success={message.success}
-						stepName={message.step_name}
-					/>
-				{/each}
-				{#if manager.isWaitingForResponse}
-					<div class="flex items-center gap-2 text-tertiary">
-						<Loader2 size={16} class="animate-spin" />
-						<span class="text-sm">Processing...</span>
-					</div>
+			<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
+			<p class="text-lg font-medium">Start a conversation</p>
+			<p class="text-sm">Send a message to run the flow and see the results</p>
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet inputPreface()}
+	{#if additionalInputsSchema}
+		<div class="flex items-center justify-end w-full mb-1">
+			<div class="relative">
+				<Button
+					unifiedSize="xs"
+					variant="default"
+					startIcon={{ icon: Settings2 }}
+					title="Inputs"
+					onClick={openInputsModal}
+				>
+					Inputs
+				</Button>
+				{#if hasMissingRequired}
+					<span class="absolute -top-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full"></span>
 				{/if}
 			</div>
-		{/if}
-	</div>
-
-	<!-- Chat Input -->
-	<div class="flex flex-col items-center p-2 xl:max-w-7xl mx-auto w-full gap-2">
-		{#if additionalInputsSchema}
-			<div class="flex items-center justify-end w-full">
-				<div class="relative">
-					<Button
-						size="xs"
-						variant="default"
-						startIcon={{ icon: Settings2 }}
-						title="Inputs"
-						onClick={openInputsModal}
-					>
-						Inputs
-					</Button>
-					{#if hasMissingRequired}
-						<span class="absolute -top-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full"></span>
-					{/if}
-				</div>
-			</div>
-		{/if}
-		<div class="w-full" class:opacity-50={deploymentInProgress}>
-			<ChatInput
-				bind:value={manager.inputMessage}
-				bind:bindTextarea={manager.inputElement}
-				disabled={manager.isLoading || deploymentInProgress}
-				onSend={handleSendMessage}
-				onKeydown={(e) => {
-					if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-						e.preventDefault()
-						handleSendMessage()
-					}
-				}}
-				showCancelButton={manager.isWaitingForResponse || manager.isLoading}
-				onCancel={() => manager.cancelCurrentJob()}
-				sendTitle={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
-			/>
 		</div>
-	</div>
+	{/if}
+{/snippet}
+
+<!-- The transcript scroller fills its flex row, which needs a height to resolve
+     against. Not every host gives one (the editor's Test-flow panel stacks the
+     chat above the job result in an auto-height column), so once there are
+     messages to scroll, claim one. -->
+<div
+	class="flex flex-col h-full flex-1 min-w-0"
+	class:min-h-96={chatHost.displayMessages.length > 0}
+>
+	<AIChatDisplay
+		messages={chatHost.displayMessages}
+		bind:scrollElement={manager.messagesContainer}
+		onTranscriptScroll={manager.handleScroll}
+		pastChats={[]}
+		diffMode={false}
+		selectedContext={[]}
+		availableContext={[]}
+		hideHeader
+		hideModeSelector
+		{wideLayout}
+		{emptyHint}
+		{inputPreface}
+		placeholder="Send a message to run the flow"
+		disabled={deploymentInProgress}
+		disabledMessage="Deployment in progress"
+		loadPastChat={() => {}}
+		deletePastChat={() => {}}
+		saveAndClear={() => {}}
+	/>
 </div>

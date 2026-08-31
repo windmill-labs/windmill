@@ -17,6 +17,8 @@
 		path: string
 		hideSidebar?: boolean
 		inputSchema?: Record<string, any>
+		/** Wider centered column, for the full-page chat. */
+		wideLayout?: boolean
 	}
 
 	let {
@@ -25,7 +27,8 @@
 		useStreaming = false,
 		path,
 		hideSidebar = false,
-		inputSchema = undefined
+		inputSchema = undefined,
+		wideLayout = false
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
@@ -72,5 +75,11 @@
 	{#if !hideSidebar}
 		<FlowConversationsSidebar {manager} />
 	{/if}
-	<FlowChatInterface {manager} {deploymentInProgress} {additionalInputsSchema} {path} />
+	<FlowChatInterface
+		{manager}
+		{deploymentInProgress}
+		{additionalInputsSchema}
+		{path}
+		{wideLayout}
+	/>
 </div>

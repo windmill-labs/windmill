@@ -705,6 +705,7 @@
 								path={flow?.path ?? ''}
 								useStreaming={shouldUseStreaming}
 								inputSchema={flow?.schema}
+								wideLayout
 							/>
 						{:else}
 							{@const hasSchema =

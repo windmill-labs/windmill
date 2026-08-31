@@ -13,6 +13,7 @@
 		workspaceItemRegistry
 	} from './workspaceItems.svelte'
 	import { markdownProse } from '$lib/components/markdownProse'
+	import DisplayResult from '$lib/components/DisplayResult.svelte'
 
 	interface Props {
 		message: DisplayMessage
@@ -57,6 +58,20 @@
 		const rest = seconds % 60
 		return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`
 	}
+
+	const stepName = $derived(message.role === 'assistant' ? message.stepName : undefined)
+
+	// A flow step can return a file rather than text; the raw JSON would be
+	// unreadable, so hand it to the result viewer instead of the markdown renderer.
+	const s3Object = $derived.by(() => {
+		if (!message.content.startsWith('{')) return undefined
+		try {
+			const parsed = JSON.parse(message.content)
+			return parsed?.type === 'windmill_s3_object' && parsed?.s3 ? parsed : undefined
+		} catch {
+			return undefined
+		}
+	})
 
 	const candidatePaths = $derived(extractCandidatePaths(message.content))
 	const rendererPlugin = {
@@ -111,7 +126,13 @@
 	</ChatCollapsibleCard>
 {/if}
 
-{#if message.content}
+{#if stepName}
+	<div class="text-2xs text-tertiary font-medium mb-1">{stepName}</div>
+{/if}
+
+{#if s3Object}
+	<DisplayResult result={s3Object} workspaceId={$workspaceStore} noControls={true} />
+{:else if message.content}
 	<div class="w-full space-y-2 {markdownProse.sm}">
 		<Markdown md={message.content} {plugins} />
 	</div>

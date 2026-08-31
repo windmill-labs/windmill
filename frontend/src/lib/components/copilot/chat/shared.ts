@@ -629,6 +629,9 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	 * would look like it is still streaming forever.
 	 */
 	streaming?: boolean
+	/** Flow step that produced this message, when the conversation is a flow run
+	 * rather than a copilot turn. Rendered as a label above the content. */
+	stepName?: string
 }
 
 /**
