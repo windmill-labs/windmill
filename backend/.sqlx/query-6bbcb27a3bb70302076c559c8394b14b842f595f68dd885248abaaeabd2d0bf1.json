@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n                        hostname,\n                        mode::text,\n                        worker_group,\n                        log_ts,\n                        file_path,\n                        ok_lines,\n                        err_lines,\n                        json_fmt\n                    FROM log_file\n                    WHERE log_ts > $1\n                    ORDER BY log_ts ASC LIMIT $2",
+  "query": "SELECT\n                        hostname,\n                        mode::text,\n                        worker_group,\n                        log_ts,\n                        file_path,\n                        ok_lines,\n                        err_lines,\n                        json_fmt\n                    FROM log_file\n                    WHERE indexed_at IS NULL\n                    ORDER BY log_ts ASC, hostname ASC LIMIT $1",
   "describe": {
     "columns": [
       {
@@ -46,7 +46,6 @@
     ],
     "parameters": {
       "Left": [
-        "Timestamp",
         "Int8"
       ]
     },
@@ -61,5 +60,5 @@
       true
     ]
   },
-  "hash": "b5c839baab25c4dcdd503d380cf7a886242277cd50555f20b2e22e13942d2a3a"
+  "hash": "6bbcb27a3bb70302076c559c8394b14b842f595f68dd885248abaaeabd2d0bf1"
 }
