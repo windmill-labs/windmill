@@ -1,6 +1,7 @@
 import { ResourceService } from '$lib/gen'
 import { canWrite } from '$lib/utils'
 import type { UserExt } from '$lib/stores'
+import { MAX_SKILL_INSTRUCTIONS_LENGTH } from './skillMd'
 
 /**
  * Skills are resources of this type: a file resource (`format_extension = 'md'`)
@@ -61,9 +62,19 @@ export async function listSkillResources(
 	}))
 }
 
+/** Cut `text` to `max` characters, marking the cut so a reader (the model
+ * included) can tell truncation from a body that simply ends there. */
+export function truncateForPrompt(text: string, max: number): string {
+	return text.length <= max ? text : `${text.slice(0, max)}… [truncated]`
+}
+
 /** The SKILL.md body of one skill. Throws rather than returning `''` when the
  * resource holds no readable body: an empty string reaches the model as a
- * successful read of a skill with no instructions, which it would then act on. */
+ * successful read of a skill with no instructions, which it would then act on.
+ *
+ * Bounded because any `ai_skill` resource can be selected, including ones written
+ * through git sync or the resource editor that never passed the authoring form's
+ * limits; an unbounded body would exhaust the context on a single tool call. */
 export async function readSkillBody(workspace: string, path: string): Promise<string> {
 	const value = (await ResourceService.getResourceValue({ workspace, path })) as
 		| { content?: unknown }
@@ -71,7 +82,7 @@ export async function readSkillBody(workspace: string, path: string): Promise<st
 	if (typeof value?.content !== 'string') {
 		throw new Error(`resource ${path} has no string "content" — is it an ${SKILLS_RESOURCE_TYPE}?`)
 	}
-	return value.content
+	return truncateForPrompt(value.content, MAX_SKILL_INSTRUCTIONS_LENGTH)
 }
 
 export async function saveSkillResource(

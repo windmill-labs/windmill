@@ -2202,15 +2202,18 @@ export class AIChatManager {
 		if (!this.isSessionChat || this.mode !== AIMode.GLOBAL || !instructions.startsWith('/')) {
 			return instructions
 		}
-		// `[\w-]+` rather than the stricter SKILL.md name syntax: the command names a
-		// resource path's last segment, and resource paths admit `_` and uppercase.
-		const match = /^\/([\w-]+)(?:\s+([\s\S]*))?$/.exec(instructions)
+		// Accepts a bare name or a whole resource path: names are what people type,
+		// but the picker inserts the path when two folders answer to the same name.
+		// `[\w-]` rather than the stricter SKILL.md name syntax, since a path segment
+		// admits `_` and uppercase.
+		const match = /^\/([\w\-/]+)(?:\s+([\s\S]*))?$/.exec(instructions)
 		if (!match) {
 			return instructions
 		}
-		// Two folders can each hold a skill of this name, and picking one of them
-		// would silently apply instructions the user did not choose.
-		const matches = this.globalSkills.filter((s) => s.name === match[1])
+		// A path identifies one skill; a name shared by two would otherwise silently
+		// apply instructions the user did not choose, so it is left unexpanded.
+		const byPath = this.globalSkills.find((s) => s.path === match[1])
+		const matches = byPath ? [byPath] : this.globalSkills.filter((s) => s.name === match[1])
 		if (matches.length !== 1) {
 			return instructions
 		}

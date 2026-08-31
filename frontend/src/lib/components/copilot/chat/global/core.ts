@@ -84,7 +84,13 @@ import { searchNpmPackagesTool } from '../script/core'
 import type { McpServer } from './mcpTools'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { enabledSkillPaths } from '../skills/enabledSkills'
-import { listSkillResources, readSkillBody, skillNameFromPath } from '../skills/skillResources'
+import {
+	listSkillResources,
+	readSkillBody,
+	skillNameFromPath,
+	truncateForPrompt
+} from '../skills/skillResources'
+import { MAX_SKILL_DESCRIPTION_LENGTH } from '../skills/skillMd'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
@@ -2345,7 +2351,15 @@ export async function loadWorkspaceSkills(workspace: string): Promise<AiSkillLis
 		// advertised to the model as something read_skill can load.
 		return (await listSkillResources(workspace))
 			.filter((s) => enabled.has(s.path))
-			.map(({ path, name, description }) => ({ path, name, description }))
+			.map(({ path, name, description }) => ({
+				path,
+				name,
+				// Every description goes into the system prompt on every turn, and any
+				// resource of this type can be selected — including ones written through
+				// git sync or the resource editor, which never saw the authoring form's
+				// bounds. One unbounded description would crowd out the conversation.
+				description: truncateForPrompt(description, MAX_SKILL_DESCRIPTION_LENGTH)
+			}))
 	} catch (e) {
 		console.error('Failed to load AI skills', e)
 		return []
@@ -2368,6 +2382,14 @@ export const readSkillTool: Tool<{}> = {
 	fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 		const parsed = readSkillSchema.parse(args)
 		const name = skillNameFromPath(parsed.path)
+		// The prompt lists only selected skills, but the tool takes a path the model
+		// composed, so the selection is enforced here too rather than assumed. Without
+		// it the tool reads any resource holding a string `content` — the user's own
+		// access, but not what "load a selected skill" says it does.
+		if (!enabledSkillPaths(workspace).includes(parsed.path)) {
+			toolCallbacks.setToolStatus(toolId, { content: `Skill "${name}" is not selected` })
+			return `"${parsed.path}" is not one of the skills selected for this chat. Only the paths listed under "Skills" in the system prompt can be read.`
+		}
 		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${name}"...` })
 		try {
 			const instructions = await readSkillBody(workspace, parsed.path)

@@ -472,18 +472,26 @@ What the assistant should do when this skill applies.
 		await processFolderFiles(files)
 	}
 
-	async function importSkills(toImport: SkillUpload[], skipped: string[]) {
+	/** `overwrite` is granted only for destinations the confirmation listed as an
+	 * existing skill. Everything else is created, never upserted: a path the user
+	 * was told was free may hold an unrelated resource — a credential, say — and an
+	 * upsert would replace its value and type with a skill. Losing the import of a
+	 * name is recoverable; losing what was there is not. */
+	async function importSkills(
+		toImport: { skill: SkillUpload; overwrite: boolean }[],
+		skipped: string[]
+	) {
 		const target = ws
 		const owner = defaultOwner()
 		saving = true
 		let written = 0
 		const failed: string[] = []
 		try {
-			for (const skill of toImport) {
+			for (const { skill, overwrite } of toImport) {
 				const dest = `${owner}/${skill.name}`
 				try {
 					await saveSkillResource(target, dest, skill.description, skill.instructions, {
-						overwrite: true
+						overwrite
 					})
 					setSkillEnabled(target, dest, true)
 					written++
@@ -603,8 +611,10 @@ What the assistant should do when this skill applies.
 			confirmationText="Import"
 			onConfirmed={async () => {
 				const toImport = [
-					...pendingNew,
-					...pendingConflicts.filter((s) => overwriteChoices[s.name])
+					...pendingNew.map((skill) => ({ skill, overwrite: false })),
+					...pendingConflicts
+						.filter((s) => overwriteChoices[s.name])
+						.map((skill) => ({ skill, overwrite: true }))
 				]
 				const skipped = pendingSkipped
 				pendingImport = undefined
