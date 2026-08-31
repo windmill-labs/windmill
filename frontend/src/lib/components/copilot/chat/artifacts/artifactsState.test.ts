@@ -588,6 +588,29 @@ describe('cross-tab artifact sync', () => {
 		expect(broadcasts).toEqual([])
 	})
 
+	// A tab opening the session reads the whole list; a notification landing inside that read
+	// writes from the list it has so far — empty — and invalidates the read on its way out.
+	it('keeps the rest of the session when a notification lands mid-load', async () => {
+		const kept = await store.create('s1', { name: 'Plan', content: 'p' })
+		const notified = await store.create('s1', { name: 'Notes', content: 'n' })
+
+		const opening = new stateMod.SessionArtifactsStore()
+		let release: () => void = () => {}
+		const held = new Promise<void>((r) => (release = r))
+		const listForSession = dbMod.listArtifactsForSession
+		vi.spyOn(dbMod, 'listArtifactsForSession').mockImplementationOnce(async (id: string) => {
+			await held
+			return listForSession(id)
+		})
+
+		const loading = opening.setSession('s1')
+		await opening.applyRemoteArtifact(notified.id)
+		release()
+		await loading
+
+		expect(opening.artifacts.map((a) => a.id).sort()).toEqual([kept.id, notified.id].sort())
+	})
+
 	it('drops an artifact the other tab removed', async () => {
 		const created = await store.create('s1', { name: 'Notes', content: 'x' })
 		await watcher.applyRemoteArtifact(created.id)

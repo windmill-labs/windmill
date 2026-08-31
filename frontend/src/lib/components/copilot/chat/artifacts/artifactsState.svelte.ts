@@ -154,6 +154,11 @@ export class SessionArtifactsStore {
 		// previous one's row placed into its list, nor one of its own rows dropped.
 		if (this.#sessionId !== loaded) return
 		if (read.state === 'unavailable') return
+		// Sampled after the awaits, once a load racing us may already have landed.
+		// A write below both derives from a list that load has not filled yet and
+		// bumps the token it checks on arrival, so it would leave this session
+		// holding only what this notification carried until the next write.
+		const loadInFlight = this.loading
 		if (read.state === 'loaded') {
 			// Weighed against what is held, not placed over it: an ordinary artifact
 			// whose persist the store refused lives only in memory here, and taking
@@ -161,10 +166,13 @@ export class SessionArtifactsStore {
 			// a different one.
 			const held = this.artifacts.find((a) => a.id === artifactId)
 			this.#place(furtherAlong(read.artifact, held) ?? read.artifact)
+			if (loadInFlight) await this.#load()
 			return
 		}
 		const next = this.artifacts.filter((a) => a.id !== artifactId)
-		if (next.length !== this.artifacts.length) this.#applyWrite(next)
+		if (next.length === this.artifacts.length) return
+		this.#applyWrite(next)
+		if (loadInFlight) await this.#load()
 	}
 
 	async get(id: string): Promise<PersistedArtifact | undefined> {

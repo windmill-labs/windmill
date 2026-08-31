@@ -618,7 +618,14 @@ export default class HistoryManager {
 		if (!db) return 'unavailable'
 		try {
 			const chat = await db.get('chats', id)
-			if (!chat) return 'missing'
+			if (!chat) {
+				// Drop the mirror too. `loadPastChat` reads from it and never from the
+				// store, so a copy left behind here is a deleted chat that comes back
+				// on the next rotation onto this id.
+				const { [id]: _gone, ...rest } = this.savedChats
+				this.savedChats = rest
+				return 'missing'
+			}
 			this.savedChats = { ...this.savedChats, [id]: chat }
 			return 'loaded'
 		} catch (err) {

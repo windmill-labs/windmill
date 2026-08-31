@@ -810,6 +810,25 @@ describe('HistoryManager.reloadChat', () => {
 		expect(await hm.reloadChat('no-such-chat')).toBe('missing')
 	})
 
+	it('evicts the mirrored copy of a chat the driver deleted', async () => {
+		const hm = new HistoryManager()
+		await hm.init()
+		const chatId = hm.getCurrentChatId()
+		await hm.saveChat(
+			[{ role: 'user', content: 'deleted by the driving tab' }] as DisplayMessage[],
+			[] as ChatCompletionMessageParam[]
+		)
+
+		const db = await openDB('copilot-chat-history::admin@test')
+		await db.delete('chats' as never, chatId)
+		db.close()
+
+		expect(await hm.reloadChat(chatId)).toBe('missing')
+		// loadPastChat serves the mirror, so a copy left behind would resurrect the
+		// deleted transcript the next time this id came round again.
+		expect(await hm.loadPastChat(chatId)).toBeUndefined()
+	})
+
 	it('reports a store it cannot open as unavailable, never as missing', async () => {
 		;(globalThis as any).indexedDB = {
 			open: () => {

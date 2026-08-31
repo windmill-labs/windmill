@@ -1962,8 +1962,13 @@ export class AIChatManager {
 		// A synthetic send carries none of the user's text; its caller owns the
 		// instructions it set and unwinds them itself.
 		if (options.synthetic || options.queued) return
+		// The same fallback sendRequestImpl applies: the programmatic senders (an
+		// editor's AI Fix, Ask AI) leave the prompt on `this.instructions` and pass
+		// no `instructions` option, so reading the option alone would hand back an
+		// empty prompt and lose what they were about to send.
+		const instructions = options.instructions ?? this.instructions
 		const restored = this.aiChatInput?.restoreInstructions(
-			options.instructions ?? '',
+			instructions,
 			options.pastes ?? [],
 			options.images ?? [],
 			options.files ?? []
@@ -1972,9 +1977,9 @@ export class AIChatManager {
 		// queue so it is still the user's to send rather than silently gone. The
 		// queue holds plain text, so the pastes are expanded into it — parked as
 		// bare tokens they would point at blobs nothing holds any more.
-		if (restored !== true && options.instructions) {
+		if (restored !== true && instructions) {
 			this.restoreToInput(
-				expanded(chatDraft(options.instructions, options.pastes ?? [])),
+				expanded(chatDraft(instructions, options.pastes ?? [])),
 				options.images,
 				options.files
 			)
