@@ -10,11 +10,15 @@
 -- the rows, so it is recorded on them.
 ALTER TABLE log_file ADD COLUMN indexed_at TIMESTAMPTZ;
 
--- Rows that already existed are the ingest's own history: everything at or below the cursor it
--- had reached was read, and the indexer puts the rest back on the queue on its first pass, which
--- is the only place the cursor's position is known. Recorded as done rather than left outstanding
--- so a 14-day window is not re-read on upgrade, when the raw files it would need are long deleted.
-UPDATE log_file SET indexed_at = now() WHERE indexed_at IS NULL;
+-- Rows that already existed are marked, not queued: on a 14-day window most were ingested long
+-- ago and their raw files are gone. A sentinel rather than a timestamp, because the indexer has to
+-- tell them apart from rows registered since — those start NULL — and it puts the window's worth of
+-- them back on the queue on its first pass, keeping only what the columnar store can vouch for.
+--
+-- Not split here on the cursor the old ingest had reached. Below that cursor sits every row it
+-- skipped, which is the loss this migration exists to stop; recording those as done would carry the
+-- bug into its own fix.
+UPDATE log_file SET indexed_at = 'epoch' WHERE indexed_at IS NULL;
 
 -- The work queue, and the only index the ingest query needs: outstanding rows are a small
 -- fraction of the table, so this stays proportional to what is left to do rather than to the
@@ -25,3 +29,7 @@ CREATE INDEX index_log_file_pending ON log_file (log_ts) WHERE indexed_at IS NUL
 -- the one lookup that arrives without a `log_ts`: the primary key is `(hostname, log_ts)`, so
 -- nothing else covers it and each batch would scan every outstanding row instead.
 CREATE INDEX index_log_file_pending_path ON log_file (hostname, file_path) WHERE indexed_at IS NULL;
+
+-- Reached once per pass while pre-migration rows survive, and never again after the first
+-- conversion clears them.
+CREATE INDEX index_log_file_premigration ON log_file (log_ts) WHERE indexed_at = 'epoch';
