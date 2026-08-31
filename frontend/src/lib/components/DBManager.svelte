@@ -59,6 +59,7 @@
 		| { kind: 'create-schema' }
 		| { kind: 'alter-table'; schema: string; table: string }
 		| { kind: 'delete-table'; schema: string; table: string }
+		| { kind: 'drop-schema'; schema: string }
 
 	type Props = {
 		dbType: DbType
@@ -377,6 +378,29 @@
 		}
 	}
 
+	function startDropSchema(dt: string | undefined, schema: string) {
+		if (!onDatatable(dt, { kind: 'drop-schema', schema })) return
+		askingForConfirmation = {
+			title: `Are you sure you want to drop ${schema} ? Everything in it goes with it, and this action is irreversible`,
+			confirmationText: 'Drop permanently',
+			open: true,
+			id: 'db-manager-drop-schema-confirmation-modal',
+			onConfirm: async () => {
+				askingForConfirmation && (askingForConfirmation.loading = true)
+				try {
+					await dbSchemaOps.onDeleteSchema({ schema })
+					refresh?.()
+					sendUserToast(`Schema '${schema}' dropped successfully`)
+				} catch (e) {
+					let msg: string | undefined = (e as any).body ?? (e as Error).message
+					if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
+					sendUserToast(msg ?? 'Action failed!', true)
+				}
+				askingForConfirmation = undefined
+			}
+		}
+	}
+
 	// Finishes an action requested before the switch, now that this component is
 	// mounted against the data table it targeted.
 	$effect(() => {
@@ -389,6 +413,7 @@
 		}
 		if (!schemaKeys.includes(req.schema)) return
 		if (req.kind === 'create-table') startCreateTable(undefined, req.schema)
+		else if (req.kind === 'drop-schema') startDropSchema(undefined, req.schema)
 		else if (req.kind === 'alter-table') startAlterTable(undefined, req.schema, req.table)
 		else startDeleteTable(undefined, req.schema, req.table)
 	})
@@ -620,6 +645,12 @@
 															datatable: root.datatable,
 															schema: sc.schemaKey
 														})
+												},
+												{
+													displayName: 'Drop schema',
+													icon: Trash2Icon,
+													type: 'delete',
+													action: () => startDropSchema(root.datatable, sc.schemaKey)
 												}
 											]}
 											btnId={'db-manager-schema-actions-' + onlyAlphaNumAndUnderscore(sc.schemaKey)}
