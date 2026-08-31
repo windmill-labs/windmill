@@ -8394,9 +8394,8 @@ properties:
       set, the list governs both the preflight and the response, overriding any Access-Control-Allow-Origin
       the runnable returns via wm_headers. Use [''*''] to opt out of any restriction,
       including the http_route_default_allowed_origins instance setting. An empty
-      list allows no origin at all, blocking every browser while leaving non-browser
-      clients unaffected. When null, the instance setting applies, or Access-Control-Allow-Origin:
-      * if it is unset.'
+      list is not a configuration and resolves exactly as null does. When null, the
+      instance setting applies, or Access-Control-Allow-Origin: * if it is unset.'
   error_handler_path:
     type: string
     description: Path to a script to run when the triggered job fails. A bare path,
