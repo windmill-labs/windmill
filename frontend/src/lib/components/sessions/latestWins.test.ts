@@ -26,8 +26,6 @@ describe('createLatestWins', () => {
 			order.push('second')
 		})
 		await tick()
-		// The second task waits for the first however slow it is, so its writes
-		// can never land between — or after — the first's.
 		expect(order).toEqual(['first:start'])
 		first.resolve()
 		await tick()

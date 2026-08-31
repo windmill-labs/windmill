@@ -1111,6 +1111,10 @@ function applyRunStatus(msg: RunStatusMsg): void {
 const catchUps = createLatestWins()
 
 function queueCatchUp(sessionId: string, chatId: string, attempt = 0): void {
+	// A pending unavailable-store retry carries its own turn-end's chat id; left
+	// armed, it could fire after this newer catch-up queued and supersede it with
+	// the stale id. This catch-up schedules its own retry if it needs one.
+	cancelCatchUpRetry(sessionId)
 	catchUps.run(sessionId, (superseded) => applyTurnEnd(sessionId, chatId, attempt, superseded))
 }
 
@@ -1177,6 +1181,11 @@ async function applyTurnEnd(
 			m.adoptEmptyChat(id)
 			setSessionChatId(sessionId, id)
 		}
+		// Re-probed because loadPastChat awaits too (image hydration): a turn-end
+		// that arrived during it owns the gate now, and settling it here would
+		// unlock the composer over a transcript missing that newer turn for as
+		// long as the queued catch-up is still reading.
+		if (superseded()) return
 		caughtUp = true
 	} catch (e) {
 		// A read that threw leaves the same mismatched pair an 'unavailable' one
