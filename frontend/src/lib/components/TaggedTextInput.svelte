@@ -339,7 +339,13 @@
 
 	function handleKeyDown(e: KeyboardEvent) {
 		onKeyDown?.(e)
-		if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return
+		// Single-line filter input: block Enter's default newline insertion. Surrounding handlers
+		// (suggestion select, list open) still run on bubble; only the contenteditable break is gone.
+		if (e.key === 'Enter') {
+			e.preventDefault()
+			return
+		}
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') return
 		const cursorPos = getCursorPosition()
 		const text = getTextContent()
 

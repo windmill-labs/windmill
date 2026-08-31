@@ -97,8 +97,10 @@
 	const HOLD_MS = 1800
 	const PAUSE_MS = 400
 
-	// Typewriter effect: type a prompt out, hold, delete, then advance to the next.
+	// Typewriter effect: type a prompt out, hold, delete, then advance to the next. Only while the
+	// composer is shown — otherwise (operators) it would loop forever driving an unrendered input.
 	$effect(() => {
+		if (!showComposer) return
 		let promptIndex = 0
 		let charIndex = 0
 		let deleting = false
