@@ -275,15 +275,18 @@
 						<Tooltip>
 							{#snippet text()}
 								A script or flow without a preprocessor receives each header as a parameter of the
-								same name (<code>X-User-Id</code> becomes <code>x_user_id</code>), hidden from the
-								tool schema so the model cannot set it. With a preprocessor they arrive keyed by the
-								original header name, under <code>event.headers</code> for a v2 preprocessor and
-								<code>wm_trigger.mcp.headers</code> for a v1 one. Running a script by path binds them
-								the same way, except for authentication headers, which that route never forwards; preview
-								and schedule tools drop the names instead, since a scheduled run has no request to read
-								them from. Elsewhere an authentication header reaches a runnable only if you name it
-								here.
-							{/snippet}
+									same name (<code>X-User-Id</code> becomes <code>x_user_id</code>), hidden from the
+									tool schema so the model cannot set it. With a preprocessor they arrive keyed by the
+									original header name, under <code>event.headers</code> for a v2 preprocessor and
+									<code>wm_trigger.mcp.headers</code> for a v1 one. An authentication header is
+									included only if you name it here.
+									<br /><br />
+									Preview and schedule tools drop these names instead of binding them, since a
+									scheduled run has no request to read them from. Running a script by path goes through
+									Windmill's webhook route, so a preprocessor there receives a webhook event rather
+									than an MCP one, and a named <code>Authorization</code> header is not forwarded to
+									it.
+								{/snippet}
 						</Tooltip></span
 					>
 					<TextInput

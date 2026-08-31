@@ -1305,6 +1305,25 @@ mod tests {
                 continue;
             }
             let reached = windmill_mcp::server::free_form_arg_map_keys(&tool.body_schema);
+
+            // A tool classified `WebhookBody` carries its runnable's arguments in
+            // the body root, and the strip only reaches those when the schema says
+            // the body is free-form. Asserted here because such a tool declares no
+            // `properties` and would otherwise fall straight through this loop.
+            if windmill_mcp::server::runnable_args_carrier(&tool.name)
+                == Some(windmill_mcp::server::RunnableArgsCarrier::WebhookBody)
+            {
+                assert_eq!(
+                    tool.body_schema
+                        .as_ref()
+                        .and_then(|s| s.get("additionalProperties"))
+                        .and_then(serde_json::Value::as_bool),
+                    Some(true),
+                    "{}: classified as carrying a runnable's arguments in the body, but its schema is not free-form",
+                    tool.name
+                );
+            }
+
             let Some(props) = tool
                 .body_schema
                 .as_ref()

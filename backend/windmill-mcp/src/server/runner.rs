@@ -513,10 +513,17 @@ pub fn runnable_args_carrier(endpoint_name: &str) -> Option<RunnableArgsCarrier>
 /// leave a forged identity to be delivered through a handler instead.
 ///
 /// What must survive is everything the endpoint itself consumes: path segments,
-/// query parameters, declared body fields and the synthetic `workspace_id` of
-/// multi-workspace mode. Those are the tool's controls, not a runnable's inputs,
-/// and an allowlist that happens to collide with one — `?include_header=path`,
-/// `?include_header=workspace-id` — must not delete the target of the call.
+/// query parameters and declared body fields. Those are the tool's controls, not
+/// a runnable's inputs, and an allowlist that happens to collide with one —
+/// `?include_header=path` — must not delete the target of the call.
+///
+/// `workspace_id` is a control in multi-workspace mode only, which is why
+/// `multi_workspace` is a parameter rather than an assumption. There it selects
+/// the workspace, is read for routing after this runs, and is removed before the
+/// body is built, so it never reaches a runnable. In single-workspace mode the
+/// workspace comes from the URL and `workspace_id` is just another model-supplied
+/// key the free-form body forwards — exempting it there would let the model set a
+/// transport-owned parameter of that name.
 ///
 /// Which keys are which is read off the tool's own schemas rather than listed
 /// here, so a catalogue that grows another argument-bearing field is covered
@@ -525,6 +532,7 @@ fn strip_transport_owned_endpoint_args(
     args: &mut Value,
     tool: &EndpointTool,
     include_headers: &McpIncludeHeaders,
+    multi_workspace: bool,
 ) {
     if include_headers.is_empty() {
         return;
@@ -534,7 +542,7 @@ fn strip_transport_owned_endpoint_args(
     };
 
     if body_is_free_form(&tool.body_schema) {
-        let controls = endpoint_control_keys(tool);
+        let controls = endpoint_control_keys(tool, multi_workspace);
         map.retain(|key, _| controls.contains(key) || !include_headers.owns_param(key));
     }
 
@@ -556,11 +564,13 @@ fn body_is_free_form(body_schema: &Option<Value>) -> bool {
 }
 
 /// The argument names the endpoint consumes itself: path parameters, query
-/// parameters, declared body fields, and the `workspace_id` that multi-workspace
-/// mode adds to every workspaced tool.
-fn endpoint_control_keys(tool: &EndpointTool) -> HashSet<String> {
+/// parameters, declared body fields, and — in multi-workspace mode only — the
+/// synthetic `workspace_id` that routes the call.
+fn endpoint_control_keys(tool: &EndpointTool, multi_workspace: bool) -> HashSet<String> {
     let mut keys = HashSet::new();
-    keys.insert("workspace_id".to_string());
+    if multi_workspace {
+        keys.insert("workspace_id".to_string());
+    }
     for schema in [
         &tool.path_params_schema,
         &tool.query_params_schema,
@@ -908,7 +918,12 @@ impl<B: McpBackend> Runner<B> {
                 // Authorize against the token's MCP scopes and read-only flag,
                 // including the run-by-path path check (shared with multi mode).
                 let mut args = args;
-                strip_transport_owned_endpoint_args(&mut args, endpoint_tool, request.include_headers);
+                strip_transport_owned_endpoint_args(
+                    &mut args,
+                    endpoint_tool,
+                    request.include_headers,
+                    false,
+                );
                 authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
                 // This is an endpoint tool, call via backend. The backend's own error
@@ -1129,7 +1144,7 @@ impl<B: McpBackend> Runner<B> {
         // checked against the script/flow scope for that path — the endpoint
         // scope alone would let a granular token run items outside its allowed
         // paths.
-        strip_transport_owned_endpoint_args(&mut args, endpoint_tool, request.include_headers);
+        strip_transport_owned_endpoint_args(&mut args, endpoint_tool, request.include_headers, true);
         authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
         // Workspace-scoped endpoints need an explicit target workspace and a
@@ -1251,7 +1266,7 @@ mod tests {
             Some(json!({"type": "object", "additionalProperties": true})),
         );
         let mut flat = json!({"path": "u/admin/whoami", "x_user_id": "attacker@evil.test"});
-        strip_transport_owned_endpoint_args(&mut flat, &run_by_path, &include);
+        strip_transport_owned_endpoint_args(&mut flat, &run_by_path, &include, false);
         assert_eq!(flat, json!({"path": "u/admin/whoami"}));
 
         let schedule = endpoint_tool_with(
@@ -1278,7 +1293,7 @@ mod tests {
             "on_success_extra_args": {"x_user_id": "attacker@evil.test"},
             "retry": {"constant": {"seconds": 5}}
         });
-        strip_transport_owned_endpoint_args(&mut nested, &schedule, &include);
+        strip_transport_owned_endpoint_args(&mut nested, &schedule, &include, false);
         assert_eq!(nested["args"], json!({"ticket_id": "T-1"}));
         assert_eq!(nested["on_failure_extra_args"], json!({}));
         assert_eq!(nested["on_recovery_extra_args"], json!({}));
@@ -1287,11 +1302,16 @@ mod tests {
     }
 
     /// An allowlist that collides with an argument the *endpoint* consumes must
-    /// not delete the target of the call. `path` addresses the runnable and
-    /// `workspace_id` selects the workspace in multi-workspace mode; stripping
-    /// either would break every call on the connection rather than protect it.
+    /// not delete the target of the call: `path` addresses the runnable, and
+    /// stripping it would break every call on the connection rather than protect
+    /// it.
+    ///
+    /// `workspace_id` is a control only in multi-workspace mode. In
+    /// single-workspace mode the workspace comes from the URL, so a
+    /// model-supplied `workspace_id` is an ordinary argument the free-form body
+    /// forwards — and must be refused like any other transport-owned name.
     #[test]
-    fn an_allowlist_colliding_with_an_endpoint_control_leaves_it_alone() {
+    fn an_endpoint_control_survives_the_strip_only_where_it_is_one() {
         let run_by_path = endpoint_tool_with(
             "runScriptByPath",
             Some(json!({"type": "object", "properties": {"path": {"type": "string"}}})),
@@ -1303,16 +1323,22 @@ mod tests {
             &mut args,
             &run_by_path,
             &McpIncludeHeaders::parse("path").unwrap(),
+            false,
         );
         assert_eq!(args["path"], json!("u/admin/whoami"));
 
-        let mut args = json!({"workspace_id": "prod", "path": "u/admin/whoami"});
-        strip_transport_owned_endpoint_args(
-            &mut args,
-            &run_by_path,
-            &McpIncludeHeaders::parse("workspace-id").unwrap(),
-        );
-        assert_eq!(args["workspace_id"], json!("prod"));
+        let include_ws = McpIncludeHeaders::parse("workspace-id").unwrap();
+
+        // Multi-workspace: still needed to route, and removed after routing.
+        let mut routed = json!({"workspace_id": "prod", "path": "u/admin/whoami"});
+        strip_transport_owned_endpoint_args(&mut routed, &run_by_path, &include_ws, true);
+        assert_eq!(routed["workspace_id"], json!("prod"));
+
+        // Single-workspace: nothing routes on it, so a forged one is just an
+        // argument the runnable would receive.
+        let mut forged = json!({"workspace_id": "attacker", "path": "u/admin/whoami"});
+        strip_transport_owned_endpoint_args(&mut forged, &run_by_path, &include_ws, false);
+        assert_eq!(forged, json!({"path": "u/admin/whoami"}));
     }
 
     /// Every second door to a runnable is classified, and by how it carries the
