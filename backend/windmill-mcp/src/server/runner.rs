@@ -502,21 +502,28 @@ pub fn runnable_args_carrier(endpoint_name: &str) -> Option<RunnableArgsCarrier>
     }
 }
 
-/// Drop the transport-owned names from an endpoint tool's arguments, at the top
-/// level and inside every argument map it carries.
+/// Drop the transport-owned names from the parts of an endpoint tool's arguments
+/// that reach a runnable, leaving the endpoint's own controls alone.
 ///
-/// The nested reach is what the schedule and preview endpoints need. A schedule
-/// carries four such maps, not one: its own `args`, and the `on_failure_` /
-/// `on_recovery_` / `on_success_extra_args` handed to whatever runnable
-/// `on_failure` names. Reaching only `args` would leave a forged identity to be
-/// delivered through a handler instead.
+/// Two places carry runnable parameters. A free-form body — run-by-path — *is*
+/// the argument map, so its extra keys are stripped. A structured body carries
+/// them one level down, and a schedule carries four such maps, not one: its own
+/// `args`, and the `on_failure_` / `on_recovery_` / `on_success_extra_args`
+/// handed to whatever runnable `on_failure` names. Reaching only `args` would
+/// leave a forged identity to be delivered through a handler instead.
 ///
-/// Which keys those are is read off the tool's own schema rather than listed
+/// What must survive is everything the endpoint itself consumes: path segments,
+/// query parameters, declared body fields and the synthetic `workspace_id` of
+/// multi-workspace mode. Those are the tool's controls, not a runnable's inputs,
+/// and an allowlist that happens to collide with one — `?include_header=path`,
+/// `?include_header=workspace-id` — must not delete the target of the call.
+///
+/// Which keys are which is read off the tool's own schemas rather than listed
 /// here, so a catalogue that grows another argument-bearing field is covered
 /// without a matching edit in this crate.
 fn strip_transport_owned_endpoint_args(
     args: &mut Value,
-    body_schema: &Option<Value>,
+    tool: &EndpointTool,
     include_headers: &McpIncludeHeaders,
 ) {
     if include_headers.is_empty() {
@@ -525,12 +532,49 @@ fn strip_transport_owned_endpoint_args(
     let Value::Object(map) = args else {
         return;
     };
-    map.retain(|key, _| !include_headers.owns_param(key));
-    for key in free_form_arg_map_keys(body_schema) {
+
+    if body_is_free_form(&tool.body_schema) {
+        let controls = endpoint_control_keys(tool);
+        map.retain(|key, _| controls.contains(key) || !include_headers.owns_param(key));
+    }
+
+    for key in free_form_arg_map_keys(&tool.body_schema) {
         if let Some(Value::Object(nested)) = map.get_mut(&key) {
             nested.retain(|k, _| !include_headers.owns_param(k));
         }
     }
+}
+
+/// Whether the tool's body is forwarded to a runnable wholesale, rather than
+/// being a structured payload of the endpoint's own fields.
+fn body_is_free_form(body_schema: &Option<Value>) -> bool {
+    body_schema
+        .as_ref()
+        .and_then(|schema| schema.get("additionalProperties"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+/// The argument names the endpoint consumes itself: path parameters, query
+/// parameters, declared body fields, and the `workspace_id` that multi-workspace
+/// mode adds to every workspaced tool.
+fn endpoint_control_keys(tool: &EndpointTool) -> HashSet<String> {
+    let mut keys = HashSet::new();
+    keys.insert("workspace_id".to_string());
+    for schema in [
+        &tool.path_params_schema,
+        &tool.query_params_schema,
+        &tool.body_schema,
+    ] {
+        if let Some(props) = schema
+            .as_ref()
+            .and_then(|s| s.get("properties"))
+            .and_then(Value::as_object)
+        {
+            keys.extend(props.keys().cloned());
+        }
+    }
+    keys
 }
 
 /// The properties of `body_schema` that are free-form maps forwarded to a
@@ -864,11 +908,7 @@ impl<B: McpBackend> Runner<B> {
                 // Authorize against the token's MCP scopes and read-only flag,
                 // including the run-by-path path check (shared with multi mode).
                 let mut args = args;
-                strip_transport_owned_endpoint_args(
-                    &mut args,
-                    &endpoint_tool.body_schema,
-                    request.include_headers,
-                );
+                strip_transport_owned_endpoint_args(&mut args, endpoint_tool, request.include_headers);
                 authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
                 // This is an endpoint tool, call via backend. The backend's own error
@@ -1089,11 +1129,7 @@ impl<B: McpBackend> Runner<B> {
         // checked against the script/flow scope for that path — the endpoint
         // scope alone would let a granular token run items outside its allowed
         // paths.
-        strip_transport_owned_endpoint_args(
-            &mut args,
-            &endpoint_tool.body_schema,
-            request.include_headers,
-        );
+        strip_transport_owned_endpoint_args(&mut args, endpoint_tool, request.include_headers);
         authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
         // Workspace-scoped endpoints need an explicit target workspace and a
@@ -1179,48 +1215,104 @@ mod tests {
         assert_eq!(args, json!({"ticket_id": "T-1", "x_user_id": "someone"}));
     }
 
+    fn endpoint_tool_with(
+        name: &'static str,
+        path_params: Option<Value>,
+        body: Option<Value>,
+    ) -> EndpointTool {
+        EndpointTool {
+            name: Cow::Borrowed(name),
+            description: Cow::Borrowed(""),
+            instructions: Cow::Borrowed(""),
+            path: Cow::Borrowed("/w/{workspace}/jobs/run/p/{path}"),
+            method: Cow::Borrowed("POST"),
+            path_params_schema: path_params,
+            query_params_schema: None,
+            body_schema: body,
+            query_field_renames: None,
+            body_field_renames: None,
+        }
+    }
+
     /// The model's copy of a transport-owned name is dropped wherever an endpoint
-    /// tool can carry it: at the top level, where run-by-path puts a script's
-    /// arguments, and inside every free-form map the tool declares. A schedule
-    /// carries four of those — its own `args` plus the three `on_*_extra_args`
-    /// handed to its handlers — and reaching only `args` would still let a forged
-    /// identity be delivered through `on_failure`.
+    /// tool can carry it: at the top level of a free-form body, where run-by-path
+    /// puts a script's arguments, and inside every free-form map a structured body
+    /// declares. A schedule carries four of those — its own `args` plus the three
+    /// `on_*_extra_args` handed to its handlers — and reaching only `args` would
+    /// still let a forged identity be delivered through `on_failure`.
     #[test]
     fn endpoint_arguments_cannot_carry_a_header_fed_name() {
         let include = McpIncludeHeaders::parse("x-user-id").unwrap();
         let arg_map = || json!({"type": "object", "additionalProperties": true});
 
-        let flat_schema = Some(json!({"type": "object", "additionalProperties": true}));
+        let run_by_path = endpoint_tool_with(
+            "runScriptByPath",
+            Some(json!({"type": "object", "properties": {"path": {"type": "string"}}})),
+            Some(json!({"type": "object", "additionalProperties": true})),
+        );
         let mut flat = json!({"path": "u/admin/whoami", "x_user_id": "attacker@evil.test"});
-        strip_transport_owned_endpoint_args(&mut flat, &flat_schema, &include);
+        strip_transport_owned_endpoint_args(&mut flat, &run_by_path, &include);
         assert_eq!(flat, json!({"path": "u/admin/whoami"}));
 
-        let schedule_schema = Some(json!({
-            "type": "object",
-            "properties": {
-                "args": arg_map(),
-                "on_failure_extra_args": arg_map(),
-                "on_recovery_extra_args": arg_map(),
-                "on_success_extra_args": arg_map(),
-                // Structured, so its keys belong to the endpoint and must survive.
-                "retry": {"type": "object", "properties": {"constant": {"type": "object"}}},
-            }
-        }));
-        let mut schedule = json!({
+        let schedule = endpoint_tool_with(
+            "createSchedule",
+            None,
+            Some(json!({
+                "type": "object",
+                "properties": {
+                    "script_path": {"type": "string"},
+                    "args": arg_map(),
+                    "on_failure_extra_args": arg_map(),
+                    "on_recovery_extra_args": arg_map(),
+                    "on_success_extra_args": arg_map(),
+                    // Structured, so its keys belong to the endpoint and must survive.
+                    "retry": {"type": "object", "properties": {"constant": {"type": "object"}}},
+                }
+            })),
+        );
+        let mut nested = json!({
             "script_path": "u/admin/whoami",
-            "on_failure": "u/team/protected",
             "args": {"ticket_id": "T-1", "x_user_id": "attacker@evil.test"},
             "on_failure_extra_args": {"x_user_id": "attacker@evil.test"},
             "on_recovery_extra_args": {"x_user_id": "attacker@evil.test"},
             "on_success_extra_args": {"x_user_id": "attacker@evil.test"},
             "retry": {"constant": {"seconds": 5}}
         });
-        strip_transport_owned_endpoint_args(&mut schedule, &schedule_schema, &include);
-        assert_eq!(schedule["args"], json!({"ticket_id": "T-1"}));
-        assert_eq!(schedule["on_failure_extra_args"], json!({}));
-        assert_eq!(schedule["on_recovery_extra_args"], json!({}));
-        assert_eq!(schedule["on_success_extra_args"], json!({}));
-        assert_eq!(schedule["retry"], json!({"constant": {"seconds": 5}}));
+        strip_transport_owned_endpoint_args(&mut nested, &schedule, &include);
+        assert_eq!(nested["args"], json!({"ticket_id": "T-1"}));
+        assert_eq!(nested["on_failure_extra_args"], json!({}));
+        assert_eq!(nested["on_recovery_extra_args"], json!({}));
+        assert_eq!(nested["on_success_extra_args"], json!({}));
+        assert_eq!(nested["retry"], json!({"constant": {"seconds": 5}}));
+    }
+
+    /// An allowlist that collides with an argument the *endpoint* consumes must
+    /// not delete the target of the call. `path` addresses the runnable and
+    /// `workspace_id` selects the workspace in multi-workspace mode; stripping
+    /// either would break every call on the connection rather than protect it.
+    #[test]
+    fn an_allowlist_colliding_with_an_endpoint_control_leaves_it_alone() {
+        let run_by_path = endpoint_tool_with(
+            "runScriptByPath",
+            Some(json!({"type": "object", "properties": {"path": {"type": "string"}}})),
+            Some(json!({"type": "object", "additionalProperties": true})),
+        );
+
+        let mut args = json!({"path": "u/admin/whoami", "ticket_id": "T-1"});
+        strip_transport_owned_endpoint_args(
+            &mut args,
+            &run_by_path,
+            &McpIncludeHeaders::parse("path").unwrap(),
+        );
+        assert_eq!(args["path"], json!("u/admin/whoami"));
+
+        let mut args = json!({"workspace_id": "prod", "path": "u/admin/whoami"});
+        strip_transport_owned_endpoint_args(
+            &mut args,
+            &run_by_path,
+            &McpIncludeHeaders::parse("workspace-id").unwrap(),
+        );
+        assert_eq!(args["workspace_id"], json!("prod"));
     }
 
     /// Every second door to a runnable is classified, and by how it carries the

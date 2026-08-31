@@ -909,9 +909,9 @@ pub async fn prepare_push_args(
             }
         }
         RunnableFormat { has_preprocessor: true, version } => {
-            // A preprocessor sees the headers as an HTTP trigger's does: it is
-            // code the runnable's own author wrote, and it is what makes headers
-            // outside the allowlist reachable at all.
+            // Broader than the allowlist — this is what makes headers outside it
+            // reachable at all — but not the connection's credentials unless one
+            // was asked for by name. See `preprocessor_headers`.
             let headers = preprocessor_headers(request.headers, request.include_headers);
             // Counted on delivery rather than on the allowlist being set: this
             // route needs no allowlist, so gating it on one would record nothing
@@ -1289,38 +1289,45 @@ mod tests {
     /// Classification alone is not the guarantee — the strip has to reach every
     /// argument map a classified tool carries. A schedule carries four, and the
     /// three `on_*_extra_args` were open after the strip first learned to descend
-    /// into `args` alone. Pinned against the live catalogue rather than a list, so
-    /// a field added upstream fails here instead of silently widening the hole.
+    /// into `args` alone.
+    ///
+    /// Driven off what the catalogue *says* a field is, not off the same
+    /// `additionalProperties` flag the strip reads: comparing the strip to a copy
+    /// of itself would pass no matter what either did. A field described as
+    /// runnable arguments but declared some other way fails here.
     #[test]
-    fn the_strip_reaches_every_argument_map_a_classified_tool_carries() {
+    fn the_strip_reaches_every_argument_map_the_catalogue_describes() {
+        const RUNNABLE_ARGS: &str = "arguments to pass to the script or flow";
+        let mut unreached: Vec<String> = Vec::new();
+
         for tool in crate::mcp::auto_generated_endpoints::all_tools() {
             if windmill_mcp::server::runnable_args_carrier(&tool.name).is_none() {
                 continue;
             }
-            let declared: Vec<String> = tool
+            let reached = windmill_mcp::server::free_form_arg_map_keys(&tool.body_schema);
+            let Some(props) = tool
                 .body_schema
                 .as_ref()
                 .and_then(|s| s.get("properties"))
                 .and_then(|p| p.as_object())
-                .map(|props| {
-                    props
-                        .iter()
-                        .filter(|(_, spec)| {
-                            spec.get("additionalProperties")
-                                .and_then(serde_json::Value::as_bool)
-                                .unwrap_or(false)
-                        })
-                        .map(|(k, _)| k.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
-            let reached = windmill_mcp::server::free_form_arg_map_keys(&tool.body_schema);
-            assert_eq!(
-                declared, reached,
-                "{}: argument maps the strip does not reach",
-                tool.name
-            );
+            else {
+                continue;
+            };
+            for (key, spec) in props {
+                let describes_runnable_args = spec
+                    .get("description")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some_and(|d| d.contains(RUNNABLE_ARGS));
+                if describes_runnable_args && !reached.contains(key) {
+                    unreached.push(format!("{}.{}", tool.name, key));
+                }
+            }
         }
+
+        assert!(
+            unreached.is_empty(),
+            "fields the catalogue describes as runnable arguments that the strip does not reach: {unreached:?}"
+        );
     }
 
     /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does

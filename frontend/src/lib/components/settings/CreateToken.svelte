@@ -279,9 +279,10 @@
 								tool schema so the model cannot set it. With a preprocessor they arrive keyed by the
 								original header name, under <code>event.headers</code> for a v2 preprocessor and
 								<code>wm_trigger.mcp.headers</code> for a v1 one. Running a script by path binds them
-								the same way; preview and schedule tools drop the names instead, since a scheduled run
-								has no request to read them from. Authentication headers reach a runnable only if you
-								name one here.
+								the same way, except for authentication headers, which that route never forwards; preview
+								and schedule tools drop the names instead, since a scheduled run has no request to read
+								them from. Elsewhere an authentication header reaches a runnable only if you name it
+								here.
 							{/snippet}
 						</Tooltip></span
 					>
