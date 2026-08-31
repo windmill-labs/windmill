@@ -51,9 +51,9 @@
 	)
 
 	// While the toggle is on, whatever is typed is what gets saved. A rejected
-	// entry must never collapse to `undefined`, because `undefined` is stored as
-	// NULL and NULL means "any origin", so a typo would lift the restriction
-	// while the toggle still reads as on.
+	// entry must never collapse to `undefined`, which is stored as NULL and
+	// resolves to the instance default, or to any origin where none is set, so a
+	// typo would lift the restriction while the toggle still reads as on.
 	$effect(() => {
 		allowed_origins = restricted ? origins : undefined
 	})
