@@ -24,7 +24,7 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()
-	import { isActiveRunForm, isActiveUserQuestion, type ToolDisplayMessage } from './shared'
+	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
@@ -37,7 +37,7 @@
 	import ToolMessageActions from './ToolMessageActions.svelte'
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
-	import RunArgsFormDisplay from './RunArgsFormDisplay.svelte'
+	import RunScriptCard from './RunScriptCard.svelte'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 
@@ -118,7 +118,9 @@
 		isActiveUserQuestion(message) ? message.userQuestion : undefined
 	)
 
-	const activeRunForm = $derived(isActiveRunForm(message) ? message.runForm : undefined)
+	// The run card owns this call from the form to whatever settled it, cancelling included:
+	// the card is the call, and a run the user stopped is not a different kind of thing.
+	const isRunCard = $derived(Boolean(message.runForm))
 
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
@@ -131,8 +133,6 @@
 
 {#if activeUserQuestion}
 	<AskUserQuestionDisplay toolCallId={message.tool_call_id} userQuestion={activeUserQuestion} />
-{:else if activeRunForm}
-	<RunArgsFormDisplay toolCallId={message.tool_call_id} runForm={activeRunForm} />
 {:else if message.blockedByPlanMode}
 	<!-- Not an error card: the call did what plan mode says it should. One flat row
 	     naming the refused tool, so "why can't it edit" is answered where it is asked. -->
@@ -145,6 +145,8 @@
 			<span class="text-2xs text-tertiary truncate">{message.toolName}</span>
 		{/if}
 	</div>
+{:else if isRunCard}
+	<RunScriptCard {message} />
 {:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->

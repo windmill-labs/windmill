@@ -1560,7 +1560,7 @@ export async function buildSchemaForTool(
 
 // Constants for result formatting
 const MAX_RESULT_LENGTH = 12000
-const MAX_LOG_LENGTH = 4000
+export const MAX_LOG_LENGTH = 4000
 export const MAX_RUNNABLE_CONTENT_LENGTH = 20000
 
 /** How long a test run is awaited inline before it detaches into the background
@@ -1660,6 +1660,13 @@ export async function pollJobCompletion(
 				status: deriveChatJobStatus(fetchedJob),
 				job: trimJob(fetchedJob)
 			})
+			// The tray's snapshot is trimmed of logs (it is persisted), so the card is the
+			// only place a running job's output can land. Cards that hide their logs while
+			// loading are unaffected; the run card follows them line by line.
+			const streamed = formatLogs(fetchedJob.logs)
+			if (streamed) {
+				toolCallbacks.setToolStatus(toolId, { logs: streamed })
+			}
 		} catch (error) {
 			if (!detachEnabled && attempts >= maxAttempts) {
 				throw error
@@ -1769,9 +1776,14 @@ function backgroundedSummary(jobId: string, label: string): string {
 // fills its card the same way one that finished inline does.
 export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMessage> {
 	// A canceled job isn't a `success`, but it isn't a failure either — the user
-	// stopped it — so don't dress the card as an error.
+	// stopped it — so don't dress the card as an error. It still has the result the run
+	// page shows for a canceled run, which names who stopped it, so keep that.
 	if (job.canceled) {
-		return { content: 'Background job canceled', logs: formatLogs(job.logs) }
+		return {
+			content: 'Background job canceled',
+			result: formatResult(job.result),
+			logs: formatLogs(job.logs)
+		}
 	}
 	return {
 		content: `Background job ${job.success ? 'completed successfully' : 'failed'}`,
