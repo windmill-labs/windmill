@@ -1050,8 +1050,6 @@
 									</div>
 									<div class="p-2">
 										{#if openRow.output != undefined}
-											<!-- An answer here is the same kind of text the chat renders, so it is read the
-											     same way: the shared `sm` prose stack, spacing left to it. -->
 											<GfmMarkdown md={openRow.output} prose="sm" noPadding />
 										{:else if openRow.status === 'running'}
 											<span class="text-xs text-tertiary inline-flex items-center gap-1.5">
