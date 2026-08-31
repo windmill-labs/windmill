@@ -246,6 +246,7 @@ export type IDbSchemaOps = {
 	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => Promise<string>
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
+	onRenameSchema: (params: { schema: string; newSchema: string }) => Promise<void>
 	onFetchTableEditorDefinition: (params: {
 		table: string
 		schema?: string
@@ -461,6 +462,11 @@ export function dbSchemaOpsWithPreviewScripts({
 			const content = makeMarker('DROP_SCHEMA', { schema })
 			const downContent = makeMarker('CREATE_SCHEMA', { schema })
 			await applyDdl(migrationName('drop_schema', schema), content, downContent)
+		},
+		onRenameSchema: async ({ schema, newSchema }) => {
+			const content = makeMarker('RENAME_SCHEMA', { schema, new_schema: newSchema })
+			const downContent = makeMarker('RENAME_SCHEMA', { schema: newSchema, new_schema: schema })
+			await applyDdl(migrationName('rename_schema', newSchema), content, downContent)
 		},
 		onFetchTableEditorDefinition: async ({ table, schema, colDefs }) => {
 			let foreignKeys: import('./apps/components/display/dbtable/tableEditor').TableEditorForeignKey[] =

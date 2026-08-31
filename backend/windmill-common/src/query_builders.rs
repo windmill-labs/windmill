@@ -329,6 +329,7 @@ pub fn try_expand_internal_db_query(
         "ALTER_TABLE" => expand_alter_table(json_str, db_type).map(ExpandedQuery::sql),
         "CREATE_SCHEMA" => expand_create_schema(json_str, db_type).map(ExpandedQuery::sql),
         "DROP_SCHEMA" => expand_drop_schema(json_str, db_type).map(ExpandedQuery::sql),
+        "RENAME_SCHEMA" => expand_rename_schema(json_str, db_type).map(ExpandedQuery::sql),
         // Metadata queries
         "LOAD_TABLE_METADATA" => expand_load_table_metadata(json_str, db_type),
         "FOREIGN_KEYS" => expand_foreign_keys(json_str, db_type).map(ExpandedQuery::sql),
@@ -1716,6 +1717,13 @@ struct DropSchemaPayload {
     ducklake: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct RenameSchemaPayload {
+    schema: String,
+    new_schema: String,
+    ducklake: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 struct TableEditorColumn {
     name: String,
@@ -2001,6 +2009,17 @@ fn expand_drop_schema(json_str: &str, db_type: DbType) -> Result<String, String>
     let p: DropSchemaPayload = serde_json::from_str(json_str)
         .map_err(|e| format!("Invalid DROP_SCHEMA payload: {}", e))?;
     let query = format!("DROP SCHEMA {} CASCADE;", qi(&p.schema, db_type));
+    Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
+}
+
+fn expand_rename_schema(json_str: &str, db_type: DbType) -> Result<String, String> {
+    let p: RenameSchemaPayload = serde_json::from_str(json_str)
+        .map_err(|e| format!("Invalid RENAME_SCHEMA payload: {}", e))?;
+    let query = format!(
+        "ALTER SCHEMA {} RENAME TO {};",
+        qi(&p.schema, db_type),
+        qi(&p.new_schema, db_type)
+    );
     Ok(maybe_wrap_ducklake(query, p.ducklake.as_deref()))
 }
 
@@ -4087,8 +4106,15 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // CREATE SCHEMA / DROP SCHEMA
+    // CREATE SCHEMA / DROP SCHEMA / RENAME SCHEMA
     // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_expand_rename_schema() {
+        let marker = r#"-- WM_INTERNAL_DB_RENAME_SCHEMA {"schema":"old","new_schema":"new"}"#;
+        let sql = expand_code(marker, &ScriptLang::Postgresql);
+        assert_eq!(sql, "ALTER SCHEMA \"old\" RENAME TO \"new\";");
+    }
 
     #[test]
     fn test_expand_create_schema() {

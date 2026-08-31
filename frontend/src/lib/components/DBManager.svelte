@@ -34,6 +34,7 @@
 	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 	import Star from './Star.svelte'
+	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 	import PgAclEditor from './datatableAcl/PgAclEditor.svelte'
 	import { favoriteManager } from './sidebar/FavoriteMenu.svelte'
 	import DatatableRoleBadge from './DatatableRoleBadge.svelte'
@@ -60,6 +61,7 @@
 		| { kind: 'alter-table'; schema: string; table: string }
 		| { kind: 'delete-table'; schema: string; table: string }
 		| { kind: 'drop-schema'; schema: string }
+		| { kind: 'rename-schema'; schema: string }
 
 	type Props = {
 		dbType: DbType
@@ -363,7 +365,7 @@
 
 	function startCreateSchema(dt: string | undefined) {
 		if (!onDatatable(dt, { kind: 'create-schema' })) return
-		newSchemaDialogOpen = true
+		schemaDialog = { mode: 'create' }
 	}
 
 	function startAlterTable(dt: string | undefined, schema: string, table: string) {
@@ -393,6 +395,12 @@
 				askingForConfirmation = undefined
 			}
 		}
+	}
+
+	function startRenameSchema(dt: string | undefined, schema: string) {
+		if (!onDatatable(dt, { kind: 'rename-schema', schema })) return
+		schemaDialog = { mode: 'rename', schema }
+		newSchemaName = schema
 	}
 
 	function startDropSchema(dt: string | undefined, schema: string) {
@@ -425,12 +433,13 @@
 		if (!req || !schemaKeys.length) return
 		pendingAction = undefined
 		if (req.kind === 'create-schema') {
-			newSchemaDialogOpen = true
+			schemaDialog = { mode: 'create' }
 			return
 		}
 		if (!schemaKeys.includes(req.schema)) return
 		if (req.kind === 'create-table') startCreateTable(undefined, req.schema)
 		else if (req.kind === 'drop-schema') startDropSchema(undefined, req.schema)
+		else if (req.kind === 'rename-schema') startRenameSchema(undefined, req.schema)
 		else if (req.kind === 'alter-table') startAlterTable(undefined, req.schema, req.table)
 		else startDeleteTable(undefined, req.schema, req.table)
 	})
@@ -521,8 +530,16 @@
 		}
 	)
 
-	let newSchemaDialogOpen = $state(false)
+	// Naming a schema: a new one, or a new name for one that exists.
+	let schemaDialog = $state<{ mode: 'create' } | { mode: 'rename'; schema: string } | undefined>(
+		undefined
+	)
 	let newSchemaName = $state('')
+
+	function closeSchemaDialog() {
+		schemaDialog = undefined
+		newSchemaName = ''
+	}
 
 	// Check if the sanitized schema name already exists
 	const sanitizedNewSchemaName = $derived.by(() => {
@@ -532,8 +549,52 @@
 	})
 	const schemaAlreadyExists = $derived(
 		sanitizedNewSchemaName !== '' &&
-			schemaKeys.map((s) => s.toLowerCase()).includes(sanitizedNewSchemaName.toLowerCase())
+			schemaKeys
+				.filter((s) => !(schemaDialog?.mode === 'rename' && s === schemaDialog.schema))
+				.map((s) => s.toLowerCase())
+				.includes(sanitizedNewSchemaName.toLowerCase())
 	)
+
+	/** The statement the dialog is about to run, which is also what it asks about. */
+	const schemaStatement = $derived(
+		schemaDialog?.mode === 'rename'
+			? `ALTER SCHEMA ${schemaDialog.schema} RENAME TO ${sanitizedNewSchemaName}`
+			: `CREATE SCHEMA ${sanitizedNewSchemaName}`
+	)
+
+	const canSubmitSchemaName = $derived(
+		!!sanitizedNewSchemaName &&
+			!schemaAlreadyExists &&
+			(schemaDialog?.mode !== 'rename' || sanitizedNewSchemaName !== schemaDialog.schema)
+	)
+
+	function submitSchemaName() {
+		const dialog = schemaDialog
+		if (!dialog || !canSubmitSchemaName) return
+		const name = sanitizedNewSchemaName
+		askingForConfirmation = {
+			confirmationText: dialog.mode === 'rename' ? `Rename to ${name}` : `Create ${name}`,
+			type: 'reload',
+			title: `This will run '${schemaStatement}' on your database. Are you sure?`,
+			open: true,
+			id: 'db-schema-name-confirmation-modal',
+			onConfirm: async () => {
+				askingForConfirmation && (askingForConfirmation.loading = true)
+				try {
+					if (dialog.mode === 'rename') {
+						await dbSchemaOps.onRenameSchema({ schema: dialog.schema, newSchema: name })
+					} else {
+						await dbSchemaOps.onCreateSchema({ schema: name })
+					}
+					refresh?.()
+					selected.schemaKey = name
+					closeSchemaDialog()
+				} finally {
+					askingForConfirmation = undefined
+				}
+			}
+		}
+	}
 
 	let _dbTable: DBTable | undefined = $state()
 	export const dbTable = () => _dbTable
@@ -672,6 +733,11 @@
 														})
 												},
 												{
+													displayName: 'Rename schema',
+													icon: EditIcon,
+													action: () => startRenameSchema(root.datatable, sc.schemaKey)
+												},
+												{
 													displayName: 'Drop schema',
 													icon: Trash2Icon,
 													type: 'delete',
@@ -684,87 +750,90 @@
 								</div>
 							</button>
 						{/if}
-						{#if schemaOpen || !dbSupportsSchemas}
-							{@const tableIndent = dbSupportsSchemas
-								? root.datatable !== undefined
-									? 'pl-11'
-									: 'pl-7'
-								: root.datatable !== undefined
-									? 'pl-7'
-									: 'pl-3'}
-							{#each sc.tables as tableKey (tableKey)}
-								{@const entry = {
-									datatable: root.datatable,
-									schema: sc.schemaKey,
-									table: tableKey
-								}}
-								{@const hasMenu = !multiSelectMode}
-								{@const isSelected =
-									root.datatable === currentDatatable &&
-									selected.schemaKey === sc.schemaKey &&
-									selected.tableKey === tableKey}
-								<button
-									class={'group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
-										tableIndent +
-										' ' +
-										(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
-									onclick={() => selectTable(root.datatable, sc.schemaKey, tableKey)}
-								>
-									{#if multiSelectMode}
-										<Checkbox
-											checked={isTableSelected(entry) || isTableDisabled(entry)}
-											disabled={isTableDisabled(entry)}
-											title={isTableDisabled(entry) ? 'Already added' : undefined}
-											onChange={() => toggleTableSelection(entry)}
-											onClick={(e) => e.stopPropagation()}
-											class="shrink-0"
-										/>
-									{/if}
-									<span class="shrink-0 w-3.5"></span>
-									<Table2 class="shrink-0" size={14} />
-									<p class="db-manager-table-key truncate text-ellipsis text-left text-xs">
-										{tableKey}
-									</p>
-									{#if asset}
-										{@const starPath = tableAssetPath(root.datatable, sc.schemaKey, tableKey)}
-										<span class={rowStarClass(starPath)}>
-											<Star size={14} kind="asset" path={starPath} />
-										</span>
-									{/if}
-									<div class="grow"></div>
-									<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
-										{#if hasMenu}
-											<DropdownV2
-												enableFlyTransition
-												items={() => [
-													{
-														displayName: 'Delete table',
-														icon: Trash2Icon,
-														action: () => startDeleteTable(root.datatable, sc.schemaKey, tableKey)
-													},
-													{
-														displayName: 'Alter table',
-														icon: EditIcon,
-														action: () => startAlterTable(root.datatable, sc.schemaKey, tableKey)
-													}
-												]}
-												btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
+						<!-- Opening a schema slides its tables in rather than snapping them. -->
+						<ResizeTransitionWrapper vertical innerClass="w-full">
+							{#if schemaOpen || !dbSupportsSchemas}
+								{@const tableIndent = dbSupportsSchemas
+									? root.datatable !== undefined
+										? 'pl-11'
+										: 'pl-7'
+									: root.datatable !== undefined
+										? 'pl-7'
+										: 'pl-3'}
+								{#each sc.tables as tableKey (tableKey)}
+									{@const entry = {
+										datatable: root.datatable,
+										schema: sc.schemaKey,
+										table: tableKey
+									}}
+									{@const hasMenu = !multiSelectMode}
+									{@const isSelected =
+										root.datatable === currentDatatable &&
+										selected.schemaKey === sc.schemaKey &&
+										selected.tableKey === tableKey}
+									<button
+										class={'group w-full text-xs font-normal text-primary flex gap-2 items-center h-8 cursor-pointer pr-1 ' +
+											tableIndent +
+											' ' +
+											(isSelected ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
+										onclick={() => selectTable(root.datatable, sc.schemaKey, tableKey)}
+									>
+										{#if multiSelectMode}
+											<Checkbox
+												checked={isTableSelected(entry) || isTableDisabled(entry)}
+												disabled={isTableDisabled(entry)}
+												title={isTableDisabled(entry) ? 'Already added' : undefined}
+												onChange={() => toggleTableSelection(entry)}
+												onClick={(e) => e.stopPropagation()}
+												class="shrink-0"
 											/>
 										{/if}
-									</div>
-								</button>
-							{/each}
-							{#if canCreateTableIn(root.datatable, sc.schemaKey)}
-								<button
-									class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
-										tableIndent}
-									onclick={() => startCreateTable(root.datatable, sc.schemaKey)}
-								>
-									<Plus class="shrink-0" size={14} />
-									<span class="text-xs">New table</span>
-								</button>
+										<span class="shrink-0 w-3.5"></span>
+										<Table2 class="shrink-0" size={14} />
+										<p class="db-manager-table-key truncate text-ellipsis text-left text-xs">
+											{tableKey}
+										</p>
+										{#if asset}
+											{@const starPath = tableAssetPath(root.datatable, sc.schemaKey, tableKey)}
+											<span class={rowStarClass(starPath)}>
+												<Star size={14} kind="asset" path={starPath} />
+											</span>
+										{/if}
+										<div class="grow"></div>
+										<div class="relative shrink-0 w-6 h-8 flex items-center justify-end mr-2">
+											{#if hasMenu}
+												<DropdownV2
+													enableFlyTransition
+													items={() => [
+														{
+															displayName: 'Delete table',
+															icon: Trash2Icon,
+															action: () => startDeleteTable(root.datatable, sc.schemaKey, tableKey)
+														},
+														{
+															displayName: 'Alter table',
+															icon: EditIcon,
+															action: () => startAlterTable(root.datatable, sc.schemaKey, tableKey)
+														}
+													]}
+													btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
+												/>
+											{/if}
+										</div>
+									</button>
+								{/each}
+								{#if canCreateTableIn(root.datatable, sc.schemaKey)}
+									<button
+										class={'w-full text-xs font-normal flex gap-2 items-center h-8 cursor-pointer pr-1 hover:bg-gray-500/10 text-secondary ' +
+											tableIndent}
+										onclick={() => startCreateTable(root.datatable, sc.schemaKey)}
+									>
+										<Plus class="shrink-0" size={14} />
+										<span class="text-xs">New table</span>
+									</button>
+								{/if}
 							{/if}
-						{/if}
+						</ResizeTransitionWrapper>
 					{/each}
 					{#if dbSupportsSchemas && search.trim() === '' && canCreateSchemaIn(root.datatable)}
 						<button
@@ -923,20 +992,12 @@
 	</DrawerContent>
 </Drawer>
 
-<Drawer
-	size="400px"
-	open={newSchemaDialogOpen}
-	on:close={() => {
-		newSchemaDialogOpen = false
-		newSchemaName = ''
-	}}
->
+<Drawer size="400px" open={!!schemaDialog} on:close={closeSchemaDialog}>
 	<DrawerContent
-		on:close={() => {
-			newSchemaDialogOpen = false
-			newSchemaName = ''
-		}}
-		title="Create a new schema"
+		on:close={closeSchemaDialog}
+		title={schemaDialog?.mode === 'rename'
+			? `Rename ${schemaDialog.schema}`
+			: 'Create a new schema'}
 	>
 		<div class="flex flex-col gap-4">
 			<div>
@@ -948,27 +1009,7 @@
 					placeholder="Enter schema name..."
 					autofocus
 					on:keydown={(e) => {
-						if (e.key === 'Enter' && sanitizedNewSchemaName && !schemaAlreadyExists) {
-							askingForConfirmation = {
-								confirmationText: `Create ${sanitizedNewSchemaName}`,
-								type: 'reload',
-								title: `This will run 'CREATE SCHEMA ${sanitizedNewSchemaName}' on your database. Are you sure?`,
-								open: true,
-								id: 'db-create-schema-confirmation-modal',
-								onConfirm: async () => {
-									askingForConfirmation && (askingForConfirmation.loading = true)
-									try {
-										await dbSchemaOps.onCreateSchema({ schema: sanitizedNewSchemaName })
-										refresh?.()
-										selected.schemaKey = sanitizedNewSchemaName
-										newSchemaDialogOpen = false
-										newSchemaName = ''
-									} finally {
-										askingForConfirmation = undefined
-									}
-								}
-							}
-						}
+						if (e.key === 'Enter') submitSchemaName()
 					}}
 				/>
 				{#if schemaAlreadyExists}
@@ -983,32 +1024,8 @@
 			</div>
 		</div>
 		{#snippet actions()}
-			<Button
-				color="blue"
-				disabled={!sanitizedNewSchemaName || schemaAlreadyExists}
-				on:click={() => {
-					askingForConfirmation = {
-						confirmationText: `Create ${sanitizedNewSchemaName}`,
-						type: 'reload',
-						title: `This will run 'CREATE SCHEMA ${sanitizedNewSchemaName}' on your database. Are you sure?`,
-						open: true,
-						id: 'db-create-schema-confirmation-modal',
-						onConfirm: async () => {
-							askingForConfirmation && (askingForConfirmation.loading = true)
-							try {
-								await dbSchemaOps.onCreateSchema({ schema: sanitizedNewSchemaName })
-								refresh?.()
-								selected.schemaKey = sanitizedNewSchemaName
-								newSchemaDialogOpen = false
-								newSchemaName = ''
-							} finally {
-								askingForConfirmation = undefined
-							}
-						}
-					}
-				}}
-			>
-				Create schema
+			<Button color="blue" disabled={!canSubmitSchemaName} on:click={submitSchemaName}>
+				{schemaDialog?.mode === 'rename' ? 'Rename schema' : 'Create schema'}
 			</Button>
 		{/snippet}
 	</DrawerContent>
