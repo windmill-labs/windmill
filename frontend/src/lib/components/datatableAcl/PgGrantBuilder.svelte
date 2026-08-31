@@ -11,6 +11,7 @@
 		target,
 		roles,
 		supportsMaintain = false,
+		dbname,
 		disabled = false,
 		onAdd
 	}: {
@@ -19,6 +20,8 @@
 		roles: string[]
 		/** Postgres 17+, which has one more table privilege to offer. */
 		supportsMaintain?: boolean
+		/** Names the database in the statement a database target builds. */
+		dbname?: string
 		disabled?: boolean
 		onAdd: (grant: { role: string; privileges: string[]; scope: AclScope }) => void
 	} = $props()
@@ -42,7 +45,7 @@
 
 	const statement = $derived(
 		privileges.length && role
-			? `GRANT ${privileges.join(', ')} ON ${scopeSql(scope, target)} TO ${role}`
+			? `GRANT ${privileges.join(', ')} ON ${scopeSql(scope, target, dbname)} TO ${role}`
 			: undefined
 	)
 	const canAdd = $derived(!!role && privileges.length > 0)

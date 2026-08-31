@@ -53,25 +53,41 @@ pub(crate) fn routes() -> Router {
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AclTarget {
+    /// The data table's own database — where the privilege to create schemas
+    /// lives.
+    Database,
     Schema { schema: String },
     Table { schema: String, table: String },
 }
 
 impl AclTarget {
-    fn schema(&self) -> &str {
+    /// The schema the target is in, absent for the database itself.
+    fn schema(&self) -> Option<&str> {
         match self {
-            AclTarget::Schema { schema } => schema,
-            AclTarget::Table { schema, .. } => schema,
+            AclTarget::Database => None,
+            AclTarget::Schema { schema } => Some(schema),
+            AclTarget::Table { schema, .. } => Some(schema),
         }
     }
 
-    /// The object an `ALTER ... OWNER TO` names.
-    fn owner_object(&self) -> String {
+    /// How the target reads in the statements that name it, `dbname` being the
+    /// database the connection is on — the target never carries it.
+    fn object(&self, dbname: &str) -> String {
         match self {
+            AclTarget::Database => format!("DATABASE {}", quote_ident(dbname)),
             AclTarget::Schema { schema } => format!("SCHEMA {}", quote_ident(schema)),
             AclTarget::Table { schema, table } => {
                 format!("TABLE {}.{}", quote_ident(schema), quote_ident(table))
             }
+        }
+    }
+
+    /// What it is called in a message.
+    fn label(&self, dbname: &str) -> String {
+        match self {
+            AclTarget::Database => dbname.to_string(),
+            AclTarget::Schema { schema } => schema.clone(),
+            AclTarget::Table { schema, table } => format!("{schema}.{table}"),
         }
     }
 }
@@ -79,20 +95,24 @@ impl AclTarget {
 #[derive(Deserialize, Debug)]
 pub struct AclTargetQuery {
     kind: String,
-    schema: String,
+    schema: Option<String>,
     table: Option<String>,
 }
 
 impl TryFrom<AclTargetQuery> for AclTarget {
     type Error = Error;
     fn try_from(q: AclTargetQuery) -> Result<Self> {
-        match (q.kind.as_str(), q.table) {
-            ("schema", _) => Ok(AclTarget::Schema { schema: q.schema }),
-            ("table", Some(table)) => Ok(AclTarget::Table { schema: q.schema, table }),
-            ("table", None) => Err(Error::BadRequest(
+        match (q.kind.as_str(), q.schema, q.table) {
+            ("database", _, _) => Ok(AclTarget::Database),
+            ("schema", Some(schema), _) => Ok(AclTarget::Schema { schema }),
+            ("table", Some(schema), Some(table)) => Ok(AclTarget::Table { schema, table }),
+            ("schema" | "table", None, _) => Err(Error::BadRequest(
+                "This target needs a schema".to_string(),
+            )),
+            ("table", _, None) => Err(Error::BadRequest(
                 "A table target needs a table".to_string(),
             )),
-            (kind, _) => Err(Error::BadRequest(format!("Unknown ACL target '{kind}'"))),
+            (kind, _, _) => Err(Error::BadRequest(format!("Unknown ACL target '{kind}'"))),
         }
     }
 }
@@ -116,16 +136,24 @@ pub enum GrantScope {
 
 impl GrantScope {
     /// The privileges Postgres accepts for what this scope names.
-    fn allowed_privileges(&self, target: &AclTarget) -> &'static [&'static str] {
-        match self {
+    fn allowed_privileges(&self, target: &AclTarget) -> Result<&'static [&'static str]> {
+        Ok(match self {
             GrantScope::Target => match target {
+                AclTarget::Database => DATABASE_PRIVILEGES,
                 AclTarget::Schema { .. } => SCHEMA_PRIVILEGES,
                 AclTarget::Table { .. } => TABLE_PRIVILEGES,
             },
+            // Everything below reads `IN SCHEMA`, which a database target has
+            // none of: schemas are granted on one at a time.
+            _ if matches!(target, AclTarget::Database) => {
+                return Err(Error::BadRequest(
+                    "A database can only be granted on itself".to_string(),
+                ))
+            }
             GrantScope::AllTables | GrantScope::FutureTables => TABLE_PRIVILEGES,
             GrantScope::AllSequences | GrantScope::FutureSequences => SEQUENCE_PRIVILEGES,
             GrantScope::AllFunctions | GrantScope::FutureFunctions => FUNCTION_PRIVILEGES,
-        }
+        })
     }
 
     fn is_future(&self) -> bool {
@@ -147,6 +175,8 @@ impl GrantScope {
     }
 }
 
+/// `CREATE` on a database is the privilege to create schemas in it.
+const DATABASE_PRIVILEGES: &[&str] = &["CONNECT", "CREATE", "TEMPORARY"];
 const SCHEMA_PRIVILEGES: &[&str] = &["USAGE", "CREATE"];
 const TABLE_PRIVILEGES: &[&str] = &[
     "SELECT",
@@ -227,6 +257,8 @@ pub struct DatatableAclInfo {
     /// Whether the server is Postgres 17 or later, which added the `MAINTAIN`
     /// table privilege.
     pub supports_maintain: bool,
+    /// The database the target lives in, which no target carries itself.
+    pub dbname: String,
     pub grants: Vec<AclGrant>,
 }
 
@@ -304,18 +336,21 @@ fn validate_privileges(privileges: &[String], allowed: &[&str]) -> Result<Vec<St
 fn plan_statements(
     target: &AclTarget,
     change: &AclChange,
+    dbname: &str,
     pg_role: &str,
     other_pg_roles: &[String],
     existing_objects: &[OwnedObject],
 ) -> Result<AclPlan> {
     let role = quote_ident(pg_role);
-    let schema = quote_ident(target.schema());
+    // Only the scopes that name a schema use this, and those are refused on a
+    // database target.
+    let schema = target.schema().map(quote_ident).unwrap_or_default();
     let mut statements = Vec::new();
     let mut warnings = Vec::new();
 
     match change {
         AclChange::SetOwner { .. } => {
-            statements.push(format!("ALTER {} OWNER TO {}", target.owner_object(), role));
+            statements.push(format!("ALTER {} OWNER TO {}", target.object(dbname), role));
             for object in existing_objects {
                 statements.push(format!(
                     "ALTER {} {}.{} OWNER TO {}",
@@ -342,7 +377,7 @@ fn plan_statements(
             if existing_objects.is_empty() {
                 warnings.push(format!(
                     "{} holds no objects yet; only the schema itself changes hands.",
-                    target.schema()
+                    target.label(dbname)
                 ));
             }
         }
@@ -361,7 +396,7 @@ fn plan_statements(
                     "FUNCTION" => FUNCTION_PRIVILEGES,
                     _ => TABLE_PRIVILEGES,
                 },
-                None => scope.allowed_privileges(target),
+                None => scope.allowed_privileges(target)?,
             };
             let privileges = validate_privileges(privileges, allowed)?;
             let privileges = privileges.join(", ");
@@ -414,14 +449,14 @@ fn plan_statements(
                     format!(
                         "REVOKE {} ON {} FROM {}",
                         privileges,
-                        target.owner_object(),
+                        target.object(dbname),
                         role
                     )
                 } else {
                     format!(
                         "GRANT {} ON {} TO {}",
                         privileges,
-                        target.owner_object(),
+                        target.object(dbname),
                         role
                     )
                 }),
@@ -512,6 +547,15 @@ async fn get_datatable_acl(
     let roles = role_map(&db, &w_id, &datatable_name, &conn.admin_pg_role).await?;
 
     let owner_row = match &target {
+        AclTarget::Database => client
+            .query_opt(
+                "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = current_database()",
+                &[],
+            )
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to read the owner: {}", pg_error_message(&e)))
+            })?,
         AclTarget::Schema { schema } => client
             .query_opt(
                 // `public` is owned by `pg_database_owner`, a placeholder role
@@ -547,7 +591,7 @@ async fn get_datatable_acl(
             })?,
     };
     let owner: String = owner_row
-        .ok_or_else(|| Error::NotFound(format!("{} not found", target.schema())))?
+        .ok_or_else(|| Error::NotFound(format!("{} not found", target.label(&conn.dbname))))?
         .get(0);
 
     let mut grants = read_grants(&client, &target, &roles).await?;
@@ -580,6 +624,7 @@ async fn get_datatable_acl(
         owner: windmill_role_of(&roles, &owner),
         roles: roles.keys().cloned().collect(),
         supports_maintain,
+        dbname: conn.dbname,
         grants,
     }))
 }
@@ -592,6 +637,16 @@ async fn read_grants(
     // `aclexplode` turns an acl array into one row per (grantee, privilege);
     // grantee 0 is PUBLIC, which has no name to resolve.
     let mut rows = match target {
+        AclTarget::Database => client
+            .query(
+                "SELECT CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+                        a.privilege_type, NULL::text, NULL::text, NULL::text
+                 FROM pg_database d, aclexplode(d.datacl) a
+                 WHERE d.datname = current_database()",
+                &[],
+            )
+            .await
+            .map_err(grant_read_error)?,
         AclTarget::Schema { schema } => {
             let mut out = client
                 .query(
@@ -694,7 +749,7 @@ async fn build_acl_plan(
     w_id: &str,
     datatable_name: &str,
     req: &AclChangeRequest,
-) -> Result<(tokio_postgres::Client, AclPlan)> {
+) -> Result<(tokio_postgres::Client, AclPlan, String)> {
     let (client, conn) = connect_as_admin(db, w_id, datatable_name).await?;
     let roles = role_map(db, w_id, datatable_name, &conn.admin_pg_role).await?;
     let role_name = match &req.change {
@@ -707,21 +762,21 @@ async fn build_acl_plan(
         .filter(|pg| pg.as_str() != pg_role.as_str())
         .cloned()
         .collect();
-    let existing_objects = match &req.change {
-        AclChange::SetOwner { .. } => match &req.target {
-            AclTarget::Schema { schema } => read_owned_objects(&client, schema).await?,
-            AclTarget::Table { .. } => vec![],
-        },
+    let existing_objects = match (&req.change, &req.target) {
+        (AclChange::SetOwner { .. }, AclTarget::Schema { schema }) => {
+            read_owned_objects(&client, schema).await?
+        }
         _ => vec![],
     };
     let plan = plan_statements(
         &req.target,
         &req.change,
+        &conn.dbname,
         &pg_role,
         &other_pg_roles,
         &existing_objects,
     )?;
-    Ok((client, plan))
+    Ok((client, plan, conn.dbname))
 }
 
 async fn plan_datatable_acl(
@@ -731,7 +786,7 @@ async fn plan_datatable_acl(
     Json(req): Json<AclChangeRequest>,
 ) -> JsonResult<AclPlan> {
     require_admin(authed.is_admin, &authed.username)?;
-    let (_client, plan) = build_acl_plan(&db, &w_id, &datatable_name, &req).await?;
+    let (_client, plan, _dbname) = build_acl_plan(&db, &w_id, &datatable_name, &req).await?;
     Ok(Json(plan))
 }
 
@@ -742,7 +797,7 @@ async fn apply_datatable_acl(
     Json(req): Json<AclChangeRequest>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-    let (mut client, plan) = build_acl_plan(&db, &w_id, &datatable_name, &req).await?;
+    let (mut client, plan, dbname) = build_acl_plan(&db, &w_id, &datatable_name, &req).await?;
 
     // One transaction: a half-applied ownership transfer leaves objects of one
     // schema owned by two different roles.
@@ -778,7 +833,7 @@ async fn apply_datatable_acl(
     )
     .await?;
 
-    Ok(format!("Updated access on {}", req.target.schema()))
+    Ok(format!("Updated access on {}", req.target.label(&dbname)))
 }
 
 #[cfg(test)]
@@ -798,6 +853,7 @@ mod tests {
         let plan = plan_statements(
             &schema(),
             &AclChange::SetOwner { role: "analyst".to_string() },
+            "dt_probe",
             "wm_analyst_1",
             &["wm_admin".to_string()],
             &objects,
@@ -822,6 +878,7 @@ mod tests {
         let plan = plan_statements(
             &schema(),
             &AclChange::SetOwner { role: "analyst".to_string() },
+            "dt_probe",
             "wm_analyst_1",
             &[],
             &[],
@@ -854,6 +911,7 @@ mod tests {
             let plan = plan_statements(
                 &schema(),
                 &AclChange::Grant { role: "analyst".to_string(), privileges, scope },
+                "dt_probe",
                 "wm_analyst_1",
                 &[],
                 &[],
@@ -872,6 +930,7 @@ mod tests {
                 privileges: vec!["SELECT".to_string()],
                 scope: GrantScope::FutureTables,
             },
+            "dt_probe",
             "wm_analyst_1",
             &["wm_admin".to_string()],
             &[],
@@ -896,6 +955,7 @@ mod tests {
                 scope: GrantScope::AllTables,
                 object: None,
             },
+            "dt_probe",
             "wm_analyst_1",
             &[],
             &[],
@@ -920,6 +980,7 @@ mod tests {
                     kind: "TABLE".to_string(),
                 }),
             },
+            "dt_probe",
             "wm_analyst_1",
             &[],
             &[],
@@ -930,6 +991,55 @@ mod tests {
             plan.unwrap().statements,
             [r#"REVOKE SELECT ON TABLE "analytics"."orders" FROM "wm_analyst_1""#]
         );
+    }
+
+    #[test]
+    fn a_database_grants_the_right_to_create_schemas() {
+        let plan = plan_statements(
+            &AclTarget::Database,
+            &AclChange::Grant {
+                role: "analyst".to_string(),
+                privileges: vec!["CREATE".to_string()],
+                scope: GrantScope::Target,
+            },
+            "dt_probe",
+            "wm_analyst_1",
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            plan.statements,
+            [r#"GRANT CREATE ON DATABASE "dt_probe" TO "wm_analyst_1""#]
+        );
+
+        // A database has no schemas to scope onto, and none of its privileges
+        // are a table's.
+        for change in [
+            AclChange::Grant {
+                role: "analyst".to_string(),
+                privileges: vec!["CREATE".to_string()],
+                scope: GrantScope::AllTables,
+            },
+            AclChange::Grant {
+                role: "analyst".to_string(),
+                privileges: vec!["SELECT".to_string()],
+                scope: GrantScope::Target,
+            },
+        ] {
+            assert!(matches!(
+                plan_statements(
+                    &AclTarget::Database,
+                    &change,
+                    "dt_probe",
+                    "wm_analyst_1",
+                    &[],
+                    &[]
+                )
+                .unwrap_err(),
+                Error::BadRequest(_)
+            ));
+        }
     }
 
     #[test]
@@ -947,6 +1057,7 @@ mod tests {
                     privileges: vec![privilege.to_string()],
                     scope,
                 },
+                "dt_probe",
                 "wm_analyst_1",
                 &[],
                 &[],
@@ -968,6 +1079,7 @@ mod tests {
                 privileges: vec!["USAGE".to_string()],
                 scope: GrantScope::Target,
             },
+            "dt_probe",
             "ro\"le",
             &[],
             &[],
@@ -988,6 +1100,7 @@ mod tests {
                 privileges: vec!["SELECT".to_string()],
                 scope: GrantScope::Target,
             },
+            "dt_probe",
             "wm_analyst_1",
             &[],
             &[],

@@ -5245,10 +5245,10 @@ paths:
           required: true
           schema:
             type: string
-            enum: [schema, table]
+            enum: [database, schema, table]
         - name: schema
           in: query
-          required: true
+          required: false
           schema:
             type: string
         - name: table
@@ -33953,13 +33953,14 @@ components:
 
     AclTarget:
       type: object
-      required: [kind, schema]
+      required: [kind]
       properties:
         kind:
           type: string
-          enum: [schema, table]
+          enum: [database, schema, table]
         schema:
           type: string
+          description: required for a schema or table target
         table:
           type: string
 
@@ -34028,7 +34029,7 @@ components:
 
     DatatableAclInfo:
       type: object
-      required: [owner, roles, grants, supports_maintain]
+      required: [owner, roles, grants, supports_maintain, dbname]
       properties:
         owner:
           type: string
@@ -34039,6 +34040,9 @@ components:
         supports_maintain:
           type: boolean
           description: whether the server is Postgres 17+, which added the MAINTAIN table privilege
+        dbname:
+          type: string
+          description: the database the target lives in
         grants:
           type: array
           items:

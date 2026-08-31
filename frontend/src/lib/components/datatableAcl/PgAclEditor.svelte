@@ -18,10 +18,14 @@
 	let {
 		workspace,
 		datatable,
-		target
+		target,
+		showOwner = true
 	}: {
 		workspace: string
 		datatable: string
+		/** Off where ownership is not the caller's to move — a data table's whole
+		 * database, which Windmill owns. */
+		showOwner?: boolean
 		/** What owner and grants are read and written for. Schemas today; a table
 		 * target is the same call with one more identifier. */
 		target: AclTarget
@@ -92,47 +96,55 @@
 	<span class="text-sm text-tertiary">Loading...</span>
 {:else}
 	<div class="flex flex-col gap-6">
-		<section class="flex flex-col gap-2">
-			<div class="flex flex-col gap-0.5">
-				<span class="text-sm font-semibold text-primary">Owner</span>
-				<span class="text-xs text-secondary">
-					The role that owns {target.kind === 'schema' ? 'the schema' : 'the table'} and everything already
-					in it. Changing it also lets the new owner reach what the other roles create here later.
-				</span>
-			</div>
-			<Select
-				items={roleItems}
-				clearable={false}
-				disabled={planning || applying}
-				class="w-64"
-				bind:value={
-					() => info.owner,
-					(role) => {
-						// The select shows what the database says; a pick is a request,
-						// and only the applied change moves it.
-						if (role && role !== info.owner) {
-							confirm({ type: 'set_owner', role }, `Ownership transferred to ${role}`)
+		{#if showOwner}
+			<section class="flex flex-col gap-2">
+				<div class="flex flex-col gap-0.5">
+					<span class="text-sm font-semibold text-primary">Owner</span>
+					<span class="text-xs text-secondary">
+						The role that owns {target.kind === 'schema' ? 'the schema' : 'the table'} and everything
+						already in it. Changing it also lets the new owner reach what the other roles create here
+						later.
+					</span>
+				</div>
+				<Select
+					items={roleItems}
+					clearable={false}
+					disabled={planning || applying}
+					class="w-64"
+					bind:value={
+						() => info.owner,
+						(role) => {
+							// The select shows what the database says; a pick is a request,
+							// and only the applied change moves it.
+							if (role && role !== info.owner) {
+								confirm({ type: 'set_owner', role }, `Ownership transferred to ${role}`)
+							}
 						}
 					}
-				}
-			/>
-			{#if !info.roles.includes(info.owner)}
-				<span class="text-xs text-tertiary">
-					Currently owned by <span class="font-mono">{info.owner}</span>, which is not one of this
-					data table's roles.
-				</span>
-			{/if}
-		</section>
+				/>
+				{#if !info.roles.includes(info.owner)}
+					<span class="text-xs text-tertiary">
+						Currently owned by <span class="font-mono">{info.owner}</span>, which is not one of this
+						data table's roles.
+					</span>
+				{/if}
+			</section>
+		{/if}
 
 		<section class="flex flex-col gap-2">
 			<div class="flex flex-col gap-0.5">
 				<span class="text-sm font-semibold text-primary">Grants</span>
-				<span class="text-xs text-secondary"> What each role may do, beyond what it owns. </span>
+				<span class="text-xs text-secondary">
+					{target.kind === 'database'
+						? 'What each role may do on the database itself — CREATE is the right to create schemas in it.'
+						: 'What each role may do, beyond what it owns.'}
+				</span>
 			</div>
 			<PgGrantBuilder
 				{target}
 				roles={info.roles}
 				supportsMaintain={info.supports_maintain}
+				dbname={info.dbname}
 				disabled={planning || applying}
 				onAdd={({ role, privileges, scope }) =>
 					confirm(

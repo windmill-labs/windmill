@@ -26,6 +26,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { randomUUID } from '$lib/utils/uuid'
 	import { ADMIN_DATATABLE_ROLE } from '../dbTypes'
+	import PgAclEditor from '../datatableAcl/PgAclEditor.svelte'
 	import { resource } from 'runed'
 	import { deepEqual } from 'fast-equals'
 
@@ -340,6 +341,12 @@
 						<span class="text-xs text-red-600">{nameError}</span>
 					{/if}
 				{/if}
+			</div>
+		{/if}
+
+		{#if enabled && !hasUnsavedChanges && !loadError && !loading}
+			<div class="mt-6 pt-6 border-t">
+				<PgAclEditor {workspace} {datatable} target={{ kind: 'database' }} showOwner={false} />
 			</div>
 		{/if}
 

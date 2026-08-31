@@ -2,6 +2,8 @@ import type { AclGrant, AclTarget } from '$lib/gen'
 
 /** Privileges Postgres accepts per kind of object. Mirrors the whitelist the
  * backend validates against — a privilege missing here just cannot be built. */
+/** `CREATE` on a database is the right to create schemas in it. */
+export const DATABASE_PRIVILEGES = ['CONNECT', 'CREATE', 'TEMPORARY']
 export const SCHEMA_PRIVILEGES = ['USAGE', 'CREATE']
 export const TABLE_PRIVILEGES = [
 	'SELECT',
@@ -30,6 +32,7 @@ export type AclTargetKind = AclTarget['kind']
 
 /** The scopes a target can grant on, in the order the builder offers them. */
 export function scopesOf(kind: AclTargetKind): { value: AclScope; label: string }[] {
+	if (kind === 'database') return [{ value: 'target', label: 'the database itself' }]
 	if (kind === 'table') return [{ value: 'target', label: 'this table' }]
 	return [
 		{ value: 'target', label: 'the schema itself' },
@@ -52,6 +55,7 @@ export function privilegesOf(
 		: TABLE_PRIVILEGES
 	switch (scope) {
 		case 'target':
+			if (kind === 'database') return DATABASE_PRIVILEGES
 			return kind === 'schema' ? SCHEMA_PRIVILEGES : tablePrivileges
 		case 'all_tables':
 		case 'future_tables':
@@ -66,7 +70,8 @@ export function privilegesOf(
 }
 
 /** What a statement built at this scope reads as, for the builder's own preview. */
-export function scopeSql(scope: AclScope, target: AclTarget): string {
+export function scopeSql(scope: AclScope, target: AclTarget, dbname?: string): string {
+	if (target.kind === 'database') return `DATABASE ${dbname ?? ''}`.trim()
 	const schema = target.schema
 	switch (scope) {
 		case 'target':
@@ -90,5 +95,5 @@ export function scopeSql(scope: AclScope, target: AclTarget): string {
 export function grantScopeLabel(grant: AclGrant): string {
 	if (grant.future) return `${grant.future.toLowerCase()} created later`
 	if (grant.object) return `${grant.object.kind.toLowerCase()} ${grant.object.name}`
-	return 'the schema itself'
+	return 'itself'
 }
