@@ -267,7 +267,7 @@
 		     so it shows whenever the sessions beta is on; the composer itself is gated on operator
 		     status inside the component (operators are refused by /sessions). -->
 		{#if isGlobalAiEnabled()}
-			<div class="w-full mb-16 mt-2">
+			<div class="w-full mb-16 mt-20">
 				<HomeAIChat />
 			</div>
 		{/if}
