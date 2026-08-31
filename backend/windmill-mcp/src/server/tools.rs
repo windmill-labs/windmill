@@ -283,16 +283,6 @@ mod tests {
         .clone()
     }
 
-    /// A header-fed parameter must not reach the model at all: shown in the
-    /// schema, a model fills it, and the identity it carries stops being one the
-    /// transport vouched for.
-    
-    /// The published schema and the call-time strip must agree on the key space:
-    /// `$user` is a valid header name whose property is published as `user`, and a
-    /// property left advertised tells the model to fill an argument that is then
-    /// discarded.
-    
-    
     #[test]
     fn hint_lists_optional_params_and_never_a_required_one() {
         let hint = omission_hint(&script_schema(), "script")

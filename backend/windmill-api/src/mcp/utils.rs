@@ -746,15 +746,29 @@ fn is_credential_header(name: &str) -> bool {
         .any(|candidate| candidate.eq_ignore_ascii_case(name))
 }
 
-/// Headers the proxy hop owns on the internal request, so an allowlisted name
-/// that collides with one cannot ride along.
+/// Headers the proxied hop owns, never copied from the caller's request.
 ///
-/// `authorization` is the one that matters: the proxied call carries a
-/// route-scoped JWT this server mints, so forwarding the caller's header would
-/// either duplicate it or bind the *proxy's own* credential to a runnable
-/// parameter. Nothing is lost that the runnable's own tool does not still offer,
-/// which builds arguments directly instead of over a second HTTP hop.
-const PROXY_OWNED_HEADERS: &[&str] = &["authorization", "content-type", "content-length", "host"];
+/// Two kinds. `authorization` and `host` address the hop itself: the proxied call
+/// carries a route-scoped JWT this server mints, and copying the caller's would
+/// leave the run route reading one of two credentials. The rest describe *this*
+/// connection's framing — hop-by-hop fields (RFC 9110 §7.6.1) plus the
+/// `content-*` and `accept-encoding` values `reqwest` sets for the body it is
+/// actually sending. Copying those across a hop corrupts it: a `content-length`
+/// from the caller's body does not describe the proxied one.
+const PROXY_OWNED_HEADERS: &[&str] = &[
+    "authorization",
+    "host",
+    "content-type",
+    "content-length",
+    "accept-encoding",
+    "connection",
+    "keep-alive",
+    "proxy-connection",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+];
 
 /// The caller's headers that can ride the proxied webhook call.
 ///
@@ -939,9 +953,10 @@ mod tests {
     }
 
     /// Run-by-path proxies over a second HTTP hop that carries a route-scoped JWT
-    /// this server mints. An allowlisted `authorization` must not ride along:
-    /// appending it would leave the proxied route reading one of two credentials,
-    /// and the one it binds to a runnable parameter would be Windmill's own.
+    /// this server mints, and framing headers describing its own body. Neither
+    /// may be copied from the caller: a duplicated `authorization` would leave the
+    /// run route reading one of two credentials, and a stale `content-length`
+    /// would describe the wrong body.
     #[test]
     fn the_proxy_hop_never_forwards_its_own_credential_header() {
         let headers = header_map(&[
@@ -960,15 +975,28 @@ mod tests {
         );
     }
 
-    /// A header sent twice has no attributable value: a gateway that appends its
-    /// own copy leaves the caller's in front, so forwarding either would hand the
-    /// runnable something the caller chose.
-    
-    /// Both arms answer a repeated *allowlisted* header the same way, so one
-    /// request does not resolve differently depending on whether the runnable has
-    /// a preprocessor — while a repeated list-valued field, which is ordinary on
-    /// any multi-hop request, still reaches the preprocessor.
-    
+    /// The hop describes its own body, so the caller's framing headers must not
+    /// be copied onto it — a `content-length` from the caller's request would
+    /// describe the wrong body, and hop-by-hop fields are per-connection by
+    /// definition. Only relevant since forwarding stopped being allowlist-driven.
+    #[test]
+    fn the_proxy_hop_never_forwards_this_connections_framing() {
+        let headers = header_map(&[
+            ("content-length", "512"),
+            ("transfer-encoding", "chunked"),
+            ("connection", "keep-alive"),
+            ("host", "mcp.example"),
+            ("x-user-id", "alice@corp.example"),
+        ]);
+
+        let forwarded = forwardable_headers(&headers, &McpIncludeHeaders::default());
+
+        assert_eq!(
+            forwarded,
+            vec![("x-user-id".to_string(), "alice@corp.example".to_string())]
+        );
+    }
+
     /// An entry that can never match a header must be reported rather than
     /// silently ignored: an operator who mistyped it would otherwise believe a
     /// credential was being forwarded when it was not.
