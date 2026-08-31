@@ -30,7 +30,6 @@ import {
 	backgroundJobCompletionNote,
 	deriveChatJobStatus,
 	pendingToolImagesMessage,
-	pendingUserAction,
 	trimJob
 } from './shared'
 import type {
@@ -3274,14 +3273,6 @@ export class AIChatManager {
 			// the poll exactly when nobody is watching. `pending` reads it without
 			// disturbing the animation.
 			const streaming = this.currentReply + this.replyReveal.pending
-			// Parked on the user, so nothing is advancing to preserve — and a
-			// snapshot taken here would store the question closed as interrupted,
-			// which is what it means only if this tab died. Another tab that opens
-			// the session meanwhile reads that as a failed call while the run is in
-			// fact waiting. The checkpoint before this one still holds everything
-			// the turn did up to the question, and the question itself does not
-			// survive a reload either way: its resolver goes with the page.
-			if (pendingUserAction(this.displayMessages)) return
 			// Write only when the turn advanced, so a parked confirmation costs
 			// nothing and the rate follows steps taken rather than time.
 			const shape = `${collectedMessages.length}:${this.displayMessages.length}:${streaming.length}`

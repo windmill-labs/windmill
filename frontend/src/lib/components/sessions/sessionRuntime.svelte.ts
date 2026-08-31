@@ -91,7 +91,11 @@ import type {
 } from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import { sendUserToast } from '$lib/toast'
-import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
+import {
+	pendingUserAction,
+	RUN_PROMPT_ECHO_MAX,
+	type DisplayMessage
+} from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import {
 	broadcastRunStatus,
@@ -1010,11 +1014,6 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 // doubles as the liveness heartbeat, so a run stalled in a long tool call still
 // ticks and is not reaped as a closed tab.
 const statusTimers = new Map<string, ReturnType<typeof setInterval>>()
-
-/** Longest prompt echoed to the other tabs. Enough for the prompts people
- *  actually type, and a hard ceiling on the one field of the status message
- *  whose length a user controls. */
-const RUN_PROMPT_ECHO_MAX = 2000
 
 /** The prompt this run is working on: the last thing the user said, searching no
  *  further back than `from`. Read off the driver's rendered transcript rather
