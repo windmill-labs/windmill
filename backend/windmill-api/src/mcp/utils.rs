@@ -647,11 +647,12 @@ fn selects_endpoint_tool(caller_scopes: &[String], tool: &str) -> bool {
         .is_ok_and(|config| config.endpoints.iter().any(|e| e == tool))
 }
 
-/// Create HTTP request with authentication
+/// Create HTTP request with authentication.
+///
 /// `forwarded` carries headers copied verbatim from the MCP request. Only the
-/// proxied webhook run route sends any: naming them there lets that route's own
-/// `?include_header=` handling do the binding, preprocessor shaping included,
-/// instead of this path reimplementing it.
+/// proxied run route sends any: the caller's headers are not otherwise on the
+/// request that route sees, so a preprocessor reached through it would receive
+/// this proxy's request rather than the caller's.
 pub async fn create_http_request(
     method: &str,
     url: &str,
@@ -770,6 +771,17 @@ const PROXY_OWNED_HEADERS: &[&str] = &[
     "upgrade",
 ];
 
+/// Whether this endpoint tool hands the proxied request to a runnable, and so
+/// needs the caller's headers copied onto it.
+///
+/// Derived from the catalogue's own path rather than a list of names: the two
+/// run routes are the only ones whose request becomes a runnable's event. Preview
+/// is deliberately not one — it pushes `JobPayload::Code`, which skips the
+/// preprocessor, so a forwarded header would have nowhere to arrive.
+pub fn delivers_request_to_runnable(tool: &EndpointTool) -> bool {
+    tool.path.contains("/jobs/run/")
+}
+
 /// The caller's headers that can ride the proxied webhook call.
 ///
 /// Run-by-path reaches a runnable over a second HTTP hop, so the caller's
@@ -791,11 +803,13 @@ pub fn forwardable_headers(
             if is_credential_header(name) && !include_headers.names(name) {
                 return None;
             }
-            value.to_str().ok().map(|v| (name.to_string(), v.to_string()))
+            value
+                .to_str()
+                .ok()
+                .map(|v| (name.to_string(), v.to_string()))
         })
         .collect()
 }
-
 
 /// Every header a preprocessor may see — the whole request, minus the
 /// credentials that authenticate the connection unless `?include_header=` names
@@ -1007,8 +1021,6 @@ mod tests {
         assert!(McpIncludeHeaders::parse("x-user-id, x-tenant").is_ok());
     }
 
-    /// The alias an exact-name lookup exists to reject.
-    
     #[test]
     fn proxy_jwt_unscoped_caller_keeps_none() {
         // No scopes, or filter-tags-only, is treated as unscoped -> unscoped JWT.
@@ -1150,9 +1162,6 @@ mod tests {
             .find(|t| t.name.as_ref() == name)
             .unwrap_or_else(|| panic!("{name} must be a generated endpoint tool"))
     }
-
-
-
 
     /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does
     /// not name, falls through to no policy — which is no path confinement at all, so

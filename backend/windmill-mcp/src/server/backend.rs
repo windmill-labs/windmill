@@ -21,7 +21,7 @@ pub type BackendResult<T> = Result<T, ErrorData>;
 /// to hand a runnable the headers of the call that triggered it.
 pub struct McpRequest<'a> {
     pub headers: &'a http::HeaderMap,
-    /// The headers this connection allows through as runnable parameters.
+    /// The credential headers this connection releases to a preprocessor.
     pub include_headers: &'a McpIncludeHeaders,
     /// The MCP tool name the caller invoked, reported to preprocessors.
     pub tool_name: &'a str,

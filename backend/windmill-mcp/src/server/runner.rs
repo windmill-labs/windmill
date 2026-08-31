@@ -426,7 +426,6 @@ fn transform_call_args(args: Value, item_schema: &Option<SchemaType>) -> Value {
     Value::Object(args_hash.into_iter().collect())
 }
 
-
 fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
     candidates
         .into_iter()
@@ -475,7 +474,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         match mode {
             McpMode::Single(workspace_id) => {
                 self.list_tools_single(&auth, &workspace_id, &scope_config, read_only)
-                .await
+                    .await
             }
             // Multi-workspace: expose the generic endpoint tools (each taking an
             // explicit workspace_id) plus list_workspaces. Per-workspace scripts
@@ -662,7 +661,8 @@ impl<B: McpBackend> Runner<B> {
                     script,
                     self.backend.as_ref(),
                     &resources_cache,
-                    &resource_types));
+                    &resource_types,
+                ));
             }
 
             for flow in &filtered_flows {
@@ -670,7 +670,8 @@ impl<B: McpBackend> Runner<B> {
                     flow,
                     self.backend.as_ref(),
                     &resources_cache,
-                    &resource_types));
+                    &resource_types,
+                ));
             }
 
             for hub_script in &hub_scripts {
@@ -678,7 +679,8 @@ impl<B: McpBackend> Runner<B> {
                     hub_script,
                     self.backend.as_ref(),
                     &resources_cache,
-                    &resource_types));
+                    &resource_types,
+                ));
             }
         }
 
@@ -1017,9 +1019,6 @@ mod tests {
         let realistic = "x-user-id,x-tenant,x-request-id";
         assert_eq!(McpIncludeHeaders::parse(realistic).unwrap().0.len(), 3);
     }
-
-
-
 
     fn cfg(scopes: &[&str]) -> McpScopeConfig {
         parse_mcp_scopes(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()

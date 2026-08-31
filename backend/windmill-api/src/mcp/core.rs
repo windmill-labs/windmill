@@ -16,6 +16,8 @@ use windmill_mcp::server::{
     BackendResult, EndpointTool, ErrorData, McpBackend, McpIncludeHeaders, McpRequest, PathFilter,
 };
 
+use windmill_common::feature_usage::log_feature_usage;
+
 use crate::auth::AuthCache;
 use crate::db::ApiAuthed;
 use crate::jobs::{
@@ -24,9 +26,10 @@ use crate::jobs::{
 
 use super::auto_generated_endpoints::all_tools;
 use super::utils::{
-    build_query_string, build_request_body, create_http_request, forwardable_headers,
-    get_hub_script_schema, get_item_schema, get_items, get_resources, get_resources_types,
-    get_scripts_from_hub, parse_response_body, prepare_push_args, substitute_path_params,
+    build_query_string, build_request_body, create_http_request, delivers_request_to_runnable,
+    forwardable_headers, get_hub_script_schema, get_item_schema, get_items, get_resources,
+    get_resources_types, get_scripts_from_hub, parse_response_body, prepare_push_args,
+    substitute_path_params,
 };
 
 use std::sync::Arc;
@@ -52,7 +55,7 @@ use windmill_common::{auth::hash_token, db::GatewayWorkspaceId, error::JsonResul
 // McpAuth impl for ApiAuthed is in windmill-api-auth (same crate as the type)
 
 /// The MCP connection URL's own query parameters. `token` is consumed by the
-/// auth extractor; only the header allowlist is read here.
+/// auth extractor; only the credential-header list is read here.
 #[derive(serde::Deserialize)]
 struct McpRequestQuery {
     include_header: Option<String>,
@@ -311,7 +314,18 @@ impl McpBackend for WindmillBackend {
         // Without this a preprocessor reached through run-by-path — the only way
         // multi-workspace mode reaches a runnable — would see the proxy's own
         // request instead of the caller's.
-        let forwarded = forwardable_headers(request.headers, request.include_headers);
+        let forwarded = if delivers_request_to_runnable(endpoint_tool) {
+            let forwarded = forwardable_headers(request.headers, request.include_headers);
+            if !forwarded.is_empty() {
+                // Counted here as well as in `prepare_push_args`: this is the only
+                // route multi-workspace mode has to a runnable, so leaving it out
+                // would record nothing at all for gateway connections.
+                log_feature_usage("mcp", "header_passthrough", "proxy");
+            }
+            forwarded
+        } else {
+            Vec::new()
+        };
 
         // Prepare request body
         let body_json = build_request_body(endpoint_tool, args_map)?;
@@ -415,21 +429,19 @@ pub async fn extract_and_store_workspace_id(
     next.run(request).await
 }
 
-/// Middleware that records which request headers this connection may hand to the
-/// scripts and flows it runs, from `?include_header=` on the MCP URL.
+/// Middleware that records which credential headers this connection releases to a
+/// runnable's preprocessor, from `?include_header=` on the MCP URL.
 ///
-/// The allowlist is read off the connection URL rather than an instance setting
-/// because that URL is configured out of band, by whoever wires up the MCP
-/// client: the model driving the session cannot reach it, which is what makes a
-/// header-borne identity worth more than one the model fills in.
+/// Read off the connection URL rather than an instance setting because that URL
+/// is configured out of band, by whoever wires up the MCP client: the model
+/// driving the session cannot reach it, so releasing a credential stays a
+/// deliberate act of the operator's.
 pub async fn extract_include_headers(
     mut request: Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    // Rejected rather than ignored: silently treating an unparseable value as
-    // "no allowlist" would leave the schemas unstripped and the model's arguments
-    // honoured, turning a typo (a repeated `include_header=`, say) into a
-    // connection that looks configured but enforces nothing.
+    // Rejected rather than ignored: an operator who mistyped this would otherwise
+    // believe a credential was reaching their preprocessor when it was not.
     let include_header = match Query::<McpRequestQuery>::try_from_uri(request.uri()) {
         Ok(query) => query.0.include_header,
         Err(err) => {
