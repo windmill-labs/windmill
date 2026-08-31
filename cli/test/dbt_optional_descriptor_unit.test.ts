@@ -7,7 +7,11 @@ import { expect, test, describe, beforeEach, afterEach } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
-import { FSFSElement, elementsToMap } from "../src/commands/sync/sync.ts";
+import {
+  FSFSElement,
+  dropDeletions,
+  elementsToMap,
+} from "../src/commands/sync/sync.ts";
 import { listWorkspacePaths } from "../src/commands/dev/dev.ts";
 import {
   DbtPathCollisionError,
@@ -290,6 +294,32 @@ describe("a dbt project without a descriptor", () => {
     const key = "f/analytics/analytics__dbt/wm_dbt.yaml";
     expect(normalized(local)[key]).toBe("");
     expect(normalized(remoteMap)[key]).toBe("");
+  });
+});
+
+// Unguarded, `--keep-deleted` lets a pull remove the very file it promises to
+// keep — the descriptor's warehouse and run arguments with it.
+describe("--keep-deleted and a descriptor the remote no longer names", () => {
+  const DESCRIPTOR = "f/analytics/analytics__dbt/wm_dbt.yaml";
+  const changeset = () =>
+    [
+      { name: "edited", path: DESCRIPTOR, before: "warehouse: wh\n", after: "" },
+      { name: "edited", path: "f/other/script.ts", before: "a", after: "b" },
+    ] as Parameters<typeof dropDeletions>[0];
+
+  test("survives a pull", () => {
+    const changes = changeset();
+    dropDeletions(changes, "local");
+    expect(changes.map((c) => c.path)).toEqual(["f/other/script.ts"]);
+  });
+
+  test("is still pushed, deleting no remote item", () => {
+    const changes = changeset();
+    dropDeletions(changes, "remote");
+    expect(changes.map((c) => c.path)).toEqual([
+      DESCRIPTOR,
+      "f/other/script.ts",
+    ]);
   });
 });
 
