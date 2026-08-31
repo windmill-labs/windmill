@@ -59,17 +59,27 @@
 		async ([workspace, datatable]) => {
 			if (!workspace || !datatable) return undefined
 			try {
-				return await WorkspaceService.listUsableDatatableRoles({
-					workspace,
-					datatableName: datatable
-				})
+				return {
+					datatable,
+					...(await WorkspaceService.listUsableDatatableRoles({
+						workspace,
+						datatableName: datatable
+					}))
+				}
 			} catch (e) {
 				// Never leave the drawer waiting on this: fall back to the
 				// unpermissioned shape so it opens and the server picks the role.
 				console.error('Failed to load datatable roles:', e)
-				return { enabled: false, roles: [], default_role: 'admin' }
+				return { datatable, enabled: false, roles: [], default_role: 'admin' }
 			}
 		}
+	)
+
+	// A resource keeps its previous value while refetching, and roles are per data
+	// table: settling from the last one's answer would connect to the new data
+	// table as a role it may not even have.
+	const rolesOfCurrent = $derived(
+		usableRoles.current?.datatable === uriState.selectedDatatable ? usableRoles.current : undefined
 	)
 
 	// The content must not mount until the role is settled: mounting is what fires
@@ -77,9 +87,9 @@
 	// run — and cache — as whatever the server defaults to.
 	const roleSettled = $derived(
 		!uriState.isDatatableInput ||
-			(usableRoles.current !== undefined &&
-				(!usableRoles.current.enabled ||
-					usableRoles.current.roles.length === 0 ||
+			(rolesOfCurrent !== undefined &&
+				(!rolesOfCurrent.enabled ||
+					rolesOfCurrent.roles.length === 0 ||
 					uriState.selectedRole !== undefined))
 	)
 
@@ -88,7 +98,7 @@
 	// until the user touches the picker would send the first — and cached — round
 	// of queries as a role they may not be allowed to use.
 	$effect(() => {
-		const roles = usableRoles.current
+		const roles = rolesOfCurrent
 		if (!roles?.enabled || uriState.selectedRole !== undefined) return
 		const effective = roles.roles.includes(roles.default_role) ? roles.default_role : roles.roles[0]
 		if (effective) untrack(() => (uriState.selectedRole = effective))
