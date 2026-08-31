@@ -102,6 +102,12 @@ enum CorsDecision {
     Unavailable,
 }
 
+/// A route serving static assets is never subject to an allowlist, its own
+/// included. It hands out public files that any non-browser client can already
+/// fetch, so restricting which browsers may read them protects nothing, while
+/// breaking the cross-origin uses that do consult CORS: a webfont, a
+/// `crossorigin` asset, a `fetch`.
+///
 /// The CORS verdict for a request, published by whoever resolved its trigger.
 ///
 /// The middleware stamps headers after the handler returns, but only the
@@ -117,16 +123,20 @@ impl ResolvedCorsPolicy {
     /// Record what the trigger being served allows. Called once, where the
     /// route is resolved, so the answer cannot drift from the response.
     fn publish(&self, trigger: &TriggerRoute, method: Option<HttpMethod>, headers: &HeaderMap) {
-        let instance_default = HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load();
-        let decision = match effective_allowed_origins(
-            trigger.allowed_origins.as_deref(),
-            instance_default.as_slice(),
-        ) {
-            None => CorsDecision::Unrestricted,
-            Some(allowed_origins) => CorsDecision::Restricted {
-                route_method: method,
-                allow_origin: match_origin(allowed_origins, headers.get(http::header::ORIGIN)),
-            },
+        let decision = if trigger.static_asset_config.is_some() {
+            CorsDecision::Unrestricted
+        } else {
+            let instance_default = HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.load();
+            match effective_allowed_origins(
+                trigger.allowed_origins.as_deref(),
+                instance_default.as_slice(),
+            ) {
+                None => CorsDecision::Unrestricted,
+                Some(allowed_origins) => CorsDecision::Restricted {
+                    route_method: method,
+                    allow_origin: match_origin(allowed_origins, headers.get(http::header::ORIGIN)),
+                },
+            }
         };
         let _ = self.0.set(decision);
     }
@@ -170,6 +180,12 @@ async fn resolve_cors_decision(
     };
 
     let route = router.at(requested_path).ok();
+    if route
+        .as_ref()
+        .is_some_and(|trigger| trigger.value.static_asset_config.is_some())
+    {
+        return CorsDecision::Unrestricted;
+    }
     let route_allowed_origins = route
         .as_ref()
         .and_then(|trigger| trigger.value.allowed_origins.as_deref());

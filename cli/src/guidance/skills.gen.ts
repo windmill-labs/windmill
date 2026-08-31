@@ -8395,7 +8395,10 @@ properties:
       the runnable returns via wm_headers. Use [''*''] to opt out of any restriction,
       including the http_route_default_allowed_origins instance setting. An empty
       list is not a configuration and resolves exactly as null does. When null, the
-      instance setting applies, or Access-Control-Allow-Origin: * if it is unset.'
+      instance setting applies, or Access-Control-Allow-Origin: * if it is unset.
+      Ignored on a route serving static assets: those hand out public files, so restricting
+      which browsers may read them protects nothing while breaking cross-origin webfonts
+      and fetches.'
   error_handler_path:
     type: string
     description: Path to a script to run when the triggered job fails. A bare path,
