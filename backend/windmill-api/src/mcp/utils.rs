@@ -743,8 +743,8 @@ fn is_never_forwarded(normalized_name: &str) -> bool {
 /// Deliberately not `build_headers`: that unions its whitelist with the
 /// instance-wide `INCLUDE_HEADERS`, and an MCP tool schema must not start
 /// omitting parameters because an admin configured a header for webhooks.
-/// Header names arrive lowercased, so normalising each one is enough to match
-/// the allowlist however the client cased it.
+/// `HeaderMap` lookup is case-insensitive, so the exact name matches however the
+/// client cased it — and an `x_user_id` alias, being a different header, does not.
 fn allowed_headers(
     headers: &http::HeaderMap,
     include_headers: &McpIncludeHeaders,
@@ -754,15 +754,25 @@ fn allowed_headers(
         if is_never_forwarded(&entry.param_name) {
             continue;
         }
-        // Looked up by the exact header name rather than matched against a
-        // normalised one, so an `x_user_id` alias cannot stand in for the
-        // `x-user-id` a trusted proxy set.
-        if let Some(value) = headers.get(&entry.header_name) {
-            selected.insert(
-                entry.param_name.clone(),
-                to_raw_value(&value.to_str().unwrap_or("")),
+        let mut values = headers.get_all(&entry.header_name).iter();
+        let Some(value) = values.next() else {
+            continue;
+        };
+        // Sent more than once, the value is no longer attributable: a gateway
+        // that appends its own copy leaves the caller's in front, and picking
+        // either would forward a value the caller chose. Drop it and let the
+        // parameter fall to its default rather than guess.
+        if values.next().is_some() {
+            tracing::warn!(
+                "MCP request carried '{}' more than once; not forwarding it",
+                entry.header_name
             );
+            continue;
         }
+        selected.insert(
+            entry.param_name.clone(),
+            to_raw_value(&value.to_str().unwrap_or("")),
+        );
     }
     selected
 }
@@ -911,7 +921,7 @@ mod tests {
 
         let selected = allowed_headers(
             &headers,
-            &McpIncludeHeaders::parse("authorization, cookie, x-user-id"),
+            &McpIncludeHeaders::parse("authorization, cookie, x-user-id").unwrap(),
         );
 
         assert_eq!(selected.len(), 1);
@@ -938,12 +948,41 @@ mod tests {
         assert!(selected.contains_key("user-agent"));
     }
 
+    /// A header sent twice has no attributable value: a gateway that appends its
+    /// own copy leaves the caller's in front, so forwarding either would hand the
+    /// runnable something the caller chose.
+    #[test]
+    fn a_repeated_header_is_not_forwarded() {
+        let mut headers = http::HeaderMap::new();
+        headers.append(
+            http::HeaderName::from_static("x-user-id"),
+            http::HeaderValue::from_static("attacker@evil.test"),
+        );
+        headers.append(
+            http::HeaderName::from_static("x-user-id"),
+            http::HeaderValue::from_static("alice@corp.example"),
+        );
+
+        let selected = allowed_headers(&headers, &McpIncludeHeaders::parse("x-user-id").unwrap());
+
+        assert!(selected.is_empty());
+    }
+
+    /// An entry that can never match a header would also never be stripped from a
+    /// tool schema, so it must be reported rather than half-honoured.
+    #[test]
+    fn a_malformed_allowlist_entry_is_rejected() {
+        assert!(McpIncludeHeaders::parse("x-user-id;x-tenant").is_err());
+        assert!(McpIncludeHeaders::parse("x user id").is_err());
+        assert!(McpIncludeHeaders::parse("x-user-id, x-tenant").is_ok());
+    }
+
     /// The alias an exact-name lookup exists to reject.
     #[test]
     fn an_underscore_alias_does_not_feed_an_allowlisted_parameter() {
         let headers = header_map(&[("x_user_id", "attacker@evil.test")]);
 
-        let selected = allowed_headers(&headers, &McpIncludeHeaders::parse("x-user-id"));
+        let selected = allowed_headers(&headers, &McpIncludeHeaders::parse("x-user-id").unwrap());
 
         assert!(selected.is_empty());
     }
@@ -1095,6 +1134,42 @@ mod tests {
     /// a token scoped to `mcp:scripts:f/team/*` reaches every script through it. The
     /// catalogue lives here and the policy in windmill-mcp, so neither crate notices
     /// a tool added on one side and forgotten on the other; this is where they meet.
+    /// Whether a tool hands a runnable an argument map the model composes: either
+    /// a declared `args` object, or a free-form body forwarded verbatim.
+    fn carries_runnable_args(tool: &EndpointTool) -> bool {
+        let Some(schema) = tool.body_schema.as_ref() else {
+            return false;
+        };
+        match schema.get("properties").and_then(|p| p.as_object()) {
+            Some(props) if !props.is_empty() => props.contains_key("args"),
+            _ => schema
+                .get("additionalProperties")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        }
+    }
+
+    /// A tool added to the catalogue that hands a runnable model-composed
+    /// arguments, but is not withdrawn on a header-forwarding connection, is a
+    /// second door to the identity guarantee. The withdrawal set and the
+    /// catalogue are edited in different crates; this is where they meet.
+    #[test]
+    fn every_runnable_executing_tool_is_withdrawn_when_headers_are_forwarded() {
+        let unwithdrawn: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()
+            .into_iter()
+            .filter(|t| {
+                (t.path.contains("/jobs/run") || t.path.contains("/schedules/"))
+                    && carries_runnable_args(t)
+                    && !windmill_mcp::server::executes_runnable_with_model_args(&t.name)
+            })
+            .map(|t| t.name.to_string())
+            .collect();
+        assert!(
+            unwithdrawn.is_empty(),
+            "tools handing a runnable model-composed arguments but not withdrawn on a header-forwarding connection: {unwithdrawn:?}"
+        );
+    }
+
     #[test]
     fn every_path_addressed_script_or_flow_tool_is_path_confined() {
         let unpoliced: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()

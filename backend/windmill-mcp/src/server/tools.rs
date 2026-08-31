@@ -333,7 +333,7 @@ mod tests {
         .unwrap()
         .clone();
 
-        strip_transport_owned_params(&mut schema, &McpIncludeHeaders::parse("X-User-Id"));
+        strip_transport_owned_params(&mut schema, &McpIncludeHeaders::parse("X-User-Id").unwrap());
 
         let properties = schema["properties"].as_object().unwrap();
         assert!(!properties.contains_key("x_user_id"));

@@ -287,8 +287,9 @@
 							Header names your MCP client sends, comma separated. A script or flow without a
 							preprocessor receives each as a parameter of the same name (<code>X-User-Id</code>
 							becomes <code>x_user_id</code>), hidden from the tool schema so the model cannot set
-							it. With a preprocessor, they arrive under <code>event.headers</code> instead, keyed by
-							the original header name.
+							it. With a preprocessor they arrive keyed by the original header name, under
+							<code>event.headers</code> for a v2 preprocessor and
+							<code>wm_trigger.mcp.headers</code> for a v1 one.
 						</p>
 						<p class="mt-1 text-xs text-tertiary">
 							Authentication headers stay out of both. Tools that run a runnable by path, preview,

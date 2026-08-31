@@ -433,9 +433,18 @@ pub async fn extract_include_headers(
         }
     };
 
-    let include_headers = include_header
-        .map(|value| McpIncludeHeaders::parse(&value))
-        .unwrap_or_default();
+    let include_headers = match include_header.as_deref().map(McpIncludeHeaders::parse) {
+        Some(Ok(parsed)) => parsed,
+        None => McpIncludeHeaders::default(),
+        Some(Err(err)) => {
+            use axum::response::IntoResponse;
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                format!("Invalid include_header: {}", err),
+            )
+                .into_response();
+        }
+    };
 
     if !include_headers.is_empty() {
         request.extensions_mut().insert(include_headers);

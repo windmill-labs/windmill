@@ -457,8 +457,15 @@ const RUNNABLE_EXECUTING_ENDPOINTS: &[&str] = &[
 
 /// Whether this endpoint tool can run a runnable with model-supplied arguments,
 /// and so cannot offer the guarantee a header-forwarding connection promises.
-fn executes_runnable_with_model_args(endpoint_name: &str) -> bool {
+pub fn executes_runnable_with_model_args(endpoint_name: &str) -> bool {
     RUNNABLE_EXECUTING_ENDPOINTS.contains(&endpoint_name)
+        // `Unconfinable` is the policy for a tool that reaches a runnable without
+        // naming a confinable path — preview today. Deriving it rather than
+        // listing it keeps a future one withdrawn by default.
+        || matches!(
+            endpoint_path_policy(endpoint_name),
+            Some(EndpointPathPolicy::RunByPath(_) | EndpointPathPolicy::Unconfinable(_))
+        )
 }
 
 /// Drop the transport-owned names from an endpoint tool's arguments.
@@ -975,6 +982,12 @@ impl<B: McpBackend> Runner<B> {
             if read_only && !crate::server::is_endpoint_read_only(&endpoint_tool) {
                 continue;
             }
+            // Withdrawn while headers are being forwarded — see call_tool_single.
+            if executes_runnable_with_model_args(endpoint_tool.name.as_ref())
+                && !include_headers.is_empty()
+            {
+                continue;
+            }
 
             tools.push(endpoint_tool_to_mcp_tool_multi(&endpoint_tool));
         }
@@ -1112,7 +1125,7 @@ mod tests {
         let args = transform_call_args(
             json!({"ticket_id": "T-1", "x_user_id": "attacker@evil.test"}),
             &None,
-            &McpIncludeHeaders::parse("x-user-id"),
+            &McpIncludeHeaders::parse("x-user-id").unwrap(),
         );
 
         assert_eq!(args, json!({"ticket_id": "T-1"}));
@@ -1136,7 +1149,10 @@ mod tests {
     fn run_by_path_arguments_cannot_carry_a_header_fed_name() {
         let mut args = json!({"path": "u/admin/whoami", "x_user_id": "attacker@evil.test"});
 
-        strip_transport_owned_endpoint_args(&mut args, &McpIncludeHeaders::parse("x-user-id"));
+        strip_transport_owned_endpoint_args(
+            &mut args,
+            &McpIncludeHeaders::parse("x-user-id").unwrap(),
+        );
 
         assert_eq!(args, json!({"path": "u/admin/whoami"}));
     }
@@ -1165,7 +1181,7 @@ mod tests {
     /// one a trusted proxy injected.
     #[test]
     fn an_underscore_alias_is_a_different_header() {
-        let include = McpIncludeHeaders::parse("x-user-id");
+        let include = McpIncludeHeaders::parse("x-user-id").unwrap();
 
         assert_eq!(include.0.len(), 1);
         assert_eq!(include.0[0].header_name, "x-user-id");
@@ -1178,7 +1194,7 @@ mod tests {
     /// feeds it cannot depend on iteration order.
     #[test]
     fn aliases_naming_one_parameter_resolve_to_the_first() {
-        let include = McpIncludeHeaders::parse("x-user-id, x_user_id");
+        let include = McpIncludeHeaders::parse("x-user-id, x_user_id").unwrap();
 
         assert_eq!(include.0.len(), 1);
         assert_eq!(include.0[0].header_name, "x-user-id");

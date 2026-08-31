@@ -60,12 +60,20 @@ impl McpIncludeHeaders {
     /// Two entries that differ only in `-` versus `_` name the same parameter;
     /// the first wins, so the mapping stays one-to-one and a runnable cannot be
     /// fed from whichever of them happened to be visited last.
-    pub fn parse(value: &str) -> Self {
+    /// Rejects an entry that is not a valid HTTP header name rather than keeping
+    /// it: one that can never match a header would also never be stripped from a
+    /// tool schema, leaving the parameter model-settable on a connection the
+    /// operator believes is locked down. `x-user-id;x-tenant`, or a space where a
+    /// comma belongs, is a typo worth reporting, not worth half-honouring.
+    pub fn parse(value: &str) -> Result<Self, String> {
         let mut entries: Vec<McpIncludeHeader> = Vec::new();
         for name in value.split(',') {
             let header_name = name.trim().to_lowercase();
             if header_name.is_empty() {
                 continue;
+            }
+            if !is_valid_header_name(&header_name) {
+                return Err(format!("'{}' is not a valid header name", header_name));
             }
             let param_name = normalize_header_name(&header_name);
             if entries.iter().any(|e| e.param_name == param_name) {
@@ -73,7 +81,7 @@ impl McpIncludeHeaders {
             }
             entries.push(McpIncludeHeader { header_name, param_name });
         }
-        Self(entries)
+        Ok(Self(entries))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -94,6 +102,16 @@ impl McpIncludeHeaders {
 /// Render a header name as the runnable parameter that carries it.
 pub fn normalize_header_name(name: &str) -> String {
     name.to_lowercase().replace('-', "_")
+}
+
+/// The RFC 9110 token set a field name may draw from. Spelled out here rather
+/// than deferring to `http::HeaderName` because this module also compiles for the
+/// MCP client, which does not pull in `http`.
+fn is_valid_header_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
 }
 
 /// Summary of a workspace the caller can access, returned by the
