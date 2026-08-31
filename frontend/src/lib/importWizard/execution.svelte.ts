@@ -8,9 +8,10 @@ import {
 	installProject,
 	type InstallResult
 } from '$lib/components/workspaceSettings/projectInstall'
-import type {
-	ProjectExport,
-	ProjectMigration
+import {
+	isRequiredResource,
+	type ProjectExport,
+	type ProjectMigration
 } from '$lib/components/workspaceSettings/projectBundle'
 import { planWorkspaceId, type ImportPlan } from './plan'
 import { probeImportedPaths, probeWorkspace } from './probe'
@@ -110,12 +111,16 @@ export class ImportExecution {
 	}
 
 	/**
-	 * How many resources the project shipped. Every one arrives as an empty stub —
-	 * the hub never publishes resource values — so a non-zero count means the setup
-	 * step has something to offer.
+	 * How many resources the importer has to fill in. Every shipped resource arrives
+	 * as an empty stub — the hub never publishes resource values — so a non-zero
+	 * count means the setup step has something to offer.
+	 *
+	 * Only the required ones: an unrequired stub exists so a standalone run of the
+	 * item that declared its type has something to pick, and nothing in the project
+	 * reads it. Counting those would open a setup step listing nothing.
 	 */
 	get resourceCount(): number {
-		return this.#export?.resources?.length ?? 0
+		return (this.#export?.resources ?? []).filter(isRequiredResource).length
 	}
 
 	get extraCounts(): { triggers: number; migrations: number } | undefined {
@@ -453,9 +458,7 @@ export class ImportExecution {
 		const problems: string[] = []
 		if (failed > 0) problems.push(`${failed} item${failed === 1 ? '' : 's'} failed to import`)
 		if (badMigrations > 0) {
-			problems.push(
-				`${badMigrations} data table migration${badMigrations === 1 ? '' : 's'} failed`
-			)
+			problems.push(`${badMigrations} data table migration${badMigrations === 1 ? '' : 's'} failed`)
 		}
 		if (problems.length) this.error = `${problems.join(', ')}.`
 	}

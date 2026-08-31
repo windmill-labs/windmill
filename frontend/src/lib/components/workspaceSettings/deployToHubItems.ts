@@ -55,6 +55,44 @@ export function inputResourceTypes(schema: unknown, known: Set<string> | undefin
 	return [...out]
 }
 
+export interface ProjectResourceExport {
+	path: string
+	resource_type: string
+	/** Whether the importer has to fill this in for the project to run. */
+	required: boolean
+}
+
+/**
+ * The resources a project publishes, from the two things that produce one.
+ *
+ * A `$res:` token (or a trigger's resource field) names a path something in the
+ * project reads, so the credential is required or that item cannot run. An input
+ * schema's `resource-<type>` format names no path at all — it says the project
+ * needs a type, and a stub gets minted at the conventional `f/<slug>/<type>` so a
+ * standalone run of that item has something to pick. Flattening the two makes an
+ * app that pins `$res:.../prod_db` for a script arg publish `prod_db` *and*
+ * `postgresql`, and the importer fills two credentials to satisfy one dependency.
+ *
+ * So the second kind ships unrequired: still created, never asked for. A path
+ * claimed by both is required — a referenced resource is read whatever else
+ * happens to mint the same path.
+ */
+export function projectResourceExports(
+	resourceStubs: { newPath: string; resource_type: string }[],
+	inputTypes: string[],
+	slug: string
+): ProjectResourceExport[] {
+	const byPath = new Map<string, ProjectResourceExport>()
+	for (const s of resourceStubs) {
+		byPath.set(s.newPath, { path: s.newPath, resource_type: s.resource_type, required: true })
+	}
+	for (const t of inputTypes) {
+		const path = `f/${slug}/${t}`
+		if (!byPath.has(path)) byPath.set(path, { path, resource_type: t, required: false })
+	}
+	return [...byPath.values()]
+}
+
 // A raw app has no run to capture: its demo is a recorded session of someone
 // using it, driven in the record drawer and replayed on the Hub page. Legacy raw
 // apps live only in the `raw_app` table, and the record surface loads the app

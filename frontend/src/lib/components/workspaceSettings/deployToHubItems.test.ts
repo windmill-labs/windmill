@@ -3,6 +3,7 @@ import {
 	canRecordSession,
 	inputResourceTypes,
 	mergeAppTableOrigin,
+	projectResourceExports,
 	type DeployItem
 } from './deployToHubItems'
 
@@ -60,5 +61,45 @@ describe('inputResourceTypes', () => {
 		const all = ['postgresql', 'postgres']
 		expect(inputResourceTypes(schema, undefined)).toEqual(all)
 		expect(inputResourceTypes(schema, new Set())).toEqual(all)
+	})
+})
+
+describe('projectResourceExports', () => {
+	// An app that pins `$res:f/mine/prod_db` for a script arg declared as
+	// `resource-postgresql` used to publish both `prod_db` and `postgresql`, so the
+	// importer filled two credentials to satisfy one dependency.
+	it('ships an input-derived stub unrequired when a $res: one covers the type', () => {
+		expect(
+			projectResourceExports(
+				[{ newPath: 'f/proj/prod_db', resource_type: 'postgresql' }],
+				['postgresql'],
+				'proj'
+			)
+		).toEqual([
+			{ path: 'f/proj/prod_db', resource_type: 'postgresql', required: true },
+			{ path: 'f/proj/postgresql', resource_type: 'postgresql', required: false }
+		])
+	})
+
+	// Unrequired even when it is the project's only resource: an input format names
+	// no path, so there is nothing to say the item will ever be run. A project whose
+	// resources are all input-derived asks the importer for nothing, and the stubs
+	// are what a standalone run picks from.
+	it('ships an input-derived stub unrequired even when nothing else covers the type', () => {
+		expect(projectResourceExports([], ['postgresql'], 'proj')).toEqual([
+			{ path: 'f/proj/postgresql', resource_type: 'postgresql', required: false }
+		])
+	})
+
+	// A referenced resource named after its own type relocates onto the conventional
+	// stub path. Something reads it, so the reference has to win the collision.
+	it('lets a referenced resource win a path claimed by both', () => {
+		expect(
+			projectResourceExports(
+				[{ newPath: 'f/proj/postgresql', resource_type: 'postgresql' }],
+				['postgresql'],
+				'proj'
+			)
+		).toEqual([{ path: 'f/proj/postgresql', resource_type: 'postgresql', required: true }])
 	})
 })

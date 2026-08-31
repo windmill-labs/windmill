@@ -462,6 +462,17 @@ async fn publish_resource_type(
 struct PublishResourceBody {
     path: String,
     resource_type: String,
+    /// Whether an importer has to fill this in for the project to run. False for a
+    /// stub minted from an item's `resource-<type>` input, which is created so a
+    /// standalone run has something to pick but which nothing in the project reads.
+    /// The body is re-serialized into the Hub call, so a field missing here is
+    /// dropped on the way through; defaulted so an older client still posts.
+    #[serde(default = "default_true")]
+    required: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Deserialize, Serialize)]

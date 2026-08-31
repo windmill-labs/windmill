@@ -20,6 +20,7 @@
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import { probeMigrationsApplied } from '$lib/importWizard/probe'
 	import {
+		isRequiredResource,
 		retargetProjectExport,
 		type ProjectExport,
 		type ProjectMigration
@@ -253,7 +254,12 @@
 			// Contained for the same reason the import contains: a crafted export can name a
 			// path outside the folder, and offering that for editing would reach a resource
 			// this import was never allowed to create.
+			// Unrequired stubs are imported but never asked for: nothing in the project
+			// reads them, they exist so a standalone run of the item that declared the
+			// type has something to pick. Listing them would ask for a second credential
+			// to satisfy one dependency, and would block Finish on it.
 			projectResources = (retargeted.resources ?? [])
+				.filter(isRequiredResource)
 				.map((r) => ({ path: String(r.path), resource_type: String((r as any).resource_type) }))
 				.filter((r) => r.path.startsWith(`f/${target}/`))
 			await refreshBlanks()
@@ -757,15 +763,17 @@
 				size="xs"
 			>
 				{#if missingTables.length > 0}
-					The tables {missingTables.length === 1 ? 'this data table holds' : 'these data tables hold'}
+					The tables {missingTables.length === 1
+						? 'this data table holds'
+						: 'these data tables hold'}
 					do not exist, and the project's apps and flows read them. Every one of those fails as soon
 					as it opens.
 				{/if}
 				{#if uncheckedTables.length > 0}
 					{#if missingTables.length > 0}<br /><br />{/if}
 					{uncheckedTables.length === 1 ? 'One data table is' : 'Some data tables are'} set up, but
-					{uncheckedTables.length === 1 ? 'its' : 'their'} schema could not be read, so whether the
-					project's tables are there is unknown. Check again once the database is reachable.
+					{uncheckedTables.length === 1 ? 'its' : 'their'} schema could not be read, so whether the project's
+					tables are there is unknown. Check again once the database is reachable.
 				{/if}
 			</Alert>
 		{:else}

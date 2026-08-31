@@ -40,6 +40,7 @@ import {
 	canRecordSession,
 	inputResourceTypes,
 	mergeAppTableOrigin,
+	projectResourceExports,
 	HIDDEN_RESOURCE_TYPES,
 	type DeployItem
 } from './deployToHubItems'
@@ -1198,15 +1199,7 @@ export class DeployToHubSession {
 				types.filter((t) => exportedTypes.has(t))
 			)
 
-			// Input-type deps with no path get a conventional f/<slug>/<type> stub.
-			const stubsByPath = new Map<string, { path: string; resource_type: string }>()
-			for (const s of bundle.resourceStubs)
-				stubsByPath.set(s.newPath, { path: s.newPath, resource_type: s.resource_type })
-			for (const t of inputTypes) {
-				const path = `f/${slug}/${t}`
-				if (!stubsByPath.has(path)) stubsByPath.set(path, { path, resource_type: t })
-			}
-			const stubs = [...stubsByPath.values()]
+			const stubs = projectResourceExports(bundle.resourceStubs, inputTypes, slug)
 			if (stubs.length > 0) {
 				try {
 					await this.#postHub('/hub/resources', { resources: stubs, project_slug: slug })

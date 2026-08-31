@@ -376,6 +376,19 @@ export interface ProjectExport {
 	migrations?: ProjectMigration[]
 }
 
+/**
+ * Whether a shipped resource is one the importer has to fill in, as opposed to a
+ * stub minted from an item's `resource-<type>` input so a standalone run of it has
+ * something to pick. Both are created; only these are asked for.
+ *
+ * Absent means required. Projects published before the distinction existed carry
+ * no flag, and reading that as "not required" would silently stop asking for
+ * credentials they genuinely need.
+ */
+export function isRequiredResource(r: ExportItem): boolean {
+	return r?.required !== false
+}
+
 // Map bundled paths `f/<fromSlug>/...` -> `f/<folder>/...`. Only enumerated
 // paths go in, so rewriters touch real refs, never incidental text.
 export function buildRetargetMap(
