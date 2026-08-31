@@ -3174,6 +3174,28 @@ export function untrackedDatatableMigrationDeletions<
   );
 }
 
+/**
+ * `--keep-deleted`: strip every deletion from the changeset, in place, so the
+ * sync only adds and updates. A path missing on one side is not on its own
+ * evidence that it should go from the other — a partial clone, a scoped
+ * checkout or an item authored in the UI all read as deletions here.
+ */
+function dropDeletions(changes: Change[], keptOn: "local" | "remote"): void {
+  const deletions = changes.filter((c) => c.name === "deleted");
+  if (deletions.length === 0) return;
+  const kept = changes.filter((c) => c.name !== "deleted");
+  changes.length = 0;
+  changes.push(...kept);
+  log.info(
+    colors.yellow(
+      `--keep-deleted: keeping ${deletions.length} item(s) that exist only ` +
+        (keptOn === "local"
+          ? `on disk instead of deleting them locally`
+          : `on the remote instead of deleting them from the workspace`),
+    ),
+  );
+}
+
 interface ChangeTracker {
   scripts: string[];
   flows: string[];
@@ -3433,6 +3455,7 @@ export async function pull(
       repository?: string;
       promotion?: string;
       branch?: string;
+      keepDeleted?: boolean;
       useIndividualBranch?: boolean;
       groupByFolder?: boolean;
       gitDeployItems?: string;
@@ -3683,6 +3706,10 @@ export async function pull(
     true, // els1 (remote) is the remote source
     await isCaseInsensitiveFilesystem(process.cwd()),
   );
+
+  if (opts.keepDeleted) {
+    dropDeletions(changes, "local");
+  }
 
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`,
@@ -4117,10 +4144,14 @@ export async function pull(
     }
   }
 
-  try {
-    await pullSharedUi(workspace.workspaceId);
-  } catch (e) {
-    log.warn(`Failed to pull shared UI folder: ${e}`);
+  // Skipped under --dry-run since pullSharedUi writes to the local ui/ folder.
+  // An empty changeset falls through the return above and reaches here.
+  if (!opts.dryRun) {
+    try {
+      await pullSharedUi(workspace.workspaceId, opts.keepDeleted);
+    } catch (e) {
+      log.warn(`Failed to pull shared UI folder: ${e}`);
+    }
   }
 
   // Datatable migrations are part of the workspace export now, so they flow
@@ -4425,12 +4456,19 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 // Shown after a `wmill sync push --dry-run` preview that has changes. `sync push`
-// deploys to the remote workspace and is destructive (it overwrites and prunes
-// remote items that differ from or are absent locally), so the preview reminds
-// the caller — especially an AI agent that ran the dry-run to inspect changes —
-// to get explicit user confirmation before applying it for real.
-const SYNC_PUSH_DESTRUCTIVE_WARNING =
-  "`wmill sync push` is destructive: applying it deploys these changes to the remote workspace and overwrites or deletes remote items that differ from or are absent locally — this is not automatically reversible. If you are an AI agent, do NOT run `wmill sync push` (without --dry-run) until the user has explicitly confirmed this deploy, unless your custom instructions explicitly allow bypassing that confirmation.";
+// deploys to the remote workspace and is destructive (it overwrites remote items
+// that differ from local, and prunes those absent locally unless --keep-deleted),
+// so the preview reminds the caller — especially an AI agent that ran the dry-run
+// to inspect changes — to get explicit user confirmation before applying it for real.
+function syncPushDestructiveWarning(keepDeleted?: boolean): string {
+  return (
+    "`wmill sync push` is destructive: applying it deploys these changes to the remote workspace and overwrites " +
+    (keepDeleted
+      ? "remote items that differ from local"
+      : "or deletes remote items that differ from or are absent locally") +
+    " — this is not automatically reversible. If you are an AI agent, do NOT run `wmill sync push` (without --dry-run) until the user has explicitly confirmed this deploy, unless your custom instructions explicitly allow bypassing that confirmation."
+  );
+}
 
 // A script pushed without a local lock queues a server-side dependency job; if
 // that job fails the script deploys broken (no lock/assets) with no CLI signal.
@@ -4490,6 +4528,7 @@ export async function push(
     SyncOptions & {
       repository?: string;
       branch?: string;
+      keepDeleted?: boolean;
       acceptOverridingPermissionedAsWithSelf?: boolean;
     },
 ) {
@@ -4789,6 +4828,13 @@ export async function push(
         `dedupeLockfiles is on but this checkout still holds one lockfile per script. Run 'wmill generate-metadata' (or pull) to convert it — until then every script reads as changed.`,
       ),
     );
+  }
+
+  // After the shared-lock pass, which reads a shared lockfile's deletion as the
+  // signal that this checkout is not deduplicated — an advisory about the local
+  // tree that holds whether or not remote items are being kept.
+  if (opts.keepDeleted) {
+    dropDeletions(changes, "remote");
   }
 
   const autoRegenerate = !!(opts as any).autoMetadata;
@@ -5103,7 +5149,10 @@ export async function push(
   // unchanged (pushSharedUi still runs) and the summary count includes ui/.
   if (opts.dryRun) {
     try {
-      for (const c of await diffSharedUi(workspace.workspaceId)) {
+      for (const c of await diffSharedUi(
+        workspace.workspaceId,
+        opts.keepDeleted,
+      )) {
         if (c.type === "added") {
           changes.push({ name: "added", path: c.path, content: "" });
         } else if (c.type === "deleted") {
@@ -5275,7 +5324,9 @@ export async function push(
           : {}),
       })),
       total: changes.length,
-      ...(changes.length > 0 ? { warning: SYNC_PUSH_DESTRUCTIVE_WARNING } : {}),
+      ...(changes.length > 0
+        ? { warning: syncPushDestructiveWarning(opts.keepDeleted) }
+        : {}),
     };
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -5339,7 +5390,9 @@ export async function push(
 
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
-      log.warn(colors.yellow(`\n⚠ ${SYNC_PUSH_DESTRUCTIVE_WARNING}`));
+      log.warn(
+        colors.yellow(`\n⚠ ${syncPushDestructiveWarning(opts.keepDeleted)}`),
+      );
       return;
     }
 
@@ -6313,7 +6366,7 @@ export async function push(
       }
     }
     try {
-      await pushSharedUi(workspace.workspaceId);
+      await pushSharedUi(workspace.workspaceId, opts.keepDeleted);
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
@@ -6415,7 +6468,10 @@ export async function push(
     let sharedUiPushed = false;
     if (!opts.dryRun) {
       try {
-        sharedUiPushed = await pushSharedUi(workspace.workspaceId);
+        sharedUiPushed = await pushSharedUi(
+          workspace.workspaceId,
+          opts.keepDeleted,
+        );
       } catch (e) {
         log.warn(`Failed to push shared UI folder: ${e}`);
       }
@@ -6480,6 +6536,10 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option(
+    "--keep-deleted",
+    "Do not delete local files for items that no longer exist on the remote workspace. Only adds and updates.",
+  )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(
@@ -6542,6 +6602,10 @@ const command = new Command()
   .option(
     "--skip-reencrypt-on-key-change",
     "When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.",
+  )
+  .option(
+    "--keep-deleted",
+    "Do not delete remote items that no longer exist locally. Only adds and updates.",
   )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
