@@ -1,5 +1,5 @@
 //comment this line and last to dev
-export function wmillTsDev(port: number) { return `
+export function wmillTsDev() { return `
 let reqs: Record<string, any> = {}
 let ws: WebSocket | null = null
 let wsReady: Promise<void>
