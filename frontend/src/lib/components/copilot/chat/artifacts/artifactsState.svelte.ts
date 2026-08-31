@@ -155,7 +155,12 @@ export class SessionArtifactsStore {
 		if (this.#sessionId !== loaded) return
 		if (read.state === 'unavailable') return
 		if (read.state === 'loaded') {
-			this.#place(read.artifact)
+			// Weighed against what is held, not placed over it: an ordinary artifact
+			// whose persist the store refused lives only in memory here, and taking
+			// the stored row outright would drop that edit for a notification about
+			// a different one.
+			const held = this.artifacts.find((a) => a.id === artifactId)
+			this.#place(furtherAlong(read.artifact, held) ?? read.artifact)
 			return
 		}
 		const next = this.artifacts.filter((a) => a.id !== artifactId)

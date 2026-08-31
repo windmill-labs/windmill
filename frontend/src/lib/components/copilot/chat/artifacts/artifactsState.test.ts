@@ -545,6 +545,30 @@ describe('cross-tab artifact sync', () => {
 		await store.setSession('s1')
 	})
 
+	// An ordinary artifact the store refused to persist lives only in this tab's memory —
+	// create/update hand it back unpersisted by design, and only a plan throws instead. A
+	// notification about that artifact must not replace the held edit with the older row the
+	// database still has, which is the reconciliation `update` already does via furtherAlong.
+	it('keeps an unpersisted local edit when the other tab writes the same artifact', async () => {
+		const made = await store.create('s1', { name: 'Notes', content: 'v1' })
+		await watcher.applyRemoteArtifact(made.id)
+		expect(watcher.artifacts[0]).toMatchObject({ content: 'v1' })
+
+		// The watcher edits it and the store refuses the write: memory moves ahead of the DB.
+		vi.spyOn(dbMod, 'mutateArtifact').mockImplementationOnce(async (id: string, mutate: any) => {
+			const edit = mutate(await dbMod.getArtifact(id))
+			return { outcome: 'unavailable' as const, artifact: edit?.artifact }
+		})
+		await watcher.update(made.id, { content: 'v2 typed here' })
+		expect(watcher.artifacts[0]).toMatchObject({ content: 'v2 typed here' })
+		expect(await dbMod.getArtifact(made.id)).toMatchObject({ content: 'v1' })
+
+		// The other tab touches the same artifact; this one re-reads and finds only v1.
+		await watcher.applyRemoteArtifact(made.id)
+
+		expect(watcher.artifacts[0]).toMatchObject({ content: 'v2 typed here' })
+	})
+
 	it('picks up a plan written in the other tab, and does not announce it back', async () => {
 		const plan = await store.savePlan(
 			's1',
