@@ -278,8 +278,6 @@ describe('sessionState IndexedDB persistence', () => {
 		await vi.waitFor(() => expect(sessionState.sessions.map((s) => s.id)).toEqual(['keep']))
 	})
 
-	// A mirrored delete that announced itself would be mirrored straight back, and
-	// the two tabs would trade the same message and transaction without end.
 	it('removes a mirrored delete without announcing it', async () => {
 		const user = freshUser()
 		await login(user)
@@ -289,8 +287,7 @@ describe('sessionState IndexedDB persistence', () => {
 		await deleteSessionRecord('mirrored', false)
 		expect(deleteBroadcasts).toEqual([])
 
-		// Still genuinely removed — silence is not a no-op, it is what collects the
-		// row a write racing the other tab's delete left behind.
+		// Silence is not a no-op: the row still goes.
 		await rehydrate(user)
 		await vi.waitFor(() => expect(sessionState.sessions).toEqual([]))
 	})

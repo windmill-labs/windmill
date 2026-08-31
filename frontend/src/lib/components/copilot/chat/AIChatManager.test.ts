@@ -265,9 +265,10 @@ describe('AIChatManager cross-tab run guard', () => {
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
 		expect(manager.displayMessages).toHaveLength(2)
 		expect(manager.messages).toHaveLength(2)
-		// The prompt is handed back rather than lost, so the retry is still the
-		// user's to run once the other tab finishes.
-		expect(manager.instructions).toBe('first')
+		// Handed back rather than lost — and off the manager, which reports a
+		// non-empty `instructions` to the sidebar as text the user is writing.
+		expect(manager.queuedMessage).toBe('first')
+		expect(manager.instructions).toBe('')
 	})
 
 	// A turn flushes its queued message by re-entering sendRequest, and the lock

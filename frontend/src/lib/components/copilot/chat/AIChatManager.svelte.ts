@@ -2005,6 +2005,10 @@ export class AIChatManager {
 				options.files
 			)
 		}
+		// Handed off, so this manager no longer holds it. Only sendRequestImpl clears
+		// the field and a refusal never reaches it; left set, it reads to the
+		// auto-resume guard and the sidebar's draft cue as text the user is writing.
+		this.instructions = ''
 	}
 
 	/** Send the queued message, if there is one, as its own turn. The queue only

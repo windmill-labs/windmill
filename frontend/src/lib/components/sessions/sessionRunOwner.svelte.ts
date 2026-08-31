@@ -187,8 +187,8 @@ export async function withSessionRunLock<T>(
 	}
 }
 
-/** What exclusion amounts to with no lock to take: refuse while another tab's run
- *  is visibly on screen, and otherwise go.
+/** What exclusion amounts to with no lock to take: nothing beyond the refusal
+ *  `withSessionRunLock` already made on a visibly running turn.
  *
  *  Not mutual exclusion, and cannot be made into it — a throttled hidden driver
  *  goes silent before its turn ends and is reaped as dead, and no probe tells a
