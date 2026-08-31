@@ -132,6 +132,7 @@
 			<PgGrantBuilder
 				{target}
 				roles={info.roles}
+				supportsMaintain={info.supports_maintain}
 				disabled={planning || applying}
 				onAdd={({ role, privileges, scope }) =>
 					confirm(

@@ -156,6 +156,9 @@ const TABLE_PRIVILEGES: &[&str] = &[
     "TRUNCATE",
     "REFERENCES",
     "TRIGGER",
+    // Postgres 17. Accepted whatever the server's version, so that a grant read
+    // back from a 17 catalog can be revoked; an older server refuses it itself.
+    "MAINTAIN",
 ];
 const SEQUENCE_PRIVILEGES: &[&str] = &["USAGE", "SELECT", "UPDATE"];
 const FUNCTION_PRIVILEGES: &[&str] = &["EXECUTE"];
@@ -221,6 +224,9 @@ pub struct DatatableAclInfo {
     pub owner: String,
     /// The data table's roles, in the order the config has them.
     pub roles: Vec<String>,
+    /// Whether the server is Postgres 17 or later, which added the `MAINTAIN`
+    /// table privilege.
+    pub supports_maintain: bool,
     pub grants: Vec<AclGrant>,
 }
 
@@ -556,9 +562,24 @@ async fn get_datatable_acl(
         key(a).cmp(&key(b))
     });
 
+    let supports_maintain: bool = client
+        .query_one(
+            "SELECT current_setting('server_version_num')::int >= 170000",
+            &[],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the server version: {}",
+                pg_error_message(&e)
+            ))
+        })?
+        .get(0);
+
     Ok(Json(DatatableAclInfo {
         owner: windmill_role_of(&roles, &owner),
         roles: roles.keys().cloned().collect(),
+        supports_maintain,
         grants,
     }))
 }

@@ -12,6 +12,8 @@ export const TABLE_PRIVILEGES = [
 	'REFERENCES',
 	'TRIGGER'
 ]
+/** Postgres 17 and later only, so it is offered from what the server reports. */
+export const MAINTAIN_PRIVILEGE = 'MAINTAIN'
 export const SEQUENCE_PRIVILEGES = ['USAGE', 'SELECT', 'UPDATE']
 export const FUNCTION_PRIVILEGES = ['EXECUTE']
 
@@ -40,13 +42,20 @@ export function scopesOf(kind: AclTargetKind): { value: AclScope; label: string 
 	]
 }
 
-export function privilegesOf(scope: AclScope, kind: AclTargetKind): string[] {
+export function privilegesOf(
+	scope: AclScope,
+	kind: AclTargetKind,
+	supportsMaintain = false
+): string[] {
+	const tablePrivileges = supportsMaintain
+		? [...TABLE_PRIVILEGES, MAINTAIN_PRIVILEGE]
+		: TABLE_PRIVILEGES
 	switch (scope) {
 		case 'target':
-			return kind === 'schema' ? SCHEMA_PRIVILEGES : TABLE_PRIVILEGES
+			return kind === 'schema' ? SCHEMA_PRIVILEGES : tablePrivileges
 		case 'all_tables':
 		case 'future_tables':
-			return TABLE_PRIVILEGES
+			return tablePrivileges
 		case 'all_sequences':
 		case 'future_sequences':
 			return SEQUENCE_PRIVILEGES

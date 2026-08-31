@@ -10,12 +10,15 @@
 	let {
 		target,
 		roles,
+		supportsMaintain = false,
 		disabled = false,
 		onAdd
 	}: {
 		target: AclTarget
 		/** Roles the grant can be handed to. */
 		roles: string[]
+		/** Postgres 17+, which has one more table privilege to offer. */
+		supportsMaintain?: boolean
 		disabled?: boolean
 		onAdd: (grant: { role: string; privileges: string[]; scope: AclScope }) => void
 	} = $props()
@@ -27,12 +30,12 @@
 	const scopeItems = $derived(
 		scopesOf(target.kind).map((s) => ({ value: s.value, label: s.label }))
 	)
-	const available = $derived(privilegesOf(scope, target.kind))
+	const available = $derived(privilegesOf(scope, target.kind, supportsMaintain))
 
 	// A privilege only exists for some objects: SELECT means nothing on a
 	// function, so drop what the new scope cannot carry rather than send it.
 	$effect(() => {
-		const allowed = privilegesOf(scope, target.kind)
+		const allowed = privilegesOf(scope, target.kind, supportsMaintain)
 		const kept = privileges.filter((p) => allowed.includes(p))
 		if (kept.length !== privileges.length) privileges = kept
 	})

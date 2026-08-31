@@ -34028,7 +34028,7 @@ components:
 
     DatatableAclInfo:
       type: object
-      required: [owner, roles, grants]
+      required: [owner, roles, grants, supports_maintain]
       properties:
         owner:
           type: string
@@ -34036,6 +34036,9 @@ components:
           type: array
           items:
             type: string
+        supports_maintain:
+          type: boolean
+          description: whether the server is Postgres 17+, which added the MAINTAIN table privilege
         grants:
           type: array
           items:
