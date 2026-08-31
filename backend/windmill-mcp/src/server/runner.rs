@@ -503,12 +503,22 @@ pub fn runnable_args_carrier(endpoint_name: &str) -> Option<RunnableArgsCarrier>
 }
 
 /// Drop the transport-owned names from an endpoint tool's arguments, at the top
-/// level and inside a nested `args` map.
+/// level and inside every argument map it carries.
 ///
-/// The nested reach is what the schedule and preview endpoints need: their
-/// argument map is one level down, so a top-level-only strip would leave a forged
-/// `x_user_id` sitting inside `args` untouched.
-fn strip_transport_owned_endpoint_args(args: &mut Value, include_headers: &McpIncludeHeaders) {
+/// The nested reach is what the schedule and preview endpoints need. A schedule
+/// carries four such maps, not one: its own `args`, and the `on_failure_` /
+/// `on_recovery_` / `on_success_extra_args` handed to whatever runnable
+/// `on_failure` names. Reaching only `args` would leave a forged identity to be
+/// delivered through a handler instead.
+///
+/// Which keys those are is read off the tool's own schema rather than listed
+/// here, so a catalogue that grows another argument-bearing field is covered
+/// without a matching edit in this crate.
+fn strip_transport_owned_endpoint_args(
+    args: &mut Value,
+    body_schema: &Option<Value>,
+    include_headers: &McpIncludeHeaders,
+) {
     if include_headers.is_empty() {
         return;
     }
@@ -516,9 +526,36 @@ fn strip_transport_owned_endpoint_args(args: &mut Value, include_headers: &McpIn
         return;
     };
     map.retain(|key, _| !include_headers.owns_param(key));
-    if let Some(Value::Object(nested)) = map.get_mut("args") {
-        nested.retain(|key, _| !include_headers.owns_param(key));
+    for key in free_form_arg_map_keys(body_schema) {
+        if let Some(Value::Object(nested)) = map.get_mut(&key) {
+            nested.retain(|k, _| !include_headers.owns_param(k));
+        }
     }
+}
+
+/// The properties of `body_schema` that are free-form maps forwarded to a
+/// runnable, identified by `additionalProperties: true`.
+///
+/// A structured object (`retry`, say) declares `properties` and is not one of
+/// these: its keys are the endpoint's own, not a runnable's parameters, and
+/// stripping them would corrupt an unrelated payload.
+pub fn free_form_arg_map_keys(body_schema: &Option<Value>) -> Vec<String> {
+    let Some(props) = body_schema
+        .as_ref()
+        .and_then(|schema| schema.get("properties"))
+        .and_then(Value::as_object)
+    else {
+        return Vec::new();
+    };
+    props
+        .iter()
+        .filter(|(_, spec)| {
+            spec.get("additionalProperties")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        })
+        .map(|(key, _)| key.clone())
+        .collect()
 }
 
 fn find_matching_path<T: ToolableItem>(candidates: Vec<T>, request_name: &str) -> Option<String> {
@@ -827,7 +864,11 @@ impl<B: McpBackend> Runner<B> {
                 // Authorize against the token's MCP scopes and read-only flag,
                 // including the run-by-path path check (shared with multi mode).
                 let mut args = args;
-                strip_transport_owned_endpoint_args(&mut args, request.include_headers);
+                strip_transport_owned_endpoint_args(
+                    &mut args,
+                    &endpoint_tool.body_schema,
+                    request.include_headers,
+                );
                 authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
                 // This is an endpoint tool, call via backend. The backend's own error
@@ -1048,7 +1089,11 @@ impl<B: McpBackend> Runner<B> {
         // checked against the script/flow scope for that path — the endpoint
         // scope alone would let a granular token run items outside its allowed
         // paths.
-        strip_transport_owned_endpoint_args(&mut args, request.include_headers);
+        strip_transport_owned_endpoint_args(
+            &mut args,
+            &endpoint_tool.body_schema,
+            request.include_headers,
+        );
         authorize_endpoint_call(scope_config, endpoint_tool, &mut args, read_only)?;
 
         // Workspace-scoped endpoints need an explicit target workspace and a
@@ -1136,23 +1181,46 @@ mod tests {
 
     /// The model's copy of a transport-owned name is dropped wherever an endpoint
     /// tool can carry it: at the top level, where run-by-path puts a script's
-    /// arguments, and one level down under `args`, where preview and the schedule
-    /// endpoints put theirs. A top-level-only strip would leave the nested one.
+    /// arguments, and inside every free-form map the tool declares. A schedule
+    /// carries four of those — its own `args` plus the three `on_*_extra_args`
+    /// handed to its handlers — and reaching only `args` would still let a forged
+    /// identity be delivered through `on_failure`.
     #[test]
     fn endpoint_arguments_cannot_carry_a_header_fed_name() {
         let include = McpIncludeHeaders::parse("x-user-id").unwrap();
+        let arg_map = || json!({"type": "object", "additionalProperties": true});
 
+        let flat_schema = Some(json!({"type": "object", "additionalProperties": true}));
         let mut flat = json!({"path": "u/admin/whoami", "x_user_id": "attacker@evil.test"});
-        strip_transport_owned_endpoint_args(&mut flat, &include);
+        strip_transport_owned_endpoint_args(&mut flat, &flat_schema, &include);
         assert_eq!(flat, json!({"path": "u/admin/whoami"}));
 
-        let mut nested = json!({
-            "schedule": "0 0 * * *",
+        let schedule_schema = Some(json!({
+            "type": "object",
+            "properties": {
+                "args": arg_map(),
+                "on_failure_extra_args": arg_map(),
+                "on_recovery_extra_args": arg_map(),
+                "on_success_extra_args": arg_map(),
+                // Structured, so its keys belong to the endpoint and must survive.
+                "retry": {"type": "object", "properties": {"constant": {"type": "object"}}},
+            }
+        }));
+        let mut schedule = json!({
             "script_path": "u/admin/whoami",
-            "args": {"ticket_id": "T-1", "x_user_id": "attacker@evil.test"}
+            "on_failure": "u/team/protected",
+            "args": {"ticket_id": "T-1", "x_user_id": "attacker@evil.test"},
+            "on_failure_extra_args": {"x_user_id": "attacker@evil.test"},
+            "on_recovery_extra_args": {"x_user_id": "attacker@evil.test"},
+            "on_success_extra_args": {"x_user_id": "attacker@evil.test"},
+            "retry": {"constant": {"seconds": 5}}
         });
-        strip_transport_owned_endpoint_args(&mut nested, &include);
-        assert_eq!(nested["args"], json!({"ticket_id": "T-1"}));
+        strip_transport_owned_endpoint_args(&mut schedule, &schedule_schema, &include);
+        assert_eq!(schedule["args"], json!({"ticket_id": "T-1"}));
+        assert_eq!(schedule["on_failure_extra_args"], json!({}));
+        assert_eq!(schedule["on_recovery_extra_args"], json!({}));
+        assert_eq!(schedule["on_success_extra_args"], json!({}));
+        assert_eq!(schedule["retry"], json!({"constant": {"seconds": 5}}));
     }
 
     /// Every second door to a runnable is classified, and by how it carries the

@@ -155,13 +155,8 @@
 	)
 	// Rides the URL rather than the token so the allowlist is fixed by whoever
 	// configures the MCP client, out of reach of the model driving the session.
-	// Gated on the workspace too, not just the input: the gateway path publishes no
-	// per-runnable tools, so a URL carrying this would promise a guarantee that
-	// does not hold there.
 	const mcpIncludeHeaderParam = $derived(
-		!isAllWorkspaces && includeHeaders.trim()
-			? `&include_header=${encodeURIComponent(includeHeaders.trim())}`
-			: ''
+		includeHeaders.trim() ? `&include_header=${encodeURIComponent(includeHeaders.trim())}` : ''
 	)
 
 	$effect(() => {
@@ -274,32 +269,30 @@
 					</div>
 				{/if}
 
-				{#if !isAllWorkspaces}
-					<div>
-						<span class="block mb-1 text-emphasis text-xs font-semibold"
-							>Forward request headers <span class="text-xs text-primary">(optional)</span>
-							<Tooltip>
-								{#snippet text()}
-									A script or flow without a preprocessor receives each header as a parameter of the
-									same name (<code>X-User-Id</code> becomes <code>x_user_id</code>), hidden from the
-									tool schema so the model cannot set it. With a preprocessor they arrive keyed by
-									the original header name, under <code>event.headers</code> for a v2 preprocessor
-									and <code>wm_trigger.mcp.headers</code> for a v1 one. Running a script by path binds
-									them the same way; preview and schedule tools drop the names instead, since a scheduled
-									run has no request to read them from.
-								{/snippet}
-							</Tooltip></span
-						>
-						<TextInput
-							inputProps={{ type: 'text', placeholder: 'x-user-id, x-tenant' }}
-							bind:value={includeHeaders}
-							class="w-full"
-						/>
-						<p class="mt-1 text-xs text-tertiary">
-							Header names your MCP client sends, comma separated.
-						</p>
-					</div>
-				{/if}
+				<div>
+					<span class="block mb-1 text-emphasis text-xs font-semibold"
+						>Forward request headers <span class="text-xs text-primary">(optional)</span>
+						<Tooltip>
+							{#snippet text()}
+								A script or flow without a preprocessor receives each header as a parameter of the
+								same name (<code>X-User-Id</code> becomes <code>x_user_id</code>), hidden from the
+								tool schema so the model cannot set it. With a preprocessor they arrive keyed by the
+								original header name, under <code>event.headers</code> for a v2 preprocessor and
+								<code>wm_trigger.mcp.headers</code> for a v1 one. Running a script by path binds them
+								the same way; preview and schedule tools drop the names instead, since a scheduled run
+								has no request to read them from.
+							{/snippet}
+						</Tooltip></span
+					>
+					<TextInput
+						inputProps={{ type: 'text', placeholder: 'x-user-id, x-tenant' }}
+						bind:value={includeHeaders}
+						class="w-full"
+					/>
+					<p class="mt-1 text-xs text-tertiary">
+						Header names your MCP client sends, comma separated.
+					</p>
+				</div>
 			{/if}
 
 			{#if !mcpOnly}

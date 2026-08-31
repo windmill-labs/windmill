@@ -18,7 +18,6 @@ use windmill_common::triggers::{RunnableFormat, RunnableFormatVersion, TriggerKi
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
-use windmill_mcp::common::types::normalize_header_name;
 use windmill_mcp::server::{
     non_empty_body_fields, BackendResult, EndpointTool, ErrorData, McpIncludeHeaders, McpRequest,
     PathFilter,
@@ -835,9 +834,13 @@ fn preprocessor_headers(
 ) -> HashMap<String, Box<serde_json::value::RawValue>> {
     let mut selected = build_headers(headers, None, true);
     selected.retain(|name, _| {
-        let normalized = normalize_header_name(name);
-        !include_headers.owns_param(&normalized)
-            || headers.get_all(name.as_str()).iter().count() <= 1
+        // Matched on the exact allowlisted name, not the normalised parameter:
+        // `x-user-id` and `x_user_id` are distinct headers, and only the one the
+        // operator named carries the attributability rule.
+        let allowlisted = include_headers
+            .iter()
+            .any(|entry| entry.header_name.eq_ignore_ascii_case(name));
+        !allowlisted || headers.get_all(name.as_str()).iter().count() <= 1
     });
     selected
 }
@@ -1262,6 +1265,43 @@ mod tests {
             unclassified.is_empty(),
             "tools handing a runnable model-composed arguments but unclassified by runnable_args_carrier: {unclassified:?}"
         );
+    }
+
+    /// Classification alone is not the guarantee — the strip has to reach every
+    /// argument map a classified tool carries. A schedule carries four, and the
+    /// three `on_*_extra_args` were open after the strip first learned to descend
+    /// into `args` alone. Pinned against the live catalogue rather than a list, so
+    /// a field added upstream fails here instead of silently widening the hole.
+    #[test]
+    fn the_strip_reaches_every_argument_map_a_classified_tool_carries() {
+        for tool in crate::mcp::auto_generated_endpoints::all_tools() {
+            if windmill_mcp::server::runnable_args_carrier(&tool.name).is_none() {
+                continue;
+            }
+            let declared: Vec<String> = tool
+                .body_schema
+                .as_ref()
+                .and_then(|s| s.get("properties"))
+                .and_then(|p| p.as_object())
+                .map(|props| {
+                    props
+                        .iter()
+                        .filter(|(_, spec)| {
+                            spec.get("additionalProperties")
+                                .and_then(serde_json::Value::as_bool)
+                                .unwrap_or(false)
+                        })
+                        .map(|(k, _)| k.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let reached = windmill_mcp::server::free_form_arg_map_keys(&tool.body_schema);
+            assert_eq!(
+                declared, reached,
+                "{}: argument maps the strip does not reach",
+                tool.name
+            );
+        }
     }
 
     /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does
