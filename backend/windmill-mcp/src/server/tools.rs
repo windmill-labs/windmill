@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::common::schema::{convert_schema_to_schema_type, make_schema_compatible};
-use crate::common::transform::{transform_hub_path, transform_path};
+use crate::common::transform::{apply_key_transformation, transform_hub_path, transform_path};
 use crate::common::types::{
     FlowInfo, HubScriptInfo, McpIncludeHeaders, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
     ToolableItem,
@@ -193,18 +193,29 @@ pub fn strip_transport_owned_params(
         return;
     }
 
+    // Compared in the published key space: these names have already been through
+    // `apply_key_transformation`, which drops punctuation a header name may carry
+    // (`$user` -> `user`). Matching the raw parameter name would leave such a
+    // property advertised, telling the model to fill an argument that call-time
+    // reverse transformation then discards.
+    let owned = |key: &str| {
+        include_headers
+            .iter()
+            .any(|entry| apply_key_transformation(&entry.param_name) == key)
+    };
+
     if let Some(properties) = input_schema
         .get_mut("properties")
         .and_then(Value::as_object_mut)
     {
-        properties.retain(|key, _| !include_headers.owns_param(key));
+        properties.retain(|key, _| !owned(key));
     }
 
     if let Some(required) = input_schema
         .get_mut("required")
         .and_then(Value::as_array_mut)
     {
-        required.retain(|name| !name.as_str().is_some_and(|n| include_headers.owns_param(n)));
+        required.retain(|name| !name.as_str().is_some_and(owned));
     }
 }
 
@@ -340,6 +351,30 @@ mod tests {
         assert!(properties.contains_key("query"));
         // Left in `required`, the name would describe a property that no longer
         // exists and a strict client would reject the whole tool.
+        assert_eq!(schema["required"], json!(["query"]));
+    }
+
+    /// The published schema and the call-time strip must agree on the key space:
+    /// `$user` is a valid header name whose property is published as `user`, and a
+    /// property left advertised tells the model to fill an argument that is then
+    /// discarded.
+    #[test]
+    fn a_punctuated_header_name_is_stripped_under_its_published_key() {
+        let mut schema = json!({
+            "type": "object",
+            "properties": { "query": { "type": "string" }, "user": { "type": "string" } },
+            "required": ["query", "user"],
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+
+        strip_transport_owned_params(&mut schema, &McpIncludeHeaders::parse("$user").unwrap());
+
+        assert!(!schema["properties"]
+            .as_object()
+            .unwrap()
+            .contains_key("user"));
         assert_eq!(schema["required"], json!(["query"]));
     }
 

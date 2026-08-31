@@ -457,22 +457,21 @@ const RUNNABLE_EXECUTING_ENDPOINTS: &[&str] = &[
 
 /// Whether this endpoint tool can run a runnable with model-supplied arguments,
 /// and so cannot offer the guarantee a header-forwarding connection promises.
+///
+/// Named rather than derived from [`EndpointPathPolicy`]: `Unconfinable` covers
+/// both "executes arbitrary code" and "affects a script without a checkable
+/// path", so deriving from it would also withdraw `deleteScriptByHash`, which
+/// runs nothing. A new tool that belongs here is caught by the catalogue guard in
+/// `mcp::utils`' tests rather than by widening the match.
 pub fn executes_runnable_with_model_args(endpoint_name: &str) -> bool {
     RUNNABLE_EXECUTING_ENDPOINTS.contains(&endpoint_name)
-        // `Unconfinable` is the policy for a tool that reaches a runnable without
-        // naming a confinable path — preview today. Deriving it rather than
-        // listing it keeps a future one withdrawn by default.
-        || matches!(
-            endpoint_path_policy(endpoint_name),
-            Some(EndpointPathPolicy::RunByPath(_) | EndpointPathPolicy::Unconfinable(_))
-        )
 }
 
 /// Drop the transport-owned names from an endpoint tool's arguments.
 ///
-/// The run-by-path endpoints forward every unconsumed argument to the runnable
-/// they name, so without this a model denied `x_user_id` on that runnable's own
-/// tool could simply set it here instead.
+/// Defence in depth behind the withdrawal above: the tools that forward an
+/// argument map to a runnable are refused outright, so what reaches here is an
+/// endpoint that should never have carried one of these names in the first place.
 fn strip_transport_owned_endpoint_args(args: &mut Value, include_headers: &McpIncludeHeaders) {
     if include_headers.is_empty() {
         return;

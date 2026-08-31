@@ -780,11 +780,18 @@ fn allowed_headers(
 /// Every header a preprocessor may see: broader than the allowlist, since the
 /// preprocessor is the runnable author's own code, but still without the
 /// credentials that authenticate the connection.
+///
+/// A repeated header is dropped here as it is on the parameter arm, so one
+/// request does not answer differently depending on whether the runnable happens
+/// to have a preprocessor.
 fn preprocessor_headers(
     headers: &http::HeaderMap,
 ) -> HashMap<String, Box<serde_json::value::RawValue>> {
     let mut selected = build_headers(headers, None, true);
-    selected.retain(|name, _| !is_never_forwarded(&normalize_header_name(name)));
+    selected.retain(|name, _| {
+        !is_never_forwarded(&normalize_header_name(name))
+            && headers.get_all(name.as_str()).iter().count() <= 1
+    });
     selected
 }
 
@@ -968,6 +975,30 @@ mod tests {
         assert!(selected.is_empty());
     }
 
+    /// Both arms answer a repeated header the same way, so one request does not
+    /// resolve differently depending on whether the runnable has a preprocessor.
+    #[test]
+    fn a_repeated_header_is_dropped_from_the_preprocessor_event_too() {
+        let mut headers = http::HeaderMap::new();
+        headers.append(
+            http::HeaderName::from_static("x-user-id"),
+            http::HeaderValue::from_static("attacker@evil.test"),
+        );
+        headers.append(
+            http::HeaderName::from_static("x-user-id"),
+            http::HeaderValue::from_static("alice@corp.example"),
+        );
+        headers.insert(
+            http::HeaderName::from_static("user-agent"),
+            http::HeaderValue::from_static("some-client/1.0"),
+        );
+
+        let selected = preprocessor_headers(&headers);
+
+        assert!(!selected.contains_key("x-user-id"));
+        assert!(selected.contains_key("user-agent"));
+    }
+
     /// An entry that can never match a header would also never be stripped from a
     /// tool schema, so it must be reported rather than half-honoured.
     #[test]
@@ -1129,24 +1160,25 @@ mod tests {
             .unwrap_or_else(|| panic!("{name} must be a generated endpoint tool"))
     }
 
-    /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does
-    /// not name, falls through to no policy — which is no path confinement at all, so
-    /// a token scoped to `mcp:scripts:f/team/*` reaches every script through it. The
-    /// catalogue lives here and the policy in windmill-mcp, so neither crate notices
-    /// a tool added on one side and forgotten on the other; this is where they meet.
-    /// Whether a tool hands a runnable an argument map the model composes: either
-    /// a declared `args` object, or a free-form body forwarded verbatim.
+    /// Whether a tool hands a runnable an argument map the model composes: either a
+    /// declared `args` object, or a free-form body forwarded verbatim.
+    ///
+    /// Both are checked independently rather than as an either/or, so a schema
+    /// carrying declared properties *and* `additionalProperties` — the plausible
+    /// shape of a future `runScriptByHash` — is not classified as harmless.
     fn carries_runnable_args(tool: &EndpointTool) -> bool {
         let Some(schema) = tool.body_schema.as_ref() else {
             return false;
         };
-        match schema.get("properties").and_then(|p| p.as_object()) {
-            Some(props) if !props.is_empty() => props.contains_key("args"),
-            _ => schema
-                .get("additionalProperties")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-        }
+        let declares_args = schema
+            .get("properties")
+            .and_then(|p| p.as_object())
+            .is_some_and(|props| props.contains_key("args"));
+        let forwards_body = schema
+            .get("additionalProperties")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        declares_args || forwards_body
     }
 
     /// A tool added to the catalogue that hands a runnable model-composed
@@ -1170,6 +1202,11 @@ mod tests {
         );
     }
 
+    /// A script/flow tool the URL addresses by path, but `endpoint_path_policy` does
+    /// not name, falls through to no policy — which is no path confinement at all, so
+    /// a token scoped to `mcp:scripts:f/team/*` reaches every script through it. The
+    /// catalogue lives here and the policy in windmill-mcp, so neither crate notices
+    /// a tool added on one side and forgotten on the other; this is where they meet.
     #[test]
     fn every_path_addressed_script_or_flow_tool_is_path_confined() {
         let unpoliced: Vec<String> = crate::mcp::auto_generated_endpoints::all_tools()
