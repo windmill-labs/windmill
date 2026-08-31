@@ -595,6 +595,10 @@ export class AIChatManager {
 	// until its turn ends, and this is only what to draw in the meantime. The
 	// runtime clears it as part of the catch-up that brings in the real message.
 	remoteUserMessage = $state<string | undefined>(undefined)
+	// Where that prompt sits in the driving tab's transcript, so this tab can tell
+	// "I already hold this message" from "I hold a different one that reads the
+	// same" without comparing text.
+	remoteUserMessageAt = $state<number | undefined>(undefined)
 	autonomyMode = $state<AIAutonomyMode>(getPersistedAutonomyMode())
 	// Set by AI sessions. Enables the session-only preview tools and gates plan mode, which
 	// needs the preview pane; the global side-panel chat leaves it false. Reactive because

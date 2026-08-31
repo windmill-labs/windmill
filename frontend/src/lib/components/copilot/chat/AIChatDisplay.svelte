@@ -26,12 +26,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import {
-		pendingUserAction,
-		pendingUserActionDetail,
-		RUN_PROMPT_ECHO_MAX,
-		type DisplayMessage
-	} from './shared'
+	import { pendingUserAction, pendingUserActionDetail, type DisplayMessage } from './shared'
 	import { PLAN_MODE_TEXT_COLOR, PLAN_MODE_TRIGGER_CLASS } from './planMode'
 	import { PLAN_MODE_MESSAGES } from './planModeMessages'
 	import type { ContextElement } from './context'
@@ -557,25 +552,19 @@
 	// of that turn reaches this tab's transcript until it ends, so without this
 	// the spinner has no subject.
 	//
-	// Suppressed once the transcript already carries the message: a tab that
-	// mounted after the driver's opening save reads it from the store, and the
-	// echo beside it would be the same text drawn twice.
+	// Suppressed once this tab's transcript reaches the run's first message: a tab
+	// that mounted after the driver's opening save reads it from the store, and
+	// the echo beside it would be the same message drawn twice.
 	//
-	// Compared whole, and by prefix only where the echo was cut at the source's
-	// ceiling and a prefix is all there is to compare. Matching on prefix
-	// unconditionally would hide the echo whenever a new prompt opens with the
-	// previous turn's text ("Fix" after "Fix the bug") — which is the case the
-	// sender pins by position precisely to keep.
+	// By position, not by text. Whether this tab holds the message is a fact about
+	// how far its transcript goes, and the same prompt sent twice running ("retry",
+	// "continue") is a new message that merely reads like the one above it —
+	// comparing text hides the echo for the whole of that turn.
 	const remoteUserEcho = $derived.by(() => {
 		const echo = aiChatManager.remoteUserMessage
 		if (!echo || !aiChatManager.runHeldElsewhere) return undefined
-		for (let i = messages.length - 1; i >= 0; i--) {
-			if (messages[i].role !== 'user') continue
-			const held = messages[i].content.trim()
-			const already = echo.length >= RUN_PROMPT_ECHO_MAX ? held.startsWith(echo) : held === echo
-			return already ? undefined : echo
-		}
-		return echo
+		const at = aiChatManager.remoteUserMessageAt
+		return at !== undefined && messages.length > at ? undefined : echo
 	})
 
 	// Get app context for display when in APP mode

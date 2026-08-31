@@ -511,36 +511,6 @@ let remoteReadSeq = 0
 // would roll the record back on the next write. Reading instead always lands on
 // what the shared store actually holds. In-memory only — re-persisting here
 // would echo straight back out through the row funnel.
-/** Take on what another tab stored, into the record object this tab already
- *  holds rather than in place of it.
- *
- *  Identity matters: the debounced writers capture the object they were called
- *  on (`setSessionDraftPrompt` flushes 400ms later through `persistTouched(s)`),
- *  so swapping the array slot leaves that flush writing a record this list no
- *  longer contains — putting back the state it held before the other tab wrote.
- *
- *  Preview tabs keep their live overrides. `friendlyLabel` / `friendlyPath` /
- *  `editorNamed` are stamped by the open editor and deliberately not persisted,
- *  so they are absent from every stored row; taking the row's tabs wholesale
- *  would drop a watching tab's breadcrumbs back to raw paths on any write from
- *  the other tab, a seen-watermark bump included. */
-function adoptRemoteRow(held: Session, row: Session): void {
-	const stamped = new Map((held.previewTabs ?? []).map((t) => [t.id, t]))
-	Object.assign(held, row)
-	if (row.previewTabs) {
-		held.previewTabs = row.previewTabs.map((t) => {
-			const live = stamped.get(t.id)
-			if (!live) return t
-			return {
-				...t,
-				friendlyLabel: live.friendlyLabel,
-				friendlyPath: live.friendlyPath,
-				editorNamed: live.editorNamed
-			}
-		})
-	}
-}
-
 async function applyRemoteSessionPut(id: string): Promise<void> {
 	if (deletedSessionIds.has(id)) return
 	const token = ++remoteReadSeq
@@ -569,6 +539,45 @@ async function applyRemoteSessionPut(id: string): Promise<void> {
 	const at = sessionState.sessions.findIndex((s) => !s.transient && s.createdAt < row!.createdAt)
 	if (at < 0) sessionState.sessions.push(row)
 	else sessionState.sessions.splice(at, 0, row)
+}
+
+/** Take on what another tab stored, into the record object this tab already
+ *  holds rather than in place of it.
+ *
+ *  Identity matters: the debounced writers capture the object they were called
+ *  on (`setSessionDraftPrompt` flushes 400ms later through `persistTouched(s)`),
+ *  so swapping the array slot leaves that flush writing a record this list no
+ *  longer contains — putting back the state it held before the other tab wrote.
+ *
+ *  Preview tabs keep their live overrides. `friendlyLabel` / `friendlyPath` /
+ *  `editorNamed` are stamped by the open editor and deliberately not persisted,
+ *  so they are absent from every stored row; taking the row's tabs wholesale
+ *  would drop a watching tab's breadcrumbs back to raw paths on any write from
+ *  the other tab, a seen-watermark bump included. */
+export function adoptRemoteRow(held: Session, row: Session): void {
+	const stamped = new Map((held.previewTabs ?? []).map((t) => [t.id, t]))
+	// Keys the row no longer carries are removed, not left standing. This file
+	// clears a field by deleting it — see `applyLifecyclePatch`, and the delete of
+	// `archived` an unarchive performs — and `putSessionRow` stores a snapshot, so
+	// a dropped key is how "this is no longer set" arrives. Assigning over the
+	// held object alone keeps the stale value, and this tab's next write to the
+	// record puts it back into the store, undoing what the other tab did.
+	for (const k of Object.keys(held)) {
+		if (!(k in row)) delete (held as Record<string, unknown>)[k]
+	}
+	Object.assign(held, row)
+	if (row.previewTabs) {
+		held.previewTabs = row.previewTabs.map((t) => {
+			const live = stamped.get(t.id)
+			if (!live) return t
+			return {
+				...t,
+				friendlyLabel: live.friendlyLabel,
+				friendlyPath: live.friendlyPath,
+				editorNamed: live.editorNamed
+			}
+		})
+	}
 }
 
 // Mirror of the local delete path: tombstone so this tab's own pending writes

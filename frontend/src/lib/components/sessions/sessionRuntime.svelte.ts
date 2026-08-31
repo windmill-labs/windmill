@@ -91,11 +91,7 @@ import type {
 } from '$lib/components/raw_apps/rawAppDom'
 import { getNonStreamingMetadataCompletion } from '$lib/components/copilot/lib'
 import { sendUserToast } from '$lib/toast'
-import {
-	pendingUserAction,
-	RUN_PROMPT_ECHO_MAX,
-	type DisplayMessage
-} from '$lib/components/copilot/chat/shared'
+import { pendingUserAction, type DisplayMessage } from '$lib/components/copilot/chat/shared'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
 import {
 	broadcastRunStatus,
@@ -1015,6 +1011,10 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 // ticks and is not reaped as a closed tab.
 const statusTimers = new Map<string, ReturnType<typeof setInterval>>()
 
+/** Longest prompt echoed to the other tabs, and the ceiling that keeps the run
+ *  status bounded: it is the one field of that message whose length a user sets. */
+const RUN_PROMPT_ECHO_MAX = 2000
+
 /** The prompt this run is working on: the last thing the user said, searching no
  *  further back than `from`. Read off the driver's rendered transcript rather
  *  than the request, so it is the same text the driving tab has on screen. */
@@ -1060,6 +1060,7 @@ function postRunStatus(sessionId: string): void {
 		blockedOnUser: pendingUserAction(m.displayMessages) !== undefined,
 		loadingLabel: m.loadingLabel,
 		userMessage: currentRunPrompt(sessionId, m.displayMessages),
+		userMessageAt: runPrompts.get(sessionId)?.from,
 		planModeActive: m.planModeActive
 	})
 }
@@ -1100,6 +1101,7 @@ function applyRunStatus(msg: RunStatusMsg): void {
 	m.loading = msg.loading
 	m.compacting = msg.compacting
 	m.remoteUserMessage = msg.userMessage
+	m.remoteUserMessageAt = msg.userMessageAt
 	m.loadingLabel = msg.blockedOnUser ? 'Waiting for your answer in the other tab' : msg.loadingLabel
 }
 
@@ -1126,6 +1128,7 @@ async function applyTurnEnd(sessionId: string, chatId: string, attempt = 0): Pro
 		m.loadingLabel = undefined
 		m.compacting = false
 		m.remoteUserMessage = undefined
+		m.remoteUserMessageAt = undefined
 		const id = chatId || m.historyManager.getCurrentChatId()
 		if (!id) {
 			caughtUp = true

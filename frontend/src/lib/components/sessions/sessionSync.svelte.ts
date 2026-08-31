@@ -72,6 +72,12 @@ type RunStatusMsg = {
 	 *  wire format fixes; this is the one field a user sets the length of, and the
 	 *  bound is what keeps that true of the message as a whole. */
 	userMessage: string | undefined
+	/** Where this run's first message sits in the driver's transcript. A watching
+	 *  tab that has read that far already holds the real message and must not draw
+	 *  the echo beside it; one that has not, must. Carried because the receiver
+	 *  cannot decide it from the text: the same prompt sent twice running is a new
+	 *  message, not a duplicate of the one above it. */
+	userMessageAt: number | undefined
 	/** The driver's plan-mode posture. The only autonomy state worth carrying:
 	 *  every other one is a stored preference each tab keeps its own copy of,
 	 *  while plan mode is never persisted and so exists nowhere but the driving

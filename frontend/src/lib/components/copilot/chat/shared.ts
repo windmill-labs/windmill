@@ -659,13 +659,6 @@ export type DisplayMessage =
 // is paused on the user. Drives the question card's interactivity, the
 // "waiting for user" indicator, and routing a composer send to the answer —
 // keep those in sync by going through this single predicate.
-/** Longest prompt a driving tab echoes to the tabs watching its run, and the
- *  ceiling that keeps the run-status message bounded — it is the one field whose
- *  length a user sets. Lives here rather than beside the sender so the receiver
- *  can tell a truncated echo from a whole one without importing from `sessions`,
- *  which only imports in the other direction. */
-export const RUN_PROMPT_ECHO_MAX = 2000
-
 export function isActiveUserQuestion(message: DisplayMessage | undefined): boolean {
 	return Boolean(
 		message &&

@@ -8,6 +8,7 @@ import {
 	renameSession,
 	sessionInCurrentFamily,
 	setGeneratedSessionSummary,
+	adoptRemoteRow,
 	setSessionDraftPrompt,
 	sessionState,
 	type Session
@@ -486,5 +487,52 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 			sessionState.currentSessionId = prevCurrent
 			restore()
 		}
+	})
+})
+
+describe('adoptRemoteRow', () => {
+	it('clears what the stored row no longer carries, keeping the object identity', () => {
+		const held = {
+			id: 's1',
+			name: 's1',
+			createdAt: 1,
+			archived: true,
+			archivedByWorkspace: true
+		} as Session
+		// The other tab unarchived: this file clears a field by deleting it, so the
+		// row simply lacks the key. Assigning over the held object would keep the
+		// stale flag, and this tab's next write would put it back in the store.
+		const row = { id: 's1', name: 's1', createdAt: 1 } as Session
+
+		adoptRemoteRow(held, row)
+
+		expect('archived' in held).toBe(false)
+		expect('archivedByWorkspace' in held).toBe(false)
+	})
+
+	it('keeps the live editor stamps the store never holds', () => {
+		const held = {
+			id: 's1',
+			name: 's1',
+			createdAt: 1,
+			previewTabs: [
+				{ id: 't1', url: '/u', loc: '/u', friendlyLabel: 'My script', friendlyPath: 'f/a/b' }
+			]
+		} as Session
+		// Stored tabs carry no stamps — they are recomputed on mount — so taking the
+		// row's tabs wholesale drops a watching tab's labels back to raw paths on any
+		// write from the other tab.
+		const row = {
+			id: 's1',
+			name: 's1',
+			createdAt: 1,
+			previewTabs: [{ id: 't1', url: '/u', loc: '/u2' }]
+		} as Session
+
+		adoptRemoteRow(held, row)
+
+		expect(held.previewTabs?.[0].loc).toBe('/u2')
+		expect(held.previewTabs?.[0].friendlyLabel).toBe('My script')
+		expect(held.previewTabs?.[0].friendlyPath).toBe('f/a/b')
 	})
 })
