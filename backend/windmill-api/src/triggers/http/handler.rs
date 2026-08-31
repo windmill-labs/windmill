@@ -286,9 +286,10 @@ async fn conditional_cors_middleware(
 
     if !not_insert_methods {
         // A route accepts exactly one method, so advertising all seven
-        // overstates it — but only routes under an allowlist get the narrower
-        // answer. An unrestricted route must respond exactly as it did before
-        // this existed.
+        // overstates it. Only a route under an allowlist gets the narrower
+        // answer; an unrestricted one advertises the full supported set, since
+        // narrowing it would say something about a route the response is not
+        // otherwise willing to disclose.
         let restricted_method = match &decision {
             CorsDecision::Restricted { route_method, .. } => *route_method,
             _ => None,

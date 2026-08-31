@@ -727,8 +727,10 @@ mod tests {
     #[test]
     fn test_validate_allowed_origins_accepts_anything_comparable() {
         // A shape that cannot match simply matches nothing, so it is the
-        // editor's job to warn and not this one's to refuse. Only `null` and
-        // values that are not header-comparable are rejected.
+        // editor's job to warn and not this one's to refuse. What is refused is
+        // narrower: `null`, values that are not header-comparable, entries that
+        // cannot round-trip the editor's comma-separated field, and lists past
+        // the size a request can afford to scan.
         let allowed = vec![
             "https://app.example.com".to_string(),
             "http://localhost:3000".to_string(),
