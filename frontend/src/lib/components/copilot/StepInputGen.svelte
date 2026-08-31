@@ -10,6 +10,7 @@
 	import { dfs } from '../flows/dfs'
 	import { yamlStringifyExceptKeys } from './utils'
 	import type { FlowCopilotContext } from './flow'
+	import { logStepInputFill } from './stepInputFillTelemetry'
 	import { stepInputCompletionEnabled } from '$lib/stores'
 	import type { SchemaProperty } from '$lib/common'
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
@@ -66,6 +67,7 @@
 		if (generatedContent.length > 0 || loading) {
 			return
 		}
+		logStepInputFill('single')
 		abortController = new AbortController()
 		loading = true
 		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))

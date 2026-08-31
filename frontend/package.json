@@ -1,6 +1,6 @@
 {
 	"name": "@windmill-labs/components",
-	"version": "1.798.1",
+	"version": "1.799.0",
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui-builder": "mv static/ui_builder static/ui_builder.dev-disabled 2>/dev/null || true ; trap 'mv static/ui_builder.dev-disabled static/ui_builder 2>/dev/null || true' EXIT ; vite dev",
@@ -105,6 +105,7 @@
 		"@windmill-labs/svelte-dnd-action": "^0.9.44",
 		"@xterm/addon-fit": "^0.10.0",
 		"@xyflow/svelte": "^1.0.0",
+		"acorn": "^8.15.0",
 		"ag-charts-community": "^9.0.1",
 		"ag-charts-enterprise": "^9.0.1",
 		"ag-grid-community": "^31.3.4",

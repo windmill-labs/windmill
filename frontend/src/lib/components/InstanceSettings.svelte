@@ -1069,8 +1069,9 @@
 						<li>git sync repo count (sync vs promotion mode)</li>
 						<li
 							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers, the names of public hub scripts used, and the plan tier and quota
-							shown when the execution meter is opened, last 30 days)</li
+							model identifiers, the names of public hub scripts used, the languages debug sessions
+							are started for, and the plan tier and quota shown when the execution meter is
+							opened, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your
@@ -1121,8 +1122,9 @@
 						<li>development instance status</li>
 						<li
 							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers, the names of public hub scripts used, and the plan tier and quota
-							shown when the execution meter is opened, last 30 days)</li
+							model identifiers, the names of public hub scripts used, the languages debug sessions
+							are started for, and the plan tier and quota shown when the execution meter is
+							opened, last 30 days)</li
 						>
 						<li
 							>feature adoption (counts of which flow, script, trigger and worker features your
@@ -1141,6 +1143,32 @@
 				description="Configure default timeouts and retention policies for job execution."
 				link="https://www.windmill.dev/docs/advanced/instance_settings#jobs"
 			/>
+		{:else if category == 'Service logs'}
+			<SettingsPageHeader
+				title="Service logs"
+				description="The logs of the Windmill processes themselves — servers, workers and the indexer. Job logs are covered by the job retention period under Jobs."
+			/>
+			{#if !$values['object_store_cache_config']}
+				<div class="pb-4">
+					<Alert type="info" title="Log files stay on local disk" size="xs">
+						Instance object storage is not configured, so every server and worker keeps its log
+						files on its own disk. This page lists what each host wrote, but can only open the
+						files belonging to the replica serving the request — another host's are listed and
+						not readable — and a host's files go with it when it is replaced. Retention below
+						still governs the entries in the database and the files on disk.
+					</Alert>
+				</div>
+			{:else if !$enterpriseLicense}
+				<div class="pb-4">
+					<Alert type="info" title="Raw log files accumulate without the indexer" size="xs">
+						Log files are uploaded to instance object storage, and the indexer that would ingest
+						them into the columnar store and delete each one afterwards is an enterprise
+						feature. Retention below expires the database entries and the local files; the
+						uploaded copies are only removed when <b>Delete logs from s3 periodically</b> is on
+						under Object Storage.
+					</Alert>
+				</div>
+			{/if}
 		{:else if category == 'Object Storage'}
 			<SettingsPageHeader
 				title="Object Storage"

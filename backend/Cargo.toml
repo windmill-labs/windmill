@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.798.1"
+version = "1.799.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.798.1"
+version = "1.799.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -477,7 +477,10 @@ rust-embed = { version = "^6", features = ["interpolate-folder-path"] }
 mime_guess = "^2"
 hex = "^0"
 sql-builder = "^3"
-argon2 = "^0"
+# Minor-pinned rather than the `^0` used elsewhere in this file: argon2's 0.x
+# minors are API-breaking (0.6 moved `SaltString` into `phc`, put `rand_core`
+# behind a feature and changed `hash_password`), so a float breaks the build.
+argon2 = "0.6"
 quick_cache = "^0"
 rand = "=0.9.0"
 rand_core = { version = "^0", features = ["std"] }
@@ -697,7 +700,7 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 triomphe = "^0"
 pin-project-lite = "^0"
 
-tantivy = { git="https://github.com/windmill-labs/tantivy", rev="6ae7c70bc603b8e69e27f3240e08bd00a93fb12c" }
+tantivy = { git="https://github.com/windmill-labs/tantivy", rev="ea3b818c7b93db0c2b5db4f5e7ffef38f339060a" }
 
 backon = "1.3.0"
 

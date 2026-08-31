@@ -7,3 +7,5 @@ pub mod indexer_oss;
 #[cfg(feature = "private")]
 pub mod service_logs_ee;
 pub mod service_logs_oss;
+#[cfg(all(feature = "private", feature = "parquet"))]
+pub mod service_logs_store_ee;

@@ -308,14 +308,17 @@ async fn test_user_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let auth_base = format!("http://localhost:{port}/api/auth");
 
     // --- login (will fail: password hash in fixture is fake) ---
+    // An unparseable stored hash must read as a failed login, not as a server error
+    // relaying the hash parser's message to an unauthenticated caller.
     let resp = client()
         .post(format!("{auth_base}/login"))
         .json(&json!({"email": "test@windmill.dev", "password": "wrong-password"}))
         .send()
         .await
         .unwrap();
-    assert!(
-        resp.status() == 400 || resp.status() == 401 || resp.status() == 500,
+    assert_eq!(
+        resp.status(),
+        400,
         "login: unexpected status {}",
         resp.status()
     );
@@ -804,12 +807,16 @@ async fn test_change_user_email_leaves_group_identities(db: Pool<Postgres>) -> a
     let server = ApiServer::start(db.clone()).await?;
     let global_base = format!("http://localhost:{}/api/users", server.addr.port());
 
-    sqlx::query!("UPDATE password SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'")
-        .execute(&db)
-        .await?;
-    sqlx::query!("UPDATE usr SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'")
-        .execute(&db)
-        .await?;
+    sqlx::query!(
+        "UPDATE password SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'"
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query!(
+        "UPDATE usr SET email = 'group-ops@windmill.dev' WHERE email = 'test2@windmill.dev'"
+    )
+    .execute(&db)
+    .await?;
     sqlx::query!(
         "INSERT INTO group_(workspace_id, name, summary, extra_perms) VALUES ('test-workspace', 'ops', '', '{}')"
     )
