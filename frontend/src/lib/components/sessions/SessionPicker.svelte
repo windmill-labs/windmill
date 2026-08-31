@@ -88,11 +88,10 @@
 		return unreadCountFor(session.id, getRuntime(session.id))
 	}
 
-	// Whether the composer for a session holds non-whitespace text. We
-	// read manager.instructions directly (not the derived chat status)
-	// so the draft cue still shows during streaming/needs-confirmation —
-	// those override the icon slot but shouldn't hide the fact that the
-	// user has unsent text in this session.
+	// Whether the session holds a prompt handed to a send and not yet consumed
+	// (`instructions` carries the send in flight; the composer's typed text is
+	// AIChatInput-local and unreadable here). Read directly rather than via the
+	// derived chat status so the cue survives streaming/needs-confirmation.
 	function hasDraft(session: Session): boolean {
 		const rt = getRuntime(session.id)
 		return !!rt && rt.manager.instructions.trim().length > 0

@@ -1123,8 +1123,9 @@ export class AIChatManager {
 		// Mid-turn: the notes will ride that turn's preamble, so don't start another.
 		if (this.loading) return
 		if (this.pendingJobNotes.length === 0) return
-		// Nothing to continue (empty chat), or the user is mid-compose — don't
-		// clobber their draft or auto-send it. Their eventual send carries the notes.
+		// Nothing to continue (empty chat), or a prompt already sits on the field
+		// waiting to be consumed — that send's turn carries the notes, so don't
+		// start a second one under it.
 		if (this.messages.length === 0 || this.instructions.trim()) return
 		this.#autoResuming = true
 		try {
@@ -3063,12 +3064,11 @@ export class AIChatManager {
 			lang: options.lang,
 			isPreprocessor: options.isPreprocessor
 		})
-		// Explicitly-passed instructions win even when empty: an image-only send
-		// carries '' and must not inherit stale text a failed or cancelled earlier
-		// turn left in this.instructions.
-		if (options.instructions !== undefined) {
-			this.instructions = options.instructions
-		}
+		// The turn's prompt is exactly what the options carry — senders never
+		// stage the field (see its declaration). Unconditional so text a failed
+		// or cancelled earlier turn left here cannot ride a send that passed
+		// none, and so a caller that staged anyway fails loudly, not subtly.
+		this.instructions = options.instructions ?? ''
 		// A text-free GLOBAL draft is a real turn — rendered as its context chips
 		// (no bubble), with the empty-message marker substituted further down —
 		// but only when it carries something for the model: images, files, or
@@ -4063,14 +4063,6 @@ export class AIChatManager {
 			resentFiles.reduce((sum, f) => sum + textByteLength(f.content), 0)
 		)
 
-		// Resend with the message's context, not the live selection. DOM selector
-		// chips (and other context) are one-shot — cleared from the live selection
-		// after the first send — so reading the current selection would lose or swap
-		// the element the message was about. An edit passes `editedContext` (the edit
-		// box was seeded from this message's chips and the user may have changed
-		// them); a bare Retry passes nothing and falls back to the original
-		// contextElements. `undefined` for modes that don't attach context leaves the
-		// live-selection behavior. An empty array is a deliberate "no context".
 		// Everything that rewinds the conversation, deferred to the point the turn is
 		// ours. Doubles as the answer to "did the resend start": it runs exactly when
 		// the send was not refused.
@@ -4093,6 +4085,11 @@ export class AIChatManager {
 			rewind,
 			instructions: newContent ?? userMessage.content,
 			pastes: pastes ?? userMessage.pastes,
+			// The message's context, not the live selection: context chips are
+			// one-shot (cleared on first send), so the live selection would lose or
+			// swap the element the message was about. An edit passes editedContext
+			// (its box was seeded from these chips, possibly changed); a bare Retry
+			// falls back to the original. `undefined` keeps live-selection modes.
 			contextOverride: editedContext ?? userMessage.contextElements,
 			contextOverrideOrigin: 'replay',
 			images: images ?? sentImages,

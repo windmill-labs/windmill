@@ -217,14 +217,12 @@ describe('AIChatManager unmounted-chat guard', () => {
 	it('drops the turn when no chat UI is mounted, unless it is a session chat', async () => {
 		chatState.dockedChatAvailable = false
 		const docked = new AIChatManager()
-		docked.instructions = 'do a thing'
-		await docked.sendRequest()
+		await docked.sendRequest({ instructions: 'do a thing' })
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
 
 		const session = new AIChatManager()
 		session.isSessionChat = true
-		session.instructions = 'do a thing'
-		await session.sendRequest()
+		await session.sendRequest({ instructions: 'do a thing' })
 		expect(mocks.runChatLoop).toHaveBeenCalled()
 	})
 })
@@ -269,9 +267,6 @@ describe('AIChatManager cross-tab run guard', () => {
 		expect(manager.instructions).toBe('')
 	})
 
-	// Two sends can race the guard, and the loser's refusal runs while the winner
-	// is mid-turn. The refusal must hand back its own prompt (from its options)
-	// and leave `instructions` — which the winner is still reading — untouched.
 	it('does not touch a concurrent winner staged prompt when refusing a retry', async () => {
 		const manager = new AIChatManager()
 		manager.isSessionChat = true
@@ -490,8 +485,7 @@ describe('AIChatManager.sendOrQueue', () => {
 		vi.spyOn(manager.attachedFiles, 'refreshFolders').mockImplementation(
 			() => new Promise<void>((resolve) => (releaseUpkeep = resolve))
 		)
-		manager.instructions = 'first turn'
-		const sending = manager.sendRequest()
+		const sending = manager.sendRequest({ instructions: 'first turn' })
 		await vi.waitFor(() => expect(manager.sendInFlight).toBe(true))
 		expect(manager.loading).toBe(false)
 
@@ -516,11 +510,10 @@ describe('AIChatManager request errors', () => {
 
 	it('does not add a web-search hint to generic request errors', async () => {
 		const manager = new AIChatManager()
-		manager.instructions = 'Search for recent docs'
 		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
 		mocks.runChatLoop.mockRejectedValueOnce(new Error('provider quota exceeded'))
 
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'Search for recent docs' })
 
 		expect(mocks.sendUserToast).toHaveBeenLastCalledWith(
 			'Failed to send request: provider quota exceeded',
@@ -530,14 +523,13 @@ describe('AIChatManager request errors', () => {
 
 	it('adds the web-search hint when fallback happened and the request still fails', async () => {
 		const manager = new AIChatManager()
-		manager.instructions = 'Search for recent docs'
 		mocks.isWebSearchEnabledForProvider.mockReturnValue(true)
 		mocks.runChatLoop.mockImplementationOnce(async (config) => {
 			config.onWebSearchUnavailable?.()
 			throw new Error('provider quota exceeded')
 		})
 
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'Search for recent docs' })
 
 		expect(mocks.sendUserToast).toHaveBeenLastCalledWith(
 			'Failed to send request: provider quota exceeded. Web search is unavailable for this provider/model/key. Disable web search in workspace settings and try again.',
@@ -547,11 +539,10 @@ describe('AIChatManager request errors', () => {
 
 	it('does not add the web search settings hint when web search is disabled', async () => {
 		const manager = new AIChatManager()
-		manager.instructions = 'Search for recent docs'
 		mocks.isWebSearchEnabledForProvider.mockReturnValue(false)
 		mocks.runChatLoop.mockRejectedValueOnce(new Error('provider quota exceeded'))
 
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'Search for recent docs' })
 
 		expect(mocks.sendUserToast).toHaveBeenLastCalledWith(
 			'Failed to send request: provider quota exceeded',
@@ -2727,10 +2718,9 @@ describe('AIChatManager context compaction', () => {
 		// must be freed to come back to the 700k target — the first user +
 		// assistant pair (~200k estimated).
 		manager.contextUsage = 850_000
-		manager.instructions = 'next question'
 		const saveChat = vi.spyOn(manager.historyManager, 'saveChat')
 
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		const sent = mocks.runChatLoop.mock.calls[0][0].messages
 		expect(sent.length).toBe(3)
@@ -2762,10 +2752,9 @@ describe('AIChatManager context compaction', () => {
 			{ role: 'user', content: 'c'.repeat(400) }
 		]
 		manager.contextUsage = 850_000
-		manager.instructions = 'next question'
 		replyWith('done', { prompt: 720_000, completion: 1_000, total: 721_000 })
 
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		// The report describes exactly what was sent (the compacted history), so
 		// it replaces the debited estimate wholesale.
@@ -2779,9 +2768,7 @@ describe('AIChatManager context compaction', () => {
 			{ role: 'assistant', content: 'b'.repeat(400_000) }
 		]
 		// no report: the trigger runs off the ~200k estimate, well under 800k
-		manager.instructions = 'next question'
-
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		expect(mocks.runChatLoop.mock.calls[0][0].messages.length).toBe(3)
 	})
@@ -2797,9 +2784,7 @@ describe('AIChatManager context compaction', () => {
 		// ~800k estimated with no provider report ever seen (e.g. a gateway that
 		// strips usage): the lazily-estimated projection trips the 800k trigger
 		// and frees down to ~700k — the first user + assistant pair goes
-		manager.instructions = 'next question'
-
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		const sent = mocks.runChatLoop.mock.calls[0][0].messages
 		expect(sent.length).toBe(3)
@@ -2812,9 +2797,7 @@ describe('AIChatManager context compaction', () => {
 			{ role: 'user', content: 'a'.repeat(400_000) },
 			{ role: 'assistant', content: 'b'.repeat(400_000) }
 		]
-		manager.instructions = 'next question'
-
-		await manager.sendRequest() // replyWith('done') reports no usage
+		await manager.sendRequest({ instructions: 'next question' }) // replyWith('done') reports no usage
 
 		// the stored value stays a pure provider fact…
 		expect(manager.contextUsage).toBeUndefined()
@@ -2829,14 +2812,12 @@ describe('AIChatManager context compaction', () => {
 	it('prefers the provider report over the estimate once one arrives', async () => {
 		const manager = new AIChatManager()
 		manager.messages = [{ role: 'user', content: 'a'.repeat(400) }]
-		manager.instructions = 'first'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'first' })
 		expect(manager.contextUsage).toBeUndefined()
 		expect(manager.contextTokens).toBeGreaterThan(0)
 
 		replyWith('done', { prompt: 1_234, completion: 56, total: 1_290 })
-		manager.instructions = 'second'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'second' })
 		expect(manager.contextUsage).toBe(1_290)
 		expect(manager.contextTokens).toBe(1_290)
 	})
@@ -2853,9 +2834,7 @@ describe('AIChatManager context compaction', () => {
 			{ role: 'assistant', content: 'b'.repeat(400_000) }
 		]
 		manager.contextUsage = 10_000_000
-		manager.instructions = 'next question'
-
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		// ~10M projected against the 128K assumption: everything droppable goes,
 		// leaving only the just-pushed user message
@@ -2978,7 +2957,6 @@ describe('AIChatManager context compaction', () => {
 			{ role: 'user', content: 'recentQ', index: 4 },
 			{ role: 'assistant', content: 'recentA' }
 		]
-		manager.instructions = 'next question'
 	}
 
 	it('summarizes the older prefix and keeps the recent tail verbatim', async () => {
@@ -2990,7 +2968,7 @@ describe('AIChatManager context compaction', () => {
 		const manager = new AIChatManager()
 		seedForSummary(manager)
 
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		// The prefix (the four OLD messages) was sent to the summarizer, followed
 		// by the summary-instruction user message.
@@ -3038,7 +3016,7 @@ describe('AIChatManager context compaction', () => {
 			(i === 0 || i === 2) && m.role === 'user' ? { ...m, files: [file] } : m
 		)
 
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		// The summary display message carries the folded-away file once, the API
 		// summary references it as still-readable, and the registry keeps its row.
@@ -3087,9 +3065,7 @@ describe('AIChatManager context compaction', () => {
 			{ role: 'user', content: 'recentQ', index: 7 }
 		]
 		manager.contextUsage = 110_000 // over the 0.8 * 128k trigger
-		manager.instructions = 'next question'
-
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		// Whatever survived summarization, the two views must agree: any assistant
 		// turn the model can still see must still be visible to the user.
@@ -3109,7 +3085,7 @@ describe('AIChatManager context compaction', () => {
 		const manager = new AIChatManager()
 		seedForSummary(manager)
 
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		// Summarization was attempted, then the request still went out — via
 		// drop-oldest, so no summary boundary anywhere.
@@ -3130,9 +3106,7 @@ describe('AIChatManager context compaction', () => {
 			{ role: 'user', content: 'c'.repeat(400) }
 		]
 		manager.contextUsage = 850_000
-		manager.instructions = 'next question'
-
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		// A two-message prefix isn't worth a summary round-trip.
 		expect(mocks.getNonStreamingCompletion).not.toHaveBeenCalled()
@@ -3159,7 +3133,7 @@ describe('AIChatManager context compaction', () => {
 		const manager = new AIChatManager()
 		seedForSummary(manager)
 
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'next question' })
 
 		// Summarization was attempted and aborted, but the abort must NOT trigger a
 		// destructive drop-oldest fallback: the full prefix survives and the unsent
@@ -3446,8 +3420,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			hitMaxIterations: false
 		})
 
-		manager.instructions = 'do a thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'do a thing' })
 
 		// The empty user turn is rolled back out of the transcript...
 		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(false)
@@ -3477,8 +3450,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			}
 		})
 
-		manager.instructions = 'do a thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'do a thing' })
 
 		expect(manager.displayMessages).toHaveLength(0)
 		expect(manager.messages.some((m) => m.role === 'user')).toBe(false)
@@ -3503,8 +3475,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			}
 		})
 
-		manager.instructions = 'do a thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'do a thing' })
 
 		expect(restoreInstructions).not.toHaveBeenCalled()
 		expect(manager.displayMessages.some((m) => m.role === 'user')).toBe(true)
@@ -3522,8 +3493,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			throw new Error('boom')
 		})
 
-		manager.instructions = 'do a thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'do a thing' })
 
 		// 'a' round-trip retained as context; dangling 'b' dropped.
 		const toolMsgs = manager.messages.filter((m) => m.role === 'tool')
@@ -3551,8 +3521,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			throw new Error('aborted')
 		})
 
-		manager.instructions = 'write a long thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'write a long thing' })
 
 		// The partial answer is carried as context for the next message.
 		const assistant = manager.messages.find((m) => m.role === 'assistant')
@@ -3576,8 +3545,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			throw new Error('aborted')
 		})
 
-		manager.instructions = 'think hard'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'think hard' })
 
 		// Nothing usable was produced → treat as unsent: roll the turn back out
 		// (user message + stuck-open reasoning bubble) and restore the composer.
@@ -3607,8 +3575,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			throw new Error('aborted')
 		})
 
-		manager.instructions = 'write a long thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'write a long thing' })
 
 		const assistant = manager.messages.find((m) => m.role === 'assistant')
 		expect(assistant?.content).toBe('Partial from Claude')
@@ -3633,8 +3600,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			throw new Error('aborted')
 		})
 
-		manager.instructions = 'do a thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'do a thing' })
 
 		const assistants = manager.messages.filter((m) => m.role === 'assistant')
 		expect(assistants).toHaveLength(1)
@@ -3665,8 +3631,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 			.mockResolvedValueOnce(undefined) // save right after the user message
 			.mockRejectedValueOnce(new Error('persist failed')) // post-commit save
 
-		manager.instructions = 'do a thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'do a thing' })
 
 		expect(saveChat).toHaveBeenCalledTimes(2)
 		const assistants = manager.messages.filter((m) => m.role === 'assistant')
@@ -3692,8 +3657,7 @@ describe('AIChatManager sendRequest lifecycle', () => {
 		})
 		const deletePastChat = vi.spyOn(manager.historyManager, 'deletePastChat')
 
-		manager.instructions = 'do a thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'do a thing' })
 
 		expect(manager.displayMessages).toHaveLength(0)
 		expect(deletePastChat).toHaveBeenCalledWith(manager.historyManager.getCurrentChatId())
@@ -3970,8 +3934,7 @@ describe('AIChatManager reasoning duration', () => {
 			}
 		})
 
-		manager.instructions = 'do a thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'do a thing' })
 
 		expect(assistantDurations(manager)).toEqual([4_000])
 	})
@@ -4004,8 +3967,7 @@ describe('AIChatManager reasoning duration', () => {
 			}
 		})
 
-		manager.instructions = 'do a thing'
-		await manager.sendRequest()
+		await manager.sendRequest({ instructions: 'do a thing' })
 
 		expect(assistantDurations(manager)).toEqual([3_000, 7_000])
 	})
