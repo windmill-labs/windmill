@@ -72,10 +72,14 @@ describe('createLatestWins', () => {
 			q.run('s', () => {
 				throw new Error('boom')
 			})
+			// Let the throwing task actually run before the next one queues, or it
+			// is skipped as superseded and the failure never happens.
+			await tick()
 			q.run('s', () => {
 				ran.push('after')
 			})
 			await tick()
+			expect(errorSpy).toHaveBeenCalled()
 			expect(ran).toEqual(['after'])
 		} finally {
 			errorSpy.mockRestore()

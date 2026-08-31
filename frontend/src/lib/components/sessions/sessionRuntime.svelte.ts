@@ -1189,8 +1189,11 @@ async function applyTurnEnd(
 		caughtUp = true
 	} catch (e) {
 		// A read that threw leaves the same mismatched pair an 'unavailable' one
-		// does, so it earns the same answer rather than a silent release.
+		// does, so it earns the same answer rather than a silent release — the
+		// supersession check included, or the retry would carry this task's stale
+		// chat id past the newer catch-up that owns the gate now.
 		console.error('sessionRuntime: catch-up failed', e)
+		if (superseded()) return
 		scheduleCatchUpRetry(sessionId, chatId, attempt)
 	} finally {
 		if (caughtUp) noteCaughtUp(sessionId)
