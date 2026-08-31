@@ -1,6 +1,7 @@
+use super::{anthropic_model_rejects_sampling_params, REASONING_OFF_SENTINEL};
 use crate::{
     ai_google::parse_data_url,
-    ai_providers::{AIPlatform, AIProvider},
+    ai_providers::{AIPlatform, AIProvider, DISABLE_ANTHROPIC_PROMPT_CACHING},
     image_handler::prepare_messages_for_api,
     proxy::{
         add_user_to_body, common_outbound_headers, credential_header, ProxyBuildArgs, ProxyRequest,
@@ -137,17 +138,23 @@ pub struct AnthropicMessage {
     pub content: Vec<AnthropicRequestContent>,
 }
 
-/// Adaptive thinking config for Anthropic native API. `summarized` display
-/// matches the chat proxy path (renders a summarized thinking stream).
+/// Thinking config for the Anthropic native API. `summarized` display matches
+/// the chat proxy path (renders a summarized thinking stream); the disable
+/// carries no display.
 #[derive(Serialize, Debug)]
 pub struct AnthropicThinking {
     pub r#type: &'static str,
-    pub display: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display: Option<&'static str>,
 }
 
 impl AnthropicThinking {
     fn adaptive() -> Self {
-        Self { r#type: "adaptive", display: "summarized" }
+        Self { r#type: "adaptive", display: Some("summarized") }
+    }
+
+    fn disabled() -> Self {
+        Self { r#type: "disabled", display: None }
     }
 }
 
@@ -155,6 +162,37 @@ impl AnthropicThinking {
 #[derive(Serialize, Debug)]
 pub struct AnthropicOutputConfig {
     pub effort: String,
+}
+
+/// Resolve the thinking config, effort and sampling params for a reasoning
+/// selection. Temperature is dropped both under adaptive thinking, which
+/// rejects it, and on the models that removed the sampling params outright.
+fn anthropic_thinking_config(
+    model: &str,
+    reasoning_effort: Option<&str>,
+    temperature: Option<f32>,
+) -> (
+    Option<AnthropicThinking>,
+    Option<AnthropicOutputConfig>,
+    Option<f32>,
+) {
+    let temperature = (!anthropic_model_rejects_sampling_params(model))
+        .then_some(temperature)
+        .flatten();
+    match reasoning_effort {
+        // The disable sentinel is not an effort token — Anthropic's vocabulary
+        // is low..max and rejects it. The disable carries no effort either:
+        // pairing it with xhigh or max is itself a 400 on Opus 5.
+        Some(effort) if effort == REASONING_OFF_SENTINEL => {
+            (Some(AnthropicThinking::disabled()), None, temperature)
+        }
+        Some(effort) => (
+            Some(AnthropicThinking::adaptive()),
+            Some(AnthropicOutputConfig { effort: effort.to_string() }),
+            None,
+        ),
+        None => (None, None, temperature),
+    }
 }
 
 /// Anthropic-specific request structure for standard API
@@ -594,15 +632,13 @@ impl AnthropicQueryBuilder {
             }
         }
 
+        let caching = !*DISABLE_ANTHROPIC_PROMPT_CACHING;
+
         let system = collect_system_prompt(&prepared_messages, args.system_prompt).map(|text| {
             vec![AnthropicSystemContent {
                 r#type: "text".to_string(),
                 text,
-                cache_control: if self.is_vertex() {
-                    None
-                } else {
-                    Some(CacheControl::ephemeral())
-                },
+                cache_control: caching.then(CacheControl::ephemeral),
             }]
         });
 
@@ -627,7 +663,7 @@ impl AnthropicQueryBuilder {
         let max_tokens = Some(args.max_tokens.unwrap_or(64000));
 
         // Apply cache_control on the last custom tool
-        if !self.is_vertex() {
+        if caching {
             if let Some(ref mut tools_vec) = tools_option {
                 if let Some(AnthropicTool::Custom(ref mut custom)) = tools_vec.last_mut() {
                     custom.cache_control = Some(CacheControl::ephemeral());
@@ -636,7 +672,7 @@ impl AnthropicQueryBuilder {
         }
 
         // Apply cache_control on the last content block of the last message
-        if !self.is_vertex() {
+        if caching {
             if let Some(last_msg) = anthropic_messages.last_mut() {
                 if let Some(last_block) = last_msg.content.last_mut() {
                     match last_block {
@@ -652,16 +688,8 @@ impl AnthropicQueryBuilder {
             }
         }
 
-        // Adaptive thinking rejects sampling params, so drop temperature when
-        // reasoning is on (Anthropic returns a hard 400 otherwise).
-        let (thinking, output_config, temperature) = match args.reasoning_effort {
-            Some(effort) => (
-                Some(AnthropicThinking::adaptive()),
-                Some(AnthropicOutputConfig { effort: effort.to_string() }),
-                None,
-            ),
-            None => (None, None, args.temperature),
-        };
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config(args.model, args.reasoning_effort, args.temperature);
 
         // Build request based on platform
         if self.is_vertex() {
@@ -852,10 +880,15 @@ mod tests {
         }
     }
 
-    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+    async fn build_text_body_on(
+        platform: AIPlatform,
+        messages: &[OpenAIMessage],
+        system_prompt: Option<&str>,
+        tools: Option<&[ToolDef]>,
+    ) -> String {
         let args = BuildRequestArgs {
             messages,
-            tools: None,
+            tools,
             model: "claude-sonnet-4",
             temperature: None,
             reasoning_effort: None,
@@ -869,10 +902,14 @@ mod tests {
             prompt_cache_key: None,
         };
 
-        AnthropicQueryBuilder::new(AIProvider::Anthropic, AIPlatform::Standard)
+        AnthropicQueryBuilder::new(AIProvider::Anthropic, platform)
             .build_request(&args, &authed_client(), "test-workspace")
             .await
             .unwrap()
+    }
+
+    async fn build_text_body(messages: &[OpenAIMessage], system_prompt: Option<&str>) -> String {
+        build_text_body_on(AIPlatform::Standard, messages, system_prompt, None).await
     }
 
     /// The worker prepends the system prompt as a system message *and* passes it as
@@ -914,6 +951,35 @@ mod tests {
         let request: serde_json::Value = serde_json::from_str(&body).unwrap();
 
         assert!(request.get("system").is_none());
+    }
+
+    /// Vertex serves the same Messages API and honours `cache_control` breakpoints, so
+    /// its requests must carry the same three the standard platform gets.
+    #[tokio::test]
+    async fn sets_cache_breakpoints_on_every_platform() {
+        let messages = vec![message("system", SYSTEM_PROMPT), message("user", "hi")];
+        let tools = vec![ToolDef {
+            r#type: "function".to_string(),
+            function: ToolDefFunction {
+                name: "get_weather".to_string(),
+                description: None,
+                parameters: RawValue::from_string("{}".to_string()).unwrap(),
+            },
+        }];
+        let ephemeral = serde_json::json!({ "type": "ephemeral" });
+
+        for platform in [AIPlatform::Standard, AIPlatform::GoogleVertexAi] {
+            let body =
+                build_text_body_on(platform, &messages, Some(SYSTEM_PROMPT), Some(&tools)).await;
+            let request: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+            assert_eq!(request["system"][0]["cache_control"], ephemeral);
+            let sent_tools = request["tools"].as_array().unwrap();
+            assert_eq!(sent_tools.last().unwrap()["cache_control"], ephemeral);
+            let sent = request["messages"].as_array().unwrap();
+            let content = sent.last().unwrap()["content"].as_array().unwrap();
+            assert_eq!(content.last().unwrap()["cache_control"], ephemeral);
+        }
     }
 
     fn has_header(headers: &[(String, String)], name: &str, value: &str) -> bool {
@@ -1093,6 +1159,83 @@ mod tests {
         assert_eq!(body["thinking"]["display"], "summarized");
         assert_eq!(body["output_config"]["effort"], "high");
         // Sampling params are rejected alongside adaptive thinking.
+        assert!(body.get("temperature").is_none());
+    }
+
+    /// An agent step stores the chat's off sentinel verbatim as its
+    /// `reasoning_effort`, so the disable has to be translated here rather than
+    /// forwarded as an effort token Anthropic would reject.
+    #[test]
+    fn anthropic_thinking_config_translates_the_off_sentinel() {
+        let (thinking, output_config, _) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(thinking.as_ref().map(|t| t.r#type), Some("disabled"));
+        assert!(output_config.is_none());
+
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("xhigh"), Some(0.5));
+        assert_eq!(thinking.as_ref().map(|t| t.r#type), Some("adaptive"));
+        assert_eq!(output_config.map(|c| c.effort), Some("xhigh".to_string()));
+        // Adaptive thinking rejects sampling params on every model.
+        assert!(temperature.is_none());
+
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", None, Some(0.5));
+        assert!(thinking.is_none());
+        assert!(output_config.is_none());
+        assert_eq!(temperature, Some(0.5));
+    }
+
+    /// Live-verified: Opus 4.8 and the 5 family 400 with `temperature is
+    /// deprecated for this model` whatever the thinking mode, so the disable and
+    /// no-reasoning paths have to drop it too.
+    #[test]
+    fn anthropic_thinking_config_drops_sampling_params_on_models_that_reject_them() {
+        for model in [
+            "claude-opus-5",
+            "claude-sonnet-5",
+            "claude-opus-4-8",
+            "anthropic/claude-opus-4.7",
+            "claude-fable-5",
+        ] {
+            for effort in [Some("none"), None] {
+                let (_, _, temperature) = anthropic_thinking_config(model, effort, Some(0.5));
+                assert!(
+                    temperature.is_none(),
+                    "{model} must not carry temperature (effort {effort:?})"
+                );
+            }
+        }
+        // Sonnet 4.6 still accepts them, so an off selection keeps temperature.
+        let (_, _, temperature) =
+            anthropic_thinking_config("claude-sonnet-4-6", Some("none"), Some(0.5));
+        assert_eq!(temperature, Some(0.5));
+    }
+
+    #[test]
+    fn anthropic_request_serializes_the_off_sentinel_as_a_thinking_disable() {
+        let (thinking, output_config, temperature) =
+            anthropic_thinking_config("claude-opus-5", Some("none"), Some(0.5));
+        let request = AnthropicRequest {
+            model: "claude-opus-5",
+            system: None,
+            messages: vec![],
+            tools: None,
+            tool_choice: None,
+            temperature,
+            thinking,
+            output_config,
+            max_tokens: Some(64000),
+            stream: true,
+        };
+
+        let body: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&request).unwrap()).unwrap();
+        assert_eq!(body["thinking"]["type"], "disabled");
+        // A disable paired with an effort is a 400 on Opus 5, and `display`
+        // only applies to a thinking mode that actually runs.
+        assert!(body["thinking"].get("display").is_none());
+        assert!(body.get("output_config").is_none());
         assert!(body.get("temperature").is_none());
     }
 

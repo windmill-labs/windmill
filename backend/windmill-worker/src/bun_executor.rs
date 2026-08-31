@@ -35,6 +35,7 @@ use windmill_common::{
     cache,
     client::AuthedClient,
     jobs::JobKind,
+    min_version::MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptHash, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
@@ -377,6 +378,44 @@ pub(crate) fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool)
     }
 }
 
+/// An empty `lockfileVersion: 1` lockfile, planted before `bun install` so bun writes v1.
+///
+/// bun keeps whichever version the lockfile it found already had, and only raises it when the
+/// dependencies genuinely need newer syntax. Seeding therefore gets a real v1 lockfile — written
+/// by bun, not rewritten by us — whenever v1 can express the resolution, and lets bun escalate
+/// when it cannot. [`bun_lockfile_version`] catches the escalation afterwards.
+const EMPTY_V1_BUN_LOCK: &str = r#"{
+  "lockfileVersion": 1,
+  "configVersion": 1,
+  "workspaces": {
+    "": {},
+  },
+  "packages": {}
+}"#;
+
+async fn seed_v1_bun_lockfile(job_dir: &str) -> Result<()> {
+    let path = format!("{job_dir}/bun.lock");
+    if tokio::fs::metadata(&path).await.is_ok() {
+        return Ok(());
+    }
+    write_file(job_dir, "bun.lock", EMPTY_V1_BUN_LOCK)?;
+    Ok(())
+}
+
+/// The `lockfileVersion` a bun text lockfile declares, if it declares one.
+fn bun_lockfile_version(lockfile: &str) -> Option<u32> {
+    let i = lockfile.find("\"lockfileVersion\"")?;
+    let rest = &lockfile[i + "\"lockfileVersion\"".len()..];
+    let digits = rest
+        .trim_start()
+        .strip_prefix(':')?
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>();
+    digits.parse().ok()
+}
+
 pub async fn gen_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -496,6 +535,9 @@ pub async fn gen_bun_lockfile(
     }
 
     if !empty_deps {
+        if !npm_mode && !MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.met_conservatively() {
+            seed_v1_bun_lockfile(job_dir).await?;
+        }
         install_bun_lockfile(
             mem_peak,
             canceled_by,
@@ -539,6 +581,30 @@ pub async fn gen_bun_lockfile(
                     let mut file = File::open(&file).await?;
                     let mut buf = String::default();
                     file.read_to_string(&mut buf).await?;
+                    if !MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.met_conservatively() {
+                        // Seeding asked bun for v1; a higher version back means these
+                        // dependencies cannot be expressed in one. Storing it anyway would not
+                        // fail on an older worker — it would install from package.json alone and
+                        // silently resolve different versions.
+                        match bun_lockfile_version(&buf) {
+                            Some(1) => {}
+                            Some(v) => {
+                                return Err(error::Error::ExecutionErr(format!(
+                                    "bun produced a v{v} lockfile, which workers older than {} \
+                                     cannot read. Finish upgrading every worker before deploying \
+                                     dependencies that need it (overrides, catalogs).",
+                                    MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2.version()
+                                )));
+                            }
+                            // The guard cannot classify this one, so it must not pass silently:
+                            // a bun that stops writing the header would reopen the drift hole
+                            // with nothing in the logs.
+                            None => tracing::warn!(
+                                "bun wrote a lockfile with no readable lockfileVersion; storing \
+                                 it unchecked for job {job_id}"
+                            ),
+                        }
+                    }
                     content.push_str(&buf);
                 } else {
                     content.push_str(&EMPTY_FILE);
@@ -1190,6 +1256,7 @@ pub async fn prebundle_bun_script(
     token: &str,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     temp_script_refs: &Option<HashMap<String, String>>,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> Result<()> {
     let (local_path, remote_path) = compute_bundle_local_and_remote_path(
         inner_content,
@@ -1198,6 +1265,7 @@ pub async fn prebundle_bun_script(
         db,
         w_id,
         temp_script_refs,
+        modules,
     )
     .await;
     if exists_in_cache(&local_path, &remote_path).await {
@@ -1376,6 +1444,7 @@ pub async fn compute_bundle_local_and_remote_path(
     db: Option<&DB>,
     w_id: &str,
     temp_script_refs: &Option<HashMap<String, String>>,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
 ) -> (String, String) {
     let mut input_src = format!("{inner_content}{lock}",);
 
@@ -1404,7 +1473,10 @@ pub async fn compute_bundle_local_and_remote_path(
 
     let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
     input_src.push_str(&ws_suffix);
-    let hash = windmill_common::utils::calculate_hash(&input_src);
+
+    // The loader resolves relative imports against the module files in the job dir, so
+    // their content is inlined into the bundle this name covers.
+    let hash = crate::worker::artifact_cache_name(input_src, modules);
     let local_path = format!("{}/{hash}", *BUN_BUNDLE_CACHE_DIR);
 
     #[cfg(windows)]
@@ -1503,6 +1575,7 @@ pub async fn handle_bun_job(
                     Some(db),
                     &job.workspace_id,
                     &temp_script_refs,
+                    modules.as_ref(),
                 )
                 .await
             }
@@ -2896,9 +2969,8 @@ pub async fn handle_wac_v2_output(
                                     version: flow_info.version,
                                     labels: flow_info.labels.clone(),
                                 };
-                                let on_behalf_of = flow_info
-                                    .on_behalf_of(&job.workspace_id, db)
-                                    .await?;
+                                let on_behalf_of =
+                                    flow_info.on_behalf_of(&job.workspace_id, db).await?;
                                 let step_args: HashMap<String, Box<RawValue>> = step
                                     .args
                                     .iter()
@@ -3519,8 +3591,11 @@ pub fn build_nativets_env_code(
         reserved_variables
             .iter()
             .map(|(k, v)| {
-                let escaped = v.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n").replace('\r', "\\r");
-                format!("process.env['{}'] = '{}';", k, escaped)
+                // The key is attacker-controllable (custom workspace env vars), so
+                // escape it as a string literal too, not just the value.
+                let key_literal = windmill_common::variables::escape_js_single_quoted(k);
+                let escaped = windmill_common::variables::escape_js_single_quoted(v);
+                format!("process.env['{key_literal}'] = '{escaped}';")
             })
             .collect::<Vec<String>>()
             .join("\n")
@@ -4123,6 +4198,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_bun_lockfile_version() {
+        assert_eq!(bun_lockfile_version(EMPTY_V1_BUN_LOCK), Some(1));
+        assert_eq!(
+            bun_lockfile_version("{\n  \"lockfileVersion\": 2,\n  \"packages\": {}\n}"),
+            Some(2)
+        );
+        // bun raises the version on its own for overrides/catalogs, so any version has to parse
+        assert_eq!(bun_lockfile_version("{\"lockfileVersion\":3}"), Some(3));
+        assert_eq!(
+            bun_lockfile_version("{ \"lockfileVersion\" : 42 }"),
+            Some(42)
+        );
+        assert_eq!(bun_lockfile_version("{\"packages\":{}}"), None);
+    }
+
+    #[test]
     fn test_split_lockfile_text_unix() {
         let lockfile = r#"{"dependencies":{"lodash":"^4.17.21"}}
 //bun.lock
@@ -4296,5 +4387,50 @@ export function main(x: number) { return x; }"#;
         assert!(wrapper.contains(r#"line.startsWith("execd:")"#));
         assert!(wrapper.contains(r#"line.startsWith("exec_preprocess:")"#));
         assert!(wrapper.contains(r#"line.startsWith("exec:")"#));
+    }
+
+    /// The bundle cache is global and content-keyed, so a key that ignores the inline
+    /// modules hands one workspace's bundle — attacker helper code and all — to the next
+    /// job whose main content and lockfile happen to match.
+    #[tokio::test]
+    async fn bundle_cache_key_separates_inline_module_content() {
+        use windmill_common::scripts::ScriptModule;
+
+        async fn key_for(modules: Option<&HashMap<String, ScriptModule>>) -> String {
+            compute_bundle_local_and_remote_path(
+                "import { h } from './helper.ts';\nexport async function main() { return h(); }",
+                "{}\n//bun.lock\n<empty>",
+                "u/alice/script",
+                None,
+                "w1",
+                &None,
+                modules,
+            )
+            .await
+            .1
+        }
+        fn modules(content: &str) -> HashMap<String, ScriptModule> {
+            HashMap::from([(
+                "helper.ts".to_string(),
+                ScriptModule {
+                    content: content.to_string(),
+                    language: ScriptLang::Bun,
+                    lock: None,
+                },
+            )])
+        }
+
+        let attacker = key_for(Some(&modules("export const h = () => 'attacker'"))).await;
+        let victim = key_for(Some(&modules("export const h = () => 'victim'"))).await;
+        assert_ne!(attacker, victim);
+        assert_eq!(
+            attacker,
+            key_for(Some(&modules("export const h = () => 'attacker'"))).await,
+            "same modules must still share a cache slot"
+        );
+
+        // An absent map and an empty one are the same script, so they share a slot.
+        assert_eq!(key_for(None).await, key_for(Some(&HashMap::new())).await);
+        assert_ne!(key_for(None).await, attacker);
     }
 }

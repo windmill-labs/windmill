@@ -165,6 +165,11 @@
 	{#if filteredItems.length == 0}
 		<div class="text-2xs text-primary font-light text-center py-2 px-3 items-center">
 			{kind == 'flow' ? 'No flows found.' : 'No scripts found.'}
+			{#if kind == 'preprocessor'}
+				<div class="text-hint">
+					Only workspace scripts whose kind is set to Preprocessor are listed here.
+				</div>
+			{/if}
 		</div>
 	{/if}
 	<ul class="gap-1 flex flex-col">

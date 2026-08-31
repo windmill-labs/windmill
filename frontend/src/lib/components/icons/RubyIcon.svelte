@@ -7,6 +7,7 @@
 	let { height = 24, width = 24 }: Props = $props()
 </script>
 
+<!-- #9E1209 per the official logo kit at ruby-lang.org/en/about/logo. CC BY-SA 2.5; the kit's LICENSE asks that the mark not represent anything other than the Ruby language. -->
 <svg
 	xmlns="http://www.w3.org/2000/svg"
 	xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -14,19 +15,10 @@
 	id="Layer_1"
 	{width}
 	{height}
-	viewBox="0 0 198.13 197.58"
+	viewBox="-9.006 -9.281 216.142 216.142"
 	overflow="visible"
 	enable-background="new 0 0 198.13 197.58"
 	xml:space="preserve"
-	><metadata id="metadata3320"
-		><rdf:RDF>
-			<!-- svelte-ignore attribute_illegal_colon -->
-			<cc:Work rdf:about=""
-				><dc:format>image/svg+xml</dc:format>
-				<!-- svelte-ignore element_invalid_self_closing_tag -->
-				<dc:type rdf:resource="http://purl.org/dc/dcmitype/StillImage"></dc:type></cc:Work
-			></rdf:RDF
-		></metadata
 	><defs id="defs3489"
 		><linearGradient
 			id="XMLID_17_-9"
@@ -316,17 +308,6 @@
 			xlink:href="#XMLID_17_-9"
 		/></defs
 	>
-	<!-- svelte-ignore element_invalid_self_closing_tag -->
-	<sodipodi:namedview
-		pagecolor="#ffffff"
-		bordercolor="#666666"
-		borderopacity="1"
-		objecttolerance="10"
-		gridtolerance="10"
-		guidetolerance="10"
-		id="namedview3487"
-		showgrid="false"
-	></sodipodi:namedview>
 	<linearGradient
 		id="XMLID_17_"
 		gradientUnits="userSpaceOnUse"

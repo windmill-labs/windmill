@@ -50,6 +50,7 @@ import {
 	DATA_ASSET_KINDS
 } from '$lib/components/assets/AssetGraph/cascadeRun'
 import { capturePipelineRecording } from '$lib/components/recording/pipelineRecording.svelte'
+import { buildFlowRecording, buildScriptRecording } from '$lib/components/recording/runRecording'
 import type { PipelineRecording, RawAppRecording } from '$lib/components/recording/types'
 import {
 	TRIGGER_KINDS,
@@ -172,6 +173,9 @@ export class DeployToHubSession {
 	runResult = $state<unknown>(undefined)
 	runError = $state<string | undefined>(undefined)
 	recordings = $state<Record<string, string>>({})
+	// Recent successful runs of the record target: a recording is built from any
+	// completed run, so an existing one can be picked instead of running again.
+	pastRuns = $state<{ id: string; started_at?: string; duration_ms?: number }[]>([])
 
 	// Project-level data-pipeline recording. Unlike script/flow recordings (one
 	// job per item) a pipeline is the whole folder cascade, so it gets a single
@@ -194,8 +198,31 @@ export class DeployToHubSession {
 	// Whether the Hub currently has a custom logo for this project (from
 	// rehydration) — drives the "Remove current logo" affordance.
 	hubHasRemoteLogo = $state(false)
+	// A pipeline recording is attached on the Hub. An update inherits the published
+	// one, which is only a demo of the new version if nothing it runs changed.
+	hubHasPipelineRecording = $state(false)
+	// The Hub's own verdict: this update runs different content from the published
+	// version. False when there is no update in flight.
+	hubItemsChanged = $state(false)
+	// The attached pipeline recording is the published version's, copied when this
+	// update started, rather than one recorded for it. Authoritative across reloads,
+	// unlike `pipelineRecorded`, which only remembers this session.
+	hubPipelineRecordingInherited = $state(false)
 	effectiveSlug = $state('')
 	hubItemIds = $state<Record<string, number>>({})
+	// Set once the project is published: everything the wizard shows from here on
+	// describes an update to it, and the published version keeps serving until that
+	// update is approved. `phase` is the update's own status, not the project's.
+	liveOnHub = $state(false)
+	/** This Hub knows about pending updates — it answers rehydration with a `live`
+	 * key. An older one takes a project offline to republish and has neither the
+	 * withdraw nor the discard endpoint, so the actions built on them stay hidden. */
+	hubSupportsUpdates = $state(false)
+	// A reviewer's verdict on the current draft, shown so the publisher knows what
+	// to fix before resubmitting.
+	rejectionReason = $state<string | undefined>(undefined)
+	discardingUpdate = $state(false)
+	withdrawing = $state(false)
 
 	// Best-effort data table migrations for the bundle, editable in the drawer and
 	// pushed on deploy. Regenerated when the bundle drawer opens.
@@ -223,6 +250,10 @@ export class DeployToHubSession {
 
 	submitting = $state(false)
 	syncing = $state(false)
+
+	// Set from the Hub's answer to the draft request: this push went into an update
+	// rather than over the published project.
+	#publishedAsUpdate = false
 
 	// Intra-session tokens: latest call wins among competing calls on this session.
 	#triggerLoadTok = 0
@@ -312,6 +343,18 @@ export class DeployToHubSession {
 	)
 	pipelineScriptPathSet = $derived(new Set(this.pipelineScriptPaths))
 	isPipelineProject = $derived(this.pipelineScriptPaths.length > 0)
+	/** The pipeline replay this update carries came from the published version, and
+	 * something it runs has changed since — so it is a recording of another version.
+	 * `hubItemsChanged` is the Hub comparing content, not a guess from which items
+	 * carry recordings: an item nobody ever recorded has not changed. */
+	pipelineReplayMayBeStale = $derived(
+		this.liveOnHub &&
+			this.isPipelineProject &&
+			this.hubHasPipelineRecording &&
+			this.hubPipelineRecordingInherited &&
+			this.hubItemsChanged &&
+			!this.pipelineRecorded
+	)
 	hubSlug = $derived(this.effectiveSlug || sanitizeSlug(this.hubName))
 
 	relevantTriggers = $derived.by(() => {
@@ -569,6 +612,17 @@ export class DeployToHubSession {
 			this.hubSummary = p.summary ?? ''
 			this.hubReadme = p.readme ?? ''
 			this.hubHasRemoteLogo = p.has_logo === true
+			this.hubHasPipelineRecording = p.has_pipeline_recording === true
+			this.hubItemsChanged = p.items_changed === true
+			this.hubPipelineRecordingInherited = p.pipeline_recording_inherited === true
+			this.rejectionReason = p.rejection_reason ?? undefined
+			// `live` is a key this Hub always sends — null unless an update is in
+			// flight, in which case the fields above describe that update and the
+			// project itself is still published. Its absence means a Hub old enough to
+			// still take a project offline while it re-publishes, so the wizard must
+			// not promise otherwise.
+			this.hubSupportsUpdates = 'live' in p
+			this.liveOnHub = this.hubSupportsUpdates && (p.live?.approved === true || p.status === 'live')
 			this.phase =
 				p.status === 'live' ? 'live' : p.status === 'under_review' ? 'under_review' : 'draft'
 			const ids: Record<string, number> = {}
@@ -894,6 +948,9 @@ export class DeployToHubSession {
 			try {
 				const parsed = JSON.parse(text)
 				if (typeof parsed?.slug === 'string') returnedSlug = parsed.slug
+				// The Hub decides this: publishing over an approved project goes into a
+				// pending update instead, and the project keeps serving meanwhile.
+				this.#publishedAsUpdate = parsed?.pending_revision === true
 			} catch {}
 			if (!returnedSlug) {
 				sendUserToast(`Hub did not return a slug. Aborting publish to avoid path drift.`, true)
@@ -1248,8 +1305,13 @@ export class DeployToHubSession {
 			// UI stuck in `predeploy`; rehydrate then upgrades to authoritative state.
 			this.draftItems = itemsSnapshot.map((i) => ({ ...i, rec: 'none' }))
 			this.phase = 'draft'
+			const asUpdate = this.#publishedAsUpdate
 			await this.rehydrateFromHub()
-			sendUserToast(`Draft created on the Hub. Add recordings before submitting for review.`)
+			sendUserToast(
+				asUpdate
+					? `Update ready on the Hub. Your published project stays live until it is approved.`
+					: `Draft created on the Hub. Add recordings before submitting for review.`
+			)
 		} finally {
 			this.deploying = false
 		}
@@ -1309,10 +1371,80 @@ export class DeployToHubSession {
 		}
 	}
 
+	/** Go back to picking items, to publish again. Local only — nothing reaches the
+	 * Hub until the bundle is confirmed, and where the Hub supports updates the
+	 * published version keeps serving even then. */
 	startNewDraft = () => {
 		this.draftItems = []
 		this.recordings = {}
+		this.rejectionReason = undefined
+		// All of it belongs to the update just finished, not the one starting. The
+		// captured cascade especially: left in place, the next update could save a
+		// replay of the version it replaces. Bumping the token first abandons a run
+		// still in flight, which would otherwise write its result back over this.
+		this.#pipelineRunTok++
+		this.pipelineRecorded = false
+		this.pipelineRecordingResult = undefined
+		this.pipelineRunState = 'idle'
+		this.pipelineRunError = undefined
 		this.phase = 'predeploy'
+	}
+
+	/** Take the submission back out of review. Everything pushed for it is kept, so
+	 * it can be fixed and submitted again. */
+	cancelSubmission = async () => {
+		if (this.withdrawing) return
+		const slug = this.effectiveSlug
+		if (!slug) return
+		this.withdrawing = true
+		try {
+			const res = await fetch(
+				`/api/w/${this.workspace}/hub/projects/${encodeURIComponent(slug)}/withdraw${this.#folderQs()}`,
+				{ method: 'POST', credentials: 'include' }
+			)
+			if (!res.ok) {
+				sendUserToast(`Could not cancel the submission: ${await res.text()}`, true)
+				return
+			}
+			if (this.#disposed) return
+			this.phase = 'draft'
+			await this.rehydrateFromHub()
+			sendUserToast(`Submission cancelled. Everything you pushed is still here.`)
+		} catch (e: any) {
+			sendUserToast(`Could not cancel the submission: ${e?.message ?? e}`, true)
+		} finally {
+			this.withdrawing = false
+		}
+	}
+
+	/** Throw away an update in progress and go back to what is published. */
+	discardUpdate = async () => {
+		if (this.discardingUpdate) return
+		const slug = this.effectiveSlug
+		if (!slug) return
+		this.discardingUpdate = true
+		try {
+			const res = await fetch(
+				`/api/w/${this.workspace}/hub/projects/${encodeURIComponent(slug)}/discard_update${this.#folderQs()}`,
+				{ method: 'POST', credentials: 'include' }
+			)
+			if (!res.ok) {
+				sendUserToast(`Could not discard the update: ${await res.text()}`, true)
+				return
+			}
+			if (this.#disposed) return
+			this.draftItems = []
+			this.recordings = {}
+			this.deploymentStatus = {}
+			this.rejectionReason = undefined
+			this.phase = 'live'
+			await this.rehydrateFromHub()
+			sendUserToast(`Update discarded. The published project is unchanged.`)
+		} catch (e: any) {
+			sendUserToast(`Could not discard the update: ${e?.message ?? e}`, true)
+		} finally {
+			this.discardingUpdate = false
+		}
 	}
 
 	/** Reset record-drawer state and load the target's schema. */
@@ -1327,6 +1459,8 @@ export class DeployToHubSession {
 		this.runJobId = undefined
 		this.runResult = undefined
 		this.runError = undefined
+		this.pastRuns = []
+		this.#loadPastRuns(it, tok)
 		try {
 			if (it.kind === 'script') {
 				const s = await ScriptService.getScriptByPath({
@@ -1351,6 +1485,45 @@ export class DeployToHubSession {
 	/** Invalidate any in-flight record run/poll (record drawer closed). */
 	cancelRecordRun = () => {
 		this.#recordRunTok++
+	}
+
+	/** Recent successful runs of the target, so one can be recorded as-is.
+	 * Best-effort — an empty list just means the drawer only offers a fresh run. */
+	async #loadPastRuns(it: DeployItem, tok: number) {
+		if (it.kind !== 'script' && it.kind !== 'flow') return
+		try {
+			const runs = await JobService.listCompletedJobs({
+				workspace: this.workspace,
+				jobKinds: it.kind === 'script' ? 'script' : 'flow',
+				scriptPathExact: it.path,
+				status: 'success',
+				// Standalone runs only — a script that also runs as a flow step would
+				// otherwise list its child jobs.
+				hasNullParent: true,
+				orderDesc: true,
+				perPage: 5
+			})
+			if (tok !== this.#recordRunTok) return
+			this.pastRuns = runs.map((j) => ({
+				id: j.id,
+				started_at: j.started_at,
+				duration_ms: j.duration_ms
+			}))
+		} catch {
+			// best-effort
+		}
+	}
+
+	/** Adopt an existing successful run as the one to save: recordings are built
+	 * from completed jobs, so it goes through the exact same save path as a
+	 * fresh run. No token bump — there is no poll to cancel (the picker is
+	 * hidden while a run is in flight) and bumping would strand `openRecord`'s
+	 * still-loading schema fetch on "Loading schema…" forever. */
+	useExistingRun = (jobId: string) => {
+		this.runJobId = jobId
+		this.runState = 'success'
+		this.runResult = undefined
+		this.runError = undefined
 	}
 
 	runJob = async () => {
@@ -1427,69 +1600,71 @@ export class DeployToHubSession {
 
 	async #buildScriptRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
-		const s = await ScriptService.getScriptByPath({ workspace, path: it.path })
-		const job = await JobService.getCompletedJob({ workspace, id: jobId })
-		const initial_job = { ...(job as any), type: 'CompletedJob' }
-		const events = [{ t: 0, data: { completed: true, job: initial_job } }]
-		const duration = (initial_job.duration_ms as number) ?? 0
-		return {
-			version: 1,
-			type: 'script' as const,
-			recorded_at: new Date().toISOString(),
-			script_path: it.path,
-			total_duration_ms: duration,
+		// Pin the code to the version the run executed — the picker can select a
+		// run older than the currently deployed script, and publishing current
+		// code with an old run's logs/result would misrepresent both.
+		const job = (await JobService.getJob({ workspace, id: jobId })) as any
+		let s = job.script_hash
+			? await ScriptService.getScriptByHash({ workspace, hash: job.script_hash }).catch(
+					() => undefined
+				)
+			: undefined
+		if (!s) {
+			s = await ScriptService.getScriptByPath({ workspace, path: it.path })
+			sendUserToast(
+				"The run's script version could not be resolved — the recording pairs it with the current code, which may not match what ran.",
+				true
+			)
+		}
+		return await buildScriptRecording(workspace, jobId, {
+			scriptPath: it.path,
 			code: s.content,
 			language: s.language,
-			args: (job.args ?? {}) as Record<string, any>,
-			schema: s.schema,
-			job: { initial_job, events }
-		}
+			schema: s.schema as Record<string, any> | undefined
+		})
 	}
 
 	async #buildFlowRecording(it: DeployItem, jobId: string) {
 		const workspace = this.workspace
-		const f = await FlowService.getFlowByPath({ workspace, path: it.path })
-		const root = (await JobService.getCompletedJob({ workspace, id: jobId })) as any
-		const jobs: Record<string, { initial_job: any; events: any[] }> = {}
-		const collect = async (j: any) => {
-			const stamped = { ...j, type: 'CompletedJob' }
-			jobs[j.id] = {
-				initial_job: stamped,
-				events: [{ t: 0, data: { completed: true, job: stamped } }]
-			}
-			const modules = (j.flow_status?.modules ?? []).filter(
-				(m: any) => m.job && typeof m.job === 'string'
-			)
-			// Sub-jobs at the same level are independent reads.
-			await Promise.all(
-				modules.map(async (m: any) => {
-					try {
-						const sub = (await JobService.getCompletedJob({ workspace, id: m.job })) as any
-						await collect(sub)
-					} catch {
-						/* sub-job missing — skip */
-					}
-				})
+		// Pin the definition (value, schema) to the version the run executed —
+		// the recorded statuses reference its module ids and the recorded args
+		// its input schema, so the current flow may not match. The job's
+		// script_hash is the flow version id.
+		const root = (await JobService.getJob({ workspace, id: jobId })) as any
+		let flow: { value: unknown; schema?: unknown; summary?: string } | undefined
+		if (root.script_hash) {
+			flow = await FlowService.getFlowVersion({
+				workspace,
+				version: parseInt(root.script_hash, 16)
+			}).catch(() => undefined)
+		}
+		if (!flow && root.raw_flow) {
+			// The API materialized the executed value on the job; the input schema
+			// has to come from the current flow, which may have drifted.
+			const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+			flow = { value: root.raw_flow, schema: f.schema, summary: f.summary }
+			sendUserToast(
+				"The run's flow version could not be resolved — the recording uses the executed graph but the current input schema, which may not match the recorded arguments.",
+				true
 			)
 		}
-		await collect(root)
-		return {
-			version: 1,
-			recorded_at: new Date().toISOString(),
-			flow_path: it.path,
-			total_duration_ms: (root.duration_ms as number) ?? 0,
-			flow: {
-				path: it.path,
-				value: f.value,
-				schema: f.schema ?? { type: 'object', properties: {}, required: [] },
-				summary: f.summary ?? '',
-				archived: false,
-				edited_at: '',
-				edited_by: '',
-				extra_perms: {}
+		if (!flow) {
+			const f = await FlowService.getFlowByPath({ workspace, path: it.path })
+			flow = f
+			sendUserToast(
+				"The run's flow version could not be resolved — the recording pairs it with the current definition, which may not match what ran.",
+				true
+			)
+		}
+		return await buildFlowRecording(workspace, jobId, it.path, {
+			value: flow.value as any,
+			schema: (flow.schema as Record<string, unknown> | undefined) ?? {
+				type: 'object',
+				properties: {},
+				required: []
 			},
-			jobs
-		}
+			summary: flow.summary ?? ''
+		})
 	}
 
 	/** Save a recorded raw-app session as that app's Hub recording. */

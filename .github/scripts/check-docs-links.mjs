@@ -18,12 +18,7 @@ const RETRIES = 2
 // Links whose target page is written but not yet deployed on windmill.dev: the app
 // link is already the final slug, so a 404 is expected until the docs side ships.
 // The value is why the entry exists, for whoever has to judge whether it still should.
-const PENDING_DEPLOY = new Map([
-	[
-		'https://www.windmill.dev/docs/getting_started/scripts_quickstart/dbt',
-		'windmilldocs#1625 (dbt runtime quickstart)'
-	]
-])
+const PENDING_DEPLOY = new Map()
 
 async function walk(dir) {
 	const out = []

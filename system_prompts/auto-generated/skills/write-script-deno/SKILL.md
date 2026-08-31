@@ -175,6 +175,17 @@ const result: wmill.S3Object = await wmill.writeS3File(
 
 Import: import * as wmill from 'windmill-client'
 
+The client configures itself from the job's environment — base URL, token and credentials mode
+are all set before your code runs, so there is nothing to initialize and no reason to read
+WM_TOKEN or BASE_INTERNAL_URL and build an API URL yourself. Reconstructing that by hand only
+reintroduces details the client already handles. Call the SDK for anything Windmill, and use raw
+HTTP for third-party APIs.
+
+The helpers below are the surface to prefer. For an endpoint none of them covers, import the
+generated service classes (JobService, ScriptService, ...) from 'windmill-client' — they are not
+listed here but they do exist. What does not exist is a helper name you guessed at: if it is
+neither listed below nor a service method, do not call it.
+
 To know who is running the script, read the contextual variables rather than calling the API:
 `process.env.WM_END_USER_EMAIL || process.env.WM_EMAIL`. WM_END_USER_EMAIL is the app viewer when
 the run was triggered from an app and empty otherwise (both variables are always defined), WM_EMAIL
@@ -273,6 +284,14 @@ async getResult(jobId: string): Promise<any>
  * @returns Object with started, completed, success, and result properties
  */
 async getResultMaybe(jobId: string): Promise<any>
+
+/**
+ * Cancel a queued or running job by ID.
+ * @param jobId - UUID of the job to cancel
+ * @param reason - Optional reason for cancellation
+ * @returns Response message from the cancel endpoint
+ */
+async cancelJob(jobId: string, reason: string | undefined = undefined): Promise<string>
 
 /**
  * Run a script asynchronously by its path
@@ -457,31 +476,35 @@ async deleteS3File(s3object: S3Object, workspace: string | undefined = undefined
 /**
  * Sign S3 objects to be used by anonymous users in public apps
  * @param s3objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 objects
  */
-async signS3Objects(s3objects: S3Object[]): Promise<S3Object[]>
+async signS3Objects(s3objects: S3Object[], { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object[]>
 
 /**
  * Sign S3 object to be used by anonymous users in public apps
  * @param s3object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed s3 object
  */
-async signS3Object(s3object: S3Object): Promise<S3Object>
+async signS3Object(s3object: S3Object, { expirySecs }: { expirySecs?: number } = {}): Promise<S3Object>
 
 /**
  * Generate a presigned public URL for an array of S3 objects.
  * If an S3 object is not signed yet, it will be signed first.
  * @param s3Objects s3 objects to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns list of signed public URLs
  */
-async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl }: { baseUrl?: string } = {}): Promise<string[]>
+async getPresignedS3PublicUrls(s3Objects: S3Object[], { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string[]>
 
 /**
  * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
  * @param s3Object s3 object to sign
+ * @param expirySecs how long the signature stays valid, in seconds (default 43200 = 12h, clamped to [60, 604800])
  * @returns signed public URL
  */
-async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: string } = {}): Promise<string>
+async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl, expirySecs }: { baseUrl?: string; expirySecs?: number } = {}): Promise<string>
 
 /**
  * Get URLs needed for resuming a flow after this step

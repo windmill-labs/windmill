@@ -10,7 +10,7 @@
 	import { buildWsUrl } from '$lib/wsUrl'
 	import { sendUserToast } from '$lib/toast'
 
-	import { createEventDispatcher, onDestroy, onMount, tick, untrack } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, tick, untrack } from 'svelte'
 
 	// import libStdContent from '$lib/es6.d.ts.txt?raw'
 	// import domContent from '$lib/dom.d.ts.txt?raw'
@@ -110,7 +110,8 @@
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
-	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import { aiChatManager, type AIChatManager } from './copilot/chat/AIChatManager.svelte'
+	import { chatState } from './copilot/chat/sharedChatState.svelte'
 	import type { Selection } from 'monaco-editor'
 	import { canHavePreprocessor, getPreprocessorModuleCode } from '$lib/script_helpers'
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
@@ -264,6 +265,11 @@
 	let disposeMethod: (() => void) | undefined
 	const absolutePathExtraLibs = new Map<string, { dispose: () => void }>()
 	const dispatch = createEventDispatcher()
+	// Set by the sessions pane; undefined everywhere else. ⌘L targets it so the
+	// shortcut reaches the chat the user is actually looking at. Read directly
+	// rather than via getAiChatManager(), which collapses "no session" into the
+	// singleton — the distinction is what tells ⌘L whether a pane exists to open.
+	const sessionScopedChatManager = getContext<AIChatManager | undefined>('aiChatManager')
 	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
 	let dbSchema: DBSchema | undefined = $state(undefined)
@@ -1695,16 +1701,22 @@
 					selection &&
 					(selection.startLineNumber !== selection.endLineNumber ||
 						selection.startColumn !== selection.endColumn)
+				// Target whichever chat is actually on screen: the session's own in a
+				// session pane, else the docked one. With sessions on outside a pane
+				// there is neither, and both branches below would be silent no-ops.
+				const chat = sessionScopedChatManager ?? aiChatManager
+				if (!sessionScopedChatManager && !chatState.dockedChatAvailable) return
 				if (hasSelection && selectedLines) {
-					aiChatManager.addSelectedLinesToContext(
+					chat.addSelectedLinesToContext(
 						selectedLines,
 						selection.startLineNumber,
 						selection.endLineNumber,
 						moduleId
 					)
 				} else {
-					aiChatManager.toggleOpen()
-					aiChatManager.focusInput()
+					// A session chat is always visible — only the docked pane toggles.
+					if (!sessionScopedChatManager) chat.toggleOpen()
+					chat.focusInput()
 				}
 			})
 
@@ -2203,6 +2215,12 @@
 		} else {
 			ed.setValue(next)
 		}
+		// The write above went through `onDidChangeModelContent`, which arms the
+		// keystroke debounce as if the user had typed. Monaco now holds exactly
+		// `code`, so there is nothing to flush — and leaving the timer armed makes
+		// every "is Monaco the newer side?" check (notably the unmount flush) answer
+		// yes on the strength of our own write.
+		cancelPendingChanges()
 	}
 
 	// External `code` prop changes should flow into the Monaco editor. Skip

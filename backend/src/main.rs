@@ -14,7 +14,7 @@ use monitor::{
     reload_nuget_config_setting, reload_powershell_repo_pat_setting,
     reload_powershell_repo_url_setting, reload_ruby_repos_setting,
     reload_timeout_wait_result_setting, reload_workspace_registries_setting,
-    send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
+    flush_pending_log_files_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
 use sqlx::{Pool, Postgres};
@@ -42,12 +42,13 @@ use windmill_common::{
         BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING, BUN_INSTALL_MIN_RELEASE_AGE_SETTING,
         CONCURRENCY_KEY_MAX_QUEUED_SETTING, CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING,
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
-        CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
-        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
-        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
-        INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
+        CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
+        INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
@@ -60,8 +61,9 @@ use windmill_common::{
         SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
         SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
-        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
-        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
+        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
+        UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
         WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
@@ -70,12 +72,12 @@ use windmill_common::{
     stats_oss::schedule_stats,
     triggers::TriggerKind,
     utils::{
-        create_default_worker_suffix, worker_name_with_suffix, Mode, GIT_VERSION, HOSTNAME,
-        MODE_AND_ADDONS,
+        checked_worker_name, resolve_worker_suffix, Mode, GIT_VERSION, HOSTNAME, MODE_AND_ADDONS,
     },
     worker::{
-        is_native_mode_from_env, reload_custom_tags_setting, Connection, HUB_CACHE_DIR,
-        HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR, WINDMILL_DIR, WORKER_GROUP,
+        is_native_mode_from_env, reload_custom_tags_setting, validate_worker_lifecycle_env,
+        Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, NATIVE_MODE_RESOLVED, TMP_LOGS_DIR,
+        WINDMILL_DIR, WORKER_GROUP,
     },
     KillpillSender, DEFAULT_HUB_BASE_URL, INSTANCE_NAME, METRICS_ENABLED,
 };
@@ -131,17 +133,19 @@ use crate::monitor::{
     load_workspace_max_queued_jobs, monitor_db, reload_app_workspaced_route_setting,
     reload_audit_log_retention_days_setting, reload_base_url_setting,
     reload_bun_install_min_release_age_setting, reload_bunfig_install_scopes_setting,
-    reload_critical_alert_mute_ui_setting, reload_critical_alerts_on_token_expiry_setting,
-    reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
-    reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
-    reload_hub_base_url_setting, reload_instance_events_webhook_setting,
-    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
-    reload_license_key, reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
+    reload_critical_alert_mute_ui_setting, reload_critical_alert_mute_zombie_job_restart_setting,
+    reload_critical_alerts_on_token_expiry_setting, reload_critical_error_channels_setting,
+    reload_extra_pip_index_url_setting, reload_http_route_workspaced_route_setting,
+    reload_hub_api_secret_setting, reload_hub_base_url_setting,
+    reload_instance_events_webhook_setting, reload_job_default_timeout_setting,
+    reload_job_isolation_setting, reload_jwt_secret_setting, reload_license_key,
+    reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
     reload_nsjail_tmpfs_size_setting, reload_otel_tracing_proxy_setting,
     reload_pip_index_url_setting, reload_retention_period_setting,
     reload_sandbox_image_cache_max_setting, reload_sandbox_image_default_registry_setting,
     reload_sandbox_image_max_size_setting, reload_sandbox_image_pull_policy_setting,
-    reload_sandbox_registry_auth_setting, reload_scim_token_setting, reload_smtp_config,
+    reload_sandbox_registry_auth_setting, reload_scim_token_setting,
+    reload_service_log_retention_secs_setting, reload_smtp_config,
     reload_store_audit_logs_s3_setting, reload_uv_exclude_newer_setting,
     reload_uv_index_strategy_setting, reload_uv_python_install_mirror_setting,
     reload_worker_config, MonitorIteration,
@@ -378,6 +382,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
                         "",
                         &mut None,
                         &None,
+                        None,
                     )
                     .await
                     {
@@ -568,6 +573,7 @@ fn print_help() {
     println!();
     println!("Environment variables (name = default):");
     println!("  DATABASE_URL = <required>              The Postgres database url.");
+    println!("  DATABASE_URL_FILE = None               Read the database url from a file instead, e.g. a mounted secret (takes precedence over DATABASE_URL)");
     println!("  MODE = standalone                      Mode: standalone | worker | server | agent");
     println!("  BASE_URL = http://localhost:8000       Public base URL of your instance (overridden by instance settings)");
     println!(
@@ -782,6 +788,8 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
     }
 
+    validate_worker_lifecycle_env()?;
+
     let server_mode = !std::env::var("DISABLE_SERVER")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -813,7 +821,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             "Creating http client for cluster using base internal url {}",
             agent_config.base_internal_url
         );
-        let suffix = create_default_worker_suffix(&hostname);
+        let suffix = resolve_worker_suffix(&hostname, 1)?;
         (
             Connection::Http(agent_config.build_http_client(&suffix)),
             Some(suffix),
@@ -1256,10 +1264,12 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(all(feature = "tantivy", feature = "parquet"))]
         let log_indexer_f = {
             let log_indexer_rx = killpill_rx.resubscribe();
-            let log_index_writer2 = log_index_writer.clone();
+            // Moved, not cloned: sealing a chunk takes sole ownership of its
+            // tantivy writer, which a second live handle would silently prevent.
+            let moved_log_index_writer = log_index_writer;
             async {
                 if let Some(db) = conn.as_sql() {
-                    if let Some(log_index_writer) = log_index_writer2 {
+                    if let Some(log_index_writer) = moved_log_index_writer {
                         windmill_indexer::service_logs_oss::run_indexer(
                             db.clone(),
                             log_index_writer,
@@ -1332,7 +1342,7 @@ Windmill Community Edition {GIT_VERSION}
                         let suffix = if i == 0 && first_suffix.is_some() {
                             first_suffix.as_ref().unwrap().clone()
                         } else {
-                            create_default_worker_suffix(&hostname)
+                            resolve_worker_suffix(&hostname, i as usize + 1)?
                         };
 
                         let worker_conn = WorkerConn {
@@ -1346,11 +1356,11 @@ Windmill Community Edition {GIT_VERSION}
                                         .build_http_client(&suffix),
                                 )
                             },
-                            worker_name: worker_name_with_suffix(
+                            worker_name: checked_worker_name(
                                 mode == Mode::Agent,
                                 WORKER_GROUP.as_str(),
                                 &suffix,
-                            ),
+                            )?,
                         };
                         workers.push(worker_conn);
                     }
@@ -1429,21 +1439,30 @@ Windmill Community Edition {GIT_VERSION}
                                     // Poll for new events from notify_event table
                                     match windmill_common::notify_events::poll_notify_events(&db, last_event_id).await {
                                         Ok(events) => {
+                                            let mut http_trigger_change_handled = false;
                                             for event in events {
                                                 if !*windmill_common::QUIET_LOGS {
                                                     tracing::info!("Processing notify event: channel={}, payload={}", event.channel, event.payload);
                                                 }
-                                                process_notify_event(
-                                                    &event.channel,
-                                                    &event.payload,
-                                                    &db,
-                                                    &conn,
-                                                    &tx,
-                                                    server_mode,
-                                                    worker_mode,
-                                                    #[cfg(feature = "parquet")]
-                                                    disable_s3_store,
-                                                ).await;
+                                                let is_http_trigger_change = event.channel == "notify_http_trigger_change";
+                                                // Every changed http_trigger row emits its own event and each one forces
+                                                // a full router rebuild, but the batch's first successful rebuild already
+                                                // read every row the batch committed. A failed rebuild leaves the flag
+                                                // clear so the next event in the batch retries it.
+                                                if !(is_http_trigger_change && http_trigger_change_handled) {
+                                                    let handled = process_notify_event(
+                                                        &event.channel,
+                                                        &event.payload,
+                                                        &db,
+                                                        &conn,
+                                                        &tx,
+                                                        server_mode,
+                                                        worker_mode,
+                                                        #[cfg(feature = "parquet")]
+                                                        disable_s3_store,
+                                                    ).await;
+                                                    http_trigger_change_handled |= is_http_trigger_change && handled;
+                                                }
                                                 last_event_id = last_event_id.max(event.id);
                                             }
                                         }
@@ -1627,6 +1646,10 @@ Windmill Community Edition {GIT_VERSION}
             }
         }
 
+        // `workers_f` must stay ahead of `server_f`: these are polled on one task in
+        // declaration order, and `run_server` yields once after handing over the base
+        // internal url so the workers get past that oneshot before it builds its router.
+        // Ordering `server_f` first makes them wait out the whole build instead.
         if mcp_mode {
             futures::try_join!(workers_f, server_f)?;
         } else {
@@ -1643,7 +1666,7 @@ Windmill Community Edition {GIT_VERSION}
     } else {
         tracing::info!("Nothing to do, exiting.");
     }
-    send_current_log_file_to_object_store(&conn, &hostname, &mode).await;
+    flush_pending_log_files_to_object_store(&conn, &hostname, &mode).await;
 
     if let Some(db) = conn.as_sql() {
         tracing::info!("Exiting connection pool");
@@ -1661,6 +1684,9 @@ Windmill Community Edition {GIT_VERSION}
 
 /// Process a single notify event from the polling-based event system.
 /// This replaces the old PgListener notification handling.
+///
+/// Returns `false` when the event still needs handling. Only the HTTP router rebuild reports
+/// that, because the poll loop coalesces those events and must not swallow the retry.
 #[allow(unused_variables)]
 async fn process_notify_event(
     channel: &str,
@@ -1671,7 +1697,7 @@ async fn process_notify_event(
     server_mode: bool,
     worker_mode: bool,
     #[cfg(feature = "parquet")] disable_s3_store: bool,
-) {
+) -> bool {
     match channel {
         "notify_config_change" => {
             if payload == "server" && server_mode {
@@ -1689,7 +1715,8 @@ async fn process_notify_event(
         "restart_worker_group" => {
             if worker_mode && payload == *WORKER_GROUP {
                 tracing::info!("Restart requested for worker group '{payload}'");
-                spawn_graceful_killpill(tx, db, 30, "worker group restart requested").await;
+                spawn_graceful_killpill(tx, db, 30, "worker group restart requested", server_mode)
+                    .await;
             }
         }
         "notify_webhook_change" => {
@@ -1728,7 +1755,9 @@ async fn process_notify_event(
             windmill_common::variables::WORKSPACE_CRYPT_CACHE.remove(payload);
         }
         c if c == windmill_queue::tags::FORK_LINEAGE_CHANGE_CHANNEL => {
-            tracing::info!("Fork lineage change detected ({payload}), dropping tag workspace cache");
+            tracing::info!(
+                "Fork lineage change detected ({payload}), dropping lineage-derived caches"
+            );
             windmill_queue::tags::apply_fork_lineage_change(payload);
         }
         "notify_workspace_premium_change" => {
@@ -1752,11 +1781,14 @@ async fn process_notify_event(
                     let key = (workspace_id.to_string(), path.to_string());
                     match *source_type {
                         "script" => {
-                            windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
-                            // Bundle-cache key resolution for imported scripts; evicted
-                            // together with the content-side caches below so key and
-                            // inlined content flip to the new version in the same window.
-                            windmill_common::IMPORTED_SCRIPT_HASH_CACHE.remove(&key);
+                            // Evicts DEPLOYED_SCRIPT_HASH_CACHE together with the bundle-cache
+                            // key resolution for imported scripts (IMPORTED_SCRIPT_HASH_CACHE),
+                            // so key and inlined content flip to the new version in the same
+                            // window as the content-side cache below.
+                            windmill_common::invalidate_latest_script_hash_caches(
+                                workspace_id,
+                                path,
+                            );
                             // Evict the relative-import latest-hash cache so a redeployed
                             // imported script flips the content cache to its new version
                             // across all replicas within a poll interval (see #6769). Keyed
@@ -1810,17 +1842,14 @@ async fn process_notify_event(
         #[cfg(feature = "http_trigger")]
         "notify_http_trigger_change" => {
             tracing::info!("HTTP trigger change detected: {}", payload);
-            match windmill_api::triggers::http::refresh_routers(db).await {
-                Ok((true, _)) => {
+            match windmill_api::triggers::http::refresh_routers(db, true).await {
+                Ok(_) => {
                     tracing::info!("Refreshed HTTP routers (trigger change)");
-                }
-                Ok((false, _)) => {
-                    tracing::warn!(
-                        "Should have refreshed HTTP routers (trigger change) but did not"
-                    );
                 }
                 Err(err) => {
                     tracing::error!("Error refreshing HTTP routers (trigger change): {err:#}");
+                    windmill_api::triggers::http::invalidate_routers();
+                    return false;
                 }
             };
         }
@@ -1928,6 +1957,9 @@ async fn process_notify_event(
                 }
                 TIMEOUT_WAIT_RESULT_SETTING => reload_timeout_wait_result_setting(conn).await,
                 RETENTION_PERIOD_SECS_SETTING => reload_retention_period_setting(conn).await,
+                SERVICE_LOG_RETENTION_SECS_SETTING => {
+                    reload_service_log_retention_secs_setting(conn).await
+                }
                 RETENTION_PERIOD_SECS_OVERRIDES_SETTING => {
                     if let Err(e) = load_retention_period_overrides(db).await {
                         tracing::error!("Error loading per-workspace retention overrides: {e:#}");
@@ -1995,8 +2027,14 @@ async fn process_notify_event(
                     reload_otel_tracing_proxy_setting(conn).await;
                     if worker_mode {
                         tracing::info!("OTEL tracing proxy setting changed, restarting worker");
-                        spawn_graceful_killpill(tx, db, 30, "OTEL tracing proxy setting change")
-                            .await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "OTEL tracing proxy setting change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
@@ -2007,12 +2045,20 @@ async fn process_notify_event(
                 }
                 EXPOSE_METRICS_SETTING => {
                     tracing::info!("Metrics setting changed, restarting");
-                    spawn_graceful_killpill(tx, db, 30, "metrics setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "metrics setting change", server_mode)
+                        .await;
                 }
                 EMAIL_DOMAIN_SETTING => {
                     tracing::info!("Email domain setting changed");
                     if server_mode {
-                        spawn_graceful_killpill(tx, db, 30, "email domain setting change").await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "email domain setting change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 EXPOSE_DEBUG_METRICS_SETTING => {
@@ -2030,7 +2076,7 @@ async fn process_notify_event(
                         tracing::error!(error = %e, "Could not reload http route workspaced route setting");
                     }
                     #[cfg(feature = "http_trigger")]
-                    match windmill_api::triggers::http::refresh_routers(db).await {
+                    match windmill_api::triggers::http::refresh_routers(db, false).await {
                         Ok((true, _)) => {
                             tracing::info!(
                                 "Refreshed HTTP routers (http workspaced route setting change)"
@@ -2048,19 +2094,26 @@ async fn process_notify_event(
                 }
                 OTEL_SETTING => {
                     tracing::info!("OTEL setting changed, restarting");
-                    spawn_graceful_killpill(tx, db, 30, "OTEL setting change").await;
+                    spawn_graceful_killpill(tx, db, 30, "OTEL setting change", server_mode).await;
                 }
                 REQUEST_SIZE_LIMIT_SETTING => {
                     if server_mode {
                         tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                        spawn_graceful_killpill(tx, db, 30, "request size limit change").await;
+                        spawn_graceful_killpill(
+                            tx,
+                            db,
+                            30,
+                            "request size limit change",
+                            server_mode,
+                        )
+                        .await;
                     }
                 }
                 SAML_METADATA_SETTING => {
                     tracing::info!(
                         "SAML metadata change detected, killing server expecting to be restarted"
                     );
-                    spawn_graceful_killpill(tx, db, 30, "SAML metadata change").await;
+                    spawn_graceful_killpill(tx, db, 30, "SAML metadata change", server_mode).await;
                 }
                 HUB_BASE_URL_SETTING => {
                     if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
@@ -2091,6 +2144,13 @@ async fn process_notify_event(
                 CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING => {
                     if let Err(e) = reload_critical_alerts_on_token_expiry_setting(conn).await {
                         tracing::error!(error = %e, "Could not reload critical alerts on token expiry setting");
+                    }
+                }
+                CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING => {
+                    if let Err(e) =
+                        reload_critical_alert_mute_zombie_job_restart_setting(conn).await
+                    {
+                        tracing::error!(error = %e, "Could not reload zombie job restart alert mute setting");
                     }
                 }
                 INSTANCE_EVENTS_WEBHOOK_SETTING => {
@@ -2136,6 +2196,7 @@ async fn process_notify_event(
             tracing::warn!("Unknown notification channel: {}", channel);
         }
     }
+    true
 }
 
 fn display_config(envs: &[&str]) {
@@ -2181,12 +2242,7 @@ pub async fn run_workers(
     // #[cfg(tokio_unstable)]
     // let monitor = tokio_metrics::TaskMonitor::new();
 
-    let ip = windmill_common::external_ip::get_ip()
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(error = e.to_string(), "failed to get external IP");
-            "unretrievable IP".to_string()
-        });
+    windmill_common::external_ip::resolve_ip_in_background();
 
     let mut handles = Vec::with_capacity(num_workers as usize);
 
@@ -2230,7 +2286,6 @@ pub async fn run_workers(
         let conn1 = wk_conf.conn.clone();
         let worker_name = wk_conf.worker_name.clone();
         WORKERS_NAMES.write().await.push(worker_name.clone());
-        let ip = ip.clone();
         let rx = killpill_rxs.pop().unwrap();
         let tx = tx.clone();
         let base_internal_url = base_internal_url.clone();
@@ -2247,7 +2302,6 @@ pub async fn run_workers(
                 worker_name,
                 i as u64,
                 num_workers as u32,
-                &ip,
                 rx,
                 tx,
                 &base_internal_url,
@@ -2284,16 +2338,24 @@ pub async fn run_workers(
 /// then the sleep+kill is spawned in the background so the notification handler is not blocked.
 ///
 /// Falls back to drain-only delay if DB coordination fails.
+///
+/// Only `server_mode` processes coordinate, on the strength of the worker case: a worker
+/// group restarting costs queue latency rather than lost work, `v2_job_queue` being durable.
+/// Were workers to take part, one could claim the `is_first` slot and leave every server
+/// holding its shutdown open for a peer that serves no API traffic.
 async fn spawn_graceful_killpill(
     tx: &KillpillSender,
     db: &Pool<Postgres>,
     safety_margin_secs: u64,
     context: &str,
+    server_mode: bool,
 ) {
     // Minimum delay before any restart to let in-flight requests drain
     const DRAIN_DELAY_SECS: u64 = 3;
 
-    let (delay, is_first) =
+    let (delay, is_first) = if !server_mode {
+        (DRAIN_DELAY_SECS, true)
+    } else {
         match coordinate_restart_delay(db, safety_margin_secs, DRAIN_DELAY_SECS).await {
             Ok(r) => r,
             Err(e) => {
@@ -2303,7 +2365,8 @@ async fn spawn_graceful_killpill(
                 );
                 (DRAIN_DELAY_SECS, true)
             }
-        };
+        }
+    };
 
     tracing::info!(
         "Scheduling {context} graceful shutdown in {delay}s (first_to_restart={is_first})"

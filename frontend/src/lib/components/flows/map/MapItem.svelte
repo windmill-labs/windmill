@@ -22,6 +22,9 @@
 		insertable: boolean
 		moduleAction: ModuleActionInfo | undefined
 		annotation?: string | undefined
+		annotationTitle?: string | undefined
+		sideAnnotation?: string | undefined
+		sideAnnotationTitle?: string | undefined
 		nodeState?: FlowNodeState
 		duration_ms?: number | undefined
 		retries?: number | undefined
@@ -55,6 +58,9 @@
 		insertable,
 		moduleAction = undefined,
 		annotation = undefined,
+		annotationTitle = undefined,
+		sideAnnotation = undefined,
+		sideAnnotationTitle = undefined,
 		nodeState,
 		duration_ms = undefined,
 		retries = undefined,
@@ -134,8 +140,17 @@
 				{msToSec(duration_ms)}s
 			</div>
 		{/if}
+		{#if sideAnnotation && sideAnnotation != ''}
+			<div
+				title={sideAnnotationTitle}
+				class="nodrag nopan absolute z-10 left-full ml-2 top-1/2 -translate-y-1/2 whitespace-nowrap text-2xs text-tertiary cursor-default"
+			>
+				{sideAnnotation}
+			</div>
+		{/if}
 		{#if annotation && annotation != ''}
 			<div
+				title={annotationTitle}
 				class={twMerge(
 					'absolute z-10 left-0 -top-5 center-center text-primary',
 					editMode ? '-top-4 text-gray-400 dark:text-gray-500 text-xs font-normal' : ''

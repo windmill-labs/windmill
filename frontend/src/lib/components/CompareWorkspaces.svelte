@@ -41,6 +41,7 @@
 	import type { Kind } from '$lib/utils_deployable'
 	import {
 		checkDeployPermission,
+		deployPermissionForKinds,
 		deployItem,
 		deleteItemInWorkspace,
 		diffActionableInDirection,
@@ -68,6 +69,7 @@
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import CompareTargetPicker from './CompareTargetPicker.svelte'
 	import { displayDate } from '$lib/utils'
+	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 	import { editUrlFor } from './sessions/forkEditUrl'
 	import { diffInMask } from './sessions/modifiedItemsMask'
 	import DatatableSchemaDiff from './DatatableSchemaDiff.svelte'
@@ -400,6 +402,8 @@
 	let currentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == currentWorkspaceId))
 	let parentWorkspaceInfo = $derived($userWorkspaces.find((w) => w.id == parentWorkspaceId))
 
+	let currentNoun = $derived(childWorkspaceNoun(currentWorkspaceInfo))
+
 	// An arbitrary target is one-way: the pair has no tally, so nothing distinguishes
 	// a change made here from one made there, and the "update current" direction
 	// would list every difference as an incoming change.
@@ -448,7 +452,7 @@
 				? `No changes between this workspace and ${parentWorkspaceId}.`
 				: mergeIntoParent
 					? `Nothing to deploy — ${parentWorkspaceId} already has every change from this workspace.`
-					: `Nothing to update — this fork is up to date with ${parentWorkspaceId}.`
+					: `Nothing to update — this ${currentNoun} is up to date with ${parentWorkspaceId}.`
 	)
 
 	let conflictingDiffs = $derived(
@@ -947,21 +951,28 @@
 		toggleDeploymentDirection(v)
 	}
 
-	// Fetch user permissions for both workspaces
+	// Fetch user permissions for both workspaces. The server's `can_preserve_on_behalf_of` reads
+	// the merged `is_admin || super_admin`, which `whoami` reports as two fields.
 	$effect(() => {
 		;[currentWorkspaceId, parentWorkspaceId]
 		async function fetchPermissions() {
 			try {
 				const parentUser = await UserService.whoami({ workspace: parentWorkspaceId })
 				canPreserveInParent =
-					parentUser.is_admin || parentUser.groups?.includes('wm_deployers') || false
+					parentUser.is_admin ||
+					parentUser.is_super_admin ||
+					parentUser.groups?.includes('wm_deployers') ||
+					false
 			} catch {
 				canPreserveInParent = false
 			}
 			try {
 				const currentUser = await UserService.whoami({ workspace: currentWorkspaceId })
 				canPreserveInCurrent =
-					currentUser.is_admin || currentUser.groups?.includes('wm_deployers') || false
+					currentUser.is_admin ||
+					currentUser.is_super_admin ||
+					currentUser.groups?.includes('wm_deployers') ||
+					false
 			} catch {
 				canPreserveInCurrent = false
 			}
@@ -969,10 +980,9 @@
 		fetchPermissions()
 	})
 
-	// Can the user actually deploy into the target workspace? Fills the frontend
-	// gap for the `RestrictDeployToDeployers` rule (+ operator), shared with the
-	// session review drawer via the same checkDeployPermission util. Cached per
-	// workspace; `deployPerm` tracks whichever side the current direction targets.
+	// Can the user actually deploy into the target workspace? Shared with the session
+	// review drawer via the same checkDeployPermission util. Cached per workspace;
+	// `workspaceDeployPerm` tracks whichever side the current direction targets.
 	let deployPerms = $state<Record<string, DeployPermission>>({})
 	const deployPermFetched = new Set<string>()
 	$effect(() => {
@@ -982,7 +992,17 @@
 			void checkDeployPermission(ws).then((p) => (deployPerms = { ...deployPerms, [ws]: p }))
 		}
 	})
-	let deployPerm = $derived(deployPerms[deployTargetWorkspace] ?? { ok: true })
+	let workspaceDeployPerm = $derived(deployPerms[deployTargetWorkspace] ?? { ok: true })
+	// A direct-deployment lock never reaches schedules or triggers server-side, so it must not
+	// disable a selection made only of those. One refused kind still blocks the whole action.
+	let deployPerm = $derived(
+		deployPermissionForKinds(
+			workspaceDeployPerm,
+			(comparison?.diffs ?? [])
+				.filter((d) => selectedItems.includes(getItemKey(d)))
+				.map((d) => d.kind)
+		)
+	)
 
 	// Fetch summaries and on_behalf_of_email when comparison data loads
 	$effect(() => {
@@ -1437,7 +1457,8 @@
 								<span>
 									{#if mergeIntoParent}
 										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
-										Only deployed versions in this fork can be sent to {parentWorkspaceId} — deploy
+										Only deployed versions in this {currentNoun} can be sent to {parentWorkspaceId} —
+										deploy
 										{draftCount !== 1 ? 'them' : 'it'} first, otherwise those changes won't be included.
 									{:else}
 										This workspace has {draftCount} undeployed draft{draftCount !== 1 ? 's' : ''}.
@@ -1461,14 +1482,14 @@
 						<Alert title="Conflicting changes detected" type="warning" class="mt-2">
 							<span>
 								{conflictingDiffs.length} item{conflictingDiffs.length !== 1 ? 's have' : ' has'} conflicting
-								changes, it was modified on the original workspace while changes were made on this fork.
-								Make sure to resolve these before merging.
+								changes, it was modified on the original workspace while changes were made on this
+								{currentNoun}. Make sure to resolve these before merging.
 							</span>
 						</Alert>
 					{/if}
 					{#if hasBehindChanges && hasAheadChanges && !(mergeIntoParent && !canDeployToParent)}
 						<Alert
-							title="This fork is behind {parentWorkspaceId} and needs to be up to date before deploying"
+							title="This {currentNoun} is behind {parentWorkspaceId} and needs to be up to date before deploying"
 							type="warning"
 							class="my-2"
 						>

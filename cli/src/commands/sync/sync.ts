@@ -9,7 +9,7 @@ import {
   copyFile,
   mkdir,
 } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, type Dirent } from "node:fs";
 import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
@@ -72,6 +72,7 @@ import {
   isRawAppFile,
   isWorkspaceDependencies,
   readTextFile,
+  removeResourceSuffix,
 } from "../../utils/utils.ts";
 import {
   getEffectiveSettings,
@@ -87,6 +88,7 @@ import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { preCheckPermissionedAs } from "../../core/permissioned_as.ts";
 import {
   fromWorkspaceSpecificPath,
+  toWorkspaceSpecificPath,
   getWorkspaceSpecificPath,
   getSpecificItemsForCurrentBranch,
   isWorkspaceSpecificFile,
@@ -111,6 +113,8 @@ import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
 import {
+  beginLockfileBatch,
+  flushLockfileBatch,
   generateScriptMetadataInternal,
   getRawWorkspaceDependencies,
   readLockfile,
@@ -127,7 +131,7 @@ import {
   NativeServiceName,
   ScriptModule,
 } from "../../../gen/types.gen.ts";
-import { pushResource } from "../resource/resource.ts";
+import { pushResource, validateFilesetPointer } from "../resource/resource.ts";
 import {
   newPathAssigner,
   newRawAppPathAssigner,
@@ -172,6 +176,136 @@ import {
   DBT_DESCRIPTOR_NAME,
   isDbtDescriptorPath,
 } from "../../utils/resource_folders.ts";
+import { isSharedLockPath, SHARED_LOCK_DIR } from "../../utils/script_common.ts";
+import {
+  applySharedLockPlanToDisk,
+  applySharedLockPlanToMap,
+  metadataLockUnreadable,
+  sharedLockRefOf,
+  computeSharedLockPlan,
+  isEmptySharedLockPlan,
+  scriptsReferencingSharedLock,
+  type LockDedupOptions,
+} from "../../utils/lock_dedup.ts";
+
+/** A lockfile belonging to one script, as opposed to a shared one. */
+function isScriptLockPath(p: string): boolean {
+  const n = p.replaceAll(SEP, "/");
+  return n.endsWith(".script.lock") || n.endsWith("__mod/script.lock");
+}
+
+/**
+ * Every shared lockfile the tree still reads, from a single walk.
+ *
+ * One pull can retire several at once — `--skip-workspace-dependencies` retires
+ * all of them, and consolidating k dependency files retires k-1 — so a walk per
+ * deletion would re-read and re-parse the same metadata each time. Read after
+ * the pull has applied (or refused) every metadata change, because that is the
+ * only moment the answer is settled.
+ */
+export type SharedLockReaders = {
+  /** Reference (`locks/<depfile>.lock`) to the metadata files reading it. */
+  byRef: Map<string, string[]>;
+  /** Metadata whose `lock` cannot be read, which pins every shared lockfile. */
+  unreadable: string[];
+};
+
+export async function collectSharedLockReaders(
+  json: boolean,
+): Promise<SharedLockReaders> {
+  const metaExt = json ? ".script.json" : ".script.yaml";
+  const modMeta = json ? "__mod/script.json" : "__mod/script.yaml";
+  const readers: SharedLockReaders = { byRef: new Map(), unreadable: [] };
+  const walk = async (dir: string): Promise<void> => {
+    let entries: Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (e) {
+      // A directory that is not there holds no reader. Anything else hides
+      // scripts, and a lockfile deleted out from under one resolves to nothing.
+      if ((e as { code?: string })?.code === "ENOENT") return;
+      throw e;
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (isNeverWalkedDir(entry.name)) continue;
+        await walk(full);
+        continue;
+      }
+      const rel = full.replaceAll(SEP, "/");
+      if (!rel.endsWith(metaExt) && !rel.endsWith(modMeta)) continue;
+      const content = await readTextFile(full);
+      // The `lock` field, not the raw text: a folded line, a summary quoting
+      // the path, or a stale twin of the other format would each answer wrongly.
+      const ref = sharedLockRefOf(rel, content, json);
+      if (ref === undefined) {
+        if (metadataLockUnreadable(rel, content, json)) readers.unreadable.push(rel);
+        continue;
+      }
+      const existing = readers.byRef.get(ref);
+      if (existing) existing.push(rel);
+      else readers.byRef.set(ref, [rel]);
+    }
+  };
+  for (const root of ["f", "u", "g"]) {
+    await walk(root);
+  }
+  return readers;
+}
+
+/**
+ * Whether the metadata beside a script lockfile still points at it. Read from
+ * disk, after the pull has applied (or refused) every metadata change, because
+ * that is the only moment the answer is settled - and from the `lock` field of
+ * the twin this sync reads, not the raw text: a folded line, a summary quoting
+ * the path, or a stale twin of the other format would each answer wrongly.
+ *
+ * Returns the reason it is kept, or undefined when nothing reads it.
+ */
+async function lockStillReadBecause(
+  lockPath: string,
+  json: boolean,
+  sharedReaders: SharedLockReaders,
+): Promise<string | undefined> {
+  const n = lockPath.replaceAll(SEP, "/");
+  // A shared lockfile is read by any number of scripts, so the whole tree
+  // answers rather than one sibling.
+  if (isSharedLockPath(n)) {
+    const readers = sharedReaders.byRef.get(n)?.length ?? 0;
+    if (readers > 0) return `${readers} script(s) on disk still reference it`;
+    if (sharedReaders.unreadable.length > 0) {
+      // Naming the file matters: on a dependency-file deletion this line is the
+      // only signal, and "still references it" would point away from the fix.
+      return `${sharedReaders.unreadable[0]} cannot be parsed, so what it reads is unknown`;
+    }
+    return undefined;
+  }
+  const metaPath = n.endsWith("__mod/script.lock")
+    ? n.slice(0, -".lock".length) + (json ? ".json" : ".yaml")
+    : n.slice(0, -".script.lock".length) +
+      (json ? ".script.json" : ".script.yaml");
+  let content: string;
+  try {
+    content = await readTextFile(metaPath.replaceAll("/", SEP));
+  } catch {
+    return undefined; // no metadata: nothing reads it
+  }
+  try {
+    const parsed = json
+      ? JSON.parse(content)
+      : yamlParseContent(metaPath, content);
+    return parsed?.["lock"] === "!inline " + n
+      ? `${metaPath} still references it`
+      : undefined;
+  } catch {
+    // Unparseable metadata is not proof that nothing reads the lock.
+    return `${metaPath} cannot be parsed, so what it reads is unknown`;
+  }
+}
+
+/** Sync maps are keyed with the platform separator; `!inline` refs are not. */
+const toMapKeySep = (refPath: string) => refPath.replaceAll("/", SEP);
 
 let branchDeprecationWarned = false;
 
@@ -895,7 +1029,10 @@ function parseFileResourceTypeMap(
   return { formatExtMap, filesetMap };
 }
 
-async function findFilesetResourceFile(changePath: string): Promise<string> {
+export async function findFilesetResourceFile(
+  changePath: string,
+  wsName?: string | null,
+): Promise<string> {
   // Extract the base path before .fileset/
   const filesetIdx = changePath.indexOf(".fileset" + SEP);
   if (filesetIdx === -1) {
@@ -903,6 +1040,16 @@ async function findFilesetResourceFile(changePath: string): Promise<string> {
   }
   const basePath = changePath.substring(0, filesetIdx);
   const candidates = [basePath + ".resource.json", basePath + ".resource.yaml"];
+  // A workspace-specific resource keeps its children at the server-canonical
+  // `<base>.fileset/` while its metadata file carries the workspace suffix.
+  // The suffixed file is this workspace's authoritative metadata, so it must
+  // win over a base file that coexists with it.
+  if (wsName) {
+    candidates.unshift(
+      toWorkspaceSpecificPath(basePath + ".resource.json", wsName),
+      toWorkspaceSpecificPath(basePath + ".resource.yaml", wsName),
+    );
+  }
 
   for (const candidate of candidates) {
     try {
@@ -931,7 +1078,7 @@ async function pushFilesetParentResource(
 ): Promise<FilesetPushResult> {
   let resourceFilePath: string;
   try {
-    resourceFilePath = await findFilesetResourceFile(childPath);
+    resourceFilePath = await findFilesetResourceFile(childPath, cachedWsName);
   } catch {
     return { status: "parent-missing" };
   }
@@ -961,8 +1108,34 @@ async function pushFilesetParentResource(
     newObj,
     resourceFilePath,
     wsSpecific ? true : undefined,
+    true,
   );
   return { status: "pushed", resourceFilePath };
+}
+
+/**
+ * Join a raw app's author-controlled key (`value.files` path, `value.runnables`
+ * id) under `baseFolder` and refuse anything that resolves outside it. Keys are
+ * remote data written to disk on pull, so a `..` segment must not walk a written
+ * file out of the app's own folder.
+ */
+export function rawAppPathWithinFolder(
+  baseFolder: string,
+  relPath: string,
+): string {
+  const resolved = path.join(baseFolder, relPath);
+  const rel = path.relative(baseFolder, resolved);
+  if (
+    rel === "" ||
+    rel === ".." ||
+    rel.startsWith(".." + path.sep) ||
+    path.isAbsolute(rel)
+  ) {
+    throw new Error(
+      `raw app path ${JSON.stringify(relPath)} escapes the app folder ${baseFolder}`,
+    );
+  }
+  return resolved;
 }
 
 function ZipFSElement(
@@ -1260,9 +1433,17 @@ function ZipFSElement(
                 ) {
                   continue;
                 }
+                // Strip only a leading `/` (keys are app-root-relative), so the
+                // relative path handed to the guard matches what the backend's
+                // `strip_prefix('/')` validates — the two must not disagree on a
+                // non-`/` key, or a deploy the backend allows would abort the pull.
+                const filePathInApp = rawAppPathWithinFolder(
+                  finalPath,
+                  filePath.replace(/^\//, ""),
+                );
                 yield {
                   isDirectory: false,
-                  path: path.join(finalPath, filePath.substring(1)),
+                  path: filePathInApp,
                   async *getChildren() {},
                   async getContentText() {
                     if (typeof content !== "string") {
@@ -1360,9 +1541,10 @@ function ZipFSElement(
 
               yield {
                 isDirectory: false,
-                path: path.join(
-                  finalPath,
-                  APP_BACKEND_FOLDER,
+                // The runnable id is app-author-controlled and names its file, so
+                // keep it inside the backend folder the same way `files` keys are.
+                path: rawAppPathWithinFolder(
+                  path.join(finalPath, APP_BACKEND_FOLDER),
                   `${runnableId}.yaml`,
                 ),
                 async *getChildren() {},
@@ -1703,6 +1885,18 @@ function ZipFSElement(
   return _internal_folder("." + SEP, zip);
 }
 
+/**
+ * Directories no walk over a workspace ever descends, whatever the sync scope:
+ * dependency trees, and the dot-directories that hold tooling state and
+ * fixtures. Exported because a second walk that disagrees with this one reads
+ * files sync will never see, and draws conclusions from them.
+ */
+export function isNeverWalkedDir(dirName: string | undefined): boolean {
+  return (
+    dirName === "node_modules" || (dirName !== undefined && dirName.startsWith("."))
+  );
+}
+
 export async function* readDirRecursiveWithIgnore(
   ignore: (path: string, isDirectory: boolean) => boolean,
   root: DynFSElement,
@@ -1739,15 +1933,8 @@ export async function* readDirRecursiveWithIgnore(
     const e = stack.pop()!;
     yield e;
     for await (const e2 of e.c()) {
-      if (e2.isDirectory) {
-        const dirName = e2.path.split(SEP).pop();
-        if (
-          dirName == "node_modules" ||
-          dirName == ".claude" ||
-          dirName?.startsWith(".")
-        ) {
-          continue;
-        }
+      if (e2.isDirectory && isNeverWalkedDir(e2.path.split(SEP).pop())) {
+        continue;
       }
       stack.push({
         path: e2.path,
@@ -1925,7 +2112,13 @@ export async function elementsToMap(
     try {
       const fileType = getTypeStrFromPath(path);
       if (skips.skipVariables && fileType === "variable") continue;
-      if (skips.skipScripts && fileType === "script") continue;
+      // A shared lockfile is part of the scripts that reference it.
+      if (
+        skips.skipScripts &&
+        (fileType === "script" || fileType === "shared_lock")
+      ) {
+        continue;
+      }
       if (skips.skipFlows && fileType === "flow") continue;
       if (skips.skipApps && fileType === "app") continue;
       if (skips.skipFolders && fileType === "folder") continue;
@@ -2393,7 +2586,7 @@ async function compareDynFSElement(
   els2: DynFSElement | undefined,
   ignore: (path: string, isDirectory: boolean) => boolean,
   json: boolean,
-  skips: Skips,
+  skips: Skips & LockDedupOptions,
   ignoreMetadataDeletion: boolean,
   codebases: SyncCodebase[],
   ignoreCodebaseChanges: boolean,
@@ -2480,6 +2673,36 @@ async function compareDynFSElement(
   // lock is transiently NULL (a relock is mid-flight). See #9588.
   if (isEls1Remote === true) {
     preservePendingScriptLocks(m1, m2);
+  }
+
+  // The remote serializes one lock per script; `dedupeLockfiles` is how the repo
+  // represents them. Collapsing the remote side (in both directions) is what
+  // makes the two sides comparable: a pull then writes the shared file instead
+  // of thousands of copies, and a push sees no diff for the copies it does not
+  // keep.
+  if (skips.dedupeLockfiles) {
+    const remoteMap = isEls1Remote === true ? m1 : m2;
+    const localMapForLocks = isEls1Remote === true ? m2 : m1;
+    // The local side supplies what the remote never serializes: the shared
+    // lockfiles already on disk, so one whose scripts are out of this sync's
+    // scope is carried forward rather than read as a deletion.
+    const present: Record<string, string> = {};
+    for (const [key, content] of Object.entries(localMapForLocks)) {
+      if (isSharedLockPath(key)) present[key.replaceAll(SEP, "/")] = content;
+    }
+    applySharedLockPlanToMap(
+      remoteMap,
+      computeSharedLockPlan(remoteMap, {
+        defaultTs: skips.defaultTs,
+        present,
+        // Only when the map cannot speak for them: with dependency files in the
+        // map, its absences are real deletions, and reading disk here would keep
+        // a lockfile alive one sync past the file it is named after.
+        depFiles: skips.skipWorkspaceDependencies
+          ? Object.keys(await getRawWorkspaceDependencies(false))
+          : undefined,
+      }),
+    );
   }
 
   const changes: Change[] = [];
@@ -2745,6 +2968,7 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("users" + SEP) &&
       !p.startsWith("groups" + SEP) &&
       !p.startsWith("dependencies" + SEP) &&
+      !p.startsWith(SHARED_LOCK_DIR + SEP) &&
       !p.startsWith("migrations" + SEP)
     );
   }
@@ -2769,6 +2993,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       typ == "encryption_key"
     ) {
       return p.includes(SEP);
+    } else if (typ == "shared_lock") {
+      return false;
     } else {
       return (
         !p.startsWith("u" + SEP) &&
@@ -2795,6 +3021,7 @@ export const isWhitelisted = (p: string) => {
     p == "users" ||
     p == "groups" ||
     p == "dependencies" ||
+    p == SHARED_LOCK_DIR ||
     p == "migrations"
   );
 };
@@ -2803,6 +3030,7 @@ export async function ignoreF(wmillconf: {
   includes?: string[];
   excludes?: string[];
   extraIncludes?: string[];
+  dedupeLockfiles?: boolean;
   skipResourceTypes?: boolean;
   skipWorkspaceDependencies?: boolean;
   skipDatatableMigrations?: boolean;
@@ -2843,6 +3071,15 @@ export async function ignoreF(wmillconf: {
   // new Gitignore.default({ initialRules: ignoreContent.split("\n")}).ignoreContent).compile();
 
   return (p: string, isDirectory: boolean) => {
+    // Without the option, `locks/` is not Windmill's: a repo that keeps its own
+    // lockfiles there would otherwise see them pulled into the diff and deleted
+    // as absent from a remote that never serializes shared locks.
+    if (
+      !wmillconf.dedupeLockfiles &&
+      (p === SHARED_LOCK_DIR || p.startsWith(SHARED_LOCK_DIR + SEP))
+    ) {
+      return true;
+    }
     const ext = wmillconf.json ? ".json" : ".yaml";
     if (!isDirectory && p.endsWith(".resource-type" + ext)) {
       return wmillconf.skipResourceTypes ?? false;
@@ -2869,6 +3106,12 @@ export async function ignoreF(wmillconf: {
           fileType === "workspace_dependencies"
         ) {
           return false; // Don't ignore workspace dependencies (they are always included unless explicitly skipped)
+        }
+        // A shared lockfile lives outside the u/f/g namespaces the include
+        // patterns are written against, and dropping it from the diff would
+        // leave every script that references it pointing at nothing.
+        if (fileType === "shared_lock") {
+          return false;
         }
         // `migrations/datatable/**` is outside the u/f/g namespaces the path
         // filters are written against, so the skip flag is its only control.
@@ -2928,6 +3171,28 @@ export function untrackedDatatableMigrationDeletions<
       c.name === "deleted" &&
       isDatatableMigrationPath(c.path) &&
       !(recorded.kind === "known" && recorded.paths.has(c.path)),
+  );
+}
+
+/**
+ * `--keep-deleted`: strip every deletion from the changeset, in place, so the
+ * sync only adds and updates. A path missing on one side is not on its own
+ * evidence that it should go from the other — a partial clone, a scoped
+ * checkout or an item authored in the UI all read as deletions here.
+ */
+function dropDeletions(changes: Change[], keptOn: "local" | "remote"): void {
+  const deletions = changes.filter((c) => c.name === "deleted");
+  if (deletions.length === 0) return;
+  const kept = changes.filter((c) => c.name !== "deleted");
+  changes.length = 0;
+  changes.push(...kept);
+  log.info(
+    colors.yellow(
+      `--keep-deleted: keeping ${deletions.length} item(s) that exist only ` +
+        (keptOn === "local"
+          ? `on disk instead of deleting them locally`
+          : `on the remote instead of deleting them from the workspace`),
+    ),
   );
 }
 
@@ -3190,6 +3455,7 @@ export async function pull(
       repository?: string;
       promotion?: string;
       branch?: string;
+      keepDeleted?: boolean;
       useIndividualBranch?: boolean;
       groupByFolder?: boolean;
       gitDeployItems?: string;
@@ -3441,6 +3707,10 @@ export async function pull(
     await isCaseInsensitiveFilesystem(process.cwd()),
   );
 
+  if (opts.keepDeleted) {
+    dropDeletions(changes, "local");
+  }
+
   log.info(
     `remote (${workspace.name}) -> local: ${changes.length} changes to apply`,
   );
@@ -3511,6 +3781,13 @@ export async function pull(
       return;
     }
 
+    // Script lockfile deletions, held back until every metadata edit has been
+    // applied or refused — see the deletion branch below.
+    const deferredLockDeletions: {
+      path: string;
+      target: string;
+      stateTarget: string;
+    }[] = [];
     const conflicts = [];
 
     log.info(colors.gray(`Applying changes to files ...`));
@@ -3650,6 +3927,15 @@ export async function pull(
           await copyFile(target, stateTarget);
         }
       } else if (change.name === "deleted") {
+        // A script's lockfile goes last, once the metadata around it has
+        // settled: `dedupeLockfiles` deletes the per-script locks it collapses,
+        // and a conflict resolved as "preserve local" keeps metadata that still
+        // reads one. Deleted here, that reference would dangle and the script
+        // would deploy with an empty lock.
+        if (isScriptLockPath(change.path) || isSharedLockPath(change.path)) {
+          deferredLockDeletions.push({ path: change.path, target, stateTarget });
+          continue;
+        }
         log.info(`Deleting ${changeTypeLabel(change.path)}${change.path}`);
         // `force` on both: the goal is that neither copy exists, and a file
         // already absent — a dbt project's optional descriptor is never written
@@ -3660,6 +3946,28 @@ export async function pull(
         if (opts.stateful) {
           await rm(stateTarget, { force: true });
         }
+      }
+    }
+
+    const sharedReaders = deferredLockDeletions.some((d) =>
+      isSharedLockPath(d.path),
+    )
+      ? await collectSharedLockReaders(opts.json ?? false)
+      : { byRef: new Map(), unreadable: [] };
+    for (const deferred of deferredLockDeletions) {
+      const keptBecause = await lockStillReadBecause(
+        deferred.path,
+        opts.json ?? false,
+        sharedReaders,
+      );
+      if (keptBecause !== undefined) {
+        log.info(colors.yellow(`Keeping ${deferred.path}: ${keptBecause}.`));
+        continue;
+      }
+      log.info(`Deleting ${changeTypeLabel(deferred.path)}${deferred.path}`);
+      await rm(deferred.target, { force: true });
+      if (opts.stateful) {
+        await rm(deferred.stateTarget, { force: true });
       }
     }
     if (opts.failConflicts) {
@@ -3836,10 +4144,14 @@ export async function pull(
     }
   }
 
-  try {
-    await pullSharedUi(workspace.workspaceId);
-  } catch (e) {
-    log.warn(`Failed to pull shared UI folder: ${e}`);
+  // Skipped under --dry-run since pullSharedUi writes to the local ui/ folder.
+  // An empty changeset falls through the return above and reaches here.
+  if (!opts.dryRun) {
+    try {
+      await pullSharedUi(workspace.workspaceId, opts.keepDeleted);
+    } catch (e) {
+      log.warn(`Failed to pull shared UI folder: ${e}`);
+    }
   }
 
   // Datatable migrations are part of the workspace export now, so they flow
@@ -3850,6 +4162,92 @@ export async function pull(
   // them in-process with `set_gpg_signing_secret` so the agent's pre-warmed
   // passphrase cache is still warm at sign time (WIN-1974). `gitSyncDeployPush`
   // stays exported for callers that want the same commit/push behavior.
+}
+
+/**
+ * Fold the lockfile that the scripts of a language share back into the one
+ * shared file (`dedupeLockfiles`), and give the scripts that ended up with a
+ * lock of their own theirs back.
+ *
+ * A lock is regenerated one script at a time, so only a pass over the whole
+ * tree can tell a dependency bump every script took (the shared file moves)
+ * from one script drifting away from the rest (it gets a lock of its own).
+ *
+ * Rewriting a script's metadata invalidates the hash the generation above just
+ * recorded, so every rewritten script is re-hashed from disk — the same
+ * lock-untouching pass `sync pull` runs, no dependency job involved.
+ */
+export async function dedupeLockfilesOnDisk(args: {
+  opts: GlobalOptions & SyncOptions;
+  workspace: Workspace;
+  codebases: SyncCodebase[];
+  ignore: (p: string, isD: boolean) => boolean;
+  rawWorkspaceDependencies: Record<string, string>;
+  tree: DoubleLinkedDependencyTree;
+  /** Content paths whose generation failed this run. Their metadata may be
+   *  rewritten, but never re-hashed: recording a hash for a script whose lock
+   *  never regenerated marks it up-to-date, and it is never retried. */
+  failed?: string[];
+  dryRun?: boolean;
+}): Promise<void> {
+  const {
+    opts,
+    workspace,
+    codebases,
+    ignore,
+    rawWorkspaceDependencies,
+    tree,
+    failed = [],
+    dryRun,
+  } = args;
+  const map = await elementsToMap(
+    await FSFSElement(process.cwd(), codebases, false),
+    ignore,
+    opts.json ?? false,
+    opts,
+  );
+  const plan = computeSharedLockPlan(map, {
+    defaultTs: opts.defaultTs,
+    depFiles: opts.skipWorkspaceDependencies
+      ? Object.keys(await getRawWorkspaceDependencies(false))
+      : undefined,
+  });
+  if (isEmptySharedLockPlan(plan)) return;
+
+  const summary = `${Object.keys(plan.writes).length} file(s) written, ${plan.deletes.length} removed`;
+  if (dryRun) {
+    log.info(`Would deduplicate lockfiles: ${summary}`);
+    return;
+  }
+
+  await applySharedLockPlanToDisk(plan);
+  log.info(`Deduplicated lockfiles: ${summary}`);
+
+  for (const rewritten of Object.keys(plan.writes)) {
+    // Metadata only — the lockfiles the plan also writes are not hashed.
+    if (!rewritten.endsWith(".yaml") && !rewritten.endsWith(".json")) continue;
+    let contentPath: string | undefined;
+    try {
+      contentPath = await findContentFile(rewritten);
+    } catch {
+      continue;
+    }
+    if (!contentPath || failed.includes(contentPath)) continue;
+    await generateScriptMetadataInternal(
+      contentPath,
+      workspace,
+      opts,
+      false, // dryRun
+      true, // noStaleMessage
+      rawWorkspaceDependencies,
+      codebases,
+      true, // justUpdateMetadataLock: re-hash from disk, no lock generation
+      // The same tree the generation above ran with: it is what decides whether
+      // the workspace dependencies are part of the hash, and a hash written the
+      // other way would read as stale on every later run.
+      tree,
+    );
+  }
 }
 
 // Internal git-sync deployment-callback entrypoint. Invoked only by the
@@ -4058,12 +4456,19 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 // Shown after a `wmill sync push --dry-run` preview that has changes. `sync push`
-// deploys to the remote workspace and is destructive (it overwrites and prunes
-// remote items that differ from or are absent locally), so the preview reminds
-// the caller — especially an AI agent that ran the dry-run to inspect changes —
-// to get explicit user confirmation before applying it for real.
-const SYNC_PUSH_DESTRUCTIVE_WARNING =
-  "`wmill sync push` is destructive: applying it deploys these changes to the remote workspace and overwrites or deletes remote items that differ from or are absent locally — this is not automatically reversible. If you are an AI agent, do NOT run `wmill sync push` (without --dry-run) until the user has explicitly confirmed this deploy, unless your custom instructions explicitly allow bypassing that confirmation.";
+// deploys to the remote workspace and is destructive (it overwrites remote items
+// that differ from local, and prunes those absent locally unless --keep-deleted),
+// so the preview reminds the caller — especially an AI agent that ran the dry-run
+// to inspect changes — to get explicit user confirmation before applying it for real.
+function syncPushDestructiveWarning(keepDeleted?: boolean): string {
+  return (
+    "`wmill sync push` is destructive: applying it deploys these changes to the remote workspace and overwrites " +
+    (keepDeleted
+      ? "remote items that differ from local"
+      : "or deletes remote items that differ from or are absent locally") +
+    " — this is not automatically reversible. If you are an AI agent, do NOT run `wmill sync push` (without --dry-run) until the user has explicitly confirmed this deploy, unless your custom instructions explicitly allow bypassing that confirmation."
+  );
+}
 
 // A script pushed without a local lock queues a server-side dependency job; if
 // that job fails the script deploys broken (no lock/assets) with no CLI signal.
@@ -4123,6 +4528,7 @@ export async function push(
     SyncOptions & {
       repository?: string;
       branch?: string;
+      keepDeleted?: boolean;
       acceptOverridingPermissionedAsWithSelf?: boolean;
     },
 ) {
@@ -4344,6 +4750,93 @@ export async function push(
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
+  // A shared lockfile (`dedupeLockfiles`) has no object of its own on the
+  // remote: it IS the lock of every script that references it, and those
+  // scripts are what carries its new content over. Nothing else queues them —
+  // their own metadata is byte-identical on both sides.
+  //
+  // After the tracker on purpose: these scripts need no metadata regeneration
+  // (their lock is on disk already, in the shared file), and `--auto-metadata`
+  // would otherwise run one dependency job per script sharing the lock.
+  const changedPaths = new Set(changes.map((c) => c.path));
+  let unconvertedTree = false;
+  // The whole tree, not `localMap`: `includes`/`excludes` have already filtered
+  // that, and a shared lockfile's readers are exactly what the filter hides.
+  // One metadata pass, on the first shared-lock change and never otherwise, so
+  // it is a dependency bump that pays for it and not an ordinary push.
+  let treeReaders: SharedLockReaders | undefined;
+  for (let i = changes.length - 1; i >= 0; i--) {
+    const change = changes[i];
+    if (!isSharedLockPath(change.path)) continue;
+    if (change.name === "deleted") {
+      // The remote view is deduplicated whether or not the tree is: a shared
+      // lockfile missing from the tree reads as a deletion to push, and there is
+      // no such object to delete.
+      unconvertedTree = true;
+      changes.splice(i, 1);
+      continue;
+    }
+    const referrers = scriptsReferencingSharedLock(localMap, change.path);
+    if (treeReaders === undefined) {
+      try {
+        treeReaders = await collectSharedLockReaders(opts.json ?? false);
+      } catch (e) {
+        // The walk is fail-loud because a deletion hangs on it. Nothing hangs
+        // on an advisory, so an unreadable directory costs the advisory, not
+        // the push.
+        log.debug(`Could not scan for shared-lock readers: ${e}`);
+        treeReaders = { byRef: new Map(), unreadable: [] };
+      }
+    }
+    const outOfScope =
+      (treeReaders?.byRef.get(change.path.replaceAll(SEP, "/"))?.length ?? 0) -
+      referrers.length;
+    // Out of `changes` either way: a shared lockfile has no object on the
+    // remote, so the apply loop skips it. Left in, the preview and the "N
+    // changes" count would report something no push ever applies as such.
+    changes.splice(i, 1);
+    // A scoped push deploys what it was scoped to, so the readers the filter
+    // excluded keep the previous lock on the remote. Silence there is the
+    // trap: the changed file has no object of its own, so nothing else in the
+    // output would account for it.
+    if (outOfScope > 0) {
+      log.warn(
+        colors.yellow(
+          `${change.path} changed, but ${outOfScope} of the script(s) sharing it are outside this push's scope and keep the previous lock on the remote. Widen --includes/--excludes to deploy the new lock to all of them.`,
+        ),
+      );
+    }
+    if (referrers.length === 0) continue;
+    log.info(
+      colors.gray(
+        `${change.path} changed: re-pushing the ${referrers.length} script(s) sharing it`,
+      ),
+    );
+    for (const metaPath of referrers) {
+      if (changedPaths.has(metaPath)) continue;
+      changes.push({
+        name: "edited",
+        path: metaPath,
+        before: localMap[metaPath],
+        after: localMap[metaPath],
+      });
+    }
+  }
+  if (unconvertedTree) {
+    log.warn(
+      colors.yellow(
+        `dedupeLockfiles is on but this checkout still holds one lockfile per script. Run 'wmill generate-metadata' (or pull) to convert it — until then every script reads as changed.`,
+      ),
+    );
+  }
+
+  // After the shared-lock pass, which reads a shared lockfile's deletion as the
+  // signal that this checkout is not deduplicated — an advisory about the local
+  // tree that holds whether or not remote items are being kept.
+  if (opts.keepDeleted) {
+    dropDeletions(changes, "remote");
+  }
+
   const autoRegenerate = !!(opts as any).autoMetadata;
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
@@ -4501,6 +4994,26 @@ export async function push(
         staleApps.push(generated as string);
       }
     }
+
+    if (opts.dedupeLockfiles) {
+      // Batched: the pass re-hashes every metadata file it rewrites, and one
+      // wmill-lock.yaml write per script is what a workspace-wide conversion
+      // would otherwise cost.
+      await beginLockfileBatch();
+      try {
+        await dedupeLockfilesOnDisk({
+          opts,
+          workspace,
+          codebases,
+          ignore: await ignoreF(opts),
+          rawWorkspaceDependencies,
+          tree,
+          dryRun: opts.dryRun,
+        });
+      } finally {
+        await flushLockfileBatch();
+      }
+    }
   }
 
   if (staleScripts.length > 0) {
@@ -4636,7 +5149,10 @@ export async function push(
   // unchanged (pushSharedUi still runs) and the summary count includes ui/.
   if (opts.dryRun) {
     try {
-      for (const c of await diffSharedUi(workspace.workspaceId)) {
+      for (const c of await diffSharedUi(
+        workspace.workspaceId,
+        opts.keepDeleted,
+      )) {
         if (c.type === "added") {
           changes.push({ name: "added", path: c.path, content: "" });
         } else if (c.type === "deleted") {
@@ -4731,6 +5247,61 @@ export async function push(
     }
   }
 
+  // Non-canonical fileset pointers abort here — before the dry-run output and
+  // before any change is applied (deletes run first in the apply loop, so a
+  // mid-apply rejection would leave a partial deploy). All violations are
+  // reported at once.
+  {
+    const wsNameForPointerCheck =
+      wsNameForFiles || (isGitRepository() ? getCurrentGitBranch() : null);
+    const pointerErrors: string[] = [];
+    for (const change of changes) {
+      if (change.name !== "added" && change.name !== "edited") {
+        continue;
+      }
+      const normalizedPath = change.path.replaceAll(SEP, "/");
+      if (
+        !normalizedPath.endsWith(".resource.yaml") &&
+        !normalizedPath.endsWith(".resource.json")
+      ) {
+        continue;
+      }
+      // Fileset content is arbitrary: a child may itself be named
+      // `*.resource.yaml`, and its body is not this resource's metadata.
+      if (isFilesetResource(change.path)) {
+        continue;
+      }
+      const content = change.name === "added" ? change.content : change.after;
+      let parsed: any;
+      try {
+        parsed = parseFromPath(change.path, content);
+      } catch {
+        // Malformed files surface their own error in the apply loop.
+        continue;
+      }
+      if (
+        typeof parsed?.value === "string" &&
+        parsed.value.startsWith("!inline_fileset ")
+      ) {
+        const serverPath =
+          wsNameForPointerCheck && isWorkspaceSpecificFile(change.path)
+            ? fromWorkspaceSpecificPath(change.path, wsNameForPointerCheck)
+            : change.path;
+        try {
+          validateFilesetPointer(
+            parsed.value.split(" ")[1],
+            removeType(serverPath, "resource"),
+          );
+        } catch (e) {
+          pointerErrors.push(e instanceof Error ? e.message : String(e));
+        }
+      }
+    }
+    if (pointerErrors.length > 0) {
+      throw new Error(pointerErrors.join("\n"));
+    }
+  }
+
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
@@ -4753,7 +5324,9 @@ export async function push(
           : {}),
       })),
       total: changes.length,
-      ...(changes.length > 0 ? { warning: SYNC_PUSH_DESTRUCTIVE_WARNING } : {}),
+      ...(changes.length > 0
+        ? { warning: syncPushDestructiveWarning(opts.keepDeleted) }
+        : {}),
     };
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -4817,7 +5390,9 @@ export async function push(
 
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
-      log.warn(colors.yellow(`\n⚠ ${SYNC_PUSH_DESTRUCTIVE_WARNING}`));
+      log.warn(
+        colors.yellow(`\n⚠ ${syncPushDestructiveWarning(opts.keepDeleted)}`),
+      );
       return;
     }
 
@@ -5014,6 +5589,11 @@ export async function push(
           }
 
           for await (const change of changes) {
+            // A shared lockfile is a repo-side artifact: the scripts queued
+            // above are what deploys its content.
+            if (isSharedLockPath(change.path)) {
+              continue;
+            }
             // A datatable migration is one record across two files; upsert/delete
             // it from disk once (deduped), regardless of which file changed.
             if (isDatatableMigrationPath(change.path)) {
@@ -5039,6 +5619,93 @@ export async function push(
             }
 
             if (change.name === "edited") {
+              // A file/fileset resource's content file can carry a script
+              // extension (.sql, .ts, …), so it must be routed to its parent
+              // resource before the script handlers get a chance to treat it
+              // as a standalone script.
+              if (
+                isFileResource(change.path) ||
+                isFilesetResource(change.path)
+              ) {
+                if (stateTarget) {
+                  await mkdir(path.dirname(stateTarget), { recursive: true });
+                  log.info(
+                    `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
+                  );
+                }
+              }
+              // Fileset routing must precede the single-file check (as it does
+              // in the added/deleted branches): a fileset accepts arbitrary
+              // child names, so a child like `<res>.fileset/q.resource.file.sql`
+              // matches both predicates and belongs to its fileset parent.
+              if (isFilesetResource(change.path)) {
+                const result = await pushFilesetParentResource(
+                  change.path,
+                  workspace.workspaceId,
+                  alreadySynced,
+                  cachedWsNameForPush,
+                  specificItems,
+                );
+                if (result.status === "parent-missing") {
+                  throw new Error(
+                    `No resource metadata file found for fileset resource: ${change.path}`,
+                  );
+                }
+                // Pushed or already-synced: the parent resource carries the
+                // whole fileset, so this child's content is on the remote.
+                if (stateTarget) {
+                  await writeFile(stateTarget, change.after, "utf-8");
+                }
+                continue;
+              }
+              if (isFileResource(change.path)) {
+                const resourceFilePath = await findResourceFile(change.path);
+                if (!alreadySynced.includes(resourceFilePath)) {
+                  alreadySynced.push(resourceFilePath);
+
+                  const newObj = parseFromPath(
+                    resourceFilePath,
+                    await readTextFile(resourceFilePath),
+                  );
+
+                  // For branch-specific resources, push to the base path on the workspace server
+                  // This ensures workspace-specific files are stored with their base names in the workspace
+                  let serverPath = resourceFilePath;
+                  const currentBranch = cachedWsNameForPush;
+                  let isFileResWsSpecific = false;
+
+                  if (
+                    currentBranch &&
+                    isWorkspaceSpecificFile(resourceFilePath)
+                  ) {
+                    serverPath = fromWorkspaceSpecificPath(
+                      resourceFilePath,
+                      currentBranch,
+                    );
+                    isFileResWsSpecific = true;
+                  } else if (
+                    specificItems &&
+                    isSpecificItem(change.path, specificItems)
+                  ) {
+                    isFileResWsSpecific = true;
+                  }
+
+                  await pushResource(
+                    workspace.workspaceId,
+                    serverPath,
+                    undefined,
+                    newObj,
+                    resourceFilePath,
+                    isFileResWsSpecific ? true : undefined,
+                    true,
+                  );
+                }
+                // Already-synced parents got the full content this run.
+                if (stateTarget) {
+                  await writeFile(stateTarget, change.after, "utf-8");
+                }
+                continue;
+              }
               if (
                 await handleScriptMetadata(
                   change.path,
@@ -5092,74 +5759,6 @@ export async function push(
                 log.info(
                   `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
-              }
-
-              if (isFileResource(change.path)) {
-                const resourceFilePath = await findResourceFile(change.path);
-                if (!alreadySynced.includes(resourceFilePath)) {
-                  alreadySynced.push(resourceFilePath);
-
-                  const newObj = parseFromPath(
-                    resourceFilePath,
-                    await readTextFile(resourceFilePath),
-                  );
-
-                  // For branch-specific resources, push to the base path on the workspace server
-                  // This ensures workspace-specific files are stored with their base names in the workspace
-                  let serverPath = resourceFilePath;
-                  const currentBranch = cachedWsNameForPush;
-                  let isFileResWsSpecific = false;
-
-                  if (
-                    currentBranch &&
-                    isWorkspaceSpecificFile(resourceFilePath)
-                  ) {
-                    serverPath = fromWorkspaceSpecificPath(
-                      resourceFilePath,
-                      currentBranch,
-                    );
-                    isFileResWsSpecific = true;
-                  } else if (
-                    specificItems &&
-                    isSpecificItem(change.path, specificItems)
-                  ) {
-                    isFileResWsSpecific = true;
-                  }
-
-                  await pushResource(
-                    workspace.workspaceId,
-                    serverPath,
-                    undefined,
-                    newObj,
-                    resourceFilePath,
-                    isFileResWsSpecific ? true : undefined,
-                  );
-                  if (stateTarget) {
-                    await writeFile(stateTarget, change.after, "utf-8");
-                  }
-                  continue;
-                }
-              }
-              if (isFilesetResource(change.path)) {
-                const result = await pushFilesetParentResource(
-                  change.path,
-                  workspace.workspaceId,
-                  alreadySynced,
-                  cachedWsNameForPush,
-                  specificItems,
-                );
-                if (result.status === "parent-missing") {
-                  throw new Error(
-                    `No resource metadata file found for fileset resource: ${change.path}`,
-                  );
-                }
-                if (result.status === "pushed") {
-                  if (stateTarget) {
-                    await writeFile(stateTarget, change.after, "utf-8");
-                  }
-                  continue;
-                }
-                // "already-synced": fall through (pre-existing behavior).
               }
               const oldObj = parseFromPath(change.path, change.before);
               const newObj = parseFromPath(change.path, change.after);
@@ -5397,7 +5996,7 @@ export async function push(
                   });
                   break;
                 case "resource": {
-                  const resourcePath = removeSuffix(target, ".resource.json");
+                  const resourcePath = removeResourceSuffix(target);
                   try {
                     await wmill.deleteResource({
                       workspace: workspaceId,
@@ -5767,7 +6366,7 @@ export async function push(
       }
     }
     try {
-      await pushSharedUi(workspace.workspaceId);
+      await pushSharedUi(workspace.workspaceId, opts.keepDeleted);
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
@@ -5869,7 +6468,10 @@ export async function push(
     let sharedUiPushed = false;
     if (!opts.dryRun) {
       try {
-        sharedUiPushed = await pushSharedUi(workspace.workspaceId);
+        sharedUiPushed = await pushSharedUi(
+          workspace.workspaceId,
+          opts.keepDeleted,
+        );
       } catch (e) {
         log.warn(`Failed to push shared UI folder: ${e}`);
       }
@@ -5934,6 +6536,10 @@ const command = new Command()
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
   .option("--include-key", "Include workspace encryption key")
+  .option(
+    "--keep-deleted",
+    "Do not delete local files for items that no longer exist on the remote workspace. Only adds and updates.",
+  )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
   .option(
@@ -5996,6 +6602,10 @@ const command = new Command()
   .option(
     "--skip-reencrypt-on-key-change",
     "When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.",
+  )
+  .option(
+    "--keep-deleted",
+    "Do not delete remote items that no longer exist locally. Only adds and updates.",
   )
   .option("--skip-branch-validation", "Skip git branch validation and prompts")
   .option("--json-output", "Output results in JSON format")
@@ -6071,7 +6681,7 @@ const command = new Command()
   )
   .option(
     "--dev-workspace-label <label:string>",
-    "Environment label of a dev workspace (dev/staging); its deploys go to that branch",
+    "Environment label of a dev workspace (dev, staging, uat, ...); its deploys go to that branch",
   )
   .option(
     "--parent-dev-workspace-label <label:string>",

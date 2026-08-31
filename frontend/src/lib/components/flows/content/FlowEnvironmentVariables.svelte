@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
 	import { getContext, setContext } from 'svelte'
+	import { watch } from 'runed'
 	import type { PropPickerWrapperContext } from '../propPicker/PropPickerWrapper.svelte'
 	import { writable } from 'svelte/store'
 	import type { FlowEditorContext } from '../types'
@@ -229,15 +230,19 @@
 	let variablePicker: ItemPicker | undefined = $state(undefined)
 	let pickForKey: string | undefined = $state(undefined)
 
+	watch(
+		() => opWs,
+		() => variablePicker?.reloadItems()
+	)
+
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		inputMatches: writable(undefined),
 		connectProp: () => {},
 		propPickerConfig: writable(undefined),
 		clearConnect: () => {},
-		pickerMode: () => 'popover' as const,
-		pickableProperties: () => undefined,
-		result: () => undefined,
-		extraResults: () => undefined,
+		openPicker: () => {},
+		pickerMode: () => 'pane' as const,
+		setPickTarget: () => {},
 		onPick: () => {},
 		exprBeingEdited: writable([])
 	})

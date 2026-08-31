@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { onMount, tick, untrack } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { page } from '$app/state'
 	import {
@@ -26,7 +26,9 @@
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import {
 		createSession,
+		findEmptyLandingSession,
 		getEffectiveWorkspaceId,
+		isTearingDownOpenSession,
 		selectSession,
 		sessionInCurrentFamily,
 		sessionState,
@@ -42,6 +44,7 @@
 		listRuntimes
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
+	import { markSessionRecovered } from '$lib/components/sessions/sessionRecoveryNotice.svelte'
 	import {
 		isGlobalAiEnabled,
 		setSessionsBetaOptOut
@@ -118,8 +121,8 @@
 
 	const sessionName = $derived(page.url.searchParams.get('session_name') ?? '')
 
-	// Unfiltered resolution by name — drives the "session not found" fallback and
-	// the active-session lookup below.
+	// Unfiltered resolution by name: drives the recovery effect below and the
+	// active-session lookup.
 	const sessionByName = $derived(
 		sessionName ? sessionState.sessions.find((s) => s.name === sessionName) : undefined
 	)
@@ -137,8 +140,8 @@
 	// link navigation keeps the route), and a chat must not bleed across
 	// families. Re-enter session mode scoped to the active family: keep the open
 	// chat when it belongs there, else its most recent active session, else a
-	// fresh one. The `session_name`-without-a-session case is left to the
-	// not-found UI below.
+	// fresh one. A `session_name` that resolves to nothing is left to the
+	// recovery effect below.
 	$effect(() => {
 		if (embedded || !sessionState.hydrated) return
 		// Family membership can't be judged before the workspace list arrives:
@@ -153,6 +156,38 @@
 		const shouldReenter = current ? !sessionInCurrentFamily(current) : !sessionName
 		if (!shouldReenter) return
 		untrack(() => void enterSessionMode({ replace: true }))
+	})
+
+	// Held across the swap so the session layout mounts once, after the navigation
+	// settles. A recovered session often takes the very name that was missing, so
+	// the URL resolves before `goto` returns; mounting the panes mid-navigation
+	// makes Splitpanes miss the collapsed pane's `maxSize: 0` and leave it open.
+	let recovering = $state(false)
+
+	// Bounds the wait for the workspace list the guard above needs. The list can
+	// fail to arrive for good, and a spinner that never resolves is a worse
+	// outcome than the spare blank that judging family membership early leaves.
+	const WORKSPACE_LIST_GRACE_MS = 3000
+	let workspaceListOverdue = $state(false)
+	onMount(() => {
+		const handle = setTimeout(() => (workspaceListOverdue = true), WORKSPACE_LIST_GRACE_MS)
+		return () => clearTimeout(handle)
+	})
+
+	// The URL names a session this browser doesn't hold. Land on an empty one,
+	// never the most recent: an existing conversation would read as a successful
+	// load. `recovering` also guards re-entry: recovery mutates the session list
+	// this effect tracks, while the URL that would stop it only updates on `goto`.
+	$effect(() => {
+		if (embedded || !globalEnabled || $userStore?.operator) return
+		if (!sessionState.hydrated || recovering) return
+		// A deliberate delete removes the open session ahead of its own navigation.
+		// Claiming that gap would take over the URL and tell the user the session
+		// they just deleted couldn't be found.
+		if (isTearingDownOpenSession()) return
+		if ($usersWorkspaceStore === undefined && !workspaceListOverdue) return
+		if (!sessionName || sessionByName) return
+		untrack(() => void recoverToNewSession())
 	})
 
 	// Touch the runtime for the active session so it gets created on first visit
@@ -203,9 +238,23 @@
 		untrack(() => markSessionSeen(id, count))
 	})
 
-	async function startNewSession() {
-		const fresh = createSession()
-		await goto(`/sessions?session_name=${encodeURIComponent(fresh.name)}`)
+	async function recoverToNewSession() {
+		recovering = true
+		try {
+			// Prefer an existing empty session over stacking another blank onto the
+			// sidebar: createSession reuses only its own in-memory drafts, so one
+			// persisted by any other touch (a workspace pick, a preview tab) would
+			// be passed over.
+			const target = findEmptyLandingSession() ?? createSession()
+			selectSession(target.id)
+			markSessionRecovered(target.id)
+			await goto(`/sessions?session_name=${encodeURIComponent(target.name)}`, {
+				replaceState: true
+			})
+			await tick()
+		} finally {
+			recovering = false
+		}
 	}
 
 	// Preview panel: a tiny tabbed browser over Windmill. Every tab stays mounted
@@ -421,11 +470,42 @@
 	// land on the visible session's tabs.
 	function onTabLoad(tabs: SessionPreviewTabs, tab: SessionPreviewTab, frame: HTMLIFrameElement) {
 		try {
-			const loc = frame.contentWindow?.location
-			if (!loc) return
+			const win = frame.contentWindow
+			if (!win) return
 			// observeLocation canonicalizes away the injected nomenubar/workspace
 			// params so the tab's `loc` stays symmetric with `url` for dedupe/display.
-			tabs.observeLocation(tab.id, loc.pathname + loc.search)
+			// The hash is kept: on a list page it names the row whose drawer is open
+			// (`/schedules#u/me/daily`), which is what tells the chat what the user
+			// is looking at.
+			const observe = () => {
+				try {
+					const loc = win.location
+					tabs.observeLocation(tab.id, loc.pathname + loc.search + loc.hash)
+				} catch {
+					// Same best-effort as below.
+				}
+			}
+			observe()
+			// A drawer only changes the hash and a filter only rewrites the query; neither
+			// reloads the frame, so `load` alone would leave `loc` frozen on the seeded page.
+			// These listeners die with the framed document, so each load attaches one set.
+			win.addEventListener('hashchange', observe)
+			win.addEventListener('popstate', observe)
+			// Filters write params with `replaceState` (shallow routing), which fires no
+			// event at all — the history methods are the only way to see them. Guarded so a
+			// re-load reusing the window can't wrap the wrapper.
+			const w = win as Window & { __wmObservedHistory?: boolean }
+			if (!w.__wmObservedHistory) {
+				w.__wmObservedHistory = true
+				for (const method of ['pushState', 'replaceState'] as const) {
+					const original = win.history[method]
+					win.history[method] = function (this: History, ...args: any[]) {
+						const result = original.apply(this, args as any)
+						observe()
+						return result
+					} as History[typeof method]
+				}
+			}
 		} catch {
 			// Best-effort: the preview is same-origin, but reading location could
 			// still throw mid-navigation — keep the seeded path in that case.
@@ -742,24 +822,18 @@
 		</div>
 	{:else if !sessionState.hydrated}
 		<!-- Sessions hydrate from IndexedDB after the user resolves; until then an
-		     empty list means "loading", so the not-found branch below must not fire. -->
+		     empty list means "loading", so recovery below must not fire and strand
+		     the user in a new session while their own is still arriving. -->
 		<div class="flex-1 flex items-center justify-center">
 			<Loader2 class="animate-spin" />
 		</div>
 	{:else if !sessionName}
 		<div class="p-8 text-secondary">No session selected — pick one in the sidebar.</div>
-	{:else if !sessionByName}
-		<!-- A session_name is in the URL but no session by that name exists — e.g. a
-		     deleted session or a link opened in a different browser. -->
-		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
-			<div class="flex flex-col gap-1">
-				<p class="text-primary font-medium">Session not found</p>
-				<p>
-					No session named <code class="font-mono text-2xs">{sessionName}</code> exists. It may have
-					been deleted, or this link was created in a different browser.
-				</p>
-			</div>
-			<Button size="xs" startIcon={{ icon: Plus }} onclick={startNewSession}>New session</Button>
+	{:else if !sessionByName || recovering}
+		<!-- A tick while recovery swaps in an empty session, or the length of a
+		     fork teardown's HTTP round trip while a delete holds recovery off. -->
+		<div class="flex-1 flex items-center justify-center">
+			<Loader2 class="animate-spin" />
 		</div>
 	{:else}
 		<div class="flex-1 min-h-0 flex flex-row relative" use:splitterPointerCapture>

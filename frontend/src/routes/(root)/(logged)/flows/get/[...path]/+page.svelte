@@ -321,7 +321,8 @@
 				label: editInForkLabel($workspaceStore, $userWorkspaces),
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path),
-					onClick: (e: Event | undefined) => onEditInForkClick(e, 'flow', flow.path, { hasHref: true }),
+					onClick: (e: Event | undefined) =>
+						onEditInForkClick(e, 'flow', flow.path, { hasHref: true }),
 					unifiedSize: 'md',
 					variant: !showEditButtons ? 'default' : 'subtle',
 					startIcon: Pen
@@ -731,9 +732,6 @@
 													rightTooltip: 'Fill args from JSON'
 												}}
 												lightMode
-												on:change={(e) => {
-													runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-												}}
 											/>
 										{/if}
 									</div>
@@ -746,6 +744,7 @@
 											goto(`/flows/edit/${flow?.path}`)
 										}}
 										runnableType="flow"
+										path={flow?.path}
 									/>
 								{/if}
 
@@ -815,7 +814,7 @@
 				const nargs = JSON.parse(JSON.stringify(e.detail))
 				args = nargs
 				if (jsonView) {
-					runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+					runForm?.syncJsonEditor()
 				}
 			}}
 		/>

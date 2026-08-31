@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.781.0"
+version = "1.800.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.781.0"
+version = "1.800.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -100,6 +100,10 @@ path = "./src/main.rs"
 opt-level = 0
 incremental = true
 split-debuginfo = "unpacked"
+# Type and variable DWARF is the single largest thing in target/ and nothing in the dev loop
+# reads it; backtraces only need the line tables, which this keeps. Raise to `true` when you
+# actually need to inspect variables in gdb/lldb.
+debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
@@ -111,7 +115,7 @@ strip = "none"
 
 [features]
 default = []
-private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-dep-map/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
+private = ["windmill-api/private", "windmill-api-agent-workers?/private", "windmill-autoscaling/private", "windmill-common/private", "windmill-dep-map/private", "windmill-object-store/private", "windmill-git-sync/private", "windmill-indexer?/private", "windmill-operator?/private", "windmill-queue/private", "windmill-worker/private", "windmill-test-utils/private"]
 agent_worker_server = ["windmill-api/agent_worker_server", "dep:windmill-api-agent-workers", "windmill-test-utils/agent_worker_server"]
 enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmill-api/enterprise", "windmill-api-agent-workers?/enterprise", "dep:windmill-autoscaling", "windmill-autoscaling/enterprise", "windmill-git-sync/enterprise", "windmill-common/prometheus", "windmill-common/enterprise", "windmill-object-store/enterprise", "license"]
 local_reports = ["windmill-common/local_reports"]
@@ -127,6 +131,10 @@ quickjs = ["windmill-worker/quickjs", "windmill-api/quickjs"]
 openidconnect = ["windmill-api/openidconnect", "windmill-common/openidconnect", "windmill-object-store/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud", "windmill-api/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
+# `tantivy` must stay the only feature that enables windmill-indexer: it is the only one that
+# also gives it `enterprise` + `parquet`, and its EE sources gate nearly everything on that
+# pair, so a bare windmill-indexer is a crate of dead code that `-D warnings` rejects. Any
+# other feature wanting one of its features has to use the optional `windmill-indexer?/` form.
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:windmill-runtime-nativets", "windmill-test-utils/deno_core"]
@@ -214,6 +222,26 @@ all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embeddin
    "windmill-git-sync/all_sqlx_features"]
 
 [patch.crates-io]
+# v0.8.6 plus one commit: `Pool::begin` is not cancel-safe on Postgres. sqlx raises the
+# transaction depth its rollback-on-drop guard keys on only *after* the BEGIN round trip, so
+# a cancelled caller (a disconnecting API client, a `timeout`, an aborted task) leaves the
+# session in a transaction nothing will end, and the pool hands that connection out again —
+# every later query on it fails with 25P02 until max_lifetime recycles it 30 minutes on.
+# Reported upstream in 2022 (launchbadge/sqlx#2054), fixed for SQLite only, and still present
+# in 0.9.0. Drop this the moment upstream carries the fix.
+# The whole family has to move together: `sqlx-postgres` depends on `sqlx-core` by path
+# inside the sqlx workspace, so patching it alone leaves two incompatible `sqlx-core`s and
+# `Postgres` stops implementing the `Database` the macros expect.
+# Changing any of this — a bump, a rebase of the fork, dropping these lines — still compiles
+# clean, so run the guard that actually checks the behaviour is still there:
+#   cargo test -p windmill-common --test sqlx_begin_cancel_safe -- --ignored
+sqlx = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
+sqlx-core = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
+sqlx-macros = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
+sqlx-macros-core = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
+sqlx-postgres = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
+sqlx-mysql = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
+sqlx-sqlite = { git = "https://github.com/windmill-labs/sqlx", rev = "6bdaee94fa62a01561125646da3f99eb341f2457" }
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
 # Use tiberius main branch for libgssapi 0.8.1 fix (https://github.com/prisma/tiberius/issues/343)
 tiberius = { git = "https://github.com/prisma/tiberius", rev = "59db57960a14b422fb3a1309aa4aa47880896ff8" }
@@ -433,7 +461,9 @@ tower = "^0"
 tower-http = { version = "^0.6", features = ["trace", "cors", "catch-panic"] }
 tower-cookies = "^0.11"
 serde = "^1"
-serde_json = { version = "^1", features = ["preserve_order", "raw_value"] }
+# 1.0.151 introduced RawValue::from_string_unchecked, which the SQL executors use
+# to avoid re-parsing every collected row.
+serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] }
 serde_yml = "0.0.12"
 uuid = { version = "^1", features = ["serde", "v4", "js"] }
 thiserror = "^2"
@@ -451,7 +481,10 @@ rust-embed = { version = "^6", features = ["interpolate-folder-path"] }
 mime_guess = "^2"
 hex = "^0"
 sql-builder = "^3"
-argon2 = "^0"
+# Minor-pinned rather than the `^0` used elsewhere in this file: argon2's 0.x
+# minors are API-breaking (0.6 moved `SaltString` into `phc`, put `rand_core`
+# behind a feature and changed `hash_password`), so a float breaks the build.
+argon2 = "0.6"
 quick_cache = "^0"
 rand = "=0.9.0"
 rand_core = { version = "^0", features = ["std"] }
@@ -520,7 +553,10 @@ rustls-pemfile = "2.2.0"
 # only used with special deno_core_mac feature to prevent ffi issue on macos, requires libffi to be installed
 libffi-sys = { version = "2.3.0", features = ["system"]}
 
-google-cloud-pubsub = "0.30.0"
+# `external-account` is off in the crate's defaults, which compiles out the token source for
+# Workload Identity Federation credentials — the keyless setup for running outside GCP. Without it
+# an ADC file of that type is rejected as an unsupported account type.
+google-cloud-pubsub = { version = "0.30.0", features = ["external-account"] }
 google-cloud-googleapis = {version = "0.16.1", features = ["pubsub"]}
 # TODO: remove once deno fixes the issue on their end
 # https://github.com/denoland/deno/issues/28557
@@ -668,7 +704,7 @@ tikv-jemalloc-ctl = { version = "^0.5" }
 triomphe = "^0"
 pin-project-lite = "^0"
 
-tantivy = { git="https://github.com/windmill-labs/tantivy", rev="6ae7c70bc603b8e69e27f3240e08bd00a93fb12c" }
+tantivy = { git="https://github.com/windmill-labs/tantivy", rev="ea3b818c7b93db0c2b5db4f5e7ffef38f339060a" }
 
 backon = "1.3.0"
 

@@ -21,7 +21,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Badge, Button, Skeleton } from '$lib/components/common'
+	import { Alert, Badge, Button, EmptyState, Skeleton } from '$lib/components/common'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -44,7 +44,7 @@
 	import SqsTriggerEditor from '$lib/components/triggers/sqs/SqsTriggerEditor.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { AwsIcon } from '$lib/components/icons'
+	import AwsIcon from '$lib/components/icons/AwsIcon.svelte'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerD = SqsTrigger & { canWrite: boolean }
@@ -332,7 +332,18 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-primary mt-2"> No sqs triggers </div>
+			<EmptyState
+				icon={AwsIcon}
+				title="No SQS triggers yet"
+				description="Windmill can consume messages from an SQS queue and trigger scripts or flows on each one."
+				action={{
+					label: 'Add an SQS trigger',
+					icon: Plus,
+					onClick: () => sqsTriggerEditor?.openNew(false),
+					aiId: 'sqs-triggers-empty-add',
+					aiDescription: 'Add SQS trigger'
+				}}
+			/>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
 				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, retry, error_handler_path, error_handler_args, labels, draft_only, is_draft } (path)}

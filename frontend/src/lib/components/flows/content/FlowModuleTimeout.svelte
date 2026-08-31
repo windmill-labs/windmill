@@ -78,7 +78,7 @@
 	{#if flowModule.timeout && schema.properties['timeout']}
 		<div class="pl-9" transition:slideDynamic>
 			<PropPickerWrapper
-				popover={true}
+				sidePane
 				flow_input={stepPropPicker.pickableProperties.flow_input}
 				notSelectable
 				pickableProperties={stepPropPicker.pickableProperties}

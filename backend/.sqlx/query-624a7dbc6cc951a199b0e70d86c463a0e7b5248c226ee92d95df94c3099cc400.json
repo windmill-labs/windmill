@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE log_file SET indexed_at = now()\n         FROM unnest($1::text[], $2::text[]) AS c(hostname, file_path)\n         WHERE log_file.indexed_at IS NULL\n           AND log_file.hostname = c.hostname\n           AND log_file.file_path = c.file_path",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "624a7dbc6cc951a199b0e70d86c463a0e7b5248c226ee92d95df94c3099cc400"
+}

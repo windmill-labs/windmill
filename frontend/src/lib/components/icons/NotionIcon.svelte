@@ -1,18 +1,20 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
+<!-- #000000 mark on a #FFFFFF plate per Notion's own app icon (notion.com/front-static/logo-ios.png).
+	The plate is fixed, not theme-swapped: the mark is pure black and disappears on dark backgrounds without it. -->
 <svg
 	x="0px"
 	y="0px"
 	{width}
 	{height}
-	viewBox="0 0 168 168"
+	viewBox="-11.081 -7.636 183.273 183.273"
 	fill="none"
 	xmlns="http://www.w3.org/2000/svg"
 >

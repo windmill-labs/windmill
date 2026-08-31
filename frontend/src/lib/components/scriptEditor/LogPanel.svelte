@@ -214,8 +214,12 @@
 													fixTableSizingToParent
 												>
 													{#snippet copilot_fix()}
-														{#if lang && editor && diffEditor && args && previewJob && !previewJob.success && getStringError(previewJob.result)}
-															<ScriptFix {lang} />
+														{@const previewError =
+															previewJob && !previewJob.success
+																? getStringError(previewJob.result)
+																: undefined}
+														{#if lang && editor && diffEditor && args && previewError}
+															<ScriptFix {lang} error={previewError} jobId={previewJob?.id} />
 														{/if}
 													{/snippet}
 												</DisplayResult>
@@ -223,9 +227,11 @@
 										</div>
 									{:else}
 										<div class="text-sm text-primary p-2 flex justify-between items-center">
-											<span>
+											<!-- min-h pins this to the text-sm line box, and tracks it across root font
+											     sizes, so swapping the text for the spinner does not resize the row -->
+											<span class="flex items-center min-h-5">
 												{#if previewIsLoading}
-													<Loader2 class="animate-spin" />
+													<Loader2 size={14} class="animate-spin" />
 												{:else}
 													Test to see the result here
 												{/if}

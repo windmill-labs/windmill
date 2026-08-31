@@ -11,6 +11,7 @@
 </script>
 
 <script lang="ts">
+	import { registerPendingEditor } from './pendingEditorFlush'
 	import { BROWSER } from 'esm-env'
 
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
@@ -63,6 +64,9 @@
 	const CHANGE_TIMEOUT = 200
 
 	let changeTimeoutId: number | undefined = undefined
+	// Monaco fires onDidChangeModelContent synchronously from within `setValue`, so without
+	// this an authoritative overwrite reads as a user edit on the `input` event.
+	let applyingCode = false
 
 	let divEl: HTMLDivElement | null = null
 	let editor = $state<meditor.IStandaloneCodeEditor | null>(null)
@@ -73,6 +77,10 @@
 	let width = $state(0)
 	let initialized = $state(false)
 	let placeholderVisible = $state(false)
+	// Monaco's content origin. The placeholder is a plain overlay on the editor container, so
+	// without these it sits over the line-number gutter and off the line-1 baseline.
+	let contentLeft = $state(0)
+	let contentLineHeight = $state(0)
 	let mounted = $state(false)
 
 	let valueAfterDispose: string | undefined = undefined
@@ -149,6 +157,18 @@
 
 	const uri = `file:///${untrack(() => hash)}.${langToExt(untrack(() => lang))}`
 
+	/** Materialise the debounced buffer into `code` now. A consumer that must act on
+	 * what is on screen — persisting a draft before navigating away — cannot wait out
+	 * CHANGE_TIMEOUT. Mirrors `Editor.flushPendingChanges`. */
+	export function flushPendingChanges(): void {
+		// Same guards as onDestroy: only a pending keystroke debounce is ours to flush.
+		// `getCode()` is '' until Monaco finishes initialising, and a caller draining every
+		// mounted editor reaches ones that have not — flushing those writes the blank out.
+		if (!editor || changeTimeoutId === undefined) return
+		cancelPendingChanges()
+		updateCode()
+	}
+
 	export function getCode(): string {
 		if (valueAfterDispose != undefined) {
 			return valueAfterDispose
@@ -166,7 +186,12 @@
 		if (ncode != code) {
 			code = ncode
 		}
-		editor?.setValue(ncode)
+		applyingCode = true
+		try {
+			editor?.setValue(ncode)
+		} finally {
+			applyingCode = false
+		}
 		// setValue emits a change event of its own; drop the burst it opens so an edit
 		// made right after an authoritative overwrite still counts as a leading change.
 		cancelPendingChanges()
@@ -441,6 +466,12 @@
 				changeTimeoutId = undefined
 				updateCode()
 			}, CHANGE_TIMEOUT)
+			// `change` trails the buffer by CHANGE_TIMEOUT, too late for a consumer that has to
+			// know the moment the buffer stopped being the one it wrote. `input` says only that,
+			// carrying no value: read `getCode()` for what is on screen.
+			if (!applyingCode) {
+				dispatch('input')
+			}
 			if (leading) {
 				updateCode()
 			}
@@ -520,6 +551,13 @@
 		}
 
 		if (placeholder) {
+			const syncPlaceholderOrigin = () => {
+				if (!editor) return
+				contentLeft = editor.getLayoutInfo().contentLeft
+				contentLineHeight = editor.getOption(meditor.EditorOption.lineHeight)
+			}
+			syncPlaceholderOrigin()
+			editor.onDidLayoutChange(syncPlaceholderOrigin)
 			editor.onDidChangeModelContent(() => {
 				if (!editor) return
 				const value = editor.getValue()
@@ -650,6 +688,8 @@
 		}
 	})
 
+	onMount(() => registerPendingEditor({ flushPendingChanges: () => flushPendingChanges() }))
+
 	onDestroy(() => {
 		try {
 			// Same guards as Editor: only a pending keystroke debounce is ours to flush.
@@ -740,9 +780,10 @@
 	{#if placeholder}
 		<div
 			id="placeholder"
-			class="absolute text-gray-500 text-sm pointer-events-none font-mono z-10 {placeholderVisible
+			class="absolute text-tertiary pointer-events-none font-mono z-10 {placeholderVisible
 				? ''
 				: 'hidden'}"
+			style="left: {contentLeft}px; top: {yPadding}px; font-size: {fontSize}px; line-height: {contentLineHeight}px;"
 		>
 			{@html placeholder}
 		</div>

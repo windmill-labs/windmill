@@ -543,6 +543,14 @@ pub enum JobPayload {
         dedicated_worker: Option<bool>,
         debouncing_settings: DebouncingSettings,
     },
+    /// Compile a deployed script's binary and push it to the instance object store, so its
+    /// first run does not pay the compile. Runs as a `dependencies` job — it needs the same
+    /// worker-side toolchain and job dir — but generates no lock and touches no script row.
+    BuildBinary {
+        path: String,
+        hash: ScriptHash,
+        language: ScriptLang,
+    },
     FlowDependencies {
         path: String,
         dedicated_worker: Option<bool>,
@@ -624,6 +632,28 @@ pub enum JobPayload {
     },
 }
 
+impl JobPayload {
+    /// Whether the payload itself declares a dedicated worker, in which case `push` replaces
+    /// whatever tag it is handed and the caller's tag never reaches the queue.
+    ///
+    /// This reads what the payload carries, not what `push` will conclude: a `SingleStepFlow`
+    /// loads the flag from the script row at push time and reports `false` here. That only
+    /// matters to a caller reasoning about the tag, and for those the answer is the same either
+    /// way, since `push` replaces the tag in exactly the case this misses.
+    pub fn is_dedicated_worker(&self) -> bool {
+        let dedicated_worker = match self {
+            JobPayload::ScriptHash { dedicated_worker, .. }
+            | JobPayload::FlowScript { dedicated_worker, .. }
+            | JobPayload::Dependencies { dedicated_worker, .. }
+            | JobPayload::FlowDependencies { dedicated_worker, .. }
+            | JobPayload::Flow { dedicated_worker, .. } => dedicated_worker,
+            JobPayload::Code(raw) => &raw.dedicated_worker,
+            _ => &None,
+        };
+        dedicated_worker.is_some_and(|x| x)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct SkipHandler {
     pub path: String,
@@ -664,6 +694,7 @@ impl JobPayload {
             JobPayload::ScriptHub { .. } => JobKind::Script_Hub,
             JobPayload::FlowScript { .. } => JobKind::FlowScript,
             JobPayload::Dependencies { .. } => JobKind::Dependencies,
+            JobPayload::BuildBinary { .. } => JobKind::Dependencies,
             JobPayload::SingleStepFlow { .. } => JobKind::SingleStepFlow,
             JobPayload::AppDependencies { .. } => JobKind::AppDependencies,
             JobPayload::FlowDependencies { .. } => JobKind::FlowDependencies,
@@ -781,8 +812,12 @@ mod tests {
             trigger_kind: Option<TriggerKindLabel>,
         }
 
-        let job: Job = serde_json::from_str(r#"{"trigger_kind":"a_kind_from_the_future"}"#).unwrap();
-        assert_eq!(job.trigger_kind.as_ref().map(|k| k.as_str()), Some("a_kind_from_the_future"));
+        let job: Job =
+            serde_json::from_str(r#"{"trigger_kind":"a_kind_from_the_future"}"#).unwrap();
+        assert_eq!(
+            job.trigger_kind.as_ref().map(|k| k.as_str()),
+            Some("a_kind_from_the_future")
+        );
         assert!(!job.trigger_kind.unwrap().is(JobTriggerKind::Schedule));
 
         let job: Job = serde_json::from_str(r#"{"trigger_kind":"schedule"}"#).unwrap();

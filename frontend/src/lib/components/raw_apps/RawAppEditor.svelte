@@ -7,6 +7,7 @@
 	import RawAppYamlEditor, { type RawAppYamlUpdate } from './RawAppYamlEditor.svelte'
 	import type Drawer from '../common/drawer/Drawer.svelte'
 	import Alert from '../common/alert/Alert.svelte'
+	import { Button } from '../common'
 	import { AppService, type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { deepEqual } from 'fast-equals'
@@ -17,6 +18,7 @@
 	import { setRawAppOperatingWorkspace } from './rawAppWorkspace'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import {
+		WMILL_TS_PATH,
 		genWmillTs,
 		normalizeRawAppRuntimeLogs,
 		type Runnable,
@@ -28,6 +30,7 @@
 	} from './utils'
 	import { runDomQueryOnHtml, type RawAppDomQuery, type RawAppDomRequester } from './rawAppDom'
 	import InlineElementPrompt from './InlineElementPrompt.svelte'
+	import RawAppCoepWarning from './RawAppCoepWarning.svelte'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
@@ -60,6 +63,7 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
+	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -244,6 +248,17 @@
 	// so the preview just opens the app.
 	setOpenInSessionHandoff({ source: () => sessionOpen })
 
+	/** Hand this app off to a fresh AI session, seeding `seedPrompt` and sending
+	 * it on arrival. Exposed for the template picker's "Start in AI session": the
+	 * route owns the prompt, but the draft persistence the preview depends on
+	 * lives here. False when there is no path to open yet, so the caller can fall
+	 * back rather than swallow the click. */
+	export async function openInSession(seedPrompt: string): Promise<boolean> {
+		if (!sessionOpen) return false
+		await openSourceInSession(sessionOpen, { seedPrompt, autoSend: true })
+		return true
+	}
+
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
 	let dataTableWhitelist = $derived(buildDataTableWhitelist(dataTableRefsObjects))
@@ -338,6 +353,7 @@
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 	const PREVIEW_SHELL_URL = '/ui_builder/app-preview.html'
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
+	let coepWarning: RawAppCoepWarning | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
 	let lastBuild: { css: string; js: string } | undefined = undefined
 	// Detached preview tab/window rendering the same app-preview bundle as the
@@ -503,27 +519,66 @@
 		)
 	}
 
+	// What the editor area shows. Every selection is something it can display, so
+	// each one has a tab.
+	type EditorSelection =
+		| { kind: 'file'; path: string }
+		| { kind: 'runnable'; key: string }
+		| { kind: 'preview' }
+
+	function selectionOfTab(id: string): EditorSelection {
+		if (id.startsWith(FILE_PREFIX)) return { kind: 'file', path: id.slice(FILE_PREFIX.length) }
+		if (id.startsWith(RUNNABLE_PREFIX))
+			return { kind: 'runnable', key: id.slice(RUNNABLE_PREFIX.length) }
+		return { kind: 'preview' }
+	}
+
+	// The only writer of `activeTabId`, `selectedRunnable` and `selectedDocument`.
+	// Everything switches through here, so the three can't disagree: one left
+	// stale marks two sidebar rows selected, or leaves a tab over an empty pane.
+	function select(next: EditorSelection, opts?: { force?: boolean; notifyIframe?: boolean }): void {
+		if (next.kind === 'preview') {
+			// In split mode Preview is always shown on the right, so selecting it is
+			// a no-op (would collapse the left pane). `force` lets closeTab fall back
+			// to it.
+			if (!opts?.force && splitWithPreview) return
+			activeTabId = PREVIEW_TAB_ID
+			selectedRunnable = undefined
+			selectedDocument = undefined
+			return
+		}
+		if (next.kind === 'file') {
+			activeTabId = ensureFileTab(next.path)
+			selectedRunnable = undefined
+			selectedDocument = next.path
+			if (opts?.notifyIframe !== false) openInIframe(next.path)
+			return
+		}
+		activeTabId = ensureRunnableTab(next.key)
+		selectedDocument = undefined
+		selectedRunnable = next.key
+	}
+
 	function activateTab(id: string, opts?: { force?: boolean }) {
-		const tab = tabs.find((t) => t.id === id)
-		if (!tab) return
-		// In split mode Preview is always shown on the right, so clicking it is a
-		// no-op (would collapse the left pane). `force` lets closeTab fall back to it.
-		if (!opts?.force && splitWithPreview && id === PREVIEW_TAB_ID) return
-		activeTabId = id
-		if (tab.id === PREVIEW_TAB_ID) {
-			selectedRunnable = undefined
-		} else if (tab.id.startsWith(FILE_PREFIX)) {
-			const filePath = tab.id.slice(FILE_PREFIX.length)
-			selectedRunnable = undefined
-			// `populateFiles` reads this on iframe load, so set it even if the
-			// iframe isn't ready yet (the postMessage below is then skipped).
-			selectedDocument = filePath
-			if (iframeLoaded) {
-				iframe?.contentWindow?.postMessage({ type: 'selectFile', path: filePath }, '*')
-			}
-		} else if (tab.id.startsWith(RUNNABLE_PREFIX)) {
-			const key = tab.id.slice(RUNNABLE_PREFIX.length)
-			if (selectedRunnable !== key) selectedRunnable = key
+		if (!tabs.some((t) => t.id === id)) return
+		select(selectionOfTab(id), opts)
+	}
+
+	// Closing the tab moves the selection off the runnable in the same tick. The
+	// stale-tab effect would get there too, but a frame later — long enough for
+	// the pane to render "No runnable at id …".
+	function deleteRunnable(key: string) {
+		delete runnables[key]
+		closeTab(runnableTabId(key))
+	}
+
+	// Ask the UI Builder iframe to open a document. `populateFiles` replays
+	// `iframeDocument` on iframe load, so record it even when the iframe isn't
+	// ready yet (the postMessage is then skipped).
+	function openInIframe(path: string) {
+		iframeDocument = path
+		if (iframeLoaded) {
+			iframe?.contentWindow?.postMessage({ type: 'selectFile', path }, '*')
 		}
 	}
 
@@ -569,10 +624,6 @@
 		const tab = tabs[idx]
 		if (!tab || tab.closable === false) return
 		const wasActive = activeTabId === id
-		// Clear selection before removal so the cleanup $effect doesn't recreate it.
-		if (wasActive && tab.id.startsWith(RUNNABLE_PREFIX)) {
-			selectedRunnable = undefined
-		}
 		tabs = tabs.filter((t) => t.id !== id)
 		if (wasActive) {
 			// Fall back to the previous tab (force, in case it's Preview in split).
@@ -602,7 +653,7 @@
 				.slice()
 				.reverse()
 				.find((t) => t.id !== PREVIEW_TAB_ID)
-			if (lastUserTab) activeTabId = lastUserTab.id
+			if (lastUserTab) activateTab(lastUserTab.id)
 		}
 		splitWithPreview = true
 	}
@@ -753,6 +804,13 @@
 		)
 	}
 
+	// `wmill.ts` is generated inside the iframe from `populateRunnables`' dts: the
+	// sidebar lists it and the iframe can open it, but it is never a key of `files`.
+	// Every "does this document exist?" test has to allow for that.
+	function isOpenableDocument(path: string) {
+		return path === WMILL_TS_PATH || (files ?? {})[path] !== undefined
+	}
+
 	function populateFiles() {
 		if (files) {
 			suppressSetActiveDocument = true
@@ -761,10 +819,13 @@
 				suppressSetActiveDocument = false
 				suppressTimer = undefined
 			}, 500)
-			const doc = untrack(() => selectedDocument)
-			if (doc) {
+			const doc = untrack(() => iframeDocument)
+			if (doc !== undefined && isOpenableDocument(doc)) {
 				setFilesAndSelectInIframe(files, doc)
 			} else {
+				// Deleted or renamed away since we last told the iframe to open it;
+				// asking for a path that no longer exists errors in VS Code.
+				iframeDocument = undefined
 				setFilesInIframe(files)
 			}
 		}
@@ -783,6 +844,7 @@
 	}
 
 	function setFilesAndSelectInIframe(newFiles: Record<string, string>, pathToSelect: string) {
+		iframeDocument = pathToSelect
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
@@ -904,8 +966,8 @@
 					files = {}
 				}
 				files[path] = content
-				selectedDocument = path
-				// Use combined setFilesAndSelect to avoid race condition
+				// Combined setFilesAndSelect avoids a race, so let it do the telling.
+				select({ kind: 'file', path }, { notifyIframe: false })
 				setFilesAndSelectInIframe(files, path)
 				return lint()
 			},
@@ -973,7 +1035,7 @@
 				populateRunnables()
 
 				// Switch UI to show this runnable so Monaco can analyze it
-				selectedRunnable = key
+				select({ kind: 'runnable', key })
 
 				// Wait 2 seconds for Monaco to analyze the code
 				await new Promise((resolve) => setTimeout(resolve, 1000))
@@ -1119,8 +1181,13 @@
 			}
 		})
 	})
+	// Write these through `select` only.
 	let selectedRunnable: string | undefined = $state(undefined)
 	let selectedDocument: string | undefined = $state(undefined)
+	// The document the UI Builder iframe has open. Tracks the selection while a
+	// file is selected, but outlives switching to a runnable or Preview so a
+	// reload reopens what the user was editing.
+	let iframeDocument: string | undefined = $state(undefined)
 	let inspectorElement: InspectorElementInfo | undefined = $state(undefined)
 	let codeSelection: AppCodeSelectionElement | undefined = $state(undefined)
 
@@ -1151,6 +1218,9 @@
 		) {
 			externalPreviewReady = true
 			feedExternalPreview()
+			// The detached window is cross-origin isolated like the inline preview,
+			// so blocked external resources warrant the same COEP warning.
+			coepWarning?.attachTo(externalPreviewWindow)
 			return
 		}
 
@@ -1274,24 +1344,18 @@
 		} else if (e.data.type === 'setActiveDocument') {
 			if (suppressSetActiveDocument) return
 			// Normalize Windows-style path separators to Linux-style
-			selectedDocument = e.data.path?.replace(/\\/g, '/')
-			// If VS Code switched to a file we don't have a tab for (e.g. via
-			// the file explorer's reveal-in-editor, or our own auto-open of
-			// the main app file at boot), backfill a tab.
-			if (selectedDocument) {
-				const id = fileTabId(selectedDocument)
-				if (!tabs.some((t) => t.id === id)) {
-					ensureFileTab(selectedDocument)
-					// Don't auto-activate — the user's tab choice wins.
-					// But if no file tab is currently active, fall in line.
-					// Skip this auto-activation in single-view-with-preview
-					// mode (the caller seeded `defaultSplitWithPreview=false`
-					// because Preview is the intended starting tab); the
-					// iframe's first setActiveDocument shouldn't fight that.
-					if (splitWithPreview && activeTabKind === 'preview' && tabs.length === 2) {
-						activateTab(id)
-					}
-				}
+			const activePath: string | undefined = e.data.path?.replace(/\\/g, '/')
+			if (!activePath) return
+			iframeDocument = activePath
+			// Follow VS Code's document only while the iframe is the visible surface
+			// (behind a runnable tab it must not steal the selection), plus at boot
+			// in split mode where no file tab exists yet. `notifyIframe: false`
+			// keeps us from echoing the move back at it.
+			const bootIntoFirstFile = splitWithPreview && activeTabKind === 'preview' && tabs.length === 1
+			if (activeTabKind === 'file' || bootIntoFirstFile) {
+				select({ kind: 'file', path: activePath }, { notifyIframe: false })
+			} else {
+				ensureFileTab(activePath)
 			}
 		} else if (e.data.type === 'editorSelection') {
 			// Handle code selection from the iframe editor
@@ -1491,6 +1555,9 @@
 		win.addEventListener('load', () => {
 			externalPreviewReady = true
 			feedExternalPreview()
+			// Attach here too: against an artifact that predates the handshake, this
+			// is the only place the freshly opened window is ever seen loaded.
+			coepWarning?.attachTo(win)
 		})
 	}
 
@@ -1855,9 +1922,14 @@
 	// mount: a reactive src would reload the iframe on every theme toggle. Live
 	// theme changes travel through postMessage instead (see the $effect below).
 	function uiBuilderIframeSrc(): string {
-		const dark = document.documentElement.classList.contains('dark')
-		const variant = getAppliedDarkModeVariant()
-		return `/ui_builder/index.html?dark=${dark}&variant=${variant}`
+		const params = new URLSearchParams({
+			dark: String(document.documentElement.classList.contains('dark')),
+			variant: getAppliedDarkModeVariant()
+		})
+		// `workspace` lets the in-browser npm installer reach /api/w/<ws>/npm_proxy so
+		// package installs honour the instance's .npmrc instead of the public registry.
+		if (opWorkspace) params.set('workspace', opWorkspace)
+		return `/ui_builder/index.html?${params}`
 	}
 	// Host's computed `text-xs` size in px. Windmill bumps :root to 18px at
 	// ≥1760px viewports, so this re-evaluates on resize via the listener below.
@@ -1962,11 +2034,13 @@
 		previewIframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
 	}
 
-	function handleSelectFile(path: string) {
-		// Adding the tab activates it; activateTab posts the selectFile message
-		// to the UI Builder iframe and clears any selected runnable.
-		const id = ensureFileTab(path)
-		activateTab(id)
+	// Folders aren't selectable in the tree, so this only ever gets files — except
+	// for '' when the last file is deleted, where the tab cleanup picks the
+	// fallback selection instead. The trailing-slash guard keeps that true if a
+	// future `FileExplorer` caller feeds folder paths back in.
+	function handleSelectPath(path: string) {
+		if (!path || path.endsWith('/')) return
+		select({ kind: 'file', path })
 	}
 
 	// Track previous values for change detection
@@ -1985,19 +2059,6 @@
 		}
 	})
 
-	// Mirror sidebar runnable selection into the tab system. When the user
-	// picks a runnable from the sidebar, `selectedRunnable` flips via
-	// `bind:selectedRunnable`; ensure a tab for it exists and is active.
-	$effect(() => {
-		const key = selectedRunnable
-		if (!key) return
-		const id = runnableTabId(key)
-		untrack(() => {
-			if (!tabs.some((t) => t.id === id)) ensureRunnableTab(key)
-			if (activeTabId !== id) activeTabId = id
-		})
-	})
-
 	// Open a default file on mount (boots the iframe in split mode and gives
 	// the user something to edit on the left). When the caller seeded
 	// `defaultSplitWithPreview=false` we instead want the Preview tab as the
@@ -2008,21 +2069,21 @@
 		if (!splitWithPreview) return
 		if (tabs.length === 1) {
 			const def = pickDefaultFile(files)
-			if (def) activateTab(ensureFileTab(def))
+			if (def) select({ kind: 'file', path: def })
 		}
 	})
 
-	// Drop tabs whose file/runnable no longer exists.
+	// Drop tabs whose file/runnable no longer exists. Enumerate the keys: reading
+	// only the `$state` proxy misses a `delete runnables[id]`, which is exactly
+	// how a runnable disappears from the sidebar.
 	$effect(() => {
-		void files
-		void runnables
+		void Object.keys(files ?? {})
+		void Object.keys(runnables ?? {})
 		untrack(() => {
-			const filesSet = files ?? {}
 			const runnablesSet = runnables ?? {}
 			const stale = tabs.filter((t) => {
 				if (t.id.startsWith(FILE_PREFIX)) {
-					const fp = t.id.slice(FILE_PREFIX.length)
-					return filesSet[fp] === undefined
+					return !isOpenableDocument(t.id.slice(FILE_PREFIX.length))
 				}
 				if (t.id.startsWith(RUNNABLE_PREFIX)) {
 					const k = t.id.slice(RUNNABLE_PREFIX.length)
@@ -2078,10 +2139,10 @@
 			summary = entry.summary
 			data = structuredClone($state.snapshot(entry.data))
 
-			// If there's a selected document that exists in the new files, use the combined message
-			if (selectedDocument && entry.files[selectedDocument] !== undefined) {
+			// If the open document survives into the new files, use the combined message
+			if (iframeDocument && isOpenableDocument(iframeDocument)) {
 				// Use combined setFilesAndSelect message to avoid race condition
-				setFilesAndSelectInIframe(entry.files, selectedDocument)
+				setFilesAndSelectInIframe(entry.files, iframeDocument)
 			} else {
 				// Otherwise just set files normally
 				setFilesInIframe(entry.files)
@@ -2286,9 +2347,11 @@
 								setFilesInIframe(newFiles ?? {})
 							}
 						}
-						onSelectFile={handleSelectFile}
-						bind:selectedRunnable
-						bind:selectedDocument
+						onSelectPath={handleSelectPath}
+						onSelectRunnable={(key) => select({ kind: 'runnable', key })}
+						onDeleteRunnable={deleteRunnable}
+						{selectedRunnable}
+						{selectedDocument}
 						dataTableRefs={dataTableRefsObjects}
 						onDataTableRefsChange={(newRefs) => {
 							data.tables = newRefs.map(formatDataTableRef)
@@ -2352,19 +2415,19 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<button
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Columns2 }}
+												selected={splitWithPreview}
 												title={splitWithPreview
 													? 'Move preview back into a tab'
 													: 'Pin preview to the right'}
 												aria-label="Toggle split with preview"
 												aria-pressed={splitWithPreview}
-												class={splitWithPreview
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-												onclick={toggleSplit}
-											>
-												<Columns2 size={14} />
-											</button>
+												onClick={toggleSplit}
+											/>
 										</div>
 									{/snippet}
 								</DraggableTabs>
@@ -2437,27 +2500,33 @@
 								>
 									{#snippet trailing()}
 										<div class="flex items-center gap-1 px-2">
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary px-2 h-7 rounded-md text-xs"
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
 												title="Switch bundler"
-												onclick={() => {
+												onClick={() => {
 													const next = bundlerType === 'esbuild' ? 'rolldown' : 'esbuild'
 													bundlerType = next
 													iframe?.contentWindow?.postMessage(
 														{ type: 'setBundlerType', bundlerType: next },
 														'*'
 													)
-												}}>{bundlerType}</button
+												}}
 											>
-											<button
+												{bundlerType}
+											</Button>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: MousePointerSquareDashed }}
+												selected={inspectorEnabled}
 												title={inspectorEnabled
 													? 'Click to disable element inspector'
 													: 'Click to enable element inspector'}
-												class={inspectorEnabled
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
 												aria-label="Toggle element inspector"
-												onclick={() => {
+												aria-pressed={inspectorEnabled}
+												onClick={() => {
 													if (inspectorEnabled) {
 														// Turning off is a full exit: stop picking and clear the
 														// selection + inline prompt (mirrors Escape).
@@ -2470,42 +2539,42 @@
 														)
 													}
 												}}
-											>
-												<MousePointerSquareDashed size={14} />
-											</button>
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: RefreshCw }}
 												title="Replay the last build into the preview"
 												aria-label="Rebuild"
-												onclick={() => {
+												onClick={() => {
 													if (lastBuild) {
 														feedPreviewIframe(lastBuild)
 													}
 												}}
-											>
-												<RefreshCw size={14} />
-											</button>
-											<button
-												class="cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center"
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: SquareArrowOutUpRight }}
 												title="Open preview in a separate window"
 												aria-label="Open preview in a separate window"
-												onclick={openExternalPreview}
-											>
-												<SquareArrowOutUpRight size={14} />
-											</button>
-											<button
+												onClick={openExternalPreview}
+											/>
+											<Button
+												variant="subtle"
+												unifiedSize="sm"
+												iconOnly
+												startIcon={{ icon: Columns2 }}
+												selected={splitWithPreview}
 												title={splitWithPreview
 													? 'Move preview back into a tab'
 													: 'Pin preview to the right'}
 												aria-label="Toggle split with preview"
 												aria-pressed={splitWithPreview}
-												class={splitWithPreview
-													? 'cursor-pointer bg-surface-accent-selected text-accent border border-border-selected w-7 h-7 rounded-md inline-flex items-center justify-center'
-													: 'cursor-pointer bg-surface hover:bg-surface-hover border border-border-light text-primary w-7 h-7 rounded-md inline-flex items-center justify-center'}
-												onclick={toggleSplit}
-											>
-												<Columns2 size={14} />
-											</button>
+												onClick={toggleSplit}
+											/>
 										</div>
 									{/snippet}
 								</DraggableTabs>
@@ -2515,6 +2584,7 @@
 									src={PREVIEW_SHELL_URL}
 									class="w-full flex-1 block"
 								></iframe>
+								<RawAppCoepWarning bind:this={coepWarning} iframe={previewIframe} />
 								{#if buildError}
 									<!-- top-12 clears the tab bar; `before:bg-surface` backs the
 									     Alert's translucent red; `isolate` pins the pseudo's stacking context. -->

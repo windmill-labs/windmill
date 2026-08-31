@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { workspaceStore, userStore } from '$lib/stores'
+	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -255,7 +256,7 @@
 
 	// Draft autosave (the data_pipeline DraftService bundle) lives inside
 	// PipelineGraphEditor now; the route just supplies its path to the indicator.
-	let pipelineDraftPath = $derived(`f/${folder}/data_pipeline`)
+	let pipelineDraftPath = $derived(pipelineBundlePath(folder))
 
 	// The live editor overlays (annotations / body assets / content for the open
 	// script) now live in `pe`. The canonical "empty" literals stay here — they
@@ -463,6 +464,10 @@
 			lines.push('No output asset is expected.')
 		}
 		const instructions = lines.join('\n')
+		// Still the docked chat, which AI Sessions leaves unmounted — sendRequest
+		// refuses rather than running the turn off-screen. Handing this off to a
+		// session needs the just-staged draft flushed to its DB bundle first (the
+		// preview hydrates from there), and PipelineGraphEditor exposes no flush.
 		aiChatManager.openChat()
 		aiChatManager.sendRequest({ instructions })
 	}
@@ -1415,12 +1420,12 @@
 	// other's storage writes.
 	let cascadeRunningRoot = $state<string | undefined>(undefined)
 
-	// Recorder: when armed, the next cascade run captures the resolved graph, the
-	// per-node status timeline and each node's job stream into a downloadable
-	// recording that the /pipeline_replay player can rerun offline (parity with the
-	// flow/script recorders). Job capture (`watchJob`) and status capture
-	// (`recordStatuses`) no-op unless the store is active, so the cascade run
-	// paths call them unconditionally.
+	// Recorder: when armed, the next cascade run captures the resolved graph and
+	// the per-node status timeline into a downloadable recording that the
+	// /pipeline_replay player can rerun offline (parity with the flow/script
+	// recorders); each node's completed job is fetched when the run finalizes.
+	// Status capture (`recordStatuses`) no-ops unless the store is active, so
+	// the cascade run paths call it unconditionally.
 	let pipelineRecording = createPipelineRecording()
 	let recordingMode = $state(false)
 	let lastPipelineRecording = $state<PipelineRecording | undefined>(undefined)
@@ -1790,8 +1795,6 @@
 				launch: async (path) => {
 					const jobId = await launchCascadeScript(path)
 					activeRunnables.arm(`script:${path}`)
-					// No-op unless a recording is active; captures the node's stream.
-					if ($workspaceStore) pipelineRecording.watchJob(jobId, $workspaceStore)
 					if (firstJobId === undefined) {
 						firstJobId = jobId
 						runsPendingJobId = jobId
@@ -2500,7 +2503,7 @@
 				{#if $workspaceStore}
 					<AutosaveIndicator
 						workspace={$workspaceStore}
-						itemKind="data_pipeline"
+						itemKind={PIPELINE_DRAFT_KIND}
 						path={pipelineDraftPath}
 						draftOnly
 						loadedFromDraft={pe.loadedFromDbDraft}

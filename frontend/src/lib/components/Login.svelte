@@ -1,27 +1,58 @@
+<script module lang="ts">
+	import type { LastLoginMethod } from '$lib/lastLoginMethod'
+
+	/** Feeds the login card a fixed instance configuration instead of the live one.
+	 * Only the kitchen sink at /kitchen_sink/login sets it; production always fetches. */
+	export type LoginPreview = {
+		logins?: { type: string; displayName: string }[]
+		saml?: boolean
+		disablePasswordLogin?: boolean
+		smtpConfigured?: boolean
+		cloud?: boolean
+		autoRedirecting?: boolean
+		lastUsed?: LastLoginMethod
+	}
+</script>
+
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import Github from '$lib/components/icons/brands/Github.svelte'
-	import Gitlab from '$lib/components/icons/brands/Gitlab.svelte'
-	import Google from '$lib/components/icons/brands/Google.svelte'
-	import Microsoft from '$lib/components/icons/brands/Microsoft.svelte'
-	import Okta from '$lib/components/icons/brands/Okta.svelte'
-	import Auth0 from '$lib/components/icons/brands/Auth0.svelte'
-	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
+	import {
+		Auth0Icon,
+		GithubIcon,
+		GitlabIcon,
+		GoogleIcon,
+		MicrosoftIcon,
+		NextcloudIcon,
+		OktaIcon
+	} from '$lib/components/icons'
 	import PocketIdIcon from '$lib/components/icons/PocketIdIcon.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
-	import { classNames, emptyString, escapeHtml, parseQueryParams } from '$lib/utils'
+	import { emptyString, escapeHtml, parseQueryParams } from '$lib/utils'
 	import { base } from '$lib/base'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, tick } from 'svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
+	import Password from './Password.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 	import { sameTopDomainOrigin } from '$lib/cookies'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
+	import InputError from './InputError.svelte'
+	import { loginErrorMessage } from '$lib/loginError'
+	import Badge from './common/badge/Badge.svelte'
+	import {
+		getLastLoginMethod,
+		clearPendingLoginMethod,
+		confirmPendingLoginMethod,
+		markLoginMethodPending,
+		rememberLoginMethod,
+		sameLoginMethod
+	} from '$lib/lastLoginMethod'
 
 	interface Props {
 		rd?: string | undefined
@@ -32,6 +63,10 @@
 		firstTime?: boolean
 		autoRedirect?: boolean
 		onLoginSuccess?: () => void
+		preview?: LoginPreview
+		/** Reports the instance's login options once loaded, so the page around the card can
+		 * adapt its heading: a third-party login also creates the account on first use. */
+		onOptionsLoaded?: (options: { hasThirdParty: boolean }) => void
 	}
 
 	let {
@@ -42,39 +77,56 @@
 		popup = false,
 		firstTime = false,
 		autoRedirect = true,
-		onLoginSuccess = undefined
+		onLoginSuccess = undefined,
+		preview = undefined,
+		onOptionsLoaded = undefined
 	}: Props = $props()
+
+	// The harness never takes effect in a production bundle, whatever a caller passes.
+	let previewConfig = $derived(import.meta.env.DEV ? preview : undefined)
+	let cloudHosted = $derived(previewConfig ? !!previewConfig.cloud : isCloudHosted())
+
+	let lastUsed = $state<LastLoginMethod | undefined>(undefined)
+	let lastUsedPassword = $derived(!!lastUsed && lastUsed.kind === 'password')
+
+	// Scoped per instance: the kitchen sink mounts every card at once, and a hardcoded id
+	// would point each card's labels and aria-describedby at the first card's fields.
+	const uid = $props.id()
+	const emailId = `${uid}-email`
+	const passwordId = `${uid}-password`
+	const errorId = `${uid}-error`
+	const emailErrorId = `${uid}-email-error`
 
 	const providers = [
 		{
 			type: 'github',
 			name: 'GitHub',
-			icon: Github
+			icon: GithubIcon
 		},
 		{
 			type: 'gitlab',
 			name: 'GitLab',
-			icon: Gitlab
+			icon: GitlabIcon
 		},
 		{
 			type: 'google',
 			name: 'Google',
-			icon: Google
+			icon: GoogleIcon
 		},
 		{
 			type: 'microsoft',
 			name: 'Microsoft',
-			icon: Microsoft
+			icon: MicrosoftIcon
 		},
 		{
 			type: 'okta',
 			name: 'Okta',
-			icon: Okta
+			icon: OktaIcon
 		},
 		{
 			type: 'auth0',
 			name: 'Auth0',
-			icon: Auth0
+			icon: Auth0Icon
 		},
 		{
 			type: 'nextcloud',
@@ -88,15 +140,91 @@
 		}
 	] as const
 
-	const providersType = providers.map((p) => p.type as string)
+	type ThirdPartyMethod = {
+		method: { kind: 'oauth'; provider: string } | { kind: 'saml' }
+		displayName: string
+		icon?: any
+	}
+
+	// rank() maps an unknown type to known.length, not indexOf's -1, so a custom OAuth client
+	// sorts after the known providers rather than ahead of all of them. SAML sits at the end,
+	// and whatever worked last time is hoisted to the front.
+	let orderedThirdParty = $derived.by(() => {
+		const known = providers.map((p) => p.type as string)
+		const rank = (type: string) => (known.indexOf(type) === -1 ? known.length : known.indexOf(type))
+		const oauth: ThirdPartyMethod[] = [...(logins ?? [])]
+			.sort((a, b) => rank(a.type) - rank(b.type))
+			.map((login) => ({
+				method: { kind: 'oauth', provider: login.type },
+				displayName: login.displayName,
+				icon: providers.find((p) => p.type === login.type)?.icon
+			}))
+		const all: ThirdPartyMethod[] = saml
+			? [...oauth, { method: { kind: 'saml' }, displayName: 'SSO' }]
+			: oauth
+		const lastIdx = all.findIndex((m) => sameLoginMethod(lastUsed, m.method))
+		if (lastIdx > 0) all.unshift(...all.splice(lastIdx, 1))
+		return all
+	})
 
 	let showPassword = $state(false)
-	let logins: OAuthLogin[] | undefined = $state(undefined)
+	let passwordField = $state<Password | undefined>(undefined)
+	// Type argument rather than annotation: annotating narrows the declaration to the
+	// initializer's `undefined`, so a top-level read sees `never` instead of the array.
+	let logins = $state<OAuthLogin[] | undefined>(undefined)
 	let saml: string | undefined = $state(undefined)
 	let smtpConfigured: boolean | undefined = $state(undefined)
 	let disablePasswordLogin = $state(false)
 	let autoRedirecting = $state(false)
 	let oauthFlowDone = false
+
+	// The method that worked last time leads: the form takes the top of the card, already open.
+	let passwordFirst = $derived(lastUsedPassword && !disablePasswordLogin && !autoRedirecting)
+
+	// Errors that belong to the credentials the user just submitted: they stay under the
+	// password field until either field changes, so a stale message can't outlive its attempt.
+	let formError = $state<
+		| {
+				message: string
+				fields: 'both' | 'email' | 'password'
+				email: string | undefined
+				password: string | undefined
+		  }
+		| undefined
+	>(undefined)
+	let shake = $state(false)
+	let fieldsEl = $state<HTMLDivElement | undefined>(undefined)
+	let credentialsError = $derived(
+		formError && formError.email === email && formError.password === password
+			? formError.message
+			: undefined
+	)
+	// 'both' sits under the password field, at the end of the form, where a rejected
+	// credential pair belongs; a single missing field gets the message under itself.
+	let errorField = $derived(credentialsError ? (formError?.fields ?? 'both') : undefined)
+	let emailErrored = $derived(errorField === 'email' || errorField === 'both')
+	let passwordErrored = $derived(errorField === 'password' || errorField === 'both')
+
+	async function failLogin(
+		message: string,
+		fields: 'both' | 'email' | 'password' = 'both',
+		// The pair the message is about. Defaults to what is in the fields right now, but a
+		// rejected request passes what it actually submitted: the user may have typed on since.
+		attempted: { email: string | undefined; password: string | undefined } = { email, password }
+	) {
+		// The shake is for a retry that fails the same way: on the first failure the message
+		// appearing is the signal, and shaking it in would be noise.
+		const wasAlreadyShown = credentialsError != undefined
+		formError = { message, fields, ...attempted }
+		// tick() only writes the DOM. Without a layout read between the removal and the re-add,
+		// the browser coalesces both into one style recalculation, sees a class that never left,
+		// and replays nothing from the second retry onwards.
+		shake = false
+		if (!wasAlreadyShown) return
+		await tick()
+		void fieldsEl?.offsetWidth
+		shake = true
+	}
 
 	type OAuthLogin = {
 		type: string
@@ -105,7 +233,14 @@
 
 	async function login(): Promise<void> {
 		if (!email || !password) {
-			sendUserToast('Please fill in both email and password', true)
+			if (!email && !password) failLogin('Enter both your email and password.')
+			else if (!email) failLogin('Enter your email.', 'email')
+			else failLogin('Enter your password.', 'password')
+			return
+		}
+
+		if (previewConfig) {
+			failLogin('Invalid email or password.')
 			return
 		}
 
@@ -114,12 +249,20 @@
 			password
 		}
 
+		// Await the DOM update: the field must be back to type="password" before the
+		// request goes out, or the browser may not offer to save the credential
+		passwordField?.conceal()
+		await tick()
+
 		try {
 			await UserService.login({ requestBody })
 		} catch (err) {
-			sendUserToast('Invalid credentials', true)
+			failLogin(loginErrorMessage(err), 'both', requestBody)
 			return
 		}
+
+		formError = undefined
+		rememberLoginMethod({ kind: 'password' })
 
 		if (firstTime) {
 			goto('/user/first-time')
@@ -186,7 +329,11 @@
 				} else {
 					goto(resolvedRd ?? '/')
 				}
-			} else if (resolvedRd?.startsWith('/user/workspaces')) {
+				// See (root)/+layout.svelte for why /projects/import skips the picker.
+			} else if (
+				resolvedRd?.startsWith('/user/workspaces') ||
+				resolvedRd?.startsWith(`${base}/projects/import`)
+			) {
 				goto(resolvedRd)
 			} else if (resolvedRd == '/#user-settings') {
 				goto(`/user/workspaces#user-settings`)
@@ -197,6 +344,21 @@
 	}
 
 	async function loadLogins() {
+		if (previewConfig) {
+			logins = previewConfig.logins ?? []
+			saml = previewConfig.saml ? 'https://idp.example.com/sso' : undefined
+			disablePasswordLogin = previewConfig.disablePasswordLogin ?? false
+			autoRedirecting = previewConfig.autoRedirecting ?? false
+			lastUsed = previewConfig.lastUsed
+			showPassword =
+				!disablePasswordLogin &&
+				(lastUsedPassword ||
+					(logins.length === 0 && !saml) ||
+					(email != undefined && email.length > 0))
+			onOptionsLoaded?.({ hasThirdParty: logins.length > 0 || !!saml })
+			return
+		}
+
 		const [loginsResult, disabledResult] = await Promise.allSettled([
 			OauthService.listOauthLogins(),
 			UserService.isPasswordLoginDisabled()
@@ -223,9 +385,14 @@
 			console.error('Could not load logins', loginsResult.reason)
 		}
 
+		lastUsed = getLastLoginMethod()
 		showPassword =
 			!disablePasswordLogin &&
-			((logins?.length === 0 && !saml) || (email != undefined && email.length > 0))
+			(lastUsedPassword ||
+				(logins?.length === 0 && !saml) ||
+				(email != undefined && email.length > 0))
+
+		onOptionsLoaded?.({ hasThirdParty: (logins?.length ?? 0) > 0 || !!saml })
 
 		if (autoRedirect && autoLogin && !error && !shouldSkipAutoRedirect()) {
 			if (autoLogin === 'saml' && saml) {
@@ -260,6 +427,10 @@
 	})
 
 	async function checkSmtpConfigured() {
+		if (previewConfig) {
+			smtpConfigured = previewConfig.smtpConfigured ?? false
+			return
+		}
 		try {
 			smtpConfigured = await UserService.isSmtpConfigured()
 		} catch (err) {
@@ -270,10 +441,12 @@
 
 	checkSmtpConfigured()
 
-	function handleKeyUp(event: KeyboardEvent) {
+	function handleKeyDown(event: KeyboardEvent) {
 		const key = event.key
 
-		if (key === 'Enter') {
+		// keydown auto-repeats while held, and Enter also confirms an IME candidate —
+		// either would submit the form more than once per keypress
+		if (key === 'Enter' && !event.isComposing && !event.repeat) {
 			event.preventDefault()
 			login()
 		}
@@ -334,6 +507,7 @@
 	function finishOauthFlow(via: 'postMessage' | 'storage' | 'poll', win?: Window) {
 		if (oauthFlowDone) return
 		oauthFlowDone = true
+		confirmPendingLoginMethod()
 		console.log(`oauth: signaled via ${via}`)
 		if (win && !win.closed) win.close()
 		window.removeEventListener('message', popupListener)
@@ -361,6 +535,9 @@
 	}
 
 	function storeRedirect(provider: string): boolean {
+		// The kitchen sink renders real provider buttons; clicking one must not leave the page.
+		if (previewConfig) return true
+		markLoginMethodPending({ kind: 'oauth', provider })
 		persistRd()
 		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
 		console.log('storeRedirect', popup, url)
@@ -373,6 +550,7 @@
 			if (!win) {
 				window.removeEventListener('message', popupListener)
 				window.removeEventListener('storage', handleStorageEvent)
+				clearPendingLoginMethod()
 				return false
 			}
 			// Safety net for Safari: when the popup is opened without a fresh user
@@ -422,6 +600,8 @@
 			sendUserToast('No SAML login available', true)
 			return false
 		}
+		if (previewConfig) return true
+		markLoginMethodPending({ kind: 'saml' })
 		let target = saml
 		let relayStateSet = false
 		// Carry the SP-initiated deep link through the IdP round-trip via SAML
@@ -457,57 +637,89 @@
 	})
 </script>
 
-<div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
-	{#if autoRedirecting}
-		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
-	{/if}
-	<div
-		class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4 {autoRedirecting
-			? 'hidden'
-			: ''}"
-	>
+<!-- The red borders are colour-only, so role="alert" is what makes a failed attempt reach a
+	screen reader. -->
+{#snippet errorMessage()}
+	<div id={errorId} role="alert" class="min-h-5">
+		{#if errorField !== 'email'}
+			<InputError error={credentialsError} />
+		{/if}
+	</div>
+{/snippet}
+
+<!-- Straddles the button's top edge, so the row keeps its height and the badge reads as a
+	label on the button rather than another line of content. -->
+{#snippet lastUsedBadge()}
+	<!-- Hung off the corner like a notification badge: a long provider name wraps to two lines
+		inside the button, and anything sitting further in would land on the label. The ring is
+		the card's own colour so the badge punches through the button border. -->
+	<div class="absolute top-0 right-0 -translate-y-1/2 translate-x-1/4 z-10">
+		<Badge color="blue" small class="ring-2 ring-surface !px-1 !py-0 !text-[10px] leading-4">
+			Last used
+		</Badge>
+	</div>
+{/snippet}
+
+{#snippet providerButtons()}
+	<div class="grid gap-4 {autoRedirecting ? 'hidden' : ''}">
 		{#if !logins}
 			{#each Array(4) as _}
 				<Skeleton layout={[0.5, [2.375]]} />
 			{/each}
 		{:else}
-			{#each providers as { type, icon }}
-				{#if logins?.some((login) => login.type === type)}
+			{#each orderedThirdParty as entry (entry.method.kind === 'saml' ? 'saml:' : `oauth:${entry.method.provider}`)}
+				<div class="relative">
+					{#if sameLoginMethod(lastUsed, entry.method)}
+						{@render lastUsedBadge()}
+					{/if}
 					<Button
 						variant="default"
-						startIcon={{ icon, classes: 'h-4' }}
-						on:click={() => storeRedirect(type)}
+						unifiedSize="lg"
+						startIcon={entry.icon ? { icon: entry.icon, classes: 'h-4' } : undefined}
+						onClick={() =>
+							entry.method.kind === 'saml' ? redirectSaml() : storeRedirect(entry.method.provider)}
 					>
-						{logins.find((login) => login.type === type)?.displayName}
+						Continue with {entry.displayName}
 					</Button>
-				{/if}
+				</div>
 			{/each}
-			{#each logins.filter((login) => !providersType?.includes(login.type)) as login}
-				<Button
-					variant="default"
-					btnClasses="mt-2 w-full"
-					on:click={() => storeRedirect(login.type)}
-				>
-					{login.displayName}
-				</Button>
-			{/each}
-		{/if}
-		{#if saml}
-			<Button variant="default" btnClasses="mt-2 w-full" on:click={redirectSaml}>SSO</Button>
 		{/if}
 	</div>
-	{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
-		<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-6' : '')}>
-			<Button
-				size="xs"
-				variant="subtle"
-				on:click={() => {
-					showPassword = !showPassword
-				}}
-			>
-				Log in without third-party
-			</Button>
-		</div>
+{/snippet}
+
+{#snippet orDivider()}
+	<div class="flex items-center gap-3 my-6">
+		<div class="h-px flex-1 bg-border-light"></div>
+		<span class="text-2xs uppercase text-secondary">or</span>
+		<div class="h-px flex-1 bg-border-light"></div>
+	</div>
+{/snippet}
+
+<div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
+	{#if autoRedirecting}
+		<p class="text-sm text-center text-secondary py-4">Signing you in…</p>
+	{/if}
+
+	{#if !passwordFirst}
+		{@render providerButtons()}
+		{#if !autoRedirecting && !disablePasswordLogin && (saml || (logins && logins.length > 0))}
+			{@render orDivider()}
+			<!-- Only an entry point to the form below: once that is open the divider is what
+				separates the two ways in. -->
+			{#if !showPassword}
+				<div class="center-center">
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						onClick={() => {
+							showPassword = true
+						}}
+					>
+						Log in without third-party
+					</Button>
+				</div>
+			{/if}
+		{/if}
 	{/if}
 
 	{#if !autoRedirecting && showPassword && !disablePasswordLogin}
@@ -517,33 +729,73 @@
 					Welcome! Default credentials admin@windmill.dev / changeme have been prefilled.
 				</p>
 			{/if}
-			<div class="space-y-6">
-				{#if isCloudHosted()}
+			<div class="space-y-4">
+				{#if cloudHosted}
 					<p class="text-xs text-secondary pb-6">
 						To get credentials without the OAuth providers above, send an email at
 						contact@windmill.dev
 					</p>
 				{/if}
-				<div class="space-y-1">
-					<label for="email" class="block text-xs font-semibold text-emphasis"> Email </label>
-					<div>
-						<input type="email" bind:value={email} id="email" autocomplete="email" />
+				<div bind:this={fieldsEl} class="space-y-2 {shake ? 'motion-safe:animate-shake' : ''}">
+					<div class="space-y-1">
+						<label for={emailId} class="block text-xs font-semibold text-emphasis"> Email </label>
+						<div>
+							<TextInput
+								size="md"
+								error={emailErrored}
+								bind:value={email}
+								inputProps={{
+									id: emailId,
+									type: 'email',
+									autocomplete: 'username',
+									'aria-invalid': emailErrored ? 'true' : undefined,
+									'aria-describedby':
+										errorField === 'email' ? emailErrorId : emailErrored ? errorId : undefined,
+									onkeydown: (e) => {
+										// Only move on once the field holds something: while the browser's
+										// credential dropdown is open, Enter belongs to the dropdown
+										if (e.key === 'Enter' && !e.isComposing && !e.repeat && e.currentTarget.value) {
+											e.preventDefault()
+											passwordField?.focus()
+										}
+									}
+								}}
+							/>
+						</div>
+						<div id={emailErrorId} role="alert" class="min-h-5">
+							{#if errorField === 'email'}
+								<InputError error={credentialsError} />
+							{/if}
+						</div>
+					</div>
+
+					<div class="space-y-1">
+						<label for={passwordId} class="block text-xs font-semibold text-emphasis">
+							Password
+						</label>
+						<div>
+							<Password
+								bind:this={passwordField}
+								bind:password
+								id={passwordId}
+								placeholder=""
+								autocomplete="current-password"
+								allowMultiline={false}
+								error={passwordErrored}
+								describedBy={passwordErrored ? errorId : undefined}
+								onKeyDown={handleKeyDown}
+							/>
+						</div>
+						{@render errorMessage()}
 					</div>
 				</div>
 
-				<div class="space-y-1">
-					<label for="password" class="block text-xs font-semibold text-emphasis"> Password </label>
-					<div>
-						<input
-							onkeyup={handleKeyUp}
-							bind:value={password}
-							id="password"
-							type="password"
-							autocomplete="current-password"
-						/>
-					</div>
+				<div>
+					<Button onClick={login} variant="accent" unifiedSize="lg" disabled={!email || !password}>
+						Log in
+					</Button>
 					{#if smtpConfigured}
-						<div class="text-right pt-1">
+						<div class="text-center pt-2">
 							<a
 								href="{base}/user/forgot-password"
 								class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
@@ -553,13 +805,9 @@
 						</div>
 					{/if}
 				</div>
-
-				<div class="pt-2">
-					<Button onClick={login} variant="accent" disabled={!email || !password}>Sign in</Button>
-				</div>
 			</div>
 
-			{#if isCloudHosted()}
+			{#if cloudHosted}
 				<p class="text-2xs text-secondary mt-10 text-center">
 					By logging in, you agree to our
 					<a href="https://windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
@@ -572,5 +820,10 @@
 				</p>
 			{/if}
 		</div>
+	{/if}
+
+	{#if passwordFirst && (saml || (logins && logins.length > 0))}
+		{@render orDivider()}
+		{@render providerButtons()}
 	{/if}
 </div>

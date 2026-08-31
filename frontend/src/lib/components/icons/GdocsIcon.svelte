@@ -1,14 +1,77 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" {width} {height} viewBox="0 0 50 50" style="fill:currentcolor;">
+<!-- Google's own Docs product icon, gstatic.com/images/branding/productlogos/docs_2026/v2/web/192px.svg
+	(#3186FF with a #76BBFF fold and a gradient). Google forbids recolouring its logos, so this ships
+	unmodified apart from namespacing the gradient/mask ids, which are document-global. -->
+<svg
+	{width}
+	{height}
+	viewBox="-0.136 -0.136 192.273 192.273"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+	role="img"
+	aria-label="Google Docs"
+>
+	<mask
+		id="gdocs-mask0_37242_8762"
+		style="mask-type:alpha"
+		maskUnits="userSpaceOnUse"
+		x="32"
+		y="8"
+		width="128"
+		height="176"
+	>
+		<path
+			d="M130.334 184L61.6 184C52.6565 184 48.1848 184 44.6375 182.596C39.5029 180.563 35.4374 176.497 33.4045 171.362C32 167.815 32 163.343 32 154.4L32 37.6C32 28.6565 32 24.1848 33.4045 20.6375C35.4374 15.5029 39.5029 11.4374 44.6375 9.40447C48.1848 8 52.6565 8 61.6 8L100 8L154.793 62.7933L154.793 62.7934C156.454 64.4543 157.285 65.2848 157.923 66.2239C158.845 67.5811 159.479 69.1131 159.785 70.725C159.997 71.8404 159.997 73.0264 159.995 75.3985C159.96 124.317 159.938 124.799 159.937 154.366C159.937 163.332 159.937 167.816 158.532 171.363C156.499 176.498 152.434 180.562 147.299 182.596C143.752 184 139.279 184 130.334 184Z"
+			fill="#3186FF"
+		/>
+	</mask>
+	<g mask="url(#gdocs-mask0_37242_8762)">
+		<path
+			d="M159.94 184L31.9999 184L31.9999 8.00001L99.9999 8L159.999 68L159.94 184Z"
+			fill="#3186FF"
+		/>
+		<g filter="url(#gdocs-filter0_f_37242_8762)">
+			<path d="M43 192H149V70.2271V20H43V192Z" fill="url(#gdocs-paint0_linear_37242_8762)" />
+		</g>
+	</g>
 	<path
-		d="M 28.90625 1.96875 C 28.863281 1.976563 28.820313 1.988281 28.78125 2 L 11.5 2 C 9.585938 2 8 3.558594 8 5.46875 L 8 43.90625 C 8 46.160156 9.867188 48 12.125 48 L 37.875 48 C 40.132813 48 42 46.160156 42 43.90625 L 42 15.1875 C 42.027344 15.054688 42.027344 14.914063 42 14.78125 L 42 14.5 C 42.007813 14.234375 41.90625 13.972656 41.71875 13.78125 L 30.21875 2.28125 C 30.027344 2.09375 29.765625 1.992188 29.5 2 L 29.1875 2 C 29.097656 1.976563 29 1.964844 28.90625 1.96875 Z M 11.5 4 L 28 4 L 28 12.34375 C 28 14.355469 29.644531 16 31.65625 16 L 40 16 L 40 43.90625 C 40 45.074219 39.054688 46 37.875 46 L 12.125 46 C 10.945313 46 10 45.074219 10 43.90625 L 10 5.46875 C 10 4.644531 10.660156 4 11.5 4 Z M 30 4.9375 L 39.0625 14 L 31.65625 14 C 30.722656 14 30 13.277344 30 12.34375 Z M 17 24 L 17 26 L 33 26 L 33 24 Z M 17 28 L 17 30 L 33 30 L 33 28 Z M 17 32 L 17 34 L 33 34 L 33 32 Z M 17 36 L 17 38 L 26 38 L 26 36 Z"
+		d="M154.995 62.9951C152.489 61.1143 149.375 60 146 60H112.8C105.731 60 100 54.2692 100 47.2002V8L154.995 62.9951Z"
+		fill="#76BBFF"
 	/>
+	<rect x="64.001" y="114" width="64" height="12" rx="6" fill="white" />
+	<rect x="64.001" y="143" width="48" height="12" rx="6" fill="white" />
+	<defs>
+		<filter
+			id="gdocs-filter0_f_37242_8762"
+			x="31"
+			y="8"
+			width="130"
+			height="196"
+			filterUnits="userSpaceOnUse"
+			color-interpolation-filters="sRGB"
+		>
+			<feFlood flood-opacity="0" result="BackgroundImageFix" />
+			<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape" />
+			<feGaussianBlur stdDeviation="6" result="effect1_foregroundBlur_37242_8762" />
+		</filter>
+		<linearGradient
+			id="gdocs-paint0_linear_37242_8762"
+			x1="96"
+			y1="59.2839"
+			x2="54.6124"
+			y2="171.338"
+			gradientUnits="userSpaceOnUse"
+		>
+			<stop offset="0.33" stop-color="#3186FF" />
+			<stop offset="1" stop-color="#A9A8FF" />
+		</linearGradient>
+	</defs>
 </svg>

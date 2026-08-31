@@ -123,7 +123,9 @@ async fn get_http_route_trigger(
 
     let routers_cache = if routers_cache.routers.is_empty() {
         tracing::warn!("HTTP routers are not loaded, loading from db");
-        let (_, routers_cache) = refresh_routers(db).await?;
+        // refresh_routers takes the write lock, so holding this read guard across it deadlocks.
+        drop(routers_cache);
+        let (_, routers_cache) = refresh_routers(db, false).await?;
         routers_cache
     } else {
         routers_cache
@@ -352,12 +354,12 @@ async fn route_job(
                 &db,
                 None,
                 &trigger.workspace_id,
-                config.storage,
+                config.storage.clone(),
             )
             .await?;
-            let s3_resource = s3_resource_opt.ok_or(Error::internal_err(
-                "No files storage resource defined at the workspace level".to_string(),
-            ))?;
+            let s3_resource = s3_resource_opt.ok_or_else(|| {
+                windmill_object_store::workspace_storage_misconfigured(config.storage.as_deref())
+            })?;
             let s3_client = build_object_store_client(&s3_resource).await?;
 
             let path = if trigger.is_static_website {
@@ -579,6 +581,7 @@ async fn route_job(
                 None,
                 early_return,
                 has_failure_module,
+                false,
             );
 
             let body = axum::body::Body::from_stream(

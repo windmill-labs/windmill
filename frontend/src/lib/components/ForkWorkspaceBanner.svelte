@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, userWorkspaces } from '$lib/stores'
+	import { workspaceStore, userWorkspaces, userStore, type UserExt } from '$lib/stores'
 	import { ScriptService } from '$lib/gen'
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
@@ -8,7 +8,7 @@
 	import { goto } from '$app/navigation'
 	import { onMount, untrack } from 'svelte'
 	import { useWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { devLabelWord } from '$lib/utils/devWorkspaceLabel'
+	import { childWorkspaceNoun, devLabelWord } from '$lib/utils/devWorkspaceLabel'
 	import { diffActionableInDirection } from '$lib/utils_workspace_deploy'
 
 	let loading = $state(false)
@@ -26,12 +26,26 @@
 	// prefix) also avoids a parentless "Fork of ()" banner when the linkage is dropped.
 	let isFork = $derived(parentWorkspaceId != null)
 	let isDevWorkspace = $derived(currentWorkspaceData?.is_dev_workspace ?? false)
+	let currentNoun = $derived(childWorkspaceNoun(currentWorkspaceData))
+	// Operators run scripts and flows, they never deploy a fork, so the banner and
+	// its CTA are noise for them. Gates the fetches too, not just the markup: the
+	// fork/parent comparison is an expensive tally no operator can act on.
+	//
+	// Only a role fetched for the workspace we are on answers this. `$workspaceStore`
+	// flips synchronously on a switch while `$userStore` still holds the workspace we
+	// left, so trusting it unqualified would flash the banner at (and start the tally
+	// for) an operator entering a fork from a workspace where they are not one.
+	function isConfirmedNonOperator(user: UserExt | undefined, ws: string | undefined): boolean {
+		return !!user && !!ws && user.workspace_id === ws && !user.operator
+	}
+	let isNotOperator = $derived(isConfirmedNonOperator($userStore, $workspaceStore))
+	let showBanner = $derived(isFork && isNotOperator)
 
 	// Drafts in this fork. When the fork is otherwise in sync with its parent, a
 	// user with only pending drafts should still get the draft CTA (mirrors the
-	// non-fork WorkspaceDraftsBanner). Pass undefined when not a fork so it doesn't
-	// fetch.
-	const drafts = useWorkspaceDrafts(() => (isFork ? ($workspaceStore ?? undefined) : undefined))
+	// non-fork WorkspaceDraftsBanner). Pass undefined when the banner is hidden so
+	// it doesn't fetch.
+	const drafts = useWorkspaceDrafts(() => (showBanner ? ($workspaceStore ?? undefined) : undefined))
 	const draftCount = $derived(drafts.count)
 
 	// Every read of `comparison` that decides what the banner says or where its button
@@ -63,10 +77,12 @@
 		resetCiTestSummary()
 	}
 
+	// `isNotOperator` is a dependency of its own: it only turns true once this
+	// workspace's role has landed, which is after the switch that triggered it.
 	$effect(() => {
-		;[$workspaceStore, parentWorkspaceId]
+		;[$workspaceStore, parentWorkspaceId, isNotOperator]
 		untrack(() => {
-			if (isFork && $workspaceStore) {
+			if (showBanner && $workspaceStore) {
 				checkForChanges()
 			} else {
 				dropComparison()
@@ -75,7 +91,7 @@
 	})
 
 	onMount(() => {
-		if (isFork && $workspaceStore) {
+		if (showBanner && $workspaceStore) {
 			checkForChanges()
 		} else {
 			dropComparison()
@@ -218,7 +234,7 @@
 	function forkAheadBehindMessage(changesAhead: number, changesBehind: number) {
 		let msg: string[] = []
 		if (changesAhead > 0 || changesBehind > 0) {
-			msg.push('This fork is ')
+			msg.push(`This ${currentNoun} is `)
 			if (changesAhead > 0)
 				msg.push(`${changesAhead} change${changesAhead > 1 ? 's' : ''} ahead of `)
 			if (changesAhead > 0 && changesBehind > 0) msg.push('and ')
@@ -229,7 +245,7 @@
 	}
 </script>
 
-{#if isFork}
+{#if showBanner}
 	<!-- Side padding mirrors the page content container below, so the banner
 	     stays aligned with it instead of bleeding to the viewport edges. -->
 	<div class="w-full text-xs max-w-7xl mx-auto px-4 sm:px-8 pt-2">
@@ -385,7 +401,7 @@
 								{/if}
 							{:else if comparison.skipped_comparison}
 								<span class="text-blue-600 dark:text-blue-200">
-									This fork was created before the addition of certain windmill features, and
+									This {currentNoun} was created before the addition of certain windmill features, and
 									therefore the changes with its parent workspace cannot be displayed.</span
 								>
 							{:else if showDraftsOnly}
@@ -410,7 +426,7 @@
 						{:else if !hasAnswer || changesAhead > 0}
 							Review & Deploy Changes
 						{:else}
-							Review & Update fork
+							Review & Update {currentNoun}
 						{/if}
 					</Button>
 				</div>

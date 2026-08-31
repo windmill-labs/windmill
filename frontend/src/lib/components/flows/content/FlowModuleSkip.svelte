@@ -71,11 +71,10 @@
 
 <div class="w-full">
 	<PropPickerWrapper
-		popover={true}
+		sidePane
 		flow_input={stepPropPicker.pickableProperties.flow_input}
 		notSelectable
 		{result}
-		displayContext={false}
 		pickableProperties={stepPropPicker.pickableProperties}
 		on:select={({ detail }) => {
 			editor?.insertAtCursor(detail)

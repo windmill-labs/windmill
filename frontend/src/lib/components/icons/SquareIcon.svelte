@@ -1,14 +1,26 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg xmlns="http://www.w3.org/2000/svg" x="0px" y="0px" {width} {height} viewBox="0 0 30 30" style="fill:currentcolor;">
+<!-- #000000 / #FFFFFF per Square_Logo_2025 in squareup.com/us/en/press/logo. Square ships only
+	black and white logo files and states "Do not change the color", so no tinted variant is allowed. -->
+<svg
+	class="text-[#000000] dark:text-[#FFFFFF]"
+	xmlns="http://www.w3.org/2000/svg"
+	x="0px"
+	y="0px"
+	{width}
+	{height}
+	viewBox="2.983 2.983 24.035 24.035"
+	style="fill:currentcolor;"
+>
 	<path
-		d="M 7 4 C 5.343 4 4 5.343 4 7 L 4 23 C 4 24.657 5.343 26 7 26 L 23 26 C 24.657 26 26 24.657 26 23 L 26 7 C 26 5.343 24.657 4 23 4 L 7 4 z M 8 8 L 22 8 L 22 22 L 8 22 L 8 8 z M 12 12 L 12 18 L 18 18 L 18 12 L 12 12 z"
+		fill-rule="evenodd"
+		d="M7.68 4H22.32A3.68 3.68 0 0 1 26 7.68V22.32A3.68 3.68 0 0 1 22.32 26H7.68A3.68 3.68 0 0 1 4 22.32V7.68A3.68 3.68 0 0 1 7.68 4ZM9.16 8H20.84A1.16 1.16 0 0 1 22 9.16V20.84A1.16 1.16 0 0 1 20.84 22H9.16A1.16 1.16 0 0 1 8 20.84V9.16A1.16 1.16 0 0 1 9.16 8ZM12.67 12H17.33A0.67 0.67 0 0 1 18 12.67V17.33A0.67 0.67 0 0 1 17.33 18H12.67A0.67 0.67 0 0 1 12 17.33V12.67A0.67 0.67 0 0 1 12.67 12Z"
 	/>
 </svg>

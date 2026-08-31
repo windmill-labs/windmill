@@ -7,8 +7,8 @@
  */
 
 use windmill_api_auth::{
-    build_scope_path_predicate, check_scopes, require_devops_role, require_is_writer,
-    require_super_admin, ApiAuthed,
+    build_scope_path_predicate, check_scopes, require_devops_role, require_instance_admin,
+    require_is_writer, require_super_admin, ApiAuthed,
 };
 use windmill_api_users::users::WorkspaceInvite;
 use windmill_common::email_oss::send_email_if_possible;
@@ -117,6 +117,7 @@ pub fn workspaced_service() -> Router {
             get(get_secondary_storage_names),
         )
         .route("/is_premium", get(is_premium))
+        .route("/billable_seats", get(get_billable_seats))
         .route("/edit_error_handler", post(edit_error_handler))
         .route("/edit_success_handler", post(edit_success_handler))
         .route(
@@ -490,8 +491,8 @@ struct CreateWorkspaceFork {
     /// the team can work in it. Defaults off; the dev-workspace UI defaults it on.
     #[serde(default)]
     copy_members: bool,
-    /// Cosmetic display label for the dev workspace: 'dev' | 'staging'. Purely visual (badge text +
-    /// wording); ignored for non-dev forks. None defaults to 'dev'.
+    /// Environment label for the dev workspace, e.g. 'dev' or 'staging': its badge text and the
+    /// branch it deploys to. Ignored for non-dev forks. None defaults to 'dev'.
     #[serde(default)]
     dev_workspace_label: Option<String>,
 }
@@ -659,7 +660,8 @@ async fn list_pending_invites(
             workspace_invite.operator,
             workspace.parent_workspace_id
         FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id
-        WHERE workspace_id = $1",
+        WHERE workspace_id = $1
+        ORDER BY workspace_invite.email",
         w_id
     )
     .fetch_all(&mut *tx)
@@ -683,6 +685,48 @@ async fn is_premium(
     #[cfg(not(feature = "cloud"))]
     let premium = false;
     Ok(Json(premium))
+}
+
+#[derive(Serialize)]
+struct BillableSeatsResponse {
+    /// Both omitted when the seats counted are another workspace's: a fork member need not be a
+    /// member of the billing root, so the root's headcount is not theirs to read. The total is,
+    /// since it is the divisor of the quota their own executions draw on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    developers: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    operators: Option<i64>,
+    seats: i64,
+}
+
+async fn get_billable_seats(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<BillableSeatsResponse> {
+    // Readable by any workspace member, like `is_premium`: this is what the sidebar usage meter
+    // divides by, and that meter is shown to non-admin developers too.
+    //
+    // On cloud a fork draws its plan, quota and bill from the root, so the seats its usage is
+    // measured against are the root's. Resolved here rather than by the caller: a fork member need
+    // not be a member of that root, and so cannot count its seats from the member list. Off cloud
+    // a fork is not billed through a root at all, so the workspace answers for itself.
+    #[cfg(feature = "cloud")]
+    let billing_w_id = if *CLOUD_HOSTED {
+        windmill_common::workspaces::get_billing_workspace_id(&db, &w_id).await?
+    } else {
+        w_id.clone()
+    };
+    #[cfg(not(feature = "cloud"))]
+    let billing_w_id = w_id.clone();
+
+    let counted = windmill_common::workspaces::billable_seats(&db, &billing_w_id).await?;
+    let own = billing_w_id == w_id;
+    Ok(Json(BillableSeatsResponse {
+        developers: own.then_some(counted.developers),
+        operators: own.then_some(counted.operators),
+        seats: counted.seats,
+    }))
 }
 
 async fn exists_workspace(
@@ -712,16 +756,84 @@ struct DevWorkspaceInfo {
     dev_workspace_label: Option<String>,
 }
 
-/// Normalize/validate the cosmetic dev-workspace display label. None or 'dev' both render as "dev";
-/// 'staging' renders as "stg". Anything else is rejected. Stored explicitly ('dev'/'staging') so it
-/// round-trips, but a NULL column is treated as 'dev' on the read side too.
+/// The environment labels a dev workspace may carry, ordered dev -> prod. Each names the git branch
+/// that workspace deploys to (`dev_workspace_branch`), and every dev workspace in a chain must
+/// carry a distinct one (`reject_dev_label_taken_in_chain`) — so the length of this list is also
+/// the deepest promotion chain. A fixed list rather than free text: the label has to be a usable
+/// single-segment branch name, must not collide with the `wm-fork/**` and `wm_deploy/**` namespaces
+/// git-sync already writes, and must not be a repository's default branch (`main`, `master`).
+pub const DEV_WORKSPACE_LABELS: [&str; 8] = [
+    "dev", "qa", "test", "uat", "staging", "demo", "sandbox", "preprod",
+];
+
+/// Normalize/validate the dev-workspace environment label. Unset defaults to 'dev', which is also
+/// what a NULL column reads as; any supplied value must be one of `DEV_WORKSPACE_LABELS` exactly,
+/// so the accepted set is what the OpenAPI enum advertises — no trimming, no empty-string alias.
 fn normalize_dev_workspace_label(label: Option<String>) -> Result<Option<String>> {
-    match label.as_deref() {
-        None | Some("dev") => Ok(Some("dev".to_string())),
-        Some("staging") => Ok(Some("staging".to_string())),
-        Some(other) => Err(Error::BadRequest(format!(
-            "invalid dev workspace label '{other}' (expected 'dev' or 'staging')"
-        ))),
+    let Some(label) = label else {
+        return Ok(Some("dev".to_string()));
+    };
+    if !DEV_WORKSPACE_LABELS.contains(&label.as_str()) {
+        return Err(Error::BadRequest(format!(
+            "invalid dev workspace label '{label}' (expected one of: {})",
+            DEV_WORKSPACE_LABELS.join(", ")
+        )));
+    }
+    Ok(Some(label))
+}
+
+#[cfg(test)]
+mod dev_workspace_label_tests {
+    use super::{normalize_dev_workspace_label, tracked_branch_blocks_dev_label};
+
+    #[test]
+    fn tracked_branch_blocks_its_own_name_and_its_namespace() {
+        assert!(tracked_branch_blocks_dev_label("uat", "uat"));
+        // The label would have to be a ref and a ref directory at once.
+        assert!(tracked_branch_blocks_dev_label("release", "release/main"));
+        assert!(!tracked_branch_blocks_dev_label("release", "release-main"));
+        assert!(!tracked_branch_blocks_dev_label("release", "main"));
+        assert!(!tracked_branch_blocks_dev_label("uat", "pre/uat"));
+    }
+
+    fn norm(label: &str) -> Option<String> {
+        normalize_dev_workspace_label(Some(label.to_string()))
+            .ok()
+            .flatten()
+    }
+
+    #[test]
+    fn unset_defaults_to_dev() {
+        assert_eq!(
+            normalize_dev_workspace_label(None).unwrap().as_deref(),
+            Some("dev")
+        );
+    }
+
+    #[test]
+    fn accepts_every_offered_label_and_nothing_else() {
+        for label in super::DEV_WORKSPACE_LABELS {
+            assert_eq!(norm(label).as_deref(), Some(label), "rejected '{label}'");
+        }
+        // Off-list names are refused whether or not they would make a usable branch: the list is
+        // what keeps a label off `main`/`master` and out of the `wm-fork/**` and `wm_deploy/**`
+        // namespaces git-sync writes. Padded and empty values are refused too, so the accepted set
+        // is exactly the OpenAPI enum rather than a superset a validating client would reject.
+        for label in [
+            " uat ",
+            "",
+            "main",
+            "master",
+            "wm-fork",
+            "wm_deploy",
+            "UAT",
+            "feature/uat",
+        ] {
+            assert!(
+                normalize_dev_workspace_label(Some(label.to_string())).is_err(),
+                "accepted '{label}'"
+            );
+        }
     }
 }
 
@@ -795,11 +907,23 @@ fn clear_client_supplied_auto_pull_state(
     auto_pull.last_pull_status = None;
 }
 
-/// A dev workspace deploys to a branch named after its environment label. If a
-/// git-sync repository's tracked branch carries that same name, dev deploys
-/// would write straight into the branch the workspace (or its prod) syncs
-/// from — the CLI refuses that push, so every deploy job would fail. Reject
-/// the label up front instead.
+/// Whether a git-sync repository tracking `tracked` rules out `label_branch` as a dev workspace's
+/// deploy branch. Two ways it can:
+///
+/// - the same name: dev deploys would write straight into the branch the workspace (or its prod)
+///   syncs from, and the CLI refuses that push;
+/// - `label_branch` is the namespace `tracked` sits under (label `release`, tracked
+///   `release/main`): git stores refs hierarchically, so `refs/heads/release` cannot exist
+///   alongside `refs/heads/release/main`.
+///
+/// Either way every deploy job from that workspace would fail.
+fn tracked_branch_blocks_dev_label(label_branch: &str, tracked: &str) -> bool {
+    tracked == label_branch || tracked.starts_with(&format!("{label_branch}/"))
+}
+
+/// Reject a label whose branch clashes with a tracked branch of any git-sync repository on
+/// `workspace_ids`, before the pairing is created. (`wm-fork` and `wm_deploy`, whose namespaces
+/// exist whatever a repo tracks, are reserved unconditionally in `normalize_dev_workspace_label`.)
 async fn reject_dev_label_matching_tracked_branch(
     db: &DB,
     label: Option<&str>,
@@ -827,14 +951,31 @@ async fn reject_dev_label_matching_tracked_branch(
             .fetch_optional(db)
             .await?
             .flatten();
-            if branch.as_deref() == Some(label_branch.as_str()) {
-                return Err(Error::BadRequest(format!(
+            // A repository that pins no branch tracks the remote's default, which cannot be
+            // resolved here without a network call — but no offered label is a plausible default
+            // (`main`/`master` are off the list), so there is nothing to compare against.
+            let Some(tracked) = branch.as_deref().filter(|b| !b.is_empty()) else {
+                continue;
+            };
+            if !tracked_branch_blocks_dev_label(&label_branch, tracked) {
+                continue;
+            }
+            return Err(Error::BadRequest(if tracked == label_branch {
+                format!(
                     "The environment label '{label_branch}' matches the tracked branch of git-sync \
                      repository '{path}' in workspace '{w_id}': deploys from the dev workspace go \
                      to the '{label_branch}' branch and would overwrite the branch that repository \
-                     syncs from. Use the other label or change the repository's tracked branch."
-                )));
-            }
+                     syncs from. Use a different label or change the repository's branch."
+                )
+            } else {
+                format!(
+                    "The environment label '{label_branch}' is the namespace of the tracked branch \
+                     '{tracked}' of git-sync repository '{path}' in workspace '{w_id}': git cannot \
+                     hold a branch named '{label_branch}' alongside '{tracked}', so every deploy \
+                     from the dev workspace would fail. Use a different label or change the \
+                     repository's branch."
+                )
+            }));
         }
     }
     Ok(())
@@ -1858,6 +1999,37 @@ async fn edit_large_file_storage_config(
     .await?;
 
     if let Some(lfs_config) = new_config.large_file_storage {
+        // `_default_` names the primary storage everywhere else — `get_secondary_storage_names`
+        // hands it out, the s3-proxy URL carries it, the clients fall back to it — so a secondary
+        // storage of that name is unreachable by design and would shadow the primary for anything
+        // that resolves the name. Reject it at the only route that creates one.
+        if lfs_config
+            .secondary_storage
+            .contains_key(windmill_types::s3::DEFAULT_STORAGE)
+        {
+            return Err(Error::BadRequest(format!(
+                "`{}` is reserved for the primary storage and cannot name a secondary one",
+                windmill_types::s3::DEFAULT_STORAGE
+            )));
+        }
+
+        if !windmill_common::workspaces::filesystem_storage_allowed() {
+            let named = std::iter::once(("primary storage", &lfs_config.large_file_storage)).chain(
+                lfs_config
+                    .secondary_storage
+                    .iter()
+                    .map(|(name, storage)| (name.as_str(), storage)),
+            );
+            for (name, storage) in named {
+                if matches!(storage, LargeFileStorage::FilesystemStorage(_)) {
+                    return Err(Error::BadRequest(format!(
+                        "{name}: {}",
+                        windmill_common::workspaces::FILESYSTEM_STORAGE_DEV_ONLY_MSG
+                    )));
+                }
+            }
+        }
+
         let serialized_lfs_config =
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;
@@ -2482,6 +2654,66 @@ fn truncate_column_default(default: String) -> String {
 mod tests {
     use super::*;
 
+    /// The header of a pg_dump, followed by an object whose body also holds a `SET`.
+    const DUMP: &str = "--\n\
+        -- PostgreSQL database dump\n\
+        --\n\
+        \n\
+        \\restrict aBcD\n\
+        \n\
+        SET statement_timeout = 0;\n\
+        SET transaction_timeout = 0;\n\
+        SET client_encoding = 'UTF8';\n\
+        SELECT pg_catalog.set_config('search_path', '', false);\n\
+        \n\
+        SET default_table_access_method = heap;\n\
+        \n\
+        CREATE FUNCTION public.f() RETURNS void LANGUAGE plpgsql AS $$\n\
+        BEGIN\n\
+        SET transaction_timeout = 0;\n\
+        END;\n\
+        $$;\n";
+
+    #[test]
+    fn replayable_dump_keeps_everything_but_meta_commands_and_session_timeouts() {
+        let replayable = strip_unreplayable_dump_lines(DUMP);
+
+        assert!(!replayable.contains("\\restrict"));
+        assert!(!replayable.contains("SET statement_timeout"));
+        assert!(!replayable.contains("SET transaction_timeout = 0;\nSET client_encoding"));
+        assert!(replayable.contains("SET client_encoding = 'UTF8';"));
+        assert!(replayable.contains("SET default_table_access_method = heap;"));
+        // Past the preamble the dump is an object's own text: left exactly as it is.
+        assert!(replayable.contains("BEGIN\nSET transaction_timeout = 0;\nEND;"));
+    }
+
+    #[tokio::test]
+    async fn dump_preamble_only_drops_settings_the_server_lacks() {
+        let dump_file = DumpFile::new().unwrap();
+        tokio::fs::write(&dump_file.path, DUMP).await.unwrap();
+        let supported = [
+            "statement_timeout",
+            "client_encoding",
+            "default_table_access_method",
+        ]
+        .map(String::from)
+        .into_iter()
+        .collect();
+
+        comment_out_unsupported_settings(&dump_file, &supported)
+            .await
+            .unwrap();
+
+        let patched = tokio::fs::read_to_string(&dump_file.path).await.unwrap();
+        // Rewriting the header must not shift the rest of the dump.
+        assert_eq!(patched.len(), DUMP.len());
+        assert!(patched.contains("--  transaction_timeout = 0;"));
+        assert!(patched.contains("SET statement_timeout = 0;"));
+        assert!(patched.contains("SET default_table_access_method = heap;"));
+        // The `SET` inside the function body is past the preamble: never touched.
+        assert!(patched.contains("BEGIN\nSET transaction_timeout = 0;\nEND;"));
+    }
+
     #[test]
     fn compact_column_type_truncates_multibyte_defaults_safely() {
         let default = "é".repeat(31);
@@ -2584,6 +2816,35 @@ pub(crate) async fn resolve_pg_source_checked(
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))
 }
 
+/// Whether the data table `name` is backed by the Windmill instance's own PostgreSQL
+/// rather than a user resource.
+pub(crate) async fn is_instance_datatable(db: &DB, w_id: &str, name: &str) -> Result<bool> {
+    let config = sqlx::query_scalar!(
+        "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
+        w_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    Ok(config
+        .and_then(|v| {
+            v.get("database")
+                .and_then(|d| d.get("resource_type"))
+                .and_then(|r| r.as_str())
+                .map(|s| s == "instance")
+        })
+        .unwrap_or(false))
+}
+
+/// Same, for the `datatable://<name>` / `$res:<path>` form the import endpoints take.
+async fn is_instance_datatable_source(db: &DB, w_id: &str, source: &str) -> Result<bool> {
+    match source.strip_prefix("datatable://") {
+        Some(name) => is_instance_datatable(db, w_id, name).await,
+        None => Ok(false),
+    }
+}
+
 /// A temporary file for pg_dump output that is automatically deleted when dropped.
 pub(crate) struct DumpFile {
     pub(crate) path: std::path::PathBuf,
@@ -2631,12 +2892,21 @@ impl Drop for DumpFile {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct PgDumpOptions<'a> {
+    pub(crate) schema_only: bool,
+    pub(crate) exclude_tables: &'a [&'a str],
+    /// Leave out `ALTER ... OWNER TO`.
+    pub(crate) no_owner: bool,
+    /// Leave out `GRANT`, `REVOKE` and `ALTER DEFAULT PRIVILEGES`.
+    pub(crate) no_acl: bool,
+}
+
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
 /// Returns a DumpFile handle; the file is deleted when the handle is dropped.
 pub(crate) async fn pg_dump_database(
     pg_db: &PgDatabase,
-    schema_only: bool,
-    exclude_tables: &[&str],
+    opts: PgDumpOptions<'_>,
 ) -> Result<DumpFile> {
     let dump_file = DumpFile::new()?;
 
@@ -2647,10 +2917,16 @@ pub(crate) async fn pg_dump_database(
 
     let mut cmd = tokio::process::Command::new("pg_dump");
     cmd.arg("--format=plain").arg("--file").arg(&dump_file.path);
-    if schema_only {
+    if opts.schema_only {
         cmd.arg("--schema-only");
     }
-    for table in exclude_tables {
+    if opts.no_owner {
+        cmd.arg("--no-owner");
+    }
+    if opts.no_acl {
+        cmd.arg("--no-privileges");
+    }
+    for table in opts.exclude_tables {
         cmd.arg(format!("--exclude-table={table}"));
     }
     cmd.arg("--host")
@@ -2682,37 +2958,179 @@ pub(crate) async fn pg_dump_database(
     Ok(dump_file)
 }
 
-/// Import a pg_dump file into a target database using psql.
-async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
-    let host = &target_db.host;
-    let port = target_db.port.unwrap_or(5432).to_string();
-    let user = target_db.login_name();
-    let dbname = &target_db.dbname;
+/// Whether `line` still belongs to the preamble pg_dump emits before the first
+/// dumped object: comments, blank lines, psql meta-commands and the session `SET`s.
+fn is_dump_preamble_line(line: &[u8]) -> bool {
+    let line = line.trim_ascii_start();
+    line.is_empty()
+        || line.starts_with(b"--")
+        || line.starts_with(b"\\")
+        || line.starts_with(b"SET ")
+        || line.starts_with(b"SELECT pg_catalog.set_config(")
+}
 
+/// The GUCs pg_dump's preamble sets only to keep the dumping session out of the way.
+/// They are also the ones that come and go across versions (`transaction_timeout` is
+/// PG 17+), so they are what a dump replayed on an older server trips over first.
+const DUMP_SESSION_TIMEOUTS: [&str; 4] = [
+    "statement_timeout",
+    "lock_timeout",
+    "idle_in_transaction_session_timeout",
+    "transaction_timeout",
+];
+
+/// Turn a dump into SQL that can be replayed on another database: drop pg_dump's psql
+/// meta-commands (`\restrict` / `\unrestrict`, not valid SQL) and the session timeouts
+/// its preamble sets, which the replaying server may not have as GUCs at all. Only the
+/// preamble is filtered, so an object's body keeps whatever it holds.
+pub(crate) fn strip_unreplayable_dump_lines(dump: &str) -> String {
+    let mut in_preamble = true;
+    dump.lines()
+        .filter(|line| {
+            in_preamble = in_preamble && is_dump_preamble_line(line.as_bytes());
+            if line.trim_start().starts_with('\\') {
+                return false;
+            }
+            !(in_preamble
+                && preamble_setting_name(line.as_bytes())
+                    .is_some_and(|name| DUMP_SESSION_TIMEOUTS.contains(&name)))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The GUC a preamble `SET <name> = ...;` line assigns, if the line is one.
+fn preamble_setting_name(line: &[u8]) -> Option<&str> {
+    let name = line.strip_prefix(b"SET ")?.split(|c| *c == b' ').next()?;
+    std::str::from_utf8(name).ok()
+}
+
+/// The preamble Windmill's postgres client writes can set GUCs an older server does not
+/// have — harmless session tuning, but one failing statement aborts a restore that stops
+/// on the first error. Comment those out in place, three bytes each, so the data
+/// section's offsets stay put.
+async fn comment_out_unsupported_settings(
+    dump_file: &DumpFile,
+    supported_settings: &HashSet<String>,
+) -> Result<()> {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let file = tokio::fs::File::open(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to open dump file: {}", e)))?;
+    let mut reader = tokio::io::BufReader::new(file);
+
+    let mut preamble: Vec<u8> = Vec::new();
+    let mut patched = false;
+    loop {
+        let start = preamble.len();
+        let read = reader
+            .read_until(b'\n', &mut preamble)
+            .await
+            .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))?;
+        if read == 0 {
+            break;
+        }
+        let line = &preamble[start..];
+        if !is_dump_preamble_line(line) {
+            preamble.truncate(start);
+            break;
+        }
+        if preamble_setting_name(line).is_some_and(|name| !supported_settings.contains(name)) {
+            preamble[start..start + 3].copy_from_slice(b"-- ");
+            patched = true;
+        }
+    }
+    if !patched {
+        return Ok(());
+    }
+
+    let mut file = tokio::fs::OpenOptions::new()
+        .write(true)
+        .open(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to open dump file: {}", e)))?;
+    file.write_all(&preamble)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to rewrite dump preamble: {}", e)))?;
+    file.flush()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to rewrite dump preamble: {}", e)))?;
+    Ok(())
+}
+
+/// A psql invocation against `pg_db`, carrying the connection settings the CLI reads
+/// from the environment.
+fn psql_command(pg_db: &PgDatabase) -> tokio::process::Command {
     let mut cmd = tokio::process::Command::new("psql");
     cmd.arg("--host")
-        .arg(host)
+        .arg(&pg_db.host)
         .arg("--port")
-        .arg(&port)
+        .arg(pg_db.port.unwrap_or(5432).to_string())
         .arg("--username")
-        .arg(user)
+        .arg(pg_db.login_name())
         .arg("--dbname")
-        .arg(dbname)
+        .arg(&pg_db.dbname)
         .arg("--no-psqlrc")
-        .arg("--file")
-        .arg(&dump_file.path)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    if let Some(ref password) = target_db.password {
+    if let Some(ref password) = pg_db.password {
         cmd.env("PGPASSWORD", password);
     }
-
-    if let Some(ref sslmode) = target_db.sslmode {
+    if let Some(ref sslmode) = pg_db.sslmode {
         cmd.env("PGSSLMODE", sslmode);
     }
+    cmd
+}
 
-    let output = cmd
+/// GUC names the server backing `pg_db` knows about.
+///
+/// Asked through psql rather than a tokio-postgres connection so the lookup reaches
+/// exactly the servers the restore itself can: libpq negotiates TLS for `sslmode=prefer`
+/// and an unset mode, where `PgDatabase::connect` would hand a TLS-only server a
+/// plaintext socket and fail before the import ever starts.
+async fn server_setting_names(pg_db: &PgDatabase) -> Result<HashSet<String>> {
+    let output = psql_command(pg_db)
+        .arg("--tuples-only")
+        .arg("--no-align")
+        .arg("--command")
+        .arg("SELECT name FROM pg_settings")
+        .output()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to execute psql: {}", e)))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(Error::internal_err(format!(
+            "Failed to list the settings of the target server: {}",
+            stderr
+        )));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .collect())
+}
+
+/// Import a pg_dump file into a target database using psql.
+///
+/// Left to its defaults psql reports a failed statement, carries on and still exits 0,
+/// so a dump that breaks partway through imports partially and reads as a success.
+/// ON_ERROR_STOP surfaces the failure and --single-transaction makes the restore
+/// all-or-nothing, leaving the target as it was and the import retryable.
+async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile) -> Result<()> {
+    let supported_settings = server_setting_names(target_db).await?;
+    comment_out_unsupported_settings(dump_file, &supported_settings).await?;
+
+    let output = psql_command(target_db)
+        .arg("--set")
+        .arg("ON_ERROR_STOP=1")
+        .arg("--single-transaction")
+        .arg("--file")
+        .arg(&dump_file.path)
         .output()
         .await
         .map_err(|e| Error::internal_err(format!("Failed to execute psql: {}", e)))?;
@@ -2748,7 +3166,7 @@ async fn create_pg_database(
     windmill_common::validate_dbname(&req.target_dbname)?;
 
     // Non-superadmin: restrict dbname to wm_fork_ prefix
-    if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+    if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         if !req.target_dbname.starts_with("wm_fork_") {
             return Err(Error::BadRequest(
                 "Non-superadmin users can only create databases with names starting with 'wm_fork_'"
@@ -2757,29 +3175,7 @@ async fn create_pg_database(
         }
     }
 
-    // Determine if this is an instance or resource-backed datatable
-    let is_instance_datatable = if let Some(dt_name) = req.source.strip_prefix("datatable://") {
-        let config = sqlx::query_scalar!(
-            "SELECT datatable->'datatables'->$2 FROM workspace_settings WHERE workspace_id = $1",
-            &w_id,
-            dt_name
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten();
-        config
-            .and_then(|v| {
-                v.get("database")
-                    .and_then(|d| d.get("resource_type"))
-                    .and_then(|r| r.as_str())
-                    .map(|s| s == "instance")
-            })
-            .unwrap_or(false)
-    } else {
-        false
-    };
-
-    if is_instance_datatable {
+    if is_instance_datatable_source(&db, &w_id, &req.source).await? {
         windmill_common::create_custom_instance_database(&db, &req.target_dbname, "datatable")
             .await?;
     } else {
@@ -2865,7 +3261,7 @@ async fn import_pg_database(
         resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
-        if !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+        if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
             if !override_dbname.starts_with("wm_fork_") {
                 return Err(Error::BadRequest(
                     "Non-superadmin users can only override target dbname with names starting with 'wm_fork_'"
@@ -2877,7 +3273,18 @@ async fn import_pg_database(
     }
     windmill_common::validate_dbname(&target_pg.dbname)?;
 
-    let dump_file = pg_dump_database(&source_pg, schema_only, &[]).await?;
+    // Ownership never replays: the restore runs as the target's own connection user, and
+    // what it creates it owns. Grants do, except around an instance data table — Windmill
+    // plants `custom_instance_user` grants in one, which nothing else can replay. Elsewhere
+    // the ACLs are user intent (`REVOKE ... FROM PUBLIC`) and dropping them widens access.
+    let no_acl = is_instance_datatable_source(&db, &w_id, &req.target).await?
+        || is_instance_datatable_source(&db, &w_id, &req.source).await?;
+
+    let dump_file = pg_dump_database(
+        &source_pg,
+        PgDumpOptions { schema_only, no_owner: true, no_acl, ..Default::default() },
+    )
+    .await?;
     pg_import_dump(&target_pg, &dump_file).await?;
 
     Ok(format!(
@@ -2899,7 +3306,11 @@ async fn export_pg_schema(
     Json(req): Json<ExportPgSchemaRequest>,
 ) -> Result<String> {
     let pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
-    let dump_file = pg_dump_database(&pg, true, &[]).await?;
+    let dump_file = pg_dump_database(
+        &pg,
+        PgDumpOptions { schema_only: true, ..Default::default() },
+    )
+    .await?;
     tokio::fs::read_to_string(&dump_file.path)
         .await
         .map_err(|e| Error::internal_err(format!("Failed to read dump file: {}", e)))
@@ -2939,7 +3350,7 @@ async fn edit_ducklake_config(
     Json(new_config): Json<EditDucklakeConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    let is_superadmin = require_super_admin(&db, &email).await.is_ok();
+    let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     // Lake names end up interpolated in `ATTACH 'ducklake://<name>'`,
     // generated maintenance SQL and the reserved maintenance schedule path
@@ -3032,11 +3443,11 @@ async fn edit_datatable_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(mut new_config): Json<EditDataTableConfig>,
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
-    let is_superadmin = require_super_admin(&db, &email).await.is_ok();
+    let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     let mut tx = db.begin().await?;
 
@@ -4579,6 +4990,28 @@ async fn set_environment_variable(
 
     match value {
         Some(value) => {
+            // The worker escapes the name when it splices it into the NativeTS/Bun
+            // prologue, so this is a friendly guard against new non-identifier
+            // names, not the injection defense. Skip it for names that already
+            // exist so a value edit of a grandfathered name (the edit UI resubmits
+            // the name) isn't rejected with no in-product way to fix it.
+            if !windmill_common::variables::is_valid_js_identifier(&name) {
+                let already_exists = sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM workspace_env WHERE workspace_id = $1 AND name = $2)",
+                    &w_id,
+                    name
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false);
+
+                if !already_exists {
+                    return Err(Error::BadRequest(format!(
+                        "Invalid environment variable name '{name}': must start with a letter, underscore or '$' and contain only letters, digits, underscores or '$'"
+                    )));
+                }
+            }
+
             sqlx::query!(
                 "INSERT INTO workspace_env (workspace_id, name, value) VALUES ($1, $2, $3) ON CONFLICT (workspace_id, name) DO UPDATE SET value = EXCLUDED.value",
                 &w_id,
@@ -4639,6 +5072,18 @@ async fn get_encryption_key(
     Path(w_id): Path<String>,
 ) -> JsonResult<GetEncryptionKeyResponse> {
     require_admin(authed.is_admin, &authed.username)?;
+    windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
+
+    audit_log(
+        &db,
+        &authed,
+        "workspaces.read_encryption_key",
+        ActionKind::Execute,
+        &w_id,
+        None,
+        None,
+    )
+    .await?;
 
     let encryption_key_opt = sqlx::query_scalar!(
         "SELECT key FROM workspace_key WHERE workspace_id = $1",
@@ -4663,7 +5108,8 @@ async fn set_encryption_key(
     Path(w_id): Path<String>,
     Json(request): Json<SetEncryptionKeyRequest>,
 ) -> Result<()> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
+    windmill_api_auth::forbid_scoped_token_workspace_key(&authed)?;
 
     if !WORKSPACE_KEY_REGEXP.is_match(request.new_key.as_str()) {
         return Err(Error::BadRequest(
@@ -4819,7 +5265,7 @@ async fn get_workspace_as_superadmin(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Workspace> {
-    require_super_admin(&db, &authed.email).await?;
+    require_super_admin(&db, &authed).await?;
     let workspace = sqlx::query_as!(
         Workspace,
         "SELECT
@@ -4850,9 +5296,8 @@ async fn list_workspaces_as_super_admin(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Query(pagination): Query<Pagination>,
-    ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<Vec<Workspace>> {
-    require_devops_role(&db, &email).await?;
+    require_devops_role(&db, &authed).await?;
     let (per_page, offset) = paginate(pagination);
 
     let mut tx = user_db.begin(&authed).await?;
@@ -4911,14 +5356,20 @@ struct SessionWorkspaceStatusRequest {
 
 /// Reconciliation support for client-side AI sessions, which the backend cannot touch
 /// directly. The client posts the workspace ids its sessions reference and uses the
-/// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row /
-/// no access → unresolvable) drops the sessions, `archived` (soft-deleted, still a
-/// member) archives them, `active` restores ones previously archived-by-workspace.
+/// per-id status to keep sessions in sync with workspace lifecycle: `deleted` (no row, or
+/// no way for this caller to reach it) drops the sessions, `archived` (soft-deleted, still
+/// reachable) archives them, `active` restores ones previously archived-by-workspace.
 /// Archived and hard-deleted workspaces are absent from `user_workspaces`, so this is the
 /// only way the client learns about a change made while it was away or on another device.
+///
+/// Membership alone under-reports reachability: a superadmin is authed into any existing
+/// workspace without a `usr` row, and `admins` has no `usr` rows at all, so answering from
+/// `usr` destroys sessions that still work. It over-reports in one direction — a `usr` row
+/// with `disabled` counts here but not in the extractor — which only leaves a session
+/// lingering, so it is deliberately not treated as unreachable.
 async fn session_workspace_status(
     Extension(db): Extension<DB>,
-    ApiAuthed { email, .. }: ApiAuthed,
+    authed: ApiAuthed,
     Json(req): Json<SessionWorkspaceStatusRequest>,
 ) -> JsonResult<HashMap<String, String>> {
     if req.workspace_ids.len() > 1000 {
@@ -4926,10 +5377,16 @@ async fn session_workspace_status(
             "Too many workspace ids (max 1000)".to_string(),
         ));
     }
+    let email = &authed.email;
+    let is_superadmin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
     let rows = sqlx::query!(
+        // A missing workspace row must be caught before the membership arm: for a
+        // superadmin the two arms below both fall through, and a hard-deleted workspace
+        // would report `active` forever.
         "SELECT req.id AS \"id!\",
                 (CASE
-                    WHEN usr.email IS NULL THEN 'deleted'
+                    WHEN workspace.id IS NULL THEN 'deleted'
+                    WHEN usr.email IS NULL AND NOT $3 THEN 'deleted'
                     WHEN workspace.deleted THEN 'archived'
                     ELSE 'active'
                 END) AS \"status!\"
@@ -4938,6 +5395,7 @@ async fn session_workspace_status(
          LEFT JOIN usr ON usr.workspace_id = workspace.id AND usr.email = $2",
         &req.workspace_ids[..],
         email,
+        is_superadmin,
     )
     .fetch_all(&db)
     .await?;
@@ -5122,7 +5580,7 @@ async fn create_workspace(
     Json(nw): Json<CreateWorkspace>,
 ) -> Result<String> {
     if *CREATE_WORKSPACE_REQUIRE_SUPERADMIN {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     }
 
     #[cfg(not(feature = "enterprise"))]
@@ -5268,16 +5726,16 @@ async fn create_workspace(
     Ok(format!("Created workspace {}", &nw.id))
 }
 
-// `authed_email` is the forker's email — `clone_drafts` only carries this
-// user's per-user drafts (and the legacy NULL-email workspace draft, if any)
-// across, since other users aren't added to the fork's `usr` table and
-// their drafts would dangle as orphans.
+// `authed` is the forker — `clone_drafts` only carries this user's per-user
+// drafts (and the legacy NULL-email workspace draft, if any) across, since other
+// users aren't added to the fork's `usr` table and their drafts would dangle as
+// orphans.
 async fn clone_workspace_data(
     tx: &mut Transaction<'_, Postgres>,
     db: &DB,
     source_workspace_id: &str,
     target_workspace_id: &str,
-    authed_email: &str,
+    authed: &ApiAuthed,
 ) -> Result<()> {
     // Clone workspace settings (merge with existing basic settings)
     update_workspace_settings(tx, source_workspace_id, target_workspace_id).await?;
@@ -5312,6 +5770,8 @@ async fn clone_workspace_data(
     // Clone scripts with new hashes
     clone_scripts(tx, source_workspace_id, target_workspace_id).await?;
 
+    clone_eval_datasets(tx, source_workspace_id, target_workspace_id).await?;
+
     // Clone the dbt graph sidecars. After `clone_scripts`, which keeps each
     // script's hash: these key on it, and a static descriptor never re-ingests,
     // so a fork without them shows dbt scripts with no models until someone
@@ -5331,7 +5791,7 @@ async fn clone_workspace_data(
     clone_flow_nodes(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone apps with new IDs and app scripts
-    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id).await?;
+    let _app_id_mapping = clone_apps(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone raw apps
     clone_raw_apps(tx, source_workspace_id, target_workspace_id).await?;
@@ -5342,7 +5802,7 @@ async fn clone_workspace_data(
     // own a `usr` row in the fork (see `clone_workspace_full`) so their
     // drafts would dangle and the home-page `draft_users` aggregate would
     // surface them as duplicate legacy entries.
-    clone_drafts(tx, source_workspace_id, target_workspace_id, authed_email).await?;
+    clone_drafts(tx, source_workspace_id, target_workspace_id, &authed.email).await?;
 
     // Clone workspace runnable dependencies and dependency map
     clone_workspace_runnable_dependencies(tx, source_workspace_id, target_workspace_id).await?;
@@ -5563,14 +6023,14 @@ async fn clone_triggers_and_schedules(
 
     sqlx::query!(
         r#"INSERT INTO gcp_trigger (
-            gcp_resource_path, topic_id, subscription_id, delivery_type,
+            gcp_resource_path, project_id, topic_id, subscription_id, delivery_type,
             delivery_config, path, script_path, is_flow, workspace_id, edited_by,
             edited_at, extra_perms, server_id, last_server_ping, error,
             subscription_mode, error_handler_path, error_handler_args, retry,
             auto_acknowledge_msg, ack_deadline, mode, permissioned_as, labels
         )
         SELECT
-            gcp_resource_path, topic_id, subscription_id, delivery_type,
+            gcp_resource_path, project_id, topic_id, subscription_id, delivery_type,
             delivery_config, path, script_path, is_flow, $1, edited_by,
             edited_at, extra_perms, NULL, NULL, NULL,
             subscription_mode, error_handler_path, error_handler_args, retry,
@@ -5843,6 +6303,36 @@ async fn clone_resources(
     .execute(&mut **tx)
     .await?;
 
+    Ok(())
+}
+
+async fn clone_eval_datasets(
+    tx: &mut Transaction<'_, Postgres>,
+    source_workspace_id: &str,
+    target_workspace_id: &str,
+) -> Result<()> {
+    // The authored evaluation data — datasets and their cases — travels with a fork like resources
+    // and scripts do; the runs (experiments) do not, since they name jobs the fork has no copy of.
+    sqlx::query!(
+        "INSERT INTO eval_dataset (workspace_id, path, summary, scorers, extra_perms, created_at, created_by, edited_at, edited_by)
+         SELECT $2, path, summary, scorers, extra_perms, created_at, created_by, edited_at, edited_by
+         FROM eval_dataset WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    // A new id per cloned case: `eval_case`'s primary key is the id alone, unique across the whole
+    // table, so copying it would collide with the source's own rows.
+    sqlx::query!(
+        "INSERT INTO eval_case (workspace_id, dataset_path, input, expected, created_at, created_by)
+         SELECT $2, dataset_path, input, expected, created_at, created_by
+         FROM eval_case WHERE workspace_id = $1",
+        source_workspace_id,
+        target_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
     Ok(())
 }
 
@@ -6283,11 +6773,35 @@ async fn clone_flow_nodes(
     Ok(())
 }
 
+/// Re-point a cloned app policy at the fork's creator, the way `create_app` / `update_app`
+/// do for a caller who may not preserve someone else's identity: `on_behalf_of` is what
+/// anonymous and publisher executions queue jobs under, and the fork's endpoint outlives
+/// any revocation in the parent.
+fn repoint_cloned_app_identity(policy: &mut serde_json::Value, authed: &ApiAuthed) {
+    let Some(obj) = policy.as_object_mut() else {
+        return;
+    };
+    obj.insert(
+        "on_behalf_of".to_string(),
+        serde_json::Value::String(username_to_permissioned_as(&authed.username)),
+    );
+    obj.insert(
+        "on_behalf_of_email".to_string(),
+        serde_json::Value::String(authed.email.clone()),
+    );
+}
+
 async fn clone_apps(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed: &ApiAuthed,
 ) -> Result<HashMap<i64, i64>> {
+    // `execution_mode` is cloned as-is: protection rules are workspace-scoped and not cloned, so
+    // forcing `publisher` is only a speed bump (the creator can publish an anonymous app in the
+    // fork freely), and it is the one policy field a deploy back to the parent carries verbatim —
+    // `update_app` recomputes the identity but writes the policy wholesale.
+    let preserve_identity = windmill_common::can_preserve_on_behalf_of(authed);
     // Get all apps from source workspace
     let apps = sqlx::query!(
         "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, custom_path
@@ -6307,10 +6821,25 @@ async fn clone_apps(
     let mut latest_version_ids: HashSet<i64> = HashSet::new();
 
     // Clone apps with new IDs
-    for app in apps {
+    for mut app in apps {
         if let Some(&current_version) = app.versions.last() {
             latest_version_ids.insert(current_version);
         }
+        if !preserve_identity {
+            repoint_cloned_app_identity(&mut app.policy, authed);
+        }
+        // Both halves of what `create_app` demands to set a custom path: admin, and — unless
+        // paths are scoped per workspace — that nobody else holds it. Cloning one instance-wide
+        // would leave the parent's live public URL, resolved with no workspace filter and no
+        // ordering, answering from either row.
+        let scoped = *CLOUD_HOSTED
+            || windmill_common::apps::APP_WORKSPACED_ROUTE
+                .load(std::sync::atomic::Ordering::Relaxed);
+        let custom_path = if scoped && authed.is_admin {
+            app.custom_path
+        } else {
+            None
+        };
         let new_app_id = sqlx::query_scalar!(
             "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms, custom_path)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -6321,7 +6850,7 @@ async fn clone_apps(
             app.policy,
             &Vec::<i64>::new(), // Start with empty versions array
             app.extra_perms,
-            app.custom_path,
+            custom_path,
         )
         .fetch_one(&mut **tx)
         .await?;
@@ -6666,7 +7195,7 @@ async fn create_workspace_fork_branch(
     }
 
     if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     }
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &w_id,
@@ -6688,7 +7217,7 @@ async fn create_workspace_fork_branch(
     // that second call. Validating early lets a bad request fail before any branch is created.
     if nw.is_dev_workspace {
         validate_dev_workspace_id(&nw.id)?;
-        // Reject a bad cosmetic label before any git branch is created (acted on in create_workspace_fork).
+        // Reject a bad label before any git branch is created (acted on in create_workspace_fork).
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&w_id]).await?;
         ensure_dev_parent_can_host_dev(&db, &w_id).await?;
@@ -6888,6 +7417,76 @@ async fn enforce_cloud_fork_cap(db: &DB, parent_workspace_id: &str) -> Result<()
     enforce_cloud_fork_count(db, &root, 1).await
 }
 
+/// Cloud: refuse to attach a workspace that already has a paid plan of its own.
+///
+/// Once attached it draws the root's plan and meters its usage there, so a subscription of its own
+/// bills a second time for one plan. Only an attach can reach this state: a fork is created as a
+/// fresh workspace and never had a plan to keep.
+///
+/// Asked only of a candidate joining this family, never of one already under the same root: that
+/// one is already in the double-billed state, where the settings page surfaces the leftover
+/// subscription and the portal that cancels it, and refusing there would block re-designating a
+/// renamed dev workspace over a billing problem the attach did not cause.
+#[cfg(feature = "cloud")]
+async fn reject_attach_of_subscribed_workspace(db: &DB, dev_w_id: &str) -> Result<()> {
+    let plan = sqlx::query_scalar!(
+        "SELECT plan FROM workspace_settings WHERE workspace_id = $1",
+        dev_w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    // Any plan, not just `'team'`: the column is written by the subscription webhook, and a plan
+    // value it does not write yet would otherwise walk straight past this. An enterprise
+    // arrangement is deliberately not covered — it sets `premium` without a plan and has no
+    // self-serve portal, so refusing there would be a dead end rather than something to act on.
+    if plan.is_some() {
+        return Err(Error::BadRequest(format!(
+            "Workspace {dev_w_id} is on a paid plan of its own. A dev or fork workspace runs on its parent's plan and is never invoiced separately, so cancel that subscription from its own billing settings before attaching it."
+        )));
+    }
+    Ok(())
+}
+
+#[cfg(all(test, feature = "cloud"))]
+mod attach_billing_guard_tests {
+    use super::reject_attach_of_subscribed_workspace;
+    use sqlx::{Pool, Postgres};
+
+    async fn workspace_on_plan(db: &Pool<Postgres>, id: &str, plan: Option<&str>) {
+        sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ($1, $1, 'test-user')")
+            .bind(id)
+            .execute(db)
+            .await
+            .expect("insert workspace");
+        sqlx::query("INSERT INTO workspace_settings (workspace_id, plan) VALUES ($1, $2)")
+            .bind(id)
+            .bind(plan)
+            .execute(db)
+            .await
+            .expect("insert workspace_settings");
+    }
+
+    #[sqlx::test(migrations = "../migrations")]
+    async fn refuses_a_candidate_that_still_pays_for_itself(db: Pool<Postgres>) {
+        workspace_on_plan(&db, "subscribed", Some("team")).await;
+        workspace_on_plan(&db, "cancelled", None).await;
+
+        let err = reject_attach_of_subscribed_workspace(&db, "subscribed")
+            .await
+            .expect_err("a workspace on a paid plan of its own must not be attachable");
+        assert!(err.to_string().contains("paid plan of its own"), "{err}");
+
+        // Cancelling clears `plan` but keeps `customer_id`, so the plan column is what decides.
+        reject_attach_of_subscribed_workspace(&db, "cancelled")
+            .await
+            .expect("a workspace with no plan is attachable");
+        reject_attach_of_subscribed_workspace(&db, "no-settings-row")
+            .await
+            .expect("a workspace with no settings row is attachable");
+    }
+}
+
 /// General guardrail (all builds): reject creating a fork/dev under `parent` when it would nest deeper
 /// than `MAX_FORK_DEPTH`. `added_subtree_height` is the height of the subtree grafted below the new
 /// node — 0 for a plain fork, or the candidate's own subtree height for an attach.
@@ -7015,7 +7614,7 @@ async fn create_workspace_fork(
         validate_fork_workspace_id(&nw.id)?;
     }
     validate_workspace_name(&nw.name)?;
-    // Cosmetic label only applies to dev workspaces; a non-dev fork stores NULL.
+    // The environment label only applies to dev workspaces; a non-dev fork stores NULL.
     let dev_workspace_label = if nw.is_dev_workspace {
         let label = normalize_dev_workspace_label(nw.dev_workspace_label.clone())?;
         reject_dev_label_matching_tracked_branch(&db, label.as_deref(), &[&parent_workspace_id])
@@ -7078,7 +7677,7 @@ async fn create_workspace_fork(
     _check_nb_of_workspaces(&db).await?;
 
     if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed.email).await?;
+        require_super_admin(&db, &authed).await?;
     }
     if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &parent_workspace_id,
@@ -7174,14 +7773,8 @@ async fn create_workspace_fork(
     .await?;
 
     // Clone all data from the parent workspace using Rust implementation
-    if let Err(e) = clone_workspace_data(
-        &mut tx,
-        &db,
-        &parent_workspace_id,
-        &forked_id,
-        &authed.email,
-    )
-    .await
+    if let Err(e) =
+        clone_workspace_data(&mut tx, &db, &parent_workspace_id, &forked_id, &authed).await
     {
         // A genuine `\u0000` in a source `json` value (`app_version.value` /
         // `flow_version.schema`) aborts the clone when it is re-encoded to jsonb:
@@ -7280,8 +7873,11 @@ async fn create_workspace_fork(
     tx.commit().await?;
 
     // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
-    // would bypass ducklake fork isolation for the TTL.
+    // would bypass ducklake fork isolation for the TTL. The same lookup could have cached the id
+    // as its own root workspace, which would make the fork's first jobs report themselves as their
+    // own environment instead of the parent.
     windmill_common::workspaces::invalidate_fork_ancestor_chain_cache(&forked_id);
+    windmill_queue::tags::invalidate_fork_parent_cache(&forked_id);
 
     if locked_prod {
         windmill_common::workspaces::invalidate_protection_rules_cache(&parent_workspace_id);
@@ -7297,7 +7893,7 @@ struct AttachDevWorkspace {
     lock_prod_deploy: bool,
     #[serde(default)]
     lock_prod_forking: bool,
-    /// Cosmetic display label for the attached dev workspace: 'dev' | 'staging'. None defaults to 'dev'.
+    /// Environment label for the attached dev workspace, e.g. 'dev' or 'staging'. None defaults to 'dev'.
     #[serde(default)]
     dev_workspace_label: Option<String>,
 }
@@ -7427,10 +8023,21 @@ async fn attach_dev_workspace(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
-    if !is_admin_of_dev && !windmill_common::auth::is_super_admin_email(&db, &authed.email).await? {
+    if !is_admin_of_dev && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
         return Err(Error::PermissionDenied(format!(
             "Attaching workspace '{dev_w_id}' as a dev requires being an admin of it (or a superadmin)"
         )));
+    }
+
+    // Deliberately below the admin-of-candidate check, unlike the cap enforcement above: the
+    // refusal names the candidate's plan, so running it earlier would tell any admin of any
+    // premium workspace whether an arbitrary workspace id is on a team plan.
+    #[cfg(feature = "cloud")]
+    if *CLOUD_HOSTED {
+        let root = windmill_common::workspaces::get_billing_workspace_id(&db, &prod_w_id).await?;
+        if windmill_common::workspaces::get_billing_workspace_id(&db, &dev_w_id).await? != root {
+            reject_attach_of_subscribed_workspace(&db, &dev_w_id).await?;
+        }
     }
 
     let mut tx = db.begin().await?;
@@ -7930,9 +8537,7 @@ async fn archive_workspace(
         .fetch_optional(&db)
         .await?
         .unwrap_or(false);
-        if !is_prod_admin
-            && !windmill_common::auth::is_super_admin_email(&db, &authed.email).await?
-        {
+        if !is_prod_admin && !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {
             return Err(Error::PermissionDenied(format!(
                 "Archiving dev workspace '{w_id}' requires being an admin of its parent prod workspace '{prod}' (or a superadmin)"
             )));
@@ -8007,6 +8612,7 @@ async fn leave_workspace(
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> Result<String> {
+    windmill_api_auth::forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
     sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND email = $2",
@@ -8036,7 +8642,9 @@ async fn unarchive_workspace(
     Path(w_id): Path<String>,
     authed: ApiAuthed,
 ) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
+    // Global route (unarchives any workspace by id) gated on the caller's own
+    // is_admin claim, so it must reject a job token — see require_instance_admin.
+    require_instance_admin(&authed)?;
 
     // Unarchiving re-activates a soft-deleted workspace, so it must respect the
     // same CE workspace-count cap as creating one. The archived workspace is
@@ -9098,7 +9706,10 @@ async fn reject_attach_cycle<'e, E: sqlx::Executor<'e, Database = Postgres>>(
 ///
 /// Recomputed inside the transaction, but from a set that may already be stale — harmless, because
 /// whoever made it stale is the operation holding the node this one is missing.
-pub(crate) async fn lock_dev_pairing(tx: &mut Transaction<'_, Postgres>, seeds: &[&str]) -> Result<()> {
+pub(crate) async fn lock_dev_pairing(
+    tx: &mut Transaction<'_, Postgres>,
+    seeds: &[&str],
+) -> Result<()> {
     let seeds: Vec<String> = seeds.iter().map(|s| s.to_string()).collect();
     // Depth bounds are the cycle-safety backstop used by every other hierarchy walk.
     let nodes = sqlx::query_scalar!(
@@ -9187,10 +9798,9 @@ async fn reject_stranding_nested_dev<'e, E: sqlx::Executor<'e, Database = Postgr
 /// branch: each deploy clobbers the other environment, and the root's auto-pull routes that branch
 /// to whichever dev it matches first. Require every dev workspace in the resulting chain to carry a
 /// distinct label — the dev ancestors `new_dev_id` lands under, `new_dev_id` with `label`, and (when
-/// it already exists and so keeps its own subtree) the dev workspaces it brings with it. Since
-/// `normalize_dev_workspace_label` admits only 'dev' and 'staging', this caps a chain at two dev
-/// workspaces. Dev workspaces only ever hang off a root or another dev (`ensure_dev_parent_can_host_dev`),
-/// so that chain is linear and this is the whole of it.
+/// it already exists and so keeps its own subtree) the dev workspaces it brings with it. Dev
+/// workspaces only ever hang off a root or another dev (`ensure_dev_parent_can_host_dev`), so that
+/// chain is linear and this is the whole of it.
 async fn reject_dev_label_taken_in_chain(
     db: &mut sqlx::PgConnection,
     parent_w_id: &str,
@@ -9264,7 +9874,7 @@ async fn reject_dev_label_taken_in_chain(
             return Err(Error::BadRequest(format!(
                 "'{other}' and '{id}' would both be '{branch}' workspaces in the same chain: dev \
                  workspaces in a chain share their git-sync repositories, so both would deploy to \
-                 the '{branch}' branch. Use the other environment label."
+                 the '{branch}' branch. Use a different environment label."
             )));
         }
     }
@@ -10055,7 +10665,7 @@ async fn compare_workspaces(
     // source AND the fork (superadmin satisfies both), which guarantees full
     // visibility of every item on every side. `fork_authed.is_admin` already folds
     // in superadmin; `authed.is_admin` (source side) does not, so OR it in.
-    let is_super_admin = windmill_common::auth::is_super_admin_email(&db, &authed.email).await?;
+    let is_super_admin = windmill_api_auth::is_super_admin_authed(&db, &authed).await?;
     let sees_all_items = is_super_admin || (authed.is_admin && fork_authed.is_admin);
     let all_ahead_items_visible = all_ahead_items_visible || sees_all_items;
     let all_behind_items_visible = all_behind_items_visible || sees_all_items;
@@ -10457,8 +11067,11 @@ async fn load_workspace_authed(
         .await
         .map_err(|e| Error::internal_err(e.to_string()))?;
 
-    let is_super_admin =
-        windmill_common::auth::is_super_admin_email(db, &base_authed.email).await?;
+    // Job-aware: this grants an admin claim in a workspace the caller may have no
+    // relationship with, and `job_id` is carried into the result — so a `WM_TOKEN`
+    // whose on-behalf identity is a superadmin would hold admin everywhere
+    // (GHSA-hfh4-cx4h-3fcr). It then falls through to its real membership below.
+    let is_super_admin = windmill_api_auth::is_super_admin_authed(db, base_authed).await?;
 
     let user_row = sqlx::query!(
         "SELECT username, is_admin, operator FROM usr
@@ -10483,6 +11096,7 @@ async fn load_workspace_authed(
             is_session_token: base_authed.is_session_token,
             token_prefix: base_authed.token_prefix.clone(),
             read_only: base_authed.read_only,
+            job_id: base_authed.job_id,
         });
     };
 
@@ -10514,6 +11128,7 @@ async fn load_workspace_authed(
         is_session_token: base_authed.is_session_token,
         token_prefix: base_authed.token_prefix.clone(),
         read_only: base_authed.read_only,
+        job_id: base_authed.job_id,
     })
 }
 
@@ -10876,6 +11491,19 @@ async fn compare_two_flows(
     });
 }
 
+/// The policy minus the identity pair. Deploying cannot converge a difference there — the
+/// target recomputes the identity from the deployer's own choice, which offers its current
+/// value, the deployer, or a typed-in one, never the source's — so listing an app for it
+/// alone leaves an entry no deploy can clear. `script` and `flow` compare no identity either.
+fn policy_without_identity(policy: &serde_json::Value) -> serde_json::Value {
+    let mut policy = policy.clone();
+    if let Some(obj) = policy.as_object_mut() {
+        obj.remove("on_behalf_of");
+        obj.remove("on_behalf_of_email");
+    }
+    policy
+}
+
 async fn compare_two_apps(
     db: &DB,
     source_workspace_id: &str,
@@ -10916,7 +11544,7 @@ async fn compare_two_apps(
     // Check metadata and content differences
     if let (Some(source), Some(target)) = (&source_app, &target_app) {
         if source.summary != target.summary
-            || source.policy != target.policy
+            || policy_without_identity(&source.policy) != policy_without_identity(&target.policy)
             || source.value != target.value
             || source.raw_app != target.raw_app
         {
@@ -11309,40 +11937,6 @@ struct LogFeatureUsagePayload {
     events: Vec<FeatureUsageEvent>,
 }
 
-// Only registered (feature, kind) actions are accepted, so telemetry stays
-// limited to predefined feature actions. Keys are shape-checked (identifier-like,
-// no spaces) rather than pinned to value sets: they come from our own frontend
-// (modes, tab/draft kinds, tool names, provider:model) and pinning every value
-// server-side was not worth the maintenance.
-const FEATURE_USAGE_KINDS: &[(&str, &str)] = &[
-    ("ai_session", "created"),
-    ("ai_session", "message"),
-    ("ai_session", "autonomy"),
-    ("ai_session", "tab"),
-    ("ai_session", "tokens"),
-    ("ai_session", "deployed"),
-    ("ai_session", "archived"),
-    ("ai_session", "deleted"),
-    ("ai_session", "beta_optout"),
-    ("ai_session", "beta_optin"),
-    ("ai_chat", "message"),
-    ("ai_chat", "model"),
-    ("ai_chat", "tool"),
-];
-
-fn is_identifier_shaped(s: &str, max_len: usize) -> bool {
-    !s.is_empty()
-        && s.len() <= max_len
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.' | '/'))
-}
-
-fn valid_feature_usage_event(e: &FeatureUsageEvent) -> bool {
-    FEATURE_USAGE_KINDS.contains(&(e.feature.as_str(), e.kind.as_str()))
-        && (e.key.is_empty() || is_identifier_shaped(&e.key, 100))
-        && (e.entity_id.is_empty() || is_identifier_shaped(&e.entity_id, 50))
-}
-
 async fn log_feature_usage(
     Extension(db): Extension<DB>,
     Json(payload): Json<LogFeatureUsagePayload>,
@@ -11351,7 +11945,15 @@ async fn log_feature_usage(
     // single INSERT error out ("cannot affect row a second time").
     let mut agg: HashMap<(String, String, String, String), i64> = HashMap::new();
     for e in payload.events.into_iter().take(MAX_FEATURE_USAGE_EVENTS) {
-        if !valid_feature_usage_event(&e) {
+        // Which actions may be recorded lives in
+        // `windmill_common::feature_usage`, shared with the in-process writer so
+        // both admit exactly the same events.
+        if !windmill_common::feature_usage::is_recordable_event(
+            &e.feature,
+            &e.kind,
+            &e.key,
+            &e.entity_id,
+        ) {
             continue;
         }
         let value = e.value.unwrap_or(1).clamp(1, 1_000_000);
@@ -11361,12 +11963,18 @@ async fn log_feature_usage(
     if agg.is_empty() {
         return Ok(StatusCode::NO_CONTENT);
     }
-    let mut features = Vec::with_capacity(agg.len());
-    let mut kinds = Vec::with_capacity(agg.len());
-    let mut keys = Vec::with_capacity(agg.len());
-    let mut entity_ids = Vec::with_capacity(agg.len());
-    let mut values = Vec::with_capacity(agg.len());
-    for ((feature, kind, key, entity_id), value) in agg {
+    // Sorted for the same reason as `flush_feature_usage`: this endpoint and the
+    // backend flusher upsert the same rows, and two batches touching them in
+    // opposite orders deadlock.
+    let mut rows: Vec<((String, String, String, String), i64)> = agg.into_iter().collect();
+    rows.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+
+    let mut features = Vec::with_capacity(rows.len());
+    let mut kinds = Vec::with_capacity(rows.len());
+    let mut keys = Vec::with_capacity(rows.len());
+    let mut entity_ids = Vec::with_capacity(rows.len());
+    let mut values = Vec::with_capacity(rows.len());
+    for ((feature, kind, key, entity_id), value) in rows {
         features.push(feature);
         kinds.push(kind);
         keys.push(key);
@@ -11471,6 +12079,16 @@ async fn get_cloud_quotas(
     .await?
     .unwrap_or(0);
 
+    // Every path keeps exactly one current version, so the prunable count is the total minus
+    // the number of distinct paths — one scan rather than a probe per row.
+    let resources_prunable = sqlx::query_scalar!(
+        "SELECT COUNT(*) - COUNT(DISTINCT path) FROM resource_version WHERE workspace_id = $1",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
     let variables_used = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
         &w_id
@@ -11511,7 +12129,7 @@ async fn get_cloud_quotas(
         flows: QuotaInfo { used: flows_used, limit: 1000, prunable: flows_prunable },
         apps: QuotaInfo { used: apps_used, limit: 1000, prunable: apps_prunable },
         variables: QuotaInfo { used: variables_used, limit: 10000, prunable: 0 },
-        resources: QuotaInfo { used: resources_used, limit: 10000, prunable: 0 },
+        resources: QuotaInfo { used: resources_used, limit: 10000, prunable: resources_prunable },
         forks,
     }))
 }
@@ -11598,9 +12216,25 @@ async fn prune_versions(
 
             deleted.rows_affected()
         }
+        "resources" => {
+            // No `versions` array to rewrite afterwards, unlike flows and apps: the latest
+            // version is whichever row has the highest id for the path.
+            let deleted = sqlx::query(
+                "DELETE FROM resource_version
+                WHERE workspace_id = $1
+                AND id NOT IN (
+                    SELECT max(id) FROM resource_version
+                    WHERE workspace_id = $1 GROUP BY path
+                )",
+            )
+            .bind(&w_id)
+            .execute(&db)
+            .await?;
+            deleted.rows_affected()
+        }
         _ => {
             return Err(Error::BadRequest(format!(
-                "Invalid resource type '{}'. Must be 'scripts', 'flows', or 'apps'",
+                "Invalid resource type '{}'. Must be 'scripts', 'flows', 'apps', or 'resources'",
                 req.resource_type
             )));
         }

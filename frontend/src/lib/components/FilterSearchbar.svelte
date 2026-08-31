@@ -9,6 +9,11 @@
 				type: 'string' | 'number' | 'boolean'
 				allowMultiple?: boolean
 				format?: 'json'
+				/** Boolean only: the value the filter holds while unset (defaults to false).
+				 *  Selecting a filter whose default is false sets it to true immediately rather
+				 *  than opening a true/false picker whose only useful choice is true. A default-true
+				 *  boolean still opens the picker, since choosing false is the meaningful action. */
+				default?: boolean
 		  }
 		| {
 				type: 'date'
@@ -53,6 +58,17 @@
 	}
 		? T['options'][number]['value'] | `!${T['options'][number]['value']}`
 		: T['options'][number]['value']
+
+	/**
+	 * Whether any filter currently narrows the result set — for pages that fetch
+	 * server-side and so can't tell an empty workspace from an over-narrow filter.
+	 *
+	 * `false` does not count: a boolean filter that is off narrows nothing, and
+	 * treating it as active makes an empty workspace look filtered.
+	 */
+	export function hasActiveFilters(val: Record<string, unknown>): boolean {
+		return Object.values(val).some((v) => v !== undefined && v !== null && v !== '' && v !== false)
+	}
 
 	/**
 	 * Converts a FilterSchemaRec to a Zod schema for validation
@@ -110,16 +126,34 @@
 		// Create the filter instance object
 		const filterInstance: { val: Partial<FilterInstanceRec<T>> } = $state({ val: {} })
 
-		// Sync URL params to filter instance on initialization and when URL changes
+		// Sync URL params to filter instance, reactively. Reading urlFilter[key] tracked
+		// means browser Back/Forward — which mutates useSearchParams' cells on popstate —
+		// flows into the instance (chips, kind toggle, results), not just the first render.
+		// The write happens untracked so it can't self-trigger, and the equality check plus
+		// the reverse effect's own guard keep the two directions from ping-ponging.
 		for (const key of Object.keys(schemaRec)) {
-			let urlValue = urlFilter[key]
-			if (schemaRec[key].type === 'date' && typeof urlValue === 'string') {
-				const d = new Date(urlValue)
-				urlValue = isNaN(d.getTime()) ? null : d
-			}
-			if (urlValue !== undefined && urlValue !== null) {
-				;(filterInstance.val as any)[key] = urlValue
-			}
+			$effect(() => {
+				let urlValue = urlFilter[key]
+				if (schemaRec[key].type === 'date' && typeof urlValue === 'string') {
+					const d = new Date(urlValue)
+					urlValue = isNaN(d.getTime()) ? null : d
+				}
+				untrack(() => {
+					const current = (filterInstance.val as any)[key]
+					const same =
+						urlValue instanceof Date && current instanceof Date
+							? urlValue.getTime() === current.getTime()
+							: current === (urlValue ?? undefined)
+					if (same) return
+					if (urlValue !== undefined && urlValue !== null) {
+						;(filterInstance.val as any)[key] = urlValue
+					} else if (current !== undefined) {
+						// Key dropped from the URL (Back to a state without it): clear it so a
+						// stale chip / filter doesn't linger against the navigated-to URL.
+						delete (filterInstance.val as any)[key]
+					}
+				})
+			})
 		}
 
 		// Sync filter instance changes back to URL params
@@ -264,6 +298,17 @@
 		class?: string
 		placeholder?: string
 		autofocus?: boolean
+		// Applied as the id of the underlying editable, so a parent can focus it or recognise its
+		// key events by id (the searchbar is a contenteditable, not an <input>).
+		inputId?: string
+		// Free-text mode: while the input holds only free text (no specific filter tag is
+		// being edited and no non-default filter is set), suppress the suggestions dropdown
+		// so it behaves like a plain search box. This frees the arrow keys for the
+		// surrounding UI (e.g. a results list). The dropdown returns the moment a specific
+		// filter is present (e.g. `path: u/me/abc`).
+		hideDropdownOnFreeText?: boolean
+		// Notified whenever the dropdown's effective visibility changes
+		onDropdownVisibleChange?: (visible: boolean) => void
 	}
 
 	type SchemaT = FilterSchemaRec // TODO: Generic
@@ -273,7 +318,10 @@
 		presets: _presets = [],
 		class: className,
 		placeholder = 'Filter...',
-		autofocus
+		autofocus,
+		hideDropdownOnFreeText = false,
+		onDropdownVisibleChange,
+		inputId
 	}: Props<SchemaT> = $props()
 
 	let _value = new DebouncedTempValue(
@@ -287,6 +335,24 @@
 	let currentTag: keyof SchemaT | undefined = $state()
 	let currentTextSegment = $state({ text: '', start: 0, end: 0 })
 	let open = $state(false)
+
+	// A specific filter is in play when a tag is being edited or any non-free-text filter
+	// is set.
+	let hasSpecificFilter = $derived(
+		!!currentTag || Object.keys(value).some((k) => k !== '_default_')
+	)
+	// A plain search term is being typed (free text, no specific filter).
+	let hasFreeText = $derived(!!String(value['_default_'] ?? '').trim())
+	// Effective dropdown visibility. Free-text mode suppresses the dropdown ONLY while the
+	// user is typing a plain search term: it still opens when the input is empty (so the
+	// available filters stay discoverable) and whenever a specific filter is set or being
+	// edited. That leaves the arrow keys for the surrounding list only during free-text search.
+	let dropdownVisible = $derived(
+		open && (!hideDropdownOnFreeText || hasSpecificFilter || !hasFreeText)
+	)
+	$effect(() => {
+		onDropdownVisibleChange?.(dropdownVisible)
+	})
 	let inputElement: HTMLDivElement | undefined = $state()
 	let highlightedIndex = $state(0)
 	let taggedTextInput: TaggedTextInput | undefined = $state()
@@ -336,9 +402,17 @@
 					key,
 					filterSchema,
 					onClick: () => {
-						// Replace the text segment with the new filter tag
 						const before = asText.val.slice(0, currentTextSegment.start)
 						const after = asText.val.slice(currentTextSegment.end)
+						if (schema[key].type === 'boolean' && schema[key].default !== true) {
+							// Set the only useful value and reparse to canonical text. The space is
+							// required: dropping the segment must not fuse the tags that flanked it.
+							asText.val = `${before} ${after}`
+							value[key] = true as any
+							asText.reparse()
+							return
+						}
+						// Replace the text segment with the new (empty) filter tag; the value picker opens.
 						asText.val =
 							`${before}${before && !before.endsWith(' ') ? ' ' : ''}${key}:\\\u00A0${after}`.trim() +
 							'\u00A0'
@@ -395,6 +469,28 @@
 						onClick: () => setValueForCurrentTag(false)
 					}
 				]
+			} else if (filter.type === 'string' && filter.format !== 'json') {
+				// A plain string filter has no fixed options, but any presets targeting this tag
+				// (`<tag>:<value>`) are exactly its useful values — surface them as suggestions so
+				// picking one is a click, matching the top-level preset row. Unescape the tagged
+				// syntax's `\ ` back to a real space for the stored value.
+				const prefix = `${String(currentTag)}:`
+				const suffix = String(value[currentTag!] ?? '')
+					.trim()
+					.toLowerCase()
+				return _presets
+					.filter((p) => p.value.startsWith(prefix) && !asText.val.includes(p.value))
+					.map((p) => {
+						const raw = p.value.slice(prefix.length).replace(/^\\ /, '').replace(/\\ /g, ' ')
+						return { name: p.name, raw }
+					})
+					.filter((p) => !suffix || p.raw.toLowerCase().includes(suffix))
+					.map((p) => ({
+						type: 'option' as const,
+						option: { value: p.raw, label: p.name },
+						onClick: () => appendOrSetValueForCurrentTag(p.raw),
+						onNegativeClick: undefined
+					}))
 			}
 		}
 		return []
@@ -503,7 +599,9 @@
 	}
 
 	function handleKeyDown(e: KeyboardEvent) {
-		if (!open) return
+		// In free-text mode the dropdown is hidden; let arrow/enter keys pass through to
+		// the surrounding UI (e.g. list navigation) rather than steering a hidden menu.
+		if (!dropdownVisible) return
 		if (e.key === 'Escape') {
 			open = false
 			return
@@ -590,6 +688,7 @@
 >
 	<TaggedTextInput
 		bind:this={taggedTextInput}
+		id={inputId}
 		bind:value={asText.val}
 		{tags}
 		highlights={[
@@ -606,7 +705,19 @@
 			inputSizeClasses.md
 		)}
 		{placeholder}
-		onKeyDown={() => (open = true)}
+		onKeyDown={(e) => {
+			// In free-text mode the searchbar coexists with a list that owns Arrow/Enter, so opening
+			// the dropdown on a bare navigation key would steal them from an empty box. Typing, click,
+			// or an already-open dropdown still open/keep it. Other searchbars keep opening on any key.
+			if (
+				!hideDropdownOnFreeText ||
+				!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Enter', 'Escape', 'Tab'].includes(
+					e.key
+				)
+			) {
+				open = true
+			}
+		}}
 		{autofocus}
 	/>
 	{#if asText.val}
@@ -619,9 +730,10 @@
 </div>
 
 <GenericDropdown
-	{open}
+	open={dropdownVisible}
+	instantClose={hideDropdownOnFreeText}
 	getInputRect={() => inputElement?.getBoundingClientRect() ?? new DOMRect()}
-	innerClass="!max-h-[30rem]"
+	innerClass="!max-h-[25rem]"
 	strictWidth
 >
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -736,6 +848,20 @@
 				class="border border-border-light rounded min-h-[4rem]"
 			/>
 		</div>
+	{:else if filter.type === 'string'}
+		{#if menuItems.length}
+			<div class="max-h-60 overflow-y-auto">
+				{#each menuItems as item, index}
+					{#if item.type === 'option' && item.option}
+						{@render menuItem({
+							onClick: item.onClick,
+							label: item.option.label || item.option.value,
+							highlighted: index === highlightedIndex
+						})}
+					{/if}
+				{/each}
+			</div>
+		{/if}
 	{/if}
 {/snippet}
 

@@ -148,7 +148,7 @@
 			const workspace = $workspaceStore
 			if (!workspace) return
 
-			// A dev workspace pulls from its environment-label branch (dev/staging)
+			// A dev workspace pulls from its environment-label branch (dev, staging, ...)
 			// and a fork from its wm-fork/<tracked>/<id> branch, not the resource's
 			// tracked branch. clone_ref falls back to the tracked branch in the
 			// pull script when the override branch doesn't exist yet.

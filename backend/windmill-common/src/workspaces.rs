@@ -70,6 +70,7 @@ bitflags::bitflags! {
         const DISABLE_WORKSPACE_FORKING =           1 << 1;
         const RESTRICT_DEPLOY_TO_DEPLOYERS =        1 << 2;
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
+        const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
     }
 }
 
@@ -81,6 +82,7 @@ pub enum ProtectionRuleKind {
     DisableWorkspaceForking,
     RestrictDeployToDeployers,
     RestrictAnonymousAppDeployment,
+    RestrictPublicRunSharing,
 }
 
 impl ProtectionRuleKind {
@@ -98,6 +100,9 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 ProtectionRules::RESTRICT_ANONYMOUS_APP_DEPLOYMENT
             }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                ProtectionRules::RESTRICT_PUBLIC_RUN_SHARING
+            }
         }
     }
 
@@ -112,6 +117,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictAnonymousAppDeployment => {
                 "Making an app publicly accessible without login (anonymous execution mode) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RestrictPublicRunSharing => {
+                "Sharing a run publicly (readable without login) is restricted in this workspace"
             }
         }
     }
@@ -167,7 +175,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28871/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28911/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -175,7 +183,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/28871/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28870/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/28910/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -310,7 +318,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitRepositorySettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude_types_override: Option<Vec<ObjectType>>,
@@ -508,7 +516,7 @@ impl AutoPullSettings {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GitSyncSettings {
     pub include_path: Vec<String>,
     pub include_type: Vec<ObjectType>,
@@ -751,15 +759,24 @@ pub async fn count_workspace_forks(db: &crate::DB, root: &str) -> Result<i64> {
     Ok(count)
 }
 
-/// Approximate paid seats of a workspace as `ceil(developers + operators/2)`, excluding disabled and
-/// service-account members. Reuses billing's author/operator weighting, but counts provisioned
-/// members rather than the active-user population billing meters, so it only ever loosens the fork
-/// cap (never blocks a paid seat) — good enough for a soft guardrail.
+/// The billable members of a workspace and the seats they add up to.
+#[derive(Clone, Debug, Serialize)]
+pub struct BillableSeats {
+    pub developers: i64,
+    pub operators: i64,
+    pub seats: i64,
+}
+
+/// Billable members of `w_id` and the seats they cost, as `ceil(developers + operators/2)`. Service
+/// accounts cannot log in and do not take a seat; a disabled member is not billed either.
+///
+/// The workspace is invoiced by a job outside this codebase that counts the same rows with its own
+/// SQL. The two must be changed together: this rule disagreeing with that one is what bills a
+/// workspace for seats the product never credits it for.
 ///
 /// Unauthenticated metering helper: reads member counts for any `w_id`, so callers must already be
 /// authorized for that workspace (or run in trusted server-side code).
-#[cfg(feature = "cloud")]
-pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
+pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats> {
     let row = sqlx::query!(
         r#"SELECT
             COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS "developers!",
@@ -769,8 +786,18 @@ pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
     )
     .fetch_one(db)
     .await
-    .map_err(|e| Error::internal_err(format!("counting paid seats of {w_id}: {e:#}")))?;
-    Ok(((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64)
+    .map_err(|e| Error::internal_err(format!("counting billable seats of {w_id}: {e:#}")))?;
+    Ok(BillableSeats {
+        developers: row.developers,
+        operators: row.operators,
+        seats: ((row.developers as f64) + 0.5 * (row.operators as f64)).ceil() as i64,
+    })
+}
+
+/// Seats only, for the fork cap. See [`billable_seats`].
+#[cfg(feature = "cloud")]
+pub async fn count_paid_seats(db: &crate::DB, w_id: &str) -> Result<i64> {
+    Ok(billable_seats(db, w_id).await?.seats)
 }
 
 #[cfg(feature = "cloud")]
@@ -1115,12 +1142,18 @@ async fn get_datatable_resource_inner(
         serde_json::to_value(&pg_creds)
             .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
     } else {
+        // Name the data table too: the caller asked for one by name, and a bare
+        // "resource f/x/y does not exist" leaves them to work out which one points at it.
         transform_json_unchecked(
             &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
             w_id,
             db,
         )
-        .await?
+        .await
+        .map_err(|e| match e {
+            Error::NotFound(m) => Error::NotFound(format!("data table {name}: {m}")),
+            e => e,
+        })?
     };
 
     Ok(db_resource)
@@ -1480,6 +1513,124 @@ pub async fn workspace_with_fork_ancestors(db: &crate::DB, w_id: &str) -> Result
     Ok(chain)
 }
 
+lazy_static::lazy_static! {
+    /// workspace id -> (root workspace id, expiry ts). Read once per job start, so correctness
+    /// rests on the invalidation rather than on the TTL: every mutation that can change the answer
+    /// sweeps the ids it touches through `windmill_queue::tags::invalidate_fork_parent_cache` and
+    /// broadcasts on `FORK_LINEAGE_CHANGE_CHANNEL`. A process that receives no broadcast — an agent
+    /// worker polls no notify events — has only the TTL, and takes the shorter one.
+    static ref ROOT_WORKSPACE_CACHE: Cache<String, (String, i64)> = Cache::new(5000);
+}
+
+const ROOT_WORKSPACE_CACHE_TTL_S: i64 = 300;
+/// An agent worker consumes no `notify_event`, so no sweep ever reaches its cache and the TTL is
+/// the whole invalidation story there. Hold its entries for the same 60s the other lineage caches
+/// (`FORK_ANCESTOR_CHAIN_CACHE`, `BILLING_WORKSPACE_CACHE`) accept as their staleness bound,
+/// rather than the long TTL that only a broadcast-fed process has earned.
+const ROOT_WORKSPACE_AGENT_CACHE_TTL_S: i64 = 60;
+/// An id the walk finds nothing for is cached far more briefly than a resolved one: it becomes
+/// resolvable the moment its workspace row lands, and creating a workspace is not a lineage change,
+/// so no sweep would drop the entry.
+const ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S: i64 = 30;
+
+/// Drop the cached root workspace of one id. Called for every id whose lineage-derived caches are
+/// swept, so it needs no call site of its own — see
+/// `windmill_queue::tags::invalidate_fork_parent_cache`.
+pub fn invalidate_root_workspace_cache(w_id: &str) {
+    ROOT_WORKSPACE_CACHE.remove(w_id);
+}
+
+/// Drop every cached root workspace: the answer depends on the whole ancestor chain, so a mutation
+/// that reshapes the tree moves an unbounded set of descendants.
+pub fn clear_root_workspace_cache() {
+    ROOT_WORKSPACE_CACHE.clear();
+}
+
+/// Nearest ancestor-or-self of `w_id` that is an environment of its own: a root ("prod") workspace
+/// or a dev workspace. Equal to `w_id` for either of those, and to the standing workspace a
+/// throwaway fork was forked from otherwise. Exposed to jobs as `WM_ROOT_WORKSPACE`.
+///
+/// Falls back to `w_id` when the chain cannot be resolved (unknown id, broken or cyclic chain,
+/// failed lookup).
+///
+/// Not the same question as `get_billing_workspace_id`, which walks all the way to the parentless
+/// root: a fork under a dev workspace bills to prod but belongs to the dev environment.
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code).
+pub async fn root_workspace_id(conn: &crate::worker::Connection, w_id: &str) -> String {
+    let now = chrono::Utc::now().timestamp();
+    let cached = ROOT_WORKSPACE_CACHE.get(w_id);
+    if let Some((root, expiry)) = &cached {
+        if *expiry > now {
+            return root.clone();
+        }
+    }
+
+    let (resolved, fresh_ttl) = match conn {
+        crate::worker::Connection::Sql(db) => (
+            lookup_root_workspace_id(db, w_id).await,
+            ROOT_WORKSPACE_CACHE_TTL_S,
+        ),
+        crate::worker::Connection::Http(client) => (
+            client
+                .get::<Option<String>>(&format!("/api/w/{w_id}/agent_workers/root_workspace"))
+                .await
+                .map_err(Error::from),
+            ROOT_WORKSPACE_AGENT_CACHE_TTL_S,
+        ),
+    };
+
+    let (root, ttl) = match resolved {
+        Ok(Some(root)) => (root, fresh_ttl),
+        Ok(None) => (w_id.to_string(), ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S),
+        // A failed lookup is NOT cached, for the reason `lookup_tag_workspace` gives: the fallback
+        // is indistinguishable from a legitimate answer, so pinning one failure would make every
+        // job in a fork report the fork as its own environment until the entry expired. The expired
+        // entry is still the last answer this process actually resolved, so prefer it to that
+        // fallback — an agent talking to a server too old to serve the route would otherwise
+        // demote every fork to itself for the whole rolling upgrade.
+        Err(e) => {
+            tracing::warn!("failed to resolve root workspace of {w_id}: {e:#}");
+            return cached
+                .map(|(root, _)| root)
+                .unwrap_or_else(|| w_id.to_string());
+        }
+    };
+    ROOT_WORKSPACE_CACHE.insert(w_id.to_string(), (root.clone(), now + ttl));
+    root
+}
+
+/// Uncached lookup behind [`root_workspace_id`]. `None` when the chain resolves to nothing: an
+/// unknown id, or a (malformed) cycle that saturates the depth bound — the same cycle-safety
+/// backstop convention as [`fork_ancestor_chain`].
+///
+/// Unauthenticated helper: reads workspace hierarchy for any `w_id`, so callers must already be
+/// authorized for that workspace (or run in trusted server-side code). Answering for an arbitrary
+/// id discloses that the workspace exists and which environment it belongs to.
+pub async fn lookup_root_workspace_id(db: &crate::DB, w_id: &str) -> Result<Option<String>> {
+    sqlx::query_scalar!(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, is_dev_workspace, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT id AS "id!" FROM chain
+            WHERE parent_workspace_id IS NULL OR is_dev_workspace
+            ORDER BY depth LIMIT 1
+        "#,
+        w_id
+    )
+    .fetch_optional(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("resolving root workspace of {w_id}: {e:#}")))
+}
+
 /// Resolve which live descendant workspace (and its inherited repo entry) a git
 /// branch pushed to `parent_repo_path` — a git-sync repo on `parent_w_id`
 /// tracking `expected_base` — deploys to via parent-managed fork sync, or `None`
@@ -1525,7 +1676,7 @@ pub async fn resolve_fork_branch_target(
         .fetch_optional(db)
         .await?
     } else if branch != expected_base {
-        // Environment-label branch (`dev`/`staging`) of a dev-workspace child.
+        // Environment-label branch (`dev`, `staging`, ...) of a dev-workspace child.
         // Direct children only: a dev nested under another dev is parent-managed
         // by that dev, which holds no auto-pull config of its own, so no branch
         // pushed to this repo routes to it. The tracked-branch guard keeps a
@@ -2061,6 +2212,32 @@ pub fn lfs_entry_storage_ref(entry: &serde_json::Value) -> Option<String> {
     Some(format!("{typ}:{path}"))
 }
 
+pub const FILESYSTEM_STORAGE_DEV_ONLY_MSG: &str =
+    "Filesystem storage is only available in development builds of Windmill: it points the \
+     workspace at a directory on the server's own disk rather than at a resource. Use an S3, \
+     Azure Blob or Google Cloud Storage backend instead.";
+
+/// A filesystem workspace storage names a directory on the server's own disk, so it hands whoever
+/// configures it — a workspace admin, or any member who can write a `filesystem` resource —
+/// whatever the server process can reach, and it only resolves when server and workers share that
+/// disk. It is there so local development can skip MinIO, hence debug builds only. Instance object
+/// storage on local disk is a separate, superadmin-only setting and stays allowed everywhere.
+pub fn filesystem_storage_allowed() -> bool {
+    cfg!(debug_assertions)
+}
+
+/// Guards every site that builds an `ObjectStoreResource::Filesystem`, so nothing downstream can
+/// reach a local-disk store: a stored config outlives the build that accepted it, and the resource
+/// route never passes through the workspace-storage settings at all.
+pub fn ensure_filesystem_storage_allowed() -> Result<()> {
+    if !filesystem_storage_allowed() {
+        return Err(Error::BadRequest(
+            FILESYSTEM_STORAGE_DEV_ONLY_MSG.to_string(),
+        ));
+    }
+    Ok(())
+}
+
 /// Resolve a `$res:`/`$var:` reference tree to its concrete value (recursively, secrets
 /// decrypted). No permission checks — trusted server-side callers only; never echo the result
 /// to a user.
@@ -2097,25 +2274,32 @@ async fn transform_json_unchecked(
             serde_json::Value::Array(transformed_array)
         }
         serde_json::Value::String(s) if s.starts_with("$res:") => {
+            // A reference to something that was deleted is the common failure here, and
+            // `fetch_one` reports it as "no rows returned by a query that expected to
+            // return at least one row" -- which names neither what was missing nor where.
+            let path = &s[5..];
             let resource = sqlx::query_scalar!(
                 "SELECT value AS \"value!: _\" FROM resource WHERE workspace_id = $1 AND path = $2",
                 &w_id,
-                &s[5..]
+                path
             )
-            .fetch_one(db)
+            .fetch_optional(db)
             .await
-            .map_err(to_anyhow)?;
+            .map_err(to_anyhow)?
+            .ok_or_else(|| Error::NotFound(format!("resource {path} does not exist")))?;
             transform_json_unchecked(&resource, w_id, db).await?
         }
         serde_json::Value::String(s) if s.starts_with("$var:") => {
+            let path = &s[5..];
             let (value, is_secret): (String, bool) = sqlx::query_as(
                 "SELECT value, is_secret FROM variable WHERE workspace_id = $1 AND path = $2",
             )
             .bind(&w_id)
-            .bind(&s[5..])
-            .fetch_one(db)
+            .bind(path)
+            .fetch_optional(db)
             .await
-            .map_err(to_anyhow)?;
+            .map_err(to_anyhow)?
+            .ok_or_else(|| Error::NotFound(format!("variable {path} does not exist")))?;
             let value = if is_secret {
                 if is_external_stored_value(&value) {
                     get_secret_value(db, w_id, &s[5..], &value).await?

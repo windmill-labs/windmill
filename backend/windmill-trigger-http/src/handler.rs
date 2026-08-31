@@ -268,6 +268,15 @@ pub async fn create_many_http_triggers(
             format!("http_triggers:write:{}", &new_http_trigger.base.path)
         })?;
 
+        // This route inserts directly, bypassing the shared create handler.
+        // `error_wrapper` would turn the rejection into a 500.
+        new_http_trigger.error_handling.validate().map_err(|err| {
+            Error::BadRequest(format!(
+                "Error occurred for HTTP route at route path: {}, error: {}",
+                new_http_trigger.config.route_path, err
+            ))
+        })?;
+
         handler
             .validate_new(&db, &w_id, &new_http_trigger.config)
             .await
@@ -306,6 +315,37 @@ pub async fn create_many_http_triggers(
             .await
             .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err.into()))?;
         }
+
+        // Bulk create is still authoring, so it records like the single-create
+        // route rather than being the one way to make a trigger appear with no
+        // history behind it.
+        let created = windmill_common::trigger_history::snapshot_row(
+            &mut *tx,
+            "http_trigger",
+            &w_id,
+            &new_http_trigger.base.path,
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
+        windmill_common::trigger_history::record(
+            &mut *tx,
+            windmill_common::trigger_history::TriggerHistoryEvent {
+                workspace_id: &w_id,
+                trigger_kind: HttpTrigger::TRIGGER_TYPE,
+                path: &new_http_trigger.base.path,
+                operation: windmill_common::trigger_history::TriggerOperation::Create,
+                source: windmill_common::trigger_history::TriggerSource::of_request(
+                    authed.is_session_token,
+                ),
+                username: Some(&authed.username),
+                changes: windmill_common::trigger_history::summarize_changes(
+                    None,
+                    created.as_ref(),
+                ),
+            },
+        )
+        .await
+        .map_err(|err| error_wrapper(&new_http_trigger.config.route_path, err))?;
 
         audit_log(
             &mut *tx,
@@ -539,8 +579,8 @@ impl TriggerCrud for HttpTrigger {
                 route_path,
                 &route_path_key,
                 Some(effective_workspaced),
-                trigger.config.wrap_body,
-                trigger.config.raw_string,
+                trigger.config.wrap_body.unwrap_or(false),
+                trigger.config.raw_string.unwrap_or(false),
                 trigger.config.authentication_resource_path,
                 trigger.base.script_path,
                 trigger.base.path,
@@ -595,8 +635,8 @@ impl TriggerCrud for HttpTrigger {
                 workspace_id = $20 AND
                 path = $21
             "#,
-                trigger.config.wrap_body,
-                trigger.config.raw_string,
+                trigger.config.wrap_body.unwrap_or(false),
+                trigger.config.raw_string.unwrap_or(false),
                 trigger.config.authentication_resource_path,
                 trigger.base.script_path,
                 trigger.base.path,

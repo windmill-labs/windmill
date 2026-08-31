@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Job, Script } from '$lib/gen'
-	import { setActiveReplay } from './flowRecording.svelte'
-	import { createScriptRecording } from './scriptRecording.svelte'
+	import { setActiveReplay } from './replay.svelte'
+	import { synthesizeSingleJobReplay } from './replayStream'
 	import type { ScriptRecording } from './types'
 	import { sendUserToast } from '$lib/toast'
 	import { Button, Tab, TabContent } from '$lib/components/common'
@@ -45,8 +45,6 @@
 	let jobLoader: JobLoader | undefined = $state(undefined)
 	let done = $derived((job as any)?.type === 'CompletedJob')
 
-	let scriptRecordingStore = createScriptRecording()
-
 	let schema = $derived(recording.schema)
 
 	if (selectedTab === undefined) {
@@ -64,40 +62,8 @@
 		replayState = 'loaded'
 	}
 
-	/**
-	 * Rebase absolute timestamps so they are relative to "now".
-	 * JobLoader replay uses Date.now() for delay computation.
-	 */
-	function rebaseTimestamps(data: ScriptRecording): ScriptRecording {
-		const anchor = data.job?.initial_job?.started_at ?? data.job?.initial_job?.created_at
-		if (!anchor) return data
-		const earliest = new Date(anchor).getTime()
-		if (isNaN(earliest)) return data
-
-		const offset = Date.now() - earliest
-
-		function offsetDate(d: string | number | undefined): string | undefined {
-			if (!d) return d as undefined
-			const t = new Date(d).getTime()
-			if (isNaN(t)) return d as string
-			return new Date(t + offset).toISOString()
-		}
-
-		function offsetJobTimestamps(j: any) {
-			if (j.started_at) j.started_at = offsetDate(j.started_at)
-			if (j.created_at) j.created_at = offsetDate(j.created_at)
-			if (j.completed_at) j.completed_at = offsetDate(j.completed_at)
-		}
-
-		offsetJobTimestamps(data.job.initial_job)
-		for (const event of data.job.events) {
-			if (event.data?.job) offsetJobTimestamps(event.data.job)
-		}
-		return data
-	}
-
 	function initRecording() {
-		const id = recording.job?.initial_job?.id
+		const id = recording.job?.id
 		if (!id) {
 			sendUserToast('Recording has no job data', true)
 			return
@@ -109,10 +75,18 @@
 	initRecording()
 
 	export async function startReplay() {
-		const snapshot = JSON.parse(JSON.stringify(recording)) as ScriptRecording
-		rebaseTimestamps(snapshot)
-		const replayData = scriptRecordingStore.toReplayData(snapshot)
-		setActiveReplay(replayData)
+		if (!jobId) return
+		try {
+			// A malformed recording (upload / `?src=` fetch) can throw while the
+			// job is walked here — an event-handler throw a Svelte boundary can't
+			// catch, so it's guarded rather than left to break the page.
+			const stream = synthesizeSingleJobReplay(recording.job)
+			setActiveReplay({ jobs: { [jobId]: stream } })
+		} catch {
+			setActiveReplay(undefined)
+			sendUserToast('This recording could not be replayed — it may be malformed', true)
+			return
+		}
 		job = undefined
 		replayState = 'playing'
 		selectedTab = 'result'
@@ -129,7 +103,7 @@
 
 <HighlightTheme />
 
-{#if !recording?.job?.initial_job?.id}
+{#if !recording?.job?.id}
 	<div class="flex flex-col items-center justify-center min-h-[60vh]">
 		<div class="border rounded-lg p-8 bg-surface-tertiary max-w-md w-full text-center">
 			<p class="text-xs text-secondary">

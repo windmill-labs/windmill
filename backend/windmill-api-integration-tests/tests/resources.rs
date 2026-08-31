@@ -199,6 +199,25 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let list = resp.json::<Vec<serde_json::Value>>().await?;
     assert!(!list.is_empty());
 
+    // Values are capped so the search modal never has to hold a whole workspace of
+    // resource content in memory.
+    let find = |path: &str| {
+        list.iter()
+            .find(|r| r["path"] == path)
+            .unwrap_or_else(|| panic!("{path} missing from list_search"))
+            .clone()
+    };
+    let oversized = find("u/test-user/oversized_resource");
+    assert_eq!(oversized["value"].as_str().unwrap().chars().count(), 4000);
+    assert_eq!(oversized["truncated"], true);
+
+    let simple = find("u/test-user/simple_resource");
+    assert!(simple["value"].as_str().unwrap().contains("\"host\""));
+    assert_eq!(simple["truncated"], false);
+
+    // A null value must still come back as searchable text, not null.
+    assert_eq!(find("u/test-user/null_resource")["value"], "");
+
     // --- list_names ---
     let resp = authed(client().get(format!("{base}/list_names/object")))
         .send()

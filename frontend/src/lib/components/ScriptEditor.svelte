@@ -95,6 +95,7 @@
 	import OpenInSessionButton, {
 		type OpenInSessionSource
 	} from './sessions/OpenInSessionButton.svelte'
+	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 
 	// Forward-looking hook for the upcoming session-pane feature: that PR will
 	// `setContext('aiChatManager', ...)` from the session wrapper so this editor
@@ -121,13 +122,12 @@
 	import { updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
 	import { copilotInfo } from '$lib/aiStore'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import { argsToJsonPayload } from '$lib/schema'
 	import Toggle from './Toggle.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 	import { resource, watch } from 'runed'
-	import { createScriptRecording } from './recording/scriptRecording.svelte'
-	import { setActiveRecording } from './recording/flowRecording.svelte'
-	import type { ScriptRecording } from './recording/types'
+	import { buildScriptRecording, downloadRecordingJson } from './recording/runRecording'
 	import DropdownV2 from './DropdownV2.svelte'
 
 	interface Props {
@@ -280,6 +280,14 @@
 
 	let opWs = $derived(workspaceOverride ?? $workspaceStore)
 
+	// Publish this editor's hand-off for AI entry points below it (the preview
+	// panel's "AI Fix"), withheld under `disableAi` so an embed that turned AI off
+	// gets no entry point that navigates its host to /sessions. Shadows an
+	// ancestor's hand-off deliberately: ScriptEditorDrawer mounts this without a
+	// `sessionOpen`, and falling through to FlowBuilder's would answer "fix this
+	// script" by opening the flow and abandoning the drawer's unsaved content.
+	setOpenInSessionHandoff({ source: () => (disableAi ? undefined : sessionOpen) })
+
 	$effect(() => {
 		onTestStateChange?.(testIsLoading)
 	})
@@ -303,6 +311,10 @@
 	let moduleTestState: Record<string, { args: Record<string, any>; schema: Schema }> = $state({})
 	let testPanelArgs: Record<string, any> = $state({})
 	let testPanelSchema: Schema = $state(emptySchema())
+	// Bumped whenever the args under test are replaced from outside the arg panel. Both arg
+	// views key off it: without a bump the JSON editor keeps showing, and on the next
+	// keystroke commits, the payload it was seeded with for the previous args.
+	let argsRender = $state(0)
 	// editorCode is what the editor shows; code always holds the main script content
 	let editorCode: string = $state(code)
 	// Sync editorCode when code changes externally (template reset, copilot,
@@ -322,7 +334,13 @@
 	})
 
 	function switchToModule(modulePath: string) {
-		if (activeModuleTab !== null && modules && activeModuleTab !== modulePath) {
+		// Re-clicking the tab you are already on is a no-op. Re-running the body would reset this
+		// module's test state whenever its inference is still pending or has failed (the catch
+		// leaves `moduleTestState` unwritten), losing both the filled-in args and the arg views.
+		if (activeModuleTab === modulePath) {
+			return
+		}
+		if (activeModuleTab !== null && modules) {
 			// Switching from another module: save its content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
@@ -338,13 +356,20 @@
 			} else {
 				testPanelArgs = {}
 				testPanelSchema = emptySchema()
+				// Inference lands after the bump below, so the editor opens on `{}` and the arg
+				// views follow the schema in once it arrives. Remounting them again on arrival
+				// instead would discard anything typed while it was in flight.
 				inferModuleSchema()
 			}
+			argsRender++
 		}
 	}
 
 	function switchToMain() {
-		if (activeModuleTab !== null && modules) {
+		if (activeModuleTab === null) {
+			return
+		}
+		if (modules) {
 			// Save current module content and test state
 			modules[activeModuleTab] = { ...modules[activeModuleTab], content: editorCode }
 			moduleTestState[activeModuleTab] = { args: testPanelArgs, schema: testPanelSchema }
@@ -353,6 +378,7 @@
 		editorCode = code
 		lastSyncedCode = code
 		editor?.setCode(editorCode)
+		argsRender++
 	}
 
 	// Whether the open file is tested as a runnable of its own. A `__mod` helper
@@ -743,9 +769,21 @@
 	let pastPreviewsRequest: ReturnType<typeof JobService.listCompletedJobs> | undefined
 	let validCode = $state(true)
 
-	// Recording
-	let scriptRecording = createScriptRecording()
-	let lastRecording: ScriptRecording | undefined = $state(undefined)
+	// Recording: nothing is captured live — a "record" run just remembers the
+	// completed job id plus the code/args/schema as they were at run time, and
+	// the recording is built from the completed job on download.
+	let recordingArmed = false
+	let lastRecordingJobId: string | undefined = $state(undefined)
+	let recordingMeta:
+		| {
+				scriptPath: string
+				code: string
+				language: string
+				args: Record<string, any>
+				schema?: Record<string, any>
+		  }
+		| undefined = undefined
+	let downloadingRecording = $state(false)
 
 	let wsProvider: WebsocketProvider | undefined = $state(undefined)
 	let yContent: Y.Text | undefined = $state(undefined)
@@ -835,6 +873,7 @@
 
 	export function setArgs(nargs: Record<string, any>) {
 		args = nargs
+		argsRender++
 	}
 
 	export async function runTest(opts?: { cascade?: boolean; skipDdlGuard?: boolean }) {
@@ -857,8 +896,8 @@
 		// keep the latest choice as the active mode.
 		if (opts?.cascade !== undefined) cascadeDownstream = opts.cascade
 		// Discard any previous recording when running a normal test
-		if (!scriptRecording.active) {
-			lastRecording = undefined
+		if (!recordingArmed) {
+			lastRecordingJobId = undefined
 		}
 		// Not defined if JobProgressBar not loaded
 		jobProgressBar?.reset()
@@ -900,19 +939,20 @@
 			undefined,
 			undefined,
 			{
-				done(_x) {
-					if (scriptRecording.active) {
-						lastRecording = scriptRecording.stop()
-						setActiveRecording(undefined)
+				done(x) {
+					if (recordingArmed) {
+						recordingArmed = false
+						lastRecordingJobId = x?.id
 					}
 					if (historyTabActive) {
 						loadPastTests()
 					}
 				},
-				doneError({ error }) {
-					if (scriptRecording.active) {
-						lastRecording = scriptRecording.stop()
-						setActiveRecording(undefined)
+				doneError({ id, error }) {
+					// A failed run is still a completed job and records fine.
+					if (recordingArmed) {
+						recordingArmed = false
+						lastRecordingJobId = id
 					}
 					console.error(error)
 				}
@@ -931,15 +971,31 @@
 	}
 
 	async function recordAndTest() {
-		lastRecording = undefined
-		scriptRecording.start(path ?? '', code, lang ?? '', args ?? {}, schema)
-		setActiveRecording(scriptRecording)
+		lastRecordingJobId = undefined
+		recordingMeta = {
+			scriptPath: path ?? '',
+			code,
+			language: lang ?? '',
+			args: JSON.parse(JSON.stringify(args ?? {})),
+			schema: schema ? JSON.parse(JSON.stringify(schema)) : undefined
+		}
+		recordingArmed = true
 		await runTest()
 	}
 
-	function downloadRecording() {
-		if (lastRecording) {
-			scriptRecording.download(lastRecording)
+	async function downloadRecording() {
+		if (!lastRecordingJobId || !recordingMeta || downloadingRecording) return
+		downloadingRecording = true
+		try {
+			const recording = await buildScriptRecording(opWs!, lastRecordingJobId, recordingMeta)
+			downloadRecordingJson(
+				recording,
+				`script-recording-${(recording.script_path || 'untitled').replace(/\//g, '-')}`
+			)
+		} catch (e: any) {
+			sendUserToast('Could not build the recording', true, undefined, e?.toString())
+		} finally {
+			downloadingRecording = false
 		}
 	}
 
@@ -1618,15 +1674,30 @@
 	$effect(() => {
 		!hasPreprocessor && (selectedTab = 'main')
 	})
+	// `main` and `preprocessor` describe the same args under different schemas; every other tab
+	// (`diagram`) runs against main's schema, so it collapses into `main` here.
+	let lastSchemaTab = untrack(() => (selectedTab === 'preprocessor' ? 'preprocessor' : 'main'))
 	$effect(() => {
 		// Only depend on selectedTab (preprocessor ↔ main toggle).
 		// Code changes are handled by the editor on:change handler and
 		// explicit inferSchema calls (initContent, onMount), so we read
 		// `code` inside untrack to avoid a redundant double-inference race.
-		selectedTab && untrack(() => code && inferSchema(code))
+		selectedTab &&
+			untrack(() => {
+				const schemaTab = selectedTab === 'preprocessor' ? 'preprocessor' : 'main'
+				const switched = schemaTab !== lastSchemaTab
+				lastSchemaTab = schemaTab
+				if (!code) return
+				// Bump on the switch itself, not on the inference it starts: the other tab's schema
+				// only lands once that resolves, and remounting the arg views then would discard
+				// anything typed while it was in flight. An untouched editor follows the schema in.
+				if (switched) {
+					argsRender++
+				}
+				inferSchema(code)
+			})
 	})
 
-	let argsRender = $state(0)
 	export async function updateArgs(newArgs: Record<string, any>) {
 		if (Object.keys(newArgs).length > 0) {
 			args = { ...newArgs }
@@ -2014,12 +2085,13 @@
 												{/if}
 											{/if}
 										</div>
-										{#if lastRecording}
+										{#if lastRecordingJobId}
 											<Button
 												on:click={downloadRecording}
 												unifiedSize="md"
 												startIcon={{ icon: Download }}
 												iconOnly
+												loading={downloadingRecording}
 												title="Download recording"
 											/>
 										{/if}
@@ -2242,14 +2314,10 @@
 							</div>
 						{:else}
 							{#key previewLayout}
-								<Splitpanes
-									horizontal={previewLayout !== 'bottom'}
-									class="!max-h-[calc(100%-{debugMode && isDebuggableScript
-										? '83'
-										: previewLayout === 'bottom'
-											? '0'
-											: '43'}px)]"
-								>
+								<!-- min-h-0 lets this shrink to the space the header row leaves it. Without it the
+								     100% height wins, the panes settle one header too tall, and any reflow during a
+								     run snaps them up and back. -->
+								<Splitpanes horizontal={previewLayout !== 'bottom'} class="min-h-0">
 									<Pane size={previewLayout === 'bottom' ? 40 : 33}>
 										{#if previewLayout === 'bottom' && !(debugMode && isDebuggableScript)}
 											<div class="px-3 pt-2 pb-1 flex items-center gap-2">
@@ -2266,19 +2334,24 @@
 												style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
 												data-schema-picker
 											>
-												<JsonInputs
-													on:select={(e) => {
-														if (e.detail) {
-															if (onModuleArgs) {
-																testPanelArgs = e.detail
-															} else {
-																args = e.detail
+												{#key argsRender}
+													<JsonInputs
+														on:select={(e) => {
+															if (e.detail) {
+																if (onModuleArgs) {
+																	testPanelArgs = e.detail
+																} else {
+																	args = e.detail
+																}
 															}
-														}
-													}}
-													updateOnBlur={false}
-													placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
-												/>
+														}}
+														initialCode={onModuleArgs
+															? argsToJsonPayload(testPanelSchema, testPanelArgs)
+															: argsToJsonPayload(schema, args)}
+														updateOnBlur={false}
+														placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+													/>
+												{/key}
 											</div>
 										{:else}
 											<div class="px-4">
@@ -2762,6 +2835,11 @@
 			awareness={wsProvider?.awareness}
 			on:change={(e) => {
 				if (activeModuleTab === null) {
+					// `editorCode`, not the payload: `setCode` dispatches the string it was
+					// handed, but Monaco may have normalized it (EOL) while applying it, and
+					// the re-entrant `updateCode` that runs inside `setCode` has already put
+					// that normalized text here. Taking the payload would leave `code`
+					// disagreeing with the buffer.
 					code = editorCode
 					lastSyncedCode = code
 					inferSchema(e.detail)

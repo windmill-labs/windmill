@@ -7,7 +7,15 @@
 	let { height = '24px', width = '24px' }: Props = $props()
 </script>
 
-<svg {width} {height} viewBox="0 0 340 340" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- #ff4f68 per the ultravox.ai favicon (framerusercontent.com/images/hzAEdihxJ11mv3l4trNh2WprE.svg).
+	 Gradient mark; ultravox.ai links that same asset for both prefers-color-scheme light and dark, so there is no per-theme variant. -->
+<svg
+	{width}
+	{height}
+	viewBox="54.091 54.091 231.818 231.818"
+	fill="none"
+	xmlns="http://www.w3.org/2000/svg"
+>
 	<defs>
 		<linearGradient
 			id="ultravox-gradient-a"

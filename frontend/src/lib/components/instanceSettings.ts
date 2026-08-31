@@ -534,6 +534,27 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build binaries on deployment',
+			description:
+				'When enabled and instance object storage is configured, deploying a Rust, Go or C# script queues a job that compiles it and uploads the binary to object storage, so the first run does not pay the compile. Requires instance object storage: without it the binary would only reach the building worker. Does nothing for languages whose artifact is not cached in object storage.',
+			key: 'auto_build_binary_on_deploy',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
+		},
+		{
+			label: 'Auto-build worker tag',
+			description:
+				'Worker tag the auto-build jobs run on. Leave empty to use the script language tag, where its dependency job already runs. Set it to pin builds to a pool that has the toolchain and matches the platform of your runtime workers — the cache key includes the OS and architecture, so a binary built elsewhere is never reused. Note that compiling runs script-author-controlled build steps (Cargo build scripts, MSBuild targets, cgo) with exactly the isolation the cold build of a first run has — nsjail for Rust when job isolation is on, none for the Go and C# compilers — so this pool now executes them at deploy time rather than at first run.',
+			key: 'auto_build_binary_tag',
+			fieldType: 'text',
+			placeholder: 'e.g. build',
+			storage: 'setting',
+			ee_only: '',
+			hideInQuickSetup: true
 		}
 	],
 	'Private Hub': [
@@ -894,6 +915,15 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
+			label: 'Mute zombie job restart alerts',
+			description:
+				'Stop sending critical alerts when a zombie job or flow is detected and automatically restarted. Jobs that exhaust all their restart attempts, and flows cancelled after hanging between steps, keep alerting.',
+			key: 'critical_alert_mute_zombie_job_restart',
+			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		},
+		{
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',
@@ -952,6 +982,23 @@ export const settings: Record<string, Setting[]> = {
 			triggersRestart: true
 		}
 	],
+	'Service logs': [
+		{
+			label: 'Retention in secs',
+			key: 'service_log_retention_secs',
+			description:
+				'How long a service log is kept, across every copy of it: the entry in the database, the file on the disk of the process that wrote it, and — once instance object storage is configured and the indexer has ingested it — its line in the columnar store that search and the log viewer read. Search reaches back at most this far, and less when the indexer time window under Indexer is shorter. Defaults to 14 days. There is no keep-forever setting here — leave it empty for the default.',
+			fieldType: 'seconds',
+			storage: 'setting',
+			cloudonly: false,
+			error:
+				'Service log retention must be between 1 second and 100 years — leave it empty for the default',
+			isValid: (value: any) =>
+				value == undefined ||
+				(typeof value === 'number' && value > 0 && value <= 60 * 60 * 24 * 365 * 100)
+		}
+	],
+
 	Indexer: [
 		{
 			label: '',
@@ -984,9 +1031,11 @@ export const settings: Record<string, Setting[]> = {
 	],
 	'GitHub App': [
 		{
-			label: 'GitHub App',
+			// The category header above already names the section; this labels the
+			// card that holds the app credentials, next to the webhook base url one.
+			label: 'App configuration',
 			description:
-				'Configure a self-managed GitHub App to enable git sync without stats.windmill.dev.',
+				'Use your own GitHub App instead of the Windmill-managed one on stats.windmill.dev.',
 			key: 'github_enterprise_app',
 			fieldType: 'github_enterprise_app',
 			storage: 'setting',
@@ -1142,6 +1191,12 @@ export const instanceSettingsNavigationGroups = [
 				isEE: true
 			},
 			{
+				id: 'service_logs',
+				label: 'Service logs',
+				aiId: 'instance-settings-service-logs',
+				aiDescription: 'Service log retention settings'
+			},
+			{
 				id: 'indexer',
 				label: 'Indexer',
 				aiId: 'instance-settings-indexer',
@@ -1224,6 +1279,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	webhooks: 'Webhooks',
 	otel_prom: 'OTEL/Prom',
 	indexer: 'Indexer',
+	service_logs: 'Service logs',
 	telemetry: 'Telemetry',
 	secret_storage: 'Secret Storage',
 	object_storage: 'Object Storage',
@@ -1259,6 +1315,7 @@ export const categoryToTabMap: Record<string, string> = {
 	Webhooks: 'webhooks',
 	'OTEL/Prom': 'otel_prom',
 	Indexer: 'indexer',
+	'Service logs': 'service_logs',
 	Telemetry: 'telemetry',
 	'Secret Storage': 'secret_storage',
 	'Object Storage': 'object_storage',

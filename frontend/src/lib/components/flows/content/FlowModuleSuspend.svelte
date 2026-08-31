@@ -219,9 +219,9 @@
 								for any)
 							</span>
 							<PropPickerWrapper
-								popover={true}
+								sidePane
+								notSelectable
 								{result}
-								displayContext={false}
 								pickableProperties={undefined}
 								on:select={({ detail }) => {
 									editor?.insertAtCursor(detail)
@@ -278,6 +278,7 @@
 
 					<EditableSchemaDrawer
 						bind:this={formEditor}
+						workspace={opWs}
 						bind:schema={
 							() => flowModule.suspend?.resume_form?.schema ?? draftFormSchema,
 							(v) => {

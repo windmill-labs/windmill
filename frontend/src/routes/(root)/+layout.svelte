@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/state'
 	import { UserService, WorkspaceService } from '$lib/gen'
@@ -130,15 +131,27 @@
 				if ($userStore) {
 					console.log(`Welcome back ${$userStore.username} to ${$workspaceStore}`)
 				} else {
-					$userStore = await getUserExt($workspaceStore)
-					if (!$userStore) {
+					const ws = $workspaceStore
+					const user = await getUserExt(ws)
+					// A switch mid-flight means this answers for the workspace we left, and
+					// that switch has already started the fetch answering for the active
+					// one: neither this role nor its failure describes where we are now.
+					if ($workspaceStore !== ws) {
+						return
+					}
+					if (!user) {
 						throw Error('Not logged in')
 					}
+					$userStore = user
 				}
 			} else {
 				if (
 					(!page.url.pathname.startsWith('/user/') || page.url.pathname.startsWith('/user/cli')) &&
-					!page.url.pathname.startsWith('/oauth/mcp_authorize')
+					!page.url.pathname.startsWith('/oauth/mcp_authorize') &&
+					// The hub import wizard asks for the destination itself, and may end in a
+					// workspace that does not exist yet — bouncing it to the picker would
+					// force the very choice it exists to make.
+					!page.url.pathname.startsWith(`${base}/projects/import`)
 				) {
 					goto(
 						`/user/workspaces?rd=${encodeURIComponent(page.url.href.replace(page.url.origin, ''))}`
@@ -240,7 +253,11 @@
 
 					if (workspace && user) {
 						const newUser = await getUserExt(workspace)
-						if (!deepEqual(newUser, $userStore)) {
+						// Refreshes the workspace that was active when the tick started; a
+						// switch mid-flight makes this answer describe the one we left.
+						if ($workspaceStore !== workspace) {
+							console.debug('workspace changed during user refresh, dropping')
+						} else if (!deepEqual(newUser, $userStore)) {
 							userStore.set(newUser)
 							console.info('refreshed user')
 						} else {
