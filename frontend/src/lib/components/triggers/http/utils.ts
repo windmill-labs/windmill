@@ -83,6 +83,10 @@ export function allowedOriginWarning(origin: string): string | undefined {
 	// and IPv6 literals among them, and a warning that cries wolf on a working
 	// origin is worse than one that stays quiet.
 	if (rest.startsWith(':')) return `'${origin}' has no host`
+	// An unclosed bracket would otherwise leave `portStart` at zero, which reads
+	// as "no port" and lets the entry through unremarked.
+	if (rest.startsWith('[') && !rest.includes(']'))
+		return `'${origin}' has an unclosed IPv6 host`
 	const portStart = rest.startsWith('[') ? rest.indexOf(']') + 1 : rest.indexOf(':')
 	// A trailing colon is a port, an empty one — distinct from having none.
 	const port = portStart > 0 && rest[portStart] === ':' ? rest.slice(portStart + 1) : undefined
