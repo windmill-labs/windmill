@@ -445,6 +445,10 @@ export class AIChatManager {
 	#pipelineHelpersWaiters = new Set<() => void>()
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
+	// The prompt of the send in flight: copied from `options.instructions` by
+	// sendRequestImpl, cleared once consumed. Senders pass prompts in the options,
+	// never by staging this field — sends race the run guard, and a staged copy is
+	// what a refused loser would hand back or unwind from under the winner's turn.
 	instructions = $state<string>('')
 	pendingPrompt = $state<string>('')
 	// Message queued while a turn is streaming. There is only ever one queued
@@ -1127,12 +1131,7 @@ export class AIChatManager {
 			const count = this.pendingJobNotes.length
 			const note =
 				count === 1 ? 'A background job just finished.' : `${count} background jobs just finished.`
-			this.instructions = note
-			const accepted = await this.sendRequest({ synthetic: true })
-			// A refusal returns before sendRequestImpl's clear, and the guard above
-			// reads a leftover note as "the user is mid-compose" and never resumes.
-			// Conditional because a send that won the lock meanwhile owns this field.
-			if (accepted === false && this.instructions === note) this.instructions = ''
+			await this.sendRequest({ synthetic: true, instructions: note })
 		} catch (e) {
 			console.error('Auto-resume after background job failed', e)
 		} finally {
@@ -1980,14 +1979,14 @@ export class AIChatManager {
 		// a Retry that is refused charges them against the conversation's budget
 		// for the lifetime of the manager.
 		this.#releaseOutgoingReservation(options.resendReservationKey)
-		// A synthetic send carries none of the user's text; its caller owns the
-		// instructions it set and unwinds them itself.
+		// A synthetic send carries none of the user's text, so there is nothing to
+		// hand back.
 		if (options.synthetic || options.queued) return
-		// The same fallback sendRequestImpl applies: the programmatic senders (an
-		// editor's AI Fix, Ask AI) leave the prompt on `this.instructions` and pass
-		// no `instructions` option, so reading the option alone would hand back an
-		// empty prompt and lose what they were about to send.
-		const instructions = options.instructions ?? this.instructions
+		// Only what the options carry: `this.instructions` may already hold the
+		// prompt of a concurrent send that won the run guard, which is also why
+		// nothing clears it here — blanking the field would empty the turn that
+		// send is still building from it.
+		const instructions = options.instructions ?? ''
 		const restored = this.aiChatInput?.restoreInstructions(
 			instructions,
 			options.pastes ?? [],
@@ -2005,10 +2004,6 @@ export class AIChatManager {
 				options.files
 			)
 		}
-		// Handed off, so this manager no longer holds it. Only sendRequestImpl clears
-		// the field and a refusal never reaches it; left set, it reads to the
-		// auto-resume guard and the sidebar's draft cue as text the user is writing.
-		this.instructions = ''
 	}
 
 	/** Send the queued message, if there is one, as its own turn. The queue only
@@ -2453,8 +2448,8 @@ export class AIChatManager {
 		if (this.scriptEditorOptions) {
 			this.contextManager.setAskAiContext(options)
 		}
-		this.instructions = prompt
 		this.sendRequest({
+			instructions: prompt,
 			removeDiff: options.withDiff,
 			addBackCode: options.withCode === false
 		})
@@ -4076,7 +4071,6 @@ export class AIChatManager {
 		// them); a bare Retry passes nothing and falls back to the original
 		// contextElements. `undefined` for modes that don't attach context leaves the
 		// live-selection behavior. An empty array is a deliberate "no context".
-		this.instructions = newContent ?? userMessage.content
 		// Everything that rewinds the conversation, deferred to the point the turn is
 		// ours. Doubles as the answer to "did the resend start": it runs exactly when
 		// the send was not refused.
@@ -4097,6 +4091,7 @@ export class AIChatManager {
 		}
 		await this.sendRequest({
 			rewind,
+			instructions: newContent ?? userMessage.content,
 			pastes: pastes ?? userMessage.pastes,
 			contextOverride: editedContext ?? userMessage.contextElements,
 			contextOverrideOrigin: 'replay',
@@ -4115,9 +4110,8 @@ export class AIChatManager {
 			this.toggleOpen()
 		}
 		this.changeMode(AIMode.SCRIPT)
-		this.instructions = 'Fix the error'
 		this.contextManager?.setFixContext()
-		this.sendRequest()
+		this.sendRequest({ instructions: 'Fix the error' })
 	}
 
 	addSelectedLinesToContext = (

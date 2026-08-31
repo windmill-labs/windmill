@@ -512,8 +512,7 @@
 				}
 				aiChatManager.changeMode(AIMode.APP)
 				if (!aiChatManager.open) aiChatManager.toggleOpen()
-				aiChatManager.instructions = prompt
-				aiChatManager.sendRequest()
+				aiChatManager.sendRequest({ instructions: prompt })
 			}, 500)
 		}
 	}

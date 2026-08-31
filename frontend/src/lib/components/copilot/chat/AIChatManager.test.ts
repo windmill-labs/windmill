@@ -265,10 +265,32 @@ describe('AIChatManager cross-tab run guard', () => {
 		expect(mocks.runChatLoop).not.toHaveBeenCalled()
 		expect(manager.displayMessages).toHaveLength(2)
 		expect(manager.messages).toHaveLength(2)
-		// Handed back rather than lost — and off the manager, which reports a
-		// non-empty `instructions` to the sidebar as text the user is writing.
 		expect(manager.queuedMessage).toBe('first')
 		expect(manager.instructions).toBe('')
+	})
+
+	// Two sends can race the guard, and the loser's refusal runs while the winner
+	// is mid-turn. The refusal must hand back its own prompt (from its options)
+	// and leave `instructions` — which the winner is still reading — untouched.
+	it('does not touch a concurrent winner staged prompt when refusing a retry', async () => {
+		const manager = new AIChatManager()
+		manager.isSessionChat = true
+		manager.displayMessages = [
+			{ role: 'user', content: 'first', index: 0 },
+			{ role: 'assistant', content: 'answer' }
+		] as any
+		manager.messages = [
+			{ role: 'user', content: 'first' },
+			{ role: 'assistant', content: 'answer' }
+		] as any
+		manager.runGuard = async () => 'busy'
+		manager.instructions = 'the prompt of the send that won the lock'
+
+		const started = await manager.restartGeneration(0)
+
+		expect(started).toBe(false)
+		expect(manager.queuedMessage).toBe('first')
+		expect(manager.instructions).toBe('the prompt of the send that won the lock')
 	})
 
 	// A turn flushes its queued message by re-entering sendRequest, and the lock
