@@ -459,6 +459,17 @@ pub enum RunnableArgsCarrier {
     /// webhook run route, which implements `?include_header=` itself. Forwarding
     /// the real headers there reuses that machinery, preprocessor shaping
     /// included, rather than reimplementing it on this path.
+    ///
+    /// Injection matters most here rather than least: multi-workspace mode runs
+    /// scripts and flows *only* through these two tools, so a connection that
+    /// forwarded headers everywhere except run-by-path would not carry an
+    /// identity through the gateway at all.
+    ///
+    /// The seam it leaves: a runnable with a preprocessor sees `kind: "webhook"`
+    /// and no `tool_name`, because the proxied route builds the event and that
+    /// route is a webhook. The headers themselves arrive intact, which is what
+    /// the identity rests on; a preprocessor branching on `kind` has to accept
+    /// `"webhook"` for this path.
     WebhookBody,
     /// The argument map is nested under `args`, on a route with no header
     /// support of its own. The names are stripped so the model cannot forge one;
@@ -571,9 +582,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             // and flows are intentionally not enumerated here — doing so across
             // every workspace would overload the tool list; callers run them via
             // runScriptByPath / runFlowByPath with a workspace_id instead.
-            McpMode::Multi(_) => {
-                Ok(self.list_tools_multi(&scope_config, read_only))
-            }
+            McpMode::Multi(_) => Ok(self.list_tools_multi(&scope_config, read_only)),
         }
     }
 
