@@ -1280,8 +1280,9 @@ pub fn diff_worker_configs(
     ConfigsDiff { upserts, deletes }
 }
 
-/// Declaratively replace the global settings, rejecting a `github_app_webhook_base_url`
-/// the API would reject.
+/// Declaratively replace the global settings, rejecting a
+/// `github_app_webhook_base_url` or `http_route_default_allowed_origins` the
+/// API would reject.
 ///
 /// Every declarative writer (the `sync-config` CLI, the Kubernetes operator's
 /// ConfigMap sync) MUST go through this rather than calling
@@ -1329,6 +1330,13 @@ pub async fn sync_global_settings_declarative(
             ));
         }
     }
+
+    // An origin list that cannot be parsed is dropped at boot, leaving the
+    // empty default — which is no restriction at all. Rejecting it here is what
+    // keeps a typo in a ConfigMap from silently widening CORS instance-wide.
+    let origins_key = crate::global_settings::HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING;
+    crate::global_settings::parse_allowed_origins_setting(desired.get(origins_key))
+        .map_err(|e| anyhow::anyhow!("{origins_key}: {e}"))?;
 
     let diff = diff_global_settings(current, desired, ApplyMode::Replace);
     apply_settings_diff(db, &diff).await?;

@@ -137,8 +137,9 @@ impl ResolvedCorsPolicy {
 }
 
 /// Decide the CORS answer from the routers cache, for a request no handler
-/// published a verdict for: a preflight, an unknown path, or a failure before
-/// the trigger lookup.
+/// published a verdict for: a preflight, an unknown path, or any failure ahead
+/// of the publish — authentication included, which runs after the route itself
+/// resolves.
 ///
 /// Loads the routers when the cache is cold, the way `get_http_route_trigger`
 /// does, so a preflight is answered from the same view of the routes as the
@@ -203,9 +204,10 @@ async fn conditional_cors_middleware(
         // the policy this response was produced with, so nothing else can be
         // more authoritative.
         Some(decision) => decision,
-        // No trigger was resolved: a preflight, an unknown path, or a request
-        // that failed before the lookup. No runnable produced this body, so
-        // reading the cache now cannot contradict anything.
+        // No verdict was published: a preflight, an unknown path, or a request
+        // that failed before reaching the publish, authentication included. No
+        // runnable produced this body, so reading the cache cannot contradict
+        // anything.
         None => match lookup {
             Some((method, path)) => {
                 resolve_cors_decision(&db, method, &path, origin.as_ref()).await
