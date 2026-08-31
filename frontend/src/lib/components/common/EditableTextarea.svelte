@@ -79,7 +79,9 @@ blur. The parent owns the canonical state.
 
 	let editing = $state(false)
 	let draft = $state('')
-	let textInputComponent: TextInput | undefined = $state(undefined)
+	// `TextInput` is generic over its underlying element and defaults to `'input'`; this one renders
+	// a textarea, so the binding has to say so or it is typed as the wrong component.
+	let textInputComponent: TextInput<'textarea'> | undefined = $state(undefined)
 
 	function startEditing() {
 		if (!editable) return
