@@ -2810,6 +2810,38 @@ async fn update_resource_type(
         return Err(Error::PermissionDenied(msg));
     }
 
+    // Creation refuses the pair outright, so an edit must too — otherwise the same
+    // impossible type (a set of files that is also one file) is reachable by
+    // setting either half on an existing row. Whichever half the request omits is
+    // read from the row it is editing.
+    let effective_is_fileset = match ns.is_fileset {
+        Some(is_fileset) => is_fileset,
+        None => sqlx::query_scalar!(
+            "SELECT is_fileset FROM resource_type WHERE name = $1 AND workspace_id = $2",
+            &name,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .unwrap_or(false),
+    };
+    let effective_format_extension = match &ns.format_extension {
+        Some(value) => value.clone(),
+        None => sqlx::query_scalar!(
+            "SELECT format_extension FROM resource_type WHERE name = $1 AND workspace_id = $2",
+            &name,
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten(),
+    };
+    if effective_is_fileset && effective_format_extension.is_some() {
+        return Err(Error::BadRequest(
+            "A fileset resource type cannot have a format_extension".to_string(),
+        ));
+    }
+
     let mut sqlb = SqlBuilder::update_table("resource_type");
     sqlb.and_where_eq("name", "?".bind(&name));
     sqlb.and_where_eq("workspace_id", "?".bind(&w_id));
