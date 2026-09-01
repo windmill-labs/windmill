@@ -2988,8 +2988,47 @@ pub(crate) async fn resolve_pg_source_checked(
     w_id: &str,
     source: &str,
 ) -> Result<PgDatabase> {
+    resolve_pg_source_as(db, user_db, authed, w_id, source, false).await
+}
+
+/// As [`resolve_pg_source_checked`], but a workspace admin reaches a data table
+/// as `admin` rather than as the role it defaults to.
+///
+/// For the paths that copy a whole database: dumping as a restricted default
+/// role silently leaves out every table that role cannot read, which is a
+/// truncated copy rather than an error. A non-admin still resolves as their own
+/// role — `admin` is not theirs to ask for — so this hands out nothing.
+pub(crate) async fn resolve_pg_source_for_copy(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    source: &str,
+) -> Result<PgDatabase> {
+    resolve_pg_source_as(db, user_db, authed, w_id, source, authed.is_admin).await
+}
+
+async fn resolve_pg_source_as(
+    db: &DB,
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    source: &str,
+    as_admin: bool,
+) -> Result<PgDatabase> {
     let db_resource = if let Some(name) = source.strip_prefix("datatable://") {
-        get_datatable_resource_as_default_role(db, authed, w_id, name).await?
+        if as_admin {
+            get_datatable_resource_from_db(
+                db,
+                w_id,
+                name,
+                Some(ADMIN_DATATABLE_ROLE),
+                DatatableAccess::Authed(authed.to_authed_ref()),
+            )
+            .await?
+        } else {
+            get_datatable_resource_as_default_role(db, authed, w_id, name).await?
+        }
     } else if let Some(path) = source.strip_prefix("$res:") {
         let db_with_authed = windmill_common::db::DbWithOptAuthed::from_authed(
             authed,
@@ -3466,9 +3505,9 @@ async fn import_pg_database(
     }
 
     let schema_only = req.fork_behavior == DataTableForkBehavior::SchemaOnly;
-    let source_pg = resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.source).await?;
+    let source_pg = resolve_pg_source_for_copy(&db, &user_db, &authed, &w_id, &req.source).await?;
     let mut target_pg =
-        resolve_pg_source_checked(&db, &user_db, &authed, &w_id, &req.target).await?;
+        resolve_pg_source_for_copy(&db, &user_db, &authed, &w_id, &req.target).await?;
 
     if let Some(ref override_dbname) = req.target_dbname_override {
         if !windmill_api_auth::is_super_admin_authed(&db, &authed).await? {

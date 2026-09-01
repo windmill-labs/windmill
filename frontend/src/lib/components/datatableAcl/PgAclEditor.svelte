@@ -191,7 +191,9 @@
 								<Cell>{grantScopeLabel(grant)}</Cell>
 								<Cell last>
 									{@const revokeScope = revokeScopeOf(grant)}
-									{#if info.roles.includes(grant.grantee) && revokeScope}
+									<!-- Reading a target's access needs no ownership of it, so a row
+										on one the caller does not own has nothing to offer. -->
+									{#if info.roles.includes(grant.grantee) && revokeScope && info.can_manage}
 										<Button
 											unifiedSize="xs"
 											variant="default"

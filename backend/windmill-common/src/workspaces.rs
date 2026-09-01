@@ -1297,10 +1297,11 @@ pub async fn get_datatable_resource_from_db_unchecked(
     .await
 }
 
-/// Resolve a data table's connection credentials as `role` (default `admin`),
-/// checking that `access` is allowed to use it when the data table is
-/// permissioned. On an unpermissioned data table only `admin` is accepted, and
-/// the resolution is the same as the unchecked one.
+/// Resolve a data table's connection credentials as `role`, checking that
+/// `access` is allowed to use it when the data table is permissioned. Absent
+/// means the data table's configured default role, which is `admin` only until a
+/// workspace names another one. On an unpermissioned data table only `admin` is
+/// accepted, and the resolution is the same as the unchecked one.
 pub async fn get_datatable_resource_from_db(
     db: &DB,
     w_id: &str,
@@ -1336,12 +1337,6 @@ pub async fn get_datatable_replication_resource_from_db_unchecked(
     .await
 }
 
-/// Resolve which postgres login the data table should be reached through, and
-/// authorize it.
-///
-/// Returns the `(user, password)` to swap into the connection, or `None` when
-/// the data table's own credentials are to be used — which is every
-/// unpermissioned data table, and the `admin` role of a permissioned one.
 /// Look up the role a resolution asks for, without authorizing it.
 ///
 /// `Ok(None)` means the data table is unpermissioned and resolves through its own
@@ -1379,6 +1374,12 @@ fn datatable_role_entry<'a>(
     Ok(Some((role_name.as_str(), role_entry)))
 }
 
+/// Resolve which postgres login the data table should be reached through, and
+/// authorize it.
+///
+/// Returns the `(user, password)` to swap into the connection, or `None` when
+/// the data table's own credentials are to be used — which is every
+/// unpermissioned data table, and the `admin` role of a permissioned one.
 async fn resolve_datatable_role(
     db: &DB,
     w_id: &str,

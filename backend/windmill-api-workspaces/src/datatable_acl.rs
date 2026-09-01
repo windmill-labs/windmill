@@ -294,6 +294,123 @@ async fn connect_as_caller(
     Ok((client, CallerConnection { dbname, current_user }))
 }
 
+/// The first object a change reaches that the connection's role does not own, if
+/// any — the reason a caller may be refused even on a target they do own.
+///
+/// The scopes that read `IN SCHEMA` cover the whole schema whoever owns what is
+/// in it, and `SET OWNER` on a schema moves every object in it; a revoke may
+/// also name objects one at a time. `Target` scope on a table or a schema is the
+/// target itself, which [`can_manage_target`] has already answered.
+async fn first_unmanageable_object(
+    client: &tokio_postgres::Client,
+    target: &AclTarget,
+    change: &AclChange,
+) -> Result<Option<String>> {
+    let Some(schema) = target.schema() else {
+        return Ok(None);
+    };
+
+    // A revoke that names its objects reaches exactly those.
+    if let AclChange::Revoke { objects, .. } = change {
+        if !objects.is_empty() {
+            let named: Vec<String> = objects
+                .iter()
+                .map(|o| match &o.args {
+                    Some(args) => format!("{}({args})", o.name),
+                    None => o.name.clone(),
+                })
+                .collect();
+            let row = client
+                .query_opt(
+                    "SELECT name FROM (
+                         SELECT c.relname AS name, pg_has_role(c.relowner, 'USAGE') AS mine
+                         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                         WHERE n.nspname = $1 AND c.relname = ANY($2)
+                         UNION ALL
+                         SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
+                                pg_has_role(p.proowner, 'USAGE')
+                         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                         WHERE n.nspname = $1
+                           AND p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
+                               = ANY($2)
+                     ) o WHERE NOT o.mine ORDER BY name LIMIT 1",
+                    &[&schema, &named],
+                )
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to read the owners of schema '{schema}': {}",
+                        pg_error_message(&e)
+                    ))
+                })?;
+            return Ok(row.map(|row| format!("{schema}.{}", row.get::<_, String>(0))));
+        }
+    }
+
+    // The object classes the change touches, as `relkind`s and whether routines
+    // are included — Postgres groups views and foreign tables under TABLES.
+    let (relkinds, routines): (&[&str], bool) = match change {
+        AclChange::SetOwner { .. } if matches!(target, AclTarget::Schema { .. }) => {
+            (&["r", "p", "v", "m", "S", "f"], true)
+        }
+        AclChange::SetOwner { .. } => return Ok(None),
+        AclChange::Grant { scope, .. } | AclChange::Revoke { scope, .. } => match scope {
+            GrantScope::AllTables => (&["r", "p", "v", "f"], false),
+            GrantScope::AllSequences => (&["S"], false),
+            GrantScope::AllFunctions => (&[], true),
+            // A future grant creates no statement about an existing object.
+            GrantScope::FutureTables
+            | GrantScope::FutureSequences
+            | GrantScope::FutureFunctions
+            | GrantScope::Target => return Ok(None),
+        },
+    };
+
+    let relkinds: Vec<String> = relkinds.iter().map(|k| k.to_string()).collect();
+    let row = client
+        .query_opt(
+            "SELECT name FROM (
+                 SELECT c.relname AS name, pg_has_role(c.relowner, 'USAGE') AS mine
+                 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = $1 AND c.relkind::text = ANY($2)
+                 UNION ALL
+                 SELECT p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
+                        pg_has_role(p.proowner, 'USAGE')
+                 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+                 WHERE $3 AND n.nspname = $1
+             ) o WHERE NOT o.mine ORDER BY name LIMIT 1",
+            &[&schema, &relkinds, &routines],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the owners of schema '{schema}': {}",
+                pg_error_message(&e)
+            ))
+        })?;
+    Ok(row.map(|row| format!("{schema}.{}", row.get::<_, String>(0))))
+}
+
+/// The data table roles `authed` may themselves run as.
+async fn usable_role_names(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+    authed: &ApiAuthed,
+) -> Result<Vec<String>> {
+    let authed_ref = authed.to_authed_ref();
+    let datatable = read_datatable(db, w_id, datatable_name).await?;
+    Ok(match datatable.permissions.filter(|p| p.enabled) {
+        Some(p) => p
+            .roles
+            .iter()
+            .filter(|(_, role)| can_use_datatable_role(role, &authed_ref))
+            .map(|(name, _)| name.clone())
+            .collect(),
+        None => vec![ADMIN_DATATABLE_ROLE.to_string()],
+    })
+}
+
 /// Whether the connection's role is a member of the target's owner, which is
 /// what "may change its access" means here.
 async fn can_manage_target(client: &tokio_postgres::Client, target: &AclTarget) -> Result<bool> {
@@ -632,17 +749,7 @@ async fn get_datatable_acl(
 
     // Every role is named, since the list is not what is private — what each of
     // them may reach is.
-    let authed_ref = authed.to_authed_ref();
-    let datatable = read_datatable(&db, &w_id, &datatable_name).await?;
-    let usable_roles: Vec<String> = match datatable.permissions.filter(|p| p.enabled) {
-        Some(p) => p
-            .roles
-            .iter()
-            .filter(|(_, role)| can_use_datatable_role(role, &authed_ref))
-            .map(|(name, _)| name.clone())
-            .collect(),
-        None => vec![ADMIN_DATATABLE_ROLE.to_string()],
-    };
+    let usable_roles = usable_role_names(&db, &w_id, &datatable_name, &authed).await?;
 
     Ok(Json(DatatableAclInfo {
         owner: windmill_role_of(&roles, &owner),
@@ -813,15 +920,38 @@ async fn build_acl_plan(
     crate::datatable_permissions::require_datatable_permissions_license().await?;
     let (client, conn) =
         connect_as_caller(db, authed, w_id, datatable_name, req.role.as_deref()).await?;
+    // The objects a revoke names come from the request; the ones it is checked
+    // and planned against come from the catalog.
+    let change = match &req.change {
+        AclChange::Revoke { role, privileges, scope, objects } => AclChange::Revoke {
+            role: role.clone(),
+            privileges: privileges.clone(),
+            scope: *scope,
+            objects: resolve_acl_objects(&client, &req.target, objects).await?,
+        },
+        change => change.clone(),
+    };
     // What the caller's own role may change. Postgres cannot enforce the rule we
     // want on its own — handing an object to a role you are not a member of is
     // refused outright, and granting on one you own needs the grant option — so
     // this is the check, and the statements run as the data table's admin below.
-    if !authed.is_admin && !can_manage_target(&client, &req.target).await? {
-        return Err(Error::NotAuthorized(format!(
-            "{} is owned by a role you are not a member of",
-            req.target.label(&conn.dbname)
-        )));
+    if !authed.is_admin {
+        if !can_manage_target(&client, &req.target).await? {
+            return Err(Error::NotAuthorized(format!(
+                "{} is owned by a role you are not a member of",
+                req.target.label(&conn.dbname)
+            )));
+        }
+        // Owning the target is not owning what a change through it reaches: a
+        // schema-wide scope names every object in the schema, and handing a
+        // schema over takes them all with it. Postgres would have skipped the
+        // ones the caller does not own; these statements run as admin, so it
+        // will not.
+        if let Some(unreachable) = first_unmanageable_object(&client, &req.target, &change).await? {
+            return Err(Error::NotAuthorized(format!(
+                "This change also covers {unreachable}, which is owned by a role you are not a member of"
+            )));
+        }
     }
     let roles = role_map(
         db,
@@ -835,27 +965,24 @@ async fn build_acl_plan(
         AclChange::Grant { role, .. } | AclChange::Revoke { role, .. } => role,
     };
     let pg_role = pg_role_of(&roles, role_name)?;
+    // The roles a plan may also write about: what a schema's new owner is kept
+    // in reach of, and whose future objects a `created later` grant covers. Both
+    // are `ALTER DEFAULT PRIVILEGES FOR ROLE <other>`, which speaks for that role
+    // — so a non-admin only gets the ones they may run as.
+    let usable = usable_role_names(db, w_id, datatable_name, authed).await?;
     let other_pg_roles: Vec<String> = roles
-        .values()
-        .filter(|pg| pg.as_str() != pg_role.as_str())
-        .cloned()
+        .iter()
+        .filter(|(name, pg)| {
+            pg.as_str() != pg_role.as_str()
+                && (authed.is_admin || usable.iter().any(|u| u == name.as_str()))
+        })
+        .map(|(_, pg)| pg.clone())
         .collect();
     let existing_objects = match (&req.change, &req.target) {
         (AclChange::SetOwner { .. }, AclTarget::Schema { schema }) => {
             read_owned_objects(&client, schema).await?
         }
         _ => vec![],
-    };
-    // The objects a revoke names come from the request; the ones it plans with
-    // come from the catalog.
-    let change = match &req.change {
-        AclChange::Revoke { role, privileges, scope, objects } => AclChange::Revoke {
-            role: role.clone(),
-            privileges: privileges.clone(),
-            scope: *scope,
-            objects: resolve_acl_objects(&client, &req.target, objects).await?,
-        },
-        change => change.clone(),
     };
     let plan = crate::datatable_acl_oss::plan_statements(
         &req.target,
