@@ -925,7 +925,7 @@ export function prepareAppSystemMessage(customPrompt?: string): ChatCompletionSy
 	// and role spelled out otherwise. A role names the privileges the app's own
 	// queries run with, so it has to be in the code the model writes.
 	const datatableCall = policy.role
-		? `wmill.datatable('${datatableName}', '${policy.role}')`
+		? `wmill.datatable('${datatableName}', { role: '${policy.role}' })`
 		: datatableName === 'main'
 			? 'wmill.datatable()'
 			: `wmill.datatable('${datatableName}')`
