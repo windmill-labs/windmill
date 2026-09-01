@@ -5273,7 +5273,7 @@ paths:
 
   /w/{workspace}/workspaces/datatable_acl/{datatable_name}:
     get:
-      summary: read the owner and grants of a datatable schema or table (admins only)
+      summary: read the owner and grants of a datatable schema or table
       operationId: getDatatableAcl
       tags:
         - workspace
@@ -5316,7 +5316,7 @@ paths:
 
   /w/{workspace}/workspaces/datatable_acl/{datatable_name}/plan:
     post:
-      summary: preview the SQL an ownership or grant change would run (admins only)
+      summary: preview the SQL an ownership or grant change would run (a non-admin may act on what their role owns)
       operationId: planDatatableAcl
       tags:
         - workspace
@@ -5353,7 +5353,7 @@ paths:
 
   /w/{workspace}/workspaces/datatable_acl/{datatable_name}/apply:
     post:
-      summary: run an ownership or grant change (admins only)
+      summary: run an ownership or grant change (a non-admin may act on what their role owns)
       operationId: applyDatatableAcl
       tags:
         - workspace
