@@ -713,8 +713,8 @@ export class AIChatManager {
 	workspaceResolver: (() => string | undefined) | undefined = undefined
 
 	// The workspace every workspace-scoped chat action targets — skills, tool
-	// loop, logging, user-message context, and commit. Session-resolved when a
-	// resolver is set, else the globally-active workspace.
+	// loop, logging, user-message context, message rendering, and commit.
+	// Session-resolved when a resolver is set, else the globally-active workspace.
 	get operatingWorkspace(): string | undefined {
 		return this.workspaceResolver?.() ?? get(workspaceStore)
 	}
