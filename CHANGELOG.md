@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.800.1](https://github.com/windmill-labs/windmill/compare/v1.800.0...v1.800.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* add top margin to the home Build with AI section ([#10909](https://github.com/windmill-labs/windmill/issues/10909)) ([bedf5ae](https://github.com/windmill-labs/windmill/commit/bedf5ae57445025729e94e16f1b5f13f6ff38ffa))
+* **ai-chat:** consume an @ mention with the message that carried it ([#10907](https://github.com/windmill-labs/windmill/issues/10907)) ([c512110](https://github.com/windmill-labs/windmill/commit/c512110a1f8d0d3437c20048f6446ef62b10222c))
+* keep a local dbt descriptor under sync pull --keep-deleted ([#10911](https://github.com/windmill-labs/windmill/issues/10911)) ([4b5be38](https://github.com/windmill-labs/windmill/commit/4b5be386ce0f851a087f43c0b0ac6e4b1b055a47))
+* keep windmill-indexer out of builds without tantivy ([#10908](https://github.com/windmill-labs/windmill/issues/10908)) ([db0f004](https://github.com/windmill-labs/windmill/commit/db0f004613e3f90428fea4c824cc53f1b2fc03b0))
+
+## [1.800.0](https://github.com/windmill-labs/windmill/compare/v1.799.0...v1.800.0) (2026-08-31)
+
+
+### Features
+
+* add --keep-deleted flag to wmill sync pull and push ([#10878](https://github.com/windmill-labs/windmill/issues/10878)) ([66123f3](https://github.com/windmill-labs/windmill/commit/66123f3a9b8978c0084b02f50b44cffba125a13a))
+* day-partition the service log index and expire whole chunks ([#10893](https://github.com/windmill-labs/windmill/issues/10893)) ([d91ee46](https://github.com/windmill-labs/windmill/commit/d91ee4614a70f20a194f47e190327129f499ec63))
+* free AI tokens + home search/filter revamp ([#10020](https://github.com/windmill-labs/windmill/issues/10020)) ([716ce2e](https://github.com/windmill-labs/windmill/commit/716ce2ece00cd5cfb8641afc6432636bc4aa46e9))
+* make the service log retention period an instance setting ([#10889](https://github.com/windmill-labs/windmill/issues/10889)) ([815de49](https://github.com/windmill-labs/windmill/commit/815de49e2322f85ca92b1e41a2bcd22591ebe93f))
+* rework the evals dataset drawer and run navigation ([#10884](https://github.com/windmill-labs/windmill/issues/10884)) ([1462f17](https://github.com/windmill-labs/windmill/commit/1462f17643302127b4bd76bacfde80cc03f9d606))
+* serve service log context from parquet and retire the raw log files ([#10892](https://github.com/windmill-labs/windmill/issues/10892)) ([338d75c](https://github.com/windmill-labs/windmill/commit/338d75cc5227e352cb84828c99bfd3b984cf0fa5))
+* serve service log retrieval from a columnar parquet store ([#10886](https://github.com/windmill-labs/windmill/issues/10886)) ([7c1a785](https://github.com/windmill-labs/windmill/commit/7c1a785f756ed27e4425f6534709b19971a73a97))
+
+
+### Bug Fixes
+
+* correct the service log ingest flush boundary ([#10898](https://github.com/windmill-labs/windmill/issues/10898)) ([ac56586](https://github.com/windmill-labs/windmill/commit/ac56586c0e56d4022761d3c80306a03d57f8bfcb))
+* harden the service log indexer's recovery and read paths ([#10904](https://github.com/windmill-labs/windmill/issues/10904)) ([831370c](https://github.com/windmill-labs/windmill/commit/831370cdde8e06f4298b17baa1a0041bacdd98c7))
+* keep raw-app editor selection consistent across sidebar and tabs ([#10885](https://github.com/windmill-labs/windmill/issues/10885)) ([b57e231](https://github.com/windmill-labs/windmill/commit/b57e231c2bf5e5fe007f0aa7b958a51e32b47141))
+* register every rotated service log file exactly once ([#10891](https://github.com/windmill-labs/windmill/issues/10891)) ([c817248](https://github.com/windmill-labs/windmill/commit/c8172480b0b1be6c57210212afc71d6ec8711235))
+* show a loading indicator while the initial data table migration is generated ([#10900](https://github.com/windmill-labs/windmill/issues/10900)) ([b998267](https://github.com/windmill-labs/windmill/commit/b998267c91b9dcf02787768f6205cc5aeda494fb))
+* track outstanding service log files on the rows themselves ([#10894](https://github.com/windmill-labs/windmill/issues/10894)) ([aa4a6ff](https://github.com/windmill-labs/windmill/commit/aa4a6ffd66813010a79c07741b01a984ed4e7df6))
+
+
+### Performance Improvements
+
+* add service log documents to the index one batch at a time ([#10906](https://github.com/windmill-labs/windmill/issues/10906)) ([0c2eb0a](https://github.com/windmill-labs/windmill/commit/0c2eb0ae3d18f49c21370131d15011e8dd103746))
+
 ## [1.799.0](https://github.com/windmill-labs/windmill/compare/v1.798.1...v1.799.0) (2026-08-28)
 
 

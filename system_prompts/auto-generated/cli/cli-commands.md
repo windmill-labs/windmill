@@ -605,6 +605,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-groups` - Include syncing groups
   - `--include-settings` - Include syncing workspace settings
   - `--include-key` - Include workspace encryption key
+  - `--keep-deleted` - Do not delete local files for items that no longer exist on the remote workspace. Only adds and updates.
   - `--skip-branch-validation` - Skip git branch validation and prompts
   - `--json-output` - Output results in JSON format
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes
@@ -636,6 +637,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-settings` - Include syncing workspace settings
   - `--include-key` - Include workspace encryption key
   - `--skip-reencrypt-on-key-change` - When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.
+  - `--keep-deleted` - Do not delete remote items that no longer exist locally. Only adds and updates.
   - `--skip-branch-validation` - Skip git branch validation and prompts
   - `--json-output` - Output results in JSON format
   - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)

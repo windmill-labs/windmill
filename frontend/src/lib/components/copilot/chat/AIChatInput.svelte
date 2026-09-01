@@ -13,6 +13,7 @@
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING } from './aiChatManagerContext'
 	import { getChatViewHost } from './chatViewHost'
+	import { getAiChatManager } from './aiChatManagerContext'
 	import { formatMention } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
@@ -746,6 +747,17 @@
 		selectedContext = [...selectedContext, contextToAdd]
 	}
 
+	/** Consume inside the submit gesture, never after it: the manager's preflight
+	 * awaits attachment upkeep and a session fork that can take seconds, and
+	 * consuming past them would hand this message a mention the user picked for
+	 * the next one. */
+	function consumeMentionsIfGlobal() {
+		if (chatHost.mode !== AIMode.GLOBAL) return
+		// The mention context belongs to the copilot's own ContextManager, which only
+		// the manager has — the GLOBAL guard above means this host is always it.
+		getAiChatManager().contextManager?.consumeMentionContext()
+	}
+
 	function sendRequest() {
 		// The send button is disabled while decoding, but Enter reaches here directly.
 		// Sending now would drop the in-flight attachments onto the following message.
@@ -763,6 +775,10 @@
 			])
 		) {
 			draft.take()
+			// The answer carries only its choice strings, so a mention here rides
+			// nothing — but clearForSend below keeps the selection, which would hand
+			// it to the next turn.
+			consumeMentionsIfGlobal()
 			contextTextareaComponent?.clearForSend()
 			return
 		}
@@ -786,6 +802,8 @@
 					[...selectedContext],
 					sent.files
 				)
+				// Consumed at enqueue, not at flush: the entry above pinned them.
+				consumeMentionsIfGlobal()
 				contextTextareaComponent?.clearForSend()
 			}
 			return
@@ -806,18 +824,25 @@
 			onEditEnd()
 		} else {
 			const sent = draft.take()
+			// Pin before consuming: the manager falls back to the live selection only
+			// when given no override, and the consume below empties it.
+			const carried = chatHost.mode === AIMode.GLOBAL ? [...selectedContext] : undefined
+			consumeMentionsIfGlobal()
 			chatHost.sendRequest({
 				instructions: sent.text,
 				pastes: sent.pastes,
 				images: sent.images,
 				files: sent.files,
-				blobs: sent.blobs
+				blobs: sent.blobs,
+				contextOverride: carried,
+				contextOverrideOrigin: carried ? 'pinned' : undefined
 			})
-			// clearForSend() pre-zaps the textarea's mention-sync so the wipe
-			// doesn't drop `selectedContext` before `AIChatManager.beforeSend`
-			// snapshots it. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the
-			// fallback textarea still rely on the draft reset alone (no
-			// `@`-mention state to coordinate).
+			// clearForSend() pre-zaps the textarea's mention-sync so the wipe doesn't
+			// drop `selectedContext` before the send has settled its context: the pin
+			// above in GLOBAL, the manager's own read of the live selection in
+			// SCRIPT/FLOW. Only mounted in SCRIPT/FLOW/GLOBAL — APP and the fallback
+			// textarea still rely on the draft reset alone (no `@`-mention state to
+			// coordinate).
 			contextTextareaComponent?.clearForSend()
 		}
 	}

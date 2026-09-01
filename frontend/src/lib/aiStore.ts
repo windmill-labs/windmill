@@ -7,6 +7,7 @@ import {
 	type AIProviderModel,
 	type AIProvider,
 	type AIConfig,
+	type FreeTierInfo,
 	type ModelPriceOverride
 } from './gen'
 import {
@@ -49,6 +50,10 @@ export const copilotInfo = writable<{
 	/** Negotiated rates per `provider:model`, overriding the built-in price table. */
 	modelPricing?: Record<string, ModelPriceOverride>
 	webSearchEnabledProviders?: Partial<Record<AIProvider, boolean>>
+	// Set only when the workspace has no AI provider of its own and is running on
+	// Windmill's free tier. `exhausted` means the grant is spent: there is no model, but
+	// that is a different state from "never configured" and the UI must say so.
+	freeTier?: FreeTierInfo
 }>({
 	enabled: false,
 	codeCompletionModel: undefined,
@@ -132,8 +137,9 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: aiModels,
 			customPrompts: aiConfig.custom_prompts ?? {},
 			maxTokensPerModel: aiConfig.max_tokens_per_model ?? {},
+			webSearchEnabledProviders,
 			modelPricing: aiConfig.model_pricing ?? {},
-			webSearchEnabledProviders
+			freeTier: aiConfig.free_tier
 		})
 	} else {
 		copilotSessionModel.set(undefined)
@@ -146,8 +152,11 @@ export function setCopilotInfo(aiConfig: AIConfig) {
 			aiModels: [],
 			customPrompts: {},
 			maxTokensPerModel: {},
+			webSearchEnabledProviders: {},
 			modelPricing: {},
-			webSearchEnabledProviders: {}
+			// An exhausted free grant lands here — no providers, but the reason AI is off
+			// is "you used it up", not "you never set it up".
+			freeTier: aiConfig.free_tier
 		})
 	}
 }

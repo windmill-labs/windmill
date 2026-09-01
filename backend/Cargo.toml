@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.799.0"
+version = "1.800.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.799.0"
+version = "1.800.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -131,6 +131,10 @@ quickjs = ["windmill-worker/quickjs", "windmill-api/quickjs"]
 openidconnect = ["windmill-api/openidconnect", "windmill-common/openidconnect", "windmill-object-store/openidconnect"]
 cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud", "windmill-api/cloud"]
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
+# `tantivy` must stay the only feature that enables windmill-indexer: it is the only one that
+# also gives it `enterprise` + `parquet`, and its EE sources gate nearly everything on that
+# pair, so a bare windmill-indexer is a crate of dead code that `-D warnings` rejects. Any
+# other feature wanting one of its features has to use the optional `windmill-indexer?/` form.
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "dep:windmill-runtime-nativets", "windmill-test-utils/deno_core"]

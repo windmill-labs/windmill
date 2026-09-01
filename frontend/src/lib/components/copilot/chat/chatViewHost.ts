@@ -20,6 +20,14 @@ export type ChatSendRequestOptions = {
 	images?: AttachedImage[]
 	files?: AttachedTextFile[]
 	blobs?: AttachedBlob[]
+	/** Selected-context snapshot for this turn, in place of the live selection. Set
+	 * whenever a send settles its context ahead of the turn. A host with no context
+	 * of its own ignores it. */
+	contextOverride?: ContextElement[]
+	/** Where `contextOverride` came from. 'pinned': chips picked for THIS message, so
+	 * they are consumed from the live selection on send. 'replay': an edit or retry
+	 * resending an older message's context, already consumed long ago. */
+	contextOverrideOrigin?: 'pinned' | 'replay'
 }
 
 /**

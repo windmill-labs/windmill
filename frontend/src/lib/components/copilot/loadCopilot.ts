@@ -1,6 +1,14 @@
 import { WorkspaceService } from '$lib/gen'
 import { copilotWorkspace, setCopilotInfo } from '$lib/aiStore'
 import { workspaceAIClients } from './lib'
+import { writable } from 'svelte/store'
+
+// The workspace of the most recent loadCopilot *request*, set synchronously before the
+// await — as opposed to `copilotWorkspace`, which only updates once a load resolves. A
+// background refresh (e.g. free-tier usage) compares against this so it can't supersede an
+// in-flight load for a newer workspace (which would otherwise win the token and restore
+// stale state).
+export const copilotWorkspaceRequested = writable<string | undefined>(undefined)
 
 // Lives here, not in $lib/aiStore, purely so that module needs no import of the AI
 // client — it is the one thing that wanted both. Moving it back recreates the
@@ -20,6 +28,7 @@ let loadCopilotToken = 0
 let inFlight: { workspace: string; promise: Promise<void> } | undefined
 
 export function loadCopilot(workspace: string): Promise<void> {
+	copilotWorkspaceRequested.set(workspace)
 	if (inFlight?.workspace === workspace) {
 		return inFlight.promise
 	}
