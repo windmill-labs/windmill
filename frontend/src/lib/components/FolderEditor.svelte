@@ -467,31 +467,26 @@
 						requestBody: { owner: call.owner, write: call.write }
 					})
 					break
-				case 'remove': {
-					// The two removals are independent, so they run together — but one can land
-					// while the other rejects, and that half still changed the folder. Report it
-					// before rethrowing, or the caller reads the save as never having reached the
-					// server and leaves its baseline behind what the folder now holds.
-					const settled = await Promise.allSettled([
-						FolderService.removeOwnerToFolder({
-							workspace,
-							name,
-							requestBody: { owner: call.owner }
-						}),
-						GranularAclService.removeGranularAcls({
-							workspace,
-							path: name,
-							kind: 'folder',
-							requestBody: { owner: call.owner }
-						})
-					])
-					const failed = settled.find((r) => r.status === 'rejected')
-					if (failed) {
-						if (settled.some((r) => r.status === 'fulfilled')) onApplied()
-						throw failed.reason
-					}
+				case 'remove':
+					// Sequential and ACL first: `owners` is what the update policy matches on, so
+					// giving it up goes last. Run together, `removeowner` can land first and the
+					// ACL delete is then filtered out by RLS — no rows, reported as success, and
+					// the grant the user asked to revoke stays on the folder.
+					await GranularAclService.removeGranularAcls({
+						workspace,
+						path: name,
+						kind: 'folder',
+						requestBody: { owner: call.owner }
+					})
+					// That half reached the server; a failure below leaves the removal applied in
+					// part, which the caller has to know about to reconcile its baseline.
+					onApplied()
+					await FolderService.removeOwnerToFolder({
+						workspace,
+						name,
+						requestBody: { owner: call.owner }
+					})
 					break
-				}
 			}
 			onApplied()
 		}
