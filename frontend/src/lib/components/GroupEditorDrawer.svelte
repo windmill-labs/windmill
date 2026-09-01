@@ -38,6 +38,10 @@
 		discarding = false
 		confirmDiscardOpen = false
 		exists = nextMode === 'edit'
+		// The remounted editor reports these on its first effect, which is a tick away. Until
+		// then the header would carry the last group's answers.
+		canSave = false
+		unsaved = false
 		instance++
 		drawer?.openDrawer()
 	}

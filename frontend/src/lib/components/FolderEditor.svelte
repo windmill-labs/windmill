@@ -442,6 +442,9 @@
 			? ['u/' + membership.username, ...(membership.pgroups ?? [])]
 			: []
 		for (const call of folderPermissionDiff(prev, next, callerOwners)) {
+			// Before the call, not after: these handlers commit and then run a git-sync step
+			// that can still fail the request, so a rejection is not proof nothing landed.
+			onApplied()
 			switch (call.kind) {
 				case 'grantAdmin':
 					await FolderService.addOwnerToFolder({
@@ -475,9 +478,6 @@
 						name,
 						requestBody: { owner: call.owner }
 					})
-					// That half reached the server; a failure below leaves the removal applied in
-					// part, which the caller has to know about to reconcile its baseline.
-					onApplied()
 					await GranularAclService.removeGranularAcls({
 						workspace,
 						path: name,
@@ -497,7 +497,10 @@
 		const next = $state.snapshot(draft) as FolderDraft
 		const prev = baseline as FolderDraft
 		// Captured before the write: an edit-branch save reloads, which clears `folderNotFound`.
-		// `committed` tracks whether any request landed, which decides what a failure means.
+		// `committed` tracks whether any request was sent, which decides what a failure means.
+		// Set before each await rather than after: these handlers commit and then run a
+		// git-sync step that can still fail the request, so a rejection is not proof nothing
+		// landed.
 		const created = isNew
 		let committed = false
 		try {
@@ -528,8 +531,8 @@
 					requestBody.default_permissioned_as = next.defaultPermissionedAs
 				}
 				if (Object.keys(requestBody).length > 0) {
-					await FolderService.updateFolder({ workspace: targetWorkspace, name, requestBody })
 					committed = true
+					await FolderService.updateFolder({ workspace: targetWorkspace, name, requestBody })
 				}
 				await applyPermissionChanges(next.perms, prev.perms, () => (committed = true))
 				await loadFolder()
@@ -538,6 +541,14 @@
 			return { name, created }
 		} catch (e) {
 			sendUserToast(e.body ?? String(e), true)
+			// A failed create is not proof the folder is absent: `create_folder` commits before a
+			// git-sync step that can still fail the request. Only the name conflict says it was
+			// never written. Report rather than resolve — a folder found by name may be someone
+			// else's, and adopting it would send this draft's writes there.
+			const nameTaken = String(e?.body ?? '').includes('already exists')
+			if (created && !nameTaken) {
+				sendUserToast(`Folder ${name} may have been created anyway — reopen it to check`, true)
+			}
 			// The calls are sequential, so a rejection can land with earlier ones committed. Move
 			// the baseline to what the server now holds and keep the draft: what was applied
 			// stops being dirty, what was not stays dirty, and a retry re-sends only that.

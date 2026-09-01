@@ -249,6 +249,9 @@
 	) {
 		const workspace = $workspaceStore ?? ''
 		for (const call of groupMemberDiff(prev, next, $userStore?.username)) {
+			// Before the call, not after: these handlers commit and then run a git-sync step
+			// that can still fail the request, so a rejection is not proof nothing landed.
+			onApplied()
 			switch (call.kind) {
 				case 'addUser':
 					await GroupService.addUserToGroup({
@@ -281,7 +284,6 @@
 					})
 					break
 			}
-			onApplied()
 		}
 	}
 
@@ -289,7 +291,9 @@
 		const next = $state.snapshot(draft) as GroupDraft
 		const prev = baseline as GroupDraft
 		const created = isNew
-		// Tracks whether any request landed, which decides what a failure means.
+		// Tracks whether any request was sent, which decides what a failure means. Set before
+		// each await rather than after: these handlers commit and then run a git-sync step
+		// that can still fail the request, so a rejection is not proof nothing landed.
 		let committed = false
 		try {
 			if (created) {
@@ -304,12 +308,12 @@
 				sendUserToast(`Group ${name} created`)
 			} else {
 				if (next.summary !== prev.summary) {
+					committed = true
 					await GroupService.updateGroup({
 						workspace: $workspaceStore ?? '',
 						name,
 						requestBody: { summary: next.summary }
 					})
-					committed = true
 				}
 				await applyMemberChanges(next.members, prev.members, () => (committed = true))
 				await loadGroup()
