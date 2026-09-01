@@ -355,7 +355,9 @@ async fn first_unmanageable_object(
         }
         AclChange::SetOwner { .. } => return Ok(None),
         AclChange::Grant { scope, .. } | AclChange::Revoke { scope, .. } => match scope {
-            GrantScope::AllTables => (&["r", "p", "v", "f"], false),
+            // `ON ALL TABLES` covers views, materialized views and foreign
+            // tables too — everything Postgres treats as a table for grants.
+            GrantScope::AllTables => (&["r", "p", "v", "m", "f"], false),
             GrantScope::AllSequences => (&["S"], false),
             GrantScope::AllFunctions => (&[], true),
             // A future grant creates no statement about an existing object.
