@@ -12,7 +12,6 @@ use sql_builder::prelude::*;
 use windmill_common::auth::create_jwt_token;
 use windmill_common::db::{Authed, UserDB};
 use windmill_common::error::Error;
-use windmill_common::feature_usage::log_feature_usage;
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
@@ -887,7 +886,6 @@ pub async fn prepare_push_args(
             // The whole request, the way every other trigger hands one to a
             // preprocessor.
             let headers = build_headers(request.headers, None, true);
-            log_feature_usage("mcp", "header_passthrough", "preprocessor");
             match version {
                 RunnableFormatVersion::V2 => {
                     let event = McpPreprocessorEvent {

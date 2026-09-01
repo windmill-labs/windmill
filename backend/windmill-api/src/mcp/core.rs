@@ -16,8 +16,6 @@ use windmill_mcp::server::{
     BackendResult, EndpointTool, ErrorData, McpBackend, McpRequest, PathFilter,
 };
 
-use windmill_common::feature_usage::log_feature_usage;
-
 use crate::auth::AuthCache;
 use crate::db::ApiAuthed;
 use crate::jobs::{
@@ -309,14 +307,6 @@ impl McpBackend for WindmillBackend {
         let forwarded =
             headers_for_proxied_run(&self.db, workspace_id, endpoint_tool, args_map, request)
                 .await?;
-        if !forwarded.is_empty() {
-            // Counted here as well as in `prepare_push_args`: this is the only
-            // route multi-workspace mode has to a runnable, so leaving it out
-            // would record nothing at all for gateway connections. Both keys count
-            // a delivery, not a call — this arm only forwards when the target has
-            // a preprocessor to receive it.
-            log_feature_usage("mcp", "header_passthrough", "proxy");
-        }
 
         // Prepare request body
         let body_json = build_request_body(endpoint_tool, args_map)?;
