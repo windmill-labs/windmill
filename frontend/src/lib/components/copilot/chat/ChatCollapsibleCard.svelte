@@ -13,6 +13,9 @@
 		toggleable?: boolean
 		// Sweeps a highlight across the label while the row is in progress.
 		shimmer?: boolean
+		// Ahead of the label, inside the toggle button: a status that reads as part of the
+		// row rather than as another control, leaving the chevron next to the label it opens.
+		headerLeft?: Snippet
 		// Pinned to the right of the header row, outside the toggle button.
 		headerRight?: Snippet
 		// Always-visible content between the header and the expandable body.
@@ -30,6 +33,7 @@
 		onToggle,
 		toggleable = true,
 		shimmer = false,
+		headerLeft,
 		headerRight,
 		belowHeader,
 		children,
@@ -62,6 +66,7 @@
 			onclick={onToggle}
 			disabled={!toggleable}
 		>
+			{@render headerLeft?.()}
 			{#if shimmer}
 				<span class="shimmer inline-flex items-center min-w-0">
 					{@render labelText(false)}

@@ -530,17 +530,11 @@ function createRuntime(session: Session): SessionRuntime {
 		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
 	}
 	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
-	// away from is unmounted but still open, and the card must stay collapsed until it is
-	// closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
+	// away from is unmounted but still open, and the card must keep its form hidden until it
+	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
 	// to `tabs` through it, and the runtime is not inside an effect root to push from.
-	manager.isCallInPreview = ({ toolCallId, jobId }) =>
-		previewTabs.tabs.some((t) => {
-			const form = parseRunFormRoute(t.url)
-			if (form) return form.toolCallId === toolCallId
-			// The run page of this call's own job, whether the tab got there by following the
-			// form or was opened straight onto it.
-			return !!jobId && t.url.startsWith(`${base}/run/${jobId}`)
-		})
+	manager.isRunFormInPreview = (toolCallId) =>
+		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
 
 	manager.openArtifact = (id, name, version) => {
 		previewTabs.open({ type: 'artifact', id, name, version })

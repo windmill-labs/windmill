@@ -608,6 +608,9 @@ export type ToolDisplayMessage = {
 	content: string
 	parameters?: any
 	result?: any
+	/** What the job has streamed of its result so far, while it is still running.
+	 * Cleared when the job lands: `result` is then the whole of it. */
+	resultStream?: string
 	logs?: string
 	isLoading?: boolean
 	/** Arguments fully streamed but execution not started (see queuedToolStatus). */
@@ -1627,6 +1630,42 @@ export type BackgroundJobFormatter = (job: CompletedJob) => {
 	card: Partial<ToolDisplayMessage>
 }
 
+/** Reads a running job's output incrementally through `getJobUpdates`, which is the
+ * only endpoint carrying `new_result_stream`: `getJob` returns logs but never the
+ * partial result, so a script that streams would show nothing until it landed. Both
+ * the inline wait and the background poller drive one of these, so a run that detaches
+ * keeps streaming; each reader accumulates its own copy, so a poller that starts over
+ * (after a reload) refetches from offset 0 rather than appending to what it cannot see. */
+export function createJobUpdateReader(jobId: string, workspace: string) {
+	let logs = ''
+	let resultStream = ''
+	let logOffset = 0
+	let streamOffset = 0
+	let started = false
+	return {
+		async poll(): Promise<{ completed: boolean; logs: string; resultStream: string }> {
+			const update = await JobService.getJobUpdates({
+				workspace,
+				id: jobId,
+				running: started,
+				logOffset,
+				streamOffset
+			})
+			started ||= update.running ?? false
+			// Both kept as a tail: the offsets come from the server, so dropping the head
+			// costs nothing here, and neither is the record of the run — the logs are on the
+			// job, and a streamed partial is replaced by the result the moment it lands.
+			if (update.new_logs) logs = (logs + update.new_logs).slice(-MAX_LOG_LENGTH)
+			if (update.new_result_stream) {
+				resultStream = (resultStream + update.new_result_stream).slice(-MAX_LOG_LENGTH)
+			}
+			if (update.log_offset) logOffset = update.log_offset
+			if (update.stream_offset) streamOffset = update.stream_offset
+			return { completed: update.completed ?? false, logs, resultStream }
+		}
+	}
+}
+
 // Common job polling function.
 //
 // Two modes, selected by whether `detachAfterMs` is provided:
@@ -1646,35 +1685,51 @@ export async function pollJobCompletion(
 	const maxAttempts = detachEnabled ? Math.ceil((options?.detachAfterMs ?? 0) / 1000) : 60
 	let attempts = 0
 	let job: CompletedJob | null = null
+	const reader = createJobUpdateReader(jobId, workspace)
 
 	while (attempts < maxAttempts) {
 		await new Promise((resolve) => setTimeout(resolve, 1000))
 		attempts++
 
 		try {
+			const update = await reader.poll()
+			// The tray's snapshot is trimmed of logs (it is persisted), so the card is the
+			// only place a running job's output can land. Cards that hide their logs while
+			// loading are unaffected; the run card follows them line by line.
+			toolCallbacks.setToolStatus(toolId, {
+				logs: formatLogs(update.logs),
+				resultStream: update.resultStream || undefined
+			})
+
+			if (update.completed) {
+				// Fetched whole rather than assembled from the ticks: the reader stops at
+				// whatever the last one saw, and the tail written between then and the job
+				// landing is only on the job itself.
+				const completed = await JobService.getJob({
+					workspace: workspace,
+					id: jobId,
+					noLogs: false,
+					noCode: true
+				})
+				if (completed.type === 'CompletedJob') {
+					job = completed
+					break
+				}
+			}
+
+			// Keeps the tray's status + Job snapshot fresh during the inline wait. Its logs
+			// are skipped because the reader above already has them; the badge needs the real
+			// Job to tell running from suspended or scheduled, which the updates do not say.
 			const fetchedJob = await JobService.getJob({
 				workspace: workspace,
 				id: jobId,
-				noLogs: false,
+				noLogs: true,
 				noCode: true
 			})
-
-			if (fetchedJob.type === 'CompletedJob') {
-				job = fetchedJob
-				break
-			}
-			// Keep the tray's status + Job snapshot fresh during the inline wait.
 			toolCallbacks.onJobStatus?.(jobId, {
 				status: deriveChatJobStatus(fetchedJob),
 				job: trimJob(fetchedJob)
 			})
-			// The tray's snapshot is trimmed of logs (it is persisted), so the card is the
-			// only place a running job's output can land. Cards that hide their logs while
-			// loading are unaffected; the run card follows them line by line.
-			const streamed = formatLogs(fetchedJob.logs)
-			if (streamed) {
-				toolCallbacks.setToolStatus(toolId, { logs: streamed })
-			}
 		} catch (error) {
 			if (!detachEnabled && attempts >= maxAttempts) {
 				throw error
@@ -1790,13 +1845,16 @@ export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMe
 		return {
 			content: 'Background job canceled',
 			result: formatResult(job.result),
-			logs: formatLogs(job.logs)
+			logs: formatLogs(job.logs),
+			resultStream: undefined
 		}
 	}
 	return {
 		content: `Background job ${job.success ? 'completed successfully' : 'failed'}`,
 		result: formatResult(job.result),
 		logs: formatLogs(job.logs),
+		// The partial is the result now — see the inline terminal branch.
+		resultStream: undefined,
 		...(job.success ? {} : { error: getErrorMessage(job.result) })
 	}
 }
@@ -1902,6 +1960,9 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			content: `${contextName} ${actionNoun} ${job.success ? 'completed successfully' : 'failed'}`,
 			result: formatResult(job.result),
 			logs: formatLogs(job.logs),
+			// The partial is the result now, so the card reads it off `result` alone and the
+			// transcript stops carrying a second copy of a streamed answer.
+			resultStream: undefined,
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 

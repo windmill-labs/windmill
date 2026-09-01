@@ -57,6 +57,13 @@
 
 	const fades = scrollFades()
 	const { container: fadeContainer, content: fadeContent, measure: measureFades } = fades
+	// The two hosts stand on different surfaces — the chat card on the tool call's own, the
+	// preview tab on the raised one — and a fade has to end in the colour behind it.
+	const fadeTo = $derived(
+		layout === 'pane'
+			? 'bg-gradient-to-t from-surface-tertiary via-surface-tertiary/60 to-transparent'
+			: 'bg-gradient-to-t from-surface via-surface/60 to-transparent'
+	)
 
 	async function run() {
 		if (submitting || !isValid) return
@@ -106,57 +113,52 @@
      on this phase only, which is why a settled card drops it with the form. -->
 <div
 	bind:this={cardNode}
-	class={twMerge('flex flex-col', layout === 'pane' ? 'h-full min-h-0' : '')}
+	class={twMerge('flex flex-col', layout === 'pane' ? 'h-full min-h-0' : 'pt-3')}
 	data-chat-keyboard-scope="run-args-form"
 >
 	<!-- Only the fields scroll. A script with many arguments would otherwise grow a card
 	     taller than the pane, pushing the Run button and the lines naming what the form
 	     dropped — a secret it opened empty among them — below the fold. `both-edges` reserves
 	     the gutter on both sides, so the fields stay centred rather than drifting left of it. -->
-	<div
-		use:fadeContainer
-		onscroll={measureFades}
-		class={twMerge(
-			'overflow-y-auto px-3',
-			layout === 'pane' ? 'min-h-0 flex-1' : 'max-h-[min(28rem,50vh)]'
-		)}
-		style="scrollbar-gutter: stable both-edges;"
-	>
-		<!-- Fades what scrolls under the heading and over the actions instead of cutting it, as
-		     ArtifactViewer does under its own header. The negative margins cancel the flow height
-		     so each overlays the fields rather than pushing them, which is also why toggling one
-		     moves nothing. The scroller carries no vertical padding: sticky cannot enter it, so a
-		     padded box would fade short of its own edges and leave a band of content sharp. The
-		     heading and the actions pad this gap instead. -->
-		{#if fades.top}
-			<div class="sticky top-0 z-10 -mb-3 h-3 bg-gradient-to-b from-surface-tertiary to-transparent"
-			></div>
-		{/if}
-		<div use:fadeContent>
-			{#if hasArgs}
-				<!-- The one thing here that runs before Run: a `dynselect-`/`dynmultiselect-`
+	<div class={twMerge('relative flex flex-col', layout === 'pane' ? 'min-h-0 flex-1' : '')}>
+		<div
+			use:fadeContainer
+			onscroll={measureFades}
+			class={twMerge(
+				'overflow-y-auto px-3',
+				layout === 'pane' ? 'min-h-0 flex-1' : 'max-h-[min(28rem,50vh)]'
+			)}
+			style="scrollbar-gutter: stable both-edges;"
+		>
+			<div use:fadeContent>
+				{#if hasArgs}
+					<!-- The one thing here that runs before Run: a `dynselect-`/`dynmultiselect-`
 			argument makes DynamicInput execute that entrypoint on mount to fill its options —
 			a real job on the deployed script, carrying the other args as proposed, and Cancel
 			does not undo it. Everything else waits for the user; keep it that way. -->
-				<SchemaForm
-					bind:schema={draft.schema}
-					helperScript={planMode
-						? undefined
-						: { source: 'deployed', path: runForm.path, runnable_kind: 'script' }}
-					disabled={planMode}
-					{workspace}
-					prettifyHeader
-					lightHeader
-					bind:isValid
-					bind:args={draft.args}
-				/>
-			{:else}
-				<p class="text-xs text-secondary">This script takes no arguments.</p>
-			{/if}
+					<SchemaForm
+						bind:schema={draft.schema}
+						helperScript={planMode
+							? undefined
+							: { source: 'deployed', path: runForm.path, runnable_kind: 'script' }}
+						disabled={planMode}
+						{workspace}
+						prettifyHeader
+						lightHeader
+						bind:isValid
+						bind:args={draft.args}
+					/>
+				{:else}
+					<p class="text-xs text-secondary">This script takes no arguments.</p>
+				{/if}
+			</div>
 		</div>
+		<!-- Only what is still below, and only while there is some: the fade the tool cards draw
+		     under their own content, over the scroller rather than inside it. Nothing at the top —
+		     having scrolled down is itself the knowledge that there is more up there. -->
 		{#if fades.bottom}
 			<div
-				class="sticky bottom-0 z-10 -mt-3 h-3 bg-gradient-to-t from-surface-tertiary to-transparent"
+				class={twMerge('pointer-events-none absolute inset-x-0 bottom-0 h-[min(2rem,25%)]', fadeTo)}
 			></div>
 		{/if}
 	</div>
@@ -192,19 +194,12 @@
 			<p class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.runFormRefused}</p>
 		{/if}
 
-		<!-- Both buttons rest while a submit is in flight: the ephemeral variables exist by
-		     then, so cancelling would settle the call as declined on a run that is already
-		     starting. Marked as the one part of the form Escape still stops the turn from. -->
-		<div class="flex items-center gap-2" data-run-form-actions>
-			<Button
-				variant="accent"
-				unifiedSize="sm"
-				startIcon={{ icon: Play }}
-				disabled={!isValid || submitting || planMode}
-				onClick={run}
-			>
-				Run
-			</Button>
+		<!-- Reject then confirm at the end of the row, as ToolConfirmationFooter puts them:
+		     this is a tool call being validated. Both rest while a submit is in flight, since
+		     the ephemeral variables exist by then and cancelling would settle the call as
+		     declined on a run already starting. Escape stops the turn from here and nowhere
+		     else in the form. -->
+		<div class="flex items-center justify-end gap-2" data-run-form-actions>
 			<Button
 				variant="default"
 				unifiedSize="sm"
@@ -213,6 +208,15 @@
 				onClick={() => aiChatManager.handleRunFormCancel(toolCallId)}
 			>
 				Cancel
+			</Button>
+			<Button
+				variant="accent"
+				unifiedSize="sm"
+				startIcon={{ icon: Play }}
+				disabled={!isValid || submitting || planMode}
+				onClick={run}
+			>
+				Run
 			</Button>
 		</div>
 	</div>

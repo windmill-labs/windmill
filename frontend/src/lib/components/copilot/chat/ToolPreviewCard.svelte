@@ -8,15 +8,23 @@
 
 	interface Props {
 		card: { kind: PreviewCardKind; path: string }
+		/** Opens something other than the item's own preview — the run card opens the call
+		 * it owns, which is a form before it is a run. */
+		onOpen?: () => void
+		title?: string
 	}
 
-	let { card }: Props = $props()
+	let { card, onOpen, title }: Props = $props()
 
 	const kindLabel = $derived(card.kind === 'raw_app' ? 'app' : card.kind)
 
 	let opening = $state(false)
 	async function open() {
 		if (opening) return
+		if (onOpen) {
+			onOpen()
+			return
+		}
 		opening = true
 		try {
 			await runToolDisplayAction(openItemPreviewAction(card.kind, card.path))
@@ -30,7 +38,7 @@
 	variant="default"
 	unifiedSize="2xs"
 	disabled={opening}
-	title="Open {kindLabel} preview: {card.path}"
+	title={title ?? `Open ${kindLabel} preview: ${card.path}`}
 	onClick={open}
 	startIcon={{ icon: RowIcon as unknown as IconType, props: { kind: card.kind, size: 12 } }}
 	endIcon={{ icon: PanelRight }}
