@@ -51,5 +51,27 @@ JOIN folder f
     ON f.workspace_id = s.workspace_id
    AND f.name = 'skills'
    AND f.extra_perms = '{"g/all": false}'::jsonb
-   AND f.owners = ARRAY[]::TEXT[]
+   AND cardinality(f.owners) = 0
 ON CONFLICT (workspace_id, path) DO NOTHING;
+
+-- Anything not copied above is still in `ai_skill`, but nothing reads that table
+-- any more, so from the app's side the skill is missing until an operator places
+-- it. Name them rather than leaving that to be discovered.
+DO $$
+DECLARE
+    leftover RECORD;
+BEGIN
+    FOR leftover IN
+        SELECT s.workspace_id, s.name
+        FROM ai_skill s
+        WHERE NOT EXISTS (
+            SELECT 1 FROM resource r
+            WHERE r.workspace_id = s.workspace_id
+              AND r.path = 'f/skills/' || s.name
+              AND r.resource_type = 'ai_skill'
+        )
+    LOOP
+        RAISE WARNING 'ai_skill %/% was not copied to a resource (its destination or the f/skills folder is already taken); it remains in the ai_skill table',
+            leftover.workspace_id, leftover.name;
+    END LOOP;
+END $$;

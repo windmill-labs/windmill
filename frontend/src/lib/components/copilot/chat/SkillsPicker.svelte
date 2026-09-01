@@ -307,8 +307,13 @@ What the assistant should do when this skill applies.
 	}
 
 	async function openSkill(skill: Row, mode: 'view' | 'edit') {
+		// Pinned across the await: the workspace can change while the body loads, and
+		// closing the editor then would not stop this from reopening it with the old
+		// workspace's content — which submitEditor would save into the new one.
+		const source = ws
 		try {
-			const instructions = await readSkillBody(ws, skill.path)
+			const instructions = await readSkillBody(source, skill.path)
+			if (source !== ws) return
 			content = buildSkillMd({
 				name: skill.name,
 				description: skill.description,
