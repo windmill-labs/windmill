@@ -132,6 +132,9 @@
 		onImport
 	}: Props = $props()
 
+	/** Shown on the entries the server refuses to plan without a license. */
+	const EE_PERMISSIONS_TOOLTIP = 'Data table permissions require an Enterprise license'
+
 	const sameTable = (a: SelectedTable, b: SelectedTable) =>
 		a.datatable === b.datatable && a.schema === b.schema && a.table === b.table
 
@@ -237,8 +240,6 @@
 	/** Whether the connected role may change access on an object: Postgres asks
 	 * for membership of its owner, so for the rest the entry is not offered. */
 	function canManage(datatable: string | undefined, schemaKey: string, table?: string): boolean {
-		// The server refuses to plan any of it without a license.
-		if (!$enterpriseLicense) return false
 		// A workspace admin manages the data table itself, so nothing in it is
 		// hidden from them — `public` is owned by neither Windmill nor its roles.
 		if (canManageDatatable) return true
@@ -690,11 +691,13 @@
 											icon: HistoryIcon,
 											action: () => onDatatableAction?.(dt, 'migrations')
 										},
-										...(canManageDatatable && $enterpriseLicense
+										...(canManageDatatable
 											? [
 													{
 														displayName: 'Roles',
 														icon: KeyRoundIcon,
+														disabled: !$enterpriseLicense,
+														tooltip: EE_PERMISSIONS_TOOLTIP,
 														action: () => onDatatableAction?.(dt, 'roles')
 													}
 												]
@@ -753,6 +756,8 @@
 															{
 																displayName: 'Permissions',
 																icon: KeyRoundIcon,
+																disabled: !$enterpriseLicense,
+																tooltip: EE_PERMISSIONS_TOOLTIP,
 																action: () =>
 																	(aclDrawer = {
 																		datatable: root.datatable,
@@ -839,6 +844,8 @@
 																	{
 																		displayName: 'Permissions',
 																		icon: KeyRoundIcon,
+																		disabled: !$enterpriseLicense,
+																		tooltip: EE_PERMISSIONS_TOOLTIP,
 																		action: () =>
 																			(aclDrawer = {
 																				datatable: root.datatable,

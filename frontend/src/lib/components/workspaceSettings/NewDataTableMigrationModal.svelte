@@ -239,7 +239,9 @@
 				class="grow"
 				inputProps={{ placeholder: 'Migration name (e.g. add_index_to_customers)' }}
 			/>
-			{#if roleItems.length > 1}
+			<!-- One role is still a choice worth showing when it is not the default
+				 the migration would otherwise run as. -->
+			{#if roleItems.length > 1 || (roleItems.length === 1 && roleItems[0].value !== usableRoles.current?.default_role)}
 				<Select
 					transformInputSelectedText={(s) => `Role: ${s}`}
 					items={roleItems}

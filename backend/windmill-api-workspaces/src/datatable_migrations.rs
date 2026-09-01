@@ -445,7 +445,7 @@ async fn run_datatable_migrations(
 
     let applied_versions = read_applied_versions_on_client(&client, &datatable_name).await?;
 
-    let mut applied = Vec::new();
+    let mut to_run = Vec::new();
     for m in migrations {
         if let Some(only) = query.only {
             // Run a single specific migration, skipping every other one.
@@ -459,11 +459,28 @@ async fn run_datatable_migrations(
         if applied_versions.contains(&m.timestamp) {
             continue;
         }
-        // Fail the batch rather than skip: a migration the caller may not run is a
-        // gap in an ordered sequence, and silently leaving it out would apply
-        // later ones on top of a schema that never got this change.
-        ensure_migration_role_allowed(&db, &w_id, &datatable_name, &authed, &m.code_up, m.timestamp, &m.name)
-            .await?;
+        to_run.push(m);
+    }
+
+    // Fail the batch rather than skip: a migration the caller may not run is a
+    // gap in an ordered sequence, and silently leaving it out would apply later
+    // ones on top of a schema that never got this change. Checked for the whole
+    // batch first, so the refusal does not land half way through it.
+    for m in to_run.iter() {
+        ensure_migration_role_allowed(
+            &db,
+            &w_id,
+            &datatable_name,
+            &authed,
+            &m.code_up,
+            m.timestamp,
+            &m.name,
+        )
+        .await?;
+    }
+
+    let mut applied = Vec::new();
+    for m in to_run {
         run_datatable_migration_job(&db, &user_db, &authed, &w_id, &database_arg, &m.code_up)
             .await
             .map_err(|e| {
@@ -860,7 +877,8 @@ async fn enable_datatable_migrations(
     // Opting in to migrations is one of the places an admin passes through, and
     // an instance database provisioned before the grants carried their options
     // cannot hand privileges to the roles permissions create.
-    crate::datatable_permissions::ensure_instance_db_can_delegate(&db, &w_id, &datatable_name).await;
+    crate::datatable_permissions::ensure_instance_db_can_delegate(&db, &w_id, &datatable_name)
+        .await;
 
     audit_log(
         &db,

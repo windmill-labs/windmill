@@ -1426,10 +1426,20 @@ async fn resolve_datatable_role(
         )));
     }
 
-    Ok(role_entry
-        .pg_rolename
-        .clone()
-        .zip(role_entry.pg_password.clone()))
+    // A role named without a stored credential is not a reason to fall back to
+    // the data table's own connection: that one owns everything, so the caller
+    // would silently get more than the role they asked for. Exports and
+    // git-synced settings redact the password, so a restored config lands here.
+    match (
+        role_entry.pg_rolename.clone(),
+        role_entry.pg_password.clone(),
+    ) {
+        (Some(rolename), Some(password)) => Ok(Some((rolename, password))),
+        (Some(_), None) => Err(Error::internal_err(format!(
+            "Role '{role_name}' of data table '{name}' has no stored credential; save its permissions again to reset it"
+        ))),
+        (None, _) => Ok(None),
+    }
 }
 
 async fn get_datatable_resource_inner(

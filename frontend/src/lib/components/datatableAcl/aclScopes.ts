@@ -130,6 +130,17 @@ export function groupGrants(grants: AclGrant[]): GroupedGrant[] {
 	return rows
 }
 
+/** The scope a revoke of this row takes, or `undefined` when the builder cannot
+ * express it — Postgres also records default privileges on types, which nothing
+ * here grants and the API has no scope for. */
+export function revokeScopeOf(grant: GroupedGrant): AclScope | undefined {
+	if (!grant.future) return 'target'
+	const scope = `future_${grant.future.toLowerCase()}`
+	return (['future_tables', 'future_sequences', 'future_functions'] as const).find(
+		(s) => s === scope
+	)
+}
+
 /** How a row reads back: what it covers, in one phrase. */
 export function grantScopeLabel(grant: GroupedGrant): string {
 	if (grant.future) return `${grant.future.toLowerCase()} created later`

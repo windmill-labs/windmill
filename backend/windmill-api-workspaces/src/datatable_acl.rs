@@ -241,6 +241,20 @@ async fn connect_as_caller(
     datatable_name: &str,
     role: Option<&str>,
 ) -> Result<(tokio_postgres::Client, CallerConnection)> {
+    // A permissioned data table hands out a connection per role, and the tenant
+    // lists are what say who reaches which. Without permissions every member
+    // resolves to the data table's own connection, which owns everything — so
+    // there it is the workspace admins' to change, as the roles themselves are.
+    if !authed.is_admin
+        && !read_datatable(db, w_id, datatable_name)
+            .await?
+            .permissions
+            .is_some_and(|p| p.enabled)
+    {
+        return Err(Error::NotAuthorized(format!(
+            "Only an admin can manage access on data table '{datatable_name}', which has no roles"
+        )));
+    }
     let resource = get_datatable_resource_from_db(
         db,
         w_id,

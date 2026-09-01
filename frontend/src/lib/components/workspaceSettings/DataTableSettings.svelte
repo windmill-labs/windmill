@@ -469,19 +469,17 @@
 								tooltip: 'Save the settings first',
 								action: () => migrationsButtons[dataTable.name]?.open()
 							},
-							// The server refuses to plan a permissions change without a
-							// license, so the entry is not offered either.
-							...($enterpriseLicense
-								? [
-										{
-											displayName: 'Permissions',
-											icon: KeyRound,
-											disabled: !!dirtyMap[dataTable.name],
-											tooltip: 'Save the settings first',
-											action: () => permissionsButtons[dataTable.name]?.openPermissions()
-										}
-									]
-								: []),
+							{
+								displayName: 'Permissions',
+								icon: KeyRound,
+								// The server refuses to plan a permissions change without a
+								// license, so the entry says so rather than failing later.
+								disabled: !!dirtyMap[dataTable.name] || !$enterpriseLicense,
+								tooltip: !$enterpriseLicense
+									? 'Data table permissions require an Enterprise license'
+									: 'Save the settings first',
+								action: () => permissionsButtons[dataTable.name]?.openPermissions()
+							},
 							{
 								displayName: 'Remove',
 								icon: Trash2,

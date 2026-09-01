@@ -13,7 +13,7 @@
 	import Cell from '../table/Cell.svelte'
 	import { Trash2 } from 'lucide-svelte'
 	import PgGrantBuilder from './PgGrantBuilder.svelte'
-	import { grantScopeLabel, groupGrants, type AclScope } from './aclScopes'
+	import { grantScopeLabel, groupGrants, revokeScopeOf } from './aclScopes'
 
 	let {
 		workspace,
@@ -190,7 +190,8 @@
 								<Cell><span class="font-mono text-2xs">{grant.privileges.join(', ')}</span></Cell>
 								<Cell>{grantScopeLabel(grant)}</Cell>
 								<Cell last>
-									{#if info.roles.includes(grant.grantee)}
+									{@const revokeScope = revokeScopeOf(grant)}
+									{#if info.roles.includes(grant.grantee) && revokeScope}
 										<Button
 											unifiedSize="xs"
 											variant="default"
@@ -204,9 +205,7 @@
 														type: 'revoke',
 														role: grant.grantee,
 														privileges: grant.privileges,
-														scope: grant.future
-															? (`future_${grant.future.toLowerCase()}` as AclScope)
-															: 'target',
+														scope: revokeScope,
 														objects: grant.objects
 													},
 													`Revoked ${grant.privileges.join(', ')} from ${grant.grantee}`

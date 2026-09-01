@@ -1084,7 +1084,7 @@ pub struct SqlAnnotations {
 impl SqlAnnotations {
     /// If the script declares `-- role <name>`, returns the data table role the
     /// query runs as. Only meaningful against a permissioned `datatable://`
-    /// database; absent means the `root` role.
+    /// database; absent means the data table's default role.
     ///
     /// Mirrors `BashAnnotations::ssh_target`: only leading comment lines are
     /// scanned, and an exact `-- role <name>` with a valid role name and nothing

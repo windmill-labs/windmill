@@ -198,9 +198,6 @@ pub(crate) async fn ensure_instance_db_can_delegate(db: &DB, w_id: &str, datatab
     }
 }
 
-/// Connect to the data table's own database as `admin` and report the identity
-/// the plan has to be built against: the database name, the role that owns the
-/// existing objects, and the roles that actually exist in the cluster.
 /// What the plan has to be built against, probed from the data table's own
 /// database rather than assumed from its config.
 pub(crate) struct AdminConnection {
@@ -274,6 +271,9 @@ async fn read_default_acl_rules(client: &tokio_postgres::Client) -> Result<Vec<D
         .collect())
 }
 
+/// Connect to the data table's own database as `admin` and report the identity a
+/// plan has to be built against: the database name, the role that owns the
+/// existing objects, and the roles that actually exist in the cluster.
 pub(crate) async fn connect_as_admin(
     db: &DB,
     w_id: &str,
