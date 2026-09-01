@@ -8,7 +8,7 @@ import {
 	parseAndValidateSkill,
 	parseSkillMd,
 	validateSkill
-} from './aiSkills'
+} from './skillMd'
 
 describe('parseSkillMd', () => {
 	it('splits frontmatter name/description from the body', () => {

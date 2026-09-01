@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT is_fileset, format_extension FROM resource_type\n         WHERE name = $1 AND workspace_id = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "is_fileset",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "format_extension",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "df13e7bb9c14aa19604c40754509f66af26042464ba199586838e073c318c53a"
+}

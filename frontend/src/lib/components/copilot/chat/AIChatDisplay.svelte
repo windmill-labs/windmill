@@ -7,6 +7,7 @@
 		AlertTriangle,
 		ArrowDown,
 		AtSign,
+		BookOpen,
 		ChevronDown,
 		ChevronsRight,
 		CheckIcon,
@@ -35,6 +36,7 @@
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
 	import AIChatModelSettings from './AIChatModelSettings.svelte'
 	import McpConnections from './McpConnections.svelte'
+	import SkillsPicker from './SkillsPicker.svelte'
 	import ChatMode from './ChatMode.svelte'
 	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
@@ -206,6 +208,7 @@
 
 	let aiChatInput: AIChatInput | undefined = $state()
 	let mcpConnections: McpConnections | undefined = $state()
+	let skillsPicker: SkillsPicker | undefined = $state()
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
 
@@ -931,39 +934,60 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						{/if}
 						{#if canAttachFiles}
 							<DropdownV2
-								items={async () => [
-									{
-										displayName: 'Attach file or image',
-										icon: FileText,
-										action: () => {
-											plusMenuOpen = false
-											linkFiles()
-										}
-									},
-									{
-										// A real (live) link needs the File System Access API; without it the
-										// folder is only snapshotted, so call it "Add folder", not "Link folder".
-										displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
-										icon: Folder,
-										tooltip: canUseFsAccess
-											? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
-											: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
-										action: () => {
-											plusMenuOpen = false
-											linkFolder()
-										}
-									},
-									...(aiChatManager.mode === AIMode.GLOBAL && mcpConnections
-										? [
-												{
-													displayName: 'MCP connections',
-													icon: Plug,
-													separatorTop: true,
-													submenuItems: await mcpConnections.menuItems(() => (plusMenuOpen = false))
-												}
-											]
-										: [])
-								]}
+								items={async () => {
+									// Both submenus fetch on the menu's first open, so they start
+									// together: awaited inline they queue, and the whole menu —
+									// attachments included — waits out two round trips.
+									const closeMenu = () => (plusMenuOpen = false)
+									const inGlobal = aiChatManager.mode === AIMode.GLOBAL
+									const [skillItems, mcpItems] = await Promise.all([
+										inGlobal ? skillsPicker?.menuItems(closeMenu) : undefined,
+										inGlobal ? mcpConnections?.menuItems(closeMenu) : undefined
+									])
+									return [
+										{
+											displayName: 'Attach file or image',
+											icon: FileText,
+											action: () => {
+												plusMenuOpen = false
+												linkFiles()
+											}
+										},
+										{
+											// A real (live) link needs the File System Access API; without it the
+											// folder is only snapshotted, so call it "Add folder", not "Link folder".
+											displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
+											icon: Folder,
+											tooltip: canUseFsAccess
+												? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
+												: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
+											action: () => {
+												plusMenuOpen = false
+												linkFolder()
+											}
+										},
+										...(skillItems
+											? [
+													{
+														displayName: 'Skills',
+														icon: BookOpen,
+														separatorTop: true,
+														submenuItems: skillItems
+													}
+												]
+											: []),
+										...(mcpItems
+											? [
+													{
+														displayName: 'MCP connections',
+														icon: Plug,
+														separatorTop: !skillItems,
+														submenuItems: mcpItems
+													}
+												]
+											: [])
+									]
+								}}
 								placement="bottom-start"
 								fixedHeight={false}
 								closeOnItemClick={false}
@@ -1103,6 +1127,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 						<ContextUsageIndicator />
 						<AIChatModelSettings />
 						{#if aiChatManager.mode === AIMode.GLOBAL}
+							<SkillsPicker bind:this={skillsPicker} />
 							<McpConnections bind:this={mcpConnections} />
 						{/if}
 

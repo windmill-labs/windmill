@@ -288,7 +288,6 @@ pub enum ScopeDomain {
     Configs,
     OAuth,
     AI,
-    AiSkills,
     AiEvals, // AI agent eval datasets
 
     Indexer,
@@ -349,7 +348,6 @@ impl ScopeDomain {
             Self::Configs => "configs",
             Self::OAuth => "oauth",
             Self::AI => "ai",
-            Self::AiSkills => "ai_skills",
             Self::AiEvals => "ai_evals",
             Self::Capture => "capture",
             Self::Drafts => "drafts",
@@ -405,7 +403,6 @@ impl ScopeDomain {
             "configs" => Some(Self::Configs),
             "oauth" => Some(Self::OAuth),
             "ai" => Some(Self::AI),
-            "ai_skills" => Some(Self::AiSkills),
             "ai_evals" => Some(Self::AiEvals),
             "indexer" | "srch" => Some(Self::Indexer),
             "teams" => Some(Self::Teams),
@@ -1202,12 +1199,6 @@ mod tests {
         assert_eq!(domain, ScopeDomain::FlowConversations);
         assert_eq!(kind, None);
         assert_eq!(route_suffix, Some("flow_conversations/list".to_string()));
-
-        let (domain, kind, route_suffix) =
-            extract_domain_from_route("/api/w/test_workspace/ai_skills/list").unwrap();
-        assert_eq!(domain, ScopeDomain::AiSkills);
-        assert_eq!(kind, None);
-        assert_eq!(route_suffix, Some("ai_skills/list".to_string()));
     }
 
     #[test]
@@ -1368,11 +1359,6 @@ mod tests {
             ScopeDomain::from_str("flow_conversations"),
             Some(ScopeDomain::FlowConversations)
         );
-        assert_eq!(
-            ScopeDomain::from_str("ai_skills"),
-            Some(ScopeDomain::AiSkills)
-        );
-
         // Test canonical string conversion
         assert_eq!(ScopeDomain::Acls.as_str(), "acls");
         assert_eq!(ScopeDomain::RawApps.as_str(), "raw_apps");
@@ -1381,41 +1367,6 @@ mod tests {
             ScopeDomain::FlowConversations.as_str(),
             "flow_conversations"
         );
-        assert_eq!(ScopeDomain::AiSkills.as_str(), "ai_skills");
-    }
-
-    #[test]
-    fn test_ai_skills_scope_access() {
-        let read_scopes = vec!["ai_skills:read".to_string()];
-        assert!(
-            check_route_access(&read_scopes, "/api/w/test_workspace/ai_skills/list", "GET").is_ok()
-        );
-        assert!(check_route_access(
-            &read_scopes,
-            "/api/w/test_workspace/ai_skills/get/foo",
-            "GET"
-        )
-        .is_ok());
-        assert!(check_route_access(
-            &read_scopes,
-            "/api/w/test_workspace/ai_skills/upload",
-            "POST"
-        )
-        .is_err());
-
-        let write_scopes = vec!["ai_skills:write".to_string()];
-        assert!(check_route_access(
-            &write_scopes,
-            "/api/w/test_workspace/ai_skills/upload",
-            "POST"
-        )
-        .is_ok());
-        assert!(check_route_access(
-            &write_scopes,
-            "/api/w/test_workspace/ai_skills/delete/foo",
-            "DELETE"
-        )
-        .is_ok());
     }
 
     #[test]

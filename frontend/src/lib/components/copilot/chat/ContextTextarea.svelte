@@ -575,7 +575,10 @@
 
 	function getCommandFilter(text: string): string | undefined {
 		if (aiChatManager.mode !== AIMode.GLOBAL || !aiChatManager.isSessionChat) return undefined
-		const match = /^\/([a-z0-9-]*)$/.exec(text)
+		// Same character set the submit path expands, so a name the picker can insert
+		// does not close the picker as soon as it is typed. Paths reach here too, via
+		// the row inserted for an ambiguous name.
+		const match = /^\/([\p{L}\p{N}_\-/]*)$/u.exec(text)
 		return match?.[1]
 	}
 
@@ -640,8 +643,12 @@
 		}
 	}
 
-	function handleCommandSelection(skill: { name: string }) {
-		value = `/${skill.name} `
+	function handleCommandSelection(skill: { name: string; path?: string }) {
+		// The picker lists a row per skill, so two folders holding the same name are
+		// two distinct rows — but `/name` could not say which one was clicked, and
+		// submission refuses to guess. Those insert the path the row stands for.
+		const ambiguous = commandSkills.filter((c) => c.name === skill.name).length > 1
+		value = `/${ambiguous && skill.path ? skill.path : skill.name} `
 		showCommandTooltip = false
 		setTimeout(() => textarea?.focus(), 0)
 	}
@@ -736,9 +743,9 @@
 		textarea?.focus()
 	}
 
-	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the
-	// effect above sees no diff when `value` clears, leaving `selectedContext`
-	// untouched until `AIChatManager.beforeSend` snapshots it. A manual
+	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the effect
+	// above sees no diff when `value` clears, leaving `selectedContext` for the
+	// send that is already carrying it to settle (see the caller). A manual
 	// textarea clear by the user keeps the old behaviour (badges drop).
 	export function clearForSend() {
 		prevMentionedTitles = new Set()
