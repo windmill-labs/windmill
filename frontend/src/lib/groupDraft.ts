@@ -18,7 +18,17 @@ export type GroupDraft = {
  *  discard guard depends on: an edit this misses is an edit the drawer throws away without
  *  asking. No baseline means nothing has loaded yet, so nothing to lose. */
 export function isGroupDraftDirty(draft: GroupDraft, baseline: GroupDraft | undefined): boolean {
-	return baseline != undefined && !deepEqual(draft, baseline)
+	return baseline != undefined && !deepEqual(sortedMembers(draft), sortedMembers(baseline))
+}
+
+/** Members are a set, but a reload rebuilds them in the server's order while the draft keeps
+ *  the order they were added in. Compared as-is, a change that has already been applied still
+ *  reads as dirty. */
+function sortedMembers(value: GroupDraft): GroupDraft {
+	return {
+		...value,
+		members: [...value.members].sort((a, b) => a.member_name.localeCompare(b.member_name))
+	}
 }
 
 /** One backend call a group's members need. Kept as data so the mapping from role

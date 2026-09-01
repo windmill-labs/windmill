@@ -101,4 +101,12 @@ describe('isGroupDraftDirty', () => {
 	it('is clean while nothing has loaded', () => {
 		expect(isGroupDraftDirty(baseline(), undefined)).toBe(false)
 	})
+
+	// A reload rebuilds the members in the server's order, which is not the order they were
+	// added in. Order-sensitive, an applied change would keep Save lit with nothing to send.
+	it('ignores the order the members are held in', () => {
+		const reordered = baseline()
+		reordered.members = [...reordered.members].reverse()
+		expect(isGroupDraftDirty(reordered, baseline())).toBe(false)
+	})
 })

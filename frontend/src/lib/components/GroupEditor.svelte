@@ -242,16 +242,9 @@
 	/** Replays the member rows the user changed. `updateGroup` writes the summary only, so
 	 * membership goes through the endpoints that name who was added or promoted — which is
 	 * what the permission history reads back. The diff itself is in `groupDraft.ts`. */
-	async function applyMemberChanges(
-		next: GroupDraft['members'],
-		prev: GroupDraft['members'],
-		onApplied: () => void
-	) {
+	async function applyMemberChanges(next: GroupDraft['members'], prev: GroupDraft['members']) {
 		const workspace = $workspaceStore ?? ''
 		for (const call of groupMemberDiff(prev, next, $userStore?.username)) {
-			// Before the call, not after: these handlers commit and then run a git-sync step
-			// that can still fail the request, so a rejection is not proof nothing landed.
-			onApplied()
 			switch (call.kind) {
 				case 'addUser':
 					await GroupService.addUserToGroup({
@@ -291,10 +284,6 @@
 		const next = $state.snapshot(draft) as GroupDraft
 		const prev = baseline as GroupDraft
 		const created = isNew
-		// Tracks whether any request was sent, which decides what a failure means. Set before
-		// each await rather than after: these handlers commit and then run a git-sync step
-		// that can still fail the request, so a rejection is not proof nothing landed.
-		let committed = false
 		try {
 			if (created) {
 				await GroupService.createGroup({
@@ -302,20 +291,18 @@
 					requestBody: { name, summary: next.summary }
 				})
 				alreadyCreated = true
-				committed = true
 				// The members the caller added, on top of the admin row `create_group` wrote.
-				await applyMemberChanges(next.members, emptyDraft().members, () => {})
+				await applyMemberChanges(next.members, emptyDraft().members)
 				sendUserToast(`Group ${name} created`)
 			} else {
 				if (next.summary !== prev.summary) {
-					committed = true
 					await GroupService.updateGroup({
 						workspace: $workspaceStore ?? '',
 						name,
 						requestBody: { summary: next.summary }
 					})
 				}
-				await applyMemberChanges(next.members, prev.members, () => (committed = true))
+				await applyMemberChanges(next.members, prev.members)
 				await loadGroup()
 				sendUserToast('Group updated')
 			}
@@ -330,11 +317,12 @@
 			if (created && !alreadyCreated && !nameTaken) {
 				sendUserToast(`Group ${name} may have been created anyway — reopen it to check`, true)
 			}
-			// The calls are sequential, so a rejection can land with earlier ones committed. Move
-			// the baseline to what the server now holds and keep the draft: what was applied
-			// stops being dirty, what was not stays dirty, and a retry re-sends only that.
-			// `isNew` is read after the create, so a group that now exists reconciles too.
-			if (!isNew && committed) await loadGroup({ baselineOnly: true })
+			// Reconcile after any edit-path failure rather than tracking which calls landed: the
+			// same post-commit window means a rejection is not proof nothing was written. The
+			// baseline moves to what the server now holds and the draft stays, so a retry
+			// re-sends only what is missing. `isNew` is read after the create, so a group that
+			// now exists reconciles too.
+			if (!isNew) await loadGroup({ baselineOnly: true })
 			return undefined
 		}
 	}

@@ -108,6 +108,14 @@ describe('isFolderDraftDirty', () => {
 		expect(isFolderDraftDirty(baseline(), undefined)).toBe(false)
 	})
 
+	// A reload rebuilds the members in the server's order, which is not the order they were
+	// added in. Order-sensitive, an applied change would keep Save lit with nothing to send.
+	it('ignores the order the members are held in', () => {
+		const reordered = baseline()
+		reordered.perms = [...reordered.perms].reverse()
+		expect(isFolderDraftDirty(reordered, baseline())).toBe(false)
+	})
+
 	// Enumerated from the value itself rather than a hand-written list: a field added to
 	// `FolderDraft` and to `baseline()` is covered here without anyone remembering to add a
 	// case. An edit this misses is one the drawer discards without asking.

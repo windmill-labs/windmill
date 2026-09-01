@@ -21,7 +21,17 @@ export type FolderDraft = {
  *  which is what the discard guard depends on: an edit this misses is an edit the drawer
  *  throws away without asking. No baseline means nothing has loaded yet, so nothing to lose. */
 export function isFolderDraftDirty(draft: FolderDraft, baseline: FolderDraft | undefined): boolean {
-	return baseline != undefined && !deepEqual(draft, baseline)
+	return baseline != undefined && !deepEqual(sortedMembers(draft), sortedMembers(baseline))
+}
+
+/** Members are a set, but a reload rebuilds them in the server's `extra_perms` key order while
+ *  the draft keeps the order they were added in. Compared as-is, a change that has already been
+ *  applied still reads as dirty. Labels and rules keep their order, which is meaningful. */
+function sortedMembers(value: FolderDraft): FolderDraft {
+	return {
+		...value,
+		perms: [...value.perms].sort((a, b) => a.owner_name.localeCompare(b.owner_name))
+	}
 }
 
 /** One backend call the folder's members need. Kept as data so the mapping from role

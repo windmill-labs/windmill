@@ -432,19 +432,12 @@
 	 * `owners`/`extra_perms` wholesale in the same call as the settings, but it only
 	 * logs a single "update owners"/"update acl" entry, so the permission history
 	 * would stop naming who was granted what. The diff itself is in `folderDraft.ts`. */
-	async function applyPermissionChanges(
-		next: FolderDraft['perms'],
-		prev: FolderDraft['perms'],
-		onApplied: () => void
-	) {
+	async function applyPermissionChanges(next: FolderDraft['perms'], prev: FolderDraft['perms']) {
 		const workspace = targetWorkspace
 		const callerOwners = membership
 			? ['u/' + membership.username, ...(membership.pgroups ?? [])]
 			: []
 		for (const call of folderPermissionDiff(prev, next, callerOwners)) {
-			// Before the call, not after: these handlers commit and then run a git-sync step
-			// that can still fail the request, so a rejection is not proof nothing landed.
-			onApplied()
 			switch (call.kind) {
 				case 'grantAdmin':
 					await FolderService.addOwnerToFolder({
@@ -486,7 +479,6 @@
 					})
 					break
 			}
-			onApplied()
 		}
 	}
 
@@ -497,12 +489,7 @@
 		const next = $state.snapshot(draft) as FolderDraft
 		const prev = baseline as FolderDraft
 		// Captured before the write: an edit-branch save reloads, which clears `folderNotFound`.
-		// `committed` tracks whether any request was sent, which decides what a failure means.
-		// Set before each await rather than after: these handlers commit and then run a
-		// git-sync step that can still fail the request, so a rejection is not proof nothing
-		// landed.
 		const created = isNew
-		let committed = false
 		try {
 			if (created) {
 				await FolderService.createFolder({
@@ -531,10 +518,9 @@
 					requestBody.default_permissioned_as = next.defaultPermissionedAs
 				}
 				if (Object.keys(requestBody).length > 0) {
-					committed = true
 					await FolderService.updateFolder({ workspace: targetWorkspace, name, requestBody })
 				}
-				await applyPermissionChanges(next.perms, prev.perms, () => (committed = true))
+				await applyPermissionChanges(next.perms, prev.perms)
 				await loadFolder()
 				sendUserToast('Folder updated')
 			}
@@ -549,11 +535,11 @@
 			if (created && !nameTaken) {
 				sendUserToast(`Folder ${name} may have been created anyway — reopen it to check`, true)
 			}
-			// The calls are sequential, so a rejection can land with earlier ones committed. Move
-			// the baseline to what the server now holds and keep the draft: what was applied
-			// stops being dirty, what was not stays dirty, and a retry re-sends only that.
-			// Nothing committed means the server never saw it, so leave both alone.
-			if (!created && committed) await loadFolder({ baselineOnly: true })
+			// Reconcile after any edit-path failure rather than tracking which calls landed:
+			// these handlers commit before a git-sync step that can still fail the request, so
+			// a rejection is not proof nothing was written. The baseline moves to what the
+			// server now holds and the draft stays, so a retry re-sends only what is missing.
+			if (!created) await loadFolder({ baselineOnly: true })
 			return undefined
 		}
 	}
