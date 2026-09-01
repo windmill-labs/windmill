@@ -89,7 +89,9 @@ function cjsShim(specifier) {
       ".cjs";
     mkdirSync(cjsShimDir, { recursive: true });
     // The local binding is load-bearing: bun collapses a bare `module.exports = require(x)` back
-    // into a passthrough external import, which is the shape that breaks node.
+    // into a passthrough external import, which is the shape that breaks node. A shimmed package
+    // is reached by `require`, so node's async ESM hooks (`register()`) no longer see it; its
+    // sync `registerHooks()` and `--require` interception still do.
     writeFileSync(
       shim,
       "const mod = require(" + JSON.stringify(specifier) + ");\nmodule.exports = mod;\n"
