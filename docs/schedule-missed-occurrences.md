@@ -34,6 +34,30 @@ The two kinds degrade differently:
 | reconciler re-armed a dead schedule | whole gap lost | whole gap lost |
 | `paused_until`, `dynamic_skip`, `no_flow_overlap` | intentional | intentional |
 
+## What users get
+
+On the **schedules list**, a warning next to schedules that are losing runs,
+alongside the existing paused and error indicators. Illustrative copy:
+
+> 3 of the last 20 runs skipped occurrences
+
+In the **schedule editor**, the numbers behind it:
+
+> Interval 10s. The last run waited 0s for a worker, then ran for 25s,
+> skipping 2 occurrences.
+
+Those two numbers separate the two causes, which need opposite fixes: a large
+wait means not enough workers, a long run means the job outgrew its interval.
+No one-word label, because both usually contribute and any dominance rule would
+mislabel the mixed case.
+
+For **operators** (EE), an alert when a scheduled script is running and has
+already passed its own next occurrence, so a wedged schedule pages someone
+rather than waiting to be noticed.
+
+This is diagnosis only. Nothing starts overlapping, nothing is queued up, and no
+missed occurrence is retroactively fired.
+
 ## What already exists
 
 Not to be rebuilt:
