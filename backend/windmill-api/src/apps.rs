@@ -357,7 +357,7 @@ pub fn authorize_non_member_viewer(
         return Ok(true);
     }
     if is_guest {
-        return Err(Error::GuestPromotionRequired(format!(
+        return Err(Error::PermissionDenied(format!(
             "app {app_path} is not open to guests"
         )));
     }
@@ -1645,7 +1645,11 @@ pub async fn mint_app_embed_token(
         }
         let expiration =
             chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
-        let mut scopes: Vec<String> = APP_EMBED_SCOPES.iter().map(|s| s.to_string()).collect();
+        let mut scopes: Vec<String> = APP_EMBED_SCOPES
+            .iter()
+            .filter(|s| **s != windmill_api_auth::scopes::APP_EMBED_SENTINEL)
+            .map(|s| s.to_string())
+            .collect();
         // Path-scoped read so the app can fetch its OWN definition (apps/get/p,
         // which the in-workspace sandboxed viewer uses) — but no other app's. The
         // public viewer fetches via apps_u/public_app and doesn't rely on this.
@@ -1656,8 +1660,12 @@ pub async fn mint_app_embed_token(
         scopes.push(format!("apps:run:{app_path}"));
         // A scope-restricted caller token must not bootstrap a broader-scoped
         // embed token (`create_token_internal` deliberately does not check this
-        // itself). No-op for unscoped sessions — the normal embed flow.
+        // itself). Checked on the real scopes only: a sentinel is a one-part string
+        // that `ScopeDefinition::from_scope_string` rejects, so leaving it in the
+        // requested set makes this fail outright for any scoped caller — which a
+        // guest session is. `mint_raw_app_sdk_token` has the same shape.
         ensure_scopes_within_caller(authed, Some(&scopes))?;
+        scopes.push(windmill_api_auth::scopes::APP_EMBED_SENTINEL.to_string());
         let token_config = NewToken::new(
             Some(format!("embed_app:{app_path}")),
             Some(expiration),
@@ -4000,12 +4008,18 @@ async fn execute_component(
     // A guest session holds no ACL of its own, so the read-permit probe below would
     // deny every guest. What confines it is the scope the session was minted with,
     // naming the one app it may run — and the app has to be open to guests at all.
+    //
+    // The workspace switch is re-read here rather than trusted from mint time, so
+    // turning guests off stops them running code within the request, not within the
+    // session's remaining lifetime. One indexed lookup, and only on the guest path.
     if let Some(authed) = opt_authed
         .as_ref()
         .filter(|a| windmill_api_auth::scopes::has_guest_sentinel(a.scopes.as_deref()))
     {
-        if !matches!(policy.execution_mode(), ExecutionMode::Guest) {
-            return Err(Error::GuestPromotionRequired(format!(
+        if !matches!(policy.execution_mode(), ExecutionMode::Guest)
+            || !windmill_common::workspaces::is_guest_access_enabled(&db, &w_id).await?
+        {
+            return Err(Error::PermissionDenied(format!(
                 "app {path} is not open to guests"
             )));
         }

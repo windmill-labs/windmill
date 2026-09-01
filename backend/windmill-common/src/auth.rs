@@ -56,7 +56,24 @@ pub fn is_server_minted_label(label: &str) -> bool {
         || label.starts_with("ephemeral-script-end-user-")
         || label == "ephemeral-script"
         || label == "session"
+        || label == GUEST_SESSION_LABEL
         || label.starts_with("mcp-oauth-")
+}
+
+/// Label on a guest session — someone the identity provider authenticated who is a
+/// member of no workspace. This is the *grant*: `AuthCache` will resolve a token
+/// carrying it into an identity with no `usr` row behind it, which nothing else can
+/// do. It must therefore stay unforgeable, which is what listing it in
+/// [`is_server_minted_label`] buys — `/users/tokens/create` refuses it.
+///
+/// Do not move this test onto the token's scopes. Scopes on a user-minted token are
+/// caller-supplied and only ever *narrow* (`app_embed`, `raw_app_sdk`), so a scope
+/// that granted non-member access would be free for anyone to declare.
+pub const GUEST_SESSION_LABEL: &str = "guest_session";
+
+/// Whether `label` marks a guest session. See [`GUEST_SESSION_LABEL`].
+pub fn is_guest_session_label(label: Option<&str>) -> bool {
+    label == Some(GUEST_SESSION_LABEL)
 }
 
 /// Whether `label` is the one minted for a browser session at login. [`is_server_minted_label`]

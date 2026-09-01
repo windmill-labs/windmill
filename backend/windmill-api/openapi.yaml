@@ -33204,8 +33204,9 @@ components:
             requires an authenticated viewer), while updating one keeps the mode
             the app is already deployed under. Neither `anonymous`, which makes
             the app publicly executable, nor `guest`, which opens it to anyone the
-            identity provider authenticates, is ever assumed. `guest` is
-            additionally inert unless the workspace has `guest_access_enabled`
+            identity provider authenticates, is ever assumed. A guest is only
+            admitted where the workspace also has `guest_access_enabled`, which
+            gates both minting a guest session and running an app's components
         on_behalf_of:
           type: string
         on_behalf_of_email:

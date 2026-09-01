@@ -49,7 +49,8 @@
 		fetchEmbedToken,
 		onViewerReady,
 		viewer,
-		viewerUrl
+		viewerUrl,
+		guestAppPath = undefined
 	}: {
 		/** Embedder-side: validate access + mint the scoped token. Throws with a
 		 * `.status` of 401 (login required) or 404 (not found). Pass
@@ -68,6 +69,11 @@
 		 * (`/apps/get`, auth-gated, with chrome) differs from the cookieless,
 		 * chrome-less viewer route (`/app_embed`). */
 		viewerUrl?: string
+		/** `<workspace>/<app_path>` when this app is open to guests. The embedder's
+		 * login gate fires before the page's own load, so the page must resolve this
+		 * up front and pass it down — otherwise a signed-out visitor is offered an
+		 * ordinary sign-in that creates an account and still cannot open the app. */
+		guestAppPath?: string | undefined
 	} = $props()
 
 	const EMBED_PARAM = 'wm_embed'
@@ -194,7 +200,14 @@
 	}
 
 	// ---------------------------- embedder mode ----------------------------
-	let status: 'loading' | 'ready' | 'noPermission' | 'notExists' | 'sdkPrompt' = $state('loading')
+	type FrameStatus = 'loading' | 'ready' | 'noPermission' | 'notExists' | 'sdkPrompt'
+	let status = $state<FrameStatus>('loading')
+	/** Set once a sign-in completed on this page. A second `noPermission` after that
+	 * is not something signing in again can fix — an identity that already has an
+	 * account is never given a guest session, so an account holder who is not a
+	 * member of this workspace lands here. */
+	let signedInHere = $state(false)
+	let signInDidNotHelp = $derived(status === 'noPermission' && signedInHere)
 	let embedToken: string | null = $state(null)
 	let iframeEl: HTMLIFrameElement | undefined = $state(undefined)
 
@@ -532,14 +545,39 @@
 {:else if status === 'noPermission'}
 	<!-- Login happens here, on the embedder (main) window, so the session cookie
 	     is set on the main origin only and never reaches the opaque iframe. -->
-	<div class="px-4 mt-20 w-full text-center font-bold text-xl">This app requires read access</div>
-	<div class="px-2 mx-auto mt-20 max-w-xl w-full">
-		<Login
-			onLoginSuccess={() => initEmbedder()}
-			popup
-			rd={page.url.pathname + page.url.search + page.url.hash}
-		/>
-	</div>
+	{#if signInDidNotHelp}
+		<!-- Offering the same sign-in again would loop: they are signed in, and this
+		     app still will not open for them. Say why and stop. -->
+		<div class="px-4 mt-20 w-full text-center font-bold text-xl">
+			You are signed in, but this app is not open to you
+		</div>
+		<div class="text-center mt-8 text-sm text-primary">
+			It is open to members of its workspace, and to guests who have no Windmill account. Ask the
+			person who shared it to give your account access.
+		</div>
+	{:else}
+		{#if guestAppPath}
+			<div class="px-4 mt-20 w-full text-center font-bold text-xl">Sign in to open this app</div>
+			<div class="text-center mt-8 text-sm text-primary">
+				You do not need a Windmill account. Signing in lets you open this app and nothing else.
+			</div>
+		{:else}
+			<div class="px-4 mt-20 w-full text-center font-bold text-xl">
+				This app requires read access
+			</div>
+		{/if}
+		<div class="px-2 mx-auto mt-20 max-w-xl w-full">
+			<Login
+				onLoginSuccess={() => {
+					signedInHere = true
+					initEmbedder()
+				}}
+				popup
+				guestApp={guestAppPath}
+				rd={page.url.pathname + page.url.search + page.url.hash}
+			/>
+		</div>
+	{/if}
 {:else if unsandboxed}
 	<!-- Same-origin (full session): the app was not opted into sandbox isolation
 	     (the default). Rendered directly here; RawAppPreview reads

@@ -501,14 +501,11 @@ pub fn check_route_access(
     }
 
     // A guest session carries the same broad read scopes as an embed token and for
-    // the same handful of routes, so it gets the same default-deny. The denial is
-    // `GuestPromotionRequired` rather than `PermissionDenied`: a guest is not short
-    // one grant, they are short an account, and that is fixable from the browser.
-    let is_guest = has_guest_sentinel(Some(token_scopes));
-    if is_guest {
+    // the same handful of routes, so it gets the same default-deny.
+    if has_guest_sentinel(Some(token_scopes)) {
         if let Some(suffix) = route_suffix.as_deref() {
             if guest_route_denied(required_domain, suffix) {
-                return Err(Error::GuestPromotionRequired(format!(
+                return Err(Error::PermissionDenied(format!(
                     "a guest session cannot access {route_path}"
                 )));
             }
@@ -597,12 +594,6 @@ pub fn check_route_access(
     } else {
         format!("{}:{}", required_domain.as_str(), required_action.as_str())
     };
-
-    if is_guest {
-        return Err(Error::GuestPromotionRequired(format!(
-            "a guest session cannot access {route_path} (would need {scope_display})"
-        )));
-    }
 
     Err(Error::PermissionDenied(format!(
         "Access denied. Required scope: {}",
@@ -781,10 +772,11 @@ pub fn has_app_embed_sentinel(scopes: Option<&[String]>) -> bool {
 }
 
 /// Sentinel in a guest session token: someone the identity provider authenticated
-/// who is a member of no workspace. Grants nothing itself. It confines the session
-/// to the app surface the same way `app_embed` does, and it turns a denial into
-/// [`Error::GuestPromotionRequired`] so the frontend offers a real account instead
-/// of a dead end.
+/// who is a member of no workspace. Grants nothing itself — it only confines the
+/// session to the app surface, the same way `app_embed` does. What makes a session a
+/// guest at all is the server-minted label
+/// [`windmill_common::auth::GUEST_SESSION_LABEL`]; a forged sentinel here can only
+/// narrow its own token.
 pub const GUEST_SENTINEL: &str = "guest";
 
 /// True if a token is a guest session. Such a session has no `usr` row, so its

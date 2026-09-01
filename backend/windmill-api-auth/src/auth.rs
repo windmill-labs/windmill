@@ -427,6 +427,8 @@ impl AuthCache {
                             }
                             (_, Some(email), super_admin, scopes, label, read_only) => {
                                 let is_session_token = is_session_label(label.as_deref());
+                                let is_guest_session =
+                                    windmill_common::auth::is_guest_session_label(label.as_deref());
                                 let (username_override, username_override_is_token_label) =
                                     username_override_from_label(label);
                                 if w_id.is_some() {
@@ -517,10 +519,14 @@ impl AuthCache {
                                         // (`guest_route_denied`). Placed after the
                                         // superadmin arm so a superadmin token can
                                         // never be demoted into this one.
-                                        None if crate::scopes::has_guest_sentinel(
-                                            scopes.as_deref(),
-                                        ) =>
-                                        {
+                                        //
+                                        // Keyed on the server-minted label, never on
+                                        // the `guest` scope: this arm is the only
+                                        // thing in the codebase that turns "no `usr`
+                                        // row" from a rejection into an identity, and
+                                        // scopes on a user-minted token are whatever
+                                        // the caller typed.
+                                        None if is_guest_session => {
                                             Some(ApiAuthed {
                                                 username: email.clone(),
                                                 email,

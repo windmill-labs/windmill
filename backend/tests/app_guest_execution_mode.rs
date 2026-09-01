@@ -3,11 +3,13 @@
 //! A guest is someone the identity provider authenticated who is a member of no
 //! workspace: no `usr` row, no `password` row, and so no seat on any counter. That
 //! absence is the whole point, and it means a guest session has no ACL of its own —
-//! its token's scopes are its entire grant. These tests pin the two things that
+//! its token's scopes are its entire grant. These tests pin the three things that
 //! would silently undo it:
 //!
+//!   * what makes a token a guest — the server-minted label, never a scope anyone
+//!     could type into `users/tokens/create`;
 //!   * the confinement — a guest reaches the one app it was let in for and nothing
-//!     else, and is told its denial is fixable by signing up properly;
+//!     else;
 //!   * the two gates — an app's own `execution_mode: guest` is inert unless the
 //!     workspace switch is on, checked at the door rather than only where a policy
 //!     is written (git-sync and the CLI push policies past every UI).
@@ -34,18 +36,8 @@ fn authed(builder: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuil
     builder.header("Authorization", format!("Bearer {}", token))
 }
 
-/// Insert a guest session for `test-workspace`, scoped to `APP_PATH`. Mirrors
-/// `create_guest_session_token`: the sentinel, the narrow reads, the two path-scoped
-/// app grants, and the workspace pin.
-async fn insert_guest_token(db: &Pool<Postgres>, workspace: &str) -> anyhow::Result<()> {
-    sqlx::query(
-        "INSERT INTO token (token_hash, token_prefix, token, email, label, scopes, workspace_id)
-         VALUES (encode(sha256($1::bytea), 'hex'), 'GUEST_SECR', $2, 'guest@example.com',
-                 'session', $3, $4)",
-    )
-    .bind(GUEST_TOKEN.as_bytes())
-    .bind(GUEST_TOKEN)
-    .bind(vec![
+fn guest_scopes() -> Vec<String> {
+    vec![
         "guest".to_string(),
         "jobs:read".to_string(),
         "resources:run".to_string(),
@@ -53,7 +45,21 @@ async fn insert_guest_token(db: &Pool<Postgres>, workspace: &str) -> anyhow::Res
         "folders:read".to_string(),
         format!("apps:read:{APP_PATH}"),
         format!("apps:run:{APP_PATH}"),
-    ])
+    ]
+}
+
+/// Insert a guest session for `test-workspace`, scoped to `APP_PATH`. Mirrors
+/// `create_guest_session_token`: the server-minted label, the narrow reads, the two
+/// path-scoped app grants, and the workspace pin.
+async fn insert_guest_token(db: &Pool<Postgres>, workspace: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, scopes, workspace_id)
+         VALUES (encode(sha256($1::bytea), 'hex'), 'GUEST_SECR', $2, 'guest@example.com',
+                 'guest_session', $3, $4)",
+    )
+    .bind(GUEST_TOKEN.as_bytes())
+    .bind(GUEST_TOKEN)
+    .bind(guest_scopes())
     .bind(workspace)
     .execute(db)
     .await?;
@@ -84,8 +90,6 @@ async fn guest_session_is_confined_to_its_app(db: Pool<Postgres>) -> anyhow::Res
     assert_eq!(me["operator"], json!(true));
     assert_eq!(me["is_admin"], json!(false));
 
-    // Everything outside the app surface is denied, and denied in a way the frontend
-    // can act on: `x-windmill-promote` is what turns a dead end into a sign-up.
     // `resources/list_names` and the type schemas stay open — a guest drives an app,
     // and app pickers need them — so the line to pin is the value-returning route.
     for route in [
@@ -104,13 +108,6 @@ async fn guest_session_is_confined_to_its_app(db: Pool<Postgres>) -> anyhow::Res
             403,
             "guest must be denied {route}, got {}",
             resp.status()
-        );
-        assert_eq!(
-            resp.headers()
-                .get("x-windmill-promote")
-                .map(|v| v.to_str().unwrap()),
-            Some("1"),
-            "denial of {route} must be marked promotable"
         );
     }
 
@@ -228,6 +225,58 @@ async fn guest_entry_needs_both_the_app_mode_and_the_workspace_switch(
         resp.status(),
         404,
         "turning guests off must stop advertising entry for an app already set to guest"
+    );
+
+    Ok(())
+}
+
+/// The guest grant is the server-minted label, never the `guest` scope. Scopes on a
+/// user-created token are whatever the caller typed, so if the scope granted anything
+/// then any member of any workspace could mint themselves non-member access to every
+/// guest-mode app on the instance.
+#[sqlx::test(fixtures("base"))]
+async fn a_self_declared_guest_scope_grants_nothing(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    // `users/tokens/create` must refuse the label outright...
+    let resp = authed(
+        client().post(format!("http://localhost:{port}/api/users/tokens/create")),
+        ADMIN_TOKEN,
+    )
+    .json(&json!({ "label": "guest_session", "scopes": guest_scopes() }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "the guest session label must be server-minted only"
+    );
+
+    // ...and a token that carries the scopes under any other label authenticates as
+    // nothing in a workspace its owner is not a member of.
+    // An email with no `usr` row anywhere: exactly the identity the guest arm exists
+    // to admit, and the one a forged scope must not admit.
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, scopes)
+         VALUES (encode(sha256($1::bytea), 'hex'), 'FORGED_SCO', $2, 'outsider@example.com',
+                 'forged', $3)",
+    )
+    .bind(b"FORGED_SCOPES".as_slice())
+    .bind("FORGED_SCOPES")
+    .bind(guest_scopes())
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().get(format!("{ws}/users/whoami")), "FORGED_SCOPES")
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        401,
+        "declaring the guest scope must not turn a non-member into an identity"
     );
 
     Ok(())

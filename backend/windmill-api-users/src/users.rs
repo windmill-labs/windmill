@@ -2941,6 +2941,9 @@ lazy_static::lazy_static! {
 /// reads narrowed to a route allowlist by the sentinel (`guest_route_denied`) — plus the
 /// two path-scoped app grants minted per app. A guest has no `usr` row, so this list is
 /// the whole of what it can do.
+///
+/// The `guest` sentinel here only narrows. What makes the session a guest at all is the
+/// server-minted label ([`windmill_common::auth::GUEST_SESSION_LABEL`]).
 fn guest_session_scopes(app_path: &str) -> Vec<String> {
     vec![
         windmill_api_auth::scopes::GUEST_SENTINEL.to_string(),
@@ -2967,7 +2970,11 @@ fn guest_session_scopes(app_path: &str) -> Vec<String> {
 /// chrome-less public app page calls none of them; a page that needs one for a guest
 /// has to become workspace-scoped rather than the pin being loosened.
 ///
-/// The caller is responsible for having checked [`is_guest_access_enabled`].
+/// Refuses unless `app_path` is currently in `guest` execution mode, so no caller can
+/// mint a guest session for an app that does not admit one. The caller still owes the
+/// workspace switch ([`windmill_common::workspaces::is_guest_access_enabled`]) and the
+/// authentication of `email` — this function trusts neither the path nor the workspace
+/// on its own, only that the identity provider vouched for who is asking.
 pub async fn create_guest_session_token<'c>(
     email: &str,
     w_id: &str,
@@ -2987,14 +2994,28 @@ pub async fn create_guest_session_token<'c>(
     };
     let scopes = guest_session_scopes(app_path);
 
+    let mode: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT policy->>'execution_mode' FROM app WHERE workspace_id = $1 AND path = $2",
+    )
+    .bind(w_id)
+    .bind(app_path)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if mode.flatten().as_deref() != Some("guest") {
+        return Err(Error::NotAuthorized(format!(
+            "app {app_path} is not open to guests"
+        )));
+    }
+
     sqlx::query!(
         "INSERT INTO token
             (token_hash, token_prefix, token, email, label, expiration, super_admin, scopes, workspace_id)
-            VALUES ($1, $2, $3, $4, 'session', now() + ($5 || ' seconds')::interval, false, $6, $7)",
+            VALUES ($1, $2, $3, $4, $5, now() + ($6 || ' seconds')::interval, false, $7, $8)",
         t_hash,
         t_prefix,
         plaintext as Option<&str>,
         email,
+        windmill_common::auth::GUEST_SESSION_LABEL,
         &GUEST_SESSION_VALIDITY_SECONDS.to_string(),
         &scopes,
         w_id,

@@ -2182,8 +2182,14 @@ export async function main(
 							>
 								<Toggle
 									bind:checked={guestAccessEnabled}
+									disabled={!$enterpriseLicense}
 									options={{ right: 'Allow guests to open apps set to Guests' }}
 								/>
+								{#if !$enterpriseLicense}
+									<span class="text-hint text-2xs">
+										Guest sign-in is a Windmill Enterprise Edition feature.
+									</span>
+								{/if}
 							</SettingCard>
 
 							<SettingsFooter

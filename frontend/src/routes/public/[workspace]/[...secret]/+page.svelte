@@ -87,7 +87,13 @@
 			} else {
 				notExists = true
 			}
+			// The app exists and admits guests; the load failed only for want of a
+			// session, so offer one instead of the not-found page.
 			await loadGuestEntry()
+			if (guestAppPath) {
+				notExists = false
+				noPermission = true
+			}
 		}
 	}
 
@@ -95,13 +101,17 @@
 		try {
 			const entry = await AppService.getGuestEntry({ workspace, path: parsedSecret.secret })
 			guestAppPath = `${workspace}/${entry.app_path}`
-			// The app exists and admits guests; the load failed only for want of a session,
-			// so offer one instead of the not-found page.
-			notExists = false
-			noPermission = true
 		} catch {
 			guestAppPath = undefined
 		}
+	}
+
+	// Eager, not on the failure path: PublicAppFrame asks for the embed token and
+	// renders its own sign-in gate before `onViewerReady` ever fires, so resolving
+	// this only after a failed `loadApp` would be too late for the case that matters
+	// most — a signed-out visitor.
+	if (BROWSER) {
+		loadGuestEntry()
 	}
 
 	if (BROWSER) {
@@ -112,6 +122,7 @@
 <PublicAppFrame
 	{fetchEmbedToken}
 	{viewerUrl}
+	{guestAppPath}
 	onViewerReady={(_token, requestTokenRefresh) => {
 		refresh = requestTokenRefresh
 		loadApp()

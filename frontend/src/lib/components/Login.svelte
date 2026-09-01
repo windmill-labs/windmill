@@ -606,6 +606,16 @@
 		}, 1500)
 	}
 
+	/** Mirrors the server-side write in the OAuth `login` handler, including clearing
+	 * it when this sign-in is not a guest entry. `login_externally` consumes it. */
+	function setGuestAppCookie(value: string | undefined) {
+		try {
+			document.cookie = `guest_app=${encodeURIComponent(value ?? '')}; path=/; SameSite=None; Secure`
+		} catch (e) {
+			console.error('Could not set the guest app cookie', e)
+		}
+	}
+
 	function redirectSaml(): boolean {
 		if (!saml) {
 			sendUserToast('No SAML login available', true)
@@ -613,6 +623,13 @@
 		}
 		if (previewConfig) return true
 		markLoginMethodPending({ kind: 'saml' })
+		// SAML goes straight to the IdP and never passes through
+		// `/api/oauth/login/<client>`, which is where the OAuth path has the server
+		// write this cookie. Write it here so a SAML-only instance can admit guests
+		// too. Client-set is safe: the callback still checks that the named app is in
+		// guest mode and that the workspace allows guests, so the worst a forged value
+		// can do is give its own author a narrower session than they'd otherwise get.
+		setGuestAppCookie(guestApp)
 		let target = saml
 		let relayStateSet = false
 		// Carry the SP-initiated deep link through the IdP round-trip via SAML

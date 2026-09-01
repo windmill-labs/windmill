@@ -36,14 +36,6 @@ pub enum Error {
     MetricNotFound(String),
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
-    /// A guest session asked for something outside the app it was let in for. The
-    /// response carries `x-windmill-promote`, which the frontend answers by trading
-    /// the guest session for a real account (`users/promote_guest`). Return it only
-    /// where promotion could actually resolve the denial, never as a synonym for
-    /// [`Self::PermissionDenied`]: a member who is merely lacking a grant would be
-    /// sent through a signup that cannot help them.
-    #[error("Guest session cannot access this: {0}")]
-    GuestPromotionRequired(String),
     #[error("Require Admin privileges for {0}")]
     RequireAdmin(String),
     #[error("{0}")]
@@ -138,7 +130,6 @@ impl Error {
             Self::NotAuthorized(_) => "NotAuthorized",
             Self::MetricNotFound(_) => "MetricNotFound",
             Self::PermissionDenied(_) => "PermissionDenied",
-            Self::GuestPromotionRequired(_) => "GuestPromotionRequired",
             _ => "InternalErr",
         }
     }
@@ -296,9 +287,7 @@ impl IntoResponse for Error {
         let status = match self {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
-            Self::RequireAdmin(_) | Self::PermissionDenied(_) | Self::GuestPromotionRequired(_) => {
-                axum::http::StatusCode::FORBIDDEN
-            }
+            Self::RequireAdmin(_) | Self::PermissionDenied(_) => axum::http::StatusCode::FORBIDDEN,
             Self::SqlErr { .. }
             | Self::BadRequest(_)
             | Self::AIError(_)
@@ -319,20 +308,13 @@ impl IntoResponse for Error {
 
         let body = Body::from(e.to_string());
 
-        let mut builder = axum::response::Response::builder()
+        axum::response::Response::builder()
             .header("Content-Type", "text/plain")
-            .status(status);
-        if matches!(e, Self::GuestPromotionRequired(_)) {
-            builder = builder.header(GUEST_PROMOTE_HEADER, "1");
-        }
-        builder.body(body).unwrap()
+            .status(status)
+            .body(body)
+            .unwrap()
     }
 }
-
-/// Marks a denial a guest can resolve by trading their session for a real account.
-/// The frontend keys its promotion prompt off this rather than off the message,
-/// which is `text/plain` prose.
-pub const GUEST_PROMOTE_HEADER: &str = "x-windmill-promote";
 
 /// Render a `JsonErr` payload as a readable message suitable for direct
 /// display in a toast: surface the `error` field as the headline, append a

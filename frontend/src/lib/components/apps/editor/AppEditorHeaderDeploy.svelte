@@ -465,8 +465,10 @@
 					<ToggleButton
 						label="Guests"
 						value="guest"
-						disabled={!canSetGuest && policy.execution_mode != 'guest'}
-						tooltip="Anyone who signs in through your identity provider. No workspace membership, no seat."
+						disabled={(!canSetGuest || !$enterpriseLicense) && policy.execution_mode != 'guest'}
+						tooltip={$enterpriseLicense
+							? 'Anyone who signs in through your identity provider. No workspace membership, no seat.'
+							: 'Guest sign-in is a Windmill Enterprise Edition feature.'}
 						{item}
 					/>
 					<ToggleButton
@@ -483,7 +485,10 @@
 			{#if policy.execution_mode == 'anonymous'}
 				Anyone holding the secret URL below can open this app without signing in.
 			{:else if policy.execution_mode == 'guest'}
-				{#if guestAccessEnabled === false}
+				{#if !$enterpriseLicense}
+					Guest sign-in is a Windmill Enterprise Edition feature, so this app still admits members
+					only.
+				{:else if guestAccessEnabled === false}
 					Guests are turned off for this workspace, so this app still admits members only. A
 					workspace admin can turn them on in the workspace settings.
 				{:else}
