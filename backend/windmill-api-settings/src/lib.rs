@@ -2115,11 +2115,12 @@ async fn sync_cached_resource_types(
 
     for rt in &resource_types {
         let exists: Option<bool> = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3 AND format_extension IS NOT DISTINCT FROM $4)",
+            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3 AND ($5 IS NOT TRUE OR format_extension IS NOT DISTINCT FROM $4))",
             &rt.name,
             rt.schema.as_ref(),
             rt.description.as_deref(),
             rt.format_extension.as_deref(),
+            from_hub,
         )
         .fetch_one(&db)
         .await?;
@@ -2129,15 +2130,22 @@ async fn sync_cached_resource_types(
         }
 
         sqlx::query!(
+            // `format_extension` is only written when the rows came from the hub
+            // itself. The on-disk cache is also read by hubs predating the column, so
+            // its rows deserialize the field as absent — taking that literally would
+            // clear a perfectly good extension on every offline sync.
             "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, edited_at)
              VALUES ('admins', $1, $2, $3, $4, now())
              ON CONFLICT (workspace_id, name) DO UPDATE
              SET schema = EXCLUDED.schema, description = EXCLUDED.description,
-                 format_extension = EXCLUDED.format_extension, edited_at = now()",
+                 format_extension = CASE WHEN $5 THEN EXCLUDED.format_extension
+                                         ELSE resource_type.format_extension END,
+                 edited_at = now()",
             &rt.name,
             rt.schema.as_ref(),
             rt.description.as_deref(),
             rt.format_extension.as_deref(),
+            from_hub,
         )
         .execute(&db)
         .await?;

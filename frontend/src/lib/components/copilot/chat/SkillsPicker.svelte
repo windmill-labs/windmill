@@ -442,8 +442,19 @@ What the assistant should do when this skill applies.
 			// becomes the resource path's name segment.
 			const folderName = segments.length >= 2 ? segments[segments.length - 2] : ''
 			const result = parseAndValidateSkill(await f.text(), folderName)
-			if ('error' in result) parseSkipped.push(`${folderName || filePath} (${result.error})`)
-			else collected.push(result.skill)
+			if ('error' in result) {
+				parseSkipped.push(`${folderName || filePath} (${result.error})`)
+				continue
+			}
+			// Two folders under different parents can share a leaf name, and both
+			// would target one path — the second silently replacing the first.
+			if (collected.some((s) => s.name === result.skill.name)) {
+				parseSkipped.push(
+					`${filePath} (another skill in this folder is already named ${result.skill.name})`
+				)
+				continue
+			}
+			collected.push(result.skill)
 		}
 
 		const allSkipped = [...skipped, ...parseSkipped]

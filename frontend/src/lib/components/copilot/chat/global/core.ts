@@ -90,7 +90,7 @@ import {
 	skillNameFromPath,
 	truncateForPrompt
 } from '../skills/skillResources'
-import { MAX_SKILL_DESCRIPTION_LENGTH } from '../skills/skillMd'
+import { MAX_SKILL_DESCRIPTION_LENGTH, MAX_SKILL_INSTRUCTIONS_LENGTH } from '../skills/skillMd'
 import {
 	getDatatableSdkReference,
 	getFlowPrompt,
@@ -2392,7 +2392,15 @@ export const readSkillTool: Tool<{}> = {
 		}
 		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${name}"...` })
 		try {
-			const instructions = await readSkillBody(workspace, parsed.path)
+			// Bounded here rather than in the reader: any `ai_skill` resource can be
+			// selected, including ones written through git sync or the resource editor
+			// that never passed the authoring form's limits, and an unbounded body
+			// would exhaust the context on one tool call. The editor reads the same
+			// resource untruncated, so opening a long skill cannot rewrite it short.
+			const instructions = truncateForPrompt(
+				await readSkillBody(workspace, parsed.path),
+				MAX_SKILL_INSTRUCTIONS_LENGTH
+			)
 			toolCallbacks.setToolStatus(toolId, { content: `Read skill "${name}"` })
 			// Whether a selected skill is actually reached for. No key: the path is
 			// workspace-authored text.

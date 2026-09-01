@@ -1,7 +1,6 @@
 import { ResourceService } from '$lib/gen'
 import { canWrite } from '$lib/utils'
 import type { UserExt } from '$lib/stores'
-import { MAX_SKILL_INSTRUCTIONS_LENGTH } from './skillMd'
 
 /**
  * Skills are resources of this type: a file resource (`format_extension = 'md'`)
@@ -72,9 +71,9 @@ export function truncateForPrompt(text: string, max: number): string {
  * resource holds no readable body: an empty string reaches the model as a
  * successful read of a skill with no instructions, which it would then act on.
  *
- * Bounded because any `ai_skill` resource can be selected, including ones written
- * through git sync or the resource editor that never passed the authoring form's
- * limits; an unbounded body would exhaust the context on a single tool call. */
+ * Deliberately unbounded — the editor loads through here and saves what it loaded,
+ * so truncating would rewrite an over-long skill the first time someone opened it.
+ * Bounding belongs at the prompt boundary, where the cost actually is. */
 export async function readSkillBody(workspace: string, path: string): Promise<string> {
 	const value = (await ResourceService.getResourceValue({ workspace, path })) as
 		| { content?: unknown }
@@ -82,7 +81,7 @@ export async function readSkillBody(workspace: string, path: string): Promise<st
 	if (typeof value?.content !== 'string') {
 		throw new Error(`resource ${path} has no string "content" — is it an ${SKILLS_RESOURCE_TYPE}?`)
 	}
-	return truncateForPrompt(value.content, MAX_SKILL_INSTRUCTIONS_LENGTH)
+	return value.content
 }
 
 export async function saveSkillResource(
