@@ -75,8 +75,12 @@ export function folderPermissionDiff(
 		calls.push({ kind: 'remove', owner: member.owner_name })
 	}
 
+	// `previousRole === 'admin'` is what makes it a handle: `callerOwners` lists every group
+	// the caller belongs to, and one holding only a viewer or writer row is not in `owners`,
+	// so removing it is an ordinary call that should not queue behind the fatal one.
 	const revokesCaller = (call: FolderPermissionCall) =>
 		(call.kind === 'demoteAdmin' || call.kind === 'remove') &&
-		(callerOwners?.includes(call.owner) ?? false)
+		(callerOwners?.includes(call.owner) ?? false) &&
+		previousRole.get(call.owner) === 'admin'
 	return [...calls.filter((c) => !revokesCaller(c)), ...calls.filter(revokesCaller)]
 }

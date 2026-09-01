@@ -69,6 +69,19 @@ describe('folderPermissionDiff', () => {
 		])
 	})
 
+	// `g/z` is a group the caller belongs to but holds no admin through, so removing it is an
+	// ordinary call — queued behind the refused one it would never run.
+	it('defers only the rows the caller is an admin through', () => {
+		const prev: FolderMember[] = [
+			{ owner_name: 'g/a', role: 'admin' },
+			{ owner_name: 'g/z', role: 'viewer' }
+		]
+		expect(folderPermissionDiff(prev, [], ['u/alice', 'g/a', 'g/z'])).toEqual([
+			{ kind: 'remove', owner: 'g/z' },
+			{ kind: 'remove', owner: 'g/a' }
+		])
+	})
+
 	it('touches only the members that changed', () => {
 		const prev: FolderMember[] = [
 			{ owner_name: 'u/admin', role: 'admin' },
