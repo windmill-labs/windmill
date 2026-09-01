@@ -28,7 +28,7 @@ export function registerToolDisplayActionHandler(
 /**
  * Reactive: reads the `$state` registry, so a component re-renders when a page mounts or
  * unmounts its handler. Offering an action without checking this yields an affordance whose
- * only outcome is the "not available" toast below.
+ * only outcome is the unavailable-action toast.
  */
 export function hasToolDisplayActionHandler(type: ToolDisplayAction['type']): boolean {
 	return toolDisplayActionHandlers[type] !== undefined
